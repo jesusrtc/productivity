@@ -29,7 +29,7 @@ DEFAULT_SERVER = os.environ.get("REPO_SERVER", "http://127.0.0.1:4000")
 def _git(args: list[str], check: bool = True, capture: bool = True) -> subprocess.CompletedProcess:
     r = subprocess.run(["git", *args], capture_output=capture, text=True)
     if check and r.returncode != 0:
-        sys.stderr.write(f"git {' '.join(args)} failed:\n{r.stderr}")
+        print("fail", file=sys.stderr)
         sys.exit(1)
     return r
 
@@ -37,7 +37,7 @@ def _git(args: list[str], check: bool = True, capture: bool = True) -> subproces
 def _toplevel() -> Path:
     r = _git(["rev-parse", "--show-toplevel"], check=False)
     if r.returncode != 0:
-        sys.stderr.write(f"error: $PWD is not inside a git repository\n  {os.getcwd()}\n")
+        print("fail", file=sys.stderr)
         sys.exit(1)
     return Path(r.stdout.strip())
 
@@ -45,7 +45,7 @@ def _toplevel() -> Path:
 def _current_branch() -> str:
     r = _git(["symbolic-ref", "--short", "HEAD"], check=False)
     if r.returncode != 0:
-        sys.stderr.write("error: not on any branch (detached HEAD?)\n")
+        print("fail", file=sys.stderr)
         sys.exit(1)
     return r.stdout.strip()
 
@@ -66,16 +66,8 @@ def _http_call(req: urllib.request.Request, timeout: int = 30) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode() or "{}")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
-        try:
-            msg = json.loads(body).get("error", body)
-        except Exception:
-            msg = body
-        sys.stderr.write(f"server error {e.code}: {msg}\n")
-        sys.exit(1)
-    except urllib.error.URLError as e:
-        sys.stderr.write(f"connection error: {e.reason}\n")
+    except (urllib.error.HTTPError, urllib.error.URLError):
+        print("fail", file=sys.stderr)
         sys.exit(1)
 
 
@@ -101,24 +93,12 @@ def cmd_push(args: argparse.Namespace) -> int:
     server_sha = info.get("sha")
 
     if server_sha == local_head:
-        print("up to date", file=sys.stderr)
+        print("success", file=sys.stderr)
         return 0
 
     if server_sha and not force:
-        if not _have_commit(server_sha):
-            sys.stderr.write(
-                f"error: server is at {server_sha} which is unknown locally; "
-                f"fetch from the server before pushing (or use --force)\n"
-            )
-            return 1
-        if not _is_ancestor(server_sha, local_head):
-            sys.stderr.write(
-                "error: non-fast-forward push\n"
-                f"  server: {server_sha}\n"
-                f"  local : {local_head}\n"
-                "rebase your branch on top of the server tip and try again, "
-                "or use --force to overwrite\n"
-            )
+        if not _have_commit(server_sha) or not _is_ancestor(server_sha, local_head):
+            print("fail", file=sys.stderr)
             return 1
 
     use_exclusion = bool(server_sha and _have_commit(server_sha))
@@ -127,10 +107,10 @@ def cmd_push(args: argparse.Namespace) -> int:
     os.close(fd)
     bundle_path = Path(bundle_str)
     try:
-        bundle_args = ["bundle", "create", str(bundle_path), branch]
+        bundle_args = ["bundle", "create", "--quiet", str(bundle_path), branch]
         if use_exclusion:
             bundle_args.append(f"^{server_sha}")
-        _git(bundle_args, capture=False)
+        _git(bundle_args)
 
         body = bundle_path.read_bytes()
         push_q = {"branch": branch, "base": server_sha or ""}
@@ -141,17 +121,15 @@ def cmd_push(args: argparse.Namespace) -> int:
             body,
             "application/x-git-bundle",
         )
-        print("succeeded", file=sys.stderr)
         origin = result.get("origin")
         if origin is None:
-            print("no origin", file=sys.stderr)
-        elif origin.get("ok"):
-            print("origin ok", file=sys.stderr)
-        else:
-            print("origin FAILED", file=sys.stderr)
-            if origin.get("stderr"):
-                sys.stderr.write(origin["stderr"] + "\n")
-        return 0
+            print("success with no origin", file=sys.stderr)
+            return 0
+        if origin.get("ok"):
+            print("success", file=sys.stderr)
+            return 0
+        print("fail", file=sys.stderr)
+        return 1
     finally:
         try:
             bundle_path.unlink()
