@@ -148,6 +148,12 @@ def cmd_push(args: argparse.Namespace) -> int:
             f"g: pushed {(server_sha or '∅')[:10]} -> {new_sha[:10]}",
             file=sys.stderr,
         )
+        origin = result.get("origin")
+        if origin:
+            tag = "ok" if origin.get("ok") else "FAILED"
+            print(f"g: origin {tag} -> {origin.get('url')}", file=sys.stderr)
+            if not origin.get("ok") and origin.get("stderr"):
+                sys.stderr.write(origin["stderr"] + "\n")
         return 0
     finally:
         try:

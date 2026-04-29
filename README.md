@@ -81,6 +81,31 @@ On the remote, the working tree at `~/productivity/repos/<name>/` always
 mirrors the latest pushed commit. You can `cd` in and `git log` / `git
 diff` to inspect, but **don't edit it** — every push does `git reset --hard`.
 
+### Auto-fan-out to GitHub (or any remote)
+
+After a successful apply, the server runs `git push origin <branch>` if
+the repo has an `origin` remote configured. So one `g push` from your
+laptop propagates to GitHub automatically.
+
+To enable it for a repo, on the **remote** machine, after the first
+`g push` has materialized the folder:
+
+```bash
+cd ~/productivity/repos/<name>
+git remote add origin git@github.com:you/<name>.git
+git push -u origin <branch>     # first time, sets tracking
+```
+
+After that, every `g push` from your laptop fans out to GitHub. The CLI
+prints `g: origin ok -> <url>` (or `FAILED` with stderr) so you see what
+happened.
+
+Notes:
+- The remote machine needs SSH access to push to GitHub (deploy key, or
+  an SSH agent forwarded over your tunnel).
+- If GitHub has commits the server doesn't, the auto-push will fail
+  with non-fast-forward — that's reported but doesn't fail the apply.
+
 ## Make targets
 
 | target          | what                                    |

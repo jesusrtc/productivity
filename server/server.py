@@ -261,6 +261,23 @@ def _apply_bundle(repo: Path, branch: str, bundle: Path, expected_base: str | No
     return new_sha
 
 
+def _push_to_origin(repo: Path, branch: str) -> dict | None:
+    """If an `origin` remote exists, push <branch> to it. Returns a result
+    dict (or None if no origin). Never raises — failure is reported."""
+    r = _git(["remote", "get-url", "origin"], cwd=repo, check=False)
+    if r.returncode != 0:
+        return None
+    url = r.stdout.decode().strip()
+    push = _git(["push", "origin", branch], cwd=repo, check=False)
+    return {
+        "url": url,
+        "branch": branch,
+        "ok": push.returncode == 0,
+        "stdout": push.stdout.decode(errors="replace").strip(),
+        "stderr": push.stderr.decode(errors="replace").strip(),
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "RepoServer/0.1"
 
@@ -364,8 +381,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             with _lock_for(name):
-                new_sha = _apply_bundle(_repo_path(name), branch, bundle_path, base)
-            self._send_json(200, {"repo": name, "branch": branch, "sha": new_sha})
+                repo_path = _repo_path(name)
+                new_sha = _apply_bundle(repo_path, branch, bundle_path, base)
+                origin = _push_to_origin(repo_path, branch)
+            resp = {"repo": name, "branch": branch, "sha": new_sha}
+            if origin is not None:
+                resp["origin"] = origin
+            self._send_json(200, resp)
 
         except ValueError as e:
             self._err(400, str(e))
