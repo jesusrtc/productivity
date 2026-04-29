@@ -29,7 +29,7 @@ from urllib.parse import urlencode
 # Add an entry for every project you want to push.
 # ---------------------------------------------------------------------------
 REPOS: dict[str, dict] = {
-    "productivity": {"remote_path": "~/code/productivity"},
+    "productivity": {"remote_path": "~/productivity/repos/productivity"},
 }
 
 DEFAULT_SERVER = os.environ.get("REPO_SERVER", "http://127.0.0.1:4000")
