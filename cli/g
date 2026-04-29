@@ -95,9 +95,11 @@ def cmd_push(args: argparse.Namespace) -> int:
     branch = args.branch or _current_branch()
     server = args.server.rstrip("/")
     local_head = _rev(branch)
+    force = args.force
 
+    tag = " -f" if force else ""
     print(
-        f"g: push {name} {branch} ({local_head[:10]}) -> {server}",
+        f"g: push{tag} {name} {branch} ({local_head[:10]}) -> {server}",
         file=sys.stderr,
     )
 
@@ -108,11 +110,11 @@ def cmd_push(args: argparse.Namespace) -> int:
         print("g: server already up to date", file=sys.stderr)
         return 0
 
-    if server_sha:
+    if server_sha and not force:
         if not _have_commit(server_sha):
             sys.stderr.write(
                 f"error: server is at {server_sha} which is unknown locally; "
-                f"fetch from the server before pushing\n"
+                f"fetch from the server before pushing (or use --force)\n"
             )
             return 1
         if not _is_ancestor(server_sha, local_head):
@@ -120,16 +122,19 @@ def cmd_push(args: argparse.Namespace) -> int:
                 "error: non-fast-forward push\n"
                 f"  server: {server_sha}\n"
                 f"  local : {local_head}\n"
-                "rebase your branch on top of the server tip and try again\n"
+                "rebase your branch on top of the server tip and try again, "
+                "or use --force to overwrite\n"
             )
             return 1
+
+    use_exclusion = bool(server_sha and _have_commit(server_sha))
 
     fd, bundle_str = tempfile.mkstemp(suffix=".bundle")
     os.close(fd)
     bundle_path = Path(bundle_str)
     try:
         bundle_args = ["bundle", "create", str(bundle_path), branch]
-        if server_sha:
+        if use_exclusion:
             bundle_args.append(f"^{server_sha}")
         _git(bundle_args, capture=False)
 
@@ -138,6 +143,8 @@ def cmd_push(args: argparse.Namespace) -> int:
 
         body = bundle_path.read_bytes()
         push_q = {"branch": branch, "base": server_sha or ""}
+        if force:
+            push_q["force"] = "1"
         result = _http_post(
             f"{server}/repos/{name}/push?{urlencode(push_q)}",
             body,
@@ -187,6 +194,10 @@ def main(argv: list[str]) -> int:
     )
     push.add_argument("--name", help="remote repo name (default: basename of git toplevel)")
     push.add_argument("--branch", help="branch to push (default: current branch)")
+    push.add_argument(
+        "-f", "--force", action="store_true",
+        help="overwrite the server's branch (and origin via --force-with-lease)",
+    )
     push.set_defaults(func=cmd_push)
 
     ls = sub.add_parser("list", help="list repos known to the server")

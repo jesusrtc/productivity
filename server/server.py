@@ -70,6 +70,7 @@ ENDPOINTS = [
         "query": {
             "branch": "branch to update (default: main)",
             "base": "expected current sha on server (empty for initial push)",
+            "force": "1 to overwrite (skip fast-forward check; --force-with-lease to origin)",
         },
         "body": "git bundle bytes (Content-Type: application/x-git-bundle)",
         "description": "fast-forward <branch> by applying the bundle; "
@@ -216,11 +217,13 @@ def _ensure_repo(repo: Path, branch: str) -> None:
     _git(["config", "receive.denyCurrentBranch", "updateInstead"], cwd=repo)
 
 
-def _apply_bundle(repo: Path, branch: str, bundle: Path, expected_base: str | None) -> str:
+def _apply_bundle(
+    repo: Path, branch: str, bundle: Path, expected_base: str | None, force: bool = False
+) -> str:
     _ensure_repo(repo, branch)
 
     current = _branch_head(repo, branch)
-    if (current or "") != (expected_base or ""):
+    if not force and (current or "") != (expected_base or ""):
         raise RuntimeError(
             f"server has {branch} at {current!r} but client expected base {expected_base!r}; "
             f"pull or rebase before pushing"
@@ -236,7 +239,7 @@ def _apply_bundle(repo: Path, branch: str, bundle: Path, expected_base: str | No
         )
         new_sha = _git(["rev-parse", "--verify", tmp_ref], cwd=repo).stdout.decode().strip()
 
-        if current is None:
+        if force or current is None:
             _git(["update-ref", f"refs/heads/{branch}", new_sha], cwd=repo)
         else:
             ff = _git(
@@ -244,7 +247,8 @@ def _apply_bundle(repo: Path, branch: str, bundle: Path, expected_base: str | No
             )
             if ff.returncode != 0:
                 raise RuntimeError(
-                    f"non-fast-forward: server head {current} is not an ancestor of {new_sha}"
+                    f"non-fast-forward: server head {current} is not an ancestor of {new_sha} "
+                    f"(use --force to overwrite)"
                 )
             _git(
                 ["update-ref", f"refs/heads/{branch}", new_sha, current], cwd=repo
@@ -261,17 +265,26 @@ def _apply_bundle(repo: Path, branch: str, bundle: Path, expected_base: str | No
     return new_sha
 
 
-def _push_to_origin(repo: Path, branch: str) -> dict | None:
+def _push_to_origin(repo: Path, branch: str, force: bool = False) -> dict | None:
     """If an `origin` remote exists, push <branch> to it. Returns a result
-    dict (or None if no origin). Never raises — failure is reported."""
+    dict (or None if no origin). Never raises — failure is reported.
+
+    When force=True, uses --force-with-lease so origin is only overwritten
+    if it matches what the server thinks origin is at — safer than --force.
+    """
     r = _git(["remote", "get-url", "origin"], cwd=repo, check=False)
     if r.returncode != 0:
         return None
     url = r.stdout.decode().strip()
-    push = _git(["push", "origin", branch], cwd=repo, check=False)
+    cmd = ["push"]
+    if force:
+        cmd.append("--force-with-lease")
+    cmd += ["origin", branch]
+    push = _git(cmd, cwd=repo, check=False)
     return {
         "url": url,
         "branch": branch,
+        "forced": force,
         "ok": push.returncode == 0,
         "stdout": push.stdout.decode(errors="replace").strip(),
         "stderr": push.stderr.decode(errors="replace").strip(),
@@ -358,6 +371,7 @@ class Handler(BaseHTTPRequestHandler):
             name = _safe_name(parts[1])
             branch = _safe_branch(q.get("branch", "main"))
             base = _safe_sha(q.get("base"))
+            force = q.get("force", "").lower() in ("1", "true", "yes")
 
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
@@ -382,8 +396,8 @@ class Handler(BaseHTTPRequestHandler):
 
             with _lock_for(name):
                 repo_path = _repo_path(name)
-                new_sha = _apply_bundle(repo_path, branch, bundle_path, base)
-                origin = _push_to_origin(repo_path, branch)
+                new_sha = _apply_bundle(repo_path, branch, bundle_path, base, force=force)
+                origin = _push_to_origin(repo_path, branch, force=force)
             resp = {"repo": name, "branch": branch, "sha": new_sha}
             if origin is not None:
                 resp["origin"] = origin
