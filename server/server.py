@@ -60,10 +60,7 @@ ENDPOINTS = [
     {
         "method": "GET",
         "path": "/repos/<name>/head",
-        "query": {
-            "branch": "branch name (default: main)",
-            "path": "absolute remote path (~ expanded); default $REPO_ROOT/<name>",
-        },
+        "query": {"branch": "branch name (default: main)"},
         "description": "current sha of <branch> on the server",
         "returns": {"repo": "<name>", "branch": "<branch>", "sha": "<sha-or-null>"},
     },
@@ -73,10 +70,10 @@ ENDPOINTS = [
         "query": {
             "branch": "branch to update (default: main)",
             "base": "expected current sha on server (empty for initial push)",
-            "path": "absolute remote path (~ expanded); default $REPO_ROOT/<name>",
         },
         "body": "git bundle bytes (Content-Type: application/x-git-bundle)",
-        "description": "fast-forward <branch> by applying the bundle",
+        "description": "fast-forward <branch> by applying the bundle; "
+                       "stored at $REPO_ROOT/<name>",
         "returns": {"repo": "<name>", "branch": "<branch>", "sha": "<new-sha>"},
     },
 ]
@@ -115,21 +112,8 @@ def _safe_sha(sha: str | None) -> str | None:
     return sha
 
 
-def _repo_path(name: str, override: str | None = None) -> Path:
-    """Resolve where this repo's working tree lives on disk.
-
-    If `override` is given, expand ~ and use it (must be absolute after
-    expansion). Otherwise default to $REPO_ROOT/<name>.
-    """
-    _safe_name(name)
-    if override:
-        expanded = Path(os.path.expanduser(override))
-        if not expanded.is_absolute():
-            raise ValueError(f"path must be absolute (got {override!r})")
-        if "\x00" in str(expanded):
-            raise ValueError("path contains null byte")
-        return expanded
-    return REPO_ROOT / name
+def _repo_path(name: str) -> Path:
+    return REPO_ROOT / _safe_name(name)
 
 
 def _git(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -336,9 +320,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "repos" and parts[2] == "head":
                 name = _safe_name(parts[1])
                 branch = _safe_branch(q.get("branch", "main"))
-                path_override = q.get("path") or None
                 with _lock_for(name):
-                    sha = _branch_head(_repo_path(name, path_override), branch)
+                    sha = _branch_head(_repo_path(name), branch)
                 self._send_json(200, {"repo": name, "branch": branch, "sha": sha})
                 return
             self._err(404, f"unknown path: {self.path}")
@@ -358,7 +341,6 @@ class Handler(BaseHTTPRequestHandler):
             name = _safe_name(parts[1])
             branch = _safe_branch(q.get("branch", "main"))
             base = _safe_sha(q.get("base"))
-            path_override = q.get("path") or None
 
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
@@ -382,9 +364,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             with _lock_for(name):
-                new_sha = _apply_bundle(
-                    _repo_path(name, path_override), branch, bundle_path, base
-                )
+                new_sha = _apply_bundle(_repo_path(name), branch, bundle_path, base)
             self._send_json(200, {"repo": name, "branch": branch, "sha": new_sha})
 
         except ValueError as e:

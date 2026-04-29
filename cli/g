@@ -3,12 +3,12 @@
 g: minimal git-over-HTTP push client.
 
 Usage:
-  g push [--server URL] [--name NAME] [--branch BRANCH] [--path REMOTE_PATH]
+  g push [--server URL] [--name NAME] [--branch BRANCH]
   g list
 
-Detects the git repo from $PWD, looks up its target path on the remote in
-the REPOS config below, builds a git bundle of just the new commits, and
-POSTs it to the repo-server. Add new repos by editing the REPOS dict.
+Detects the git repo from $PWD, builds a git bundle of just the new
+commits on the current branch, and POSTs it to the repo-server. The
+server decides where the working tree lives (default $REPO_ROOT/<name>).
 """
 from __future__ import annotations
 
@@ -22,15 +22,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlencode
-
-# ---------------------------------------------------------------------------
-# Config: map repo names to the absolute path on the *remote* host where the
-# server should materialize the working tree. ~ is expanded by the server.
-# Add an entry for every project you want to push.
-# ---------------------------------------------------------------------------
-REPOS: dict[str, dict] = {
-    "productivity": {"remote_path": "~/productivity/repos/productivity"},
-}
 
 DEFAULT_SERVER = os.environ.get("REPO_SERVER", "http://127.0.0.1:4000")
 
@@ -99,39 +90,18 @@ def _http_post(url: str, body: bytes, content_type: str) -> dict:
     return _http_call(req, timeout=600)
 
 
-def _resolve_repo(name: str | None, override_path: str | None) -> tuple[str, str | None]:
-    """Return (name, remote_path). remote_path may be None to use server default."""
-    derived = name or _toplevel().name
-    if override_path:
-        return derived, override_path
-    cfg = REPOS.get(derived)
-    if cfg is None:
-        sys.stderr.write(
-            f"error: repo {derived!r} is not in REPOS config (cli/g).\n"
-            f"add an entry like:\n"
-            f'    "{derived}": {{"remote_path": "~/code/{derived}"}},\n'
-            f"or pass --path to override for this push.\n"
-        )
-        sys.exit(2)
-    return derived, cfg["remote_path"]
-
-
 def cmd_push(args: argparse.Namespace) -> int:
-    name, remote_path = _resolve_repo(args.name, args.path)
+    name = args.name or _toplevel().name
     branch = args.branch or _current_branch()
     server = args.server.rstrip("/")
     local_head = _rev(branch)
 
     print(
-        f"g: push {name} {branch} ({local_head[:10]}) -> {server}"
-        f" :: {remote_path or '(server default)'}",
+        f"g: push {name} {branch} ({local_head[:10]}) -> {server}",
         file=sys.stderr,
     )
 
-    head_q = {"branch": branch}
-    if remote_path:
-        head_q["path"] = remote_path
-    info = _http_get(f"{server}/repos/{name}/head?{urlencode(head_q)}")
+    info = _http_get(f"{server}/repos/{name}/head?{urlencode({'branch': branch})}")
     server_sha = info.get("sha")
 
     if server_sha == local_head:
@@ -168,8 +138,6 @@ def cmd_push(args: argparse.Namespace) -> int:
 
         body = bundle_path.read_bytes()
         push_q = {"branch": branch, "base": server_sha or ""}
-        if remote_path:
-            push_q["path"] = remote_path
         result = _http_post(
             f"{server}/repos/{name}/push?{urlencode(push_q)}",
             body,
@@ -189,12 +157,16 @@ def cmd_push(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    if not REPOS:
-        print("(no repos configured — edit REPOS in cli/g)")
+    server = args.server.rstrip("/")
+    info = _http_get(f"{server}/repos")
+    repos = info.get("repos", [])
+    if not repos:
+        print("(no repos on server)")
         return 0
-    width = max(len(n) for n in REPOS)
-    for name, cfg in sorted(REPOS.items()):
-        print(f"{name:<{width}}  {cfg.get('remote_path', '')}")
+    width = max(len(r["name"]) for r in repos)
+    for r in sorted(repos, key=lambda r: r["name"]):
+        branches = ",".join(r.get("branches", [])) or "-"
+        print(f"{r['name']:<{width}}  {branches}")
     return 0
 
 
@@ -209,13 +181,10 @@ def main(argv: list[str]) -> int:
     )
     push.add_argument("--name", help="remote repo name (default: basename of git toplevel)")
     push.add_argument("--branch", help="branch to push (default: current branch)")
-    push.add_argument(
-        "--path",
-        help="override remote_path for this push (default: from REPOS config)",
-    )
     push.set_defaults(func=cmd_push)
 
-    ls = sub.add_parser("list", help="list configured repos")
+    ls = sub.add_parser("list", help="list repos known to the server")
+    ls.add_argument("--server", default=DEFAULT_SERVER)
     ls.set_defaults(func=cmd_list)
 
     args = p.parse_args(argv)

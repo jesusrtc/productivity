@@ -5,9 +5,7 @@ REPO_ROOT  ?= $(CURDIR)/repos
 LOG_FILE   ?= $(CURDIR)/server.log
 PID_FILE   ?= $(CURDIR)/server.pid
 
-BIN_DIR    ?= $(HOME)/.local/bin
-
-.PHONY: start startbg stop status logs install uninstall
+.PHONY: start startbg stop status logs
 
 start:
 	@mkdir -p "$(REPO_ROOT)"
@@ -41,13 +39,3 @@ status:
 
 logs:
 	@tail -n 50 -f "$(LOG_FILE)"
-
-install:
-	@mkdir -p "$(BIN_DIR)"
-	@ln -sf "$(CURDIR)/cli/g" "$(BIN_DIR)/g"
-	@chmod +x "$(CURDIR)/cli/g"
-	@echo "linked $(BIN_DIR)/g -> $(CURDIR)/cli/g"
-	@echo "make sure $(BIN_DIR) is on your PATH"
-
-uninstall:
-	@rm -f "$(BIN_DIR)/g" && echo "removed $(BIN_DIR)/g"
