@@ -1205,7 +1205,7 @@
 </script>
 
 <div class="topbar">
-  <a href="/" class="home-link" id="homeLink">Home</a>
+  <a href="/" class="home-link" id="homeLink" onclick="goHome(event)">Home</a>
   <!-- Chrome-style tab strip. Tabs = projects with ≥1 live tmux session,
        plus the currently-viewed project (even if it has no sessions yet).
        X on a tab kills every tmux session for that project, freeing memory. -->
@@ -1584,6 +1584,8 @@
     if (!name) return;
     currentProject = projectsList.find(p => p.name === name);
     if (!currentProject) return;
+
+    if (currentProject.is_project) projTabsAddOpen(currentProject.name);
 
     document.title = currentProject.name;
     const url = new URL(window.location);
@@ -4184,6 +4186,34 @@
   let projTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
   let projTabsDragPid = null;    // pid currently being dragged
 
+  // Project tabs the user has opened in this browser, persisted in
+  // localStorage so they survive a Home click (which used to reload the page
+  // and drop any tabs that didn't have a live tmux session). The X on a tab
+  // removes the entry.
+  const PROJ_TABS_OPEN_KEY = 'projTabsOpen';
+  function projTabsLoadOpen() {
+    try {
+      const raw = localStorage.getItem(PROJ_TABS_OPEN_KEY);
+      const a = raw ? JSON.parse(raw) : [];
+      return Array.isArray(a) ? a.filter(s => typeof s === 'string') : [];
+    } catch { return []; }
+  }
+  function projTabsSaveOpen(arr) {
+    try { localStorage.setItem(PROJ_TABS_OPEN_KEY, JSON.stringify(arr)); } catch {}
+  }
+  function projTabsAddOpen(pid) {
+    if (!pid) return;
+    const cur = projTabsLoadOpen();
+    if (!cur.includes(pid)) {
+      cur.push(pid);
+      projTabsSaveOpen(cur);
+    }
+  }
+  function projTabsRemoveOpen(pid) {
+    const cur = projTabsLoadOpen().filter(p => p !== pid);
+    projTabsSaveOpen(cur);
+  }
+
   // Knowledge-view state. Same hoisting rule — initCerebro uses these.
   const CEREBRO_PROJECT_ID = '__cerebro__';
   let cerebroTreeData = [];
@@ -4289,12 +4319,18 @@
   function projTabsRender() {
     const el = document.getElementById('projectTabs');
     if (!el) return;
-    // Candidate tabs = hot sessions ∪ {currentProject} ∪ {cerebro if it's the view}.
+    // Candidate tabs = hot sessions ∪ {currentProject} ∪ {cerebro if it's the view}
+    //                  ∪ user-opened tabs persisted in localStorage.
     const seen = new Set();
     const tabs = [];
     for (const id of projTabsHot) { if (!seen.has(id)) { seen.add(id); tabs.push({id, hot: true}); } }
     const activeId = (currentProject && currentProject.is_project) ? currentProject.name : null;
     if (activeId && !seen.has(activeId)) { seen.add(activeId); tabs.push({id: activeId, hot: false}); }
+    // Sticky open tabs: projects the user has opened in this browser. They
+    // persist across in-page navigations (Home click) until X'd.
+    for (const id of projTabsLoadOpen()) {
+      if (!seen.has(id)) { seen.add(id); tabs.push({id, hot: false}); }
+    }
     const cerebroViewActive = document.body.classList.contains('cerebro-active');
     if (cerebroViewActive && !seen.has(CEREBRO_PROJECT_ID)) {
       seen.add(CEREBRO_PROJECT_ID);
@@ -4460,6 +4496,8 @@
     try {
       await fetch('/api/term/sessions/project/' + encodeURIComponent(pid), {method: 'DELETE'});
     } catch (e) { /* best effort */ }
+    // Forget this tab in this browser so it doesn't reappear on next Home/refresh.
+    if (pid !== CEREBRO_PROJECT_ID && pid !== SELF_PROJECT_ID) projTabsRemoveOpen(pid);
     await projTabsRefresh();
     // If we just closed the active project or a pseudo-project view, go home.
     const activeId = (currentProject && currentProject.is_project) ? currentProject.name : null;
@@ -5441,6 +5479,30 @@
     // WS subscription is wired once at script bottom (subscribeLiveWS),
     // so both home and project views get live refresh without duplicate
     // sockets.
+  }
+
+  // Click handler for the Home link. Switches to the home view in-page so
+  // any project tabs the user has opened stay in the strip. The previous
+  // implementation used `<a href="/">` which did a full reload and dropped
+  // every tab that didn't have a live tmux session.
+  function goHome(ev) {
+    if (ev) ev.preventDefault();
+    // Clear active-project state so projTabsRender doesn't show it as active.
+    currentProject = null;
+    currentRepoInProject = null;
+    document.title = 'Productivity';
+    // Swap the body's view class. Some other code paths (cerebro, self,
+    // project) may have set their own — strip them all and assert home.
+    document.body.classList.remove('cerebro-active', 'self-active');
+    document.body.classList.add('home-active');
+    // Update URL without a reload; preserve the sub-tab hash if present.
+    const url = new URL(window.location);
+    url.searchParams.delete('project');
+    url.searchParams.delete('repo');
+    url.searchParams.delete('view');
+    history.pushState(null, '', url.pathname + url.search + url.hash);
+    initHome();
+    projTabsRender();
   }
 
   function setHomeTab(tab) {
