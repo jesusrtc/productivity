@@ -162,9 +162,9 @@ def cmd_push(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         elif origin.get("ok"):
-            print(f"g: origin ok -> {origin.get('url')}", file=sys.stderr)
+            print("g: origin ok", file=sys.stderr)
         else:
-            print(f"g: origin FAILED -> {origin.get('url')}", file=sys.stderr)
+            print("g: origin FAILED", file=sys.stderr)
             if origin.get("stderr"):
                 sys.stderr.write(origin["stderr"] + "\n")
         return 0
