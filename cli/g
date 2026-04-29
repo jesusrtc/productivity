@@ -97,17 +97,11 @@ def cmd_push(args: argparse.Namespace) -> int:
     local_head = _rev(branch)
     force = args.force
 
-    tag = " -f" if force else ""
-    print(
-        f"g: push{tag} {name} {branch} ({local_head[:10]}) -> {server}",
-        file=sys.stderr,
-    )
-
     info = _http_get(f"{server}/repos/{name}/head?{urlencode({'branch': branch})}")
     server_sha = info.get("sha")
 
     if server_sha == local_head:
-        print("g: server already up to date", file=sys.stderr)
+        print("up to date", file=sys.stderr)
         return 0
 
     if server_sha and not force:
@@ -138,9 +132,6 @@ def cmd_push(args: argparse.Namespace) -> int:
             bundle_args.append(f"^{server_sha}")
         _git(bundle_args, capture=False)
 
-        size = bundle_path.stat().st_size
-        print(f"g: bundle = {size:,} bytes", file=sys.stderr)
-
         body = bundle_path.read_bytes()
         push_q = {"branch": branch, "base": server_sha or ""}
         if force:
@@ -150,21 +141,14 @@ def cmd_push(args: argparse.Namespace) -> int:
             body,
             "application/x-git-bundle",
         )
-        new_sha = result.get("sha", "")
-        print(
-            f"g: pushed {(server_sha or '∅')[:10]} -> {new_sha[:10]}",
-            file=sys.stderr,
-        )
+        print("succeeded", file=sys.stderr)
         origin = result.get("origin")
         if origin is None:
-            print(
-                "g: no origin remote configured on server (skipped GitHub push)",
-                file=sys.stderr,
-            )
+            print("no origin", file=sys.stderr)
         elif origin.get("ok"):
-            print("g: origin ok", file=sys.stderr)
+            print("origin ok", file=sys.stderr)
         else:
-            print("g: origin FAILED", file=sys.stderr)
+            print("origin FAILED", file=sys.stderr)
             if origin.get("stderr"):
                 sys.stderr.write(origin["stderr"] + "\n")
         return 0
