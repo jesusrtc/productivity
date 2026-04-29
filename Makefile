@@ -207,7 +207,7 @@ push-content: ## stage + commit + push content to origin/main
 	@git -C content push origin main
 
 push: push-productivity push-content ## push both repos, then run `g push`
-	@zsh -ic 'g push'
+	@/Users/jcortes/src/g/g.py push
 
 # One-shot first-time bootstrap: ensures a compatible Python (creating a
 # dedicated miniconda env if needed), installs venvs + CLI shims, clones
