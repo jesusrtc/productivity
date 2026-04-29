@@ -1,0 +1,21 @@
+apply plugin: 'li-python-cli'
+apply plugin: 'li-cli-platform-package'
+
+// See http://go/ligradle-python for general information and configuration guide.
+python {
+    version = '3'
+}
+
+pyCodeQuality {
+    coverage = true
+    mypy = true
+}
+
+dependencies {
+    python spec.external.click
+    python spec.external.requests
+    python spec.external.beautifulsoup4
+    python spec.external.tabulate
+    python spec.external.toml
+    python spec.product.'lipy-cli'.'lipy-cli'
+}

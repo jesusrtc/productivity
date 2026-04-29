@@ -1,0 +1,46 @@
+{
+  "id": "pb-scraping-triage",
+  "name": "Scraping Triage",
+  "description": "Scraping investigation: denial events → block filter rules → egression check → SEV assessment",
+  "category": "scraping",
+  "inputs": [
+    { "name": "DATE", "type": "date", "description": "Date to investigate", "required": true }
+  ],
+  "nodes": [
+    {
+      "id": "step-denial",
+      "ref_id": "skill-site-traffic-0",
+      "ref_type": "automation",
+      "label": "Denial Events Analysis",
+      "inputs": {},
+      "input_refs": { "DATE": "{{input.DATE}}" },
+      "position": { "x": 50, "y": 50 }
+    },
+    {
+      "id": "step-rules",
+      "ref_id": "skill-rule-performance-0",
+      "ref_type": "automation",
+      "label": "Block Filter Rules",
+      "inputs": {},
+      "input_refs": { "DATE": "{{input.DATE}}" },
+      "position": { "x": 50, "y": 170 }
+    },
+    {
+      "id": "step-sev",
+      "ref_id": "davi-sevcalculator",
+      "ref_type": "automation",
+      "label": "SEV Assessment",
+      "inputs": {},
+      "input_refs": { "COHORT_MEMBER_IDS": "{{step-denial.result}}" },
+      "position": { "x": 50, "y": 290 }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "step-denial", "target": "step-rules" },
+    { "id": "e2", "source": "step-rules", "target": "step-sev" }
+  ],
+  "entry_node_ids": ["step-denial"],
+  "version": 1,
+  "created_at": "2026-03-30T00:00:00.000Z",
+  "updated_at": "2026-03-30T00:00:00.000Z"
+}

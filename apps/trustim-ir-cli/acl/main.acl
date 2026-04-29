@@ -1,0 +1,16 @@
+owners:
+
+  - afernand
+
+  - jcortes
+
+  - kjamthe
+
+  - sbasole
+
+  - styang
+  - adarki
+  - acaldero
+  - avarga
+
+paths: ['.*']

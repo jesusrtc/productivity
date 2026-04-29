@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lab</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <!-- Plotly preload for notebook rendering; defer so it doesn't block paint. -->
+  <script defer src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1><a href="#/">lab</a></h1>
+    <nav>
+      <a href="#/">Dashboard</a>
+      <a href="#/timeline">Timeline</a>
+      <a href="#/search">Search</a>
+    </nav>
+  </header>
+  <main id="view"></main>
+  <script>
+    // Minimal AMD-ish loader for DAVI/Plotly notebook output cells. See
+    // templates/index.html for the fuller comment. We deliberately do NOT
+    // set define.amd so UMD libraries (marked, hljs, xterm, …) keep their
+    // global-assignment branch and the rest of the page still finds
+    // window.Terminal / window.FitAddon / etc.
+    (function () {
+      if (typeof window.define === 'function' && window.define._isLabShim) return;
+      var registry = {};
+      function resolve(name) {
+        if (name in registry) return registry[name];
+        if (name === 'plotly' && window.Plotly) return window.Plotly;
+        return undefined;
+      }
+      function require(deps, fn) {
+        if (typeof deps === 'string') return resolve(deps);
+        var resolved = (deps || []).map(resolve);
+        if (typeof fn === 'function') return fn.apply(null, resolved);
+        return resolved[0];
+      }
+      require.undef = function (name) { delete registry[name]; };
+      require.config = function () {};
+      function define(name, deps, factory) {
+        if (typeof name === 'function') { factory = name; deps = null; name = undefined; }
+        else if (Array.isArray(name)) { factory = deps; deps = name; name = undefined; }
+        else if (typeof deps === 'function') { factory = deps; deps = null; }
+        if (deps == null && typeof factory === 'function') {
+          deps = factory.length > 0
+            ? ['require', 'exports', 'module'].slice(0, factory.length)
+            : [];
+        }
+        var mod = { exports: {} };
+        var args = (deps || []).map(function (d) {
+          if (d === 'require') return require;
+          if (d === 'exports') return mod.exports;
+          if (d === 'module') return mod;
+          return resolve(d);
+        });
+        var ret = typeof factory === 'function' ? factory.apply(null, args) : factory;
+        var exported = ret !== undefined ? ret : mod.exports;
+        if (name) {
+          registry[name] = exported;
+          if (name === 'plotly' && exported && !window.Plotly) window.Plotly = exported;
+        }
+      }
+      define._isLabShim = true;
+      window.require = require;
+      window.define = define;
+    })();
+  </script>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

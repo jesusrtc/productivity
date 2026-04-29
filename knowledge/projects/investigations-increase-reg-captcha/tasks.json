@@ -1,0 +1,65 @@
+{
+  "next_id": 5,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Identify IOCs in registration data (registrationevent, captchas, dim_member_all) that explain the inflated signups over the past 4-5 weeks while the reactive model was paused",
+      "status": "todo",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-07",
+      "updated": "2026-04-07",
+      "closed_at": null
+    },
+    {
+      "id": 2,
+      "title": "Confirm whether the signup drop on 2026-04-07 from the model deployment is catching real abuse or blocking legit users",
+      "status": "todo",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-07",
+      "updated": "2026-04-07",
+      "closed_at": null
+    },
+    {
+      "id": 3,
+      "title": "Attribute the EVERCAPTCHA spike and rule firing increases (autoretrained model HIGHLY_ABUSIVE, set_EVERCAPTCHA_from_quasar_reg_model) to specific attack patterns",
+      "status": "todo",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-07",
+      "updated": "2026-04-07",
+      "closed_at": null
+    },
+    {
+      "id": 4,
+      "title": "Build investigation report with findings for stakeholders (Prachi, Jia, Dinesh, Zihua)",
+      "status": "todo",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-07",
+      "updated": "2026-04-07",
+      "closed_at": null
+    }
+  ]
+}

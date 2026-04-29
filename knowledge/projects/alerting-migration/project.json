@@ -1,0 +1,101 @@
+{
+  "id": "alerting-migration",
+  "name": "alerting-migration",
+  "description": "",
+  "status": "active",
+  "tags": [],
+  "labels": [
+    "e2e-testing",
+    "im_playbooks",
+    "lipy-davi"
+  ],
+  "priority": null,
+  "loe": null,
+  "due": null,
+  "created": "2026-04-06",
+  "updated": "2026-04-21",
+  "worktrees": [],
+  "prs": [
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/205",
+      "title": "Fix AlertPlotWidget backward-compat: is_alert, df, title, alert_type, alert_params",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/206",
+      "title": "Prepare davi-cli for GULL+LCD deployment",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/207",
+      "title": "Fix LCD deployable_name to use MP name lipy-davi",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/209",
+      "title": "Fix AlertPlotWidget backward-compat: is_alert, df, title, alert_type, alert_params",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/210",
+      "title": "Add Trust IM alert widgets for scraping alert revamp",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/211",
+      "title": "Fix irisclient integration and add %%safeql cell magic",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/212",
+      "title": "Fix mypy errors from post-merge CI",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/213",
+      "title": "Fix mypy errors from post-merge CI (v2)",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/218",
+      "title": "Add li-cli-platform-package plugin for LCD deployment",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/im_playbooks/pull/503",
+      "title": "Split scraping egress alerts into per-cohort notebooks",
+      "mp": "im_playbooks",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/im_playbooks/pull/506",
+      "title": "Set egress alert notebooks to testing mode with safeql",
+      "mp": "im_playbooks",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/im_playbooks/pull/508",
+      "title": "Enable production mode for scraping egress alert notebooks",
+      "mp": "im_playbooks",
+      "status": "merged"
+    }
+  ],
+  "artifacts": [],
+  "pinned": [],
+  "sessions": [
+    {
+      "name": "claude",
+      "kind": "claude",
+      "claude_session_id": "228afbdb-67b9-402e-810e-b918ea71078e"
+    }
+  ]
+}

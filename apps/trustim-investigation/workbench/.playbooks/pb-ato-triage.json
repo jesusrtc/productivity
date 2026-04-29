@@ -1,0 +1,47 @@
+{
+  "id": "pb-ato-triage",
+  "name": "ATO Triage",
+  "description": "Account takeover triage: login score events → MITM rule check → credential washing → SEV assessment",
+  "category": "ato",
+  "inputs": [
+    { "name": "DATE", "type": "date", "description": "Date to investigate", "required": true },
+    { "name": "MEMBER_IDS", "type": "member_id_list", "description": "Member IDs to investigate", "required": false }
+  ],
+  "nodes": [
+    {
+      "id": "step-login",
+      "ref_id": "skill-account-activity-0",
+      "ref_type": "automation",
+      "label": "Login Score Events",
+      "inputs": {},
+      "input_refs": { "DATE": "{{input.DATE}}" },
+      "position": { "x": 50, "y": 50 }
+    },
+    {
+      "id": "step-mitm",
+      "ref_id": "skill-rule-performance-0",
+      "ref_type": "automation",
+      "label": "MITM Rule Check",
+      "inputs": {},
+      "input_refs": { "DATE": "{{input.DATE}}" },
+      "position": { "x": 50, "y": 170 }
+    },
+    {
+      "id": "step-sev",
+      "ref_id": "davi-sevcalculator",
+      "ref_type": "automation",
+      "label": "SEV Assessment",
+      "inputs": {},
+      "input_refs": { "COHORT_MEMBER_IDS": "{{step-login.result}}" },
+      "position": { "x": 50, "y": 290 }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "step-login", "target": "step-mitm" },
+    { "id": "e2", "source": "step-mitm", "target": "step-sev", "conditions": [{ "field": "result", "operator": "contains", "value": "MITM" }], "label": "if MITM detected" }
+  ],
+  "entry_node_ids": ["step-login"],
+  "version": 1,
+  "created_at": "2026-03-30T00:00:00.000Z",
+  "updated_at": "2026-03-30T00:00:00.000Z"
+}

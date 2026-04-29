@@ -1,0 +1,22 @@
+apply plugin: 'li-python-lib'
+
+// See http://go/ligradle-python for general information and configuration guide.
+python {
+    version = '3'
+    supportedVersions = ['3']
+}
+
+pyCodeQuality {
+    coverage = true
+    mypy = true
+
+    // TODO: Disable alwaysRerunTests and displayTaskOutput if you would like
+    //       test output only when results change.
+
+    alwaysRerunTests = true
+    displayTaskOutput = true
+}
+
+dependencies {
+    // python spec.product.'lipy-utils'.'lipy-utils'
+}

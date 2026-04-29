@@ -1,0 +1,43 @@
+{
+  "id": "widgets-for-sev",
+  "name": "widgets-for-sev",
+  "description": "Create widgets for SEV metrics, for alerting and L1 Analysis",
+  "status": "active",
+  "tags": [],
+  "labels": [],
+  "priority": "P1",
+  "loe": 5,
+  "due": "2026-04-30",
+  "created": "2026-04-21",
+  "updated": "2026-04-21",
+  "worktrees": [
+    {
+      "mp": "lipy-davi",
+      "dir": "worktrees/davi-widgets-for-sev",
+      "branch": "jcortes/widgets-for-sev"
+    }
+  ],
+  "prs": [],
+  "artifacts": [
+    {
+      "id": 1,
+      "type": "google_doc",
+      "url": "https://docs.google.com/document/d/13y9gkTuY3001EKtmVkMv5JxZR33MCEDVTe6z6fidTfE/edit?tab=t.0",
+      "title": "Widgets for SEV Metrics and L1 Analysis",
+      "description": "",
+      "added": "2026-04-21",
+      "file": "docs/one-pager.md"
+    }
+  ],
+  "pinned": [
+    "docs/one-pager.md"
+  ],
+  "hold": null,
+  "sessions": [
+    {
+      "name": "claude",
+      "kind": "claude",
+      "claude_session_id": "3340a2bf-ff01-4d6e-a654-63a69687e1ab"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+apply plugin: 'li-python-product'
+apply plugin: 'li-coverage-by-owner'

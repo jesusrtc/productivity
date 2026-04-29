@@ -1,0 +1,13 @@
+owners:
+
+  - adarki
+
+  - jcortes
+
+  - styang
+
+  - acaldero
+
+  - sbasole
+
+paths: ['.*']

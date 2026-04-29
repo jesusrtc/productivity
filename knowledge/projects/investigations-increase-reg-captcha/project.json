@@ -1,0 +1,17 @@
+{
+  "id": "investigations-increase-reg-captcha",
+  "name": "investigations-increase-reg-captcha",
+  "description": "Investigate registration signup drop on 2026-04-07 triggered by reactive reg model deployment (paused since Mar 9, re-deployed today). IM team asked to confirm whether the inflated signups over the past 4-5 weeks were abuse (from paused model + scraping attacks) or organic. Need to identify IOCs at registration, captcha, and member tables to attribute the spike and validate that the model revert + future re-ramp is safe.",
+  "status": "active",
+  "tags": [],
+  "labels": [],
+  "priority": null,
+  "loe": null,
+  "due": null,
+  "created": "2026-04-07",
+  "updated": "2026-04-17",
+  "worktrees": [],
+  "prs": [],
+  "artifacts": [],
+  "pinned": []
+}

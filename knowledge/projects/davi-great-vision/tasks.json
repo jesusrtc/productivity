@@ -1,0 +1,50 @@
+{
+  "next_id": 4,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Draft DAVI great vision one-pager",
+      "status": "done",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-15",
+      "updated": "2026-04-15",
+      "closed_at": null
+    },
+    {
+      "id": 2,
+      "title": "Review and refine one-pager with Jesus before leadership review",
+      "status": "todo",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-15",
+      "updated": "2026-04-15",
+      "closed_at": null
+    },
+    {
+      "id": 3,
+      "title": "Add reviewer names to the review table and circulate",
+      "status": "todo",
+      "priority": "P2",
+      "loe": null,
+      "due": null,
+      "tags": [],
+      "labels": [],
+      "blocker": null,
+      "notes_file": null,
+      "created": "2026-04-15",
+      "updated": "2026-04-15",
+      "closed_at": null
+    }
+  ]
+}

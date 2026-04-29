@@ -1,0 +1,154 @@
+<script>
+  (function () {
+      /* ---------- create modal -------------------------------- */
+      var modal = document.getElementById('davi-search-modal');
+      if (!modal) {
+          modal = document.createElement('div');
+          modal.id = 'davi-search-modal';
+          modal.style.cssText =
+              'display:none; position:fixed; z-index:10000; inset:0;' +
+              'background:rgba(0,0,0,.4);';
+          modal.innerHTML = `
+            <div style="background:#fff; margin:10% auto; padding:20px;
+                        border:1px solid #888; width:90%; max-width:800px;
+                        max-height:80%; overflow-y:auto;
+                        box-shadow:0 4px 8px rgba(0,0,0,.2);
+                        border-radius:8px;">
+              <input id="davi-search-input" type="text"
+                     placeholder="Search widgets…"
+                     style="width:100%; padding:10px; margin-bottom:10px;
+                            font-size:1rem; border:1px solid #ccc;
+                            border-radius:4px;">
+              <div id="davi-search-results"></div>
+            </div>`;
+          document.body.appendChild(modal);
+
+          /* close on backdrop click or tab switch */
+          modal.addEventListener('click', e => {
+              if (e.target === modal) modal.style.display = 'none';
+          });
+          document.addEventListener('visibilitychange', () => {
+              if (document.hidden) modal.style.display = 'none';
+          });
+      }
+
+      /* ---------- refresh catalogue every run ---------------------- */
+      window.__daviWidgetData = [{"description": "This widget uses advanced language models (GPT-5, GPT-4o, o3) to generate custom data processing functions based on natural language prompts. The generated code is validated for security and executed safely in a restricted environment. All functions receive a pandas DataFrame and return processed results with progressive display.", "name": "AgenticAnalyticsWidget", "quickstart": "from linkedin.davi.widgets import AgenticAnalyticsWidget\nimport pandas as pd\n\n# Create sample data\ndf = pd.DataFrame({\n    \u0027category\u0027: [\u0027A\u0027, \u0027B\u0027, \u0027A\u0027, \u0027C\u0027, \u0027B\u0027, \u0027A\u0027],\n    \u0027value\u0027: [10, 20, 15, 30, 25, 12],\n    \u0027date\u0027: pd.date_range(\u00272024-01-01\u0027, periods=6)\n})\n\n# Basic usage with defaults\nwidget = AgenticAnalyticsWidget(\n    \"Create a pivot table with category as index, count and sum of \"\n    \"values, then create a bar chart visualization showing the results\",\n    df,\n    model=\"gpt5\",  # Available: \"gpt5\", \"gpt4o\", \"o3\"\n    tokens=6000,  # Range: 1000-10000+ (response length limit)\n    allow_family_downgrade=True,  # True/False (fallback to other models)\n)\nwidget.run()", "summary": "AI-powered agentic analytics that generates and executes secure data processing code from natural language prompts"}, {"description": "AlertPlotWidget centralizes alert visualizations behind a single API. Choose an alert_type (e.g., \u0027week_over_week\u0027, \u0027iqr\u0027, \u0027zscore\u0027) and pass the parameters relevant to that strategy through alert_params. The widget plots alert bands, rolling averages, and flagged points using Matplotlib (default) or Plotly. It never displays tables automatically; instead the computed alert DataFrame is available via widget.result.", "name": "AlertPlotWidget", "quickstart": "from linkedin.davi.widgets import AlertPlotWidget\nfrom IPython.display import display, Markdown\nimport pandas as pd\nimport numpy as np\n\n# Create sample data with two columns\nidx = pd.date_range(\"2024-01-01\", periods=60, freq=\"D\")\ndf = pd.DataFrame({\n    \"event_date\": idx,\n    \"metric\": np.random.randint(80, 140, size=len(idx))\n})\n\ntitle = \"Daily Metric Monitoring\"\n\ndisplay(Markdown(f\"# {title}\"))\n\ndisplay(Markdown(f\"### IQR\"))\nAlertPlotWidget(df, alert_type=\"iqr\", alert_params={\"iqr_factor\": 1.5, \"rolling_window\": 14}, title=title).run()\n\ndisplay(Markdown(f\"### Rolling Average\"))\nAlertPlotWidget(df, alert_type=\"rolling_percent\", alert_params={\"pct_threshold\": 15, \"rolling_window\": 9}, title=title).run()\n\ndisplay(Markdown(f\"### Fixed Threshold\"))\nAlertPlotWidget(df, alert_type=\"fixed_threshold\", alert_params={\"fixed_value\": 120}, title=title).run()\n\ndisplay(Markdown(f\"### Z Score\"))\nAlertPlotWidget(df, alert_type=\"z_score\", alert_params={\"z_score_threshold\": 1.5, \"rolling_window\": 14}, title=title).run()\n\ndisplay(Markdown(f\"### Week Over Week\"))\nAlertPlotWidget(df, alert_type=\"wow\", alert_params={\"pct_threshold\": 20, \"lag\": 7}, title=title).run()\n\ndisplay(Markdown(f\"### Steady Increase\"))\nAlertPlotWidget(df, alert_type=\"steady_increase\", alert_params={\"pct_threshold\": 5, \"continuous_periods\": 3}, title=title).run()\n\n# Access results from any widget\nwidget = AlertPlotWidget(df, alert_type=\"rolling_percent\", alert_params={\"pct_threshold\": 15, \"rolling_window\": 9}, title=title)\nwidget.run()\nresult = widget.result\nresult.df         # DataFrame with alert calculations\nresult.is_alert   # True if last period triggered an alert", "summary": "AlertPlotWidget: visualize period-over-period spikes, IQR outliers, rolling z-scores, and other alert strategies with Plotly or Matplotlib."}, {"description": "Analyzes backend response body annotation events to track scraping patterns, unique tree IDs, and source URNs over time", "name": "CaptainScrapingWidget", "quickstart": "from linkedin.davi.widgets import CaptainScrapingWidget\nwidget = CaptainScrapingWidget(\n    memberid=59271,\n    datepartition=\u00272024-07-01-00\u0027\n)\nwidget.run()", "summary": "InVizor - Tracks captain scraping activity for a specific member"}, {"description": "Provides an interactive text area where users can paste CSV or tab-delimited Excel data. Automatically detects separators and loads the data into a pandas DataFrame.", "name": "CopyFromClipboardWidget", "quickstart": "from linkedin.davi.widgets import CopyFromClipboardWidget\n# Optional param \u0027headers\u0027 (True/False): whether the first row contains headers\nwidget = CopyFromClipboardWidget()\nwidget.run()\n# After pasting data and clicking load, access via widget.data", "summary": "Load CSV or Excel data from clipboard into DataFrame"}, {"description": "Copies large DataFrames to clipboard by splitting them into size-limited chunks. Provides interactive buttons for each chunk with copy functionality and size information.", "name": "CopyToClipboard", "quickstart": "import pandas as pd # Remove if already imported\nfrom linkedin.davi.widgets.copy_to_clipboard_widget import CopyToClipboard\n\nsample_df = pd.DataFrame({\u0027col1\u0027: [1, 2, 3], \u0027col2\u0027: [\u0027a\u0027, \u0027b\u0027, \u0027c\u0027]})\nCopyToClipboard(sample_df).run()", "summary": "Copy DataFrame to clipboard in manageable chunks"}, {"description": "Analyzes DIHE (Detected Inauthentic Account Harmful Experience) metrics to understand harmful experiences caused by fake accounts or account takeover (ATO). Provides comprehensive analysis including harm type distribution, product impact, geographic patterns, and temporal trends for Trust \u0026 Safety investigations.", "name": "DiheWidget", "quickstart": "from linkedin.davi.widgets.dihe_widget import DiheWidget\n\n# Analyze fake accounts DIHE\nwidget = DiheWidget(\n    account_type=\"fake\",\n    period=\"7d\",\n    use_partial_metrics=True,\n    dihe_threshold=100\n)\nwidget.run()\nwidget.display_summary()\n\n# Analyze ATO accounts DIHE\nwidget_ato = DiheWidget(\n    account_type=\"ato\",\n    period=\"7d\",\n    dihe_threshold=100\n)\nwidget_ato.run()", "summary": "DiheWidget: Analyze DIHE (Detected Inauthentic Account Harmful Experience) metrics"}, {"description": "Send emails to LinkedIn employees using comma-separated email addresses. You\u0027ll get confirmation when the email is delivered. Emails will be sent from the DAVI", "name": "EmailWidget", "quickstart": "from linkedin.davi.widgets.email_widget import EmailWidget\nwidget = EmailWidget(\n    recipients=\"davi@linkedin.com\",\n    subject=\"Test Email\",\n    content=\"This is a test email.\"\n)\nwidget.run()", "summary": "EmailWidget: Send internal service emails to LinkedIn employees"}, {"description": "\n    A simple widget that acts as a direct proxy to the call_gai_proxy function.\n    It accepts the same parameters and passes them through without any data\n    processing or DataFrame handling. Useful for direct LLM interactions.\n    ", "name": "GaiProxyWidget", "quickstart": "from linkedin.davi.widgets import GaiProxyWidget\n\n# Basic usage\nwidget = GaiProxyWidget(message=\"Hello, how are you?\")\nwidget.run()\n\n# Available parameters:\n# - message: User message (required)\n# - model: \"gpt4o\", \"gpt5\", \"o3\" (default: \"gpt4o\")\n# - system_prompt: Instructions for the LLM\n# - temperature: 0.0-1.0 for creativity (ignored by reasoning models)\n# - tokens: Max response length\n# - allow_family_downgrade: Fallback to other models if unavailable\n# - timeout/poll_interval/client_timeout: Request timing controls\n\n# Example with parameters\nwidget = GaiProxyWidget(\n    message=\"Explain quantum computing\",\n    model=\"gpt4o\",\n    temperature=0.7,  # Note: ignored by reasoning models (o3)\n    tokens=1000,\n    system_prompt=\"You are a physics expert\"\n)\nwidget.run()", "summary": "Simple GAI proxy widget for direct GAI proxy calls"}, {"description": "This widget allows users to analyze any dataframe using natural language prompts. It sends the prompt and optional dataframe to an LLM service and displays the AI-generated insights as markdown. Perfect for ad-hoc data analysis questions.", "name": "GenericAgenticWidget", "quickstart": "from linkedin.davi.widgets import GenericAgenticWidget\n\nquery = (\n    \"select distinct requestheader.useragent from \"\n    \"tracking.registrationevent where datepartition = \u00272024-07-01-00\u0027 \"\n    \"limit 10\"\n)\ndf = %sql $query\nwidget = GenericAgenticWidget(\n    \"Create a table, when where these useragents released \"\n    \"(month and year), also expand the operating system and browser \"\n    \"if apply\", df)\nwidget.run()", "summary": "A flexible LLM-powered widget that processes any data with custom prompts"}, {"description": "Given MIDs or IPs, analyzes search activity from IP perspective. Shows distinct IP counts, search counts, and per-MID/IP patterns.", "name": "IPActivityWidget", "quickstart": "from linkedin.davi.widgets.ip_activity_widget import IPActivityWidget\n\n# With MIDs - get IP analysis\nwidget = IPActivityWidget(\n    input_values=[123456, 789012],\n    period=\"30d\"\n)\nwidget.run()\n\n# With IPs - get MID analysis\nwidget = IPActivityWidget(\n    input_values=[\"192.168.1.1\", \"10.0.0.1\"],\n    period=\"30d\"\n)\nwidget.run()", "summary": "IPActivityWidget: Analyze search activity from IP perspective"}, {"description": "Given a memberid and datepartition range provides insights and visualizations about comment activity on linkedin posts.", "name": "InVizor CommentPlot", "quickstart": "!pip install lipy-invizor # Needs installation until migrated\n# Send an email to ask_invizor@linkedin.com to request access\nfrom linkedin.invizor.messaging_plot import MessagingPlot\n# TODO; Rename to CommentPlot\n\n# For user-guide visit: go/docs-invizor-comments\nmemberid = 1499873298 # Comments posted by this memberid\ndatepartition = \u00272025-04-06-00\u0027 # Comments posted on datepartition\nmessages = MessagingPlot(memberid=memberid,\n                       datepartition=datepartition)\nmessages.plot()", "summary": "Given a memberid and datepartition range provides insights and visualizations about comment activity on linkedin posts."}, {"description": "Analyzes search activity for specified keywords and provides insights on search volume, member engagement, and trending patterns. Returns detailed metrics for each keyword over the specified time period, including top members who searched those terms.", "name": "KeywordsAnalysisWidget", "quickstart": "from linkedin.davi.widgets.keywords_analysis_widget import KeywordsAnalysisWidget\nwidget = KeywordsAnalysisWidget(\n    keywords=[\"data scientist\", \"machine learning\", \"python\"],\n    period=\"30d\",\n    search_type=\"contained\"  # or \"exact\"\n)\nwidget.run()", "summary": "KeywordsAnalysisWidget: Analyze search activity for specific keywords"}, {"description": "Automatically generates plots for DataFrames based on structure. Supports timeseries data (line, bar, scatter, area), category data (bar, pie, treemap, etc.), and histogram data (histogram, box, violin, etc.). Detects DataFrame classification and applies appropriate plotting logic. Choose Plotly Express (default) or Matplotlib rendering.", "name": "MagicPlotWidget", "quickstart": "from linkedin.davi.widgets import MagicPlotWidget\nimport pandas as pd\n\n# Example with timeseries data\n\"\"\"\ndf = pd.DataFrame({\n    \u0027date\u0027: pd.date_range(\u00272023-01-01\u0027, periods=10),\n    \u0027value\u0027: [1, 3, 3, 2, 5, 4, 7, 18, 9, 10]\n})\n\"\"\"\n\nMagicPlotWidget(\n    dataframe=df, kind=\"line\", title=\"My Custom Title\"\n).run()\n\n# Matplotlib rendering\nMagicPlotWidget(\n    dataframe=df, kind=\"line\", engine=\"matplotlib\"\n).run()", "summary": "MagicPlotWidget: Automatically plot DataFrames with intelligent type detection"}, {"description": "Analyzes search activity for given member IDs and ranks search terms by query volume (count). Returns top 100 search terms ordered by frequency for the specified time period.", "name": "SearchTermRankingWidget", "quickstart": "from linkedin.davi.widgets.search_term_ranking_widget import SearchTermRankingWidget\nwidget = SearchTermRankingWidget(\n    mids=[123456, 789012],\n    period=\"30d\"\n)\nwidget.run()", "summary": "SearchTermRankingWidget: Analyze search term ranking by member IDs"}, {"description": "Evaluates an abusive cohort against DIHE harm sub-categories (invites/messages, feed posts, feed comments) and scraping using a WoW T7D comparison. Applies a baseline gate, then assigns a SEV level based on the WoW percentage increase. Outputs a summary table and JSON report with optional time series visualization.", "name": "SevCalculatorWidget", "quickstart": "from linkedin.davi.widgets import SevCalculatorWidget\n\nquery = \"SELECT member_id FROM my_cohort_table WHERE ...\"\nwidget = SevCalculatorWidget(cohort_member_ids=query)\nwidget.run()\nwidget.show_report()\n\n# Evaluate SEV as of a specific date\nwidget = SevCalculatorWidget(cohort_member_ids=query, datepartition=\"2026-02-15-00\")\nwidget.run()\nwidget.show_report()", "summary": "Calculate SEV level for an abusive cohort based on DIHE metrics"}, {"description": "Analyzes LinkedIn registration events with intelligent natural language filtering. Without a prompt, shows overall traffic trends. With a prompt, breaks down traffic by the most relevant entities.", "name": "SurfaceVisualizationWidget", "quickstart": "from linkedin.davi.widgets import SurfaceVisualizationWidget\n\n# Total traffic (aggregate, daily bar chart by default)\nwidget = SurfaceVisualizationWidget(\n    start_date=\"2024-01-01\",\n    end_date=\"2024-01-07\",\n    prompt=\"total registrations\"\n)\nwidget.run()\n\n# Filtered aggregate with line chart\nwidget = SurfaceVisualizationWidget(\n    start_date=\"2024-01-01\",\n    end_date=\"2024-01-07\",\n    prompt=\"all US registrations line chart\"\n)\nwidget.run()\n\n# Entity breakdown with hourly aggregation\nwidget = SurfaceVisualizationWidget(\n    start_date=\"2024-01-01\",\n    end_date=\"2024-01-07\",\n    prompt=\"top 10 Android registrations hourly\"\n)\nwidget.run()\n\n# All parameters in prompt (any order)\nwidget = SurfaceVisualizationWidget(\n    start_date=\"2024-01-01\",\n    end_date=\"2024-01-07\",\n    prompt=\"hourly line chart top 5 US registrations\"\n)\nwidget.run()", "summary": "Analyze registration traffic with AI-powered natural language filtering"}, {"description": "This Agentic Widget analyzes user agent data by executing SQL queries to gather restriction statistics, uses LLM to enhance the data with browser/OS details and release dates, and creates interactive visualizations comparing restricted vs non-restricted user counts. Requires a dataframe with a \u0027useragent\u0027 column.", "name": "UaReviewAgenticWidget", "quickstart": "from linkedin.davi.widgets import UaReviewAgenticWidget\n\nquery = (\n    \"select distinct requestheader.useragent from \"\n    \"tracking.registrationevent where datepartition = \u00272024-07-01-00\u0027 \"\n    \"limit 10\"\n)\ndf = %sql $query\nwidget = UaReviewAgenticWidget(df)\nwidget.run()", "summary": "Specialized Agentic Widget for comprehensive user agent analysis with restriction insights and visualizations"}];
+
+      var inputBox  = modal.querySelector('#davi-search-input');
+      var resultsEl = modal.querySelector('#davi-search-results');
+
+      /* ---------- helpers ------------------------------------------ */
+      const debounce = (fn, ms) => {
+          let t;
+          return (...a) => {
+              clearTimeout(t);
+              t = setTimeout(() => fn(...a), ms);
+          };
+      };
+      const esc = txt => (txt || '').replace(/[&<>"']/g, m =>
+          ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',
+            "'":"&#039;"}[m]));
+
+      function search(q) {
+          // If no query, return all widgets sorted by name
+          if (!q.trim()) {
+              return window.__daviWidgetData
+                  .map(w => ({...w, score: 1}))
+                  .sort((a, b) => a.name.localeCompare(b.name));
+          }
+
+          const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+          return window.__daviWidgetData
+              .map(w => {
+                  const fields = [w.name, w.summary, w.description]
+                      .map(s => (s||'').toLowerCase());
+                  const matches = words.every(word =>
+                      fields.some(f => f.includes(word)));
+                  if (!matches) return null;
+
+                  const score = words.reduce((s, word) =>
+                      s + fields.reduce((c, f) =>
+                          c + (f.split(word).length - 1), 0), 0);
+                  return {...w, score};
+              })
+              .filter(Boolean)
+              .sort((a,b) => b.score - a.score);
+      }
+
+      function render(list) {
+          if (!list.length) {
+              resultsEl.innerHTML = '<p>No matching widgets found.</p>';
+              return;
+          }
+
+          let html = '<table style="width:100%;border-collapse:collapse;' +
+                    'font-family:sans-serif;">';
+          html += '<thead><tr style="background:#f2f2f2;">' +
+                  '<th style="padding:8px;border:1px solid #ddd;">' +
+                  'Name</th>' +
+                  '<th style="padding:8px;border:1px solid #ddd;">' +
+                  'Title</th>' +
+                  '</tr></thead><tbody>';
+          list.forEach(w => {
+              html += `<tr title="${esc(w.description)}">` +
+                      `<td style="padding:8px;border:1px solid #ddd;">` +
+                        `<a href="#" class="copy" ` +
+                        `data-qs="${encodeURIComponent(w.quickstart)}" ` +
+                        `style="color:#0366d6;text-decoration:none;">` +
+                        `${esc(w.name)}</a>` +
+                      `</td>` +
+                      `<td style="padding:8px;border:1px solid #ddd;">` +
+                      `${esc(w.summary)}</td>` +
+                      `</tr>`;
+          });
+          html += '</tbody></table>';
+          resultsEl.innerHTML = html;
+
+          /* copy-to-clipboard */
+          resultsEl.querySelectorAll('.copy').forEach(a => {
+              a.onclick = e => {
+                  e.preventDefault();
+                  navigator.clipboard.writeText(
+                      decodeURIComponent(a.dataset.qs)
+                  ).then(() => {
+                      const t = a.textContent;
+                      a.textContent = 'Copied!';
+                      setTimeout(() => { a.textContent = t; }, 1000);
+                  });
+              };
+          });
+      }
+
+      /* ---------- input listener (debounced) ----------------------- */
+      if (!inputBox.__listenerAttached) {
+          inputBox.__listenerAttached = true;
+          inputBox.addEventListener('input', debounce(() => {
+              const q = inputBox.value.trim();
+              render(search(q));
+          }, 200));
+      }
+
+      /* ---------- global hot-key listener ------------------- */
+      if (!window.__daviHotkey) {
+          window.__daviHotkey = e => {
+              const k = e.key || e.keyCode;
+              const isK = k === 'k' || k === 'K' || k === 75;
+              if (!(e.metaKey || e.ctrlKey) || !isK) return;
+              e.preventDefault();
+
+              modal.style.display = 'block';
+              inputBox.value = '';
+
+              // Show all widgets immediately when modal opens
+              render(search(''));
+
+              requestAnimationFrame(() => {
+                  inputBox.focus({ preventScroll: true });
+                  inputBox.select();
+              });
+          };
+          window.addEventListener('keydown', window.__daviHotkey, true);
+      }
+  })();
+</script>

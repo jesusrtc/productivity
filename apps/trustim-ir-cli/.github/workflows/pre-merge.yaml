@@ -1,0 +1,32 @@
+# Pre-merge workflow
+name: Pre-merge
+
+# Controls when the workflow will run.
+on:
+  pull_request:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  Pre-merge-validations:
+    name: Pre-merge validations
+    uses: linkedin-actions/ci-workflows/.github/workflows/pre-merge.yaml@v1
+    secrets: inherit
+
+  # DO NOT CHANGE THIS "Pre-merge" JOB!
+  # This is a temporary solution until MPPCX-5837 is resolved on the GitHub side.
+  # This job mirrors the result of the one above and is required in order to merge PRs.
+  Pre-merge:
+    if: always()
+
+    runs-on: [ci-linux]
+
+    needs: [ Pre-merge-validations ]
+
+    steps:
+      - name: Pre-merge Succeeded
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        run: exit 0
+
+      - name: Pre-merge Failed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

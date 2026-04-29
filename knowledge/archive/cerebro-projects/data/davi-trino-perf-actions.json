@@ -1,0 +1,38 @@
+[
+  {
+    "id": "1",
+    "text": "Write design spec for persistent Trino connection (davi serve endpoint + auto-start + proxy_user)",
+    "status": "in_progress",
+    "updated": "2026-04-08"
+  },
+  {
+    "id": "2",
+    "text": "Add /api/trino/query endpoint to davi serve (server.py) with persistent TrinoClient and proxy_user support",
+    "status": "todo",
+    "updated": "2026-04-08"
+  },
+  {
+    "id": "3",
+    "text": "Modify QueryExecutor to route through server when available, fallback to direct connection",
+    "status": "todo",
+    "updated": "2026-04-08"
+  },
+  {
+    "id": "4",
+    "text": "Auto-start davi serve from davi run if not already running",
+    "status": "todo",
+    "updated": "2026-04-08"
+  },
+  {
+    "id": "5",
+    "text": "Add benchmark command (davi trino benchmark) to measure and compare query times",
+    "status": "todo",
+    "updated": "2026-04-08"
+  },
+  {
+    "id": "6",
+    "text": "Test end-to-end: cold start, warm connection, token refresh, proxy_user, fallback",
+    "status": "todo",
+    "updated": "2026-04-08"
+  }
+]

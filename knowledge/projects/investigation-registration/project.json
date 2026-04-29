@@ -1,0 +1,42 @@
+{
+  "id": "investigation-registration",
+  "name": "investigation-registration",
+  "description": "Investigating an anomalous spike in registrations detected on 2026-04-07. Z-Score anomaly detection flagged 2 IOCs: two Microsoft Edge user-agent strings (Chrome/138 Edg/138 and Chrome/139 Edg/139) with 671 and 515 registrations respectively (1,186 total). Need to determine if this is bot/automation activity, a coordinated abuse campaign, or a false positive.",
+  "status": "active",
+  "tags": [],
+  "labels": [],
+  "priority": null,
+  "loe": null,
+  "due": null,
+  "created": "2026-04-08",
+  "updated": "2026-04-17",
+  "worktrees": [],
+  "prs": [],
+  "artifacts": [
+    {
+      "id": "1",
+      "type": "alert",
+      "description": "Anomaly detection alert for registration spike on 2026-04-07-00",
+      "data": {
+        "datepartition": "2026-04-07-00",
+        "method": "Anomaly Detection using Z-Scores with a Moving Window",
+        "iocs_detected": [
+          {
+            "ioc_type": "useragent",
+            "ioc": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
+            "reg_count": 671
+          },
+          {
+            "ioc_type": "useragent",
+            "ioc": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0",
+            "reg_count": 515
+          }
+        ]
+      }
+    }
+  ],
+  "pinned": [
+    "investigation.md",
+    "one-pager.md"
+  ]
+}

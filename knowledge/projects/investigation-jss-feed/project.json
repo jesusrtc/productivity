@@ -1,0 +1,72 @@
+{
+  "id": "investigation-jss-feed",
+  "name": "investigation-jss-feed",
+  "description": "Investigation into the JSS (Job Seeker Safety) DIHE spike driven by home feed. A separate SEV from the ongoing Ads-driven JSS DIHE SEV 3. DS confirmed the data issue is fixed and the feed elevation is real. Initial signal points to fake hiring scams in groups. Goal: triage root cause, assess severity, and recommend mitigations.",
+  "status": "active",
+  "tags": [],
+  "labels": [
+    "trustim-investigation"
+  ],
+  "priority": null,
+  "loe": null,
+  "due": null,
+  "created": "2026-04-08",
+  "updated": "2026-04-17",
+  "worktrees": [],
+  "prs": [],
+  "artifacts": [
+    {
+      "id": 1,
+      "type": "google_doc",
+      "url": "https://docs.google.com/document/d/13ua08b3lXTPOajVnerf8gJpqF1wQ8UtFctaeS4T-hus/edit",
+      "title": "Proposal: Sev levels for JSS DIHE / 1K",
+      "description": "SEV threshold calculator for JSS DIHE. Defines WoW T7D thresholds: SEV 4 at 20%, SEV 3 at 25%, SEV 2 at 30%, SEV 1 at 45%.",
+      "added": "2026-04-08"
+    },
+    {
+      "id": 2,
+      "type": "google_doc",
+      "url": "https://docs.google.com/document/d/1VJu0rMWhItzH3LLrRiKjp2t8OumipafcF530IO-J-uc/edit",
+      "title": "JSS Feed DIHE Triage Summary",
+      "description": "Sam Basole's L1 triage analysis. Root cause: ATO group spam fake job scam campaign. 240 accounts, 443K victims, +284% WoW on ORIGINAL_IA_GROUP_POST/ATO. Includes abuser profiles, scam templates, targeted groups, datasets, and queries.",
+      "added": "2026-04-08"
+    },
+    {
+      "id": 3,
+      "type": "google_doc",
+      "url": "https://docs.google.com/document/d/1NiPI35Eu6aLSyUnBelrQC8KqqRfndGWuku4aJKmlYOI/edit",
+      "title": "Abuse Incident: March Job Seeker Safety Ads DIHE",
+      "description": "The existing Ads-driven JSS DIHE SEV 3 incident doc. Covers Zambia/Brazil/Ukraine fake account cohorts and ATO ad campaigns. 705 MIDs, 46K+ ad creatives. Key mitigation: Tier 4 bypass fix. Used for overlap analysis with the Feed SEV.",
+      "added": "2026-04-08"
+    },
+    {
+      "id": 4,
+      "type": "retina_chart",
+      "url": "https://retina.corp.linkedin.com/retina/beta/charts/354905",
+      "title": "JSS DIHE by Harm Type (Raw Volume)",
+      "description": "Retina chart showing raw DIHE volume broken down by harm_type (VIEWED_AD, VIEWED_HOME_FEED_UPDATE, RECEIVED_INVITATION, etc.) from late Feb through Mar 30. Shows the Ads spike and Feed elevation. Note: this is absolute volume, not the DIHE/1k T7D metric.",
+      "added": "2026-04-08"
+    },
+    {
+      "id": 5,
+      "type": "retina_dashboard",
+      "url": "https://retina.corp.linkedin.com/retina/dashboards/31793/view?tabId=3",
+      "title": "Scaled DIHE by surfaces (Overall, not JSS-filtered)",
+      "description": "Overall DIHE by harm_type. Confirms VIEWED_HOME_FEED_UPDATE spike at end of March is platform-wide, not JSS-specific. Useful to validate that the Feed increase affects all members, not just Job Seekers.",
+      "added": "2026-04-08"
+    }
+  ],
+  "pinned": [
+    "one-pager.md",
+    "investigation.md",
+    "investigation-feed-dihe.md",
+    "investigation-jss.md"
+  ],
+  "sessions": [
+    {
+      "name": "claude",
+      "kind": "claude",
+      "claude_session_id": "2e3af555-dfd6-4403-acdb-b5f73e954dc9"
+    }
+  ]
+}

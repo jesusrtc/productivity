@@ -1,0 +1,38 @@
+{
+  "id": "sev-calculator",
+  "name": "sev-calculator",
+  "description": "Automated SEV severity calculator for abuse incidents in DAVI. Evaluates abusive cohorts against DIHE harm sub-categories (invites/messages, feed posts, feed comments) and scraping metrics using WoW T7D comparisons. Applies per-metric baseline gates and assigns SEV 1-4 levels based on WoW percentage increase thresholds. Lives in lipy-davi as SevCalculatorService + SevCalculatorWidget + renderer.",
+  "status": "active",
+  "tags": [],
+  "labels": [
+    "lipy-davi"
+  ],
+  "priority": null,
+  "loe": null,
+  "due": null,
+  "created": "2026-04-06",
+  "updated": "2026-04-17",
+  "worktrees": [],
+  "prs": [
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/181",
+      "title": "Add SevCalculatorWidget for automated abuse incident severity assessment",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/200",
+      "title": "Fix SevCalculatorService NA crash in compute_metrics",
+      "mp": "lipy-davi",
+      "status": "merged"
+    },
+    {
+      "url": "https://github.com/linkedin-multiproduct/lipy-davi/pull/201",
+      "title": "feat: session context, investigation workflow, CLI improvements, and viewer enhancements",
+      "mp": "lipy-davi",
+      "status": "merged"
+    }
+  ],
+  "artifacts": [],
+  "pinned": []
+}

@@ -1,0 +1,6 @@
+
+
+rootProject.name='trustim-ir-cli-root'
+
+include 'trustim-ir-cli'
+

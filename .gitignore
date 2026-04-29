@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.coverage
+
+# Monorepo runtime
+repositories/
+knowledge/.index.json
+knowledge/.sessions.json
+knowledge/.cerebro-project.json
+knowledge/.self-project.json
+knowledge/.self-tasks.json
+knowledge/.ui-state.json
+
+# Per-project external git mirrors (kept separate from the monorepo)
+knowledge/projects/*/vision-repo/
+
+# Per-project git worktrees (managed by `lab`)
+knowledge/projects/*/worktrees/
+
+# Log files
+*.log
+
+# Per-project darwin-runner kernel state (proxy_user, kernel_id)
+knowledge/projects/*/.darwin.json
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Superpowers scratch
+.superpowers/
+
+apps/server/.venv/
+apps/server/.coverage
+.lab-server.pid
+.lab-server.log
+
+# Centralized server + client error logs
+logs/
+
+# Tool-app venvs + runtime artifacts
+apps/darwin-backups/downloads/
+apps/darwin-backups/venv/
+apps/darwin-backups/darwin-backups
+apps/trustim-ir-cli/build/
+apps/trustim-ir-cli/.gradle/
+apps/trustim-investigation/build/
+apps/trustim-investigation/.gradle/
