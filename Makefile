@@ -193,16 +193,21 @@ status: ## show server status and port holder
 check-ui: ## run UI smoke test script
 	@scripts/check-ui.sh
 
-push: ## push productivity + content to origin/main, then run `g push`
-	@scripts/push.sh productivity
-	@scripts/push.sh content
-	@zsh -ic 'g push'
-
 push-productivity: ## push productivity to origin/main (errors if dirty)
-	@scripts/push.sh productivity
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+		echo "productivity: working tree is dirty. Commit changes before pushing." >&2; \
+		exit 1; \
+	fi
+	@git push origin main
 
 push-content: ## stage + commit + push content to origin/main
-	@scripts/push.sh content
+	@git -C content add -A
+	@git -C content diff --cached --quiet || \
+		git -C content commit -m "Sync content $$(date +'%Y-%m-%d %H:%M')" >/dev/null
+	@git -C content push origin main
+
+push: push-productivity push-content ## push both repos, then run `g push`
+	@zsh -ic 'g push'
 
 # One-shot first-time bootstrap: ensures a compatible Python (creating a
 # dedicated miniconda env if needed), installs venvs + CLI shims, clones
