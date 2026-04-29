@@ -1,0 +1,12 @@
+# runtime artifacts
+server.log
+server.pid
+repos/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# os
+.DS_Store
