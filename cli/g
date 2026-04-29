@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""
+g: minimal git-over-HTTP push client.
+
+Usage:
+  g push [--server URL] [--name NAME] [--branch BRANCH] [--path REMOTE_PATH]
+  g list
+
+Detects the git repo from $PWD, looks up its target path on the remote in
+the REPOS config below, builds a git bundle of just the new commits, and
+POSTs it to the repo-server. Add new repos by editing the REPOS dict.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+from pathlib import Path
+from urllib.parse import urlencode
+
+# ---------------------------------------------------------------------------
+# Config: map repo names to the absolute path on the *remote* host where the
+# server should materialize the working tree. ~ is expanded by the server.
+# Add an entry for every project you want to push.
+# ---------------------------------------------------------------------------
+REPOS: dict[str, dict] = {
+    "productivity": {"remote_path": "~/code/productivity"},
+}
+
+DEFAULT_SERVER = os.environ.get("REPO_SERVER", "http://127.0.0.1:4000")
+
+
+def _git(args: list[str], check: bool = True, capture: bool = True) -> subprocess.CompletedProcess:
+    r = subprocess.run(["git", *args], capture_output=capture, text=True)
+    if check and r.returncode != 0:
+        sys.stderr.write(f"git {' '.join(args)} failed:\n{r.stderr}")
+        sys.exit(1)
+    return r
+
+
+def _toplevel() -> Path:
+    r = _git(["rev-parse", "--show-toplevel"], check=False)
+    if r.returncode != 0:
+        sys.stderr.write(f"error: $PWD is not inside a git repository\n  {os.getcwd()}\n")
+        sys.exit(1)
+    return Path(r.stdout.strip())
+
+
+def _current_branch() -> str:
+    r = _git(["symbolic-ref", "--short", "HEAD"], check=False)
+    if r.returncode != 0:
+        sys.stderr.write("error: not on any branch (detached HEAD?)\n")
+        sys.exit(1)
+    return r.stdout.strip()
+
+
+def _rev(branch: str) -> str:
+    return _git(["rev-parse", "--verify", branch]).stdout.strip()
+
+
+def _have_commit(sha: str) -> bool:
+    return _git(["cat-file", "-e", sha], check=False).returncode == 0
+
+
+def _is_ancestor(a: str, b: str) -> bool:
+    return _git(["merge-base", "--is-ancestor", a, b], check=False).returncode == 0
+
+
+def _http_call(req: urllib.request.Request, timeout: int = 30) -> dict:
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        try:
+            msg = json.loads(body).get("error", body)
+        except Exception:
+            msg = body
+        sys.stderr.write(f"server error {e.code}: {msg}\n")
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        sys.stderr.write(f"connection error: {e.reason}\n")
+        sys.exit(1)
+
+
+def _http_get(url: str) -> dict:
+    return _http_call(urllib.request.Request(url, method="GET"))
+
+
+def _http_post(url: str, body: bytes, content_type: str) -> dict:
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", content_type)
+    req.add_header("Content-Length", str(len(body)))
+    return _http_call(req, timeout=600)
+
+
+def _resolve_repo(name: str | None, override_path: str | None) -> tuple[str, str | None]:
+    """Return (name, remote_path). remote_path may be None to use server default."""
+    derived = name or _toplevel().name
+    if override_path:
+        return derived, override_path
+    cfg = REPOS.get(derived)
+    if cfg is None:
+        sys.stderr.write(
+            f"error: repo {derived!r} is not in REPOS config (cli/g).\n"
+            f"add an entry like:\n"
+            f'    "{derived}": {{"remote_path": "~/code/{derived}"}},\n'
+            f"or pass --path to override for this push.\n"
+        )
+        sys.exit(2)
+    return derived, cfg["remote_path"]
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    name, remote_path = _resolve_repo(args.name, args.path)
+    branch = args.branch or _current_branch()
+    server = args.server.rstrip("/")
+    local_head = _rev(branch)
+
+    print(
+        f"g: push {name} {branch} ({local_head[:10]}) -> {server}"
+        f" :: {remote_path or '(server default)'}",
+        file=sys.stderr,
+    )
+
+    head_q = {"branch": branch}
+    if remote_path:
+        head_q["path"] = remote_path
+    info = _http_get(f"{server}/repos/{name}/head?{urlencode(head_q)}")
+    server_sha = info.get("sha")
+
+    if server_sha == local_head:
+        print("g: server already up to date", file=sys.stderr)
+        return 0
+
+    if server_sha:
+        if not _have_commit(server_sha):
+            sys.stderr.write(
+                f"error: server is at {server_sha} which is unknown locally; "
+                f"fetch from the server before pushing\n"
+            )
+            return 1
+        if not _is_ancestor(server_sha, local_head):
+            sys.stderr.write(
+                "error: non-fast-forward push\n"
+                f"  server: {server_sha}\n"
+                f"  local : {local_head}\n"
+                "rebase your branch on top of the server tip and try again\n"
+            )
+            return 1
+
+    fd, bundle_str = tempfile.mkstemp(suffix=".bundle")
+    os.close(fd)
+    bundle_path = Path(bundle_str)
+    try:
+        bundle_args = ["bundle", "create", str(bundle_path), branch]
+        if server_sha:
+            bundle_args.append(f"^{server_sha}")
+        _git(bundle_args, capture=False)
+
+        size = bundle_path.stat().st_size
+        print(f"g: bundle = {size:,} bytes", file=sys.stderr)
+
+        body = bundle_path.read_bytes()
+        push_q = {"branch": branch, "base": server_sha or ""}
+        if remote_path:
+            push_q["path"] = remote_path
+        result = _http_post(
+            f"{server}/repos/{name}/push?{urlencode(push_q)}",
+            body,
+            "application/x-git-bundle",
+        )
+        new_sha = result.get("sha", "")
+        print(
+            f"g: pushed {(server_sha or '∅')[:10]} -> {new_sha[:10]}",
+            file=sys.stderr,
+        )
+        return 0
+    finally:
+        try:
+            bundle_path.unlink()
+        except OSError:
+            pass
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    if not REPOS:
+        print("(no repos configured — edit REPOS in cli/g)")
+        return 0
+    width = max(len(n) for n in REPOS)
+    for name, cfg in sorted(REPOS.items()):
+        print(f"{name:<{width}}  {cfg.get('remote_path', '')}")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="g")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    push = sub.add_parser("push", help="push current branch from $PWD to remote")
+    push.add_argument(
+        "--server", default=DEFAULT_SERVER,
+        help=f"server URL (default: $REPO_SERVER or {DEFAULT_SERVER})",
+    )
+    push.add_argument("--name", help="remote repo name (default: basename of git toplevel)")
+    push.add_argument("--branch", help="branch to push (default: current branch)")
+    push.add_argument(
+        "--path",
+        help="override remote_path for this push (default: from REPOS config)",
+    )
+    push.set_defaults(func=cmd_push)
+
+    ls = sub.add_parser("list", help="list configured repos")
+    ls.set_defaults(func=cmd_list)
+
+    args = p.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
