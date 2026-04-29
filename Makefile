@@ -194,7 +194,7 @@ check-ui: ## run UI smoke test script
 	@scripts/check-ui.sh
 
 push-productivity: ## push productivity to origin/main (errors if dirty)
-	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo "productivity: working tree is dirty. Commit changes before pushing." >&2; \
 		exit 1; \
 	fi
