@@ -193,6 +193,17 @@ status: ## show server status and port holder
 check-ui: ## run UI smoke test script
 	@scripts/check-ui.sh
 
+push: ## push productivity + content to origin/main, then run `g push`
+	@scripts/push.sh productivity
+	@scripts/push.sh content
+	@zsh -ic 'g push'
+
+push-productivity: ## push productivity to origin/main (errors if dirty)
+	@scripts/push.sh productivity
+
+push-content: ## stage + commit + push content to origin/main
+	@scripts/push.sh content
+
 # One-shot first-time bootstrap: ensures a compatible Python (creating a
 # dedicated miniconda env if needed), installs venvs + CLI shims, clones
 # every repo in repositories.list (idempotent), and (re)symlinks every

@@ -51,6 +51,10 @@ export const api = {
   rmPR: (pid, idx) => request("DELETE", `/api/projects/${encodeURIComponent(pid)}/prs/${idx}`),
   addArtifact: (pid, body) => request("POST", `/api/projects/${encodeURIComponent(pid)}/artifacts`, body),
   rmArtifact: (pid, idx) => request("DELETE", `/api/projects/${encodeURIComponent(pid)}/artifacts/${idx}`),
+
+  // Git push (dashboard buttons)
+  pushProductivity: () => request("POST", "/api/git/push-productivity"),
+  syncContent: () => request("POST", "/api/git/sync-content"),
 };
 
 export function subscribeWS(onEvent) {

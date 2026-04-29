@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from server import config
 from server.routes import cerebro as cerebro_route
 from server.routes import diff as diff_route
+from server.routes import git as git_route
 from server.routes import index as index_route
 from server.routes import log as log_route
 from server.routes import markdown as markdown_route
@@ -173,6 +174,7 @@ def create_app() -> FastAPI:
     app.include_router(cerebro_route.router)
     app.include_router(ui_route.router)
     app.include_router(log_route.router)
+    app.include_router(git_route.router)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

@@ -21,6 +21,16 @@ export async function render(parent, params) {
       class: "btn btn-primary",
       onclick: () => onNewProject(),
     }, "+ New project"),
+    h("button", {
+      class: "btn",
+      onclick: (e) => onPushProductivity(e.target),
+      title: "git push the productivity monorepo (errors if dirty)",
+    }, "Push productivity"),
+    h("button", {
+      class: "btn",
+      onclick: (e) => onSyncContent(e.target),
+      title: "stage, commit, push the content repo",
+    }, "Sync content"),
   );
 
   const dueStrip = h("div", { class: "due-strip" },
@@ -80,6 +90,29 @@ function projectCard(p) {
       }, "Tasks view \u2192"),
     ),
   );
+}
+
+async function runPush(btn, fn, label) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label + "…";
+  try {
+    const res = await fn();
+    alert(res.message || `${label} ok`);
+  } catch (e) {
+    alert(`${label} failed: ` + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+function onPushProductivity(btn) {
+  return runPush(btn, () => api.pushProductivity(), "Push productivity");
+}
+
+function onSyncContent(btn) {
+  return runPush(btn, () => api.syncContent(), "Sync content");
 }
 
 async function onNewProject() {
