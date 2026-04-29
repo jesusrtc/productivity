@@ -70,6 +70,10 @@ class ProjectField(BaseModel):
     value: str | None = None
 
 
+class TabState(BaseModel):
+    open: bool
+
+
 # Whitelist of fields settable via the dashboard / attributes bar. Keep this
 # in sync with lab's `project set` validator. `tags`/`labels` accept
 # comma-separated strings on the wire, matching the CLI.
@@ -100,6 +104,27 @@ async def update_project_field(project_id: str, body: ProjectField,
     value = "" if body.value is None else body.value
     _run_lab(["project", "set", project_id, body.field, value], root=root)
     return _read_project(root, project_id)
+
+
+@router.post("/api/projects/{project_id}/tab")
+async def set_project_tab(project_id: str, body: TabState,
+                          request: Request) -> dict:
+    """Set the dashboard tab-open flag for a project.
+
+    Persisted in ``project.json`` as ``tab_open`` so the topbar tab strip
+    survives page reloads independently of whether the project has a live
+    tmux session. Pure UI state — written directly via storage rather than
+    through ``lab project set`` (which is the canonical-fields path).
+    """
+    root: Path = request.app.state.index_cache.root
+    _validate_pid(project_id)
+    pjson = paths.project_file(root, project_id)
+    if not pjson.is_file():
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    data = storage.read_json(pjson)
+    data["tab_open"] = bool(body.open)
+    storage.write_json(pjson, data)
+    return data
 
 
 @router.post("/api/projects")

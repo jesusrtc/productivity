@@ -109,3 +109,44 @@ def test_delete_artifact(client, seed_project) -> None:
     r = client.delete("/api/projects/alpha/artifacts/1")
     assert r.status_code == 200
     assert r.json()["artifacts"] == []
+
+
+# ─── tab_open persistence ────────────────────────────────────────────────
+
+
+def test_post_tab_open_persists_to_project_json(client, monorepo, seed_project) -> None:
+    seed_project("alpha")
+    r = client.post("/api/projects/alpha/tab", json={"open": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["tab_open"] is True
+
+    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    assert on_disk["tab_open"] is True
+
+
+def test_post_tab_close_persists_to_project_json(client, monorepo, seed_project) -> None:
+    seed_project("alpha")
+    client.post("/api/projects/alpha/tab", json={"open": True})
+    r = client.post("/api/projects/alpha/tab", json={"open": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["tab_open"] is False
+
+    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    assert on_disk["tab_open"] is False
+
+
+def test_post_tab_unknown_project_returns_404(client) -> None:
+    r = client.post("/api/projects/nonexistent/tab", json={"open": True})
+    assert r.status_code == 404
+
+
+def test_repos_includes_tab_open_field(client, monorepo, seed_project) -> None:
+    seed_project("alpha")
+    seed_project("beta")
+    client.post("/api/projects/alpha/tab", json={"open": True})
+    r = client.get("/api/repos")
+    assert r.status_code == 200
+    by_name = {p["name"]: p for p in r.json() if p.get("is_project")}
+    assert by_name["alpha"]["tab_open"] is True
+    # beta never had tab_open written; defaults to False.
+    assert by_name["beta"]["tab_open"] is False

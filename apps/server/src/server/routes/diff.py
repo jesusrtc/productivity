@@ -178,6 +178,7 @@ async def api_repos():
             "is_project": proj["is_project"],
             "path": proj["path"],
             "repos": repos,
+            "tab_open": bool(proj.get("tab_open", False)),
         })
     return result
 

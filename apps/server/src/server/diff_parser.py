@@ -431,6 +431,7 @@ def _discover_monorepo_projects() -> list[dict]:
             "is_project": True,
             "path": str(proj_dir),
             "repos": repos,
+            "tab_open": bool(data.get("tab_open", False)),
         })
 
     return out
