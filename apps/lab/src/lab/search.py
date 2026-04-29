@@ -29,7 +29,7 @@ def _matches(haystack: str | None, query_low: str) -> bool:
 
 
 def search(root: Path, query: str) -> dict:
-    """Grep-based search over knowledge/. Returns {projects, tasks, docs}."""
+    """Grep-based search over content/. Returns {projects, tasks, docs}."""
     q = (query or "").strip()
     if not q:
         return {"query": "", "projects": [], "tasks": [], "docs": []}
@@ -39,7 +39,7 @@ def search(root: Path, query: str) -> dict:
     tasks: list[dict] = []
     docs: list[dict] = []
 
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if projects_root.is_dir():
         for child in sorted(projects_root.iterdir()):
             if not child.is_dir():
@@ -85,10 +85,10 @@ def search(root: Path, query: str) -> dict:
                         if len(tasks) >= MAX_RESULTS_PER_KIND:
                             break
 
-    # Walk all .md files under knowledge/
-    knowledge_root = root / "knowledge"
-    if knowledge_root.is_dir():
-        for md in sorted(knowledge_root.rglob("*.md")):
+    # Walk all .md files under content/
+    content_root = root / "content"
+    if content_root.is_dir():
+        for md in sorted(content_root.rglob("*.md")):
             try:
                 text = md.read_text(encoding="utf-8", errors="replace")
             except OSError:

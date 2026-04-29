@@ -131,9 +131,9 @@ function docsList(pid, docs) {
     const isNb = lower.endsWith(".ipynb");
     let href;
     if (isMd) {
-      href = `#/md?path=${encodeURIComponent(`knowledge/projects/${pid}/${d.path}`)}`;
+      href = `#/md?path=${encodeURIComponent(`content/projects/${pid}/${d.path}`)}`;
     } else if (isNb) {
-      href = `#/nb?path=${encodeURIComponent(`knowledge/projects/${pid}/${d.path}`)}`;
+      href = `#/nb?path=${encodeURIComponent(`content/projects/${pid}/${d.path}`)}`;
     } else {
       href = `/api/projects/${encodeURIComponent(pid)}/file?path=${encodeURIComponent(d.path)}`;
     }

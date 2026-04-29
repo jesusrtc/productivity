@@ -4,8 +4,8 @@ Small catch-all for per-monorepo UI preferences that need to persist across
 browsers / machines (so localStorage isn't the right place). Today that's
 just the tab-strip order; future: pinned projects, theme per-project, etc.
 
-State lives in ``knowledge/.ui-state.json``. The watcher's self-write guard
-already ignores dotfiles under ``knowledge/`` that start with ``.`` — writes
+State lives in ``content/.ui-state.json``. The watcher's self-write guard
+already ignores dotfiles under ``content/`` that start with ``.`` — writes
 here don't trigger index rebuilds.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ router = APIRouter()
 
 
 def _state_file(root: Path) -> Path:
-    return root / "knowledge" / ".ui-state.json"
+    return root / "content" / ".ui-state.json"
 
 
 def _load(root: Path) -> dict:

@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Minimal monorepo for backend tests. Mirrors lab's fixture."""
     root = tmp_path / "productivity"
-    (root / "knowledge" / "projects").mkdir(parents=True)
-    (root / "knowledge" / "meetings").mkdir()
+    (root / "content" / "projects").mkdir(parents=True)
+    (root / "content" / "meetings").mkdir()
     (root / ".git").mkdir()
     monkeypatch.setenv("LAB_ROOT", str(root))
     monkeypatch.chdir(root)
@@ -29,7 +29,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture()
 def seed_project(monorepo: Path):
     def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "knowledge" / "projects" / project_id
+        pdir = monorepo / "content" / "projects" / project_id
         pdir.mkdir(parents=True)
         (pdir / "project.json").write_text(json.dumps({
             "id": project_id,

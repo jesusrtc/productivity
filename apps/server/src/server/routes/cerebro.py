@@ -1,12 +1,12 @@
 """Cerebro tree + viewer endpoints.
 
 "Cerebro" is the personal knowledge base that used to live at
-``~/src/productivity/cerebro``; its content migrated into ``knowledge/`` in
-this monorepo. This route serves the full structure of ``knowledge/`` as a
+``~/src/productivity/cerebro``; its content migrated into ``content/`` in
+this monorepo. This route serves the full structure of ``content/`` as a
 nested tree for the Obsidian-style browser. Markdown rendering goes through
 ``/api/markdown``.
 
-Everything under ``knowledge/`` is included — wikis, logs, meetings,
+Everything under ``content/`` is included — wikis, logs, meetings,
 roadmaps, skills, templates, AND the whole ``projects/`` subtree — so one
 view covers both Cerebro content and per-project docs.
 """
@@ -28,7 +28,7 @@ _SKIP_DIRS = {
     ".ipynb_checkpoints",
 }
 
-# Cap the recursion in case someone symlinks wild trees under knowledge/.
+# Cap the recursion in case someone symlinks wild trees under content/.
 _MAX_DEPTH = 8
 
 # Extensions we consider "viewable" in the right-hand pane.
@@ -86,16 +86,16 @@ def _build(root: Path, rel_base: Path, include_hidden: bool, depth: int = 0) -> 
 
 @router.get("/api/cerebro/tree")
 async def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
-    """Return the whole ``knowledge/`` directory tree (the Cerebro view).
+    """Return the whole ``content/`` directory tree (the Cerebro view).
 
-    Response is a list of top-level children under ``knowledge/`` (not the
-    ``knowledge`` root itself, which would just be a wrapper). Dirs carry a
+    Response is a list of top-level children under ``content/`` (not the
+    ``content`` root itself, which would just be a wrapper). Dirs carry a
     ``children`` array; files carry a ``size`` + a ``type`` hint
     (``"markdown" | "text" | "file"``) the UI can use to decide whether to
     render inline or just list.
     """
     root: Path = request.app.state.index_cache.root
-    kdir = root / "knowledge"
+    kdir = root / "content"
     if not kdir.is_dir():
         return []
     return _build(kdir, Path(""), include_hidden)

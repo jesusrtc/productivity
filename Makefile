@@ -196,7 +196,7 @@ check-ui: ## run UI smoke test script
 # One-shot first-time bootstrap: ensures a compatible Python (creating a
 # dedicated miniconda env if needed), installs venvs + CLI shims, clones
 # every repo in repositories.list (idempotent), and (re)symlinks every
-# project's CLAUDE.md to the canonical knowledge/skills/project-CLAUDE.md.
+# project's CLAUDE.md to the canonical content/skills/project-CLAUDE.md.
 setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python + install + clone repos + relink)
 	@$(LAB_VENV)/bin/python -m lab project relink || true
 	@echo

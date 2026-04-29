@@ -13,7 +13,7 @@ def test_cerebro_tree_empty(client, monorepo: Path) -> None:
 
 
 def test_cerebro_tree_lists_md_files(client, monorepo: Path) -> None:
-    wikis = monorepo / "knowledge" / "wikis" / "generic"
+    wikis = monorepo / "content" / "wikis" / "generic"
     wikis.mkdir(parents=True, exist_ok=True)
     (wikis / "note.md").write_text("# hi\n")
     (wikis / "binary.png").write_bytes(b"\x89PNG\r\n")
@@ -28,7 +28,7 @@ def test_cerebro_tree_lists_md_files(client, monorepo: Path) -> None:
 
 
 def test_cerebro_tree_skips_dotfiles_by_default(client, monorepo: Path) -> None:
-    (monorepo / "knowledge" / ".sessions.json").write_text("{}")
+    (monorepo / "content" / ".sessions.json").write_text("{}")
     tree = client.get("/api/cerebro/tree").json()
     names = {n["name"] for n in tree}
     assert ".sessions.json" not in names
@@ -40,8 +40,8 @@ def test_cerebro_tree_skips_dotfiles_by_default(client, monorepo: Path) -> None:
 
 def test_cerebro_tree_includes_projects_tree(client, monorepo: Path, seed_project) -> None:
     seed_project("demo")
-    (monorepo / "knowledge" / "projects" / "demo" / "docs").mkdir(exist_ok=True)
-    (monorepo / "knowledge" / "projects" / "demo" / "docs" / "one-pager.md").write_text("# one-pager")
+    (monorepo / "content" / "projects" / "demo" / "docs").mkdir(exist_ok=True)
+    (monorepo / "content" / "projects" / "demo" / "docs" / "one-pager.md").write_text("# one-pager")
 
     tree = client.get("/api/cerebro/tree").json()
     projects = next(n for n in tree if n["name"] == "projects")

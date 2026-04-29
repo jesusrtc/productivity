@@ -11,11 +11,11 @@ Why tmux + PTY (and not one or the other):
 
 Session identity lives in TWO places:
 
-- ``knowledge/projects/<id>/project.json`` — durable. Stores the *logical*
+- ``content/projects/<id>/project.json`` — durable. Stores the *logical*
   session list: ``{name, kind, claude_session_id?}``. This is the source of
   truth for "which sessions does this project know about" and for the
   Claude session UUIDs we need to ``--resume``. Survives server restarts.
-- ``knowledge/.sessions.json`` — runtime. Maps the live tmux session name
+- ``content/.sessions.json`` — runtime. Maps the live tmux session name
   (``lab-<project>-<logical>``) back to ``{project_id, logical_name, cwd,
   created_at}``. Re-created on session spawn, cleaned on session kill.
 
@@ -114,7 +114,7 @@ def _tmux_prefix() -> str:
 
 
 # Reserved pseudo-project ids.
-#  * __cerebro__ — the personal knowledge-base view (cwd = knowledge/)
+#  * __cerebro__ — the personal knowledge-base view (cwd = content/)
 #  * __self__    — the productivity monorepo itself    (cwd = repo root)
 # Both behave like regular projects otherwise: they show up in the project-
 # tabs strip, can be closed (X), and reopened from the Home dashboard.
@@ -123,31 +123,31 @@ SELF_PROJECT_ID = "__self__"
 
 
 def _sessions_file(root: Path) -> Path:
-    return root / "knowledge" / ".sessions.json"
+    return root / "content" / ".sessions.json"
 
 
 def _project_json(root: Path, project_id: str) -> Path:
     """Path of the metadata file for a project_id. Pseudo-projects store
-    their sessions[] at a hidden file under knowledge/ that shares
+    their sessions[] at a hidden file under content/ that shares
     project.json's shape."""
     if project_id == CEREBRO_PROJECT_ID:
-        return root / "knowledge" / ".cerebro-project.json"
+        return root / "content" / ".cerebro-project.json"
     if project_id == SELF_PROJECT_ID:
-        return root / "knowledge" / ".self-project.json"
-    return root / "knowledge" / "projects" / project_id / "project.json"
+        return root / "content" / ".self-project.json"
+    return root / "content" / "projects" / project_id / "project.json"
 
 
 def _project_cwd(root: Path, project_id: str) -> Path:
     """Absolute cwd for a project_id.
 
-    - ``__cerebro__`` → knowledge/
+    - ``__cerebro__`` → content/
     - ``__self__``    → monorepo root (so claude sees apps/, docs/, etc.)
     """
     if project_id == CEREBRO_PROJECT_ID:
-        return (root / "knowledge").resolve()
+        return (root / "content").resolve()
     if project_id == SELF_PROJECT_ID:
         return root.resolve()
-    return (root / "knowledge" / "projects" / project_id).resolve()
+    return (root / "content" / "projects" / project_id).resolve()
 
 
 # ─── runtime metadata (.sessions.json) ──────────────────────────────────────
@@ -175,7 +175,7 @@ def _load_project(root: Path, project_id: str) -> dict | None:
     # Pre-rename migration: if the Cerebro file doesn't exist yet but the
     # old ``.knowledge-project.json`` does, rename it in place. One-shot.
     if project_id == CEREBRO_PROJECT_ID and not p.is_file():
-        legacy = root / "knowledge" / ".knowledge-project.json"
+        legacy = root / "content" / ".knowledge-project.json"
         if legacy.is_file():
             try:
                 legacy.rename(p)

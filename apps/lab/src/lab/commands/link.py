@@ -2,15 +2,15 @@
 
 A project's ``links/`` folder is a curated set of symlinks pointing at docs
 that live elsewhere in the monorepo — other projects' one-pagers, shared
-wikis under ``knowledge/wikis/``, meeting notes. The server already lists
+wikis under ``content/wikis/``, meeting notes. The server already lists
 these in the file sidebar, so they read exactly like local docs without
 duplicating content.
 
 Example:
 
-    cd knowledge/projects/foo
+    cd content/projects/foo
     lab link add ../bar/docs/one-pager.md            # -> links/one-pager.md
-    lab link add knowledge/wikis/platform.md         # -> links/platform.md
+    lab link add content/wikis/platform.md           # -> links/platform.md
     lab link add ../bar/docs/vision.md --name vision # -> links/vision.md
 """
 from __future__ import annotations

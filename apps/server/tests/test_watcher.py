@@ -19,7 +19,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
     w.start()
     try:
-        target = monorepo / "knowledge" / "projects" / ".probe"
+        target = monorepo / "content" / "projects" / ".probe"
         target.mkdir()
         for i in range(5):
             (target / f"f{i}.md").write_text("x")

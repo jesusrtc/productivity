@@ -11,7 +11,7 @@ from server.state import IndexCache
 
 
 class IndexWatcher:
-    """Watch `knowledge/` and rebuild the index on any change, debounced."""
+    """Watch `content/` and rebuild the index on any change, debounced."""
 
     def __init__(self, root: Path, cache: IndexCache, *,
                  debounce_ms: int,
@@ -24,7 +24,7 @@ class IndexWatcher:
         self._timer: threading.Timer | None = None
         self._timer_lock = threading.Lock()
         self._stopped = False
-        # The index cache writes `knowledge/.index.json` on every rebuild via an
+        # The index cache writes `content/.index.json` on every rebuild via an
         # atomic rename from `.index.json.<tmpsuffix>`. Those writes live inside
         # the watched tree, so we ignore them to avoid an infinite
         # debounce-then-rebuild cascade.
@@ -37,7 +37,7 @@ class IndexWatcher:
             name = Path(p).name
             if name == ".index.json" or name.startswith(".index.json."):
                 return True
-            # Terminal sessions metadata lives in knowledge/.sessions.json.
+            # Terminal sessions metadata lives in content/.sessions.json.
             # Its writes come from /api/term/*; they don't change project or
             # task state, so skip the index rebuild + WS broadcast.
             if name == ".sessions.json" or name.startswith(".sessions.json."):
@@ -78,9 +78,9 @@ class IndexWatcher:
         handler = FileSystemEventHandler()
         handler.on_any_event = self._on_change
         observer = Observer()
-        knowledge = self._root / "knowledge"
-        knowledge.mkdir(parents=True, exist_ok=True)
-        observer.schedule(handler, str(knowledge), recursive=True)
+        content = self._root / "content"
+        content.mkdir(parents=True, exist_ok=True)
+        observer.schedule(handler, str(content), recursive=True)
         observer.start()
         self._observer = observer
 

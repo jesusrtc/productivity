@@ -572,7 +572,7 @@ def test_post_project_new_creates_on_disk(client, monorepo) -> None:
     assert body["id"] == "alpha"
     assert body["priority"] == "P1"
 
-    on_disk = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert on_disk["description"] == "Alpha description"
     assert on_disk["tags"] == ["x", "y"]
 
@@ -1545,7 +1545,7 @@ function docsList(pid, docs) {
   if (!docs.length) return h("p", null, "No docs, notes, or assets.");
   const items = docs.map((d) => h("li", null,
     h("a", {
-      href: "#/md?path=" + encodeURIComponent(`knowledge/projects/${pid}/${d.path}`),
+      href: "#/md?path=" + encodeURIComponent(`content/projects/${pid}/${d.path}`),
     }, d.path),
     h("span", { style: "color:#999; margin-left:8px; font-size:11px" }, `${d.size} bytes`),
   ));

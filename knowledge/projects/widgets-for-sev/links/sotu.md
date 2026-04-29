@@ -1,1 +1,0 @@
-../../davi-great-vision/docs/sotu.md

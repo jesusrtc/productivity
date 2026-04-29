@@ -66,9 +66,9 @@ def _parse_until_to_iso(spec: str) -> str:
     return dt.isoformat(timespec="seconds")
 
 
-# Canonical CLAUDE.md lives in `knowledge/skills/`. Every project's
+# Canonical CLAUDE.md lives in `content/skills/`. Every project's
 # `CLAUDE.md` is a symlink to it so updates land in one place.
-_CLAUDE_CANONICAL_REL = Path("knowledge") / "skills" / "project-CLAUDE.md"
+_CLAUDE_CANONICAL_REL = Path("content") / "skills" / "project-CLAUDE.md"
 
 
 def _canonical_claude_md(root: Path) -> Path:
@@ -112,7 +112,7 @@ _PROJECT_SETTABLE = {
 
 
 def _iter_project_files(root: Path):
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):
@@ -135,7 +135,7 @@ def project_group() -> None:
 @click.option("--labels", default="", help="Comma-separated MP labels")
 def new(project_id: str, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
-    """Create a new project under knowledge/projects/<id>/."""
+    """Create a new project under content/projects/<id>/."""
     root = paths.find_monorepo_root()
     try:
         project = Project.from_dict({
@@ -164,7 +164,7 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
         storage.write_json(paths.project_file(root, project.id), project.to_dict())
         storage.write_json(paths.tasks_file(root, project.id), {"next_id": 1, "tasks": []})
 
-        # CLAUDE.md is a symlink to knowledge/skills/project-CLAUDE.md so
+        # CLAUDE.md is a symlink to content/skills/project-CLAUDE.md so
         # every project picks up shared instructions without drift.
         _symlink_claude_md(pdir, root)
     except Exception:
@@ -434,7 +434,7 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
     """Move flat-layout worktrees into each project's ``worktrees/`` subfolder.
 
     Older projects stored worktrees directly under the project dir
-    (``knowledge/projects/<p>/<prefix>-<obj>``). New layout nests them
+    (``content/projects/<p>/<prefix>-<obj>``). New layout nests them
     under a dedicated ``worktrees/`` sibling. Uses ``git worktree move``
     so the MP-side admin state stays consistent, then rewrites
     ``project.json.worktrees[].dir`` to the new relative path.
@@ -442,7 +442,7 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
     Skips entries already at ``worktrees/*``. Safe to re-run.
     """
     root = paths.find_monorepo_root()
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         click.echo("no projects yet.")
         return
@@ -508,7 +508,7 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
               help="Only re-symlink this project's CLAUDE.md; default: every project.")
 def relink(project_id: str | None) -> None:
     """Ensure every (or one) project's CLAUDE.md is a symlink to the canonical
-    ``knowledge/skills/project-CLAUDE.md``. Idempotent — run it after editing
+    ``content/skills/project-CLAUDE.md``. Idempotent — run it after editing
     the canonical file or after pulling changes.
     """
     root = paths.find_monorepo_root()
@@ -517,7 +517,7 @@ def relink(project_id: str | None) -> None:
         raise click.ClickException(
             f"canonical file missing: {target} — create it or pull the repo"
         )
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         click.echo("no projects yet.")
         return
@@ -551,7 +551,7 @@ def relink(project_id: str | None) -> None:
 @click.argument("mp")
 @click.option("--branch", default=None, help="Override computed branch name")
 def add(project_id: str, mp: str, branch: str | None) -> None:
-    """Create a git worktree of MP at knowledge/projects/<project>/<mp-prefix>-<objective>/."""
+    """Create a git worktree of MP at content/projects/<project>/<mp-prefix>-<objective>/."""
     pid = _require_valid_id(project_id)
     root = paths.find_monorepo_root()
     pdir = paths.project_dir(root, pid)

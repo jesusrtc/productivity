@@ -65,7 +65,7 @@ def test_create_claude_session_for_project(client, seed_project, isolated_prefix
                           capture_output=True).returncode == 0
 
     # project.json now has a durable sessions[] entry with the id.
-    pjson = json.loads((monorepo / "knowledge" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"] == [{
         "name": "claude", "kind": "claude",
         "claude_session_id": body["claude_session_id"],
@@ -181,7 +181,7 @@ def test_kill_project_sessions_removes_all(client, seed_project, isolated_prefix
     # No live sessions remain.
     assert client.get("/api/term/sessions?project_id=demo").json() == []
     # But project.json still has the saved entries (not purged).
-    pjson = json.loads((monorepo / "knowledge" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
     assert len(pjson["sessions"]) == 2
 
 
@@ -192,7 +192,7 @@ def test_kill_project_sessions_purge_clears_saved(client, seed_project, isolated
 
     r = client.delete("/api/term/sessions/project/demo?purge=true")
     assert r.status_code == 200
-    pjson = json.loads((monorepo / "knowledge" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"] == []
 
 
@@ -371,7 +371,7 @@ def test_session_order_reorder_saved_and_affect_live_list(client, seed_project,
     assert r.json()["order"] == new_order
 
     # Saved order updated.
-    pjson = _json.loads((monorepo / "knowledge" / "projects" / "demo" / "project.json").read_text())
+    pjson = _json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
     assert [s["name"] for s in pjson["sessions"]] == new_order
 
     # Live list reflects saved order.
@@ -425,7 +425,7 @@ def test_delete_single_session_does_not_purge_project_json(client, seed_project,
     assert subprocess.run(["tmux", "has-session", "-t", first["name"]],
                           capture_output=True).returncode != 0
     # …but the project.json entry with the claude UUID persists so we can --resume later.
-    pjson = json.loads((monorepo / "knowledge" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"][0]["claude_session_id"] == first["claude_session_id"]
 
 
@@ -473,7 +473,7 @@ def test_tab_close_then_reopen_restores_all_sessions(client, seed_project,
 
 def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
                                              monorepo: Path) -> None:
-    """__cerebro__ is a pseudo-project: cwd = knowledge/, storage = hidden
+    """__cerebro__ is a pseudo-project: cwd = content/, storage = hidden
     file. Behaves like a real project for session create + resume."""
     r = client.post("/api/term/sessions", json={
         "project_id": "__cerebro__", "kind": "claude",
@@ -481,11 +481,11 @@ def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["name"] == isolated_prefix + "__cerebro__-claude"
-    assert body["cwd"].endswith("/knowledge")
+    assert body["cwd"].endswith("/content")
     assert body["claude_session_id"], "cerebro sessions still mint a UUID"
 
-    # The saved sessions go into knowledge/.cerebro-project.json.
-    meta_path = monorepo / "knowledge" / ".cerebro-project.json"
+    # The saved sessions go into content/.cerebro-project.json.
+    meta_path = monorepo / "content" / ".cerebro-project.json"
     assert meta_path.is_file()
     data = json.loads(meta_path.read_text())
     assert data["sessions"][0]["name"] == "claude"
@@ -506,5 +506,5 @@ def test_delete_with_purge_clears_project_json_entry(client, seed_project,
     first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
 
     client.delete(f"/api/term/sessions/{first['name']}?purge=true")
-    pjson = json.loads((monorepo / "knowledge" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"] == []

@@ -27,7 +27,7 @@ def test_task_new_basic(monorepo: Path, seed_project) -> None:
         "--project", "alpha", "--priority", "P1",
     ])
     assert result.exit_code == 0, result.output
-    tasks = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())
     assert tasks["next_id"] == 2
     assert len(tasks["tasks"]) == 1
     t = tasks["tasks"][0]
@@ -45,7 +45,7 @@ def test_task_new_with_file_creates_notes(monorepo: Path, seed_project) -> None:
         "--project", "alpha", "--priority", "P1", "--file",
     ])
     assert result.exit_code == 0, result.output
-    notes_dir = monorepo / "knowledge" / "projects" / "alpha" / "notes"
+    notes_dir = monorepo / "content" / "projects" / "alpha" / "notes"
     notes = list(notes_dir.iterdir())
     assert len(notes) == 1
     content = notes[0].read_text()
@@ -76,7 +76,7 @@ def test_task_new_full_fields(monorepo: Path, seed_project) -> None:
         "--tags", "review,meet", "--labels", "lipy-davi",
     ])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["loe"] == 0.5
     assert t["due"] == "2026-04-20"
     assert t["tags"] == ["review", "meet"]
@@ -88,7 +88,7 @@ def test_task_new_next_id_increments(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["task", "new", "a", "--project", "alpha", "--priority", "P2"])
     runner.invoke(main, ["task", "new", "b", "--project", "alpha", "--priority", "P2"])
-    tasks = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())
     assert tasks["next_id"] == 3
     assert [t["id"] for t in tasks["tasks"]] == [1, 2]
 
@@ -149,7 +149,7 @@ def test_task_done_sets_closed_at(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "new", "ship it", "--project", "alpha", "--priority", "P1"])
     result = runner.invoke(main, ["task", "done", "1", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "done"
     assert t["closed_at"] is not None
 
@@ -161,7 +161,7 @@ def test_task_reopen_clears_closed_at(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "done", "1", "--project", "alpha"])
     result = runner.invoke(main, ["task", "reopen", "1", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "in_progress"
     assert t["closed_at"] is None
 
@@ -179,7 +179,7 @@ def test_task_block_sets_blocker(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "new", "blocked-task", "--project", "alpha", "--priority", "P2"])
     result = runner.invoke(main, ["task", "block", "1", "waiting on legal", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "blocked"
     assert t["blocker"] == "waiting on legal"
 
@@ -191,7 +191,7 @@ def test_task_unblock_clears(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "block", "1", "stuck", "--project", "alpha"])
     result = runner.invoke(main, ["task", "unblock", "1", "--project", "alpha"])
     assert result.exit_code == 0
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "in_progress"
     assert t["blocker"] is None
 
@@ -214,7 +214,7 @@ def test_task_set_field(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
     result = runner.invoke(main, ["task", "set", "1", "priority", "P0", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["priority"] == "P0"
 
 
@@ -231,7 +231,7 @@ def test_task_set_tags_csv(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
     runner.invoke(main, ["task", "set", "1", "tags", "a,b", "--project", "alpha"])
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["tags"] == ["a", "b"]
 
 

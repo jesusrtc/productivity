@@ -9,7 +9,7 @@ from lab import paths, search as search_mod
 @click.argument("query")
 @click.option("--kind", type=click.Choice(["all", "projects", "tasks", "docs"]), default="all")
 def search_cmd(query: str, kind: str) -> None:
-    """Grep knowledge/ for a keyword across projects, tasks, and markdown docs."""
+    """Grep content/ for a keyword across projects, tasks, and markdown docs."""
     root = paths.find_monorepo_root()
     result = search_mod.search(root, query)
 

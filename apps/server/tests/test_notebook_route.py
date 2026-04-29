@@ -48,14 +48,14 @@ def _write_notebook(path: Path) -> None:
 
 
 def test_render_notebook_happy_path(client, monorepo) -> None:
-    nb_path = monorepo / "knowledge" / "projects" / "demo" / "notebooks" / "foo.ipynb"
+    nb_path = monorepo / "content" / "projects" / "demo" / "notebooks" / "foo.ipynb"
     _write_notebook(nb_path)
 
-    r = client.get("/api/nb?path=knowledge/projects/demo/notebooks/foo.ipynb")
+    r = client.get("/api/nb?path=content/projects/demo/notebooks/foo.ipynb")
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["path"] == "knowledge/projects/demo/notebooks/foo.ipynb"
+    assert body["path"] == "content/projects/demo/notebooks/foo.ipynb"
     assert isinstance(body["mtime"], float)
     assert body["mtime"] > 0
 
@@ -77,7 +77,7 @@ def test_render_notebook_happy_path(client, monorepo) -> None:
 
 
 def test_render_notebook_missing_file(client) -> None:
-    r = client.get("/api/nb?path=knowledge/projects/demo/notebooks/nope.ipynb")
+    r = client.get("/api/nb?path=content/projects/demo/notebooks/nope.ipynb")
     assert r.status_code == 404
 
 
@@ -92,8 +92,8 @@ def test_render_notebook_rejects_traversal(client) -> None:
 
 
 def test_render_notebook_rejects_non_ipynb(client, monorepo) -> None:
-    path = monorepo / "knowledge" / "projects" / "demo" / "notebooks" / "foo.txt"
+    path = monorepo / "content" / "projects" / "demo" / "notebooks" / "foo.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("hi")
-    r = client.get("/api/nb?path=knowledge/projects/demo/notebooks/foo.txt")
+    r = client.get("/api/nb?path=content/projects/demo/notebooks/foo.txt")
     assert r.status_code == 400

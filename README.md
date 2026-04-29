@@ -18,7 +18,7 @@ Installs `lab` into `~/.local/bin/`. Make sure `~/.local/bin` is on your PATH.
 ## Layout
 
 - `apps/lab/` — the unified CLI (Python)
-- `knowledge/projects/<id>/` — active projects
-- `knowledge/{meetings,wikis,roadmaps,logs,skills}/` — content
+- `content/projects/<id>/` — active projects (separate git repo, not tracked here)
+- `content/{meetings,wikis,roadmaps,logs,skills}/` — content (separate git repo, not tracked here)
 
 More in the design spec.

@@ -24,16 +24,16 @@ content**, not as an empty shell.
 
 ### A. Content lives in the monorepo
 
-- [x] `knowledge/projects/<id>/project.json + tasks.json + docs/ + notes/ + assets/`
-- [ ] All legacy cerebro content migrated into `knowledge/`:
-  - [ ] `knowledge/meetings/` ← from `cerebro/meetings/`
-  - [ ] `knowledge/wikis/` ← from `cerebro/wikis/`
-  - [ ] `knowledge/roadmaps/` ← from `cerebro/roadmaps/`
-  - [ ] `knowledge/logs/` ← from `cerebro/logs/`
-  - [ ] `knowledge/skills/` ← from `cerebro/skills/`
-  - [ ] `knowledge/im_weekly_update/` ← from `cerebro/im_weekly_update/`
-  - [ ] `knowledge/templates/` ← from `cerebro/templates/` (if relevant)
-- [ ] All 14 projects under `~/projects/*` migrated into `knowledge/projects/*`,
+- [x] `content/projects/<id>/project.json + tasks.json + docs/ + notes/ + assets/`
+- [ ] All legacy cerebro content migrated into `content/`:
+  - [ ] `content/meetings/` ← from `cerebro/meetings/`
+  - [ ] `content/wikis/` ← from `cerebro/wikis/`
+  - [ ] `content/roadmaps/` ← from `cerebro/roadmaps/`
+  - [ ] `content/logs/` ← from `cerebro/logs/`
+  - [ ] `content/skills/` ← from `cerebro/skills/`
+  - [ ] `content/im_weekly_update/` ← from `cerebro/im_weekly_update/`
+  - [ ] `content/templates/` ← from `cerebro/templates/` (if relevant)
+- [ ] All 14 projects under `~/projects/*` migrated into `content/projects/*`,
   each with a proper `project.json` + `tasks.json` converted from the old
   `actions.json` + one-pager/investigation docs preserved + worktrees re-linked:
   - [ ] alerting-migration
@@ -67,7 +67,7 @@ content**, not as an empty shell.
   (`lipy-davi`, `im_playbooks`, `abuse-scoring-rules`, `abuse-short-term-action`, ...)
 - [ ] `make pull-repos` does `mint clone` for missing repos + `git pull master` for present ones
 - [ ] `lab project add <name> <mp>` creates a git worktree at
-  `knowledge/projects/<name>/<prefix>-<objective>/` on branch `jcortes/<objective>`
+  `content/projects/<name>/<prefix>-<objective>/` on branch `jcortes/<objective>`
 - [ ] `lab project remove <name> <mp>` cleans up the worktree
 - [ ] MP→prefix map configured: `lipy-davi→davi`, `abuse-scoring-rules→drools`,
   `abuse-short-term-action→asta`, `im_playbooks→im`, extensible via `lab repo prefix`
@@ -120,9 +120,9 @@ content**, not as an empty shell.
 - [ ] `.claude/agents/intake-processor.md` ← copied from `apps/project/project.sh` agent block
 - [ ] `.claude/agents/query-reference.md` ← same source
 - [ ] `.claude/agents/migration-agent.md` ← new; drives the §A migration
-- [ ] `knowledge/skills/investigation/` ← structured investigation template (funnel, IOC, data approach, tools)
-- [ ] `knowledge/skills/one-pager/` ← one-pager template
-- [ ] `knowledge/skills/weekly-update/` ← the existing cerebro weekly-update skill
+- [ ] `content/skills/investigation/` ← structured investigation template (funnel, IOC, data approach, tools)
+- [ ] `content/skills/one-pager/` ← one-pager template
+- [ ] `content/skills/weekly-update/` ← the existing cerebro weekly-update skill
 - [ ] Root `CLAUDE.md` points at these agents + skills so a fresh session in the monorepo knows what's available
 
 ### H. Claude integration
@@ -164,7 +164,7 @@ content**, not as an empty shell.
 
 Ordered by user-value-per-minute:
 
-1. **Content migration** (§A) — copy cerebro/* into knowledge/*, run a migration sweep on the 13 keeper projects under `~/projects/*`. After this step the user can actually use the monorepo with their real data instead of a blank dashboard.
+1. **Content migration** (§A) — copy cerebro/* into content/*, run a migration sweep on the 13 keeper projects under `~/projects/*`. After this step the user can actually use the monorepo with their real data instead of a blank dashboard.
 2. **Frontend polish** (§F bullets) — inline form modal for new project/new task, fix the docs tab for non-md files, filter done tasks out of the due strip, wire WS auto-reconnect.
 3. **Worktree commands** (§C + §D) — `lab project add/remove`, MP prefix config, `make pull-repos`. Enables coding work against lipy-davi / abuse-scoring-rules / abuse-short-term-action.
 4. **Tool apps migration** (§B) — move darwin-runner, darwin-backups, trustim-ir-cli into `apps/`, add symlinks, verify they still run.

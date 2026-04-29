@@ -34,7 +34,7 @@ Index + project/task APIs:
 - `GET  /api/projects/{id}/file?path=...`
 - `GET  /api/tasks[?status=...&priority=...&tag=...&label=...]`
 - `GET  /api/tasks/due?days=N`
-- `GET  /api/markdown?path=knowledge/...`
+- `GET  /api/markdown?path=content/...`
 - `GET  /api/search?q=...`
 - `WS   /ws`
 

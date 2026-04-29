@@ -120,7 +120,7 @@ def darwin_run(code: str | None, file_path: Path | None, timeout: int,
                notebook: str | None, label: str | None) -> None:
     """Execute CODE on the Darwin remote kernel.
 
-    Must be run from inside a ``knowledge/projects/<id>/`` directory so
+    Must be run from inside a ``content/projects/<id>/`` directory so
     ``darwin-runner`` can resolve ``project.json`` and pick the notebook
     + kernel state. Prefer ``--file <path>`` over inline quoting when the
     snippet is multi-line or contains nested quotes.

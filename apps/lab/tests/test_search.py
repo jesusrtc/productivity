@@ -43,13 +43,13 @@ def test_search_matches_task_title(monorepo: Path, seed_project) -> None:
 
 
 def test_search_matches_md_docs(monorepo: Path) -> None:
-    (monorepo / "knowledge" / "meetings" / "notes.md").write_text(
+    (monorepo / "content" / "meetings" / "notes.md").write_text(
         "# Meeting\nTopic: banana logistics\nFollow-up next week.",
         encoding="utf-8",
     )
     r = search(monorepo, "banana logistics")
     assert len(r["docs"]) == 1
-    assert "knowledge/meetings/notes.md" in r["docs"][0]["path"]
+    assert "content/meetings/notes.md" in r["docs"][0]["path"]
     assert "banana logistics" in r["docs"][0]["snippet"].lower()
 
 

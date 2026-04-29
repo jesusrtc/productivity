@@ -11,11 +11,11 @@ import pytest
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a minimal monorepo layout under tmp_path and point `LAB_ROOT` at it."""
     root = tmp_path / "productivity"
-    (root / "knowledge" / "projects").mkdir(parents=True)
-    (root / "knowledge" / "meetings").mkdir()
-    (root / "knowledge" / "skills").mkdir()
+    (root / "content" / "projects").mkdir(parents=True)
+    (root / "content" / "meetings").mkdir()
+    (root / "content" / "skills").mkdir()
     # Canonical per-project CLAUDE.md target (tests symlink to this).
-    (root / "knowledge" / "skills" / "project-CLAUDE.md").write_text(
+    (root / "content" / "skills" / "project-CLAUDE.md").write_text(
         "# shared project CLAUDE.md (test fixture)\n\n"
         "Run `lab project status` for current state.\n"
     )
@@ -31,7 +31,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def seed_project(monorepo: Path):
     """Factory to create a blank project under the fixture monorepo."""
     def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "knowledge" / "projects" / project_id
+        pdir = monorepo / "content" / "projects" / project_id
         pdir.mkdir(parents=True)
         (pdir / "project.json").write_text(json.dumps({
             "id": project_id,

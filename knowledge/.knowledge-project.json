@@ -1,9 +1,0 @@
-{
-  "sessions": [
-    {
-      "name": "claude",
-      "kind": "claude",
-      "claude_session_id": "7bfd1401-7e5b-4e8b-b61a-6b10de093b96"
-    }
-  ]
-}

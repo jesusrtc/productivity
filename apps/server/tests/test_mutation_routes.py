@@ -14,7 +14,7 @@ def test_post_project_new_creates_on_disk(client, monorepo) -> None:
     assert body["id"] == "alpha"
     assert body["priority"] == "P1"
 
-    on_disk = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert on_disk["description"] == "Alpha description"
     assert on_disk["tags"] == ["x", "y"]
 

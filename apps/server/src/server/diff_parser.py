@@ -20,7 +20,7 @@ def _monorepo_root() -> Path:
 
 
 def _projects_dir() -> Path:
-    return _monorepo_root() / "knowledge" / "projects"
+    return _monorepo_root() / "content" / "projects"
 
 
 def get_branch(repo: str) -> str:
@@ -352,7 +352,7 @@ def get_file_tree(repo: str) -> list[dict]:
 
 
 def _discover_monorepo_projects() -> list[dict]:
-    """Scan <monorepo>/knowledge/projects/*/project.json and return project dicts.
+    """Scan <monorepo>/content/projects/*/project.json and return project dicts.
 
     Shape matches what the UI expects:
       {"name": str, "is_project": bool, "path": str, "repos": [str]}
@@ -387,7 +387,7 @@ def _discover_monorepo_projects() -> list[dict]:
         # ``dir`` from `lab project add` is the worktree's *basename* (e.g.
         # "im-test-davi-vision"), meant to be relative to this project's
         # folder. We try that first, then fall back to monorepo-root for
-        # older entries that stored a full "knowledge/projects/…/…" path.
+        # older entries that stored a full "content/projects/…/…" path.
         repos: list[str] = []
         worktrees = data.get("worktrees") or []
 
@@ -440,7 +440,7 @@ def get_registered_repos() -> list[dict]:
     """Return project dicts the UI expects.
 
     Primary source: auto-discovered projects from
-    ``<monorepo>/knowledge/projects/*/project.json``.
+    ``<monorepo>/content/projects/*/project.json``.
 
     Fallback: ``/tmp/gdiff-repos.json`` (the legacy registry), when no
     monorepo projects are found or the monorepo layout is absent.

@@ -59,8 +59,8 @@ def test_full_project_lifecycle(monorepo: Path) -> None:
     assert "inbox" in r.output
 
     # Verify on-disk state
-    davi = json.loads((monorepo / "knowledge" / "projects" / "davi-test" / "project.json").read_text())
+    davi = json.loads((monorepo / "content" / "projects" / "davi-test" / "project.json").read_text())
     assert davi["status"] == "archived"
-    tasks = json.loads((monorepo / "knowledge" / "projects" / "davi-test" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "projects" / "davi-test" / "tasks.json").read_text())
     statuses = {t["id"]: t["status"] for t in tasks["tasks"]}
     assert statuses == {1: "done", 2: "blocked", 3: "todo"}

@@ -4,7 +4,7 @@
 
 **Goal:** Create the productivity monorepo skeleton at `~/src/productivity-new/` and build the `lab` CLI with full project + task lifecycle commands, TDD-covered and installed to `~/.local/bin/lab`.
 
-**Architecture:** Python 3.11+ package at `apps/lab/` exposing a click-based CLI. Pure JSON data model (no frontmatter). Atomic file writes. Commands are grouped under `lab project ...` and `lab task ...`. State lives in `knowledge/projects/<id>/{project.json, tasks.json}`. Tests use pytest + click's `CliRunner` against a fixture-created temp monorepo.
+**Architecture:** Python 3.11+ package at `apps/lab/` exposing a click-based CLI. Pure JSON data model (no frontmatter). Atomic file writes. Commands are grouped under `lab project ...` and `lab task ...`. State lives in `content/projects/<id>/{project.json, tasks.json}`. Tests use pytest + click's `CliRunner` against a fixture-created temp monorepo.
 
 **Tech Stack:** Python 3.11, click 8, pytest 8, pytest-cov. No backend / frontend / watcher in this plan — those come in Plan 2 and Plan 3.
 
@@ -78,7 +78,7 @@ lab task unblock <id> [--project <id>]
 │           ├── test_model.py
 │           ├── test_cli_project.py
 │           └── test_cli_task.py
-└── knowledge/
+└── content/
     ├── projects/
     │   └── .gitkeep
     ├── meetings/
@@ -104,7 +104,7 @@ lab task unblock <id> [--project <id>]
 
 ### Test strategy
 
-- `conftest.py` builds a temp monorepo with `knowledge/projects/`. The `monorepo` fixture returns the root path.
+- `conftest.py` builds a temp monorepo with `content/projects/`. The `monorepo` fixture returns the root path.
 - Each command test uses click's `CliRunner.invoke(cli.main, [...], env={"LAB_ROOT": str(monorepo)})` and asserts on exit code, stdout, and on-disk JSON state.
 - Unit tests for `model.py` / `storage.py` / `paths.py` exercise edge cases directly.
 - Coverage target: ≥ 90% for `lab/` package.
@@ -144,7 +144,7 @@ venv/
 
 # Monorepo runtime
 multiproducts/
-knowledge/.index.json
+content/.index.json
 
 # macOS
 .DS_Store
@@ -183,8 +183,8 @@ Installs `lab` into `~/.local/bin/`. Make sure `~/.local/bin` is on your PATH.
 ## Layout
 
 - `apps/lab/` — the unified CLI (Python)
-- `knowledge/projects/<id>/` — active projects
-- `knowledge/{meetings,wikis,roadmaps,logs,skills}/` — content
+- `content/projects/<id>/` — active projects
+- `content/{meetings,wikis,roadmaps,logs,skills}/` — content
 
 More in the design spec.
 ```
@@ -197,13 +197,13 @@ Create `~/src/productivity-new/.python-version`:
 3.11
 ```
 
-- [ ] **Step 5: Create knowledge/ skeleton with `.gitkeep` markers**
+- [ ] **Step 5: Create content/ skeleton with `.gitkeep` markers**
 
 Run:
 ```bash
 cd ~/src/productivity-new
 for d in projects meetings wikis roadmaps logs skills; do
-  mkdir -p "knowledge/$d" && touch "knowledge/$d/.gitkeep"
+  mkdir -p "content/$d" && touch "content/$d/.gitkeep"
 done
 ```
 
@@ -216,7 +216,7 @@ git add .
 git status
 ```
 
-Expected: `.gitignore`, `.python-version`, `README.md`, `knowledge/**/.gitkeep` all staged.
+Expected: `.gitignore`, `.python-version`, `README.md`, `content/**/.gitkeep` all staged.
 
 Run:
 ```bash
@@ -246,20 +246,20 @@ Use `lab`. Run `lab --help` for commands. Never hand-edit `project.json`, `tasks
 
 ## Where things live
 
-- `knowledge/projects/<id>/` — active projects (one folder each, contains `project.json`, `tasks.json`, `docs/`, `notes/`, `assets/`, and any worktrees)
-- `knowledge/{meetings,wikis,roadmaps,logs}/` — knowledge that isn't project-scoped
-- `knowledge/skills/` — shared templates (investigation, one-pager, weekly-update)
+- `content/projects/<id>/` — active projects (one folder each, contains `project.json`, `tasks.json`, `docs/`, `notes/`, `assets/`, and any worktrees)
+- `content/{meetings,wikis,roadmaps,logs}/` — knowledge that isn't project-scoped
+- `content/skills/` — shared templates (investigation, one-pager, weekly-update)
 - `apps/` — CLIs and the web service (Plan 1 only has `apps/lab/`)
 - `multiproducts/` — gitignored MP clones (added in Plan 4)
 - `.claude/agents/` — shared agents (added in later plans)
 
 ## On project work
 
-When you're in `knowledge/projects/<id>/`, read that project's `CLAUDE.md` too. It's auto-generated and contains the project's objective and tool references.
+When you're in `content/projects/<id>/`, read that project's `CLAUDE.md` too. It's auto-generated and contains the project's objective and tool references.
 
 ## Archetypes (no types)
 
-Projects are not labeled by archetype. If asked to investigate, draft from `knowledge/skills/investigation/` (once it exists). For a one-pager, use `knowledge/skills/one-pager/`. Pick based on the ask.
+Projects are not labeled by archetype. If asked to investigate, draft from `content/skills/investigation/` (once it exists). For a one-pager, use `content/skills/one-pager/`. Pick based on the ask.
 ```
 
 - [ ] **Step 2: Write `Makefile` with install target**
@@ -474,9 +474,9 @@ import pytest
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a minimal monorepo layout under tmp_path and point `LAB_ROOT` at it."""
     root = tmp_path / "productivity"
-    (root / "knowledge" / "projects").mkdir(parents=True)
-    (root / "knowledge" / "meetings").mkdir()
-    (root / "knowledge" / "skills").mkdir()
+    (root / "content" / "projects").mkdir(parents=True)
+    (root / "content" / "meetings").mkdir()
+    (root / "content" / "skills").mkdir()
     # git repo marker so find_monorepo_root() works without running git
     (root / ".git").mkdir()
     (root / "CLAUDE.md").write_text("# monorepo test fixture\n")
@@ -489,7 +489,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def seed_project(monorepo: Path):
     """Factory to create a blank project under the fixture monorepo."""
     def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "knowledge" / "projects" / project_id
+        pdir = monorepo / "content" / "projects" / project_id
         pdir.mkdir(parents=True)
         (pdir / "project.json").write_text(json.dumps({
             "id": project_id,
@@ -520,7 +520,7 @@ from pathlib import Path
 
 
 def test_monorepo_fixture_creates_structure(monorepo: Path) -> None:
-    assert (monorepo / "knowledge" / "projects").is_dir()
+    assert (monorepo / "content" / "projects").is_dir()
     assert (monorepo / ".git").is_dir()
 
 
@@ -584,7 +584,7 @@ def test_find_monorepo_root_uses_env_var(monorepo: Path, monkeypatch: pytest.Mon
 
 def test_find_monorepo_root_walks_up_from_subdir(monorepo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LAB_ROOT", raising=False)
-    sub = monorepo / "knowledge" / "projects"
+    sub = monorepo / "content" / "projects"
     monkeypatch.chdir(sub)
     # macOS tmp_path is under /var → /private/var symlink; compare resolved paths.
     assert find_monorepo_root().resolve() == monorepo.resolve()
@@ -598,11 +598,11 @@ def test_find_monorepo_root_raises_when_not_in_repo(tmp_path: Path, monkeypatch:
 
 
 def test_project_dir_composes_path(monorepo: Path) -> None:
-    assert project_dir(monorepo, "davi-vision") == monorepo / "knowledge" / "projects" / "davi-vision"
+    assert project_dir(monorepo, "davi-vision") == monorepo / "content" / "projects" / "davi-vision"
 
 
 def test_project_file_and_tasks_file(monorepo: Path) -> None:
-    pdir = monorepo / "knowledge" / "projects" / "davi-vision"
+    pdir = monorepo / "content" / "projects" / "davi-vision"
     assert project_file(monorepo, "davi-vision") == pdir / "project.json"
     assert tasks_file(monorepo, "davi-vision") == pdir / "tasks.json"
 ```
@@ -636,7 +636,7 @@ def find_monorepo_root(start: Path | None = None) -> Path:
     Resolution order:
       1. `LAB_ROOT` environment variable (absolute path).
       2. Walk up from `start` (defaults to PWD) until a directory containing
-         both `.git` and `knowledge/` is found.
+         both `.git` and `content/` is found.
 
     Raises `MonorepoNotFound` if neither resolves.
     """
@@ -646,7 +646,7 @@ def find_monorepo_root(start: Path | None = None) -> Path:
 
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        if (candidate / ".git").exists() and (candidate / "knowledge").is_dir():
+        if (candidate / ".git").exists() and (candidate / "content").is_dir():
             return candidate
     raise MonorepoNotFound(
         f"No monorepo found from {current}. Set LAB_ROOT or run inside the repo."
@@ -654,7 +654,7 @@ def find_monorepo_root(start: Path | None = None) -> Path:
 
 
 def project_dir(root: Path, project_id: str) -> Path:
-    return root / "knowledge" / "projects" / project_id
+    return root / "content" / "projects" / project_id
 
 
 def project_file(root: Path, project_id: str) -> Path:
@@ -1348,7 +1348,7 @@ def test_project_new_creates_directory_and_files(monorepo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "new", "davi-vision", "--desc", "Reshape DAVI"])
     assert result.exit_code == 0, result.output
-    pdir = monorepo / "knowledge" / "projects" / "davi-vision"
+    pdir = monorepo / "content" / "projects" / "davi-vision"
     assert pdir.is_dir()
     assert (pdir / "docs").is_dir()
     assert (pdir / "notes").is_dir()
@@ -1374,7 +1374,7 @@ def test_project_new_with_priority_due_tags_labels(monorepo: Path) -> None:
         "--labels", "abuse-scoring-rules",
     ])
     assert result.exit_code == 0, result.output
-    proj = json.loads((monorepo / "knowledge" / "projects" / "drools-rate" / "project.json").read_text())
+    proj = json.loads((monorepo / "content" / "projects" / "drools-rate" / "project.json").read_text())
     assert proj["priority"] == "P1"
     assert proj["due"] == "2026-05-01"
     assert proj["tags"] == ["limits", "abuse"]
@@ -1398,7 +1398,7 @@ def test_project_new_rejects_bad_id(monorepo: Path) -> None:
 def test_project_new_creates_per_project_CLAUDE_md(monorepo: Path) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "new", "x", "--desc", "Do stuff"])
-    claude = (monorepo / "knowledge" / "projects" / "x" / "CLAUDE.md").read_text()
+    claude = (monorepo / "content" / "projects" / "x" / "CLAUDE.md").read_text()
     assert "x" in claude and "Do stuff" in claude
     assert "lab project status" in claude
 ```
@@ -1440,7 +1440,7 @@ Use `lab task ...`. Current tasks: `lab task ls`.
 - `apps/darwin-backups q "…"` — query past notebooks
 - `apps/trustim-ir-cli` — inResponse queries
 
-Shared agents at repo root `.claude/agents/`. Templates at `knowledge/skills/`.
+Shared agents at repo root `.claude/agents/`. Templates at `content/skills/`.
 """
 
 
@@ -1464,7 +1464,7 @@ def project_group() -> None:
 @click.option("--labels", default="", help="Comma-separated MP labels")
 def new(project_id: str, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
-    """Create a new project under knowledge/projects/<id>/."""
+    """Create a new project under content/projects/<id>/."""
     root = paths.find_monorepo_root()
     pdir = paths.project_dir(root, project_id)
 
@@ -1584,7 +1584,7 @@ Append to `apps/lab/src/lab/commands/project.py`:
 
 
 def _iter_project_files(root: Path):
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):
@@ -1692,7 +1692,7 @@ def _resolve_project_id(explicit: str | None) -> str:
     if explicit:
         return explicit
     root = paths.find_monorepo_root()
-    projects_root = (root / "knowledge" / "projects").resolve()
+    projects_root = (root / "content" / "projects").resolve()
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
         if candidate.parent == projects_root:
@@ -1770,7 +1770,7 @@ def test_project_set_updates_field(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "set", "alpha", "description", "New desc"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["description"] == "New desc"
 
 
@@ -1779,7 +1779,7 @@ def test_project_set_status(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "set", "alpha", "status", "paused"])
     assert result.exit_code == 0
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["status"] == "paused"
 
 
@@ -1796,7 +1796,7 @@ def test_project_set_priority_and_due(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "set", "alpha", "priority", "P0"])
     runner.invoke(main, ["project", "set", "alpha", "due", "2026-05-15"])
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["priority"] == "P0"
     assert data["due"] == "2026-05-15"
 
@@ -1806,7 +1806,7 @@ def test_project_set_tags_and_labels_csv(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "set", "alpha", "tags", "a,b,c"])
     runner.invoke(main, ["project", "set", "alpha", "labels", "lipy-davi"])
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["tags"] == ["a", "b", "c"]
     assert data["labels"] == ["lipy-davi"]
 ```
@@ -1895,7 +1895,7 @@ def test_project_archive(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "archive", "alpha"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["status"] == "archived"
 
 
@@ -1905,7 +1905,7 @@ def test_project_rm_requires_confirmation(monorepo: Path, seed_project) -> None:
     # No confirmation → aborts
     result = runner.invoke(main, ["project", "rm", "alpha"], input="\n")
     assert result.exit_code != 0
-    assert (monorepo / "knowledge" / "projects" / "alpha").exists()
+    assert (monorepo / "content" / "projects" / "alpha").exists()
 
 
 def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
@@ -1913,7 +1913,7 @@ def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "rm", "alpha", "--yes"])
     assert result.exit_code == 0, result.output
-    assert not (monorepo / "knowledge" / "projects" / "alpha").exists()
+    assert not (monorepo / "content" / "projects" / "alpha").exists()
 
 
 def test_project_rm_missing(monorepo: Path) -> None:
@@ -2003,7 +2003,7 @@ def test_task_new_basic(monorepo: Path, seed_project) -> None:
         "--project", "alpha", "--priority", "P1",
     ])
     assert result.exit_code == 0, result.output
-    tasks = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())
     assert tasks["next_id"] == 2
     assert len(tasks["tasks"]) == 1
     t = tasks["tasks"][0]
@@ -2021,7 +2021,7 @@ def test_task_new_with_file_creates_notes(monorepo: Path, seed_project) -> None:
         "--project", "alpha", "--priority", "P1", "--file",
     ])
     assert result.exit_code == 0, result.output
-    notes_dir = monorepo / "knowledge" / "projects" / "alpha" / "notes"
+    notes_dir = monorepo / "content" / "projects" / "alpha" / "notes"
     notes = list(notes_dir.iterdir())
     assert len(notes) == 1
     content = notes[0].read_text()
@@ -2052,7 +2052,7 @@ def test_task_new_full_fields(monorepo: Path, seed_project) -> None:
         "--tags", "review,meet", "--labels", "lipy-davi",
     ])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["loe"] == 0.5
     assert t["due"] == "2026-04-20"
     assert t["tags"] == ["review", "meet"]
@@ -2064,7 +2064,7 @@ def test_task_new_next_id_increments(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["task", "new", "a", "--project", "alpha", "--priority", "P2"])
     runner.invoke(main, ["task", "new", "b", "--project", "alpha", "--priority", "P2"])
-    tasks = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())
     assert tasks["next_id"] == 3
     assert [t["id"] for t in tasks["tasks"]] == [1, 2]
 ```
@@ -2099,7 +2099,7 @@ def _resolve_project_id(explicit: str | None) -> str:
     if explicit:
         return explicit
     root = paths.find_monorepo_root()
-    projects_root = (root / "knowledge" / "projects").resolve()
+    projects_root = (root / "content" / "projects").resolve()
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
         if candidate.parent == projects_root:
@@ -2264,7 +2264,7 @@ def test_task_ls_filter_by_due_window(monorepo: Path, seed_project) -> None:
 
 
 def _iter_all_tasks(root: Path):
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):
@@ -2370,7 +2370,7 @@ def test_task_done_sets_closed_at(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "new", "ship it", "--project", "alpha", "--priority", "P1"])
     result = runner.invoke(main, ["task", "done", "1", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "done"
     assert t["closed_at"] is not None
 
@@ -2382,7 +2382,7 @@ def test_task_reopen_clears_closed_at(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "done", "1", "--project", "alpha"])
     result = runner.invoke(main, ["task", "reopen", "1", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "in_progress"
     assert t["closed_at"] is None
 
@@ -2474,7 +2474,7 @@ def test_task_block_sets_blocker(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "new", "blocked-task", "--project", "alpha", "--priority", "P2"])
     result = runner.invoke(main, ["task", "block", "1", "waiting on legal", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "blocked"
     assert t["blocker"] == "waiting on legal"
 
@@ -2486,7 +2486,7 @@ def test_task_unblock_clears(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "block", "1", "stuck", "--project", "alpha"])
     result = runner.invoke(main, ["task", "unblock", "1", "--project", "alpha"])
     assert result.exit_code == 0
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "in_progress"
     assert t["blocker"] is None
 ```
@@ -2572,7 +2572,7 @@ def test_task_set_field(monorepo: Path, seed_project) -> None:
     runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
     result = runner.invoke(main, ["task", "set", "1", "priority", "P0", "--project", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["priority"] == "P0"
 
 
@@ -2589,7 +2589,7 @@ def test_task_set_tags_csv(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
     runner.invoke(main, ["task", "set", "1", "tags", "a,b", "--project", "alpha"])
-    t = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["tags"] == ["a", "b"]
 ```
 
@@ -2708,7 +2708,7 @@ lab project new inbox --desc "Catch-all for standalone reminders"
 lab project new davi-test-vision --desc "Test project" --priority P1 --labels lipy-davi
 lab project ls
 
-cd knowledge/projects/davi-test-vision
+cd content/projects/davi-test-vision
 lab task new "Draft one-pager" --priority P1 --due 2026-04-20 --file
 lab task new "Review with Jesus" --priority P1 --loe 0.5
 lab task ls
@@ -2803,9 +2803,9 @@ def test_full_project_lifecycle(monorepo: Path) -> None:
     assert "inbox" in r.output
 
     # Verify on-disk state
-    davi = json.loads((monorepo / "knowledge" / "projects" / "davi-test" / "project.json").read_text())
+    davi = json.loads((monorepo / "content" / "projects" / "davi-test" / "project.json").read_text())
     assert davi["status"] == "archived"
-    tasks = json.loads((monorepo / "knowledge" / "projects" / "davi-test" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "projects" / "davi-test" / "tasks.json").read_text())
     statuses = {t["id"]: t["status"] for t in tasks["tasks"]}
     assert statuses == {1: "done", 2: "blocked", 3: "todo"}
 ```

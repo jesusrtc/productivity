@@ -45,11 +45,11 @@ def _monorepo_root() -> Path:
 def _resolve_project_path(path: str) -> Path:
     """Accept either an absolute project path or a bare project id.
 
-    Bare ids are resolved to ``<monorepo>/knowledge/projects/<id>``.
+    Bare ids are resolved to ``<monorepo>/content/projects/<id>``.
     """
     if path.startswith("/"):
         return Path(path)
-    return _monorepo_root() / "knowledge" / "projects" / path
+    return _monorepo_root() / "content" / "projects" / path
 
 
 def _read_project_info(project_path: Path) -> dict | None:
@@ -296,7 +296,7 @@ async def api_project_file(path: str, file: str):
     (no absolute paths, no ``..`` segments). We deliberately do NOT reject
     symlinks whose resolved target lives outside the project — the shared
     ``CLAUDE.md`` in every project is a symlink to
-    ``knowledge/skills/project-CLAUDE.md`` and we want it to read cleanly.
+    ``content/skills/project-CLAUDE.md`` and we want it to read cleanly.
     """
     if file.startswith("/") or ".." in Path(file).parts:
         raise HTTPException(status_code=400, detail="Path traversal not allowed")

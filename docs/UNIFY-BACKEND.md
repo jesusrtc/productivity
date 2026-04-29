@@ -59,7 +59,7 @@ Anything you'd drop: `_____`
 
 - [ ] `/api/index` + watcher + WS `/ws` (live dashboard refresh)
 - [ ] `/api/markdown` (generic md viewer — gdiff already renders md for one-pagers, check if there's duplication)
-- [ ] `/api/search` + `/search` view (grep across knowledge/)
+- [ ] `/api/search` + `/search` view (grep across content/)
 - [ ] POST mutation routes (`/api/projects`, `/api/tasks`, `/api/tasks/{p}/{t}/status`, `/api/projects/{p}/prs`, `/api/projects/{p}/artifacts`)
 - [ ] Dashboard view (project grid + due-this-week strip)
 - [ ] Timeline view (list bucketed by due + Gantt)
@@ -115,7 +115,7 @@ Your answer: `_____`
 ### Phase 3 — data-side cleanup
 
 14. Unify `/api/markdown` vs gdiff's one-pager reader. One renderer, two callers.
-15. Ensure `/api/search` covers everything (code in worktrees? just knowledge/?).
+15. Ensure `/api/search` covers everything (code in worktrees? just content/?).
 16. Single CORS policy (probably none — same-origin only).
 
 ### Phase 4 — polish
@@ -132,7 +132,7 @@ Your answer: `_____`
 - `apps/darwin-runner`, `apps/darwin-backups`, `apps/trustim-ir-cli` — separate CLIs, not web. Stay as they are.
 - `repositories/` + `make pull-repos` — works as-is.
 - `lab` CLI subcommands — no surface change.
-- Existing migrated content under `knowledge/` — untouched.
+- Existing migrated content under `content/` — untouched.
 
 ---
 

@@ -4,7 +4,7 @@
 
 **Goal:** Stand up a FastAPI backend that serves the monorepo's project/task/markdown content over HTTP+WS, with a file-system watcher that keeps a cached global `.index.json` in sync with on-disk changes. Fold Plan-1 tech-debt cleanups into the opening commits.
 
-**Architecture:** A single FastAPI service on port 3333 exposes read-only `/api/*` endpoints that consume a new `lab.index` module. The index aggregates every `project.json` + `tasks.json` under `knowledge/projects/` into a single `knowledge/.index.json` (gitignored) plus an in-process cache. A `watchdog.Observer` subscribes to mutations under `knowledge/` and triggers debounced rebuilds; a WebSocket endpoint broadcasts `index-updated` events so future frontends can live-refresh. The CLI gains `lab index rebuild` (one-shot) and `lab start`/`lab stop` (service control).
+**Architecture:** A single FastAPI service on port 3333 exposes read-only `/api/*` endpoints that consume a new `lab.index` module. The index aggregates every `project.json` + `tasks.json` under `content/projects/` into a single `content/.index.json` (gitignored) plus an in-process cache. A `watchdog.Observer` subscribes to mutations under `content/` and triggers debounced rebuilds; a WebSocket endpoint broadcasts `index-updated` events so future frontends can live-refresh. The CLI gains `lab index rebuild` (one-shot) and `lab start`/`lab stop` (service control).
 
 **Tech Stack:** FastAPI ≥ 0.109, uvicorn ≥ 0.27, watchdog ≥ 4, httpx ≥ 0.27 (for TestClient), Python ≥ 3.11, pytest ≥ 8. Re-uses `lab` package from Plan 1 (`lab.paths`, `lab.storage`, `lab.model`).
 
@@ -22,7 +22,7 @@
 
 ```bash
 # New CLI commands
-lab index rebuild                            # one-shot: walks knowledge/projects/, writes knowledge/.index.json
+lab index rebuild                            # one-shot: walks content/projects/, writes content/.index.json
 lab start                                    # alias of `make start`; boots backend on :3333
 lab stop                                     # stops running backend
 lab open                                     # opens http://localhost:3333/api/index in browser
@@ -37,7 +37,7 @@ GET  /api/projects/{id}/file?path=...        # raw file body (text or binary)
 GET  /api/tasks                              # flat task list from index (filter by query)
 GET  /api/tasks/due?days=N                   # upcoming-due slice
 
-GET  /api/markdown?path=knowledge/...        # render any md under knowledge/ → {frontmatter, html}
+GET  /api/markdown?path=content/...        # render any md under content/ → {frontmatter, html}
 
 # WebSocket
 WS   /ws                                     # broadcasts {"type":"index-updated","ts":<iso>} on every rebuild
@@ -210,17 +210,17 @@ APPEND to `paths.py` (after `tasks_file`):
 
 
 class ProjectNotFound(RuntimeError):
-    """Raised when PWD is not inside any project under knowledge/projects/."""
+    """Raised when PWD is not inside any project under content/projects/."""
 
 
 def find_project_id_from_pwd(root: Path, start: Path | None = None) -> str:
     """Walk up from `start` (defaults to PWD) to find the project folder.
 
     Returns the project id (the directory name whose parent is
-    `<root>/knowledge/projects/`). Raises `ProjectNotFound` if the walk
+    `<root>/content/projects/`). Raises `ProjectNotFound` if the walk
     reaches `root` without finding a project folder.
     """
-    projects_root = (root / "knowledge" / "projects").resolve()
+    projects_root = (root / "content" / "projects").resolve()
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         if candidate.parent == projects_root:
@@ -296,7 +296,7 @@ Use `lab task ...`. Current tasks: `lab task ls`.
 - `apps/darwin-backups q "…"` — query past notebooks
 - `apps/trustim-ir-cli` — inResponse queries
 
-Shared agents at repo root `.claude/agents/`. Templates at `knowledge/skills/`.
+Shared agents at repo root `.claude/agents/`. Templates at `content/skills/`.
 """
 
 
@@ -314,7 +314,7 @@ def _require_valid_id(project_id: str) -> str:
 
 
 def _iter_project_files(root: Path):
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):
@@ -337,7 +337,7 @@ def project_group() -> None:
 @click.option("--labels", default="", help="Comma-separated MP labels")
 def new(project_id: str, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
-    """Create a new project under knowledge/projects/<id>/."""
+    """Create a new project under content/projects/<id>/."""
     root = paths.find_monorepo_root()
     try:
         project = Project.from_dict({
@@ -608,7 +608,7 @@ def _now_iso() -> str:
 
 
 def _iter_all_tasks(root: Path):
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):
@@ -929,7 +929,7 @@ def test_project_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "new", "doomed", "--desc", "test"])
     assert result.exit_code != 0
-    assert not (monorepo / "knowledge" / "projects" / "doomed").exists()
+    assert not (monorepo / "content" / "projects" / "doomed").exists()
 ```
 
 - [ ] **Step 9: Add missing filter tests to `apps/lab/tests/test_cli_task.py`**
@@ -1043,7 +1043,7 @@ APPEND to `paths.py`:
 
 def index_file(root: Path) -> Path:
     """Return the path of the global index cache (gitignored)."""
-    return root / "knowledge" / ".index.json"
+    return root / "content" / ".index.json"
 ```
 
 - [ ] **Step 2: Write failing tests for `build_index`**
@@ -1107,7 +1107,7 @@ def test_build_index_counts_tasks_per_status(monorepo: Path, seed_project) -> No
     assert t2["project_id"] == "alpha"
     assert t2["title"] == "t2"
     assert t2["due"] == "2026-04-20"
-    assert t2["path"] == "knowledge/projects/alpha/tasks.json#2"
+    assert t2["path"] == "content/projects/alpha/tasks.json#2"
 
 
 def test_build_index_preserves_project_metadata(monorepo: Path, seed_project) -> None:
@@ -1125,7 +1125,7 @@ def test_build_index_preserves_project_metadata(monorepo: Path, seed_project) ->
     assert p["labels"] == ["lipy-davi"]
     assert p["priority"] == "P1"
     assert p["due"] == "2026-05-01"
-    assert p["path"] == "knowledge/projects/beta"
+    assert p["path"] == "content/projects/beta"
 
 
 def test_build_index_sorts_projects_by_id(monorepo: Path, seed_project) -> None:
@@ -1139,8 +1139,8 @@ def test_build_index_sorts_projects_by_id(monorepo: Path, seed_project) -> None:
 def test_build_index_skips_non_project_dirs(monorepo: Path, seed_project) -> None:
     seed_project("alpha")
     # Create a directory that isn't a project (no project.json).
-    (monorepo / "knowledge" / "projects" / "_scratch").mkdir()
-    (monorepo / "knowledge" / "projects" / "_scratch" / "note.md").write_text("hi")
+    (monorepo / "content" / "projects" / "_scratch").mkdir()
+    (monorepo / "content" / "projects" / "_scratch" / "note.md").write_text("hi")
 
     idx = build_index(monorepo)
     assert [p["id"] for p in idx["projects"]] == ["alpha"]
@@ -1150,7 +1150,7 @@ def test_write_and_read_index_roundtrip(monorepo: Path, seed_project) -> None:
     seed_project("alpha")
     data = build_index(monorepo)
     path = write_index(monorepo, data)
-    assert path == monorepo / "knowledge" / ".index.json"
+    assert path == monorepo / "content" / ".index.json"
     assert path.is_file()
     loaded = read_index(monorepo)
     assert loaded == data
@@ -1216,12 +1216,12 @@ def _now_iso() -> str:
 
 
 def build_index(root: Path) -> Index:
-    """Walk knowledge/projects/ and return the cached index shape.
+    """Walk content/projects/ and return the cached index shape.
 
     Projects are sorted by id. Tasks are emitted flat (one per row) with
     `project_id`, `task_id`, and path fields for cheap filtering.
     """
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     project_rows: list[dict[str, Any]] = []
     task_rows: list[dict[str, Any]] = []
 
@@ -1248,7 +1248,7 @@ def build_index(root: Path) -> Index:
                 "due": pdata.get("due"),
                 "created": pdata.get("created"),
                 "updated": pdata.get("updated"),
-                "path": f"knowledge/projects/{child.name}",
+                "path": f"content/projects/{child.name}",
                 **summary,
             })
 
@@ -1268,7 +1268,7 @@ def build_index(root: Path) -> Index:
                     "created": t.get("created"),
                     "updated": t.get("updated"),
                     "closed_at": t.get("closed_at"),
-                    "path": f"knowledge/projects/{child.name}/tasks.json#{t['id']}",
+                    "path": f"content/projects/{child.name}/tasks.json#{t['id']}",
                 })
 
     return {
@@ -1279,7 +1279,7 @@ def build_index(root: Path) -> Index:
 
 
 def write_index(root: Path, data: Index) -> Path:
-    """Persist `data` to `knowledge/.index.json`. Returns the written path."""
+    """Persist `data` to `content/.index.json`. Returns the written path."""
     path = paths.index_file(root)
     storage.write_json(path, data)
     return path
@@ -1336,7 +1336,7 @@ def test_index_rebuild_creates_file(monorepo: Path, seed_project) -> None:
     result = runner.invoke(main, ["index", "rebuild"])
     assert result.exit_code == 0, result.output
 
-    index_path = monorepo / "knowledge" / ".index.json"
+    index_path = monorepo / "content" / ".index.json"
     assert index_path.is_file()
     idx = json.loads(index_path.read_text())
     assert len(idx["projects"]) == 1
@@ -1350,7 +1350,7 @@ def test_index_rebuild_overwrites_stale(monorepo: Path, seed_project) -> None:
     seed_project("beta")
     runner.invoke(main, ["index", "rebuild"])
 
-    idx = json.loads((monorepo / "knowledge" / ".index.json").read_text())
+    idx = json.loads((monorepo / "content" / ".index.json").read_text())
     assert {p["id"] for p in idx["projects"]} == {"alpha", "beta"}
 
 
@@ -1401,7 +1401,7 @@ def index_group() -> None:
 
 @index_group.command("rebuild")
 def rebuild() -> None:
-    """Rebuild knowledge/.index.json from on-disk projects."""
+    """Rebuild content/.index.json from on-disk projects."""
     root = paths.find_monorepo_root()
     data = index_mod.build_index(root)
     path = index_mod.write_index(root, data)
@@ -1560,7 +1560,7 @@ make stop
 - `GET  /api/projects/{id}/file?path=...`
 - `GET  /api/tasks[?status=...&priority=...&tag=...&label=...]`
 - `GET  /api/tasks/due?days=N`
-- `GET  /api/markdown?path=knowledge/...`
+- `GET  /api/markdown?path=content/...`
 - `WS   /ws`
 ```
 
@@ -1680,8 +1680,8 @@ from fastapi.testclient import TestClient
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Minimal monorepo for backend tests. Mirrors lab's fixture."""
     root = tmp_path / "productivity"
-    (root / "knowledge" / "projects").mkdir(parents=True)
-    (root / "knowledge" / "meetings").mkdir()
+    (root / "content" / "projects").mkdir(parents=True)
+    (root / "content" / "meetings").mkdir()
     (root / ".git").mkdir()
     monkeypatch.setenv("LAB_ROOT", str(root))
     monkeypatch.chdir(root)
@@ -1691,7 +1691,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture()
 def seed_project(monorepo: Path):
     def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "knowledge" / "projects" / project_id
+        pdir = monorepo / "content" / "projects" / project_id
         pdir.mkdir(parents=True)
         (pdir / "project.json").write_text(json.dumps({
             "id": project_id,
@@ -1844,7 +1844,7 @@ class IndexCache:
     """Thread-safe in-memory cache of the global index.
 
     On first access, builds from disk. On rebuild, regenerates from on-disk
-    projects and persists to knowledge/.index.json.
+    projects and persists to content/.index.json.
     """
 
     def __init__(self, root: Path) -> None:
@@ -2383,9 +2383,9 @@ cd apps/backend
 Create `apps/backend/tests/test_markdown_route.py`:
 ```python
 def test_render_plain_markdown(client, monorepo) -> None:
-    path = monorepo / "knowledge" / "meetings" / "hello.md"
+    path = monorepo / "content" / "meetings" / "hello.md"
     path.write_text("# Hello\n\nWorld")
-    r = client.get("/api/markdown?path=knowledge/meetings/hello.md")
+    r = client.get("/api/markdown?path=content/meetings/hello.md")
     assert r.status_code == 200
     body = r.json()
     assert "<h1>Hello</h1>" in body["html"]
@@ -2393,16 +2393,16 @@ def test_render_plain_markdown(client, monorepo) -> None:
 
 
 def test_render_with_frontmatter(client, monorepo) -> None:
-    path = monorepo / "knowledge" / "meetings" / "fm.md"
+    path = monorepo / "content" / "meetings" / "fm.md"
     path.write_text("---\ntitle: Test\ntags: [a, b]\n---\n\n# Body")
-    r = client.get("/api/markdown?path=knowledge/meetings/fm.md")
+    r = client.get("/api/markdown?path=content/meetings/fm.md")
     body = r.json()
     assert body["frontmatter"] == {"title": "Test", "tags": ["a", "b"]}
     assert "<h1>Body</h1>" in body["html"]
 
 
 def test_render_missing_file(client) -> None:
-    r = client.get("/api/markdown?path=knowledge/meetings/nope.md")
+    r = client.get("/api/markdown?path=content/meetings/nope.md")
     assert r.status_code == 404
 
 
@@ -2414,9 +2414,9 @@ def test_render_rejects_traversal(client) -> None:
 
 
 def test_render_rejects_non_markdown(client, monorepo) -> None:
-    path = monorepo / "knowledge" / "meetings" / "hello.txt"
+    path = monorepo / "content" / "meetings" / "hello.txt"
     path.write_text("hi")
-    r = client.get("/api/markdown?path=knowledge/meetings/hello.txt")
+    r = client.get("/api/markdown?path=content/meetings/hello.txt")
     assert r.status_code == 400
 ```
 
@@ -2652,7 +2652,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
     w.start()
     try:
-        target = monorepo / "knowledge" / "projects" / ".probe"
+        target = monorepo / "content" / "projects" / ".probe"
         target.mkdir()
         for i in range(5):
             (target / f"f{i}.md").write_text("x")
@@ -2712,7 +2712,7 @@ from backend.state import IndexCache
 
 
 class IndexWatcher:
-    """Watch `knowledge/` and rebuild the index on any change, debounced."""
+    """Watch `content/` and rebuild the index on any change, debounced."""
 
     def __init__(self, root: Path, cache: IndexCache, *,
                  debounce_ms: int,
@@ -2750,7 +2750,7 @@ class IndexWatcher:
         handler = FileSystemEventHandler()
         handler.on_any_event = self._on_change
         observer = Observer()
-        knowledge = self._root / "knowledge"
+        knowledge = self._root / "content"
         knowledge.mkdir(parents=True, exist_ok=True)
         observer.schedule(handler, str(knowledge), recursive=True)
         observer.start()
@@ -3357,10 +3357,10 @@ git status
 
 ## Plan 2 — Done when
 
-1. `lab index rebuild` writes `knowledge/.index.json` correctly.
+1. `lab index rebuild` writes `content/.index.json` correctly.
 2. `make start` (and `make start-bg`) boot a FastAPI backend on `:3333`.
 3. All `/api/*` routes listed in the goals section return sensible JSON.
-4. WebSocket `/ws` broadcasts `{"type":"index-updated", "ts":<iso>}` on filesystem changes under `knowledge/`.
+4. WebSocket `/ws` broadcasts `{"type":"index-updated", "ts":<iso>}` on filesystem changes under `content/`.
 5. Watcher debounces bursts to a single rebuild.
 6. `make test` runs both `apps/lab/tests/` and `apps/backend/tests/` and both pass.
 7. Plan-1 tech debt items (dedup helpers, id validation, atomic new, loe wrap, missing filter tests) are closed.

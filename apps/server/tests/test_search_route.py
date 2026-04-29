@@ -17,7 +17,7 @@ def test_get_search_matches_project(client, seed_project) -> None:
 
 
 def test_get_search_matches_md(client, monorepo) -> None:
-    (monorepo / "knowledge" / "meetings" / "n.md").write_text("meeting about zebras\n")
+    (monorepo / "content" / "meetings" / "n.md").write_text("meeting about zebras\n")
     r = client.get("/api/search?q=zebra")
     body = r.json()
     assert len(body["docs"]) >= 1

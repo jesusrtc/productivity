@@ -14,7 +14,7 @@ def test_index_rebuild_creates_file(monorepo: Path, seed_project) -> None:
     result = runner.invoke(main, ["index", "rebuild"])
     assert result.exit_code == 0, result.output
 
-    index_path = monorepo / "knowledge" / ".index.json"
+    index_path = monorepo / "content" / ".index.json"
     assert index_path.is_file()
     idx = json.loads(index_path.read_text())
     assert len(idx["projects"]) == 1
@@ -28,7 +28,7 @@ def test_index_rebuild_overwrites_stale(monorepo: Path, seed_project) -> None:
     seed_project("beta")
     runner.invoke(main, ["index", "rebuild"])
 
-    idx = json.loads((monorepo / "knowledge" / ".index.json").read_text())
+    idx = json.loads((monorepo / "content" / ".index.json").read_text())
     assert {p["id"] for p in idx["projects"]} == {"alpha", "beta"}
 
 

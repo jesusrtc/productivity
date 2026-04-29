@@ -34,12 +34,12 @@ def _now_iso() -> str:
 
 
 def build_index(root: Path) -> Index:
-    """Walk knowledge/projects/ and return the cached index shape.
+    """Walk content/projects/ and return the cached index shape.
 
     Projects are sorted by id. Tasks are emitted flat (one per row) with
     `project_id`, `task_id`, and path fields for cheap filtering.
     """
-    projects_root = root / "knowledge" / "projects"
+    projects_root = root / "content" / "projects"
     project_rows: list[dict[str, Any]] = []
     task_rows: list[dict[str, Any]] = []
 
@@ -67,7 +67,7 @@ def build_index(root: Path) -> Index:
                 "created": pdata.get("created"),
                 "updated": pdata.get("updated"),
                 "hold": pdata.get("hold") or None,
-                "path": f"knowledge/projects/{child.name}",
+                "path": f"content/projects/{child.name}",
                 **summary,
             })
 
@@ -87,13 +87,13 @@ def build_index(root: Path) -> Index:
                     "created": t.get("created"),
                     "updated": t.get("updated"),
                     "closed_at": t.get("closed_at"),
-                    "path": f"knowledge/projects/{child.name}/tasks.json#{t['id']}",
+                    "path": f"content/projects/{child.name}/tasks.json#{t['id']}",
                 })
 
     # Include the __self__ pseudo-project so its tasks surface in global
     # listings (due-soon, /api/tasks). Kept out of `projects` rows to
     # avoid it appearing in project pickers.
-    self_tasks = root / "knowledge" / ".self-tasks.json"
+    self_tasks = root / "content" / ".self-tasks.json"
     if self_tasks.is_file():
         doc = storage.read_json(self_tasks)
         for t in doc.get("tasks", []):
@@ -112,7 +112,7 @@ def build_index(root: Path) -> Index:
                 "created": t.get("created"),
                 "updated": t.get("updated"),
                 "closed_at": t.get("closed_at"),
-                "path": f"knowledge/.self-tasks.json#{t['id']}",
+                "path": f"content/.self-tasks.json#{t['id']}",
             })
 
     return {
@@ -123,7 +123,7 @@ def build_index(root: Path) -> Index:
 
 
 def write_index(root: Path, data: Index) -> Path:
-    """Persist `data` to `knowledge/.index.json`. Returns the written path."""
+    """Persist `data` to `content/.index.json`. Returns the written path."""
     path = paths.index_file(root)
     storage.write_json(path, data)
     return path

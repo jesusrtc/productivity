@@ -22,7 +22,7 @@ def test_project_new_creates_directory_and_files(monorepo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "new", "davi-vision", "--desc", "Reshape DAVI"])
     assert result.exit_code == 0, result.output
-    pdir = monorepo / "knowledge" / "projects" / "davi-vision"
+    pdir = monorepo / "content" / "projects" / "davi-vision"
     assert pdir.is_dir()
     assert (pdir / "docs").is_dir()
     assert (pdir / "notes").is_dir()
@@ -48,7 +48,7 @@ def test_project_new_with_priority_due_tags_labels(monorepo: Path) -> None:
         "--labels", "abuse-scoring-rules",
     ])
     assert result.exit_code == 0, result.output
-    proj = json.loads((monorepo / "knowledge" / "projects" / "drools-rate" / "project.json").read_text())
+    proj = json.loads((monorepo / "content" / "projects" / "drools-rate" / "project.json").read_text())
     assert proj["priority"] == "P1"
     assert proj["due"] == "2026-05-01"
     assert proj["tags"] == ["limits", "abuse"]
@@ -69,7 +69,7 @@ def test_project_new_rejects_bad_id(monorepo: Path) -> None:
     assert result.exit_code != 0
     assert "must match" in result.output.lower()
     # The invalid id should never create a directory.
-    assert not (monorepo / "knowledge" / "projects" / "Bad ID!").exists()
+    assert not (monorepo / "content" / "projects" / "Bad ID!").exists()
 
 
 def test_project_relink_converts_file_to_symlink(monorepo: Path, seed_project) -> None:
@@ -97,13 +97,13 @@ def test_project_relink_is_idempotent(monorepo: Path, seed_project) -> None:
 
 
 def test_project_new_creates_claude_md_symlink(monorepo: Path) -> None:
-    """CLAUDE.md is a symlink to the canonical knowledge/skills file so all
+    """CLAUDE.md is a symlink to the canonical content/skills file so all
     projects share one documented source of truth."""
     runner = CliRunner()
     runner.invoke(main, ["project", "new", "x", "--desc", "Do stuff"])
-    link = monorepo / "knowledge" / "projects" / "x" / "CLAUDE.md"
+    link = monorepo / "content" / "projects" / "x" / "CLAUDE.md"
     assert link.is_symlink()
-    target = (monorepo / "knowledge" / "skills" / "project-CLAUDE.md").resolve()
+    target = (monorepo / "content" / "skills" / "project-CLAUDE.md").resolve()
     assert link.resolve() == target
     # Symlink is readable + points at the shared content.
     assert "lab project status" in link.read_text()
@@ -174,7 +174,7 @@ def test_project_set_updates_field(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "set", "alpha", "description", "New desc"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["description"] == "New desc"
 
 
@@ -183,7 +183,7 @@ def test_project_set_status(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "set", "alpha", "status", "paused"])
     assert result.exit_code == 0
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["status"] == "paused"
 
 
@@ -200,7 +200,7 @@ def test_project_set_priority_and_due(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "set", "alpha", "priority", "P0"])
     runner.invoke(main, ["project", "set", "alpha", "due", "2026-05-15"])
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["priority"] == "P0"
     assert data["due"] == "2026-05-15"
 
@@ -210,7 +210,7 @@ def test_project_set_tags_and_labels_csv(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "set", "alpha", "tags", "a,b,c"])
     runner.invoke(main, ["project", "set", "alpha", "labels", "lipy-davi"])
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["tags"] == ["a", "b", "c"]
     assert data["labels"] == ["lipy-davi"]
 
@@ -220,7 +220,7 @@ def test_project_archive(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "archive", "alpha"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["status"] == "archived"
 
 
@@ -230,7 +230,7 @@ def test_project_rm_requires_confirmation(monorepo: Path, seed_project) -> None:
     # No confirmation → aborts
     result = runner.invoke(main, ["project", "rm", "alpha"], input="\n")
     assert result.exit_code != 0
-    assert (monorepo / "knowledge" / "projects" / "alpha").exists()
+    assert (monorepo / "content" / "projects" / "alpha").exists()
 
 
 def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
@@ -238,7 +238,7 @@ def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "rm", "alpha", "--yes"])
     assert result.exit_code == 0, result.output
-    assert not (monorepo / "knowledge" / "projects" / "alpha").exists()
+    assert not (monorepo / "content" / "projects" / "alpha").exists()
 
 
 def test_project_rm_missing(monorepo: Path) -> None:
@@ -321,7 +321,7 @@ def test_project_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "new", "doomed", "--desc", "test"])
     assert result.exit_code != 0
-    assert not (monorepo / "knowledge" / "projects" / "doomed").exists()
+    assert not (monorepo / "content" / "projects" / "doomed").exists()
 
 
 def test_project_add_missing_mp(monorepo, seed_project, monkeypatch) -> None:
@@ -409,7 +409,7 @@ def test_project_add_stores_worktrees_subfolder_path(monorepo, seed_project, tmp
     result = runner.invoke(main, ["project", "add", "alpha", "some-mp"])
     assert result.exit_code == 0, result.output
 
-    pdir = monorepo / "knowledge" / "projects" / "alpha"
+    pdir = monorepo / "content" / "projects" / "alpha"
     data = json.loads((pdir / "project.json").read_text())
     assert len(data["worktrees"]) == 1
     wt = data["worktrees"][0]
@@ -420,7 +420,7 @@ def test_project_add_stores_worktrees_subfolder_path(monorepo, seed_project, tmp
 def test_project_remove_force_flag(monorepo, seed_project, monkeypatch) -> None:
     """--force should pass through to `git worktree remove --force`."""
     seed_project("alpha")
-    pdir = monorepo / "knowledge" / "projects" / "alpha"
+    pdir = monorepo / "content" / "projects" / "alpha"
     # Seed a worktree entry + the dir (pretend git already set it up).
     data = json.loads((pdir / "project.json").read_text())
     data["worktrees"] = [{"mp": "some-mp", "dir": "worktrees/sm-alpha", "branch": "x"}]
@@ -457,7 +457,7 @@ def test_pr_add_and_ls(monorepo, seed_project) -> None:
     r = runner.invoke(main, ["pr", "ls", "--project", "alpha"])
     assert "https://example/pr/1" in r.output
 
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert data["prs"][0]["url"] == "https://example/pr/1"
     assert data["prs"][0]["mp"] == "lipy-davi"
 
@@ -469,7 +469,7 @@ def test_pr_rm(monorepo, seed_project) -> None:
     runner.invoke(main, ["pr", "add", "https://x/2", "--project", "alpha"])
     r = runner.invoke(main, ["pr", "rm", "0", "--project", "alpha"])
     assert r.exit_code == 0
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert [p["url"] for p in data["prs"]] == ["https://x/2"]
 
 
@@ -481,7 +481,7 @@ def test_artifact_add_and_ls(monorepo, seed_project) -> None:
         "--type", "google_doc", "--title", "Design doc",
     ])
     assert r.exit_code == 0, r.output
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     a = data["artifacts"][0]
     assert a["type"] == "google_doc"
     assert a["title"] == "Design doc"
@@ -495,5 +495,5 @@ def test_artifact_rm_by_id(monorepo, seed_project) -> None:
     runner.invoke(main, ["artifact", "add", "https://b", "--project", "alpha"])
     r = runner.invoke(main, ["artifact", "rm", "1", "--project", "alpha"])
     assert r.exit_code == 0
-    data = json.loads((monorepo / "knowledge" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
     assert [a["url"] for a in data["artifacts"]] == ["https://b"]

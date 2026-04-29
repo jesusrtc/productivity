@@ -7,26 +7,15 @@ __pycache__/
 venv/
 .coverage
 
+# Content repo (managed as its own git repo, never tracked here)
+content/
+knowledge/
+
 # Monorepo runtime
 repositories/
-knowledge/.index.json
-knowledge/.sessions.json
-knowledge/.cerebro-project.json
-knowledge/.self-project.json
-knowledge/.self-tasks.json
-knowledge/.ui-state.json
-
-# Per-project external git mirrors (kept separate from the monorepo)
-knowledge/projects/*/vision-repo/
-
-# Per-project git worktrees (managed by `lab`)
-knowledge/projects/*/worktrees/
 
 # Log files
 *.log
-
-# Per-project darwin-runner kernel state (proxy_user, kernel_id)
-knowledge/projects/*/.darwin.json
 
 # macOS
 .DS_Store

@@ -193,14 +193,14 @@ def create_app() -> FastAPI:
         muscle memory); /p/<id> is sugar for project-id navigation.
         """
         root: Path = request.app.state.index_cache.root
-        project_dir = (root / "knowledge" / "projects" / project_id).resolve()
+        project_dir = (root / "content" / "projects" / project_id).resolve()
         if not project_dir.is_dir():
             raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
         return RedirectResponse(url=f"/?project={quote(str(project_dir), safe='')}")
 
     @app.get("/view", response_class=HTMLResponse)
     async def view_markdown(request: Request, path: str):
-        """Render a markdown file under `knowledge/` as a standalone HTML page.
+        """Render a markdown file under `content/` as a standalone HTML page.
 
         Used by the Home view's Search tab so clicking a doc result shows the
         rendered page instead of the raw `/api/markdown` JSON. Reuses the same

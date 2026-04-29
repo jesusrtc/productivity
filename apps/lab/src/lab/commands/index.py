@@ -15,7 +15,7 @@ def index_group() -> None:
 
 @index_group.command("rebuild")
 def rebuild() -> None:
-    """Rebuild knowledge/.index.json from on-disk projects."""
+    """Rebuild content/.index.json from on-disk projects."""
     root = paths.find_monorepo_root()
     data = index_mod.build_index(root)
     path = index_mod.write_index(root, data)

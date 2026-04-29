@@ -53,7 +53,7 @@ def test_build_index_counts_tasks_per_status(monorepo: Path, seed_project) -> No
     assert t2["project_id"] == "alpha"
     assert t2["title"] == "t2"
     assert t2["due"] == "2026-04-20"
-    assert t2["path"] == "knowledge/projects/alpha/tasks.json#2"
+    assert t2["path"] == "content/projects/alpha/tasks.json#2"
 
 
 def test_build_index_preserves_project_metadata(monorepo: Path, seed_project) -> None:
@@ -71,7 +71,7 @@ def test_build_index_preserves_project_metadata(monorepo: Path, seed_project) ->
     assert p["labels"] == ["lipy-davi"]
     assert p["priority"] == "P1"
     assert p["due"] == "2026-05-01"
-    assert p["path"] == "knowledge/projects/beta"
+    assert p["path"] == "content/projects/beta"
 
 
 def test_build_index_sorts_projects_by_id(monorepo: Path, seed_project) -> None:
@@ -84,8 +84,8 @@ def test_build_index_sorts_projects_by_id(monorepo: Path, seed_project) -> None:
 
 def test_build_index_skips_non_project_dirs(monorepo: Path, seed_project) -> None:
     seed_project("alpha")
-    (monorepo / "knowledge" / "projects" / "_scratch").mkdir()
-    (monorepo / "knowledge" / "projects" / "_scratch" / "note.md").write_text("hi")
+    (monorepo / "content" / "projects" / "_scratch").mkdir()
+    (monorepo / "content" / "projects" / "_scratch" / "note.md").write_text("hi")
 
     idx = build_index(monorepo)
     assert [p["id"] for p in idx["projects"]] == ["alpha"]
@@ -95,7 +95,7 @@ def test_write_and_read_index_roundtrip(monorepo: Path, seed_project) -> None:
     seed_project("alpha")
     data = build_index(monorepo)
     path = write_index(monorepo, data)
-    assert path == monorepo / "knowledge" / ".index.json"
+    assert path == monorepo / "content" / ".index.json"
     assert path.is_file()
     loaded = read_index(monorepo)
     assert loaded == data
