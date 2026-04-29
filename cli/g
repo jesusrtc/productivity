@@ -156,10 +156,16 @@ def cmd_push(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         origin = result.get("origin")
-        if origin:
-            tag = "ok" if origin.get("ok") else "FAILED"
-            print(f"g: origin {tag} -> {origin.get('url')}", file=sys.stderr)
-            if not origin.get("ok") and origin.get("stderr"):
+        if origin is None:
+            print(
+                "g: no origin remote configured on server (skipped GitHub push)",
+                file=sys.stderr,
+            )
+        elif origin.get("ok"):
+            print(f"g: origin ok -> {origin.get('url')}", file=sys.stderr)
+        else:
+            print(f"g: origin FAILED -> {origin.get('url')}", file=sys.stderr)
+            if origin.get("stderr"):
                 sys.stderr.write(origin["stderr"] + "\n")
         return 0
     finally:
