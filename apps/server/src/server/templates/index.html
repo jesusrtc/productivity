@@ -4754,9 +4754,9 @@
     document.body.classList.remove('term-collapsed');
     termStopPeriodicRefresh();
     termStopStatusPolling();
-    termDetach();
-    // Evict all cached sessions — panel is closing.
-    for (const name of [..._termCache.keys()]) _termEvictCache(name);
+    // Soft-park the active session (preserves WS+xterm in cache) so that
+    // toggling the panel back open doesn't trigger a reconnect + Ctrl-L.
+    termDetach(true);
   }
 
   function termShowRecovery() {
@@ -5293,12 +5293,13 @@
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
     const prev = termCurrentSession;
-    if (soft && prev && termWS && termXterm) {
-      // Park the DOM node off-screen so xterm stays alive but invisible.
-      const body = document.getElementById('termBody');
-      if (body) body.style.visibility = 'hidden';
-      // Update the cache entry with current live references.
-      _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS });
+    if (soft) {
+      // Park: hide DOM, stash live refs in cache (if any). Never evict.
+      if (prev && termWS && termXterm) {
+        const body = document.getElementById('termBody');
+        if (body) body.style.visibility = 'hidden';
+        _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS });
+      }
     } else {
       if (termWS) {
         try { termWS.send(JSON.stringify({ type: 'detach' })); } catch {}
