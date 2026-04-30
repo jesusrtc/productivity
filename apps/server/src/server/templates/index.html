@@ -4294,8 +4294,8 @@
   // xterm.js + xterm-addon-fit loaded from CDN. State declared before the
   // init dispatch for the same TDZ reason the home state is.
 
-  let termXterm = null;         // xterm.js Terminal instance
-  let termFitAddon = null;      // addon that sizes xterm to its container
+  let termXterm = null;         // xterm.js Terminal instance (active session)
+  let termFitAddon = null;      // addon that sizes xterm to its container (active)
   let termWS = null;            // active WebSocket to /ws/term/<name>
   let termCurrentSession = null; // tmux session name currently attached
   let termSessions = [];        // last known list from /api/term/sessions
@@ -4304,6 +4304,9 @@
   let termReconnectTimer = null; // one-shot post-disconnect recovery
   let _termWheelListenerAdded = false; // wheel listener added once to termBody
   let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
+  // Per-session xterm+WS cache so tab switches don't wipe in-progress input.
+  // Entries survive until the session is killed or confirmed dead.
+  const _termCache = new Map(); // name -> {xterm, fitAddon, ws}
   // Sessions the server has confirmed are gone ("no-session" exit frame)
   // OR that we've failed to reach N times in a row. While a name is in
   // this set, termAttach/onclose refuse to reconnect. Cleared only by an
@@ -4752,6 +4755,8 @@
     termStopPeriodicRefresh();
     termStopStatusPolling();
     termDetach();
+    // Evict all cached sessions — panel is closing.
+    for (const name of [..._termCache.keys()]) _termEvictCache(name);
   }
 
   function termShowRecovery() {
@@ -5137,7 +5142,7 @@
     if (!termCurrentSession) return;
     if (!confirm('Kill tmux session ' + termCurrentSession + '?')) return;
     const name = termCurrentSession;
-    termDetach();
+    termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name), {method: 'DELETE'}); } catch {}
     // Pick the right project-id to refresh against — real project if one's
     // loaded, else the Cerebro pseudo-project when its view is active.
@@ -5282,14 +5287,29 @@
     termWS.send(JSON.stringify({ type: 'resize', rows: termXterm.rows, cols: termXterm.cols }));
   }
 
-  function termDetach() {
+  // soft=true: tab-switch — keep WS+xterm alive in cache, just un-mount DOM.
+  // soft=false (default): full close — evict cache entry, close WS.
+  function termDetach(soft = false) {
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
-    if (termWS) {
-      try { termWS.send(JSON.stringify({ type: 'detach' })); } catch {}
-      try { termWS.close(); } catch {}
-      termWS = null;
+    const prev = termCurrentSession;
+    if (soft && prev && termWS && termXterm) {
+      // Park the DOM node off-screen so xterm stays alive but invisible.
+      const body = document.getElementById('termBody');
+      if (body) body.style.visibility = 'hidden';
+      // Update the cache entry with current live references.
+      _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS });
+    } else {
+      if (termWS) {
+        try { termWS.send(JSON.stringify({ type: 'detach' })); } catch {}
+        try { termWS.close(); } catch {}
+        termWS = null;
+      }
+      if (prev) _termEvictCache(prev);
     }
+    termXterm = null;
+    termFitAddon = null;
+    termWS = null;
     termCurrentSession = null;
     const badge = document.getElementById('termAutoBadge');
     if (badge) badge.style.display = 'none';
@@ -5312,6 +5332,7 @@
     delete termReconnectAttempts[name];
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
     if (name === termCurrentSession) termCurrentSession = null;
+    _termEvictCache(name);  // drop xterm+WS for this dead session
     if (statusText) termSetStatus('err', statusText);
     termShowRecovery();
     // Refresh the pill list so dead sessions drop out (tmux is gone)
@@ -5327,6 +5348,17 @@
     delete termReconnectAttempts[name];
   }
 
+  // Evict a session from the xterm cache: close its WS and dispose the
+  // Terminal instance. Called when a session is killed or confirmed dead.
+  function _termEvictCache(name) {
+    const entry = _termCache.get(name);
+    if (!entry) return;
+    _termCache.delete(name);
+    try { entry.ws.send(JSON.stringify({ type: 'detach' })); } catch {}
+    try { entry.ws.close(); } catch {}
+    try { entry.xterm.dispose(); } catch {}
+  }
+
   function termAttach(name) {
     if (!name) return;
     if (name === termCurrentSession && termWS && termWS.readyState === WebSocket.OPEN) return;
@@ -5337,12 +5369,50 @@
       termShowRecovery();
       return;
     }
-    termDetach();
+
+    // Soft-detach: park the current session off-screen but keep its
+    // xterm+WS alive in _termCache so switching back costs nothing.
+    termDetach(true);
     termUserDetached = false;  // fresh attach — future drops should trigger recovery
     termCurrentSession = name;
+
+    // --- Cache hit: restore xterm+WS, re-mount to DOM, skip clear/Ctrl-L ---
+    const cached = _termCache.get(name);
+    if (cached && cached.ws.readyState === WebSocket.OPEN) {
+      termXterm = cached.xterm;
+      termFitAddon = cached.fitAddon;
+      termWS = cached.ws;
+      _termCache.delete(name);
+      const body = document.getElementById('termBody');
+      if (body) {
+        body.style.visibility = '';
+        // Move xterm's existing DOM element back into termBody rather than
+        // calling open() again (open() on an already-opened xterm is unsafe).
+        const xtermEl = termXterm.element;
+        if (xtermEl && xtermEl.parentElement !== body) {
+          body.innerHTML = '';
+          body.appendChild(xtermEl);
+        }
+      }
+      try { termFitAddon.fit(); } catch {}
+      termSendResize();
+      const meta = termSessions.find(s => s.name === name);
+      const badge = document.getElementById('termAutoBadge');
+      if (badge) badge.style.display = (meta && meta.auto) ? 'inline-block' : 'none';
+      termSetStatus('live', 'attached · ' + name);
+      termRenderSessionList();
+      return;
+    }
+    // Cached WS is closed/closing — evict stale entry and fall through to fresh connect.
+    if (cached) { _termEvictCache(name); _termCache.delete(name); }
+
+    // --- Cache miss: fresh xterm + WebSocket ---
     termEnsureXterm();
     if (!termXterm) return;
     termXterm.clear();
+    // Capture xterm in closure so this WS writes to its own instance even
+    // while the session is parked in _termCache and termXterm points elsewhere.
+    const myXterm = termXterm;
     termSetStatus('idle', 'connecting to ' + name);
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     // Hold the new WebSocket in a closure-local `myWS` so each handler
@@ -5353,7 +5423,8 @@
     // "UI slowing down with errors piling up" symptom.
     const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}`);
     termWS = myWS;
-    const isStale = () => termWS !== myWS;
+    // Stale when replaced by a newer attach, but NOT when parked in cache.
+    const isStale = () => termWS !== myWS && _termCache.get(name)?.ws !== myWS;
     // Help the browser GC: once this instance is replaced or closed,
     // null the handler pointers so the closure (which captures `name`,
     // status-bar refs, etc.) isn't retained via the still-reachable
@@ -5389,7 +5460,7 @@
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'data') {
-        if (termXterm) termXterm.write(_termStripModes(msg.data));
+        myXterm.write(_termStripModes(msg.data));
       } else if (msg.type === 'exit') {
         if (msg.reason === 'no-session') {
           // Server confirmed the tmux session is gone. Mark dead so the
