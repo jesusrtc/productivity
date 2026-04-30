@@ -5394,8 +5394,97 @@
     const _emptyEl = document.getElementById('termEmpty');
     if (_emptyEl) _emptyEl.style.display = 'none';
 
-    // --- Cache hit: show existing container, restore refs, skip clear/Ctrl-L ---
     const cached = _termCache.get(name);
+    // Shared WS-open logic. `freshPane` = true means new xterm (send Ctrl-L, clear);
+    // false means reconnecting a dropped WS into an existing pane (preserve buffer).
+    const _openWS = (freshPane) => {
+      const myXterm = termXterm;
+      termSetStatus('idle', 'connecting to ' + name);
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}`);
+      termWS = myWS;
+      const isStale = () => termWS !== myWS && _termCache.get(name)?.ws !== myWS;
+      const detachListeners = () => {
+        try { myWS.onopen = null; } catch {}
+        try { myWS.onmessage = null; } catch {}
+        try { myWS.onclose = null; } catch {}
+        try { myWS.onerror = null; } catch {}
+      };
+      myWS.onopen = () => {
+        if (isStale()) { detachListeners(); return; }
+        _termClearDead(name);
+        const meta = termSessions.find(s => s.name === name);
+        const badge = document.getElementById('termAutoBadge');
+        if (badge) badge.style.display = (meta && meta.auto) ? 'inline-block' : 'none';
+        termSetStatus('live', 'attached · ' + name);
+        try { termFitAddon.fit(); } catch {}
+        termSendResize();
+        if (freshPane) {
+          // Only send Ctrl-L for brand-new panes — existing panes already have
+          // their TUI state and sending Ctrl-L would clear in-progress input.
+          setTimeout(() => {
+            if (termWS === myWS && myWS.readyState === WebSocket.OPEN) {
+              myWS.send(JSON.stringify({ type: 'input', data: '\x0c' }));
+            }
+          }, 120);
+        }
+        termRenderSessionList();
+      };
+      myWS.onmessage = (ev) => {
+        if (isStale()) return;
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'data') {
+          myXterm.write(_termStripModes(msg.data));
+        } else if (msg.type === 'exit') {
+          if (msg.reason === 'no-session') {
+            _termMarkDead(name, 'session not found');
+          } else {
+            termSetStatus('idle', 'detached — ' + (msg.reason || 'closed'));
+          }
+        }
+      };
+      myWS.onclose = (ev) => {
+        detachListeners();
+        if (isStale()) return;
+        if (termUserDetached || termCurrentSession !== name) return;
+        if (termDeadSessions.has(name)) return;
+        const attempts = (termReconnectAttempts[name] || 0) + 1;
+        termReconnectAttempts[name] = attempts;
+        if (attempts > TERM_MAX_RECONNECT_ATTEMPTS) {
+          _termMarkDead(name, 'session unreachable (' + attempts + ' attempts) — reload to retry');
+          return;
+        }
+        const delay = _termBackoffMs(attempts);
+        termSetStatus('err',
+          'disconnected — reconnecting in ' + Math.round(delay / 1000) + 's ' +
+          '(attempt ' + attempts + '/' + TERM_MAX_RECONNECT_ATTEMPTS + ')');
+        if (termReconnectTimer) clearTimeout(termReconnectTimer);
+        termReconnectTimer = setTimeout(async () => {
+          termReconnectTimer = null;
+          if (termWS !== null && termWS !== myWS) return;
+          if (termDeadSessions.has(name)) return;
+          const pid = currentProject && currentProject.is_project ? currentProject.name : null;
+          if (!pid) return;
+          try { await termRefreshSessions(pid); } catch {}
+          if (termDeadSessions.has(name)) return;
+          if (termSessions.some(s => s.name === name)) {
+            termWS = null;
+            termCurrentSession = null;
+            termAttach(name);
+          } else {
+            _termMarkDead(name, 'session ended: ' + name);
+          }
+        }, delay);
+      };
+      myWS.onerror = () => {
+        if (isStale()) { detachListeners(); return; }
+        if (!termUserDetached) termSetStatus('err', 'ws error');
+      };
+      return myWS;
+    };
+
+    // --- Cache hit, WS open: show existing container, no clear, no Ctrl-L ---
     if (cached && cached.ws.readyState === WebSocket.OPEN) {
       termXterm = cached.xterm;
       termFitAddon = cached.fitAddon;
@@ -5404,8 +5493,9 @@
       _termCache.delete(name);
       if (termContainer) termContainer.style.display = 'block';
       try { termFitAddon.fit(); } catch {}
-      // Do NOT send resize — SIGWINCH from tmux causes Claude TUI to redraw
-      // and clear the in-progress input line, defeating the whole cache.
+      // Do NOT send resize here — SIGWINCH causes Claude TUI to redraw and
+      // clear any in-progress input. ResizeObserver on the container handles
+      // genuine size changes once the pane is visible.
       const meta = termSessions.find(s => s.name === name);
       const badge = document.getElementById('termAutoBadge');
       if (badge) badge.style.display = (meta && meta.auto) ? 'inline-block' : 'none';
@@ -5413,8 +5503,19 @@
       termRenderSessionList();
       return;
     }
-    // Cached WS is closed/closing — evict stale entry and fall through to fresh connect.
-    if (cached) _termEvictCache(name);
+
+    // --- Cache hit, WS closed: keep xterm/container, reconnect WS only ---
+    if (cached) {
+      termXterm = cached.xterm;
+      termFitAddon = cached.fitAddon;
+      termContainer = cached.container;
+      _termCache.delete(name);
+      if (termContainer) termContainer.style.display = 'block';
+      try { termFitAddon.fit(); } catch {}
+      // freshPane=false: reconnect without Ctrl-L so in-progress input survives.
+      _openWS(false);
+      return;
+    }
 
     // --- Cache miss: fresh container + xterm + WebSocket ---
     // Dispose any lingering module-level xterm (e.g. left over from a dropped WS
@@ -5427,9 +5528,19 @@
     myContainer.classList.add('term-pane');
     termContainer = myContainer;
     termXterm.open(myContainer);
-    // Attach xterm.js ResizeObserver to the new container.
+    // Debounced ResizeObserver: only send resize when rows/cols actually change.
+    let _resizeTimer = null;
+    let _lastRows = 0, _lastCols = 0;
     const myRO = new ResizeObserver(() => {
-      try { termFitAddon.fit(); termSendResize(); } catch {}
+      clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(() => {
+        try { termFitAddon.fit(); } catch {}
+        if (termXterm && (termXterm.rows !== _lastRows || termXterm.cols !== _lastCols)) {
+          _lastRows = termXterm.rows;
+          _lastCols = termXterm.cols;
+          termSendResize();
+        }
+      }, 100);
     });
     myRO.observe(myContainer);
     termXterm.onData(data => {
@@ -5439,127 +5550,7 @@
     });
     myContainer.style.display = 'block';
     termXterm.clear();
-    // Capture xterm in closure so this WS writes to its own instance even
-    // while the session is parked in _termCache and termXterm points elsewhere.
-    const myXterm = termXterm;
-    termSetStatus('idle', 'connecting to ' + name);
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Hold the new WebSocket in a closure-local `myWS` so each handler
-    // can detect "I'm stale, someone else took over" and early-out.
-    // Without this, a late-firing close from an abandoned WebSocket
-    // (e.g. after the user clicked a different pill) would stack a
-    // reconnect timer on top of the legitimate one — matches the
-    // "UI slowing down with errors piling up" symptom.
-    const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}`);
-    termWS = myWS;
-    // Stale when replaced by a newer attach, but NOT when parked in cache.
-    const isStale = () => termWS !== myWS && _termCache.get(name)?.ws !== myWS;
-    // Help the browser GC: once this instance is replaced or closed,
-    // null the handler pointers so the closure (which captures `name`,
-    // status-bar refs, etc.) isn't retained via the still-reachable
-    // WebSocket object. Cheap; no-op if already null.
-    const detachListeners = () => {
-      try { myWS.onopen = null; } catch {}
-      try { myWS.onmessage = null; } catch {}
-      try { myWS.onclose = null; } catch {}
-      try { myWS.onerror = null; } catch {}
-    };
-    myWS.onopen = () => {
-      if (isStale()) { detachListeners(); return; }
-      // Fresh, successful open — reset backoff + dead state for this name.
-      _termClearDead(name);
-      const meta = termSessions.find(s => s.name === name);
-      const badge = document.getElementById('termAutoBadge');
-      if (badge) badge.style.display = (meta && meta.auto) ? 'inline-block' : 'none';
-      termSetStatus('live', 'attached · ' + name);
-      // Ask tmux to force a full repaint so the pane contents fill our pty.
-      try { termFitAddon.fit(); } catch {}
-      termSendResize();
-      // Send Ctrl-L after a tick to redraw any TUI inside the pane.
-      setTimeout(() => {
-        if (termWS === myWS && myWS.readyState === WebSocket.OPEN) {
-          myWS.send(JSON.stringify({ type: 'input', data: '\x0c' }));
-        }
-      }, 120);
-      // Mark the pill as active.
-      termRenderSessionList();
-    };
-    myWS.onmessage = (ev) => {
-      if (isStale()) return;
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.type === 'data') {
-        myXterm.write(_termStripModes(msg.data));
-      } else if (msg.type === 'exit') {
-        if (msg.reason === 'no-session') {
-          // Server confirmed the tmux session is gone. Mark dead so the
-          // impending onclose doesn't restart the reconnect loop. This is
-          // THE canonical "session ended" signal — trust it immediately.
-          _termMarkDead(name, 'session not found');
-        } else {
-          termSetStatus('idle', 'detached — ' + (msg.reason || 'closed'));
-        }
-      }
-    };
-    myWS.onclose = (ev) => {
-      // Drop the listener pointers first so the browser can GC this
-      // WebSocket instance even if a reconnect timer holds the closure
-      // a while. Cheap; does nothing if they were already null.
-      detachListeners();
-      if (isStale()) return;
-      if (termUserDetached || termCurrentSession !== name) return;
-      // If the onmessage above already flagged the session dead, nothing
-      // to do here — `termCurrentSession` was nulled and the guard above
-      // has already tripped. Defensive double-check in case that ordering
-      // ever changes.
-      if (termDeadSessions.has(name)) return;
-
-      const attempts = (termReconnectAttempts[name] || 0) + 1;
-      termReconnectAttempts[name] = attempts;
-
-      if (attempts > TERM_MAX_RECONNECT_ATTEMPTS) {
-        // Too many consecutive close-without-session responses. Treat as
-        // dead; wait for the user to click "Reload sessions" etc.
-        _termMarkDead(name, 'session unreachable (' + attempts + ' attempts) — reload to retry');
-        return;
-      }
-
-      const delay = _termBackoffMs(attempts);
-      termSetStatus('err',
-        'disconnected — reconnecting in ' + Math.round(delay / 1000) + 's ' +
-        '(attempt ' + attempts + '/' + TERM_MAX_RECONNECT_ATTEMPTS + ')');
-
-      if (termReconnectTimer) clearTimeout(termReconnectTimer);
-      termReconnectTimer = setTimeout(async () => {
-        termReconnectTimer = null;
-        // Bail if state has moved on between scheduling and firing.
-        // `termWS === null` means termDetach() fired; anything else
-        // not equal to myWS means a newer attach replaced us.
-        if (termWS !== null && termWS !== myWS) return;
-        if (termDeadSessions.has(name)) return;
-        const pid = currentProject && currentProject.is_project ? currentProject.name : null;
-        if (!pid) return;
-        try { await termRefreshSessions(pid); } catch {}
-        if (termDeadSessions.has(name)) return;  // refresh may have locked it
-        if (termSessions.some(s => s.name === name)) {
-          // tmux kept the session alive through the drop — re-attach.
-          termWS = null;
-          termCurrentSession = null;
-          termAttach(name);
-        } else {
-          // tmux has dropped it. Lock it out so future one-shot timers
-          // can't revive the loop.
-          _termMarkDead(name, 'session ended: ' + name);
-        }
-      }, delay);
-    };
-    myWS.onerror = () => {
-      if (isStale()) { detachListeners(); return; }
-      // Let onclose handle recovery; just mark the status. No console
-      // logging — close code 1006 is expected when the server bounces
-      // and logging at high frequency was costing the user real time.
-      if (!termUserDetached) termSetStatus('err', 'ws error');
-    };
+    _openWS(true);
   }
 
   function termSetStatus(state, text) {
