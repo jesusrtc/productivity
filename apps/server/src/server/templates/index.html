@@ -5230,6 +5230,8 @@
     // Kept for the cache-miss fresh-connect path in termAttach; creates the
     // xterm+fitAddon and assigns to module-level termXterm/termFitAddon.
     // The caller is responsible for providing a container via _termMakeContainer().
+    const _body = document.getElementById('termBody');
+    console.log('[term] termEnsureXterm — body has', _body ? _body.children.length : '?', 'children, termXterm already=', !!termXterm);
     if (termXterm) return;
     if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
       termSetStatus('err', 'xterm.js not loaded');
@@ -5304,6 +5306,7 @@
   // soft=true: tab-switch — keep WS+xterm alive in cache, just un-mount DOM.
   // soft=false (default): full close — evict cache entry, close WS.
   function termDetach(soft = false) {
+    console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
     const prev = termCurrentSession;
@@ -5312,6 +5315,7 @@
       if (prev && termWS && termXterm) {
         if (termContainer) termContainer.style.display = 'none';
         _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS, container: termContainer });
+        console.log('[term] parked', prev, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
       }
     } else {
       if (termWS) {
@@ -5343,6 +5347,7 @@
   // recovery overlay. Used both from the explicit "no-session" server
   // signal and from the reconnect loop after MAX_ATTEMPTS failures.
   function _termMarkDead(name, statusText) {
+    console.log('[term] MARK DEAD', name, statusText);
     termDeadSessions.add(name);
     delete termReconnectAttempts[name];
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
@@ -5366,6 +5371,7 @@
   // Evict a session from the xterm cache: close its WS, dispose the
   // Terminal instance, and remove its container from the DOM.
   function _termEvictCache(name) {
+    console.log('[term] EVICT', name, 'exists=', _termCache.has(name));
     const entry = _termCache.get(name);
     if (!entry) return;
     _termCache.delete(name);
@@ -5376,11 +5382,16 @@
   }
 
   function termAttach(name) {
+    console.log('[term] termAttach', name, 'currentSession=', termCurrentSession, 'cacheHas=', _termCache.has(name));
     if (!name) return;
-    if (name === termCurrentSession && termWS && termWS.readyState === WebSocket.OPEN) return;
+    if (name === termCurrentSession && termWS && termWS.readyState === WebSocket.OPEN) {
+      console.log('[term] early return — same session already open');
+      return;
+    }
     // A previous connect confirmed the session is gone. Don't hammer
     // the server — show the recovery UI and wait for a user click.
     if (termDeadSessions.has(name)) {
+      console.log('[term] dead session', name);
       termSetStatus('err', 'session ended: ' + name);
       termShowRecovery();
       return;
@@ -5390,6 +5401,7 @@
     termDetach(true);
     termUserDetached = false;  // fresh attach — future drops should trigger recovery
     termCurrentSession = name;
+    console.log('[term] after soft detach, cache keys=', Array.from(_termCache.keys()));
     // Hide the empty/recovery overlay if visible.
     const _emptyEl = document.getElementById('termEmpty');
     if (_emptyEl) _emptyEl.style.display = 'none';
@@ -5445,6 +5457,7 @@
         }
       };
       myWS.onclose = (ev) => {
+        console.log('[term] WS onclose name=', name, 'currentSession=', termCurrentSession, 'userDetached=', termUserDetached, 'cacheHas=', _termCache.has(name), 'code=', ev.code);
         detachListeners();
         if (isStale()) return;
         if (termUserDetached || termCurrentSession !== name) return;
@@ -5486,6 +5499,7 @@
 
     // --- Cache hit, WS open: show existing container, no clear, no Ctrl-L ---
     if (cached && cached.ws.readyState === WebSocket.OPEN) {
+      console.log('[term] cache HIT name=', name, 'ws.readyState=', cached.ws.readyState, 'xterm.element parent=', cached.xterm.element?.parentElement?.id);
       termXterm = cached.xterm;
       termFitAddon = cached.fitAddon;
       termWS = cached.ws;
@@ -5506,6 +5520,7 @@
 
     // --- Cache hit, WS closed: keep xterm/container, reconnect WS only ---
     if (cached) {
+      console.log('[term] cache STALE — falling through, ws.readyState=', cached.ws.readyState);
       termXterm = cached.xterm;
       termFitAddon = cached.fitAddon;
       termContainer = cached.container;
@@ -5520,6 +5535,7 @@
     // --- Cache miss: fresh container + xterm + WebSocket ---
     // Dispose any lingering module-level xterm (e.g. left over from a dropped WS
     // reconnect where termCurrentSession was nulled before termAttach was called).
+    console.log('[term] cache MISS — fresh connect for', name);
     if (termXterm) { try { termXterm.dispose(); } catch {} termXterm = null; }
     if (termContainer) { try { termContainer.remove(); } catch {} termContainer = null; }
     termEnsureXterm();
