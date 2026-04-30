@@ -4303,6 +4303,7 @@
   let termRefreshTimer = null;  // periodic poll of /api/term/sessions
   let termReconnectTimer = null; // one-shot post-disconnect recovery
   let _termWheelListenerAdded = false; // wheel listener added once to termBody
+  let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
   // Sessions the server has confirmed are gone ("no-session" exit frame)
   // OR that we've failed to reach N times in a row. While a name is in
   // this set, termAttach/onclose refuse to reconnect. Cleared only by an
@@ -5241,11 +5242,24 @@
         if (!termXterm || !termWS || termWS.readyState !== WebSocket.OPEN) return;
         ev.preventDefault();  // skip xterm.js viewport scroll
         ev.stopPropagation(); // capture: true means this stops further capture/bubble
-        const button = ev.deltaY < 0 ? 64 : 65; // SGR: 64=scroll-up, 65=scroll-down
+        // Reset accumulator on direction change so a quick reverse doesn't
+        // require draining the old direction's debt first.
+        if ((ev.deltaY < 0 && _termWheelAccum > 0) || (ev.deltaY > 0 && _termWheelAccum < 0)) {
+          _termWheelAccum = 0;
+        }
+        _termWheelAccum += ev.deltaY;
+        const threshold = 100;
+        const ticks = Math.trunc(_termWheelAccum / threshold);
+        if (ticks === 0) return;
+        _termWheelAccum -= ticks * threshold;
+        const button = ticks < 0 ? 64 : 65; // SGR: 64=scroll-up, 65=scroll-down
         const rect = body.getBoundingClientRect();
         const col = Math.max(1, Math.floor((ev.clientX - rect.left) / (rect.width / termXterm.cols)) + 1);
         const row = Math.max(1, Math.floor((ev.clientY - rect.top) / (rect.height / termXterm.rows)) + 1);
-        termWS.send(JSON.stringify({ type: 'input', data: `\x1b[<${button};${col};${row}M` }));
+        const count = Math.abs(ticks);
+        for (let i = 0; i < count; i++) {
+          termWS.send(JSON.stringify({ type: 'input', data: `\x1b[<${button};${col};${row}M` }));
+        }
       }, { passive: false, capture: true });
     }
     // Resize on window resize.
