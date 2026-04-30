@@ -3114,9 +3114,28 @@
     }
   }
 
+  function toggleCommentsPanel() {
+    const collapsed = localStorage.getItem('projDocCommentsCollapsed') === '0' ? '1' : '0';
+    localStorage.setItem('projDocCommentsCollapsed', collapsed);
+    const panel = document.getElementById('commentsMargin');
+    const btn = document.getElementById('commentsToggleBtn');
+    if (!panel || !btn) return;
+    if (collapsed === '1') {
+      panel.style.display = 'none';
+      btn.title = 'Show comments';
+    } else {
+      panel.style.display = '';
+      btn.title = 'Hide comments';
+    }
+    const hasComments = panel.querySelectorAll('.comment-card').length > 0;
+    btn.style.color = (collapsed === '0' && hasComments) ? '#388bfd' : '#8b949e';
+    btn.style.borderColor = (collapsed === '0' && hasComments) ? '#388bfd' : '#30363d';
+  }
+
   function renderProjectDoc(filepath) {
     const content = document.getElementById('content');
     const fn = filepath.replace(/'/g, "\\'");
+    const commentsCollapsed = localStorage.getItem('projDocCommentsCollapsed') !== '0';
 
     // Two-column: doc left, comments right
     let html = `<div style="display:flex;gap:0;position:relative">`;
@@ -3130,6 +3149,11 @@
       html += `<button onclick="copyForGDocs(event)" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">&#x1F4CB; Copy</button>`;
       html += `<button onclick="startProjectDocEdit()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Edit</button>`;
       html += `<button onclick="linkProjectDocArtifact('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer" title="Attach the online URL (Google Doc, etc.) that mirrors this file">&#x1F517; Link</button>`;
+      const toggleColor = (!commentsCollapsed && _projComments.length > 0) ? '#388bfd' : '#8b949e';
+      const toggleBorder = (!commentsCollapsed && _projComments.length > 0) ? '#388bfd' : '#30363d';
+      const toggleTitle = commentsCollapsed ? 'Show comments' : 'Hide comments';
+      const commentCount = _projComments.length > 0 ? ` (${_projComments.length})` : '';
+      html += `<button id="commentsToggleBtn" onclick="toggleCommentsPanel()" style="background:#21262d;color:${toggleColor};border:1px solid ${toggleBorder};padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer" title="${toggleTitle}">&#x1F4AC;${commentCount}</button>`;
     } else {
       html += `<button onclick="saveProjectDoc('${fn}')" style="background:#238636;color:#fff;border:1px solid #238636;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>`;
       html += `<button onclick="openProjectDoc('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
@@ -3226,10 +3250,9 @@
     }
     html += `</div>`;
 
-    // Comments margin (right side). Always visible so the doc column's
-    // width stays stable whether or not comments exist — otherwise the
-    // reading area jumps by 300px the moment a comment is added.
-    html += `<div id="commentsMargin" style="width:300px;min-width:300px;padding:24px 12px;border-left:1px solid #21262d">`;
+    // Comments margin (right side). Collapsible; default hidden.
+    const marginDisplay = commentsCollapsed ? 'none' : '';
+    html += `<div id="commentsMargin" style="width:300px;min-width:300px;padding:24px 12px;border-left:1px solid #21262d;display:${marginDisplay}">`;
     if (_projComments.length > 0) {
       _projComments.forEach(c => {
         html += `<div class="comment-card" data-comment-id="${c.id}" style="border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:10px;background:#161b22;font-size:14px">`;
@@ -3400,6 +3423,18 @@
 
   function showInlineCommentBox(selectedText) {
     _pendingCommentText = selectedText;
+    // Auto-expand the comments panel if it's currently collapsed
+    if (localStorage.getItem('projDocCommentsCollapsed') !== '0') {
+      localStorage.setItem('projDocCommentsCollapsed', '0');
+      const panel = document.getElementById('commentsMargin');
+      const btn = document.getElementById('commentsToggleBtn');
+      if (panel) panel.style.display = '';
+      if (btn) {
+        btn.title = 'Hide comments';
+        btn.style.color = '#388bfd';
+        btn.style.borderColor = '#388bfd';
+      }
+    }
     const box = document.getElementById('commentInputBox');
     const label = document.getElementById('commentSelectedText');
     const input = document.getElementById('commentInput');
