@@ -1176,6 +1176,15 @@
   body.term-collapsed .main { margin-right: 0; }
   body.term-collapsed .term-toggle { right: 0; border-right: 1px solid var(--border); border-radius: 6px 0 0 6px; }
   body.term-collapsed.term-open .term-toggle { display: block; }
+
+  .doc-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 250; justify-content: center; align-items: center; }
+  .doc-modal-overlay.active { display: flex; }
+  .doc-modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; width: 90vw; max-width: 1400px; height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
+  .doc-modal-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .doc-modal-title { font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
+  .doc-modal-close:hover { color: var(--text-primary); }
+  .doc-modal-body { flex: 1; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -1532,6 +1541,16 @@
   </div>
 </div>
 
+<div class="doc-modal-overlay" id="docViewModal" onclick="if(event.target===this)closeDocModal()">
+  <div class="doc-modal-box" role="dialog" aria-labelledby="docModalTitle">
+    <div class="doc-modal-header">
+      <span class="doc-modal-title" id="docModalTitle"></span>
+      <button class="doc-modal-close" type="button" onclick="closeDocModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="doc-modal-body" id="docModalBody"></div>
+  </div>
+</div>
+
 <script>
   let currentRepo = null;
   let currentDiffTab = 'uncommitted';
@@ -1585,13 +1604,23 @@
     currentProject = projectsList.find(p => p.name === name);
     if (!currentProject) return;
 
+    // Capture the name we're navigating to. After the await below, the
+    // user may have clicked a different tab — bail rather than stomping
+    // the new view's state. This race only matters now that we navigate
+    // in-page (no full reload to interrupt in-flight work).
+    const myProjectName = name;
     if (currentProject.is_project) projTabsSetOpen(currentProject.name, true);
 
     document.title = currentProject.name;
+    // replaceState (not pushState): the caller (goToProject / popstate
+    // handler / initial-load dispatch) has already settled the URL. A
+    // pushState here would create a duplicate history entry, breaking
+    // the back button. replaceState normalizes (e.g., ?repo= → ?project=)
+    // without adding to history.
     const url = new URL(window.location);
     url.searchParams.set('project', currentProject.path);
     url.searchParams.delete('repo');
-    history.pushState(null, '', url);
+    history.replaceState(null, '', url);
 
     // Reset cached hold for the new project so the repo-tabs bar doesn't
     // flash stale state while showProjectInfo re-fetches it.
@@ -1613,6 +1642,8 @@
       // file list. Awaited so the later openProjectDoc content paint
       // doesn't race against the dashboard paint.
       await showProjectInfo();
+      // Race-guard: bail if user navigated away during the await.
+      if (!currentProject || currentProject.name !== myProjectName) return;
       const remembered = getLastProjectDoc(currentProject.path);
       if (remembered) openProjectDoc(remembered);
       // Project-scoped terminal panel: auto-open + attach latest session (if any).
@@ -3034,6 +3065,57 @@
     return _lastDocMap()[projectPath] || null;
   }
 
+  let _docModalEscHandler = null;
+
+  async function openProjectDocModal(filepath) {
+    if (!currentProject) return;
+    const modal = document.getElementById('docViewModal');
+    const body = document.getElementById('docModalBody');
+    const titleEl = document.getElementById('docModalTitle');
+    titleEl.textContent = filepath;
+    body.innerHTML = '<div class="loading" style="padding:24px">Loading…</div>';
+    modal.classList.add('active');
+    if (_docModalEscHandler) document.removeEventListener('keydown', _docModalEscHandler);
+    _docModalEscHandler = (e) => { if (e.key === 'Escape') closeDocModal(); };
+    document.addEventListener('keydown', _docModalEscHandler);
+
+    const lower = filepath.toLowerCase();
+    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
+    if (imageExts.some(ext => lower.endsWith(ext))) {
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      body.innerHTML = `<div style="padding:24px;text-align:center"><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
+      return;
+    }
+    if (lower.endsWith('.html')) {
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      body.innerHTML = `<div style="padding:24px;height:100%;box-sizing:border-box"><iframe src="${src}" style="width:100%;height:calc(100vh - 80px);border:1px solid var(--border);border-radius:4px"></iframe></div>`;
+      return;
+    }
+    try {
+      const res = await fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Failed to load'); }
+      const data = await res.json();
+      const renderer = new marked.Renderer();
+      renderer.link = ({ href, title, text }) => {
+        const t = title ? ` title="${esc(title)}"` : '';
+        return `<a href="${esc(href || '')}"${t} target="_blank" rel="noopener">${text}</a>`;
+      };
+      const html = marked.parse(data.content || '', { renderer });
+      body.innerHTML = `<div style="padding:24px 32px;max-width:860px;line-height:1.7">${html}</div>`;
+    } catch (err) {
+      body.innerHTML = `<div style="padding:24px;color:var(--red)">Error: ${esc(err.message)}</div>`;
+    }
+  }
+
+  function closeDocModal() {
+    const modal = document.getElementById('docViewModal');
+    if (modal) modal.classList.remove('active');
+    if (_docModalEscHandler) {
+      document.removeEventListener('keydown', _docModalEscHandler);
+      _docModalEscHandler = null;
+    }
+  }
+
   async function openProjectDoc(filepath, {preserveScroll = false} = {}) {
     if (!currentProject) return;
     _projDocPath = filepath;
@@ -3913,7 +3995,7 @@
       pinnedFiles.forEach(name => {
         const safeName = name.replace(/'/g, "\\'");
         const label = name.replace(/\.md$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        sbHtml += `<a class="sidebar-file" onclick="openProjectDoc('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
+        sbHtml += `<a class="sidebar-file" onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
       if (mainFiles.length > 0) {
         sbHtml += '<div class="sidebar-title">Files</div>';
@@ -3948,7 +4030,7 @@
             const safePath = f.path.replace(/'/g, "\\'");
             const fname = f.path.split('/').pop();
             const icon = f.type === 'image' ? '\u{1F5BC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
-            html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')"><span class="sidebar-fname">${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
           });
           return html;
         }
@@ -3980,7 +4062,7 @@
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.name;
           const icon = fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C4}';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openProjectDoc('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
+          sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
         });
       }
       sidebar.innerHTML = sbHtml;
@@ -4305,8 +4387,19 @@
   let termReconnectTimer = null; // one-shot post-disconnect recovery
   let _termWheelListenerAdded = false; // wheel listener added once to termBody
   let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
-  // Per-session xterm+WS cache so tab switches don't wipe in-progress input.
-  // Entries survive until the session is killed or confirmed dead.
+  // Per-session xterm+WS cache so SESSION-PILL switches (within the same
+  // project, no navigation) don't wipe in-progress input.
+  //
+  // ⚠ Limitation: this Map lives in module scope of the inline <script>
+  // in index.html. Project-tab clicks call `window.location.href = '/?project=…'`
+  // (see `projTabsRender` click handler) which is a FULL page reload —
+  // the entire JS scope, including this Map, is recreated empty. So the
+  // cache CANNOT preserve client-side state across project-tab navigations.
+  // The backend tmux session DOES persist (claude keeps running), so on
+  // reconnect we rely on tmux's pane replay to show the current state
+  // (including any unsubmitted text in claude's input line).
+  // True cross-project continuity would need in-page navigation
+  // (history.pushState + view swap) — out of scope for the current bug.
   const _termCache = new Map(); // name -> {xterm, fitAddon, ws, container}
   // Sessions the server has confirmed are gone ("no-session" exit frame)
   // OR that we've failed to reach N times in a row. While a name is in
@@ -4419,23 +4512,16 @@
         </div>`;
     }).join('');
 
-    // Click handlers.
+    // Click handlers. In-page nav (history.pushState + view swap) — no
+    // full reload, no JS-scope reset, _termCache survives across switches.
     el.querySelectorAll('.proj-tab').forEach(node => {
       const pid = node.getAttribute('data-pid');
       node.addEventListener('click', (e) => {
         if (e.target.closest('.x')) return;  // X handled separately
-        if (pid === CEREBRO_PROJECT_ID) {
-          window.location.href = '/?view=cerebro';
-          return;
-        }
-        if (pid === SELF_PROJECT_ID) {
-          window.location.href = '/?view=productivity';
-          return;
-        }
+        if (pid === CEREBRO_PROJECT_ID) { goToCerebro(); return; }
+        if (pid === SELF_PROJECT_ID)    { goToProductivity(); return; }
         const proj = projTabsAll.find(p => p.name === pid);
-        if (proj && proj.path) {
-          window.location.href = '/?project=' + encodeURIComponent(proj.path);
-        }
+        if (proj && proj.path) goToProject(proj.path);
       });
     });
     el.querySelectorAll('.proj-tab .x').forEach(btn => {
@@ -4544,7 +4630,7 @@
       || (pid === CEREBRO_PROJECT_ID && cerebroViewActive)
       || (pid === SELF_PROJECT_ID && selfViewActive)
     ) {
-      window.location.href = '/';
+      goHome();
     }
   }
 
@@ -4599,16 +4685,10 @@
     picker.querySelectorAll('.row').forEach(row => {
       row.addEventListener('click', () => {
         picker.classList.remove('open');
-        if (row.getAttribute('data-self') === '1') {
-          window.location.href = '/?view=productivity';
-          return;
-        }
-        if (row.getAttribute('data-cerebro') === '1') {
-          window.location.href = '/?view=cerebro';
-          return;
-        }
+        if (row.getAttribute('data-self') === '1')    { goToProductivity(); return; }
+        if (row.getAttribute('data-cerebro') === '1') { goToCerebro(); return; }
         const path = row.getAttribute('data-path');
-        if (path) window.location.href = '/?project=' + encodeURIComponent(path);
+        if (path) goToProject(path);
       });
     });
   }
@@ -4756,7 +4836,7 @@
     termStopPeriodicRefresh();
     termStopStatusPolling();
     // Soft-park the active session (preserves WS+xterm in cache) so that
-    // toggling the panel back open doesn't trigger a reconnect + Ctrl-L.
+    // toggling the panel back open doesn't trigger a fresh reconnect.
     termDetach(true);
   }
 
@@ -5368,6 +5448,20 @@
     delete termReconnectAttempts[name];
   }
 
+  // Resolve the right xterm for a session name without depending on a
+  // closure capture. Returns:
+  //   - termXterm  if `name` is the currently-active session
+  //   - cached entry's xterm if the session is parked (soft-detached)
+  //   - null otherwise (caller should drop the data)
+  // Used by the WS onmessage handler so a stale closure can never crash
+  // the page with "myXterm is not defined" — there's no `myXterm` to
+  // reference; the lookup happens fresh on every frame.
+  function _xtermFor(name) {
+    if (name === termCurrentSession && termXterm) return termXterm;
+    const entry = _termCache.get(name);
+    return entry && entry.xterm ? entry.xterm : null;
+  }
+
   // Evict a session from the xterm cache: close its WS, dispose the
   // Terminal instance, and remove its container from the DOM.
   function _termEvictCache(name) {
@@ -5407,10 +5501,23 @@
     if (_emptyEl) _emptyEl.style.display = 'none';
 
     const cached = _termCache.get(name);
-    // Shared WS-open logic. `freshPane` = true means new xterm (send Ctrl-L, clear);
-    // false means reconnecting a dropped WS into an existing pane (preserve buffer).
+    // Shared WS-open logic. `freshPane` is currently informational only —
+    // both branches behave identically on the wire (no Ctrl-L, no clear).
+    // Kept on the signature so callers in cache-miss vs cache-stale paths
+    // stay self-documenting; remove if it stays unused.
+    //
+    // We deliberately do NOT capture `xterm` in a closure here. Earlier
+    // revisions used `const myXterm = termXterm;` and called `myXterm.write`
+    // in onmessage, but during the cache-refactor sequence (8f8508f →
+    // 76f063f) intermediate WIP states had the const declared in a scope
+    // that didn't enclose every reachable handler call site, causing
+    // ReferenceError storms (logs/server.log shows 539 hits at
+    // 20:39:05–20:42:51). Resolving the right xterm at write-time via
+    // `_xtermFor(name)` is robust to every cache state: active session,
+    // parked-via-soft-detach, mid-restore — and can never throw
+    // "myXterm is not defined" because there is no closure-captured
+    // identifier to fall out of scope.
     const _openWS = (freshPane) => {
-      const myXterm = termXterm;
       termSetStatus('idle', 'connecting to ' + name);
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}`);
@@ -5431,15 +5538,23 @@
         termSetStatus('live', 'attached · ' + name);
         try { termFitAddon.fit(); } catch {}
         termSendResize();
-        if (freshPane) {
-          // Only send Ctrl-L for brand-new panes — existing panes already have
-          // their TUI state and sending Ctrl-L would clear in-progress input.
-          setTimeout(() => {
-            if (termWS === myWS && myWS.readyState === WebSocket.OPEN) {
-              myWS.send(JSON.stringify({ type: 'input', data: '\x0c' }));
-            }
-          }, 120);
-        }
+        // NOTE: we deliberately do NOT send Ctrl-L on connect.
+        //
+        // The previous version sent `\x0c` on `freshPane=true` to force a
+        // redraw, but `freshPane=true` fires on EVERY cache-miss connect —
+        // including the common case where the user navigated away from a
+        // project tab (full page reload → cache empty → cache miss) and
+        // came back. The tmux session is still alive with claude inside,
+        // and any unsubmitted text in claude's input line was being wiped
+        // by the Ctrl-L every reload. The user's "typed content is gone"
+        // bug was this clear-on-reconnect, not the cache itself.
+        //
+        // tmux's pane replay (with our `alternate-screen off` option set
+        // server-side) already redraws the current pane state — including
+        // claude's input — without us needing to send anything. If the
+        // server-side replay ever needs nudging on a brand-new tmux
+        // session, do it explicitly in the `+ New` flow (termSpawnSession),
+        // not on every reconnect.
         termRenderSessionList();
       };
       myWS.onmessage = (ev) => {
@@ -5447,7 +5562,10 @@
         let msg;
         try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'data') {
-          myXterm.write(_termStripModes(msg.data));
+          // Resolve the live xterm at write-time — not a closure-captured
+          // reference. See _openWS comment for the regression context.
+          const xt = _xtermFor(name);
+          if (xt) xt.write(_termStripModes(msg.data));
         } else if (msg.type === 'exit') {
           if (msg.reason === 'no-session') {
             _termMarkDead(name, 'session not found');
@@ -5527,7 +5645,7 @@
       _termCache.delete(name);
       if (termContainer) termContainer.style.display = 'block';
       try { termFitAddon.fit(); } catch {}
-      // freshPane=false: reconnect without Ctrl-L so in-progress input survives.
+      // Reconnect without clobbering claude's in-progress input: see _openWS.
       _openWS(false);
       return;
     }
@@ -5639,23 +5757,146 @@
   // every tab that didn't have a live tmux session.
   function goHome(ev) {
     if (ev) ev.preventDefault();
-    // Clear active-project state so projTabsRender doesn't show it as active.
-    currentProject = null;
-    currentRepoInProject = null;
+    _swapViewState();
     document.title = 'Productivity';
-    // Swap the body's view class. Some other code paths (cerebro, self,
-    // project) may have set their own — strip them all and assert home.
-    document.body.classList.remove('cerebro-active', 'self-active');
     document.body.classList.add('home-active');
     // Update URL without a reload; preserve the sub-tab hash if present.
     const url = new URL(window.location);
     url.searchParams.delete('project');
     url.searchParams.delete('repo');
     url.searchParams.delete('view');
-    history.pushState(null, '', url.pathname + url.search + url.hash);
+    url.searchParams.delete('path');
+    history.pushState({nav: 'home'}, '', url.pathname + url.search + url.hash);
     initHome();
     projTabsRender();
   }
+
+  // ─── In-page navigation (project tabs + dashboard cards) ────────────────
+  //
+  // Project-tab clicks USED to do `window.location.href = '/?project=…'`
+  // which is a full page reload — the entire JS scope (including
+  // `_termCache`) was destroyed every time the user moved between projects,
+  // and the brief blank-screen flash on every click was a real UX
+  // annoyance. These helpers do the same logical navigation in-page via
+  // history.pushState + view-class swap, mirroring the goHome pattern.
+  //
+  // Bonus: `_termCache` survives now, so returning to a project the user
+  // recently visited is a cache HIT — the WS + xterm buffer come back
+  // intact instead of the user seeing a fresh tmux re-attach replay.
+  // Look for `[term] cache HIT` in DevTools to confirm on a return visit.
+
+  // Park the previous view's state cleanly before swapping. Detaches the
+  // active terminal session into _termCache (soft-park, NOT eviction) and
+  // strips the mutually-exclusive body classes; the destination init will
+  // assert its own.
+  function _swapViewState() {
+    if (typeof termDetach === 'function') termDetach(true);
+    document.body.classList.remove(
+      'cerebro-active', 'self-active', 'home-active', 'project-active', 'has-diff-tabs',
+    );
+    currentProject = null;
+    currentRepo = null;
+    currentRepoInProject = null;
+    const dt = document.getElementById('diffTabs');
+    if (dt) dt.style.display = 'none';
+  }
+
+  // Navigate to a real project by absolute path. `replace` is true when
+  // called from popstate (browser already updated URL — replaceState would
+  // create a duplicate; do nothing).
+  function goToProject(path, opts = {}) {
+    if (!path) return;
+    _swapViewState();
+    if (!opts.replace) {
+      const url = new URL(window.location);
+      url.searchParams.set('project', path);
+      url.searchParams.delete('repo');
+      url.searchParams.delete('view');
+      url.searchParams.delete('path');
+      history.pushState({nav: 'project', path}, '', url.pathname + url.search + url.hash);
+    }
+    const dispatch = () => {
+      const proj = (projectsList || []).find(p => p.path === path);
+      if (proj) selectRepo(proj.name);
+    };
+    if (projectsList && projectsList.length) {
+      dispatch();
+    } else {
+      fetchRepos().then(projects => { projectsList = projects; dispatch(); });
+    }
+  }
+
+  // Navigate to a project by its id (CLAUDE-style /p/<id> URLs in the DOM).
+  // Translates to a path lookup and delegates to goToProject. Falls back
+  // to the legacy server-side redirect if the project isn't in projectsList.
+  function goToProjectById(pid, opts = {}) {
+    if (!pid) return;
+    const fromCache = (projectsList || []).find(p => p.name === pid);
+    if (fromCache && fromCache.path) { goToProject(fromCache.path, opts); return; }
+    fetchRepos().then(projects => {
+      projectsList = projects;
+      const proj = projects.find(p => p.name === pid);
+      if (proj && proj.path) goToProject(proj.path, opts);
+      else window.location.href = '/p/' + encodeURIComponent(pid); // genuinely missing
+    });
+  }
+
+  function goToCerebro(initialPath = '', opts = {}) {
+    _swapViewState();
+    if (!opts.replace) {
+      const url = new URL(window.location);
+      url.searchParams.delete('project');
+      url.searchParams.delete('repo');
+      url.searchParams.set('view', 'cerebro');
+      if (initialPath) url.searchParams.set('path', initialPath);
+      else url.searchParams.delete('path');
+      history.pushState({nav: 'cerebro', path: initialPath}, '', url.pathname + url.search + url.hash);
+    }
+    initCerebro(initialPath);
+  }
+
+  function goToProductivity(opts = {}) {
+    _swapViewState();
+    if (!opts.replace) {
+      const url = new URL(window.location);
+      url.searchParams.delete('project');
+      url.searchParams.delete('repo');
+      url.searchParams.delete('path');
+      url.searchParams.set('view', 'productivity');
+      history.pushState({nav: 'productivity'}, '', url.pathname + url.search + url.hash);
+    }
+    initSelf();
+  }
+
+  // Browser back/forward → re-run the same dispatch the initial-load
+  // chain runs, but with `{replace: true}` so we don't push duplicate
+  // entries on top of the history state the browser just restored.
+  window.addEventListener('popstate', () => {
+    const params = new URLSearchParams(location.search);
+    const project = params.get('project');
+    const repo = params.get('repo');
+    const view = params.get('view');
+    const cerebroPath = params.get('path') || '';
+    if (project) {
+      goToProject(project, {replace: true});
+    } else if (view === 'cerebro') {
+      goToCerebro(cerebroPath, {replace: true});
+    } else if (view === 'productivity') {
+      goToProductivity({replace: true});
+    } else if (repo) {
+      _swapViewState();
+      fetchRepos().then(projects => {
+        projectsList = projects;
+        const proj = projects.find(p => p.repos.some(r => r.path === repo));
+        if (proj) selectRepo(proj.name);
+      });
+    } else {
+      _swapViewState();
+      document.body.classList.add('home-active');
+      initHome();
+      projTabsRender();
+    }
+  });
 
   function setHomeTab(tab) {
     homeTab = tab;
@@ -5767,7 +6008,7 @@
     el.querySelectorAll('.due-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const pid = chip.getAttribute('data-pid');
-        if (pid) window.location.href = '/p/' + encodeURIComponent(pid);
+        if (pid) goToProjectById(pid);
       });
     });
 
@@ -5783,7 +6024,14 @@
         if (e.target.closest('[data-act]')) return;       // detail buttons handle themselves
         if (e.target.closest('.p-detail')) return;        // bubbled from detail
         const href = row.getAttribute('data-href');
-        if (href) { window.location.href = href; return; } // pseudo rows
+        if (href) {
+          // Pseudo-rows (productivity, cerebro). Route in-page so the
+          // dashboard → pseudo-project click doesn't full-reload.
+          if (href === '/?view=productivity') goToProductivity();
+          else if (href === '/?view=cerebro') goToCerebro();
+          else window.location.href = href;  // unknown — full reload
+          return;
+        }
         row.classList.toggle('expanded');
       });
     });
@@ -5812,7 +6060,7 @@
         e.stopPropagation();
         const pid = btn.getAttribute('data-pid');
         const act = btn.getAttribute('data-act');
-        if (act === 'open' && pid) window.location.href = '/p/' + encodeURIComponent(pid);
+        if (act === 'open' && pid) goToProjectById(pid);
         else if (act === 'snooze' && pid) openSnoozeModal(pid);
         else if (act === 'unhold' && pid) clearProjectHold(pid);
       });
@@ -5971,7 +6219,7 @@
         if (e.target.closest('a')) return;
         if (e.target.closest('.mini-btn')) return;
         const pid = card.getAttribute('data-pid');
-        if (pid) window.location.href = '/p/' + encodeURIComponent(pid);
+        if (pid) goToProjectById(pid);
       });
     });
     el.querySelectorAll('.mini-btn[data-act]').forEach(btn => {
@@ -6677,7 +6925,10 @@
       }
       const p = await res.json();
       closeNewProjectModal();
-      window.location.href = '/p/' + encodeURIComponent(p.id);
+      // Refresh repos so the just-created project's path is in projectsList,
+      // then in-page nav. goToProjectById falls back to /p/<id> if missing.
+      try { projectsList = await fetchRepos(); } catch {}
+      goToProjectById(p.id);
     } catch (e) {
       errEl.textContent = 'Failed: ' + e.message;
       errEl.classList.add('on');
@@ -6907,7 +7158,7 @@
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.path.split('/').pop();
           const icon = f.type === 'image' ? '\u{1F5BC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
-          html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
+          html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
         });
         return html;
       }
