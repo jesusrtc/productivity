@@ -3206,12 +3206,14 @@
     await _renderDocInto(filepath, content);
   }
 
-  function toggleCommentsPanel() {
+  function toggleCommentsPanel(btn) {
     const collapsed = localStorage.getItem('projDocCommentsCollapsed') === '0' ? '1' : '0';
     localStorage.setItem('projDocCommentsCollapsed', collapsed);
-    const panel = document.getElementById('commentsMargin');
-    const btn = document.getElementById('commentsToggleBtn');
-    if (!panel || !btn) return;
+    // Scope lookups to the same render container as the clicked button so
+    // inline-pane and modal don't interfere when both are in the DOM.
+    const root = (btn && btn.closest('#content, #docModalBody')) || document;
+    const panel = root.querySelector('#commentsMargin');
+    if (!panel) return;
     if (collapsed === '1') {
       panel.style.display = 'none';
       btn.title = 'Show comments';
@@ -3245,7 +3247,7 @@
       const toggleBorder = (!commentsCollapsed && _projComments.length > 0) ? '#388bfd' : '#30363d';
       const toggleTitle = commentsCollapsed ? 'Show comments' : 'Hide comments';
       const commentCount = _projComments.length > 0 ? ` (${_projComments.length})` : '';
-      html += `<button id="commentsToggleBtn" onclick="toggleCommentsPanel()" style="background:#21262d;color:${toggleColor};border:1px solid ${toggleBorder};padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer" title="${toggleTitle}">&#x1F4AC;${commentCount}</button>`;
+      html += `<button id="commentsToggleBtn" onclick="toggleCommentsPanel(this)" style="background:#21262d;color:${toggleColor};border:1px solid ${toggleBorder};padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer" title="${toggleTitle}">&#x1F4AC;${commentCount}</button>`;
     } else {
       html += `<button onclick="saveProjectDoc('${fn}')" style="background:#238636;color:#fff;border:1px solid #238636;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>`;
       html += `<button onclick="cancelProjectDocEdit('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
@@ -3361,8 +3363,8 @@
     html += `<div id="commentSelectedText" style="color:#d29922;font-size:12px;margin-bottom:8px;font-style:italic"></div>`;
     html += `<textarea id="commentInput" placeholder="Add a comment..." style="width:100%;min-height:60px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:8px;font-size:14px;line-height:1.5;resize:vertical;outline:none;font-family:inherit"></textarea>`;
     html += `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">`;
-    html += `<button onclick="cancelInlineComment()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
-    html += `<button onclick="submitInlineComment('${fn}')" style="background:#388bfd;color:#fff;border:1px solid #388bfd;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Comment</button>`;
+    html += `<button onclick="cancelInlineComment(this)" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
+    html += `<button onclick="submitInlineComment('${fn}',this)" style="background:#388bfd;color:#fff;border:1px solid #388bfd;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Comment</button>`;
     html += `</div></div>`;
 
     html += `</div>`;
@@ -3419,7 +3421,7 @@
             _pendingCommentMark = mark;
             sel.removeAllRanges();
           } catch (_) {}
-          showInlineCommentBox(text);
+          showInlineCommentBox(text, container);
         });
       }
     }
@@ -3513,13 +3515,15 @@
     try { parent.normalize(); } catch (_) {}
   }
 
-  function showInlineCommentBox(selectedText) {
+  function showInlineCommentBox(selectedText, ctr) {
     _pendingCommentText = selectedText;
+    const root = ctr || document;
+    const q = (id) => root.querySelector('#' + id);
     // Auto-expand the comments panel if it's currently collapsed
     if (localStorage.getItem('projDocCommentsCollapsed') !== '0') {
       localStorage.setItem('projDocCommentsCollapsed', '0');
-      const panel = document.getElementById('commentsMargin');
-      const btn = document.getElementById('commentsToggleBtn');
+      const panel = q('commentsMargin');
+      const btn = q('commentsToggleBtn');
       if (panel) panel.style.display = '';
       if (btn) {
         btn.title = 'Hide comments';
@@ -3527,23 +3531,27 @@
         btn.style.borderColor = '#388bfd';
       }
     }
-    const box = document.getElementById('commentInputBox');
-    const label = document.getElementById('commentSelectedText');
-    const input = document.getElementById('commentInput');
+    const box = q('commentInputBox');
+    const label = q('commentSelectedText');
+    const input = q('commentInput');
+    if (!box || !label || !input) return;
     label.textContent = '"' + selectedText.substring(0, 80) + (selectedText.length > 80 ? '...' : '') + '"';
     input.value = '';
     box.style.display = 'block';
     input.focus();
   }
 
-  function cancelInlineComment() {
+  function cancelInlineComment(el) {
     _pendingCommentText = '';
     removePendingCommentMark();
-    document.getElementById('commentInputBox').style.display = 'none';
+    const root = (el && el.closest('#content, #docModalBody')) || document;
+    const box = root.querySelector('#commentInputBox');
+    if (box) box.style.display = 'none';
   }
 
-  async function submitInlineComment(filepath) {
-    const input = document.getElementById('commentInput');
+  async function submitInlineComment(filepath, el) {
+    const root = (el && el.closest('#content, #docModalBody')) || document;
+    const input = root.querySelector('#commentInput');
     const comment = input.value.trim();
     if (!comment) return;
     if (!currentProject) return;
