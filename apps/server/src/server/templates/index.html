@@ -3175,6 +3175,15 @@
 
     // preserveScroll early-return: skip re-render when content/comments/artifact unchanged
     if (preserveScroll) {
+      // Notebooks, images, and HTML iframes have no meaningful _projDocContent to diff
+      // against — delegate straight to _renderDocInto so they get the correct renderer.
+      const lower = filepath.toLowerCase();
+      const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
+      if (lower.endsWith('.ipynb') || lower.endsWith('.html') || imageExts.some(ext => lower.endsWith(ext))) {
+        await _renderDocInto(filepath, content);
+        content.scrollTop = prevScroll;
+        return;
+      }
       try {
         const [fileRes, commentsRes, infoRes] = await Promise.all([
           fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
