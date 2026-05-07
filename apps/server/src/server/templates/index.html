@@ -3235,6 +3235,22 @@
     btn.style.borderColor = (collapsed === '0' && hasComments) ? '#388bfd' : '#30363d';
   }
 
+  function _resolveRelPath(baseDir, href) {
+    // Normalize ".." and "." segments in a relative path.
+    // baseDir: directory of the source file (e.g. "docs"), no trailing slash, may be "".
+    // href: relative href (e.g. "../assets/foo.png" or "./img.png" or "img.png").
+    // Returns a clean path like "assets/foo.png".
+    if (!href || href.startsWith('/')) return href;
+    const parts = (baseDir ? baseDir.split('/') : []).concat(href.split('/'));
+    const out = [];
+    for (const p of parts) {
+      if (p === '' || p === '.') continue;
+      if (p === '..') { out.pop(); continue; }
+      out.push(p);
+    }
+    return out.join('/');
+  }
+
   function renderProjectDoc(filepath, container) {
     if (!container) container = document.getElementById('content');
     const fn = filepath.replace(/'/g, "\\'");
@@ -3286,12 +3302,8 @@
           const renderer = new marked.Renderer();
           renderer.image = function(href, title, text) {
             if (href && !href.startsWith('http') && !href.startsWith('data:') && currentProject) {
-              // Resolve relative to the markdown file's directory
-              let resolvedHref = href;
-              if (filepath.includes('/')) {
-                const dir = filepath.substring(0, filepath.lastIndexOf('/'));
-                resolvedHref = dir + '/' + href;
-              }
+              const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
+              const resolvedHref = _resolveRelPath(dir, href);
               href = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolvedHref)}&t=${_lastProjectMtime || Date.now()}`;
             }
             return `<img src="${href}" alt="${text || ''}"${title ? ` title="${title}"` : ''} style="max-width:100%;border-radius:4px;margin:8px 0">`;
@@ -3300,22 +3312,16 @@
           // Rewrite relative src in iframes/embeds to use project-asset API
           rendered = rendered.replace(/<iframe([^>]*) src="([^"]+)"([^>]*)>/g, (match, pre, src, post) => {
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
-            let resolved = src;
-            if (filepath.includes('/')) {
-              const dir = filepath.substring(0, filepath.lastIndexOf('/'));
-              resolved = dir + '/' + src;
-            }
+            const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
+            const resolved = _resolveRelPath(dir, src);
             const newSrc = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolved)}`;
             return `<iframe${pre} src="${newSrc}"${post} onload="applyIframeDarkMode(this)">`;
           });
           // Also rewrite other relative src (img etc) not already handled
           rendered = rendered.replace(/ src="([^"]+)"/g, (match, src) => {
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
-            let resolved = src;
-            if (filepath.includes('/')) {
-              const dir = filepath.substring(0, filepath.lastIndexOf('/'));
-              resolved = dir + '/' + src;
-            }
+            const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
+            const resolved = _resolveRelPath(dir, src);
             return ` src="/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolved)}"`;
           });
         } catch(e) {
@@ -3841,11 +3847,8 @@
     container.querySelectorAll('img').forEach(img => {
       const src = img.getAttribute('src');
       if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/') && currentProject) {
-        let resolved = src;
-        if (_projDocPath && _projDocPath.includes('/')) {
-          const dir = _projDocPath.substring(0, _projDocPath.lastIndexOf('/'));
-          resolved = dir + '/' + src;
-        }
+        const dir = (_projDocPath && _projDocPath.includes('/')) ? _projDocPath.substring(0, _projDocPath.lastIndexOf('/')) : '';
+        const resolved = _resolveRelPath(dir, src);
         img.src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolved)}`;
       }
     });
