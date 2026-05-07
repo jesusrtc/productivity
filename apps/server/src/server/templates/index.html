@@ -3080,12 +3080,16 @@
     _docModalEscHandler = (e) => { if (e.key === 'Escape') closeDocModal(); };
     document.addEventListener('keydown', _docModalEscHandler);
     _projDocEditing = editing;
+    _projDocEditContainer = editing ? body : null;
     await _renderDocInto(filepath, body);
-    // Reset so future inline renders default to read-only.
-    _projDocEditing = false;
+    if (!editing) _projDocEditing = false;
   }
 
   function closeDocModal() {
+    if (_projDocEditing) {
+      _projDocEditing = false;
+      _projDocEditContainer = null;
+    }
     const modal = document.getElementById('docViewModal');
     if (modal) modal.classList.remove('active');
     if (_docModalEscHandler) {
@@ -3244,7 +3248,7 @@
       html += `<button id="commentsToggleBtn" onclick="toggleCommentsPanel()" style="background:#21262d;color:${toggleColor};border:1px solid ${toggleBorder};padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer" title="${toggleTitle}">&#x1F4AC;${commentCount}</button>`;
     } else {
       html += `<button onclick="saveProjectDoc('${fn}')" style="background:#238636;color:#fff;border:1px solid #238636;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>`;
-      html += `<button onclick="closeDocModal()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
+      html += `<button onclick="cancelProjectDocEdit('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
     }
     html += `</div>`;
 
@@ -3560,8 +3564,16 @@
     openProjectDocModal(_projDocPath, { editing: true });
   }
 
+  function cancelProjectDocEdit(filepath) {
+    const editCtr = _projDocEditContainer;
+    _projDocEditing = false;
+    _projDocEditContainer = null;
+    if (editCtr) renderProjectDoc(filepath, editCtr);
+  }
+
   async function saveProjectDoc(filepath) {
-    const ta = document.getElementById('projDocEditor');
+    const editCtr = _projDocEditContainer;
+    const ta = editCtr ? editCtr.querySelector('#projDocEditor') : document.getElementById('projDocEditor');
     if (!ta || !currentProject) return;
     try {
       const res = await fetch('/api/project-file', {
@@ -3572,9 +3584,11 @@
       if (!res.ok) { const e = await res.json(); alert(e.detail || 'Error saving'); return; }
       _projDocContent = ta.value;
       _projDocEditing = false;
-      // Close modal and refresh the inline pane with the saved content.
-      closeDocModal();
-      openProjectDoc(filepath);
+      _projDocEditContainer = null;
+      // Re-render modal in read mode with saved content, then refresh inline pane.
+      if (editCtr) renderProjectDoc(filepath, editCtr);
+      const content = document.getElementById('content');
+      if (content) _renderDocInto(filepath, content);
     } catch (err) { alert('Error: ' + err.message); }
   }
 
