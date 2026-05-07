@@ -3078,33 +3078,11 @@
     if (_docModalEscHandler) document.removeEventListener('keydown', _docModalEscHandler);
     _docModalEscHandler = (e) => { if (e.key === 'Escape') closeDocModal(); };
     document.addEventListener('keydown', _docModalEscHandler);
-
-    const lower = filepath.toLowerCase();
-    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
-    if (imageExts.some(ext => lower.endsWith(ext))) {
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
-      body.innerHTML = `<div style="padding:24px;text-align:center"><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
-      return;
-    }
-    if (lower.endsWith('.html')) {
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
-      body.innerHTML = `<div style="padding:24px;height:100%;box-sizing:border-box"><iframe src="${src}" style="width:100%;height:calc(100vh - 80px);border:1px solid var(--border);border-radius:4px"></iframe></div>`;
-      return;
-    }
-    try {
-      const res = await fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
-      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Failed to load'); }
-      const data = await res.json();
-      const renderer = new marked.Renderer();
-      renderer.link = ({ href, title, text }) => {
-        const t = title ? ` title="${esc(title)}"` : '';
-        return `<a href="${esc(href || '')}"${t} target="_blank" rel="noopener">${text}</a>`;
-      };
-      const html = marked.parse(data.content || '', { renderer });
-      body.innerHTML = `<div style="padding:24px 32px;max-width:860px;line-height:1.7">${html}</div>`;
-    } catch (err) {
-      body.innerHTML = `<div style="padding:24px;color:var(--red)">Error: ${esc(err.message)}</div>`;
-    }
+    // Render using the same path as the inline view — modal is always read-only.
+    const prevEditing = _projDocEditing;
+    _projDocEditing = false;
+    await _renderDocInto(filepath, body);
+    _projDocEditing = prevEditing;
   }
 
   function closeDocModal() {
@@ -3113,6 +3091,66 @@
     if (_docModalEscHandler) {
       document.removeEventListener('keydown', _docModalEscHandler);
       _docModalEscHandler = null;
+    }
+  }
+
+  // Shared render helper: handles all file types and writes into `container`.
+  // Sets the module-level _projDocContent / _projComments / _projDocArtifact globals
+  // that renderProjectDoc reads. Does NOT touch navigation state (_projDocPath,
+  // sidebar active highlights, setLastProjectDoc) — callers handle that.
+  async function _renderDocInto(filepath, container) {
+    // Image files
+    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
+    if (imageExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      container.innerHTML = `<div style="padding:24px;max-width:900px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
+      return;
+    }
+
+    // HTML files: render in iframe
+    if (filepath.toLowerCase().endsWith('.html')) {
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      container.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><iframe src="${src}" style="width:100%;height:calc(100vh - 160px);border:1px solid var(--border);border-radius:4px" onload="applyIframeDarkMode(this)"></iframe></div>`;
+      return;
+    }
+
+    // Notebooks: render cells via /api/nb — activateNotebookScripts runs post-inject
+    if (filepath.toLowerCase().endsWith('.ipynb')) {
+      try {
+        let relPath = currentProject.path + '/' + filepath;
+        const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
+        if (relPath.startsWith(rootPrefix)) relPath = relPath.slice(rootPrefix.length);
+        const res = await fetch(`/api/nb?path=${encodeURIComponent(relPath)}`);
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Failed to load notebook'); }
+        const nb = await res.json();
+        const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span><span style="font-size:11px;color:#6e7681">updated ${new Date((nb.mtime||0)*1000).toLocaleString()}</span></div>`;
+        const cellsHtml = (nb.cells||[]).map(c => renderNotebookCell(c, null)).join('');
+        container.innerHTML = `<div style="padding:24px">${header}<div class="nb-container">${cellsHtml}</div></div>`;
+        activateNotebookScripts(container);
+      } catch (err) {
+        container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
+      }
+      return;
+    }
+
+    // All other files: fetch content + comments + artifact info, then renderProjectDoc
+    try {
+      const [fileRes, commentsRes, infoRes] = await Promise.all([
+        fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
+        fetch(`/api/project-comments?path=${encodeURIComponent(currentProject.path)}`),
+        fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`),
+      ]);
+      if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
+      const data = await fileRes.json();
+      const newComments = (await commentsRes.json()).filter(c => c.file === filepath);
+      const info = infoRes.ok ? await infoRes.json() : {};
+      const artifacts = Array.isArray(info.artifacts) ? info.artifacts : [];
+      _projDocContent = data.content;
+      _projComments = newComments;
+      _projDocArtifact = artifacts.find(a => a && a.file === filepath) || null;
+      renderProjectDoc(filepath, container);
+    } catch (err) {
+      container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
     }
   }
 
@@ -3131,69 +3169,37 @@
       if (el.textContent.includes(filepath.split('/').pop())) el.classList.add('active');
     });
 
-    // Image files: render directly via project-asset
-    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
-    if (imageExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
-      content.innerHTML = `<div style="padding:24px;max-width:900px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
-      return;
-    }
-
-    // HTML files: render in iframe
-    if (filepath.toLowerCase().endsWith('.html')) {
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
-      content.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><iframe src="${src}" style="width:100%;height:calc(100vh - 160px);border:1px solid var(--border);border-radius:4px" onload="applyIframeDarkMode(this)"></iframe></div>`;
-      return;
-    }
-
-    // Notebooks: render cells via /api/nb (monorepo-relative path). Reuses
-    // the existing renderNotebookCell helper so code/markdown/output cells
-    // look identical to the gdiff notebook viewer.
-    if (filepath.toLowerCase().endsWith('.ipynb')) {
+    // preserveScroll early-return: skip re-render when content/comments/artifact unchanged
+    if (preserveScroll) {
       try {
-        let relPath = currentProject.path + '/' + filepath;
-        const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
-        if (relPath.startsWith(rootPrefix)) relPath = relPath.slice(rootPrefix.length);
-        const res = await fetch(`/api/nb?path=${encodeURIComponent(relPath)}`);
-        if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Failed to load notebook'); }
-        const nb = await res.json();
-        const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span><span style="font-size:11px;color:#6e7681">updated ${new Date((nb.mtime||0)*1000).toLocaleString()}</span></div>`;
-        const cellsHtml = (nb.cells||[]).map(c => renderNotebookCell(c, null)).join('');
-        content.innerHTML = `<div style="padding:24px">${header}<div class="nb-container">${cellsHtml}</div></div>`;
-        activateNotebookScripts(content);
+        const [fileRes, commentsRes, infoRes] = await Promise.all([
+          fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
+          fetch(`/api/project-comments?path=${encodeURIComponent(currentProject.path)}`),
+          fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`),
+        ]);
+        if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
+        const data = await fileRes.json();
+        const newComments = (await commentsRes.json()).filter(c => c.file === filepath);
+        const info = infoRes.ok ? await infoRes.json() : {};
+        const artifacts = Array.isArray(info.artifacts) ? info.artifacts : [];
+        const newArtifact = artifacts.find(a => a && a.file === filepath) || null;
+        if (data.content === _projDocContent
+            && JSON.stringify(newComments) === JSON.stringify(_projComments)
+            && JSON.stringify(newArtifact) === JSON.stringify(_projDocArtifact)) {
+          return;
+        }
+        _projDocContent = data.content;
+        _projComments = newComments;
+        _projDocArtifact = newArtifact;
+        renderProjectDoc(filepath, content);
+        content.scrollTop = prevScroll;
       } catch (err) {
         content.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
       }
       return;
     }
 
-    try {
-      const [fileRes, commentsRes, infoRes] = await Promise.all([
-        fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
-        fetch(`/api/project-comments?path=${encodeURIComponent(currentProject.path)}`),
-        fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`),
-      ]);
-      if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
-      const data = await fileRes.json();
-      // Skip re-render if content hasn't changed during auto-refresh
-      const newComments = (await commentsRes.json()).filter(c => c.file === filepath);
-      const info = infoRes.ok ? await infoRes.json() : {};
-      const artifacts = Array.isArray(info.artifacts) ? info.artifacts : [];
-      const newArtifact = artifacts.find(a => a && a.file === filepath) || null;
-      if (preserveScroll && data.content === _projDocContent
-          && JSON.stringify(newComments) === JSON.stringify(_projComments)
-          && JSON.stringify(newArtifact) === JSON.stringify(_projDocArtifact)) {
-        return;
-      }
-      _projDocContent = data.content;
-      _projComments = newComments;
-      _projDocArtifact = newArtifact;
-
-      renderProjectDoc(filepath);
-      if (preserveScroll) content.scrollTop = prevScroll;
-    } catch (err) {
-      content.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
-    }
+    await _renderDocInto(filepath, content);
   }
 
   function toggleCommentsPanel() {
@@ -3214,8 +3220,8 @@
     btn.style.borderColor = (collapsed === '0' && hasComments) ? '#388bfd' : '#30363d';
   }
 
-  function renderProjectDoc(filepath) {
-    const content = document.getElementById('content');
+  function renderProjectDoc(filepath, container) {
+    if (!container) container = document.getElementById('content');
     const fn = filepath.replace(/'/g, "\\'");
     const commentsCollapsed = localStorage.getItem('projDocCommentsCollapsed') !== '0';
 
@@ -3358,20 +3364,20 @@
     html += `</div>`;
 
     html += `</div>`; // end flex container
-    content.innerHTML = html;
+    container.innerHTML = html;
 
     // Apply comment highlights after innerHTML so we can wrap Ranges that
     // span formatting tags (bold/italic/links) — not possible with string
     // replace on the raw HTML.
     if (!_projDocEditing) {
-      const docBody = document.getElementById('projDocBody');
+      const docBody = container.querySelector('#projDocBody');
       if (docBody) {
         _projComments.forEach(c => { if (c.text) highlightCommentInNode(docBody, c.text, c.id); });
       }
     }
 
     if (_projDocEditing) {
-      const ta = document.getElementById('projDocEditor');
+      const ta = container.querySelector('#projDocEditor');
       ta.addEventListener('keydown', function(e) {
         if (e.key === 'Tab') {
           e.preventDefault();
@@ -3386,7 +3392,7 @@
       // pending <mark> right away so the user sees what they're commenting
       // on while composing. Cleared on cancel; replaced by the saved mark
       // on submit via re-render.
-      const docBody = document.getElementById('projDocBody');
+      const docBody = container.querySelector('#projDocBody');
       if (docBody) {
         docBody.addEventListener('contextmenu', (e) => {
           const sel = window.getSelection();
