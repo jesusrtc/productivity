@@ -3045,6 +3045,7 @@
   let _projDocPath = null;
   let _projDocContent = null;
   let _projDocEditing = false;
+  let _projDocEditContainer = null; // container that holds the active edit textarea
   let _projComments = [];
   let _projDocArtifact = null;  // project.json.artifacts[] entry whose `file` matches the open doc
 
@@ -3067,7 +3068,7 @@
 
   let _docModalEscHandler = null;
 
-  async function openProjectDocModal(filepath) {
+  async function openProjectDocModal(filepath, { editing = false } = {}) {
     if (!currentProject) return;
     const modal = document.getElementById('docViewModal');
     const body = document.getElementById('docModalBody');
@@ -3078,11 +3079,10 @@
     if (_docModalEscHandler) document.removeEventListener('keydown', _docModalEscHandler);
     _docModalEscHandler = (e) => { if (e.key === 'Escape') closeDocModal(); };
     document.addEventListener('keydown', _docModalEscHandler);
-    // Render using the same path as the inline view — modal is always read-only.
-    const prevEditing = _projDocEditing;
-    _projDocEditing = false;
+    _projDocEditing = editing;
     await _renderDocInto(filepath, body);
-    _projDocEditing = prevEditing;
+    // Reset so future inline renders default to read-only.
+    _projDocEditing = false;
   }
 
   function closeDocModal() {
@@ -3244,7 +3244,7 @@
       html += `<button id="commentsToggleBtn" onclick="toggleCommentsPanel()" style="background:#21262d;color:${toggleColor};border:1px solid ${toggleBorder};padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer" title="${toggleTitle}">&#x1F4AC;${commentCount}</button>`;
     } else {
       html += `<button onclick="saveProjectDoc('${fn}')" style="background:#238636;color:#fff;border:1px solid #238636;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>`;
-      html += `<button onclick="openProjectDoc('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
+      html += `<button onclick="closeDocModal()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
     }
     html += `</div>`;
 
@@ -3556,8 +3556,8 @@
   }
 
   function startProjectDocEdit() {
-    _projDocEditing = true;
-    renderProjectDoc(_projDocPath);
+    if (!_projDocPath) return;
+    openProjectDocModal(_projDocPath, { editing: true });
   }
 
   async function saveProjectDoc(filepath) {
@@ -3572,7 +3572,9 @@
       if (!res.ok) { const e = await res.json(); alert(e.detail || 'Error saving'); return; }
       _projDocContent = ta.value;
       _projDocEditing = false;
-      renderProjectDoc(filepath);
+      // Close modal and refresh the inline pane with the saved content.
+      closeDocModal();
+      openProjectDoc(filepath);
     } catch (err) { alert('Error: ' + err.message); }
   }
 
