@@ -7579,12 +7579,12 @@
 
     const pane = document.getElementById('cerebroPane');
     if (!pane) return;
-    const full = 'knowledge/' + relPath;
+    const full = 'content/' + relPath;
     const isMd = /\.(md|markdown)$/i.test(relPath);
 
     pane.innerHTML = `
       <div class="k-crumbs">
-        <span class="path">knowledge/${cerebroEsc(relPath)}</span>
+        <span class="path">content/${cerebroEsc(relPath)}</span>
       </div>
       <div id="kDoc" class="doc"><p style="color:var(--text-secondary)">Loading…</p></div>`;
     const doc = document.getElementById('kDoc');
@@ -7612,7 +7612,7 @@
       ) : '';
       pane.innerHTML = `
         <div class="k-crumbs">
-          <span class="path">knowledge/${cerebroEsc(relPath)}</span>
+          <span class="path">content/${cerebroEsc(relPath)}</span>
           <a class="open-ext" href="/view?path=${encodeURIComponent(full)}" target="_blank">open in new tab ↗</a>
         </div>
         ${fmChips}
