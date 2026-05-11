@@ -64,6 +64,8 @@ function gdiffUrl(pid) {
 
 function projectCard(p) {
   const counts = p.task_counts || {};
+  const prs = p.prs || [];
+  const prCounts = p.pr_counts || {};
   return h("div", {
     class: "card",
     ...activatable(() => { window.open(gdiffUrl(p.id), "_blank"); }),
@@ -82,6 +84,7 @@ function projectCard(p) {
       h("span", { class: "blocked" }, `blocked ${counts.blocked || 0}`),
       h("span", { class: "done" }, `done ${counts.done || 0}`),
     ),
+    prs.length > 0 ? prSection(prs, prCounts) : null,
     h("div", { class: "card-links", style: "margin-top:8px;font-size:12px" },
       h("a", {
         href: `#/p/${p.id}`,
@@ -90,6 +93,58 @@ function projectCard(p) {
       }, "Tasks view \u2192"),
     ),
   );
+}
+
+function prSection(prs, prCounts) {
+  const open = prCounts.open || 0;
+  const merged = prCounts.merged || 0;
+  const closed = prCounts.closed || 0;
+  const header = h("div", { class: "pr-header" },
+    h("span", { class: "pr-label" }, `PRs (${prs.length})`),
+    open ? h("span", { class: "pr-stat pr-open" }, `${open} open`) : null,
+    merged ? h("span", { class: "pr-stat pr-merged" }, `${merged} merged`) : null,
+    closed ? h("span", { class: "pr-stat pr-closed" }, `${closed} closed`) : null,
+  );
+
+  const ranked = prs.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status));
+  const visible = ranked.slice(0, 4);
+  const hidden = ranked.length - visible.length;
+
+  return h("div", { class: "pr-section" },
+    header,
+    h("ul", { class: "pr-list" },
+      ...visible.map((pr) => h("li", { class: "pr-item" },
+        h("span", { class: "pr-status " + prStatusClass(pr.status) }, pr.status || "?"),
+        pr.url
+          ? h("a", {
+              href: pr.url,
+              target: "_blank",
+              rel: "noopener",
+              onclick: (e) => { e.stopPropagation(); },
+              class: "pr-title",
+              title: pr.title || pr.url,
+            }, pr.title || pr.url)
+          : h("span", { class: "pr-title" }, pr.title || "(no title)"),
+      )),
+      hidden > 0 ? h("li", { class: "pr-more" }, `+${hidden} more`) : null,
+    ),
+  );
+}
+
+function statusRank(s) {
+  const v = (s || "").toLowerCase();
+  if (v === "open") return 0;
+  if (v === "closed") return 1;
+  if (v === "merged") return 2;
+  return 3;
+}
+
+function prStatusClass(s) {
+  const v = (s || "").toLowerCase();
+  if (v === "open") return "pr-open";
+  if (v === "merged") return "pr-merged";
+  if (v === "closed") return "pr-closed";
+  return "pr-other";
 }
 
 async function runPush(btn, fn, label) {

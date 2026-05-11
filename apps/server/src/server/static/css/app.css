@@ -57,6 +57,64 @@ main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 .counts .blocked { color: #c33; }
 .counts .done { color: #999; }
 
+.pr-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #e5e5e5;
+}
+.pr-header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.pr-label { color: #555; font-weight: 600; }
+.pr-stat { font-size: 11px; padding: 1px 5px; border-radius: 3px; }
+.pr-stat.pr-open { background: #ddf4dd; color: #1a7f1a; }
+.pr-stat.pr-merged { background: #ead9ff; color: #6b3fa0; }
+.pr-stat.pr-closed { background: #eee; color: #777; }
+.pr-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 12px;
+}
+.pr-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 0;
+  min-width: 0;
+}
+.pr-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: lowercase;
+  font-variant-caps: small-caps;
+}
+.pr-status.pr-open { background: #ddf4dd; color: #1a7f1a; }
+.pr-status.pr-merged { background: #ead9ff; color: #6b3fa0; }
+.pr-status.pr-closed { background: #eee; color: #777; }
+.pr-status.pr-other { background: #fef; color: #844; }
+.pr-title {
+  color: #246;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pr-title:hover { text-decoration: underline; }
+.pr-more {
+  color: #999;
+  font-size: 11px;
+  font-style: italic;
+}
+
 .chip { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; background: #eef; margin-right: 4px; }
 .p-p0 { background: #fdd; color: #a00; }
 .p-p1 { background: #fe9; color: #850; }

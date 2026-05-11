@@ -783,10 +783,32 @@
   .p-section:first-child .p-section-head { border-top: none; }
   .p-section-head .count { color: var(--text-dim); font-weight: 400; text-transform: none; letter-spacing: 0; }
   .p-row { display: grid;
-           grid-template-columns: 14px 36px minmax(160px, 1.4fr) minmax(0, 2fr) 70px 60px 90px minmax(0, auto) 22px;
+           grid-template-columns: 14px 36px minmax(160px, 1.4fr) minmax(0, 2fr) 70px 90px 60px 90px minmax(0, auto) 22px;
            align-items: center; gap: 10px;
            padding: 8px 14px; border-bottom: 1px solid var(--border);
            cursor: pointer; font-size: 13px; background: var(--bg-primary); }
+  .p-prs { display: flex; gap: 3px; font-size: 11px; white-space: nowrap; }
+  .pr-pill { padding: 1px 5px; border-radius: 3px; font-size: 10px; font-variant-caps: small-caps; }
+  .pr-pill.pr-open { background: rgba(46, 160, 67, 0.18); color: var(--green, #2ea043); }
+  .pr-pill.pr-merged { background: rgba(163, 113, 247, 0.18); color: #a371f7; }
+  /* Expanded-detail PR section. */
+  .p-detail .pr-section { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .p-detail .pr-header { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; font-size: 12px; }
+  .p-detail .pr-label { color: var(--text-secondary); font-weight: 600; }
+  .p-detail .pr-stat { padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+  .p-detail .pr-stat.pr-open { background: rgba(46, 160, 67, 0.18); color: var(--green, #2ea043); }
+  .p-detail .pr-stat.pr-merged { background: rgba(163, 113, 247, 0.18); color: #a371f7; }
+  .p-detail .pr-stat.pr-closed { background: var(--bg-tertiary); color: var(--text-secondary); }
+  .p-detail .pr-list { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+  .p-detail .pr-item { display: flex; gap: 6px; align-items: baseline; padding: 1px 0; min-width: 0; }
+  .p-detail .pr-status { flex: 0 0 auto; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-variant-caps: small-caps; text-transform: lowercase; }
+  .p-detail .pr-status.pr-open { background: rgba(46, 160, 67, 0.18); color: var(--green, #2ea043); }
+  .p-detail .pr-status.pr-merged { background: rgba(163, 113, 247, 0.18); color: #a371f7; }
+  .p-detail .pr-status.pr-closed { background: var(--bg-tertiary); color: var(--text-secondary); }
+  .p-detail .pr-status.pr-other { background: rgba(255, 192, 102, 0.18); color: var(--yellow, #d29922); }
+  .p-detail .pr-title { color: var(--accent, #58a6ff); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+  .p-detail .pr-title:hover { text-decoration: underline; }
+  .p-detail .pr-more { color: var(--text-dim); font-size: 11px; font-style: italic; margin-top: 2px; }
   .p-loe { color: var(--text-secondary); font-size: 11px; white-space: nowrap; justify-self: start; }
   .p-loe.empty { color: var(--text-dim); }
   .p-row:last-child { border-bottom: none; }
@@ -6124,6 +6146,7 @@
         <span class="p-name"><span class="icon">${icon}</span>${escapeHtml(label)}</span>
         <span class="p-repos"></span>
         <span class="p-tasks empty">pinned</span>
+        <span class="p-prs"></span>
         <span class="p-loe empty">—</span>
         <span class="p-due empty">—</span>
         <span></span>
@@ -6152,6 +6175,12 @@
     const tasksCls = openCount === 0 ? 'empty' : (hasBlocked ? 'has-blocked' : '');
     const tasksText = openCount === 0 ? '—'
                    : (hasBlocked ? `${openCount} open · ${counts.blocked} blocked` : `${openCount} open`);
+    const prCounts = p.pr_counts || {};
+    const prOpen = prCounts.open || 0;
+    const prMerged = prCounts.merged || 0;
+    const prChip = (prOpen || prMerged)
+      ? `<span class="p-prs" title="${prOpen} open · ${prMerged} merged PRs">${prOpen ? `<span class="pr-pill pr-open">${prOpen} open</span>` : ''}${prMerged ? `<span class="pr-pill pr-merged">${prMerged}✓</span>` : ''}</span>`
+      : '<span class="p-prs"></span>';
     const dueCls = p.due && Date.parse(p.due) < Date.now() ? 'overdue' : (p.due ? '' : 'empty');
     const dueText = p.due ? 'due ' + fmtDate(p.due) : '—';
     const loeCls = (p.loe == null || p.loe === '') ? 'empty' : '';
@@ -6180,6 +6209,7 @@
         ${info.state !== 'none' ? `<button type="button" class="mini-btn" data-act="snooze" data-pid="${escapeHtml(p.id)}">Reschedule</button>` : ''}
         ${info.state !== 'none' ? `<button type="button" class="mini-btn danger" data-act="unhold" data-pid="${escapeHtml(p.id)}">Clear hold</button>` : ''}
       </div>`;
+    const prsHtml = prSectionHtml(p);
     const detail = `
       <div class="p-detail">
         <p class="p-desc${desc ? '' : ' empty'}">${desc ? escapeHtml(desc) : 'No description.'}</p>
@@ -6191,6 +6221,7 @@
           <span class="blocked">blocked ${counts.blocked || 0}</span> ·
           <span class="done">done ${counts.done || 0}</span>
         </div>
+        ${prsHtml}
         ${actions}
       </div>`;
 
@@ -6201,6 +6232,7 @@
         <span class="p-name">${escapeHtml(p.id)}</span>
         <span class="p-repos">${repoChips}${repoMore}</span>
         <span class="p-tasks ${tasksCls}">${tasksText}</span>
+        ${prChip}
         <span class="p-loe editable ${loeCls}" data-edit="loe" title="click to edit LOE">${loeText}</span>
         <span class="p-due editable ${dueCls}" data-edit="due" title="click to edit due date">${dueText}</span>
         ${missingChip}
@@ -6299,6 +6331,7 @@
     const holdInfo = holdState(p.hold);
     const cardCls = holdInfo.state === 'held' ? ' held' : holdInfo.state === 'ready' ? ' ready-review' : '';
     const holdBadge = holdBadgeHtml(p.hold, holdInfo);
+    const prs = prSectionHtml(p);
     const actions = `
       <div class="card-actions">
         ${holdInfo.state === 'none' ? `<button type="button" class="mini-btn" data-act="snooze" data-pid="${escapeHtml(p.id)}">&#x1F4A4; Snooze</button>` : ''}
@@ -6317,7 +6350,58 @@
           <span class="blocked">blocked ${counts.blocked || 0}</span>
           <span class="done">done ${counts.done || 0}</span>
         </div>
+        ${prs}
         ${actions}
+      </div>`;
+  }
+
+  // Render the PR section for a project (used by both the dashboard row's
+  // expanded detail and the snoozed-tab card). Returns an empty string if
+  // the project has no PRs registered. Sorts open first, then closed, then
+  // merged; truncates to a few visible items with a "+N more" footer.
+  function prSectionHtml(p) {
+    const prs = p.prs || [];
+    if (prs.length === 0) return '';
+    const counts = p.pr_counts || {};
+    const statRank = (s) => {
+      const v = (s || '').toLowerCase();
+      if (v === 'open') return 0;
+      if (v === 'closed') return 1;
+      if (v === 'merged') return 2;
+      return 3;
+    };
+    const statCls = (s) => {
+      const v = (s || '').toLowerCase();
+      if (v === 'open') return 'pr-open';
+      if (v === 'merged') return 'pr-merged';
+      if (v === 'closed') return 'pr-closed';
+      return 'pr-other';
+    };
+    const ordered = prs.slice().sort((a, b) => statRank(a.status) - statRank(b.status));
+    const visible = ordered.slice(0, 5);
+    const hidden = ordered.length - visible.length;
+    const items = visible.map(pr => {
+      const cls = statCls(pr.status);
+      const status = `<span class="pr-status ${cls}">${escapeHtml(pr.status || '?')}</span>`;
+      const title = escapeHtml(pr.title || pr.url || '(no title)');
+      const tip = escapeHtml(pr.title || pr.url || '');
+      const body = pr.url
+        ? `<a class="pr-title" href="${escapeHtml(pr.url)}" target="_blank" rel="noopener" title="${tip}" onclick="event.stopPropagation()">${title}</a>`
+        : `<span class="pr-title" title="${tip}">${title}</span>`;
+      return `<li class="pr-item">${status}${body}</li>`;
+    }).join('');
+    const moreItem = hidden > 0 ? `<li class="pr-more">+${hidden} more</li>` : '';
+    const stats = [];
+    if (counts.open)   stats.push(`<span class="pr-stat pr-open">${counts.open} open</span>`);
+    if (counts.merged) stats.push(`<span class="pr-stat pr-merged">${counts.merged} merged</span>`);
+    if (counts.closed) stats.push(`<span class="pr-stat pr-closed">${counts.closed} closed</span>`);
+    return `
+      <div class="pr-section">
+        <div class="pr-header">
+          <span class="pr-label">PRs (${prs.length})</span>
+          ${stats.join('')}
+        </div>
+        <ul class="pr-list">${items}${moreItem}</ul>
       </div>`;
   }
 

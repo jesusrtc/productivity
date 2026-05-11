@@ -54,6 +54,15 @@ def build_index(root: Path) -> Index:
             tasks_doc = storage.read_json(tjson) if tjson.is_file() else {"tasks": []}
             summary = _project_task_summary(tasks_doc)
 
+            prs = list(pdata.get("prs") or [])
+            pr_counts = {"open": 0, "merged": 0, "closed": 0, "other": 0}
+            for pr in prs:
+                s = (pr.get("status") or "").lower()
+                if s in pr_counts:
+                    pr_counts[s] += 1
+                else:
+                    pr_counts["other"] += 1
+
             project_rows.append({
                 "id": pdata.get("id", child.name),
                 "name": pdata.get("name", child.name),
@@ -68,6 +77,8 @@ def build_index(root: Path) -> Index:
                 "updated": pdata.get("updated"),
                 "hold": pdata.get("hold") or None,
                 "path": f"content/projects/{child.name}",
+                "prs": prs,
+                "pr_counts": pr_counts,
                 **summary,
             })
 

@@ -108,3 +108,28 @@ def test_read_index_missing_raises(monorepo: Path) -> None:
 
 def test_index_type_alias_is_dict() -> None:
     assert Index is not None
+
+
+def test_build_index_includes_prs_and_counts(monorepo: Path, seed_project) -> None:
+    pdir = seed_project("gamma")
+    data = json.loads((pdir / "project.json").read_text())
+    data["prs"] = [
+        {"mp": "lipy-davi", "status": "open", "title": "Add retries", "url": "https://x/1"},
+        {"mp": "lipy-davi", "status": "merged", "title": "Old fix", "url": "https://x/2"},
+        {"mp": "lipy-davi", "status": "closed", "title": "Stale", "url": "https://x/3"},
+        {"mp": "lipy-davi", "status": "open", "title": "Second open", "url": "https://x/4"},
+    ]
+    (pdir / "project.json").write_text(json.dumps(data))
+
+    idx = build_index(monorepo)
+    p = idx["projects"][0]
+    assert len(p["prs"]) == 4
+    assert p["pr_counts"] == {"open": 2, "merged": 1, "closed": 1, "other": 0}
+
+
+def test_build_index_pr_counts_defaults_when_empty(monorepo: Path, seed_project) -> None:
+    seed_project("delta")
+    idx = build_index(monorepo)
+    p = idx["projects"][0]
+    assert p["prs"] == []
+    assert p["pr_counts"] == {"open": 0, "merged": 0, "closed": 0, "other": 0}
