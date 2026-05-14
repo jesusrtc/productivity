@@ -44,3 +44,9 @@ apps/trustim-ir-cli/build/
 apps/trustim-ir-cli/.gradle/
 apps/trustim-investigation/build/
 apps/trustim-investigation/.gradle/
+
+# Trustim skill symlinks — recreated by `lab repo refresh-skills` on
+# every `lab repo pull`. They use absolute paths into
+# `repositories/trustim-investigation/skills/` so they're machine-
+# specific and don't belong in the tree.
+.claude/skills/investigation-*

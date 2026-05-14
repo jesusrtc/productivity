@@ -12,12 +12,32 @@ view covers both Cerebro content and per-project docs.
 """
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
 
 router = APIRouter()
+
+
+def _resolve_cerebro_path(root: Path, path: str) -> Path:
+    """Validate + resolve a Cerebro path (relative to monorepo root).
+
+    Allowed roots: ``content/`` and the shared ``.claude/`` at the monorepo
+    root. Rejects path traversal and absolute paths. Returns the resolved
+    target Path or raises HTTPException(400/404).
+    """
+    if path.startswith("/") or ".." in Path(path).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    target = (root / path).resolve()
+    content_root = (root / "content").resolve()
+    shared_claude = (root / ".claude").resolve()
+    for allowed_root in (content_root, shared_claude):
+        if target == allowed_root or allowed_root in target.parents:
+            return target
+    raise HTTPException(status_code=400, detail="path escapes content/ or .claude/")
 
 
 # Dirs we don't want to crawl into, ever. Mostly ignored caches + vendor
@@ -33,15 +53,20 @@ _MAX_DEPTH = 8
 
 # Extensions we consider "viewable" in the right-hand pane.
 _MD_EXTS = {".md", ".markdown"}
-_TEXT_EXTS = {".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".toml", ".py", ".sh"}
+_TEXT_EXTS = {".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".toml", ".py", ".sh", ".csv"}
 
 
 def _node(path: Path, rel: Path, include_hidden: bool) -> dict | None:
     name = path.name
-    if not include_hidden and name.startswith(".") and name != ".":
+    # `.claude/` carries the project's shared skills/agents/hooks. We
+    # surface it by default so it's browseable from Cerebro; the only
+    # subpath we hide is `.claude/logs/`, handled in `_build`.
+    if not include_hidden and name.startswith(".") and name not in (".", ".claude"):
         return None
     if path.is_dir():
         if name in _SKIP_DIRS:
+            return None
+        if str(rel) == ".claude/logs":
             return None
         return {
             "name": name,
@@ -84,18 +109,69 @@ def _build(root: Path, rel_base: Path, include_hidden: bool, depth: int = 0) -> 
     return out
 
 
+@router.get("/api/cerebro/file")
+async def cerebro_file(path: str, request: Request) -> dict:
+    """Return raw text content of a non-markdown file under ``content/``.
+
+    Used by the Cerebro viewer for ``.json`` / ``.csv`` / ``.html`` source
+    (and other plain-text formats not rendered by ``/api/markdown``). Path
+    is monorepo-relative (e.g. ``content/wikis/foo.csv``) and must resolve
+    inside ``content/`` — OR the shared ``.claude/`` at the monorepo root
+    (which Cerebro surfaces as a virtual top-level entry).
+    """
+    root: Path = request.app.state.index_cache.root
+    target = _resolve_cerebro_path(root, path)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    suffix = target.suffix.lower()
+    try:
+        text = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="binary file")
+    kind = {".json": "json", ".csv": "csv", ".html": "html", ".htm": "html"}.get(suffix, "text")
+    return {"content": text, "type": kind, "size": target.stat().st_size}
+
+
+@router.get("/api/cerebro/asset")
+async def cerebro_asset(path: str, request: Request):
+    """Serve a file from ``content/`` or shared ``.claude/`` with proper
+    media-type — used as the iframe ``src`` for HTML rendering. Same path
+    validation as ``/api/cerebro/file``.
+    """
+    root: Path = request.app.state.index_cache.root
+    target = _resolve_cerebro_path(root, path)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    media_type, _ = mimetypes.guess_type(str(target))
+    return FileResponse(target, media_type=media_type)
+
+
 @router.get("/api/cerebro/tree")
 async def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
-    """Return the whole ``content/`` directory tree (the Cerebro view).
+    """Return the Cerebro tree — ``content/`` plus the monorepo-root ``.claude/``.
 
-    Response is a list of top-level children under ``content/`` (not the
-    ``content`` root itself, which would just be a wrapper). Dirs carry a
-    ``children`` array; files carry a ``size`` + a ``type`` hint
-    (``"markdown" | "text" | "file"``) the UI can use to decide whether to
-    render inline or just list.
+    Top-level entries are the children of ``content/`` (wikis, projects,
+    logs, etc.) with one virtual addition: the monorepo's ``.claude/``
+    (skills, agents, hooks, settings) is surfaced as a top-level ``.claude``
+    node so users can browse shared tooling without leaving Cerebro. Paths
+    for that subtree start with ``.claude/``; everything else is relative
+    to ``content/``. ``.claude/logs/`` is hidden as before.
     """
     root: Path = request.app.state.index_cache.root
     kdir = root / "content"
     if not kdir.is_dir():
         return []
-    return _build(kdir, Path(""), include_hidden)
+    nodes = _build(kdir, Path(""), include_hidden)
+    # Prepend the shared `.claude/` if it exists at the monorepo root. The
+    # tree builder reuses the same dotfile/skip rules, so .claude/logs/
+    # stays hidden here just like inside content/.
+    shared = root / ".claude"
+    if shared.is_dir():
+        shared_node = {
+            "name": ".claude",
+            "path": ".claude",
+            "type": "dir",
+            "children": _build(shared, Path(".claude"), include_hidden),
+        }
+        nodes.insert(0, shared_node)
+    return nodes

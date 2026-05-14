@@ -6,8 +6,8 @@ Find the specific tables, columns, SQL snippets, UDFs, or data caveats that were
 
 ## Where to search
 
-- `resources/trustim-investigation/skills/` -- each subfolder has a SKILL.md with table names, column references, query templates, and UDFs organized by investigation domain
-- `resources/trustim-investigation/skills/actions/` -- reusable SQL action templates
+- `repositories/trustim-investigation/skills/` -- each subfolder has a SKILL.md with table names, column references, query templates, and UDFs organized by investigation domain
+- `repositories/trustim-investigation/skills/actions/` -- reusable SQL action templates
 - `resources/darwin-backups/downloads/` -- past Darwin notebooks (.ipynb, .py) with real query examples
 
 ## What to return

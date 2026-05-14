@@ -53,12 +53,12 @@ content**, not as an empty shell.
 
 ### B. Tools live in the monorepo
 
-- [ ] `apps/darwin-runner/` ← from `trustim-investigation/tools/davi_runner.py` (CLI)
+- [x] **`apps/darwin-runner/` — retired 2026-05-11.** Notebook execution on Darwin now goes through the `darwin-cli` Claude skill (the `darwin` CLI / `go/darwin`). See `docs/DARWIN.md`. The old wrapper around `lipy-darwin-local-client` and the `lab darwin` subcommand are gone.
 - [ ] `apps/darwin-backups/` ← from `productivity-old/darwin-backups/` (notebook store + `q` query CLI)
 - [ ] `apps/trustim-ir-cli/` ← from `productivity-old/trustim-ir-cli/` (inResponse CLI)
 - [ ] `apps/trustim-investigation/` ← reference skills/templates folder moved in (gitignored if large)
-- [ ] `~/.local/bin/` symlinks for each: `darwin-runner`, `darwin-backups`, `trustim-ir-cli`
-- [ ] All three CLIs runnable from anywhere on PATH
+- [ ] `~/.local/bin/` symlinks for each: `darwin-backups`, `trustim-ir-cli`
+- [ ] Both CLIs runnable from anywhere on PATH
 
 ### C. Repositories + worktrees
 
@@ -147,7 +147,7 @@ content**, not as an empty shell.
 | Section | Status |
 |---|---|
 | A. Content migrated in | **0/21 items done**. Monorepo is empty. All content still in `~/src/productivity-old/` and `~/projects/`. |
-| B. Tools in monorepo | **0/5 done**. darwin-runner, darwin-backups, trustim-ir-cli, trustim-investigation all still live in `~/src/productivity-old/`. |
+| B. Tools in monorepo | **1/4 done.** darwin-runner retired in favor of the `darwin-cli` skill (2026-05-11). darwin-backups, trustim-ir-cli, trustim-investigation still live in `~/src/productivity-old/`. |
 | C. Repositories + worktrees | **0/6 done**. No `repositories/` folder, no `make pull-repos`, no `lab project add`. |
 | D. CLI | **Core done; advanced missing.** Project/task/index/service commands ship. Worktree, search, PR, artifact, note, migrate commands missing. |
 | E. Backend | **Reads + writes done; search + diff missing.** |
@@ -167,7 +167,7 @@ Ordered by user-value-per-minute:
 1. **Content migration** (§A) — copy cerebro/* into content/*, run a migration sweep on the 13 keeper projects under `~/projects/*`. After this step the user can actually use the monorepo with their real data instead of a blank dashboard.
 2. **Frontend polish** (§F bullets) — inline form modal for new project/new task, fix the docs tab for non-md files, filter done tasks out of the due strip, wire WS auto-reconnect.
 3. **Worktree commands** (§C + §D) — `lab project add/remove`, MP prefix config, `make pull-repos`. Enables coding work against lipy-davi / abuse-scoring-rules / abuse-short-term-action.
-4. **Tool apps migration** (§B) — move darwin-runner, darwin-backups, trustim-ir-cli into `apps/`, add symlinks, verify they still run.
+4. **Tool apps migration** (§B) — move darwin-backups, trustim-ir-cli into `apps/`, add symlinks, verify they still run. (darwin-runner is retired — see `docs/DARWIN.md`.)
 5. **Shared agents + skills** (§G) — copy the intake-processor / query-reference agents in, scaffold investigation + one-pager skill folders.
 6. **Search** (§D + §E + §F) — `lab search`, `/api/search`, `/search` view. Grep-based first, smarter later.
 7. **Diff view** (§E + §F) — fold gdiff per-worktree diffs into `/api/diff` + a tab on the project view.

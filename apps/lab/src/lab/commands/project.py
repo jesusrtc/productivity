@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import subprocess
@@ -64,29 +63,6 @@ def _parse_until_to_iso(spec: str) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_now_local().tzinfo)
     return dt.isoformat(timespec="seconds")
-
-
-# Canonical CLAUDE.md lives in `content/skills/`. Every project's
-# `CLAUDE.md` is a symlink to it so updates land in one place.
-_CLAUDE_CANONICAL_REL = Path("content") / "skills" / "project-CLAUDE.md"
-
-
-def _canonical_claude_md(root: Path) -> Path:
-    return root / _CLAUDE_CANONICAL_REL
-
-
-def _symlink_claude_md(pdir: Path, root: Path) -> None:
-    """Install pdir/CLAUDE.md as a symlink to the canonical shared file.
-
-    Uses a relative target so the link keeps working if the whole repo
-    moves. Safe to re-run: replaces any existing file/link with the symlink.
-    """
-    target = _canonical_claude_md(root)
-    link = pdir / "CLAUDE.md"
-    rel = os.path.relpath(target, pdir)
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    link.symlink_to(rel)
 
 
 def _ensure_mp_cloned(root: Path, mp: str) -> None:
@@ -163,10 +139,6 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
 
         storage.write_json(paths.project_file(root, project.id), project.to_dict())
         storage.write_json(paths.tasks_file(root, project.id), {"next_id": 1, "tasks": []})
-
-        # CLAUDE.md is a symlink to content/skills/project-CLAUDE.md so
-        # every project picks up shared instructions without drift.
-        _symlink_claude_md(pdir, root)
     except Exception:
         if pdir.exists():
             shutil.rmtree(pdir, ignore_errors=True)
@@ -501,49 +473,6 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
             storage.write_json(pjson, data)
     verb = "would move" if dry_run else "moved"
     click.echo(f"{verb} {moved}, skipped {skipped}, failed {failed}")
-
-
-@project_group.command("relink")
-@click.option("--id", "project_id", default=None,
-              help="Only re-symlink this project's CLAUDE.md; default: every project.")
-def relink(project_id: str | None) -> None:
-    """Ensure every (or one) project's CLAUDE.md is a symlink to the canonical
-    ``content/skills/project-CLAUDE.md``. Idempotent — run it after editing
-    the canonical file or after pulling changes.
-    """
-    root = paths.find_monorepo_root()
-    target = _canonical_claude_md(root)
-    if not target.is_file():
-        raise click.ClickException(
-            f"canonical file missing: {target} — create it or pull the repo"
-        )
-    projects_root = root / "content" / "projects"
-    if not projects_root.is_dir():
-        click.echo("no projects yet.")
-        return
-    ids = [project_id] if project_id else [
-        p.name for p in sorted(projects_root.iterdir())
-        if p.is_dir() and (p / "project.json").is_file()
-    ]
-    relinked, kept = 0, 0
-    for pid in ids:
-        pdir = paths.project_dir(root, pid)
-        if not pdir.is_dir():
-            click.echo(f"  ✗ {pid}: directory missing")
-            continue
-        link = pdir / "CLAUDE.md"
-        # Skip if already a symlink pointing at our target.
-        if link.is_symlink():
-            try:
-                if link.resolve() == target.resolve():
-                    kept += 1
-                    continue
-            except OSError:
-                pass
-        _symlink_claude_md(pdir, root)
-        relinked += 1
-        click.echo(f"  ↻ {pid}")
-    click.echo(f"relinked {relinked}, already correct {kept}")
 
 
 @project_group.command("add")

@@ -486,6 +486,212 @@
   .nb-output img { max-width: 100%; border-radius: 4px; margin: 4px 0; }
   .nb-output-html { padding: 8px 12px; }
 
+  /* Interactive notebook cells (editor mode). Dark by default; light-mode
+     overrides below match the existing .nb-* dark/light pattern. */
+  .nb-cell-interactive .nb-cell-header { background: var(--bg-secondary); }
+  .nb-cell-actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  .nb-cell-actions button {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary); font-size: 11px;
+    padding: 2px 8px; border-radius: 3px; cursor: pointer;
+    font-family: inherit;
+  }
+  .nb-cell-actions button:hover { color: var(--text-primary); border-color: var(--accent); }
+  .nb-cell-actions .nb-cell-run { color: var(--accent); border-color: var(--accent); }
+  .nb-cell-actions .nb-cell-run:hover { background: var(--accent); color: #fff; }
+  .nb-cell-actions button:disabled { opacity: 0.5; cursor: progress; }
+  /* Armed delete-confirm state — red, attention-grabbing, gently pulsing so
+     the user notices the button changed before the 3-second timeout. */
+  .nb-cell-actions .nb-cell-del-confirming {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+    font-weight: 600;
+    animation: nb-del-confirm-pulse 1.2s ease-in-out infinite;
+  }
+  .nb-cell-actions .nb-cell-del-confirming:hover {
+    background: #d2342a;
+    border-color: #d2342a;
+    color: #fff;
+  }
+  @keyframes nb-del-confirm-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.5); }
+    50%      { box-shadow: 0 0 0 4px rgba(248, 81, 73, 0); }
+  }
+  .nb-cell-actions .nb-cell-busy {
+    font-size: 11px; color: var(--accent); font-family: ui-monospace, monospace;
+    margin-right: 4px;
+  }
+  /* Editable cell — textarea overlaid on a highlighted <pre>. The textarea
+     text is transparent (only caret shows) so the user reads the hljs-painted
+     overlay underneath. Both elements must share font/padding/line-height/
+     wrapping/tab-size or characters won't line up. */
+  .nb-cell-edit-wrap {
+    display: grid;
+    background: var(--bg-primary);
+  }
+  .nb-cell-edit-wrap > * { grid-area: 1 / 1; }
+  .nb-cell-edit-highlight {
+    margin: 0; padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 20px;
+    white-space: pre-wrap; word-wrap: break-word; word-break: break-word;
+    overflow: hidden;
+    pointer-events: none;
+    border: none; background: transparent;
+    tab-size: 4;
+  }
+  .nb-cell-edit-highlight code.hljs {
+    background: transparent; padding: 0;
+    font-family: inherit; font-size: inherit; line-height: inherit;
+  }
+  .nb-cell-edit-area {
+    display: block; width: 100%; box-sizing: border-box;
+    border: none; outline: none; resize: vertical;
+    min-height: 1.6em; padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 20px;
+    white-space: pre-wrap; word-wrap: break-word; word-break: break-word;
+    background: transparent; color: transparent;
+    caret-color: var(--text-primary);
+    tab-size: 4;
+  }
+  .nb-cell-edit-area::selection { background: rgba(88, 166, 255, 0.35); color: transparent; }
+  .nb-cell-edit-area:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* Light-mode keeps the same overlay setup; the github-dark hljs theme reads
+     fine on the light --bg-primary because token colors are saturated enough,
+     but we keep a small adjustment for plain text legibility. */
+  body.light-mode .nb-cell-edit-highlight { color: var(--text-primary); }
+  .nb-cell-pending .nb-cell-header { background: linear-gradient(180deg, var(--bg-secondary), var(--bg-tertiary)); }
+  .nb-cell-pending .nb-type::after { content: " · draft"; color: var(--text-dim); font-weight: normal; }
+  /* nb-cell-running is the server-side placeholder while Darwin is
+     executing. Distinct label so it's obvious whether the cell is a
+     client-side draft (DRAFT) or actually in flight on Darwin (RUNNING). */
+  .nb-cell-running .nb-cell-header { background: linear-gradient(180deg, rgba(88,166,255,0.12), rgba(88,166,255,0.04)); }
+  .nb-cell-running .nb-type::after { content: " · running"; color: #58a6ff; font-weight: 600; letter-spacing: 0.5px; }
+  .nb-cell-running .nb-exec { color: #58a6ff; }
+  .nb-add-cell-wrap { display: flex; justify-content: center; margin: 12px 0; }
+  .nb-add-cell-btn {
+    background: transparent; border: 1px dashed var(--border);
+    color: var(--text-secondary); padding: 6px 24px; border-radius: 4px;
+    font-size: 12px; font-family: inherit; cursor: pointer;
+  }
+  .nb-add-cell-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .nb-add-cell-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Inline inserters — slim hover-revealed bars between every pair of cells
+     (and one above the first cell). Click "+ insert cell" to drop a pending
+     cell exactly at that position. Hidden by default to keep the cell list
+     scannable; hover the gap to bring up the button. */
+  .nb-cell-inserter {
+    position: relative;
+    height: 6px;
+    margin: 0;
+    transition: height 0.12s ease;
+  }
+  .nb-cell-inserter::before {
+    content: '';
+    position: absolute; left: 0; right: 0; top: 50%;
+    height: 1px; background: transparent;
+    transition: background 0.12s ease;
+    pointer-events: none;
+  }
+  .nb-cell-inserter:hover {
+    height: 24px;
+  }
+  .nb-cell-inserter:hover::before {
+    background: var(--border);
+  }
+  .nb-cell-insert-btn {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 11px; font-family: inherit; line-height: 1;
+    padding: 3px 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s, color 0.12s, border-color 0.12s;
+    white-space: nowrap;
+  }
+  .nb-cell-inserter:hover .nb-cell-insert-btn {
+    opacity: 1;
+  }
+  .nb-cell-insert-btn:hover {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .nb-cell-error-msg {
+    padding: 6px 12px; font-size: 11px; color: var(--red);
+    background: rgba(248, 81, 73, 0.08);
+    border-top: 1px solid rgba(248, 81, 73, 0.3);
+  }
+
+  /* Running cell — pulsing accent border so you can tell at a glance which
+     cell is currently executing. Auto-scroll is wired in setRunning() at
+     the idle→running transition only. */
+  .nb-cell-running {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 1px var(--accent), 0 0 16px -4px var(--accent);
+    animation: nb-running-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes nb-running-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px var(--accent), 0 0 12px -6px var(--accent); }
+    50%      { box-shadow: 0 0 0 2px var(--accent), 0 0 24px -2px var(--accent); }
+  }
+
+  /* Unseen / NEW outputs — green left-edge on the outputs box and a small
+     NEW badge in the header. Clicking the outputs region calls
+     _markCellSeen() which strips this class. */
+  .nb-cell-unseen > .nb-outputs {
+    box-shadow: inset 3px 0 0 var(--green);
+    background: linear-gradient(90deg, rgba(63, 185, 80, 0.06) 0%, transparent 12%);
+    cursor: pointer;
+  }
+  .nb-cell-new-badge {
+    background: var(--green); color: #fff;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+    padding: 1px 6px; border-radius: 8px;
+    align-self: center;
+  }
+
+  /* Copy buttons — sit next to Run/Delete and inside the outputs toggle. */
+  .nb-cell-actions .nb-cell-copy-src,
+  .nb-outputs-copy {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary); font-size: 11px; font-family: inherit;
+    padding: 2px 8px; border-radius: 3px; cursor: pointer;
+  }
+  .nb-cell-actions .nb-cell-copy-src:hover,
+  .nb-outputs-copy:hover { color: var(--accent); border-color: var(--accent); }
+  .nb-outputs-copy {
+    margin-left: auto;            /* push to the right edge of the toggle row */
+    padding: 1px 8px;             /* smaller — sits inside the toggle bar */
+  }
+  .nb-outputs-toggle { display: flex; align-items: center; gap: 6px; }
+  /* Restart-kernel button — sits next to the kernel badge in the file header. */
+  .nb-restart-kernel {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary); font-size: 11px; font-family: inherit;
+    padding: 1px 8px; border-radius: 3px; cursor: pointer;
+  }
+  .nb-restart-kernel:hover { color: var(--red); border-color: var(--red); }
+  .nb-restart-kernel:disabled { opacity: 0.5; cursor: progress; }
+
+  /* Collapsible outputs — Jupyter-style ▼ toggle to hide noisy logs. */
+  .nb-outputs-toggle {
+    padding: 4px 12px; font-size: 11px; color: var(--text-secondary);
+    font-family: ui-monospace, monospace; cursor: pointer;
+    border-bottom: 1px solid var(--border); background: var(--bg-secondary);
+    user-select: none;
+  }
+  .nb-outputs-toggle:hover { color: var(--text-primary); }
+  .nb-outputs-caret { display: inline-block; width: 1ch; }
+  .nb-outputs-summary { color: var(--text-dim); margin-left: 4px; }
+  .nb-outputs-collapsed .nb-outputs-body { display: none; }
+  .nb-outputs-collapsed .nb-outputs-toggle { border-bottom: none; }
+
   /* Repo tabs (within a project) */
   .repo-tabs { position: fixed; top: 48px; left: 0; right: 0; height: 36px; background: var(--bg-primary); display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--border); gap: 4px; overflow-x: auto; }
   .repo-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 12px; font-family: monospace; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
@@ -1101,6 +1307,23 @@
   .k-pane .fm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 16px; padding: 0 28px; }
   .k-pane .fm-chip { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 11px; color: var(--text-secondary); font-family: ui-monospace, monospace; }
   .k-pane .fm-chip b { color: var(--text-primary); font-weight: 500; }
+  /* CSV viewer — sticky header, monospace cells, scroll horizontally on
+     wide tables instead of breaking the column layout. */
+  .k-pane .doc .csv-toolbar { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; }
+  .k-pane .doc .csv-toolbar input[type=search] { flex: 1; max-width: 360px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; color: var(--text-primary); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .k-pane .doc .csv-toolbar input[type=search]:focus { outline: none; border-color: var(--accent); }
+  .k-pane .doc .csv-count { font-size: 11px; color: var(--text-secondary); font-family: ui-monospace, monospace; }
+  .k-pane .doc .csv-wrap { max-width: 100%; overflow-x: auto; margin: 4px 0 12px; }
+  .k-pane .doc .csv-table { border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 18px; }
+  .k-pane .doc .csv-table th, .k-pane .doc .csv-table td { border: 1px solid var(--border); padding: 4px 8px; vertical-align: top; white-space: pre; }
+  .k-pane .doc .csv-table th { background: var(--bg-secondary); position: sticky; top: 0; text-align: left; font-weight: 600; }
+  .k-pane .doc .csv-table tbody tr:nth-child(odd) td { background: rgba(255,255,255,0.02); }
+  /* HTML viewer — toggle between rendered iframe and source code. Shared
+     CSS so the project doc pane and Cerebro look identical. */
+  .html-toolbar button.html-toggle { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 3px 9px; font-size: 11px; font-family: ui-monospace, monospace; border-radius: 4px; cursor: pointer; }
+  .html-toolbar button.html-toggle:hover { color: var(--text-primary); }
+  .html-toolbar button.html-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .html-iframe { width: 100%; height: calc(100vh - 160px); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; background: #fff; }
   .k-empty { padding: 40px; color: var(--text-secondary); font-size: 14px; text-align: center; }
 
   /* ─── Terminal panel (right-docked when a project is active) ─── */
@@ -2864,6 +3087,627 @@
     </div>`;
   }
 
+  // Interactive (Jupyter-style) cell rendering. Each code cell gets an
+  // inline textarea + Run/Delete buttons; outputs appear right below it.
+  // A trailing "+ Add cell" button creates pending draft cells that aren't
+  // committed to .ipynb until the first Run — but ARE persisted in
+  // localStorage so they survive tab switches / re-renders.
+  function _cellDraftKey(relPath, index) { return 'nb-draft:' + relPath + ':' + index; }
+  function _pendingKey(relPath) { return 'nb-pending:' + relPath; }
+  function _readPending(relPath) {
+    try {
+      const raw = localStorage.getItem(_pendingKey(relPath));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) { return []; }
+  }
+  function _writePending(relPath, list) {
+    try {
+      if (!list || list.length === 0) localStorage.removeItem(_pendingKey(relPath));
+      else localStorage.setItem(_pendingKey(relPath), JSON.stringify(list));
+    } catch (_) {}
+  }
+  function _appendPending(relPath, code, insertAt) {
+    const list = _readPending(relPath);
+    const id = 'p' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    const item = { id, code: code || '' };
+    if (insertAt != null && !isNaN(insertAt)) item.insertAt = insertAt;
+    list.push(item);
+    _writePending(relPath, list);
+    return id;
+  }
+  function _updatePending(relPath, id, code) {
+    const list = _readPending(relPath);
+    const item = list.find(x => x && x.id === id);
+    if (!item) return;
+    item.code = code;
+    _writePending(relPath, list);
+  }
+  function _removePending(relPath, id) {
+    _writePending(relPath, _readPending(relPath).filter(x => x && x.id !== id));
+  }
+
+  // Cell-magic detection. The first line of a code cell is treated as a magic
+  // marker when it matches ``%%<lang>`` — most importantly ``%%sql`` so the
+  // SQL query body below it lights up with the SQL hljs grammar instead of
+  // python. Extend the table here if you start using more cell magics.
+  function _detectCellLang(source) {
+    const first = ((source || '').split('\n', 1)[0] || '').trim();
+    if (/^%%sql\b/.test(first))                    return { lang: 'sql', skipFirst: true };
+    if (/^%%(bash|shell|sh)\b/.test(first))        return { lang: 'bash', skipFirst: true };
+    if (/^%%(javascript|js)\b/.test(first))        return { lang: 'javascript', skipFirst: true };
+    if (/^%%html\b/.test(first))                   return { lang: 'xml', skipFirst: true };
+    if (/^%%r\b/.test(first))                      return { lang: 'r', skipFirst: true };
+    if (/^%%(?:cypher|json|yaml)\b/.test(first)) {
+      const m = first.match(/^%%(\w+)/);
+      return { lang: m ? m[1] : 'plaintext', skipFirst: true };
+    }
+    return { lang: 'python', skipFirst: false };
+  }
+  function _highlightCellSource(source) {
+    if (typeof hljs === 'undefined') return esc(source || '');
+    if (!source) return '';
+    const { lang, skipFirst } = _detectCellLang(source);
+    const lines = source.split('\n');
+    if (!skipFirst) {
+      return hlLine(source, lang);
+    }
+    const magic = '<span class="hljs-meta">' + esc(lines[0]) + '</span>';
+    const rest = lines.slice(1).join('\n');
+    if (!rest) return magic;
+    return magic + '\n' + hlLine(rest, lang);
+  }
+
+  // Per-cell output collapse state. Keyed by (path, index); cleared en masse
+  // when cells are deleted (indices shift). Pending cells have no committed
+  // index so they don't participate.
+  function _collapseKey(relPath, index) { return 'nb-collapse:' + relPath + ':' + index; }
+  function _isOutputCollapsed(relPath, index) {
+    try { return localStorage.getItem(_collapseKey(relPath, index)) === '1'; }
+    catch (_) { return false; }
+  }
+  function _setOutputCollapsed(relPath, index, collapsed) {
+    try {
+      if (collapsed) localStorage.setItem(_collapseKey(relPath, index), '1');
+      else localStorage.removeItem(_collapseKey(relPath, index));
+    } catch (_) {}
+  }
+
+  // "Seen" state per cell — used to highlight new outputs the user hasn't
+  // acknowledged yet (handy when Claude Code or a parallel run writes the
+  // .ipynb in the background). The stored value is the highest exec count
+  // the user has clicked through; if a render sees a higher count, the cell
+  // gets a green-bordered "NEW" badge until the user clicks the outputs.
+  function _seenKey(relPath, index) { return 'nb-seen:' + relPath + ':' + index; }
+  function _baselineSeenIfNew(relPath, index, execCount) {
+    if (execCount == null) return;
+    try {
+      if (localStorage.getItem(_seenKey(relPath, index)) == null) {
+        localStorage.setItem(_seenKey(relPath, index), String(execCount));
+      }
+    } catch (_) {}
+  }
+  function _isCellSeen(relPath, index, execCount) {
+    if (execCount == null) return true;
+    try {
+      const stored = localStorage.getItem(_seenKey(relPath, index));
+      if (stored == null) return true;  // baseline not written yet
+      return parseInt(stored, 10) >= execCount;
+    } catch (_) { return true; }
+  }
+  function _markCellSeen(relPath, index, execCount) {
+    if (execCount == null) return;
+    try { localStorage.setItem(_seenKey(relPath, index), String(execCount)); } catch (_) {}
+  }
+  function _clearAllSeenForPath(relPath) {
+    try {
+      const prefix = 'nb-seen:' + relPath + ':';
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(prefix) === 0) keys.push(k);
+      }
+      keys.forEach(k => localStorage.removeItem(k));
+    } catch (_) {}
+  }
+
+  function renderNbCellInteractive(cell, index, relPath, opts) {
+    opts = opts || {};
+    // `opts.pending` is a client-side draft (Run button not yet sent).
+    // `cell.metadata.lab_pending` is server-side: the nb_exec endpoint
+    // wrote a placeholder while the Darwin call is in flight. Both get
+    // the same .nb-cell-pending visual frame so the user can't tell
+    // which side started the run — the "[*]" gutter + running CSS look
+    // identical.
+    const serverPending = !!(cell && cell.metadata && cell.metadata.lab_pending === true);
+    const pending = !!opts.pending || serverPending;
+    const isCode = cell.cell_type === 'code';
+    // For server-side pending cells, prefer the queue position passed in
+    // by the caller (1, 2, 3 in submission order) over the bare [*]
+    // placeholder. The number gives the user immediate insight into
+    // how many cells are queued and which one will run first.
+    const execCount = serverPending
+      ? (opts.queuePos ? `[${opts.queuePos}]` : '[*]')
+      : (cell.execution_count ? `[${cell.execution_count}]` : (isCode ? '[ ]' : ''));
+
+    // Outputs — same shape as renderNotebookCell. Markdown cells skip outputs.
+    // Collapsible header lets the user hide noisy pip-install / log spam;
+    // state persists per (path, index) via localStorage.
+    let outputsHtml = '';
+    if (isCode && cell.outputs && cell.outputs.length > 0) {
+      const outs = cell.outputs.map(o => {
+        if (o.type === 'image') return `<div class="nb-output"><img src="data:image/png;base64,${o.content}"></div>`;
+        if (o.type === 'html') return `<div class="nb-output-html">${o.content}</div>`;
+        if (o.type === 'error') return `<div class="nb-output nb-output-error">${esc(o.content)}</div>`;
+        return `<div class="nb-output">${esc(o.content)}</div>`;
+      }).join('');
+      const collapsed = !opts.pending && _isOutputCollapsed(relPath, index);
+      const lineCount = cell.outputs.reduce((n, o) => n + ((o.content || '').split('\n').length), 0);
+      const summary = collapsed
+        ? `<span class="nb-outputs-summary"> · ${cell.outputs.length} output${cell.outputs.length === 1 ? '' : 's'}, ${lineCount} line${lineCount === 1 ? '' : 's'} hidden</span>`
+        : '';
+      outputsHtml = `<div class="nb-outputs${collapsed ? ' nb-outputs-collapsed' : ''}">
+        <div class="nb-outputs-toggle" title="Click to ${collapsed ? 'show' : 'hide'} output">
+          <span class="nb-outputs-caret">${collapsed ? '▶' : '▼'}</span> Output${summary}
+          <button class="nb-outputs-copy" type="button" title="Copy output to clipboard">⧉ copy</button>
+        </div>
+        <div class="nb-outputs-body">${outs}</div>
+      </div>`;
+    }
+
+    // Markdown stays read-only for now — edit is code-only in v1.
+    if (!isCode) {
+      let bodyHtml = '';
+      try { bodyHtml = `<div class="nb-markdown">${marked.parse(cell.source)}</div>`; }
+      catch (e) { bodyHtml = `<div class="nb-source">${esc(cell.source)}</div>`; }
+      return `<div class="nb-cell nb-cell-interactive" data-cell-index="${index}">
+        <div class="nb-cell-header">
+          <span class="nb-type">${cell.cell_type}</span>
+        </div>
+        ${bodyHtml}
+        ${outputsHtml}
+      </div>`;
+    }
+
+    // Code cell: editable textarea + Run/Delete. Draft restoration happens
+    // post-render in bindNbCellInteractive so we don't try to read
+    // localStorage during innerHTML assembly.
+    const source = cell.source || '';
+    const rowsHint = Math.max(2, Math.min(20, source.split('\n').length));
+    // Two distinct pending states with different visuals:
+    //   nb-cell-pending → client-side DRAFT (typed but not sent yet)
+    //   nb-cell-running → server-side RUNNING (placeholder while Darwin
+    //                     is executing). Persistent blue glow + "running"
+    //                     label instead of dashed grey + "draft".
+    const pendingCls = serverPending ? ' nb-cell-running' : (opts.pending ? ' nb-cell-pending' : '');
+    const idxAttr = pending ? 'new' : String(index);
+    const pendingId = pending ? (opts.pendingId || '') : '';
+    const pendingAttr = pendingId ? ` data-pending-id="${esc(pendingId)}"` : '';
+    const pendingInsertAt = (pending && opts.insertAt != null) ? String(opts.insertAt) : '';
+    const insertAtAttr = pendingInsertAt !== '' ? ` data-insert-at="${pendingInsertAt}"` : '';
+    const highlighted = _highlightCellSource(source);
+    const execCountNum = (cell.execution_count != null) ? cell.execution_count : '';
+    const unseen = !pending && outputsHtml && !_isCellSeen(relPath, index, cell.execution_count);
+    const unseenCls = unseen ? ' nb-cell-unseen' : '';
+    const newBadge = unseen
+      ? `<span class="nb-cell-new-badge" title="New outputs — click anywhere on the output to acknowledge">NEW</span>`
+      : '';
+    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}" data-cell-index="${idxAttr}"${pendingAttr}${insertAtAttr} data-exec-count="${execCountNum}">
+      <div class="nb-cell-header">
+        <span class="nb-type">code</span>
+        <span class="nb-exec">${execCount}</span>
+        ${newBadge}
+        <div class="nb-cell-actions">
+          <span class="nb-cell-busy" style="display:none">running…</span>
+          <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
+          <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)">▶ Run</button>
+          <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}">✕</button>
+        </div>
+      </div>
+      <div class="nb-cell-edit-wrap">
+        <pre class="nb-cell-edit-highlight hljs" aria-hidden="true"><code class="hljs">${highlighted}</code></pre>
+        <textarea class="nb-cell-edit-area" spellcheck="false" rows="${rowsHint}"
+          placeholder="${pending ? 'Type code, then Cmd/Ctrl+Enter or click Run…' : ''}">${esc(source)}</textarea>
+      </div>
+      ${outputsHtml}
+    </div>`;
+  }
+
+  function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved) {
+    if (!wrap || !wrap.classList.contains('nb-cell-interactive')) return;
+    const ta = wrap.querySelector('.nb-cell-edit-area');
+    if (!ta) return;  // markdown cell
+    const runBtn = wrap.querySelector('.nb-cell-run');
+    const delBtn = wrap.querySelector('.nb-cell-del');
+    const busy = wrap.querySelector('.nb-cell-busy');
+    const idxAttr = wrap.getAttribute('data-cell-index');
+    const isPending = idxAttr === 'new';
+    const cellIndex = isPending ? null : parseInt(idxAttr, 10);
+    const pendingId = wrap.getAttribute('data-pending-id') || null;
+
+    // Restore in-flight draft. Committed cells use a per-index draft key;
+    // pending cells persist via the path-scoped pending list so they survive
+    // navigation away and back.
+    const draftKey = isPending ? null : _cellDraftKey(relPath, cellIndex);
+    if (draftKey) {
+      try {
+        const draft = localStorage.getItem(draftKey);
+        if (draft != null) ta.value = draft;
+      } catch (_) {}
+    }
+    // Repaint the overlay later if draft restoration changed ta.value — the
+    // initial render baked the on-disk source, not the draft.
+    var _draftDiffersFromDisk = (draftKey != null && ta.value !== ta.defaultValue);
+    // Live syntax-highlight overlay: re-render the <pre> behind the textarea
+    // whenever the user types. The textarea text is transparent (caret only),
+    // so the overlay is what the user sees as "the code".
+    const highlightCode = wrap.querySelector('.nb-cell-edit-highlight code');
+    function _repaintHighlight() {
+      if (!highlightCode) return;
+      highlightCode.innerHTML = _highlightCellSource(ta.value);
+    }
+    function _syncOverlayScroll() {
+      const pre = wrap.querySelector('.nb-cell-edit-highlight');
+      if (!pre) return;
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+    if (highlightCode && _draftDiffersFromDisk) _repaintHighlight();
+    ta.addEventListener('scroll', _syncOverlayScroll);
+    ta.addEventListener('input', () => {
+      if (isPending && pendingId) {
+        _updatePending(relPath, pendingId, ta.value);
+      } else if (draftKey) {
+        try { localStorage.setItem(draftKey, ta.value); } catch (_) {}
+      }
+      _repaintHighlight();
+    });
+
+    function setRunning(on) {
+      runBtn.disabled = on;
+      delBtn.disabled = on;
+      busy.style.display = on ? '' : 'none';
+      const wasRunning = wrap.classList.contains('nb-cell-running');
+      wrap.classList.toggle('nb-cell-running', on);
+      // Auto-scroll only on the idle → running transition. Re-renders that
+      // re-create an already-running cell don't re-scroll.
+      if (on && !wasRunning) {
+        try { wrap.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+      }
+      _clearCellError(wrap);
+    }
+
+    async function run() {
+      const code = ta.value || '';
+      if (!code.trim()) return;
+      setRunning(true);
+      // Read insertAt off the DOM — pending cells produced by an "insert
+      // between cells" click carry it. Cells with no insertAt append.
+      let insertAt = NaN;
+      if (isPending) {
+        insertAt = parseInt(wrap.getAttribute('data-insert-at') || '', 10);
+      }
+      try {
+        const body = { path: relPath, code };
+        if (cellIndex != null) body.cell_index = cellIndex;
+        else if (!isNaN(insertAt)) body.insert_at = insertAt;
+        const res = await fetch('/api/nb/exec', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(e.detail || ('exec failed (' + res.status + ')'));
+        }
+        if (draftKey) { try { localStorage.removeItem(draftKey); } catch (_) {} }
+        // Inserting shifts every subsequent cell's index by 1 — drop all
+        // per-cell drafts and seen markers for this path so stale code or
+        // stale baselines don't reappear at the wrong position.
+        if (!isNaN(insertAt)) {
+          _clearAllDraftsForPath(relPath);
+          _clearAllSeenForPath(relPath);
+        }
+        // Successful Run on a pending cell promotes it to a committed cell —
+        // remove from pending storage before re-render so it's not duplicated.
+        if (isPending && pendingId) _removePending(relPath, pendingId);
+        openProjectDoc(filepath, { preserveScroll: true });
+      } catch (err) {
+        _showCellError(wrap, err.message || String(err));
+        setRunning(false);
+      }
+    }
+
+    // Two-step delete confirmation. First click on ✕ swaps the button into a
+    // "⚠ Click again" state for 3s; the second click within that window
+    // actually deletes. Auto-resets after the timeout or if the user runs
+    // the cell instead. Empty pending drafts skip the confirm — there's
+    // nothing to lose.
+    let _delConfirmTimer = null;
+    function _resetDeleteButton() {
+      delBtn.textContent = '✕';
+      delBtn.classList.remove('nb-cell-del-confirming');
+      delBtn.title = isPending ? 'Discard draft' : 'Delete cell';
+      if (_delConfirmTimer) { clearTimeout(_delConfirmTimer); _delConfirmTimer = null; }
+    }
+    function _armDeleteConfirm(label, hint) {
+      delBtn.classList.add('nb-cell-del-confirming');
+      delBtn.textContent = label;
+      delBtn.title = hint;
+      if (_delConfirmTimer) clearTimeout(_delConfirmTimer);
+      _delConfirmTimer = setTimeout(_resetDeleteButton, 3000);
+    }
+    // If the user starts editing the textarea after arming, dismiss the
+    // pending confirm — they clearly didn't mean to delete.
+    ta.addEventListener('input', _resetDeleteButton, { passive: true });
+
+    async function del() {
+      const armed = delBtn.classList.contains('nb-cell-del-confirming');
+      if (isPending) {
+        const hasContent = (ta.value || '').trim() !== '';
+        // Empty draft → discard outright. With content → require a second
+        // click so a fat-finger doesn't wipe what the user typed.
+        if (hasContent && !armed) {
+          _armDeleteConfirm('⚠ Discard?', 'Click again within 3s to discard this draft');
+          return;
+        }
+        _resetDeleteButton();
+        if (pendingId) _removePending(relPath, pendingId);
+        wrap.parentNode && wrap.parentNode.removeChild(wrap);
+        if (typeof onPendingRemoved === 'function') onPendingRemoved();
+        return;
+      }
+      // Committed cell — always two-step. The first click arms; the second
+      // (within 3s) actually rewrites the .ipynb.
+      if (!armed) {
+        _armDeleteConfirm('⚠ Click again', 'Click again within 3s to delete this cell — this rewrites the .ipynb');
+        return;
+      }
+      _resetDeleteButton();
+      setRunning(true);
+      try {
+        const res = await fetch('/api/nb/cell/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: relPath, cell_index: cellIndex }),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(e.detail || ('delete failed (' + res.status + ')'));
+        }
+        // Deletion shifts indices; safest to clear all per-cell drafts AND
+        // seen markers for this notebook so stale code/baselines don't
+        // reappear at the wrong index.
+        _clearAllDraftsForPath(relPath);
+        _clearAllSeenForPath(relPath);
+        openProjectDoc(filepath, { preserveScroll: true });
+      } catch (err) {
+        _showCellError(wrap, err.message || String(err));
+        setRunning(false);
+      }
+    }
+
+    runBtn.addEventListener('click', run);
+    delBtn.addEventListener('click', del);
+    ta.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        run();
+      }
+    });
+
+    // Output collapse toggle (only for committed cells with real outputs).
+    const outputsWrap = wrap.querySelector(':scope > .nb-outputs');
+    const toggle = outputsWrap && outputsWrap.querySelector('.nb-outputs-toggle');
+    if (toggle && !isPending) {
+      toggle.addEventListener('click', (e) => {
+        // Don't trigger collapse when the user clicked the copy-output button.
+        if (e.target.closest('.nb-outputs-copy')) return;
+        const nowCollapsed = !outputsWrap.classList.contains('nb-outputs-collapsed');
+        outputsWrap.classList.toggle('nb-outputs-collapsed', nowCollapsed);
+        const caret = toggle.querySelector('.nb-outputs-caret');
+        if (caret) caret.textContent = nowCollapsed ? '▶' : '▼';
+        let summary = toggle.querySelector('.nb-outputs-summary');
+        if (nowCollapsed && !summary) {
+          const body = outputsWrap.querySelector('.nb-outputs-body');
+          const lines = body ? body.textContent.split('\n').length : 0;
+          const items = body ? body.children.length : 0;
+          summary = document.createElement('span');
+          summary.className = 'nb-outputs-summary';
+          summary.textContent = ` · ${items} output${items === 1 ? '' : 's'}, ${lines} line${lines === 1 ? '' : 's'} hidden`;
+          toggle.insertBefore(summary, toggle.querySelector('.nb-outputs-copy'));
+        } else if (!nowCollapsed && summary) {
+          summary.remove();
+        }
+        _setOutputCollapsed(relPath, cellIndex, nowCollapsed);
+      });
+    }
+
+    // Copy source to clipboard.
+    const copySrcBtn = wrap.querySelector('.nb-cell-copy-src');
+    if (copySrcBtn) {
+      copySrcBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await _copyToClipboard(ta.value || '', copySrcBtn);
+      });
+    }
+
+    // Copy outputs to clipboard. Concatenates all text/error outputs with
+    // newlines; images and HTML are flagged in the copied string so the user
+    // knows they were skipped.
+    const copyOutBtn = outputsWrap && outputsWrap.querySelector('.nb-outputs-copy');
+    if (copyOutBtn) {
+      copyOutBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();  // don't fold/expand the output panel
+        const body = outputsWrap.querySelector('.nb-outputs-body');
+        await _copyToClipboard(_outputsToText(body), copyOutBtn);
+      });
+    }
+
+    // "Unseen" indicator dismissal — clicking anywhere on the outputs area
+    // marks them as seen and removes the green highlight.
+    if (outputsWrap && !isPending && wrap.classList.contains('nb-cell-unseen')) {
+      const execCount = parseInt(wrap.getAttribute('data-exec-count') || 'NaN', 10);
+      outputsWrap.addEventListener('click', () => {
+        if (!wrap.classList.contains('nb-cell-unseen')) return;
+        wrap.classList.remove('nb-cell-unseen');
+        const badge = wrap.querySelector('.nb-cell-new-badge');
+        if (badge) badge.remove();
+        if (!isNaN(execCount)) _markCellSeen(relPath, cellIndex, execCount);
+      }, { once: false });
+    }
+  }
+
+  // Generic clipboard helper with brief "✓ copied" feedback on the triggering
+  // button. Falls back to execCommand for legacy contexts where Clipboard API
+  // isn't available (e.g. http localhost without isSecureContext).
+  async function _copyToClipboard(text, btn) {
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { ok = document.execCommand('copy'); }
+        finally { document.body.removeChild(ta); }
+      }
+    } catch (_) { ok = false; }
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = ok ? '✓ copied' : '✗ copy failed';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
+  }
+
+  // Flatten the rendered outputs DOM into something useful in a paste buffer.
+  function _outputsToText(bodyEl) {
+    if (!bodyEl) return '';
+    const parts = [];
+    bodyEl.querySelectorAll(':scope > *').forEach((el) => {
+      if (el.classList.contains('nb-output-html')) {
+        parts.push('[html output — copy from the page or use the raw .ipynb]');
+      } else if (el.querySelector('img')) {
+        parts.push('[image output — see the rendered cell]');
+      } else {
+        parts.push(el.textContent || '');
+      }
+    });
+    return parts.join('\n');
+  }
+
+  function _showCellError(wrap, msg) {
+    _clearCellError(wrap);
+    const err = document.createElement('div');
+    err.className = 'nb-cell-error-msg';
+    err.textContent = msg;
+    wrap.appendChild(err);
+  }
+  function _clearCellError(wrap) {
+    const old = wrap.querySelector(':scope > .nb-cell-error-msg');
+    if (old) old.remove();
+  }
+  function _clearAllDraftsForPath(relPath) {
+    try {
+      const prefix = 'nb-draft:' + relPath + ':';
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(prefix) === 0) keys.push(k);
+      }
+      keys.forEach(k => localStorage.removeItem(k));
+    } catch (_) {}
+  }
+
+  // "+ Add cell" button — pushes a new draft to the path-scoped pending list
+  // (persisted in localStorage so the cell survives tab switches and
+  // re-renders). Multiple pending cells are allowed; another can be created
+  // while one is still running.
+  function renderNbAddCellButton() {
+    return `<div class="nb-add-cell-wrap">
+      <button class="nb-add-cell-btn" type="button">+ Add cell</button>
+    </div>`;
+  }
+  async function bindNbRestartKernel(container, relPath, filepath) {
+    const btn = container.querySelector('.nb-restart-kernel');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      if (!confirm('Restart the kernel for this notebook? All variables will be wiped. Cells stay; you re-run them on the new kernel.')) return;
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = '↻ Restarting…';
+      try {
+        const res = await fetch('/api/nb/session/restart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: relPath }),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(e.detail || ('restart failed (' + res.status + ')'));
+        }
+        btn.textContent = '✓ Kernel restarted';
+        setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1500);
+      } catch (err) {
+        alert('Kernel restart failed: ' + (err.message || err));
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function bindNbAddCellButton(container, relPath, filepath) {
+    const btn = container.querySelector('.nb-add-cell-btn');
+    const cellsHost = container.querySelector('.nb-container');
+    if (!btn || !cellsHost) return;
+    btn.addEventListener('click', () => {
+      const id = _appendPending(relPath, '');
+      const blank = { cell_type: 'code', source: '', outputs: [], execution_count: null };
+      const html = renderNbCellInteractive(blank, -1, relPath, { pending: true, pendingId: id });
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const node = tmp.firstElementChild;
+      cellsHost.appendChild(node);
+      bindNbCellInteractive(node, relPath, filepath);
+      const ta = node.querySelector('.nb-cell-edit-area');
+      if (ta) ta.focus();
+    });
+  }
+
+  // Hover-revealed "+ insert cell" bars between every pair of cells. Click
+  // inserts a pending cell at that position (data-insert-at), which on Run
+  // POSTs `insert_at` so the new cell lands between existing cells instead
+  // of being appended at the end.
+  function bindNbCellInserters(container, relPath, filepath) {
+    container.querySelectorAll('.nb-cell-insert-btn').forEach((btn) => {
+      const inserter = btn.closest('.nb-cell-inserter');
+      if (!inserter) return;
+      const at = parseInt(inserter.getAttribute('data-insert-at') || '', 10);
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (isNaN(at)) return;
+        const id = _appendPending(relPath, '', at);
+        const blank = { cell_type: 'code', source: '', outputs: [], execution_count: null };
+        const html = renderNbCellInteractive(blank, -1, relPath, {
+          pending: true, pendingId: id, insertAt: at,
+        });
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const node = tmp.firstElementChild;
+        // Drop the new pending cell right after this inserter so it sits
+        // exactly at the visual gap the user clicked.
+        inserter.parentNode.insertBefore(node, inserter.nextElementSibling);
+        bindNbCellInteractive(node, relPath, filepath);
+        const ta = node.querySelector('.nb-cell-edit-area');
+        if (ta) ta.focus();
+      });
+    });
+  }
+
   function renderNotebookCellDiff(diffCell) {
     if (diffCell.status === 'modified' && diffCell.base_cell) {
       // Show old and new source
@@ -3124,7 +3968,49 @@
   // Sets the module-level _projDocContent / _projComments / _projDocArtifact globals
   // that renderProjectDoc reads. Does NOT touch navigation state (_projDocPath,
   // sidebar active highlights, setLastProjectDoc) — callers handle that.
-  async function _renderDocInto(filepath, container) {
+  // Renders an HTML file in the project doc pane with a Rendered/Code
+  // toggle. Mirrors cerebroRenderHtml; the pref is shared via
+  // localStorage so opening the same file in Cerebro keeps the same view.
+  async function _projectRenderHtml(container, filepath, absKey, mode) {
+    const toolbar = `
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px">
+        <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>
+        <span class="html-toolbar" style="display:flex;gap:4px">
+          <button class="html-toggle ${mode==='rendered'?'active':''}" data-mode="rendered">🖼 Rendered</button>
+          <button class="html-toggle ${mode==='code'?'active':''}" data-mode="code">&lt;/&gt; Code</button>
+        </span>
+      </div>`;
+    if (mode === 'rendered') {
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      container.innerHTML = `<div style="padding:24px">${toolbar}<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe></div>`;
+    } else {
+      try {
+        const r = await fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
+        if (!r.ok) {
+          const msg = await r.json().catch(() => ({}));
+          container.innerHTML = `<div style="padding:24px">${toolbar}<p style="color:var(--red)">Error: ${esc(msg.detail || r.statusText)}</p></div>`;
+        } else {
+          const data = await r.json();
+          container.innerHTML = `<div style="padding:24px">${toolbar}<pre style="background:var(--bg-secondary);padding:14px;border-radius:6px;overflow:auto"><code class="language-html">${esc(data.content || '')}</code></pre></div>`;
+          if (window.hljs) {
+            container.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+          }
+        }
+      } catch (e) {
+        container.innerHTML = `<div style="padding:24px">${toolbar}<p style="color:var(--red)">Error: ${esc(e.message || e)}</p></div>`;
+      }
+    }
+    container.querySelectorAll('.html-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.getAttribute('data-mode');
+        if (next === mode) return;
+        setHtmlViewPref(absKey, next);
+        _projectRenderHtml(container, filepath, absKey, next);
+      });
+    });
+  }
+
+  async function _renderDocInto(filepath, container, { preserveScroll = false } = {}) {
     // Image files
     const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
     if (imageExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
@@ -3133,26 +4019,128 @@
       return;
     }
 
-    // HTML files: render in iframe
-    if (filepath.toLowerCase().endsWith('.html')) {
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
-      container.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><iframe src="${src}" style="width:100%;height:calc(100vh - 160px);border:1px solid var(--border);border-radius:4px" onload="applyIframeDarkMode(this)"></iframe></div>`;
+    // HTML files: rendered iframe by default, with a "Code" toggle to
+    // view source instead. Choice is sticky per file via localStorage.
+    if (/\.(html|htm)$/i.test(filepath)) {
+      const absKey = currentProject.path + '/' + filepath;
+      const mode = getHtmlViewPref(absKey);
+      _projectRenderHtml(container, filepath, absKey, mode);
       return;
     }
 
-    // Notebooks: render cells via /api/nb — activateNotebookScripts runs post-inject
+    // Notebooks: render cells via /api/nb — activateNotebookScripts runs post-inject.
+    // A trailing editor lets you POST new cells to /api/nb/exec; the resulting
+    // .ipynb write triggers the watcher, every open viewer re-renders.
     if (filepath.toLowerCase().endsWith('.ipynb')) {
       try {
         let relPath = currentProject.path + '/' + filepath;
         const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
         if (relPath.startsWith(rootPrefix)) relPath = relPath.slice(rootPrefix.length);
-        const res = await fetch(`/api/nb?path=${encodeURIComponent(relPath)}`);
-        if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Failed to load notebook'); }
-        const nb = await res.json();
-        const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span><span style="font-size:11px;color:#6e7681">updated ${new Date((nb.mtime||0)*1000).toLocaleString()}</span></div>`;
-        const cellsHtml = (nb.cells||[]).map(c => renderNotebookCell(c, null)).join('');
-        container.innerHTML = `<div style="padding:24px">${header}<div class="nb-container">${cellsHtml}</div></div>`;
+
+        // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
+        // receive its first cell" rather than an error.
+        const [nbRes, sessRes] = await Promise.all([
+          fetch(`/api/nb?path=${encodeURIComponent(relPath)}`),
+          fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}`),
+        ]);
+        let nb = { path: relPath, cells: [], mtime: null };
+        let notFound = false;
+        if (nbRes.ok) {
+          nb = await nbRes.json();
+        } else if (nbRes.status === 404) {
+          notFound = true;
+        } else {
+          const e = await nbRes.json().catch(() => ({}));
+          throw new Error(e.detail || ('Failed to load notebook (' + nbRes.status + ')'));
+        }
+        const session = sessRes.ok ? (await sessRes.json()).session : '';
+
+        // Baseline "seen" state for any cell we haven't observed before so the
+        // first render of a notebook is calm (nothing flagged NEW). Subsequent
+        // execs bump cell.execution_count past the baseline → NEW indicator.
+        (nb.cells || []).forEach((c, i) => _baselineSeenIfNew(relPath, i, c.execution_count));
+        // Stamp this open as "viewed" so the sidebar's amber unseen-results
+        // dot disappears for this file. Use the current file mtime so any
+        // FUTURE mtime advance (new cell, new outputs) re-triggers the dot.
+        // Skip on `preserveScroll` (the mtime poller's auto-refresh path) —
+        // otherwise we'd keep restamping the timestamp on every poll while
+        // the file is open, and the amber "new results" dot would never
+        // appear for the currently-focused notebook even though new cells
+        // are landing.
+        if (nb.mtime && !preserveScroll) _nbMarkViewed(filepath, nb.mtime);
+
+        const updatedLabel = nb.mtime
+          ? 'updated ' + new Date(nb.mtime * 1000).toLocaleString()
+          : (notFound ? 'new notebook' : '');
+        const sessionBadge = session
+          ? `<span title="Darwin kernel pinned to this file" style="font-family:ui-monospace,monospace;font-size:11px;background:var(--bg-tertiary);color:var(--accent);padding:1px 6px;border-radius:3px">kernel: ${esc(session)}</span>`
+          : '';
+        const restartBtnHtml = session
+          ? `<button class="nb-restart-kernel" type="button" title="Restart kernel (wipes variables, like Jupyter's Restart Kernel)">↻ Restart kernel</button>`
+          : '';
+        const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>${sessionBadge}${restartBtnHtml}<span style="font-size:11px;color:var(--text-secondary)">${updatedLabel}</span></div>`;
+        const pendingList = _readPending(relPath);
+        const realCells = nb.cells || [];
+        // Build the cells host: an "insert here" bar before every real cell,
+        // any pending cells targeting that position, the real cell itself,
+        // a final inserter after the last real cell, and finally any pending
+        // cells with no insertAt (append-style).
+        function _renderPendingFor(at) {
+          return pendingList
+            .filter((p) => (at == null ? (p.insertAt == null) : (p.insertAt === at)))
+            .map((p) => {
+              const blank = { cell_type: 'code', source: p.code || '', outputs: [], execution_count: null };
+              return renderNbCellInteractive(blank, -1, relPath, {
+                pending: true, pendingId: p.id, insertAt: p.insertAt,
+              });
+            }).join('');
+        }
+        function _inserter(at) {
+          return `<div class="nb-cell-inserter" data-insert-at="${at}"><button class="nb-cell-insert-btn" type="button" title="Insert a new cell here">＋ insert cell</button></div>`;
+        }
+        // Pre-compute queue positions for the server-side running
+        // placeholders so each one renders [1], [2], [3] in submission
+        // order instead of all showing [*]. Cells appear in append order
+        // in the .ipynb, so position-in-array == queue order.
+        const _pendingPositions = {};
+        let _qpos = 0;
+        realCells.forEach((c, i) => {
+          if (c && c.metadata && c.metadata.lab_pending === true) {
+            _qpos += 1;
+            _pendingPositions[i] = _qpos;
+          }
+        });
+        let cellsHostHtml = '';
+        realCells.forEach((c, i) => {
+          cellsHostHtml += _inserter(i);
+          cellsHostHtml += _renderPendingFor(i);
+          cellsHostHtml += renderNbCellInteractive(c, i, relPath, {
+            queuePos: _pendingPositions[i] || null,
+          });
+        });
+        cellsHostHtml += _inserter(realCells.length);
+        cellsHostHtml += _renderPendingFor(null);
+
+        const addBtnHtml = renderNbAddCellButton();
+        container.innerHTML = `<div style="padding:24px">${header}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
+        // Bind every interactive cell + inserters + the trailing add-cell
+        // button + restart.
+        container.querySelectorAll('.nb-cell-interactive').forEach((wrap) => {
+          bindNbCellInteractive(wrap, relPath, filepath);
+        });
+        bindNbCellInserters(container, relPath, filepath);
+        bindNbAddCellButton(container, relPath, filepath);
+        bindNbRestartKernel(container, relPath, filepath);
+        // Auto-scroll the currently-running cell into view. The
+        // server-side placeholder lands here as .nb-cell-pending with
+        // its [*] gutter; bring it to the user's focus so they can see
+        // what's executing even when the run was kicked off from a
+        // terminal / curl rather than the in-UI Run button.
+        const runningCell = container.querySelector('.nb-cell-interactive.nb-cell-running');
+        if (runningCell) {
+          runningCell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       } catch (err) {
         container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
       }
@@ -3202,7 +4190,7 @@
       const lower = filepath.toLowerCase();
       const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
       if (lower.endsWith('.ipynb') || lower.endsWith('.html') || imageExts.some(ext => lower.endsWith(ext))) {
-        await _renderDocInto(filepath, content);
+        await _renderDocInto(filepath, content, { preserveScroll: true });
         content.scrollTop = prevScroll;
         return;
       }
@@ -4022,15 +5010,41 @@
     loadDiff();
   }
 
-  async function showProjectInfo({preserveScroll = false} = {}) {
-    if (!currentProject || !currentProject.is_project) return;
-    const content = document.getElementById('content');
-    const sidebar = document.getElementById('sidebar');
-    const prevContentScroll = preserveScroll ? content.scrollTop : 0;
-    const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
-    if (!preserveScroll) content.innerHTML = '<div class="loading">Loading project dashboard...</div>';
+  // Per-file "recently pending" tracker. The mtime poller refreshes at
+  // 1s; a short Python cell can be written → executed → finalized in
+  // under that window, which means the running dot would flicker (or
+  // miss entirely) without persistence. Once a file is seen pending,
+  // we keep showing the dot for at least `_PENDING_GRACE_MS` after the
+  // flag clears so even instant cells still surface in the UI.
+  const _recentlyPending = new Map();
+  const _PENDING_GRACE_MS = 3000;
 
-    // Load project files for sidebar
+  // Per-file "last viewed mtime" tracker. Persisted in localStorage so
+  // the unseen-results indicator survives reloads. When a notebook is
+  // opened (openProjectDoc) we stamp its current mtime; any subsequent
+  // mtime advance means there are unseen outputs → amber dot.
+  function _nbLastViewedKey(path) {
+    return 'nbLastViewed:' + (currentProject ? currentProject.path : '') + '|' + path;
+  }
+  function _nbGetLastViewed(path) {
+    try {
+      const v = localStorage.getItem(_nbLastViewedKey(path));
+      return v ? parseFloat(v) : 0;
+    } catch { return 0; }
+  }
+  function _nbMarkViewed(path, mtime) {
+    try { localStorage.setItem(_nbLastViewedKey(path), String(mtime || Date.now() / 1000)); } catch {}
+  }
+
+  // Re-renders just the project file sidebar from scratch. Pulled out
+  // of showProjectInfo so the mtime poller can call it independently
+  // when a doc is open (otherwise newly added files don't appear in the
+  // sidebar until the user navigates away and back).
+  async function _refreshProjectSidebar({preserveScroll = false} = {}) {
+    if (!currentProject || !currentProject.is_project) return;
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     try {
       const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(currentProject.path)}&include_dotfiles=${showProjectDotFiles}`);
       const files = await filesRes.json();
@@ -4100,7 +5114,32 @@
             const safePath = f.path.replace(/'/g, "\\'");
             const fname = f.path.split('/').pop();
             const icon = f.type === 'image' ? '\u{1F5BC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
-            html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            // Notebook activity indicators — running (green pulse) and
+            // unseen-results (amber static). Running wins if both apply
+            // since "actively running" is the more urgent state.
+            //
+            // RUNNING: backend reports `pending: true`. We OR it with a
+            // grace window so a fast Python cell can finish between two
+            // polls and the user still sees the indicator briefly.
+            if (f.pending) _recentlyPending.set(f.path, Date.now());
+            const recent = _recentlyPending.get(f.path);
+            const stillFresh = recent && (Date.now() - recent) < _PENDING_GRACE_MS;
+            const isRunning = f.pending || stillFresh;
+            if (recent && !isRunning) _recentlyPending.delete(f.path);
+            //
+            // UNSEEN: compare current file mtime to per-file last-viewed
+            // timestamp in localStorage. If the file changed since the
+            // last time the user opened it, show an amber dot.
+            const lastViewed = (fname.endsWith('.ipynb') && f.mtime) ? _nbGetLastViewed(f.path) : 0;
+            const hasUnseen = !isRunning && f.mtime && lastViewed && f.mtime > lastViewed + 0.5;
+            let dotHtml = '';
+            if (isRunning) {
+              const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
+              dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
+            } else if (hasUnseen) {
+              dotHtml = `<span class="nb-unseen-dot" title="New outputs since you last opened this notebook"></span>`;
+            }
+            html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
           });
           return html;
         }
@@ -4124,9 +5163,12 @@
         sbHtml += '</div>';
       }
 
-      // Plumbing — project.json, tasks.json, CLAUDE.md. Bottom of the list,
-      // muted styling, still one click away.
-      if (metaFiles.length > 0) {
+      // Plumbing — project.json, tasks.json, CLAUDE.md, plus a deep-link
+      // to the shared `.claude/` that lives at the content root (one
+      // level up from every project). Bottom of the list, muted styling,
+      // still one click away.
+      const hasMetaSection = metaFiles.length > 0;
+      if (hasMetaSection) {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
         metaFiles.forEach(f => {
           const safePath = f.path.replace(/'/g, "\\'");
@@ -4134,12 +5176,71 @@
           const icon = fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C4}';
           sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
         });
+      } else {
+        sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       }
+      // Shared content/projects/CLAUDE.md — auto-loaded for every project
+      // via Claude Code's CLAUDE.md walk-up. Renders inline in the doc pane.
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('content/projects/CLAUDE.md')" title="content/projects/CLAUDE.md — shared boilerplate applied to every project under content/projects/" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} CLAUDE.md (shared)</span></a>`;
+      // Shared `.claude/` from the monorepo root, rendered as an
+      // expandable folder. Children fetched from /api/cerebro/tree; each
+      // file opens inline via openSharedFile. Placeholder rendered first;
+      // populated by the async fetch below so the rest of the sidebar
+      // doesn't wait on it.
+      const sharedClaudeFid = 'sf-claude-' + Math.random().toString(36).substr(2, 6);
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" onclick="document.getElementById('${sharedClaudeFid}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')" title=".claude/ — shared skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow">▶</span>.claude/ (shared)</div>`;
+      sbHtml += `<div class="sidebar-folder-children" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
+      // Fetch the shared .claude/ subtree and populate the placeholder.
+      // Tooltips on every entry show the monorepo-relative path so the
+      // user knows exactly where each file lives.
+      fetch('/api/cerebro/tree').then(r => r.ok ? r.json() : []).then(tree => {
+        const node = (tree || []).find(n => n && n.name === '.claude');
+        const host = document.getElementById(sharedClaudeFid);
+        if (!host) return;
+        if (node && node.children && node.children.length) {
+          host.innerHTML = renderSharedClaudeTree(node.children, '.claude');
+          // Add path tooltips to every newly rendered entry.
+          host.querySelectorAll('a.sidebar-file').forEach(a => {
+            const onclickAttr = a.getAttribute('onclick') || '';
+            const m = onclickAttr.match(/openSharedFile\('([^']+)'\)/);
+            if (m) a.title = m[1];
+          });
+          host.querySelectorAll('.sidebar-folder').forEach(d => {
+            // Each `.sidebar-folder` and its `.sidebar-folder-children`
+            // container are DOM siblings, not parent-child. To walk UP
+            // through the folder hierarchy we hop: folder → its parent
+            // container → that container's previousElementSibling (the
+            // parent folder), repeat until we reach the host.
+            const parts = [];
+            let cur = d;
+            while (cur && cur !== host) {
+              if (cur.classList && cur.classList.contains('sidebar-folder')) {
+                const label = (cur.firstChild && cur.firstChild.nextSibling ? cur.firstChild.nextSibling.textContent : cur.textContent).trim();
+                parts.unshift(label.replace(/\/$/, ''));
+              }
+              const parent = cur.parentElement;
+              if (!parent || parent === host) break;
+              cur = parent.previousElementSibling;
+            }
+            d.title = '.claude/' + parts.join('/') + '/';
+          });
+        } else {
+          host.innerHTML = `<div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">(empty)</div>`;
+        }
+      }).catch(() => {});
     } catch(e) {
       sidebar.innerHTML = '<div class="sidebar-title">Project</div>';
     }
+  }
+
+  async function showProjectInfo({preserveScroll = false} = {}) {
+    if (!currentProject || !currentProject.is_project) return;
+    const content = document.getElementById('content');
+    const prevContentScroll = preserveScroll ? content.scrollTop : 0;
+    if (!preserveScroll) content.innerHTML = '<div class="loading">Loading project dashboard...</div>';
+    await _refreshProjectSidebar({preserveScroll});
 
     try {
       const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await Promise.all([
@@ -4432,14 +5533,18 @@
       const { mtime } = await res.json();
       if (_lastProjectMtime && mtime > _lastProjectMtime) {
         if (_projDocPath) {
+          // Refresh the doc AND the sidebar — files added/removed in
+          // the project (e.g. a new HTML under tmp/) need to appear in
+          // the sidebar without forcing the user to navigate away.
           openProjectDoc(_projDocPath, {preserveScroll: true});
+          _refreshProjectSidebar({preserveScroll: true});
         } else if (!document.body.classList.contains('self-active')) {
           showProjectInfo({preserveScroll: true});
         }
       }
       _lastProjectMtime = mtime;
     } catch(e) {}
-  }, 2000);
+  }, 1000);
 
   // ─── Terminal panel (tmux + PTY bridge) ───
   // Visible whenever a project is active; scoped to that project. Uses
@@ -5780,13 +6885,40 @@
   let homeSearchResults = null;
   let _homeRendering = false;
 
-  if (urlProject) {
+  // Deep-link support: #/nb?path=content/projects/<id>/<rest>.ipynb
+  // The fragment-style URL points at a notebook directly. We resolve the
+  // owning project, plant the doc in last-opened state so the existing
+  // `selectRepo → getLastProjectDoc → openProjectDoc` flow opens it, and
+  // rewrite the URL to the canonical ?project=<abs> form for refreshes.
+  let _nbHashProject = null;
+  (function consumeNbHash() {
+    const hash = location.hash || '';
+    const m = hash.match(/^#\/nb\?(.*)$/);
+    if (!m) return;
+    const params = new URLSearchParams(m[1]);
+    const rel = params.get('path') || '';
+    const seg = rel.match(/^content\/projects\/([^/]+)\/(.+\.ipynb)$/i);
+    if (!seg) return;
+    const projectId = seg[1];
+    const docPath = seg[2];
+    const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
+    const absProject = rootPrefix + 'content/projects/' + projectId;
+    setLastProjectDoc(absProject, docPath);
+    _nbHashProject = absProject;
+    const url = new URL(location.href);
+    url.hash = '';
+    url.searchParams.set('project', absProject);
+    history.replaceState(null, '', url);
+  })();
+  const _effectiveProject = urlProject || _nbHashProject;
+
+  if (_effectiveProject) {
     // Share the in-flight /api/repos promise with loadRepos +
     // projTabsRefresh instead of firing a third network call (all three
     // callers resolve to the same response on initial load).
     fetchRepos().then(projects => {
       projectsList = projects;
-      const proj = projects.find(p => p.path === urlProject);
+      const proj = projects.find(p => p.path === _effectiveProject);
       if (proj) {
         selectRepo(proj.name);
       }
@@ -5909,6 +7041,216 @@
       if (proj && proj.path) goToProject(proj.path, opts);
       else window.location.href = '/p/' + encodeURIComponent(pid); // genuinely missing
     });
+  }
+
+  // Minimal YAML-frontmatter parser for `.md` files. Handles plain
+  // `key: value`, folded blocks (`>-`/`>`), and literal blocks (`|`/`|-`).
+  // Indented continuation lines belong to the most recent key. Returns
+  // ({fm: {key: string}}, body: remaining markdown).
+  function _parseFrontmatter(text) {
+    const m = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
+    if (!m) return { fm: {}, body: text };
+    const fmText = m[1];
+    const body = text.slice(m[0].length);
+    const fm = {};
+    let currentKey = null;
+    let currentValue = '';
+    let folded = false;
+    let literal = false;
+    const commit = () => {
+      if (currentKey) fm[currentKey] = currentValue.trim();
+    };
+    for (const line of fmText.split('\n')) {
+      const keyMatch = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
+      if (keyMatch && !/^\s/.test(line)) {
+        commit();
+        currentKey = keyMatch[1];
+        let val = keyMatch[2];
+        folded = false;
+        literal = false;
+        if (val === '>-' || val === '>') { folded = true; val = ''; }
+        else if (val === '|-' || val === '|') { literal = true; val = ''; }
+        currentValue = val;
+      } else if (currentKey) {
+        const trimmed = line.replace(/^\s+/, '');
+        if (currentValue === '') currentValue = trimmed;
+        else if (folded) currentValue += ' ' + trimmed;
+        else if (literal) currentValue += '\n' + trimmed;
+        else currentValue += ' ' + trimmed;
+      }
+    }
+    commit();
+    return { fm, body };
+  }
+
+  // Renders the parsed frontmatter as a compact metadata block above the
+  // markdown body. Plain key: value rows, monospace, muted background.
+  function _renderFrontmatterBlock(fm) {
+    const keys = Object.keys(fm);
+    if (!keys.length) return '';
+    const rows = keys.map(k => {
+      return `<div style="margin:3px 0"><span style="color:var(--text-secondary);font-weight:600">${esc(k)}:</span> <span style="color:var(--text-primary)">${esc(fm[k])}</span></div>`;
+    }).join('');
+    return `<div class="fm-block" style="margin:0 0 24px;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.6;white-space:normal">${rows}</div>`;
+  }
+
+  // Renders any monorepo-relative "shared" file inline in the project doc
+  // pane — used by Meta sidebar entries for `content/projects/CLAUDE.md`
+  // and any file under the shared `.claude/`. For `.md` we use the same
+  // marked.js client renderer the project doc pane uses (so styling
+  // matches the rest of the UI); for `.json/.csv` we use the same
+  // viewers Cerebro uses; for `.html` we get the rendered/code toggle.
+  async function openSharedFile(path) {
+    if (!currentProject) return;
+    const content = document.getElementById('content');
+    if (!content) return;
+    // Highlight whichever Meta entry corresponds to this path. The CLAUDE.md
+    // entry has a fixed label; other shared files match by trailing filename.
+    const lastSeg = path.split('/').pop();
+    document.querySelectorAll('.sidebar-file').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.sidebar-file').forEach(el => {
+      const t = el.textContent.trim();
+      if (t.endsWith(lastSeg) || (path.endsWith('projects/CLAUDE.md') && t.includes('CLAUDE.md (shared)'))) {
+        el.classList.add('active');
+      }
+    });
+    content.innerHTML = '<div class="loading">Loading…</div>';
+
+    const isMd = /\.(md|markdown)$/i.test(path);
+    const isJson = /\.json$/i.test(path);
+    const isCsv = /\.csv$/i.test(path);
+    const isHtml = /\.(html|htm)$/i.test(path);
+
+    const header = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(path)} <span style="opacity:.6">— shared</span></span>
+        <a href="/view?path=${encodeURIComponent(path)}" target="_blank" style="font-size:11px;color:var(--text-dim)">open in new tab ↗</a>
+      </div>`;
+
+    try {
+      if (isHtml) {
+        // Reuse the same HTML toggle pattern as in-project HTML files —
+        // sticky pref via the shared `htmlView:` localStorage namespace.
+        const wrapper = document.createElement('div');
+        wrapper.style.padding = '24px';
+        wrapper.innerHTML = header;
+        const innerHost = document.createElement('div');
+        wrapper.appendChild(innerHost);
+        content.innerHTML = '';
+        content.appendChild(wrapper);
+        const mode = getHtmlViewPref(path);
+        _sharedRenderHtml(innerHost, path, mode);
+        return;
+      }
+
+      const r = await fetch('/api/cerebro/file?path=' + encodeURIComponent(path));
+      if (!r.ok) {
+        const msg = await r.json().catch(() => ({}));
+        content.innerHTML = `<div class="no-repo"><p>Error: ${esc(msg.detail || r.statusText)}</p></div>`;
+        return;
+      }
+      const body = await r.json();
+      const raw = body.content || '';
+
+      let rendered = '';
+      if (isMd) {
+        try {
+          // Skill SKILL.md files start with YAML frontmatter (name +
+          // description). Show that as a compact metadata block so it
+          // doesn't render as a giant paragraph; pass only the body to
+          // marked so headings/code/lists look like any other .md.
+          const { fm, body } = _parseFrontmatter(raw);
+          const fmHtml = _renderFrontmatterBlock(fm);
+          rendered = fmHtml + marked.parse(body);
+        } catch (e) {
+          rendered = `<pre>${esc(raw)}</pre>`;
+        }
+      } else if (isJson) {
+        let pretty = raw;
+        try { pretty = JSON.stringify(JSON.parse(raw), null, 2); } catch {}
+        rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow:auto"><code class="language-json">${esc(pretty)}</code></pre>`;
+      } else if (isCsv) {
+        const rows = cerebroParseCSV(raw);
+        rendered = `<div class="doc">${cerebroRenderCSV(rows)}</div>`;
+      } else {
+        rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow:auto">${esc(raw)}</pre>`;
+      }
+
+      content.innerHTML = `<div class="project-content" style="padding:24px;max-width:900px">${header}${rendered}</div>`;
+      if (isCsv) cerebroAttachCSVFilter();
+      if (window.hljs) {
+        content.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+      }
+    } catch (e) {
+      content.innerHTML = `<div class="no-repo"><p>Error: ${esc(e.message || e)}</p></div>`;
+    }
+  }
+
+  // HTML render helper used by openSharedFile — mirrors _projectRenderHtml
+  // but uses the cerebro asset/file endpoints and stays inside the given
+  // host element rather than reaching for currentProject's path.
+  async function _sharedRenderHtml(host, path, mode) {
+    const toolbar = `
+      <div style="display:flex;justify-content:flex-end;margin:0 0 8px">
+        <span class="html-toolbar" style="display:flex;gap:4px">
+          <button class="html-toggle ${mode==='rendered'?'active':''}" data-mode="rendered">🖼 Rendered</button>
+          <button class="html-toggle ${mode==='code'?'active':''}" data-mode="code">&lt;/&gt; Code</button>
+        </span>
+      </div>`;
+    if (mode === 'rendered') {
+      const src = '/api/cerebro/asset?path=' + encodeURIComponent(path);
+      host.innerHTML = toolbar + `<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe>`;
+    } else {
+      try {
+        const r = await fetch('/api/cerebro/file?path=' + encodeURIComponent(path));
+        if (!r.ok) {
+          const msg = await r.json().catch(() => ({}));
+          host.innerHTML = toolbar + `<p style="color:var(--red)">Error: ${esc(msg.detail || r.statusText)}</p>`;
+        } else {
+          const body = await r.json();
+          host.innerHTML = toolbar + `<pre style="background:var(--bg-secondary);padding:14px;border-radius:6px;overflow:auto"><code class="language-html">${esc(body.content)}</code></pre>`;
+          if (window.hljs) {
+            host.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+          }
+        }
+      } catch (e) {
+        host.innerHTML = toolbar + `<p style="color:var(--red)">Error: ${esc(e.message || e)}</p>`;
+      }
+    }
+    host.querySelectorAll('.html-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.getAttribute('data-mode');
+        if (next === mode) return;
+        setHtmlViewPref(path, next);
+        _sharedRenderHtml(host, path, next);
+      });
+    });
+  }
+
+  // Renders the shared `.claude/` subtree (fetched from /api/cerebro/tree)
+  // as a collapsible folder structure in the Meta sidebar section.
+  // File clicks call openSharedFile with the monorepo-relative path.
+  function renderSharedClaudeTree(nodes, basePath) {
+    let html = '';
+    const dirs = nodes.filter(n => n.type === 'dir');
+    const files = nodes.filter(n => n.type !== 'dir');
+    dirs.forEach(d => {
+      const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
+      html += `<div class="sidebar-folder" onclick="document.getElementById('${fid}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')"><span class="folder-arrow">▶</span>${esc(d.name)}/</div>`;
+      html += `<div class="sidebar-folder-children" id="${fid}">`;
+      html += renderSharedClaudeTree(d.children || [], basePath + '/' + d.name);
+      html += '</div>';
+    });
+    files.forEach(f => {
+      const safePath = (basePath + '/' + f.name).replace(/'/g, "\\'");
+      const icon = f.name.endsWith('.md') ? '\u{1F4C4}'
+        : f.name.endsWith('.json') ? '\u{1F4CB}'
+        : f.name.endsWith('.html') || f.name.endsWith('.htm') ? '\u{1F310}'
+        : f.name.endsWith('.csv') ? '\u{1F4CA}'
+        : '\u{1F4C3}';
+      html += `<a class="sidebar-file" onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${icon} ${esc(f.name)}</span></a>`;
+    });
+    return html;
   }
 
   function goToCerebro(initialPath = '', opts = {}) {
@@ -7663,8 +9005,15 @@
 
     const pane = document.getElementById('cerebroPane');
     if (!pane) return;
-    const full = 'content/' + relPath;
+    // Cerebro paths are normally relative to content/. The shared
+    // `.claude/` subtree is the exception — it lives at the monorepo
+    // root and is surfaced as a virtual top-level entry.
+    const isShared = relPath.startsWith('.claude/') || relPath === '.claude';
+    const full = isShared ? relPath : 'content/' + relPath;
     const isMd = /\.(md|markdown)$/i.test(relPath);
+    const isJson = /\.json$/i.test(relPath);
+    const isCsv = /\.csv$/i.test(relPath);
+    const isHtml = /\.(html|htm)$/i.test(relPath);
 
     pane.innerHTML = `
       <div class="k-crumbs">
@@ -7673,41 +9022,225 @@
       <div id="kDoc" class="doc"><p style="color:var(--text-secondary)">Loading…</p></div>`;
     const doc = document.getElementById('kDoc');
 
-    if (!isMd) {
-      doc.innerHTML = `<p style="color:var(--text-secondary)">Not a markdown file. Open it from iTerm with <code>open ${cerebroEsc(full)}</code> or paste the path into the terminal.</p>`;
+    if (isMd) {
+      try {
+        const r = await fetch('/api/markdown?path=' + encodeURIComponent(full));
+        if (!r.ok) {
+          const msg = await r.json().catch(() => ({}));
+          doc.innerHTML = `<p style="color:var(--red)">Error: ${cerebroEsc(msg.detail || r.statusText)}</p>`;
+          return;
+        }
+        const body = await r.json();
+        const fm = body.frontmatter || {};
+        const fmChips = Object.keys(fm).length ? (
+          '<div class="fm-chips">' +
+          ['date', 'type', 'scope', 'projects', 'tags', 'people'].filter(k => k in fm).map(k => {
+            const v = Array.isArray(fm[k]) ? fm[k].join(', ') : String(fm[k] == null ? '' : fm[k]);
+            return `<span class="fm-chip"><b>${cerebroEsc(k)}:</b> ${cerebroEsc(v)}</span>`;
+          }).join('') + '</div>'
+        ) : '';
+        pane.innerHTML = `
+          <div class="k-crumbs">
+            <span class="path">content/${cerebroEsc(relPath)}</span>
+            <a class="open-ext" href="/view?path=${encodeURIComponent(full)}" target="_blank">open in new tab ↗</a>
+          </div>
+          ${fmChips}
+          <div class="doc">${body.html}</div>`;
+        // Run highlight.js on fresh code blocks if available.
+        if (window.hljs) {
+          pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+        }
+      } catch (e) {
+        doc.innerHTML = `<p style="color:var(--red)">Error: ${cerebroEsc(e.message || e)}</p>`;
+      }
       return;
     }
 
-    try {
-      const r = await fetch('/api/markdown?path=' + encodeURIComponent(full));
-      if (!r.ok) {
-        const msg = await r.json().catch(() => ({}));
-        doc.innerHTML = `<p style="color:var(--red)">Error: ${cerebroEsc(msg.detail || r.statusText)}</p>`;
-        return;
-      }
-      const body = await r.json();
-      const fm = body.frontmatter || {};
-      const fmChips = Object.keys(fm).length ? (
-        '<div class="fm-chips">' +
-        ['date', 'type', 'scope', 'projects', 'tags', 'people'].filter(k => k in fm).map(k => {
-          const v = Array.isArray(fm[k]) ? fm[k].join(', ') : String(fm[k] == null ? '' : fm[k]);
-          return `<span class="fm-chip"><b>${cerebroEsc(k)}:</b> ${cerebroEsc(v)}</span>`;
-        }).join('') + '</div>'
-      ) : '';
-      pane.innerHTML = `
-        <div class="k-crumbs">
-          <span class="path">content/${cerebroEsc(relPath)}</span>
-          <a class="open-ext" href="/view?path=${encodeURIComponent(full)}" target="_blank">open in new tab ↗</a>
-        </div>
-        ${fmChips}
-        <div class="doc">${body.html}</div>`;
-      // Run highlight.js on fresh code blocks if available.
-      if (window.hljs) {
-        pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
-      }
-    } catch (e) {
-      doc.innerHTML = `<p style="color:var(--red)">Error: ${cerebroEsc(e.message || e)}</p>`;
+    if (isHtml) {
+      const mode = getHtmlViewPref(full);
+      cerebroRenderHtml(pane, relPath, full, mode);
+      return;
     }
+
+    if (isJson || isCsv) {
+      try {
+        const r = await fetch('/api/cerebro/file?path=' + encodeURIComponent(full));
+        if (!r.ok) {
+          const msg = await r.json().catch(() => ({}));
+          doc.innerHTML = `<p style="color:var(--red)">Error: ${cerebroEsc(msg.detail || r.statusText)}</p>`;
+          return;
+        }
+        const body = await r.json();
+        if (isJson) {
+          let pretty = body.content;
+          let valid = true;
+          try { pretty = JSON.stringify(JSON.parse(body.content), null, 2); } catch { valid = false; }
+          const warn = valid ? '' : '<div class="fm-chips"><span class="fm-chip" style="background:#3c1a1a;color:#f0938a">⚠ invalid JSON — showing raw text</span></div>';
+          pane.innerHTML = `
+            <div class="k-crumbs">
+              <span class="path">content/${cerebroEsc(relPath)}</span>
+            </div>
+            ${warn}
+            <div class="doc"><pre><code class="language-json">${cerebroEsc(pretty)}</code></pre></div>`;
+          if (window.hljs) {
+            pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+          }
+        } else {
+          const rows = cerebroParseCSV(body.content);
+          const nCols = rows[0]?.length || 0;
+          pane.innerHTML = `
+            <div class="k-crumbs">
+              <span class="path">content/${cerebroEsc(relPath)}</span>
+              <span style="margin-left:8px;color:var(--text-secondary);font-size:11px">${nCols} cols</span>
+            </div>
+            <div class="doc">${cerebroRenderCSV(rows)}</div>`;
+          cerebroAttachCSVFilter();
+        }
+      } catch (e) {
+        doc.innerHTML = `<p style="color:var(--red)">Error: ${cerebroEsc(e.message || e)}</p>`;
+      }
+      return;
+    }
+
+    doc.innerHTML = `<p style="color:var(--text-secondary)">No inline viewer for this file type. Open it from iTerm with <code>open ${cerebroEsc(full)}</code> or paste the path into the terminal.</p>`;
+  }
+
+  // Sticky per-file HTML-view preference (rendered vs source). Both the
+  // Cerebro viewer and the project doc pane use this so a file viewed in
+  // one place comes back the same way the next time.
+  function getHtmlViewPref(absPath, fallback = 'rendered') {
+    try { return localStorage.getItem('htmlView:' + absPath) || fallback; } catch { return fallback; }
+  }
+  function setHtmlViewPref(absPath, mode) {
+    try { localStorage.setItem('htmlView:' + absPath, mode); } catch {}
+  }
+
+  // Minimal RFC-4180 CSV parser — handles quoted fields, escaped quotes,
+  // and both LF/CRLF line endings. Embedded newlines inside quoted fields
+  // are preserved.
+  function cerebroParseCSV(text) {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    let fieldStarted = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i+1] === '"') { field += '"'; i++; }
+          else { inQuotes = false; }
+        } else {
+          field += c;
+        }
+      } else {
+        if (c === '"' && !fieldStarted) {
+          inQuotes = true;
+        } else if (c === ',') {
+          row.push(field); field = ''; fieldStarted = false;
+        } else if (c === '\n' || c === '\r') {
+          if (c === '\r' && text[i+1] === '\n') i++;
+          row.push(field); field = ''; fieldStarted = false;
+          rows.push(row); row = [];
+        } else {
+          field += c; fieldStarted = true;
+        }
+      }
+    }
+    if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+    // Drop a trailing empty row caused by a final newline.
+    if (rows.length && rows[rows.length-1].length === 1 && rows[rows.length-1][0] === '') rows.pop();
+    return rows;
+  }
+
+  function cerebroRenderCSV(rows) {
+    if (!rows.length) return '<p style="color:var(--text-secondary)">Empty CSV</p>';
+    const headers = rows[0];
+    const data = rows.slice(1);
+    let html = '<div class="csv-toolbar">'
+      + '<input id="csvFilter" type="search" placeholder="Filter rows… (any cell substring match)" autocomplete="off" spellcheck="false">'
+      + `<span id="csvCount" class="csv-count">${data.length} rows</span>`
+      + '</div>';
+    html += '<div class="csv-wrap"><table class="csv-table"><thead><tr>';
+    headers.forEach(h => { html += `<th>${cerebroEsc(h)}</th>`; });
+    html += '</tr></thead><tbody>';
+    data.forEach(r => {
+      html += '<tr>';
+      // Pad short rows so cells align under headers.
+      for (let i = 0; i < headers.length; i++) {
+        html += `<td>${cerebroEsc(r[i] == null ? '' : r[i])}</td>`;
+      }
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  // Renders an HTML file in Cerebro. `mode` is "rendered" (iframe) or
+  // "code" (syntax-highlighted source). Stores the chosen mode per-file
+  // so the next open lands in the same view.
+  async function cerebroRenderHtml(pane, relPath, full, mode) {
+    const toolbar = `
+      <div class="k-crumbs">
+        <span class="path">${full.startsWith('.claude/') ? '' : 'content/'}${cerebroEsc(relPath)}</span>
+        <span class="html-toolbar" style="margin-left:auto;display:flex;gap:4px">
+          <button class="html-toggle ${mode==='rendered'?'active':''}" data-mode="rendered">🖼 Rendered</button>
+          <button class="html-toggle ${mode==='code'?'active':''}" data-mode="code">&lt;/&gt; Code</button>
+        </span>
+      </div>`;
+    if (mode === 'rendered') {
+      const src = '/api/cerebro/asset?path=' + encodeURIComponent(full);
+      pane.innerHTML = toolbar + `<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe>`;
+    } else {
+      try {
+        const r = await fetch('/api/cerebro/file?path=' + encodeURIComponent(full));
+        if (!r.ok) {
+          const msg = await r.json().catch(() => ({}));
+          pane.innerHTML = toolbar + `<div class="doc"><p style="color:var(--red)">Error: ${cerebroEsc(msg.detail || r.statusText)}</p></div>`;
+        } else {
+          const body = await r.json();
+          pane.innerHTML = toolbar + `<div class="doc"><pre><code class="language-html">${cerebroEsc(body.content)}</code></pre></div>`;
+          if (window.hljs) {
+            pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+          }
+        }
+      } catch (e) {
+        pane.innerHTML = toolbar + `<div class="doc"><p style="color:var(--red)">Error: ${cerebroEsc(e.message || e)}</p></div>`;
+      }
+    }
+    // Wire toggle clicks. Each click swaps mode, persists, re-renders.
+    pane.querySelectorAll('.html-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.getAttribute('data-mode');
+        if (next === mode) return;
+        setHtmlViewPref(full, next);
+        cerebroRenderHtml(pane, relPath, full, next);
+      });
+    });
+  }
+
+  // Wires up the CSV filter input. Hides rows whose joined-cell text
+  // doesn't contain the query (case-insensitive, single substring). The
+  // header row never hides. We pre-cache lowercase text once so typing
+  // stays cheap even on thousands of rows.
+  function cerebroAttachCSVFilter() {
+    const inp = document.getElementById('csvFilter');
+    const tbody = document.querySelector('.csv-table tbody');
+    const countEl = document.getElementById('csvCount');
+    if (!inp || !tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const rowTexts = rows.map(r => r.textContent.toLowerCase());
+    const total = rows.length;
+    inp.addEventListener('input', () => {
+      const q = inp.value.trim().toLowerCase();
+      let shown = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const match = !q || rowTexts[i].includes(q);
+        rows[i].style.display = match ? '' : 'none';
+        if (match) shown++;
+      }
+      if (countEl) countEl.textContent = q ? `${shown} of ${total} rows` : `${total} rows`;
+    });
   }
 
   // Terminal panel for the Knowledge pseudo-project: claude session rooted at knowledge/.

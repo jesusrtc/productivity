@@ -245,6 +245,10 @@ def parse_notebook(filepath: str) -> list[dict]:
             "source": source,
             "outputs": outputs,
             "execution_count": cell.get("execution_count"),
+            # Carry the cell's metadata through so the UI can sniff
+            # markers like ``lab_pending`` (used by the nb_exec endpoint
+            # to flag a running placeholder) and paint a distinct frame.
+            "metadata": cell.get("metadata") or {},
         })
 
     return cells

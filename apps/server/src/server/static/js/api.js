@@ -38,6 +38,9 @@ export const api = {
   tasksDue: (days) => request("GET", `/api/tasks/due?days=${days}`),
   markdown: (path) => request("GET", `/api/markdown?path=${encodeURIComponent(path)}`),
   notebook: (path) => request("GET", `/api/nb?path=${encodeURIComponent(path)}`),
+  notebookSession: (path) =>
+    request("GET", `/api/nb/session?path=${encodeURIComponent(path)}`),
+  execCell: (body) => request("POST", "/api/nb/exec", body),
   search: (q) => request("GET", "/api/search?q=" + encodeURIComponent(q)),
 
   // Writes

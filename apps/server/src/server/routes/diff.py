@@ -268,6 +268,22 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
     files = []
     MAX_DEPTH = 5
 
+    def _ipynb_is_pending(path: Path) -> bool:
+        """Cheap check: substring-scan the .ipynb for the lab_pending
+        marker the exec endpoint writes when a Darwin call is in flight.
+        Avoids JSON-parsing for sidebar refreshes. Caps the read size to
+        protect against giant notebooks; pending cells get appended (or
+        replace existing cells), so the marker can land anywhere — we
+        accept reading the whole file for typical .ipynb sizes (<5 MB).
+        """
+        try:
+            if path.stat().st_size > 5_000_000:
+                return False
+            with path.open("rb") as fh:
+                return b'"lab_pending": true' in fh.read()
+        except OSError:
+            return False
+
     def scan(dir_path, depth=0):
         if depth > MAX_DEPTH:
             return
@@ -281,7 +297,22 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
             if child.is_file():
                 rel = str(child.relative_to(project_path))
                 ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
-                files.append({"name": rel, "path": rel, "type": ftype})
+                entry = {"name": rel, "path": rel, "type": ftype}
+                # Flag .ipynb files that currently have a running cell
+                # so the sidebar can render a blinking activity dot
+                # without each client polling every notebook. Also include
+                # the file mtime so the client can compare it against a
+                # per-file "last viewed" timestamp in localStorage and
+                # show a separate "new results" dot for notebooks whose
+                # outputs the user hasn't acknowledged yet.
+                if child.suffix.lower() == ".ipynb":
+                    try:
+                        entry["mtime"] = child.stat().st_mtime
+                    except OSError:
+                        pass
+                    if _ipynb_is_pending(child):
+                        entry["pending"] = True
+                files.append(entry)
             elif child.is_dir() and child.name not in SKIP_DIRS:
                 scan(child, depth + 1)
 

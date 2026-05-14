@@ -32,10 +32,11 @@ def test_repo_ls_with_fake_repo(monorepo: Path) -> None:
 
 
 def test_repo_pull_errors_without_list_or_only(monorepo: Path) -> None:
-    # No repositories.list and no --only → friendly error.
+    # No clones on disk and no repositories.list → friendly error.
     runner = CliRunner()
     result = runner.invoke(main, ["repo", "pull"])
     assert result.exit_code != 0
+    assert "no clones" in result.output.lower()
     assert "repositories.list" in result.output
 
 
@@ -62,6 +63,60 @@ def test_repo_pull_reads_list(monorepo: Path, monkeypatch) -> None:
     result = runner.invoke(main, ["repo", "pull"])
     assert result.exit_code == 0, result.output
     assert "fake-repo" in result.output
+
+
+def test_repo_pull_picks_up_disk_repo_missing_from_list(
+    monorepo: Path, monkeypatch
+) -> None:
+    """A clone present on disk but missing from repositories.list still gets
+    pulled, and the list is rewritten to mirror disk."""
+    (monorepo / "repositories" / "in-list" / ".git").mkdir(parents=True)
+    (monorepo / "repositories" / "extra-on-disk" / ".git").mkdir(parents=True)
+    (monorepo / "repositories.list").write_text("in-list\n")
+
+    import subprocess as sp
+
+    class Fake:
+        def __init__(self, *a, **kw): pass
+        returncode = 0
+        stderr = ""
+        stdout = "HEAD branch: main\n"
+    monkeypatch.setattr(sp, "run", lambda *a, **kw: Fake())
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["repo", "pull"])
+    assert result.exit_code == 0, result.output
+    assert "in-list" in result.output
+    assert "extra-on-disk" in result.output
+
+    rewritten = (monorepo / "repositories.list").read_text().splitlines()
+    assert rewritten == ["extra-on-disk", "in-list"]
+
+
+def test_repo_pull_drops_removed_repos_from_list(
+    monorepo: Path, monkeypatch
+) -> None:
+    """A repo in the list but not on disk is treated as removed: not
+    re-cloned, and dropped from the list."""
+    (monorepo / "repositories" / "still-here" / ".git").mkdir(parents=True)
+    (monorepo / "repositories.list").write_text("still-here\nrm-by-user\n")
+
+    import subprocess as sp
+
+    class Fake:
+        def __init__(self, *a, **kw): pass
+        returncode = 0
+        stderr = ""
+        stdout = "HEAD branch: main\n"
+    monkeypatch.setattr(sp, "run", lambda *a, **kw: Fake())
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["repo", "pull"])
+    assert result.exit_code == 0, result.output
+    assert "rm-by-user" not in result.output
+
+    rewritten = (monorepo / "repositories.list").read_text().splitlines()
+    assert rewritten == ["still-here"]
 
 
 def test_repo_prefix_sets_new(monorepo: Path, tmp_path, monkeypatch) -> None:

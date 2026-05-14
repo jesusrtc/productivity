@@ -73,12 +73,11 @@ install: ## create venvs + install lab/lab-server CLIs (requires Python 3.11+; r
 	@ln -sf $(CURDIR)/apps/server/server $(BIN_DIR)/lab-server
 	@# `gdiff` stays as a muscle-memory alias pointing at the unified server.
 	@ln -sf $(CURDIR)/apps/server/server $(BIN_DIR)/gdiff
-	@# darwin-runner, darwin-backups, trustim-ir-cli — symlinks only (they have their own dep management)
-	@[ -f apps/darwin-runner/darwin-runner ] && ln -sf $(CURDIR)/apps/darwin-runner/darwin-runner $(BIN_DIR)/darwin-runner || true
+	@# darwin-backups, trustim-ir-cli — symlinks only (they have their own dep management)
 	@[ -f apps/darwin-backups/darwin-backups ] && ln -sf $(CURDIR)/apps/darwin-backups/darwin-backups $(BIN_DIR)/darwin-backups || true
 	@[ -f apps/trustim-ir-cli/trustim-ir-cli ] && ln -sf $(CURDIR)/apps/trustim-ir-cli/trustim-ir-cli $(BIN_DIR)/trustim-ir-cli || true
-	@# Clean up legacy shims from the pre-unification layout.
-	@rm -f $(BIN_DIR)/lab-backend
+	@# Clean up legacy shims from the pre-unification layout (incl. retired darwin-runner).
+	@rm -f $(BIN_DIR)/lab-backend $(BIN_DIR)/darwin-runner
 	@echo "Installed lab, lab-server (aka gdiff) → $(BIN_DIR)/"
 	@echo "Ensure $(BIN_DIR) is on your PATH."
 	@# Diagnostic: did another `lab` binary win? (Common culprit: miniconda

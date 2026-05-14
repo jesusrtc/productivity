@@ -1,10 +1,13 @@
 import { api } from "../api.js";
 import { h, render as domRender } from "../lib/dom.js";
 
-// Live-follow comes for free from app.js: its global WS subscriber re-invokes
-// the current view's render() on every `index-updated` event, so simply
-// re-fetching on each render (including the replays) keeps the notebook in
-// sync with the file on disk.
+// The notebook view is both a viewer (renders the .ipynb on disk) and an
+// executor (sticky editor at the bottom that POSTs to /api/nb/exec; the
+// resulting write to disk fires the watcher → WS → re-render). The same path
+// is used by the UI and by Claude Code calling the endpoint directly, so a
+// cell appended from anywhere shows up here automatically.
+
+const DRAFT_PREFIX = "nb-draft:";
 
 function fmtMtime(mtime) {
   if (!mtime && mtime !== 0) return "—";
@@ -34,8 +37,15 @@ function renderOutput(out) {
 
 function renderCell(cell, idx) {
   const isCode = cell.cell_type === "code";
+  // `lab_pending` is set by the nb_exec endpoint while a Darwin call is
+  // in flight (see routes/nb_exec.py:_write_pending_cell). It survives
+  // the round-trip via parse_notebook -> cell.metadata. When present,
+  // we paint the cell with the same running frame the in-UI editor
+  // uses for optimistic renders so the user sees consistent feedback
+  // regardless of whether the run came from a curl or the Run button.
+  const isPending = isCode && cell.metadata && cell.metadata.lab_pending === true;
   const execLabel = isCode
-    ? `[${cell.execution_count == null ? " " : cell.execution_count}]`
+    ? (isPending ? "[*]" : `[${cell.execution_count == null ? " " : cell.execution_count}]`)
     : "";
 
   const header = h("div", { class: "nb-cell-header" },
@@ -58,10 +68,109 @@ function renderCell(cell, idx) {
     ? h("div", { class: "nb-outputs" }, ...outputs)
     : null;
 
-  return h("div", { class: "nb-cell", "data-idx": String(idx) },
-    header,
-    body,
-    outputsNode,
+  return h("div", {
+    class: "nb-cell" + (isPending ? " nb-cell-pending" : ""),
+    "data-idx": String(idx),
+  }, header, body, outputsNode);
+}
+
+// A code cell rendered before Darwin returns, so the user sees the run land
+// immediately instead of waiting for the (blocking) execute call to finish.
+// The watcher's WS broadcast will swap this for the real cell when the
+// on-disk .ipynb gets the new outputs.
+function renderPendingCell(code) {
+  return h("div", { class: "nb-cell nb-cell-pending" },
+    h("div", { class: "nb-cell-header" },
+      h("span", { class: "nb-cell-type" }, "code"),
+      " ",
+      h("span", { class: "nb-cell-exec" }, "[*]"),
+    ),
+    h("pre", { class: "nb-source" },
+      h("code", null, code || ""),
+    ),
+    h("div", { class: "nb-outputs" },
+      h("div", { class: "nb-output nb-output-pending" },
+        h("span", { class: "nb-spinner" }),
+        "Running on Darwin…",
+      ),
+    ),
+  );
+}
+
+function renderEditor(path, onRun, cellsContainer) {
+  const draftKey = DRAFT_PREFIX + path;
+  const initial = (() => {
+    try { return localStorage.getItem(draftKey) || ""; } catch { return ""; }
+  })();
+
+  const textarea = h("textarea", {
+    class: "nb-editor-input",
+    placeholder: "Paste code here, then Cmd/Ctrl+Enter or click Run…",
+    rows: "6",
+    spellcheck: "false",
+  });
+  textarea.value = initial;
+  textarea.addEventListener("input", () => {
+    try { localStorage.setItem(draftKey, textarea.value); } catch {}
+  });
+
+  const status = h("span", { class: "nb-editor-status" }, "");
+  const button = h("button", { class: "nb-run-btn", type: "button" }, "Run");
+
+  async function run() {
+    const code = (textarea.value || "").trim();
+    if (!code) return;
+    button.disabled = true;
+    status.textContent = "Running on Darwin…";
+    status.className = "nb-editor-status nb-editor-status-running";
+
+    // Optimistic placeholder: show the code + spinner immediately so the
+    // user doesn't stare at the old outputs while darwin blocks. The
+    // watcher will re-render the whole view once the .ipynb is written.
+    let pending = null;
+    if (cellsContainer) {
+      pending = renderPendingCell(code);
+      cellsContainer.appendChild(pending);
+      pending.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    textarea.value = "";
+    try { localStorage.removeItem(draftKey); } catch {}
+
+    try {
+      await onRun(code);
+      status.textContent = "";
+      status.className = "nb-editor-status";
+    } catch (e) {
+      // Surface the error on the pending cell so the run-attempt isn't lost.
+      if (pending) {
+        const out = pending.querySelector(".nb-output-pending");
+        if (out) {
+          out.className = "nb-output nb-output-error";
+          out.textContent = "Error: " + (e.message || String(e));
+        }
+      }
+      status.textContent = "Error: " + (e.message || String(e));
+      status.className = "nb-editor-status nb-editor-status-error";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  button.addEventListener("click", run);
+  textarea.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
+  });
+
+  return h("div", { class: "nb-editor" },
+    h("div", { class: "nb-editor-toolbar" },
+      h("span", { class: "nb-editor-title" }, "New cell"),
+      status,
+      button,
+    ),
+    textarea,
   );
 }
 
@@ -72,24 +181,56 @@ export async function render(parent, { params }) {
     return;
   }
 
+  // Fetch cells; an absent file is normal — we'll show an empty notebook
+  // ready for its first cell. Session is fetched in parallel.
+  let nb = { path, cells: [], mtime: null };
+  let session = null;
+  let notFound = false;
   try {
-    const nb = await api.notebook(path);
-    const cellsNodes = (nb.cells || []).map(renderCell);
-    domRender(parent,
-      h("p", null,
-        h("a", {
-          href: "#",
-          onclick: (e) => { e.preventDefault(); history.back(); },
-        }, "← back"),
-      ),
-      h("h2", null, nb.path || path),
-      h("div", { class: "nb-meta" }, `Last updated: ${fmtMtime(nb.mtime)}`),
-      h("div", { class: "nb-cells" }, ...cellsNodes),
-    );
-    activateNotebookScripts(parent);
+    const [nbResp, sessResp] = await Promise.all([
+      api.notebook(path).catch((e) => {
+        if (e && /^404:/.test(e.message)) { notFound = true; return null; }
+        throw e;
+      }),
+      api.notebookSession(path).catch(() => null),
+    ]);
+    if (nbResp) nb = nbResp;
+    if (sessResp) session = sessResp.session;
   } catch (e) {
     domRender(parent, h("p", null, "Error: " + e.message));
+    return;
   }
+
+  const cellsNodes = (nb.cells || []).map(renderCell);
+  const cellsContainer = h("div", { class: "nb-cells" }, ...cellsNodes);
+
+  async function handleRun(code) {
+    await api.execCell({ path, code });
+    // The .ipynb write fires index-updated → WS → re-route, which usually
+    // replaces the pending cell on its own. Force a re-render here as a
+    // backstop in case the WS event was deduped or dropped — render() is
+    // idempotent so a double-render is harmless.
+    await render(parent, { params });
+  }
+
+  domRender(parent,
+    h("p", null,
+      h("a", {
+        href: "#",
+        onclick: (e) => { e.preventDefault(); history.back(); },
+      }, "← back"),
+    ),
+    h("h2", null, nb.path || path),
+    h("div", { class: "nb-meta" },
+      `Last updated: ${fmtMtime(nb.mtime)}`,
+      session ? " · " : null,
+      session ? h("span", { class: "nb-session-badge", title: "Darwin kernel session pinned to this file" }, "kernel: " + session) : null,
+      notFound ? " · (new notebook)" : null,
+    ),
+    cellsContainer,
+    renderEditor(path, handleRun, cellsContainer),
+  );
+  activateNotebookScripts(parent);
 }
 
 // Browsers ignore <script> injected via innerHTML, so DAVI/Plotly cells that
