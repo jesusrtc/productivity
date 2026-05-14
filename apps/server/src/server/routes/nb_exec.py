@@ -89,6 +89,33 @@ def _lock_for(target: Path) -> threading.Lock:
     return lock
 
 
+# ── In-memory pending tracker ────────────────────────────────────────────────
+# The sidebar polls /api/project-files to decide which notebooks should show
+# a green "running" dot. We used to detect that by substring-scanning each
+# .ipynb on disk for `"lab_pending": true`, but Plotly-heavy notebooks easily
+# exceed any cheap size cap. Track the set of in-flight runs in memory: it's
+# O(1), survives no file races, and naturally clears on server restart (the
+# Darwin subprocess also dies on restart, so consistent).
+
+_pending_paths: set[str] = set()
+_pending_guard = threading.Lock()
+
+
+def _mark_running(target: Path) -> None:
+    with _pending_guard:
+        _pending_paths.add(str(target.resolve()))
+
+
+def _mark_done(target: Path) -> None:
+    with _pending_guard:
+        _pending_paths.discard(str(target.resolve()))
+
+
+def is_path_pending(target: Path) -> bool:
+    with _pending_guard:
+        return str(target.resolve()) in _pending_paths
+
+
 # ── Darwin invocation ────────────────────────────────────────────────────────
 
 class _DarwinError(Exception):
@@ -471,6 +498,9 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
 
     # Phase 2: run darwin (slow). If it errors, mark the placeholder as
     # failed so the UI shows the error instead of a stuck ⏳ cell.
+    # Mark this path as "currently running" so the sidebar can show the
+    # green pulse dot. Cleared in every exit path below.
+    _mark_running(target)
     try:
         result = await _darwin_exec(
             body.code, session=session, kernel=body.kernel, timeout=body.timeout
@@ -478,7 +508,11 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     except _DarwinError as exc:
         with _lock_for(target):
             _mark_pending_failed(target, pending_idx, type(exc).__name__, exc.detail)
+        _mark_done(target)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except BaseException:
+        _mark_done(target)
+        raise
 
     cell_outputs = result.get("cell_outputs") or []
     kernel_id = result.get("kernel_id")
@@ -487,23 +521,26 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # Phase 3: replace the placeholder with the real outputs. We use
     # cell_index=pending_idx so the placeholder is overwritten in place
     # — no shifting, no duplicate cells.
-    with _lock_for(target):
-        if isinstance(exec_count_from_darwin, int) and exec_count_from_darwin > 0:
-            exec_count = exec_count_from_darwin
-        else:
-            exec_count = pre_exec_count
+    try:
+        with _lock_for(target):
+            if isinstance(exec_count_from_darwin, int) and exec_count_from_darwin > 0:
+                exec_count = exec_count_from_darwin
+            else:
+                exec_count = pre_exec_count
 
-        idx = _write_code_cell(
-            target,
-            source=body.code,
-            cell_outputs=cell_outputs,
-            exec_count=exec_count,
-            cell_index=pending_idx,
-        )
+            idx = _write_code_cell(
+                target,
+                source=body.code,
+                cell_outputs=cell_outputs,
+                exec_count=exec_count,
+                cell_index=pending_idx,
+            )
 
-        # Re-parse via the same helper the GET endpoint uses so the cell we
-        # return matches the shape the UI already renders.
-        cells = parse_notebook(str(target))
+            # Re-parse via the same helper the GET endpoint uses so the cell we
+            # return matches the shape the UI already renders.
+            cells = parse_notebook(str(target))
+    finally:
+        _mark_done(target)
 
     return {
         "path": body.path,

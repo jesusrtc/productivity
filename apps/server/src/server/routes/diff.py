@@ -268,21 +268,14 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
     files = []
     MAX_DEPTH = 5
 
-    def _ipynb_is_pending(path: Path) -> bool:
-        """Cheap check: substring-scan the .ipynb for the lab_pending
-        marker the exec endpoint writes when a Darwin call is in flight.
-        Avoids JSON-parsing for sidebar refreshes. Caps the read size to
-        protect against giant notebooks; pending cells get appended (or
-        replace existing cells), so the marker can land anywhere — we
-        accept reading the whole file for typical .ipynb sizes (<5 MB).
-        """
-        try:
-            if path.stat().st_size > 5_000_000:
-                return False
-            with path.open("rb") as fh:
-                return b'"lab_pending": true' in fh.read()
-        except OSError:
-            return False
+    # Cheap O(1) check against the in-memory tracker maintained by
+    # routes/nb_exec.py. The previous file-scan implementation skipped
+    # notebooks larger than 5 MB (e.g. Plotly-heavy notebooks easily clear
+    # that), which left the sidebar dot dark for exactly the notebooks
+    # users were most likely to want a "running" indicator on. The tracker
+    # naturally clears on server restart — the Darwin subprocess also dies
+    # then, so the two stay consistent.
+    from server.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 
     def scan(dir_path, depth=0):
         if depth > MAX_DEPTH:

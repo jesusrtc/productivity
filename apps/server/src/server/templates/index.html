@@ -192,7 +192,7 @@
   .view-toggle button.active { background: #388bfd26; color: var(--accent); border-color: #388bfd; }
 
   /* Diff tabs */
-  .diff-tabs { position: fixed; top: 48px; left: 0; right: 0; height: 40px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .diff-tabs { position: fixed; top: 48px; left: 0; right: 0; height: 40px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--border) transparent; z-index: 80; }
   .diff-tabs::-webkit-scrollbar { height: 4px; }
   .diff-tabs::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
   .diff-tab { background: none; border: none; border-bottom: 2px solid transparent; color: #8b949e; font-size: 13px; padding: 8px 16px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
@@ -656,6 +656,41 @@
     align-self: center;
   }
 
+  /* Sidebar notebook activity dots — emitted by _refreshProjectSidebar /
+     selfPopulateSidebar next to each .ipynb name so the user can tell at
+     a glance which notebooks have running cells or unacknowledged output
+     without opening them.
+       .nb-running-dot — green, pulsing (cell is currently executing)
+       .nb-unseen-dot  — blue, static (file mtime advanced since the user
+                         last opened the notebook → at least one new output) */
+  .nb-running-dot,
+  .nb-unseen-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+    flex-shrink: 0;
+    vertical-align: middle;
+  }
+  .nb-running-dot {
+    background: var(--green);
+    box-shadow: 0 0 6px rgba(63, 185, 80, 0.7);
+    animation: nb-dot-pulse 1.0s ease-in-out infinite;
+  }
+  .nb-unseen-dot {
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(88, 166, 255, 0.6);
+    cursor: pointer;
+  }
+  .nb-unseen-dot:hover {
+    transform: scale(1.25);
+    box-shadow: 0 0 9px rgba(88, 166, 255, 0.9);
+  }
+  @keyframes nb-dot-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.35; transform: scale(0.55); }
+  }
+
   /* Copy buttons — sit next to Run/Delete and inside the outputs toggle. */
   .nb-cell-actions .nb-cell-copy-src,
   .nb-outputs-copy {
@@ -693,7 +728,7 @@
   .nb-outputs-collapsed .nb-outputs-toggle { border-bottom: none; }
 
   /* Repo tabs (within a project) */
-  .repo-tabs { position: fixed; top: 48px; left: 0; right: 0; height: 36px; background: var(--bg-primary); display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--border); gap: 4px; overflow-x: auto; }
+  .repo-tabs { position: fixed; top: 48px; left: 0; right: 0; height: 36px; background: var(--bg-primary); display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--border); gap: 4px; overflow-x: auto; z-index: 80; }
   .repo-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 12px; font-family: monospace; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
   .repo-tab:hover { color: var(--text-primary); }
   .repo-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -2457,6 +2492,71 @@
 
   function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  // Escape for use inside an HTML attribute value (double-quoted). Used by
+  // sidebar trees that put folder paths into data-* attributes.
+  function escAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ─── Persistent sidebar-tree folder state ───────────────────────────────
+  // Each tree (self / per-project / shared-claude / cerebro) is a scope.
+  // Within a scope, folder paths map to true=open, false=closed. Absence of
+  // a path means "use the renderer's default" (e.g. AUTO_OPEN_FOLDERS) so a
+  // first visit still gets the sensible expanded set. Once the user toggles
+  // a folder, its choice sticks across page reloads.
+  const TREE_EXPANDED_KEY = 'labTreeExpanded';
+  function _treeReadAll() {
+    try {
+      const raw = localStorage.getItem(TREE_EXPANDED_KEY);
+      return raw ? (JSON.parse(raw) || {}) : {};
+    } catch { return {}; }
+  }
+  function _treeWriteAll(map) {
+    try { localStorage.setItem(TREE_EXPANDED_KEY, JSON.stringify(map)); } catch {}
+  }
+  function _treeIsOpen(scope, folderPath, fallback) {
+    if (!scope || !folderPath) return !!fallback;
+    const scopeMap = _treeReadAll()[scope];
+    if (scopeMap && Object.prototype.hasOwnProperty.call(scopeMap, folderPath)) {
+      return !!scopeMap[folderPath];
+    }
+    return !!fallback;
+  }
+  function _treeSetOpen(scope, folderPath, isOpen) {
+    if (!scope || !folderPath) return;
+    const root = _treeReadAll();
+    const scopeMap = root[scope] || {};
+    scopeMap[folderPath] = !!isOpen;
+    root[scope] = scopeMap;
+    _treeWriteAll(root);
+  }
+  // Loads the "open paths" set for trees (cerebro) that drive their own
+  // render off an in-memory Set rather than DOM .open class flipping.
+  function _treeLoadOpenSet(scope) {
+    const out = new Set();
+    const scopeMap = _treeReadAll()[scope] || {};
+    for (const k of Object.keys(scopeMap)) if (scopeMap[k]) out.add(k);
+    return out;
+  }
+  // Inline-onclick toggle: read scope/path/target id from data-* attrs,
+  // flip the children container's .open class, mirror the arrow, persist.
+  function _treeToggleFolder(btn) {
+    const scope = btn.getAttribute('data-tree-scope');
+    const path = btn.getAttribute('data-tree-path');
+    const targetId = btn.getAttribute('data-tree-target');
+    const children = targetId ? document.getElementById(targetId) : null;
+    if (!children) return;
+    const isOpen = children.classList.toggle('open');
+    const arrow = btn.querySelector('.folder-arrow');
+    if (arrow) arrow.classList.toggle('open', isOpen);
+    if (scope && path) _treeSetOpen(scope, path, isOpen);
+  }
+
   function applyIframeDarkMode(iframe) {
     try {
       const doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -3191,7 +3291,19 @@
     if (execCount == null) return true;
     try {
       const stored = localStorage.getItem(_seenKey(relPath, index));
-      if (stored == null) return true;  // baseline not written yet
+      // No baseline yet means this cell has never been seen in this
+      // notebook view. Two cases produce that:
+      //   (a) Initial open — _baselineSeenIfNew has already run before us
+      //       and stamped the current count, so we won't actually reach
+      //       this branch with stored==null in practice.
+      //   (b) A brand-new cell that appeared after the initial open (e.g.
+      //       the user just hit Run on an empty cell, and the watcher
+      //       re-rendered before the user clicked the output to ack).
+      // For (b), the cell has output and the user has NOT acknowledged
+      // it → it should show the green NEW edge. Treating null as "seen"
+      // (the old behavior) suppressed the indicator on every cell's very
+      // first run.
+      if (stored == null) return false;
       return parseInt(stored, 10) >= execCount;
     } catch (_) { return true; }
   }
@@ -3554,6 +3666,21 @@
         const badge = wrap.querySelector('.nb-cell-new-badge');
         if (badge) badge.remove();
         if (!isNaN(execCount)) _markCellSeen(relPath, cellIndex, execCount);
+
+        // When this was the LAST unseen cell in the notebook, also clear
+        // the sidebar's blue "new outputs" dot. The dot is driven by the
+        // file-level `_nbGetLastViewed` timestamp (compared against the
+        // notebook's mtime). Stamping now means the next sidebar refresh
+        // computes `mtime > lastViewed` as false → dot disappears. We
+        // also yank the dot from the DOM immediately so the user sees
+        // the result without waiting for the next mtime poll tick.
+        const stillUnseen = document.querySelector('.nb-cell-unseen');
+        if (!stillUnseen) {
+          _nbMarkViewed(filepath, Date.now() / 1000);
+          document
+            .querySelectorAll(`.sidebar-file[data-filepath="${CSS.escape(filepath)}"] .nb-unseen-dot`)
+            .forEach(el => el.remove());
+        }
       }, { once: false });
     }
   }
@@ -4058,7 +4185,23 @@
         // Baseline "seen" state for any cell we haven't observed before so the
         // first render of a notebook is calm (nothing flagged NEW). Subsequent
         // execs bump cell.execution_count past the baseline → NEW indicator.
-        (nb.cells || []).forEach((c, i) => _baselineSeenIfNew(relPath, i, c.execution_count));
+        //
+        // Two guards on when to baseline:
+        //   1. !preserveScroll — watcher-triggered re-renders after a Run
+        //      must not stamp the new exec count; that would auto-acknowledge
+        //      the output the user hasn't actually seen yet.
+        //   2. First-EVER open of this notebook (_nbGetLastViewed == 0).
+        //      On any later open we deliberately leave the baselines alone:
+        //      if Claude (or a previous tab) ran cells while the user was
+        //      looking elsewhere, the freshly bumped exec_counts must stay
+        //      above the stored baselines so _isCellSeen reports false and
+        //      the green NEW edge appears on those cells. Without this
+        //      guard, every reopen would re-baseline to the current count
+        //      and the user could never see what changed in their absence.
+        const everViewed = _nbGetLastViewed(filepath) > 0;
+        if (!preserveScroll && !everViewed) {
+          (nb.cells || []).forEach((c, i) => _baselineSeenIfNew(relPath, i, c.execution_count));
+        }
         // Stamp this open as "viewed" so the sidebar's amber unseen-results
         // dot disappears for this file. Use the current file mtime so any
         // FUTURE mtime advance (new cell, new outputs) re-triggers the dot.
@@ -4177,11 +4320,13 @@
     const prevScroll = preserveScroll ? content.scrollTop : 0;
     if (!preserveScroll) content.innerHTML = '<div class="loading">Loading...</div>';
 
-    // Highlight active in sidebar
+    // Highlight active in sidebar. Match on data-filepath (exact path) so the
+    // mark lands on a single entry even when multiple files share a basename.
+    // The sidebar rebuilders (_refreshProjectSidebar / selfPopulateSidebar)
+    // also bake .active into the HTML they emit, so this is just for the
+    // immediate click — we don't have to wait for the next rebuild to repaint.
     document.querySelectorAll('.sidebar-file').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.sidebar-file').forEach(el => {
-      if (el.textContent.includes(filepath.split('/').pop())) el.classList.add('active');
-    });
+    document.querySelectorAll(`.sidebar-file[data-filepath="${CSS.escape(filepath)}"]`).forEach(el => el.classList.add('active'));
 
     // preserveScroll early-return: skip re-render when content/comments/artifact unchanged
     if (preserveScroll) {
@@ -4223,6 +4368,22 @@
     }
 
     await _renderDocInto(filepath, content);
+  }
+
+  // Sidebar "blue dot" entry point — open the notebook AND scroll the first
+  // unread cell into view. Defaults to the same openProjectDoc path so the
+  // file lands the same way the user would by clicking the row, then waits
+  // one paint to make sure the cell HTML is in the DOM before scrolling.
+  // Used as the dot's onclick (with event.stopPropagation() at the call site
+  // so the surrounding row click doesn't double-fire).
+  async function openProjectDocAndJumpToUnseen(filepath) {
+    await openProjectDoc(filepath);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const target = document.querySelector('#content .nb-cell-unseen');
+        if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+      });
+    });
   }
 
   function toggleCommentsPanel(btn) {
@@ -5074,13 +5235,29 @@
       const metaFiles = otherFiles.filter(f => !f.path.includes('/') && META_FILES.has(f.name));
       const mainFiles = otherFiles.filter(f => !(f.path === f.name && META_FILES.has(f.name)));
 
-      let sbHtml = '<a class="sidebar-file" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>';
+      // Active-file highlighting is baked into the rendered HTML (data-filepath
+      // + .active class) so periodic sidebar rebuilds — from the mtime poller
+      // and the index-updated WS event — preserve the red selection bar
+      // instead of dropping it and waiting for openProjectDoc to re-add it,
+      // which made the selection blink.
+      const activePath = _projDocPath || null;
+      const dashActive = !activePath ? ' active' : '';
+      let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
       sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="toggleProjectDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
       pinnedFiles.forEach(name => {
         const safeName = name.replace(/'/g, "\\'");
         const label = name.replace(/\.md$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        sbHtml += `<a class="sidebar-file" onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
+        const activeCls = activePath === name ? ' active' : '';
+        sbHtml += `<a class="sidebar-file${activeCls}" data-filepath="${esc(name)}" onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
+      // Tree scope key for the persistent folder-open state. Declared
+      // OUTSIDE the `mainFiles.length > 0` block because the
+      // external-references and shared `.claude/` blocks below also call
+      // `_treeIsOpen(_projTreeScope, …)`. A project with no mainFiles but
+      // some references (or just the shared CLAUDE.md row) would otherwise
+      // hit `ReferenceError: _projTreeScope is not defined` and blow out
+      // the whole sidebar via the catch handler.
+      const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '');
       if (mainFiles.length > 0) {
         sbHtml += '<div class="sidebar-title">Files</div>';
         // Build folder tree
@@ -5095,18 +5272,20 @@
           node['__files__'] = node['__files__'] || [];
           node['__files__'].push(f);
         });
-        function renderTree(node, depth) {
+        function renderTree(node, depth, parentPath) {
           let html = '';
           // Render folders first
           const folders = Object.keys(node).filter(k => k !== '__files__').sort();
           folders.forEach(folder => {
             const fid = 'folder-' + Math.random().toString(36).substr(2, 6);
+            const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
             const autoOpen = depth === 0 && AUTO_OPEN_FOLDERS.has(folder);
-            const arrowCls = autoOpen ? ' open' : '';
-            const childrenCls = autoOpen ? ' open' : '';
-            html += `<div class="sidebar-folder" onclick="document.getElementById('${fid}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')"><span class="folder-arrow${arrowCls}">\u25B6</span>${folder}/</div>`;
+            const open = _treeIsOpen(_projTreeScope, fullPath, autoOpen);
+            const arrowCls = open ? ' open' : '';
+            const childrenCls = open ? ' open' : '';
+            html += `<div class="sidebar-folder" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${folder}/</div>`;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-            html += renderTree(node[folder], depth + 1);
+            html += renderTree(node[folder], depth + 1, fullPath);
             html += '</div>';
           });
           // Then files
@@ -5137,13 +5316,14 @@
               const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
               dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
             } else if (hasUnseen) {
-              dotHtml = `<span class="nb-unseen-dot" title="New outputs since you last opened this notebook"></span>`;
+              dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
             }
-            html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            const activeCls = activePath === f.path ? ' active' : '';
+            html += `<a class="sidebar-file${activeCls}" data-filepath="${esc(f.path)}" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
           });
           return html;
         }
-        sbHtml += renderTree(tree, 0);
+        sbHtml += renderTree(tree, 0, '');
       }
 
       // Virtual ``external-references/`` folder — URLs from
@@ -5152,8 +5332,11 @@
       // auto-expanded like docs/ so curated reading lives in plain sight.
       if (references.length > 0) {
         const extId = 'folder-ext-' + Math.random().toString(36).substr(2, 6);
-        sbHtml += `<div class="sidebar-folder" onclick="document.getElementById('${extId}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')"><span class="folder-arrow open">▶</span>external-references/</div>`;
-        sbHtml += `<div class="sidebar-folder-children open" id="${extId}">`;
+        const _extOpen = _treeIsOpen(_projTreeScope, 'external-references', true);
+        const _extArrow = _extOpen ? ' open' : '';
+        const _extChildren = _extOpen ? ' open' : '';
+        sbHtml += `<div class="sidebar-folder" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="external-references" data-tree-target="${extId}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${_extArrow}">▶</span>external-references/</div>`;
+        sbHtml += `<div class="sidebar-folder-children${_extChildren}" id="${extId}">`;
         references.forEach(r => {
           const safeUrl = (r.url || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           const title = r.title || r.url || '(untitled)';
@@ -5174,7 +5357,8 @@
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.name;
           const icon = fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C4}';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
+          const activeCls = activePath === f.path ? ' active' : '';
+          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}" data-filepath="${esc(f.path)}" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
         });
       } else {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
@@ -5188,8 +5372,11 @@
       // populated by the async fetch below so the rest of the sidebar
       // doesn't wait on it.
       const sharedClaudeFid = 'sf-claude-' + Math.random().toString(36).substr(2, 6);
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" onclick="document.getElementById('${sharedClaudeFid}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')" title=".claude/ — shared skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow">▶</span>.claude/ (shared)</div>`;
-      sbHtml += `<div class="sidebar-folder-children" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+      const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
+      const _shClArrow = _shClOpen ? ' open' : '';
+      const _shClChildren = _shClOpen ? ' open' : '';
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — shared skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/ (shared)</div>`;
+      sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Fetch the shared .claude/ subtree and populate the placeholder.
@@ -5231,7 +5418,18 @@
         }
       }).catch(() => {});
     } catch(e) {
-      sidebar.innerHTML = '<div class="sidebar-title">Project</div>';
+      // Surface the underlying failure so it lands in the browser console
+      // AND the server-side client-errors log (window.onerror -> /api/log).
+      // Without this the catch silently degrades the sidebar to a bare
+      // "Project" title and we lose the actual reason every time.
+      console.error('[_refreshProjectSidebar] failed:', e && e.stack || e);
+      // Only wipe the sidebar if it's empty — otherwise we'd nuke the
+      // previously-rendered file tree the user is still looking at, which
+      // is strictly worse than leaving the old list visible while we log
+      // the underlying error.
+      if (!sidebar.children.length) {
+        sidebar.innerHTML = '<div class="sidebar-title">Project</div>';
+      }
     }
   }
 
@@ -5498,7 +5696,9 @@
   const CEREBRO_PROJECT_ID = '__cerebro__';
   let cerebroTreeData = [];
   let cerebroActivePath = null;
-  const cerebroExpanded = new Set();  // dir paths currently open
+  // Hydrate from localStorage so folded/unfolded state survives reloads.
+  // Persisted in lockstep on every toggle below.
+  const cerebroExpanded = _treeLoadOpenSet('cerebro');  // dir paths currently open
 
   // Productivity self-view: the monorepo itself (commits + uncommitted + tasks).
   // Pseudo-project like Cerebro; no folder under knowledge/projects/.
@@ -5532,14 +5732,24 @@
       const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(currentProject.path)}`);
       const { mtime } = await res.json();
       if (_lastProjectMtime && mtime > _lastProjectMtime) {
+        const isSelf = document.body.classList.contains('self-active');
         if (_projDocPath) {
           // Refresh the doc AND the sidebar — files added/removed in
           // the project (e.g. a new HTML under tmp/) need to appear in
-          // the sidebar without forcing the user to navigate away.
+          // the sidebar without forcing the user to navigate away. The
+          // self view uses its own sidebar renderer (no project.json,
+          // no pinned/meta sections, no shared CLAUDE.md / .claude
+          // shortcuts); calling _refreshProjectSidebar here would stomp
+          // it with the project layout.
           openProjectDoc(_projDocPath, {preserveScroll: true});
-          _refreshProjectSidebar({preserveScroll: true});
-        } else if (!document.body.classList.contains('self-active')) {
+          if (isSelf) selfPopulateSidebar();
+          else _refreshProjectSidebar({preserveScroll: true});
+        } else if (!isSelf) {
           showProjectInfo({preserveScroll: true});
+        } else {
+          // Self view, no doc open → just refresh the sidebar so new
+          // files appear without a full page reload.
+          selfPopulateSidebar();
         }
       }
       _lastProjectMtime = mtime;
@@ -5588,6 +5798,52 @@
   const TERM_MAX_RECONNECT_ATTEMPTS = 3;
   const TERM_RECONNECT_BASE_MS = 800;
   const TERM_RECONNECT_CAP_MS = 30000;
+
+  // Per-project "last selected" memory so leaving and returning to a project
+  // (full page reload) restores whichever session pill the user had active
+  // instead of snapping back to the canonical "claude" pill.
+  //
+  // Keyed by logical_name (not tmux name) because the logical name is the
+  // project-relative identity and is stable across server/tmux restarts.
+  // Stored as a single JSON map {projectId: logicalName}.
+  const TERM_LAST_KEY = 'labTermLastSession';
+  function _termActiveProjectId() {
+    if (currentProject && currentProject.is_project) return currentProject.name;
+    if (document.body.classList.contains('cerebro-active')) return CEREBRO_PROJECT_ID;
+    if (document.body.classList.contains('self-active')) return SELF_PROJECT_ID;
+    return null;
+  }
+  function _termRememberLast(projectId, logicalName) {
+    if (!projectId || !logicalName) return;
+    try {
+      const raw = localStorage.getItem(TERM_LAST_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      if (map[projectId] === logicalName) return;
+      map[projectId] = logicalName;
+      localStorage.setItem(TERM_LAST_KEY, JSON.stringify(map));
+    } catch {}
+  }
+  function _termRecallLast(projectId) {
+    if (!projectId) return null;
+    try {
+      const raw = localStorage.getItem(TERM_LAST_KEY);
+      if (!raw) return null;
+      const map = JSON.parse(raw);
+      return map[projectId] || null;
+    } catch { return null; }
+  }
+  function _termPickRestoreName(projectId) {
+    // Pick which session to attach when (re-)opening the panel: prefer the
+    // user's last selection, fall back to canonical "claude", else first.
+    if (!termSessions || termSessions.length === 0) return null;
+    const lastLogical = _termRecallLast(projectId);
+    if (lastLogical) {
+      const hit = termSessions.find(s => s.logical_name === lastLogical);
+      if (hit) return hit.name;
+    }
+    const claude = termSessions.find(s => s.logical_name === 'claude');
+    return (claude || termSessions[0]).name;
+  }
 
   // ─── Project tabs (Chrome-style) ───
   // State declarations are hoisted to the init block above (same TDZ reason
@@ -5918,9 +6174,10 @@
     }
 
     if (termSessions.length > 0) {
-      // Prefer the canonical "claude" session if present; else most recent.
-      const claude = termSessions.find(s => s.logical_name === 'claude');
-      termAttach((claude || termSessions[0]).name);
+      // Prefer the user's last selection for this project; fall back to the
+      // canonical "claude" pill, then to the first session in the list.
+      const pick = _termPickRestoreName(projectId);
+      if (pick) termAttach(pick);
     } else {
       termDetach();
       termShowEmpty();
@@ -6670,6 +6927,12 @@
     termDetach(true);
     termUserDetached = false;  // fresh attach — future drops should trigger recovery
     termCurrentSession = name;
+    // Persist the selection so a full page reload (project-tab navigation)
+    // can restore the same pill instead of snapping back to "claude".
+    const _attachMeta = (termSessions || []).find(s => s.name === name);
+    if (_attachMeta && _attachMeta.logical_name) {
+      _termRememberLast(_termActiveProjectId(), _attachMeta.logical_name);
+    }
     console.log('[term] after soft detach, cache keys=', Array.from(_termCache.keys()));
     // Hide the empty/recovery overlay if visible.
     const _emptyEl = document.getElementById('termEmpty');
@@ -7236,9 +7499,13 @@
     const files = nodes.filter(n => n.type !== 'dir');
     dirs.forEach(d => {
       const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
-      html += `<div class="sidebar-folder" onclick="document.getElementById('${fid}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')"><span class="folder-arrow">▶</span>${esc(d.name)}/</div>`;
-      html += `<div class="sidebar-folder-children" id="${fid}">`;
-      html += renderSharedClaudeTree(d.children || [], basePath + '/' + d.name);
+      const fullPath = basePath + '/' + d.name;
+      const open = _treeIsOpen('shared-claude', fullPath, false);
+      const arrowCls = open ? ' open' : '';
+      const childrenCls = open ? ' open' : '';
+      html += `<div class="sidebar-folder" data-tree-scope="shared-claude" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${esc(d.name)}/</div>`;
+      html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
+      html += renderSharedClaudeTree(d.children || [], fullPath);
       html += '</div>';
     });
     files.forEach(f => {
@@ -8597,7 +8864,13 @@
       const res = await fetch(`/api/project-files?path=${encodeURIComponent(SELF_REPO_PATH)}&include_dotfiles=${showProjectDotFiles}`);
       const files = await res.json();
 
-      let sbHtml = '<a class="sidebar-file" onclick="selfShowDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>';
+      // Bake .active onto the rendered HTML (data-filepath + class) so any
+      // future sidebar rebuild — mtime poll, WS index-updated — keeps the
+      // current file highlighted. Without this the active class is only
+      // applied imperatively after rebuild and the selection flickers.
+      const activePath = _projDocPath || null;
+      const dashActive = !activePath ? ' active' : '';
+      let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="selfShowDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
       sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="selfToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
       sbHtml += '<div class="sidebar-title">Files</div>';
 
@@ -8616,28 +8889,49 @@
 
       const AUTO_OPEN_SELF = new Set(['apps', 'docs', 'knowledge']);
 
-      function renderSelfTree(node, depth) {
+      function renderSelfTree(node, depth, parentPath) {
         let html = '';
         Object.keys(node).filter(k => k !== '__files__').sort().forEach(folder => {
           const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
+          const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
           const autoOpen = depth === 0 && AUTO_OPEN_SELF.has(folder);
-          const arrowCls = autoOpen ? ' open' : '';
-          const childrenCls = autoOpen ? ' open' : '';
-          html += `<div class="sidebar-folder" onclick="document.getElementById('${fid}').classList.toggle('open');this.querySelector('.folder-arrow').classList.toggle('open')"><span class="folder-arrow${arrowCls}">▶</span>${folder}/</div>`;
+          const open = _treeIsOpen('self', fullPath, autoOpen);
+          const arrowCls = open ? ' open' : '';
+          const childrenCls = open ? ' open' : '';
+          html += `<div class="sidebar-folder" data-tree-scope="self" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${folder}/</div>`;
           html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-          html += renderSelfTree(node[folder], depth + 1);
+          html += renderSelfTree(node[folder], depth + 1, fullPath);
           html += '</div>';
         });
         (node['__files__'] || []).forEach(f => {
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.path.split('/').pop();
           const icon = f.type === 'image' ? '\u{1F5BC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
-          html += `<a class="sidebar-file" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
+          const activeCls = activePath === f.path ? ' active' : '';
+          // Notebook running / unseen dots — same logic as the project view's
+          // _refreshProjectSidebar so the self view (productivity monorepo)
+          // surfaces in-flight notebooks too. Running wins over unseen since
+          // "currently executing" is the more urgent state.
+          if (f.pending) _recentlyPending.set(f.path, Date.now());
+          const recent = _recentlyPending.get(f.path);
+          const stillFresh = recent && (Date.now() - recent) < _PENDING_GRACE_MS;
+          const isRunning = f.pending || stillFresh;
+          if (recent && !isRunning) _recentlyPending.delete(f.path);
+          const lastViewed = (fname.endsWith('.ipynb') && f.mtime) ? _nbGetLastViewed(f.path) : 0;
+          const hasUnseen = !isRunning && f.mtime && lastViewed && f.mtime > lastViewed + 0.5;
+          let dotHtml = '';
+          if (isRunning) {
+            const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
+            dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
+          } else if (hasUnseen) {
+            dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
+          }
+          html += `<a class="sidebar-file${activeCls}" data-filepath="${esc(f.path)}" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon} ${fname}</span></a>`;
         });
         return html;
       }
 
-      sbHtml += renderSelfTree(tree, 0);
+      sbHtml += renderSelfTree(tree, 0, '');
       sidebar.innerHTML = sbHtml;
     } catch(e) {
       sidebar.innerHTML = '<div class="sidebar-title">Productivity</div>';
@@ -8865,8 +9159,8 @@
     }
 
     if (termSessions.length > 0) {
-      const claude = termSessions.find(s => s.logical_name === 'claude');
-      termAttach((claude || termSessions[0]).name);
+      const pick = _termPickRestoreName(SELF_PROJECT_ID);
+      if (pick) termAttach(pick);
     } else if (autoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       await fetch('/api/term/sessions', {
@@ -8898,6 +9192,7 @@
       for (let i = 0; i < parts.length - 1; i++) {
         acc = acc ? `${acc}/${parts[i]}` : parts[i];
         cerebroExpanded.add(acc);
+        _treeSetOpen('cerebro', acc, true);
       }
     }
     await cerebroRefresh();
@@ -8929,8 +9224,10 @@
       const isDir = row.classList.contains('dir');
       row.addEventListener('click', () => {
         if (isDir) {
-          if (cerebroExpanded.has(path)) cerebroExpanded.delete(path);
-          else cerebroExpanded.add(path);
+          const nowOpen = !cerebroExpanded.has(path);
+          if (nowOpen) cerebroExpanded.add(path);
+          else cerebroExpanded.delete(path);
+          _treeSetOpen('cerebro', path, nowOpen);
           cerebroRenderTree();
         } else {
           cerebroOpen(path);
@@ -9278,8 +9575,8 @@
     }
 
     if (termSessions.length > 0) {
-      const claude = termSessions.find(s => s.logical_name === 'claude');
-      termAttach((claude || termSessions[0]).name);
+      const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
+      if (pick) termAttach(pick);
     } else if (autoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       // Call termSpawnSession-style, but using CEREBRO_PROJECT_ID.
