@@ -25,6 +25,7 @@ from server.routes import mutation as mutation_route
 from server.routes import nb_exec as nb_exec_route
 from server.routes import notebook as notebook_route
 from server.routes import project as project_route
+from server.routes import proxy as proxy_route
 from server.routes import search as search_route
 from server.routes import task as task_route
 from server.routes import term as term_route
@@ -122,6 +123,50 @@ async def _request_log_middleware(request: Request, call_next):
     elif code >= 400:
         _REQUEST_LOG.warning("%s %s -> %d", request.method, request.url.path, code)
     return response
+
+
+# Captures the `/api/proxy/<project>/<name>` prefix from a Referer URL.
+# Used by the rewrite middleware below to forward absolute-path
+# sub-resource requests (e.g. `/api/data`, `/socket.io/...`) from a
+# proxied iframe back through the matching proxy mount.
+import re as _re  # local alias to avoid colliding with `re` imports elsewhere
+
+_PROXY_REFERER_RE = _re.compile(
+    r"^https?://[^/]+(/api/proxy/[^/]+/[^/]+)(?:/|$)"
+)
+
+
+async def _proxy_referer_rewrite(request: Request, call_next):
+    """Re-route absolute-path requests from a proxy iframe.
+
+    When the page inside an `/api/proxy/<project>/<name>/` iframe makes
+    `fetch('/api/data')`, the browser sends it to the lab origin's
+    root, which 404s. By inspecting `Referer` we can tell the request
+    actually came from inside that iframe and silently rewrite the
+    target path to land under the same proxy mount.
+
+    Skipped when the path is already under `/api/proxy/` or
+    `/ws/proxy/` (already targeting the proxy explicitly), so the
+    middleware never recurses.
+
+    Lab UI requests (Referer == lab root, e.g. `http://localhost:3333/`)
+    don't match the proxy-mount regex and pass through untouched.
+    """
+    path = request.url.path
+    if path.startswith("/api/proxy/") or path.startswith("/ws/proxy/"):
+        return await call_next(request)
+    referer = request.headers.get("referer") or ""
+    m = _PROXY_REFERER_RE.match(referer)
+    if not m:
+        return await call_next(request)
+    mount = m.group(1)  # e.g. "/api/proxy/asta-gofundme-revamp/8080"
+    new_path = mount + path
+    # Mutate the ASGI scope so downstream route matching sees the
+    # rewritten path. `raw_path` is the bytes version used by Starlette
+    # for routing; both must be updated.
+    request.scope["path"] = new_path
+    request.scope["raw_path"] = new_path.encode("latin-1")
+    return await call_next(request)
 
 
 _PKG_DIR = Path(__file__).parent
@@ -284,6 +329,15 @@ def create_app() -> FastAPI:
     # Log 4xx/5xx responses into the backend-errors split file.
     app.middleware("http")(_request_log_middleware)
 
+    # When a proxied app fetches an absolute path like `/api/data` or
+    # `/socket.io/...` from inside the iframe, it lands on the lab
+    # origin's root — not under the proxy mount — and gets a 404. This
+    # middleware inspects the `Referer` header and, if it points at a
+    # /api/proxy/<project>/<name>/ mount, rewrites the incoming path
+    # to be under that mount. Lab UI's own requests (Referer == lab
+    # root page, or no Referer) are unaffected.
+    app.middleware("http")(_proxy_referer_rewrite)
+
     @app.get("/api/ping")
     async def ping() -> dict[str, str]:
         return {"status": "ok"}
@@ -303,6 +357,7 @@ def create_app() -> FastAPI:
     app.include_router(ui_route.router)
     app.include_router(log_route.router)
     app.include_router(git_route.router)
+    app.include_router(proxy_route.router)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

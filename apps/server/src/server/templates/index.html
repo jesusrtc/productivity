@@ -381,6 +381,20 @@
   .form-modal .fm-actions .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .form-modal .fm-actions .btn-primary:hover { filter: brightness(1.1); }
 
+  /* Proxies-modal row grid. One row per proxy (name / host / port /
+     path / label / remove); empty grid template the same on every row
+     so the header stays aligned with the inputs underneath. */
+  .proxies-rows { display: flex; flex-direction: column; gap: 6px; }
+  .proxies-row { display: grid; grid-template-columns: 1.2fr 1.3fr 0.7fr 1.2fr 1.2fr 56px 28px; gap: 6px; align-items: center; }
+  .proxies-row .proxies-direct { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 10px; color: var(--text-dim); }
+  .proxies-row .proxies-direct input { width: auto; }
+  .proxies-row.proxies-head { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; }
+  .proxies-row input { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; font-size: 12px; font-family: ui-monospace, monospace; box-sizing: border-box; min-width: 0; width: 100%; }
+  .proxies-row input:focus { outline: none; border-color: var(--accent); }
+  .proxies-row .proxies-del { background: transparent; border: 1px solid transparent; color: var(--text-dim); border-radius: 4px; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; height: 26px; width: 26px; font-family: inherit; }
+  .proxies-row .proxies-del:hover { color: var(--red); border-color: var(--red); }
+  .proxies-row .proxies-empty { color: var(--text-dim); font-style: italic; padding: 8px 0; grid-column: 1 / -1; font-size: 12px; }
+
   /* Inline calendar (due-date picker). Always visible, no OS popup. */
   .cal { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
   .cal-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
@@ -1469,6 +1483,23 @@
   body.term-collapsed .term-toggle { right: 0; border-right: 1px solid var(--border); border-radius: 6px 0 0 6px; }
   body.term-collapsed.term-open .term-toggle { display: block; }
 
+  /* Project proxy iframe — fullscreen mode hides the rest of the lab
+     UI chrome (sidebar, attrs/repo/diff bars, terminal panel, topbar)
+     so the proxied app fills the viewport. Pure CSS toggle; the JS
+     wires Esc to flip the class off again. */
+  body.proxy-fullscreen .topbar,
+  body.proxy-fullscreen .attrs-bar,
+  body.proxy-fullscreen .repo-tabs,
+  body.proxy-fullscreen .diff-tabs,
+  body.proxy-fullscreen .sidebar,
+  body.proxy-fullscreen .sidebar-resizer,
+  body.proxy-fullscreen .term-panel,
+  body.proxy-fullscreen .term-toggle { display: none !important; }
+  body.proxy-fullscreen .main { margin: 0 !important; padding: 0 !important; }
+  body.proxy-fullscreen .layout { padding-top: 0 !important; }
+  body.proxy-fullscreen #content { padding: 0 !important; }
+  body.proxy-fullscreen #proxyWrap { height: 100vh !important; min-height: 100vh !important; }
+
   .doc-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 250; justify-content: center; align-items: center; }
   .doc-modal-overlay.active { display: flex; }
   .doc-modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; width: 90vw; max-width: 1400px; height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
@@ -1758,6 +1789,39 @@
 <div class="cmt-popover" id="cmtPopover" onclick="event.stopPropagation()"></div>
 
 <!-- Description edit modal. Larger than the inline popovers because descriptions span multiple lines. -->
+<!-- Proxies modal — manage the `proxies[]` array in project.json from the
+     UI so the user can add/edit local-dev-server proxies without hand-
+     editing JSON. Submits via PUT /api/project-info (writes the whole
+     project.json back). The sidebar's "Servers" section and the
+     /api/proxy/<project>/<name>/... endpoint read this same array. -->
+<div class="modal-overlay" id="proxiesModal" onclick="if(event.target===this)closeProxiesModal()">
+  <div class="form-modal" role="dialog" aria-labelledby="proxiesTitle" style="max-width:780px">
+    <div class="fm-header">
+      <span class="fm-title" id="proxiesTitle">&#x1F310; Servers — local dev-server proxies</span>
+      <button class="fm-close" type="button" onclick="closeProxiesModal()" aria-label="Close">&times;</button>
+    </div>
+    <form id="proxiesForm" onsubmit="submitProxies(event)">
+      <div class="fm-body">
+        <div class="fm-err" id="proxiesError"></div>
+        <p style="color:var(--text-secondary);font-size:12px;margin:0 0 12px">
+          One row per proxied server. The lab UI exposes each at
+          <code>/api/proxy/&lt;project&gt;/&lt;name&gt;/&hellip;</code> and
+          renders it inline as an iframe (with HMR/WebSocket support).
+          <b>Name</b> is the identifier used in the sidebar.
+          <b>Host</b> defaults to <code>localhost</code>.
+          <b>Path</b> is the initial landing path inside the app.
+        </p>
+        <div id="proxiesRows" class="proxies-rows"></div>
+        <button type="button" id="proxiesAddBtn" class="btn-cancel" onclick="addProxyRow()" style="margin-top:8px">+ Add server</button>
+      </div>
+      <div class="fm-actions">
+        <button type="button" class="btn-cancel" onclick="closeProxiesModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-overlay" id="descModal" onclick="if(event.target===this)closeDescModal()">
   <div class="form-modal" role="dialog" aria-labelledby="descTitle">
     <div class="fm-header">
@@ -4427,6 +4491,14 @@
 
   async function openProjectDoc(filepath, {preserveScroll = false} = {}) {
     if (!currentProject) return;
+    // Pseudo-paths starting with `__proxy__/` are not real files — they
+    // refer to a declared local-dev-server proxy. Route to the iframe
+    // renderer; everything else (active highlight, last-opened memory)
+    // is handled inside openProjectProxy.
+    if (typeof filepath === 'string' && filepath.startsWith('__proxy__/')) {
+      const name = filepath.slice('__proxy__/'.length);
+      return openProjectProxy(name);
+    }
     _projDocPath = filepath;
     _projDocEditing = false;
     setLastProjectDoc(currentProject.path, filepath);
@@ -4507,6 +4579,120 @@
     }
 
     await _renderDocInto(filepath, content);
+  }
+
+  // ─── Project proxies (per-project reverse-proxy to a local dev server) ───
+  // Backed by /api/proxy/<project>/<name>/<path> + /ws/proxy/... in
+  // routes/proxy.py. Declared in project.json:
+  //   "proxies": [{"name": "frontend", "host": "localhost", "port": 3000, "path": "/"}]
+  // The frontend treats each proxy as a pseudo-file so all the sidebar
+  // active-highlighting, "last opened" persistence, and warm-switch
+  // caching work without special-casing. The synthetic doc path is
+  // `__proxy__/<name>` (chosen so it cannot collide with a real file
+  // path since `__proxy__` starts with `__` which is reserved).
+  function _proxyFromCachedSidebar(name) {
+    if (!currentProject || !currentProject.is_project) return null;
+    const cached = _projectSidebarCache.get(currentProject.path);
+    if (!cached || !Array.isArray(cached.proxies)) return null;
+    return cached.proxies.find(p => p && p.name === name) || null;
+  }
+
+  function _proxyMountPath(projectId, name) {
+    return `/api/proxy/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}/`;
+  }
+
+  function _proxyInitialUrl(p, name) {
+    const projectId = currentProject && currentProject.name;
+    if (!projectId || !name) return null;
+    const path = (p && p.path) ? String(p.path) : '/';
+    // Direct mode: iframe straight to the upstream origin. Faster + no
+    // path rewriting needed, but the browser must be able to reach
+    // the upstream host:port directly (so won't work over an SSH
+    // port-forward where only the lab port is exposed).
+    if (p && p.mode === 'direct') {
+      const host = (p.host || 'localhost').replace(/\/+$/, '');
+      const port = p.port;
+      const cleanPath = path.startsWith('/') ? path : '/' + path;
+      return `http://${host}:${port}${cleanPath}`;
+    }
+    const initial = path.replace(/^\/+/, '');
+    return _proxyMountPath(projectId, name) + initial;
+  }
+
+  // Inline iframe + controls bar. The controls let the user reload the
+  // inner app, copy the proxied URL, pop it out into a new tab (so it
+  // lives alongside other browser tabs), or expand into a borderless
+  // fullscreen view that hides the rest of the lab UI chrome.
+  async function openProjectProxy(name) {
+    if (!currentProject || !currentProject.is_project) return;
+    if (!name) return;
+    const p = _proxyFromCachedSidebar(name);
+    const proxyPath = '__proxy__/' + name;
+    _projDocPath = proxyPath;
+    _projDocEditing = false;
+    setLastProjectDoc(currentProject.path, proxyPath);
+    const content = document.getElementById('content');
+    if (!content) return;
+    const url = _proxyInitialUrl(p, name);
+    if (!url) { content.innerHTML = `<div class="no-repo"><p>Proxy ${esc(name)} not configured.</p></div>`; return; }
+
+    // Highlight active row in sidebar.
+    document.querySelectorAll('.sidebar-file').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll(`.sidebar-file[data-filepath="${CSS.escape(proxyPath)}"]`).forEach(el => el.classList.add('active'));
+
+    const host = (p && p.host) || 'localhost';
+    const port = (p && p.port) || '?';
+    const label = (p && p.label) || name;
+    const safeName = name.replace(/'/g, "\\'");
+    content.innerHTML = `
+      <div id="proxyWrap" data-proxy="${esc(name)}" style="display:flex;flex-direction:column;height:calc(100vh - 130px);min-height:480px">
+        <div class="proxy-toolbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg-secondary);border-bottom:1px solid var(--border);flex-shrink:0">
+          <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace">${esc(label)}</span>
+          <span style="font-size:11px;color:var(--text-dim);font-family:ui-monospace,monospace">→ ${esc(host)}:${esc(String(port))}</span>
+          <span style="flex:1"></span>
+          <button onclick="reloadProjectProxy('${safeName}')" title="Reload" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x21BB; Reload</button>
+          <button onclick="openProjectProxyTab('${safeName}')" title="Open in new browser tab" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Pop out &#x2197;</button>
+          <button onclick="toggleProjectProxyFullscreen()" id="proxyFullscreenBtn" title="Expand to fill the viewport (Esc to exit)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x26F6; Fullscreen</button>
+        </div>
+        <iframe id="proxyIframe" src="${esc(url)}" style="flex:1;width:100%;border:0;background:#fff" onload="applyIframeDarkMode(this)"></iframe>
+      </div>
+    `;
+  }
+
+  function reloadProjectProxy(name) {
+    const iframe = document.getElementById('proxyIframe');
+    if (!iframe) return openProjectProxy(name);
+    // Force a full reload (drops the HMR client too) instead of just
+    // re-pointing the src — bypasses cached errored states.
+    try { iframe.contentWindow.location.reload(); }
+    catch { iframe.src = iframe.src; }
+  }
+
+  function openProjectProxyTab(name) {
+    const p = _proxyFromCachedSidebar(name);
+    const url = _proxyInitialUrl(p, name);
+    if (url) window.open(url, '_blank', 'noopener');
+  }
+
+  // Fullscreen: hide the sidebar, term panel, attrs/repo/diff strips so
+  // the iframe fills the viewport. Esc exits. Same effect as the user's
+  // browser fullscreen but keeps the lab origin (cookies, lab UI WS).
+  let _proxyEscHandler = null;
+  function toggleProjectProxyFullscreen() {
+    const wrap = document.getElementById('proxyWrap');
+    if (!wrap) return;
+    const on = document.body.classList.toggle('proxy-fullscreen');
+    const btn = document.getElementById('proxyFullscreenBtn');
+    if (btn) btn.innerHTML = on ? '&#x26F6; Exit fullscreen' : '&#x26F6; Fullscreen';
+    if (on) {
+      _proxyEscHandler = (ev) => {
+        if (ev.key === 'Escape') toggleProjectProxyFullscreen();
+      };
+      document.addEventListener('keydown', _proxyEscHandler);
+    } else if (_proxyEscHandler) {
+      document.removeEventListener('keydown', _proxyEscHandler);
+      _proxyEscHandler = null;
+    }
   }
 
   // Sidebar "blue dot" entry point — open the notebook AND scroll the first
@@ -5364,16 +5550,17 @@
           try {
             const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(projectPath)}&include_dotfiles=${showProjectDotFiles}`);
             const files = await filesRes.json();
-            let pinned = [], references = [];
+            let pinned = [], references = [], proxies = [];
             try {
               const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
               if (infoRes.ok) {
                 const info = await infoRes.json();
                 if (Array.isArray(info.pinned)) pinned = info.pinned;
                 if (Array.isArray(info.references)) references = info.references;
+                if (Array.isArray(info.proxies)) proxies = info.proxies;
               }
             } catch {}
-            const fresh = {files, pinned, references};
+            const fresh = {files, pinned, references, proxies};
             const prev = _projectSidebarCache.get(projectPath);
             _projectSidebarCache.set(projectPath, fresh);
             // Re-render only if (a) the data actually changed and (b)
@@ -5390,27 +5577,30 @@
     }
 
     try {
-      let files, pinnedNames, references;
+      let files, pinnedNames, references, proxies;
       if (_data) {
         // Render from pre-loaded payload — cache hit or reconcile path.
         files = _data.files;
         pinnedNames = _data.pinned || [];
         references = _data.references || [];
+        proxies = _data.proxies || [];
       } else {
         // Cold path: fetch fresh + write to cache.
         const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(currentProject.path)}&include_dotfiles=${showProjectDotFiles}`);
         files = await filesRes.json();
         pinnedNames = [];
         references = [];
+        proxies = [];
         try {
           const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
           if (infoRes.ok) {
             const info = await infoRes.json();
             if (Array.isArray(info.pinned)) pinnedNames = info.pinned;
             if (Array.isArray(info.references)) references = info.references;
+            if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
-        _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references});
+        _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references, proxies});
       }
       const pinnedSet = new Set(pinnedNames);
       const pinnedFiles = pinnedNames.filter(n => files.some(f => f.name === n));
@@ -5442,6 +5632,28 @@
         const activeCls = activePath === name ? ' active' : '';
         sbHtml += `<a class="sidebar-file${activeCls}" data-filepath="${esc(name)}" onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
+
+      // Servers — proxied local dev servers declared in project.json
+      // under ``proxies: [{name, host?, port, path?}]``. Each entry opens
+      // an inline iframe through /api/proxy/<id>/<name>/<path>, with the
+      // terminal panel still visible alongside so the user can iterate
+      // (start/stop the server, tail logs, etc.) without leaving the
+      // tab. Double-click pops the same URL out into a new browser tab.
+      if (Array.isArray(proxies) && proxies.length > 0) {
+        sbHtml += '<div class="sidebar-title">Servers</div>';
+        proxies.forEach(p => {
+          if (!p || !p.name) return;
+          const name = String(p.name);
+          const safeName = name.replace(/'/g, "\\'");
+          const port = p.port || '';
+          const host = p.host || 'localhost';
+          const label = p.label || name;
+          const proxyPath = '__proxy__/' + name;
+          const activeCls = activePath === proxyPath ? ' active' : '';
+          const title = `${host}:${port}${p.path || '/'} — click to open inline · dbl-click to pop out`;
+          sbHtml += `<a class="sidebar-file${activeCls}" data-filepath="${esc(proxyPath)}" onclick="openProjectProxy('${safeName}')" ondblclick="event.stopPropagation();openProjectProxyTab('${safeName}')" title="${esc(title)}"><span class="sidebar-fname">&#x1F310; ${esc(label)}<span style="color:var(--text-dim);font-size:10px;margin-left:6px">:${esc(String(port))}</span></span></a>`;
+        });
+      }
       // Tree scope key for the persistent folder-open state. Declared
       // OUTSIDE the `mainFiles.length > 0` block because the
       // external-references and shared `.claude/` blocks below also call
@@ -8682,6 +8894,10 @@
       ? `<span class="ab-chip missing" data-edit="${escapeHtml(missing[0])}" title="click to set ${escapeHtml(missing[0])}">⚠ missing: ${missing.join(', ')}</span>`
       : '';
 
+    const proxyCount = Array.isArray(p.proxies) ? p.proxies.length : 0;
+    const proxiesLabel = proxyCount ? `${proxyCount} server${proxyCount === 1 ? '' : 's'}` : 'add server';
+    const proxiesCls = proxyCount ? '' : 'empty';
+
     bar.innerHTML = `
       <span class="ab-label">${escapeHtml(p.id)}</span>
       <span class="ab-chip status ${statusCls}" data-edit="status" title="status: click to change"><span class="v">${escapeHtml(p.status || 'active')}</span></span>
@@ -8689,6 +8905,7 @@
       <span class="ab-chip" data-edit="due" title="due date: click to change">Due: <span class="v ${dueCls}">${escapeHtml(dueText)}</span></span>
       <span class="ab-chip" data-edit="loe" title="level of effort (days): click to change">LOE: <span class="v ${loeCls}">${escapeHtml(loeText)}</span></span>
       <span class="ab-chip" data-edit="description" title="edit description">&#x270E; <span class="v ${descCls}">${escapeHtml(descPreview)}</span></span>
+      <span class="ab-chip" data-act="proxies" title="manage proxied local servers for this project">&#x1F310; <span class="v ${proxiesCls}">${escapeHtml(proxiesLabel)}</span></span>
       ${info.state === 'none'
         ? `<span class="ab-chip" data-act="snooze" title="snooze this project">&#x1F4A4; Snooze</span>`
         : `<span class="ab-chip" data-act="snooze" title="reschedule">Reschedule</span>
@@ -8711,8 +8928,186 @@
         const act = chip.getAttribute('data-act');
         if (act === 'snooze') openSnoozeModal(pid);
         else if (act === 'unhold') clearProjectHold(pid);
+        else if (act === 'proxies') openProxiesModal();
       });
     });
+  }
+
+  // ─── Proxies modal (manage project.json proxies[] from the UI) ───
+  // Opened from the attrs-bar "Servers" chip. Lists current proxies as
+  // editable rows, lets the user add/remove entries, and PUTs the
+  // updated project.json back via /api/project-info. On success it
+  // refreshes the attrs bar (chip count), reloads the sidebar (Servers
+  // section), and invalidates the sidebar payload cache so the next
+  // warm switch sees the new list.
+  let _proxiesEscHandler = null;
+  let _proxiesRowSeq = 0;
+
+  function openProxiesModal() {
+    if (!currentProject || !currentProject.is_project) return;
+    const overlay = document.getElementById('proxiesModal');
+    if (!overlay) return;
+    const err = document.getElementById('proxiesError');
+    if (err) { err.textContent = ''; err.classList.remove('on'); }
+    // Seed rows from the cached sidebar payload (already loaded for the
+    // Servers list). Falls back to a single empty row if there are no
+    // proxies yet.
+    const cached = _projectSidebarCache.get(currentProject.path);
+    const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
+    _renderProxiesRows(proxies);
+    overlay.classList.add('active');
+    _proxiesEscHandler = (ev) => { if (ev.key === 'Escape') closeProxiesModal(); };
+    document.addEventListener('keydown', _proxiesEscHandler);
+    setTimeout(() => {
+      const first = document.querySelector('#proxiesRows input[data-field="name"]');
+      if (first) first.focus();
+    }, 30);
+  }
+
+  function closeProxiesModal() {
+    const overlay = document.getElementById('proxiesModal');
+    if (overlay) overlay.classList.remove('active');
+    if (_proxiesEscHandler) {
+      document.removeEventListener('keydown', _proxiesEscHandler);
+      _proxiesEscHandler = null;
+    }
+  }
+
+  function _renderProxiesRows(proxies) {
+    const host = document.getElementById('proxiesRows');
+    if (!host) return;
+    let html = `
+      <div class="proxies-row proxies-head">
+        <span>Name</span><span>Host</span><span>Port</span><span>Path</span><span>Label</span><span title="Iframe directly to host:port instead of via the lab proxy. Faster but the browser needs direct network access to the port (so it bypasses any SSH-tunnel setup where only the lab port is exposed).">Direct</span><span></span>
+      </div>`;
+    if (!proxies || proxies.length === 0) {
+      html += `<div class="proxies-empty">No servers yet. Click <b>+ Add server</b> below to declare one.</div>`;
+    } else {
+      proxies.forEach(p => { html += _proxyRowHtml(p || {}); });
+    }
+    host.innerHTML = html;
+  }
+
+  function _proxyRowHtml(p) {
+    const id = 'pr-' + (++_proxiesRowSeq);
+    const directChecked = (p.mode === 'direct') ? 'checked' : '';
+    return `
+      <div class="proxies-row" data-row-id="${id}">
+        <input type="text" data-field="name"  value="${escapeHtml(String(p.name  || ''))}" placeholder="frontend" />
+        <input type="text" data-field="host"  value="${escapeHtml(String(p.host  || ''))}" placeholder="localhost" />
+        <input type="text" data-field="port"  value="${escapeHtml(String(p.port == null ? '' : p.port))}" placeholder="3000" inputmode="numeric" />
+        <input type="text" data-field="path"  value="${escapeHtml(String(p.path  || ''))}" placeholder="/" />
+        <input type="text" data-field="label" value="${escapeHtml(String(p.label || ''))}" placeholder="(optional)" />
+        <label class="proxies-direct" title="Iframe directly to host:port — skips the lab proxy."><input type="checkbox" data-field="direct" ${directChecked} /></label>
+        <button type="button" class="proxies-del" title="Remove this server" onclick="removeProxyRow('${id}')">&times;</button>
+      </div>`;
+  }
+
+  function addProxyRow() {
+    const host = document.getElementById('proxiesRows');
+    if (!host) return;
+    // Clear the "no servers yet" placeholder on first add.
+    const empty = host.querySelector('.proxies-empty');
+    if (empty) empty.remove();
+    host.insertAdjacentHTML('beforeend', _proxyRowHtml({}));
+    const rows = host.querySelectorAll('.proxies-row[data-row-id]');
+    const last = rows[rows.length - 1];
+    if (last) {
+      const nameInput = last.querySelector('input[data-field="name"]');
+      if (nameInput) nameInput.focus();
+    }
+  }
+
+  function removeProxyRow(rowId) {
+    const row = document.querySelector(`#proxiesRows .proxies-row[data-row-id="${rowId}"]`);
+    if (row) row.remove();
+    // Restore the "no servers yet" hint if we just emptied the list.
+    const host = document.getElementById('proxiesRows');
+    if (host && !host.querySelector('.proxies-row[data-row-id]')) {
+      host.insertAdjacentHTML('beforeend', `<div class="proxies-empty">No servers yet. Click <b>+ Add server</b> below to declare one.</div>`);
+    }
+  }
+
+  function _collectProxiesFromRows() {
+    const rows = document.querySelectorAll('#proxiesRows .proxies-row[data-row-id]');
+    const out = [];
+    const errors = [];
+    const seenNames = new Set();
+    rows.forEach((row, idx) => {
+      const v = (sel) => (row.querySelector(`input[data-field="${sel}"]`) || {}).value || '';
+      const name = v('name').trim();
+      const host = v('host').trim();
+      const portRaw = v('port').trim();
+      const path = v('path').trim();
+      const label = v('label').trim();
+      const directEl = row.querySelector('input[data-field="direct"]');
+      const direct = !!(directEl && directEl.checked);
+      // Skip wholly-empty rows silently.
+      if (!name && !host && !portRaw && !path && !label && !direct) return;
+      if (!name) { errors.push(`Row ${idx + 1}: name is required.`); return; }
+      if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+        errors.push(`Row ${idx + 1}: name "${name}" — letters, digits, _, - only.`); return;
+      }
+      if (seenNames.has(name)) {
+        errors.push(`Duplicate name "${name}".`); return;
+      }
+      seenNames.add(name);
+      if (!portRaw) { errors.push(`Row ${idx + 1}: port is required.`); return; }
+      const port = parseInt(portRaw, 10);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        errors.push(`Row ${idx + 1}: port "${portRaw}" — must be 1..65535.`); return;
+      }
+      const entry = {name, port};
+      if (host) entry.host = host;
+      if (path) entry.path = path;
+      if (label) entry.label = label;
+      if (direct) entry.mode = 'direct';
+      out.push(entry);
+    });
+    return {proxies: out, errors};
+  }
+
+  async function submitProxies(ev) {
+    ev.preventDefault();
+    const err = document.getElementById('proxiesError');
+    if (err) { err.textContent = ''; err.classList.remove('on'); }
+    const {proxies, errors} = _collectProxiesFromRows();
+    if (errors.length) {
+      if (err) { err.textContent = errors.join(' · '); err.classList.add('on'); }
+      return;
+    }
+    if (!currentProject || !currentProject.is_project) { closeProxiesModal(); return; }
+    // Read current project.json, swap proxies, write back. We have to
+    // PUT the full document via /api/project-info; the mutation route
+    // (PATCH-style) doesn't know about arbitrary array fields.
+    try {
+      const r = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+      if (!r.ok) throw new Error(`GET project-info → ${r.status}`);
+      const info = await r.json();
+      if (proxies.length === 0) {
+        delete info.proxies;
+      } else {
+        info.proxies = proxies;
+      }
+      const put = await fetch('/api/project-info', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: currentProject.path, data: info}),
+      });
+      if (!put.ok) {
+        const detail = await put.json().catch(() => ({}));
+        throw new Error(detail.detail || `PUT project-info → ${put.status}`);
+      }
+    } catch (e) {
+      if (err) { err.textContent = `Save failed: ${e.message || e}`; err.classList.add('on'); }
+      return;
+    }
+    // Invalidate caches that hold the stale proxies list, then refresh.
+    _projectSidebarCache.delete(currentProject.path);
+    _projectAttrsCache.delete(currentProject.name);
+    closeProxiesModal();
+    if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
+    if (typeof _refreshProjectSidebar === 'function') _refreshProjectSidebar({preserveScroll: true});
   }
 
   // ─── Description modal (larger than a popover — multiline) ───
