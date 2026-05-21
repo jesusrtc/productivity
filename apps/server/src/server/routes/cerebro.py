@@ -23,20 +23,33 @@ router = APIRouter()
 
 
 def _resolve_cerebro_path(root: Path, path: str) -> Path:
-    """Validate + resolve a Cerebro path (relative to monorepo root).
+    """Validate + resolve a Cerebro path.
 
-    Allowed roots: ``content/`` and the shared ``.claude/`` at the monorepo
-    root. Rejects path traversal and absolute paths. Returns the resolved
-    target Path or raises HTTPException(400/404).
+    The tree builder uses two namespaces depending on the subtree:
+
+    * ``.claude/...`` — paths are monorepo-relative (the virtual top-level
+      ``.claude/`` node is the shared `.claude/` at the monorepo root).
+    * Everything else (e.g. ``code/spike_analysis.py``,
+      ``wikis/foo.md``) — paths are relative to ``content/``.
+
+    To accept both shapes from a single endpoint, try the monorepo-root
+    resolution first (catches ``.claude/...``), then fall back to
+    content-relative (catches the rest). Either resolution must land
+    inside ``content/`` or ``.claude/``; absolute paths and traversal
+    are rejected up-front.
     """
     if path.startswith("/") or ".." in Path(path).parts:
         raise HTTPException(status_code=400, detail="invalid path")
-    target = (root / path).resolve()
     content_root = (root / "content").resolve()
     shared_claude = (root / ".claude").resolve()
-    for allowed_root in (content_root, shared_claude):
-        if target == allowed_root or allowed_root in target.parents:
-            return target
+    candidates = (
+        (root / path).resolve(),          # monorepo-relative — .claude/... lands here
+        (content_root / path).resolve(),  # content-relative — code/..., wikis/..., etc.
+    )
+    for target in candidates:
+        for allowed_root in (content_root, shared_claude):
+            if target == allowed_root or allowed_root in target.parents:
+                return target
     raise HTTPException(status_code=400, detail="path escapes content/ or .claude/")
 
 

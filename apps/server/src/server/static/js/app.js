@@ -44,6 +44,12 @@ window.addEventListener("DOMContentLoaded", () => {
   subscribeWS((event) => {
     if (event.type !== "index-updated" || !currentRender) return;
     if (event.ts && event.ts === lastTs) return;
+    // Don't re-render while the user is reading an HTML preview — the
+    // rerender re-mounts the iframe, which wipes scroll position and any
+    // text selection. We leave lastTs un-advanced so the next event after
+    // the user closes the HTML view picks up the latest index state.
+    const view = document.getElementById("view");
+    if (view && view.querySelector("iframe")) return;
     lastTs = event.ts;
     currentRender();
   });

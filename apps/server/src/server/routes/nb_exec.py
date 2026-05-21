@@ -25,9 +25,11 @@ the endpoint over curl.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -87,6 +89,84 @@ def _lock_for(target: Path) -> threading.Lock:
             lock = threading.Lock()
             _path_locks[key] = lock
     return lock
+
+
+# ── content/code → Darwin sync ───────────────────────────────────────────────
+# Local `content/code/` is treated as a Python package the Darwin kernel can
+# import. On the first /api/nb/exec call per session we:
+#   1. install lipy-davi (best-effort), and
+#   2. prepend ~ to sys.path (parent of the `code` package)
+# so cells can do `from code.hello import greet` with no preamble. Edits to
+# files under content/code are diffed by mtime on each exec call, written
+# directly to the pod's filesystem at `~/code/...` via `darwin pod shell`,
+# and the corresponding modules are `importlib.reload()`-ed so cells pick
+# up new behavior without a kernel restart.
+#
+# We deliberately use `darwin pod shell` (writes to the kernel filesystem)
+# instead of `darwin file upload` (writes to the Jupyter Contents API
+# namespace, which the kernel cannot read from). They are separate stores
+# on Darwin pods.
+#
+# None of this runs when `content/code/` does not exist locally — existing
+# notebooks are unaffected.
+
+_CODE_REL = "content/code"
+_POD_CODE_DIR = "/home/jovyan/code"
+
+_bootstrapped: set[str] = set()
+_bootstrap_guard = threading.Lock()
+
+_mtime_cache: dict[str, float] = {}
+_mtime_guard = threading.Lock()
+
+
+def _code_dir(root: Path) -> Path:
+    return root / _CODE_REL
+
+
+def _list_code_files(root: Path) -> list[Path]:
+    code_dir = _code_dir(root)
+    if not code_dir.is_dir():
+        return []
+    return sorted(p for p in code_dir.rglob("*.py") if p.is_file())
+
+
+def _pod_dest_for(local: Path, code_dir: Path) -> str:
+    rel = local.relative_to(code_dir).as_posix()
+    return f"{_POD_CODE_DIR}/{rel}"
+
+
+def _module_for(local: Path, code_dir: Path) -> str | None:
+    """Map a local .py file to the dotted module name a cell would import.
+
+    ``content/code/hello.py``         → ``code.hello``
+    ``content/code/sub/util.py``      → ``code.sub.util``
+    ``content/code/__init__.py``      → ``code`` (the package itself)
+    ``content/code/sub/__init__.py``  → ``code.sub``
+    """
+    rel = local.relative_to(code_dir).with_suffix("")
+    parts = ["code"] + [p for p in rel.parts if p != "__init__"]
+    if not parts:
+        return None
+    return ".".join(parts)
+
+
+def _bootstrap_needed(session: str) -> bool:
+    with _bootstrap_guard:
+        if session in _bootstrapped:
+            return False
+        _bootstrapped.add(session)
+        return True
+
+
+def _bootstrap_unmark(session: str) -> None:
+    """Forget a session's bootstrap status so the next call retries.
+
+    Used when bootstrap exec itself failed — a transient Darwin error
+    shouldn't permanently lock out a session.
+    """
+    with _bootstrap_guard:
+        _bootstrapped.discard(session)
 
 
 # ── In-memory pending tracker ────────────────────────────────────────────────
@@ -221,6 +301,163 @@ async def _darwin_exec(
             os.unlink(tmp)
         except OSError:
             pass
+
+
+# ── Bootstrap / push / reload helpers (content/code → pod) ───────────────────
+# Each helper runs hidden — its output never makes it into the user's
+# notebook cell. They share the same `--session` as the user's exec, so
+# sys.path and module-import state persist across calls on the same
+# kernel. Failures in push/bootstrap surface as _DarwinError so the
+# pending-cell error path in exec_cell handles them uniformly. Reload is
+# best-effort: if it fails the cell still runs (it'll just see stale
+# module state, which is no worse than not having the feature at all).
+
+_BOOTSTRAP_CODE = (
+    "import sys, pathlib, subprocess\n"
+    # sys.path points at the *parent* of the `code` package on the pod
+    # (Path.home(), since files are uploaded to {user}/code/... which
+    # resolves to /home/jovyan/{user}/code/...). Pointing at the
+    # package itself would make `import code` fall through to the
+    # stdlib `code` module — which exists, isn't a package, and breaks
+    # `from code.X import Y`.
+    "_parent = str(pathlib.Path.home())\n"
+    "if _parent not in sys.path:\n"
+    "    sys.path.insert(0, _parent)\n"
+    # Defensive: if anything imported the stdlib `code` module before
+    # the bootstrap ran, evict it so our package wins on the next
+    # import. Stdlib `code` has no __path__; our package does.
+    "_m = sys.modules.get('code')\n"
+    "if _m is not None and not hasattr(_m, '__path__'):\n"
+    "    del sys.modules['code']\n"
+    "try:\n"
+    "    import davi  # noqa: F401\n"
+    "except Exception:\n"
+    "    subprocess.run(\n"
+    "        [sys.executable, '-m', 'pip', 'install', '-q', 'lipy-davi'],\n"
+    "        check=False,\n"
+    "    )\n"
+)
+
+
+async def _exec_bootstrap(session: str, kernel: str | None) -> None:
+    """Run the one-shot setup on this kernel session.
+
+    Idempotent: re-running is harmless (sys.path check is a no-op,
+    lipy-davi install short-circuits when already present).
+    """
+    await _darwin_exec(
+        _BOOTSTRAP_CODE, session=session, kernel=kernel, timeout=180
+    )
+
+
+async def _push_code(root: Path) -> list[str]:
+    """Write any new/modified files under content/code/ to the pod's kernel
+    filesystem at ``/home/jovyan/code/``.
+
+    Returns the list of dotted module names that were re-uploaded — the
+    caller uses this to drive a hidden ``importlib.reload`` so cells
+    pick up the new code without a kernel restart.
+
+    On the first call for a process the mtime cache is empty, so every
+    file looks "new" and gets written once. Subsequent calls only push
+    files whose local mtime advanced since the last successful write.
+
+    Files are streamed via ``darwin pod shell`` + base64 to avoid shell
+    escaping pitfalls and to bypass the Jupyter Contents API (which is
+    a separate namespace from the kernel's filesystem on Darwin pods).
+    """
+    code_dir = _code_dir(root)
+    if not code_dir.is_dir():
+        return []
+    pushed_modules: list[str] = []
+    for local in _list_code_files(root):
+        key = str(local.resolve())
+        try:
+            mtime = local.stat().st_mtime
+            content = local.read_bytes()
+        except OSError:
+            continue
+        with _mtime_guard:
+            prev = _mtime_cache.get(key)
+        if prev is not None and mtime <= prev:
+            continue
+        dest = _pod_dest_for(local, code_dir)
+        parent = os.path.dirname(dest) or "/"
+        b64 = base64.b64encode(content).decode("ascii")
+        # echo … | base64 -d > dest. `mkdir -p` makes nested packages
+        # land in the right place. shlex-quote both the directory and the
+        # base64 blob so weird path chars + the `=` padding in base64 are
+        # passed literally.
+        bash = (
+            f"mkdir -p {shlex.quote(parent)} && "
+            f"printf '%s' {shlex.quote(b64)} | base64 -d > {shlex.quote(dest)}"
+        )
+        cmd = ["darwin", "pod", "shell", bash, "--timeout", "60"]
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run, cmd, capture_output=True, text=True, timeout=90,
+            )
+        except FileNotFoundError as exc:
+            raise _DarwinError(
+                503, "`darwin` CLI not found on PATH — install the darwin-cli plugin"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise _DarwinError(504, f"darwin pod shell timed out writing {dest}") from exc
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "")[-300:].strip()
+            raise _DarwinError(
+                502,
+                f"darwin pod shell failed writing {dest} (exit {proc.returncode}): {tail}",
+            )
+        with _mtime_guard:
+            _mtime_cache[key] = mtime
+        mod = _module_for(local, code_dir)
+        if mod:
+            pushed_modules.append(mod)
+    return pushed_modules
+
+
+async def _exec_reload(modules: list[str], session: str, kernel: str | None) -> None:
+    """Refresh the kernel's view of just-written modules. Best-effort.
+
+    Two things have to happen so the next ``from code.X import ...`` sees
+    fresh code:
+
+    1. ``importlib.invalidate_caches()`` — Python's path-based finder
+       caches per-directory listings the first time it scans them. A
+       file we just wrote with ``darwin pod shell`` won't be visible to
+       a subsequent import without this call.
+    2. If the module was already loaded, ``importlib.reload`` it so
+       references to the old code don't linger. On a write that adds a
+       new file (module not yet in ``sys.modules``), this step is a
+       no-op — invalidate_caches alone is sufficient.
+
+    Parents are processed before children so that, e.g., ``code``
+    reloads before ``code.hello``.
+
+    Silent on failure: if the reload exec errors, the next ``from code.X
+    import Y`` will still pick up new code thanks to invalidate_caches
+    on the next call. Not worth surfacing a non-fatal hiccup.
+    """
+    if not modules:
+        return
+    ordered = sorted(set(modules), key=lambda m: (m.count("."), m))
+    lines = [
+        "import importlib, sys",
+        "importlib.invalidate_caches()",
+    ]
+    for m in ordered:
+        lines.append(
+            f"if {m!r} in sys.modules:\n"
+            f"    try: importlib.reload(sys.modules[{m!r}])\n"
+            f"    except Exception: sys.modules.pop({m!r}, None)"
+        )
+    try:
+        await _darwin_exec(
+            "\n".join(lines), session=session, kernel=kernel, timeout=60
+        )
+    except _DarwinError:
+        pass
 
 
 # ── .ipynb read/append ───────────────────────────────────────────────────────
@@ -502,6 +739,21 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # green pulse dot. Cleared in every exit path below.
     _mark_running(target)
     try:
+        # Phase 2a: per-session bootstrap + per-call code sync. Skipped
+        # entirely when content/code/ doesn't exist, so the existing
+        # exec path is byte-identical for projects that don't use this
+        # feature.
+        if _code_dir(root).is_dir():
+            if _bootstrap_needed(session):
+                try:
+                    await _exec_bootstrap(session, body.kernel)
+                except _DarwinError:
+                    _bootstrap_unmark(session)
+                    raise
+            pushed_modules = await _push_code(root)
+            if pushed_modules:
+                await _exec_reload(pushed_modules, session, body.kernel)
+
         result = await _darwin_exec(
             body.code, session=session, kernel=body.kernel, timeout=body.timeout
         )

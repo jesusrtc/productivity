@@ -45,10 +45,19 @@ After saving, tell the user where it lives and how to open it:
 Plan rendered at:
   tmp/YYYY-MM-DD-<slug>.html
 
-Open in lab UI:
+Open in lab UI (auto-reloads on every file change — fine for short reads):
   http://localhost:3333/?project=<absolute project path>
-  Sidebar → tmp/<filename>.html  (renders inline; toggle to Code if needed)
+  Sidebar → tmp/<filename>.html
+
+Open in a fresh browser tab (no auto-reload — best for long reads):
+  file:///<absolute project path>/tmp/<filename>.html
 ```
+
+**Why offer both:** the lab UI subscribes to the file-watcher WebSocket and
+re-renders on every `index-updated` event. For a long HTML proposal the
+user is reading carefully, that interrupts scroll position and selections
+every few seconds. The `file://` URL bypasses the lab UI entirely — the
+browser holds the page static until the user manually reloads.
 
 ## Document structure
 
@@ -148,6 +157,30 @@ identically in the lab UI iframe and in any browser.
   td { background: #0d1117; color: var(--text); }
   tr:nth-child(even) td { background: var(--bg-zebra); }
   hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+  /* Open / unanswered questions — green so the reader can spot them at a
+     glance. Apply `class="open-questions"` to the <ol>; each <li> auto-
+     numbers and gets a green left bar + faint green tint. Strike-through
+     with `class="answered"` once the question is resolved. */
+  ol.open-questions { list-style: none; padding-left: 0; counter-reset: q; }
+  ol.open-questions > li {
+    counter-increment: q;
+    background: rgba(63, 185, 80, 0.08);
+    border-left: 3px solid var(--success);
+    padding: 8px 14px 8px 38px;
+    margin: 8px 0;
+    border-radius: 0 6px 6px 0;
+    position: relative;
+  }
+  ol.open-questions > li::before {
+    content: counter(q) ".";
+    position: absolute; left: 12px; top: 8px;
+    color: var(--success); font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  ol.open-questions > li.answered {
+    background: transparent; border-left-color: var(--border);
+    color: var(--text-muted); text-decoration: line-through;
+  }
 </style>
 </head>
 <body>
@@ -238,6 +271,29 @@ benefits, not for decoration:
 - **DataTables** for sortable/filterable tables when the table is large:
   `https://cdn.datatables.net/2.0.8/js/dataTables.min.js`
 
+## Open / unanswered questions (green highlight)
+
+When the document poses questions the user needs to answer before the next
+step, render them as a green-highlighted `ol.open-questions` so they pop
+visually and the reader knows where to focus. Don't bury open questions in
+a generic bulleted list — they're the action surface of the page.
+
+```html
+<h2>Open questions <span style="color:#3fb950;font-size:13px;font-weight:400">(unanswered — please confirm)</span></h2>
+<ol class="open-questions">
+  <li><strong>Naming:</strong> <code>foo-vision</code> or <code>foo-project</code>?</li>
+  <li><strong>Scope:</strong> include cohort timelines or just IoC charts?</li>
+  <li class="answered"><strong>Storage:</strong> use S3 or local? (resolved: S3)</li>
+</ol>
+```
+
+- Use `ol.open-questions` (auto-numbered with green markers, green left bar).
+- Use `class="answered"` on a `<li>` once the user resolves it — it strikes
+  through and dims, so the still-open questions remain the visual focus.
+- On follow-up turns, mark resolved items with `answered`; only add new
+  questions if they're truly unanswered. Keep the green list short
+  (≤6 items) — beyond that, split into a separate section.
+
 ## Update pattern (follow-up turns)
 
 When a follow-up message extends the same requirement:
@@ -300,3 +356,10 @@ truly diverged into a new topic, start a new file with a new date/slug.
 - **Resize the window** narrower than 960px and wider than 1600px. The
   dark background should fill the viewport at both extremes; nothing
   should be white outside the centered column.
+- **Open questions are green.** If the document poses questions the user
+  needs to answer, they go in `<ol class="open-questions">` so they pop.
+  A buried bulleted list of decisions for the reader is an anti-pattern.
+- **Long reads → suggest `file://`.** Any HTML the user is going to spend
+  more than ~30 seconds reading should include the `file://` URL in the
+  "how to open" message, so they can read without the lab UI's auto-reload
+  interrupting their scroll.

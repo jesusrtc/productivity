@@ -1177,6 +1177,16 @@
   body.project-active .sidebar { top: 128px; }
   body.project-active.has-repo-tabs .sidebar { top: 164px; }
   body.project-active.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 124px; }
+  /* Same trick for the right-docked terminal panel: in project view, the
+     .repo-tabs and .diff-tabs strips sit at top:88px (z-index:80) and
+     span full width, which covers the term-panel's TERMINAL header +
+     session pills (z-index:60). Push the panel below them so the bar is
+     visible — same offsets as .layout's padding-top above. Productivity
+     and Cerebro views hide those strips entirely, so they don't need
+     this and keep the default top:88px. */
+  body.project-active .term-panel { top: 128px; }
+  body.project-active.has-repo-tabs .term-panel { top: 164px; }
+  body.project-active.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 124px; }
   .attrs-bar .ab-label { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; margin-right: 2px; }
   .attrs-bar .ab-chip { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); padding: 3px 9px; border-radius: 12px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
   .attrs-bar .ab-chip:hover { border-color: var(--accent); }
@@ -1358,7 +1368,9 @@
   .html-toolbar button.html-toggle { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 3px 9px; font-size: 11px; font-family: ui-monospace, monospace; border-radius: 4px; cursor: pointer; }
   .html-toolbar button.html-toggle:hover { color: var(--text-primary); }
   .html-toolbar button.html-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .html-iframe { width: 100%; height: calc(100vh - 160px); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; background: #fff; }
+  /* Match the page background so an iframe whose body is transparent
+     (e.g. after applyIframeDarkMode) doesn't show a stark white pane. */
+  .html-iframe { width: 100%; height: calc(100vh - 160px); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; background: var(--bg-primary); }
   .k-empty { padding: 40px; color: var(--text-secondary); font-size: 14px; text-align: center; }
 
   /* ─── Terminal panel (right-docked when a project is active) ─── */
@@ -1884,11 +1896,6 @@
     currentProject = projectsList.find(p => p.name === name);
     if (!currentProject) return;
 
-    // Capture the name we're navigating to. After the await below, the
-    // user may have clicked a different tab — bail rather than stomping
-    // the new view's state. This race only matters now that we navigate
-    // in-page (no full reload to interrupt in-flight work).
-    const myProjectName = name;
     if (currentProject.is_project) projTabsSetOpen(currentProject.name, true);
 
     document.title = currentProject.name;
@@ -1918,13 +1925,18 @@
       // A real project is active — reveal the attrs bar.
       document.body.classList.add('project-active');
       refreshAttrsBar();
-      // Always run showProjectInfo first — it populates the sidebar's
-      // file list. Awaited so the later openProjectDoc content paint
-      // doesn't race against the dashboard paint.
-      await showProjectInfo();
-      // Race-guard: bail if user navigated away during the await.
-      if (!currentProject || currentProject.name !== myProjectName) return;
+      // Decide synchronously whether a doc or the dashboard will paint
+      // the content area, then fire the three view paints in parallel.
+      // showProjectInfo, openProjectDoc, and termOpenForProject hit
+      // disjoint DOM regions (sidebar, content, term-panel) and the
+      // serial-await chain was adding 1-3 RTTs to every tab switch.
+      // Set `_projDocPath` up-front so showProjectInfo's dashboard-paint
+      // race guard knows a doc is on its way and doesn't stomp the doc
+      // render. If no remembered doc, _projDocPath is null and
+      // showProjectInfo paints the dashboard as usual.
       const remembered = getLastProjectDoc(currentProject.path);
+      _projDocPath = remembered || null;
+      showProjectInfo();
       if (remembered) openProjectDoc(remembered);
       // Project-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
@@ -2565,25 +2577,34 @@
       const existing = doc.getElementById('gdiff-theme');
       if (existing) existing.remove();
 
-      if (isDark) {
-        const style = doc.createElement('style');
-        style.id = 'gdiff-theme';
-        style.textContent = `
-          html, body { background: transparent !important; color: #c9d1d9 !important; }
-          h1, h2, h3, h4, h5, h6 { color: #e6edf3 !important; }
-          p, span, li, td, div, label { color: #c9d1d9 !important; }
-          th { color: #e6edf3 !important; background-color: #21262d !important; }
-          table, th, td { border-color: #30363d !important; }
-          .metric-block { border-color: #30363d !important; background: #161b22 !important; }
-          .report-section h2 { border-bottom-color: #30363d !important; }
-          .sev-none { background: #30363d !important; color: #c9d1d9 !important; }
-          .sev-nq { background: #5a3e00 !important; color: #e6edf3 !important; }
-          hr { border-color: #30363d !important; }
-          code { background: #161b22 !important; color: #c9d1d9 !important; }
-          a { color: #58a6ff !important; }
-        `;
-        doc.head.appendChild(style);
+      if (!isDark) return;
+      // If the iframe already has its own non-default background (e.g. a
+      // report that ships its own dark theme), trust it. Overriding to
+      // transparent only exposes the iframe element's CSS background and
+      // makes the report look worse — sometimes a stark white pane.
+      if (doc.body) {
+        const bg = window.getComputedStyle(doc.body).backgroundColor;
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+          return;
+        }
       }
+      const style = doc.createElement('style');
+      style.id = 'gdiff-theme';
+      style.textContent = `
+        html, body { background: transparent !important; color: #c9d1d9 !important; }
+        h1, h2, h3, h4, h5, h6 { color: #e6edf3 !important; }
+        p, span, li, td, div, label { color: #c9d1d9 !important; }
+        th { color: #e6edf3 !important; background-color: #21262d !important; }
+        table, th, td { border-color: #30363d !important; }
+        .metric-block { border-color: #30363d !important; background: #161b22 !important; }
+        .report-section h2 { border-bottom-color: #30363d !important; }
+        .sev-none { background: #30363d !important; color: #c9d1d9 !important; }
+        .sev-nq { background: #5a3e00 !important; color: #e6edf3 !important; }
+        hr { border-color: #30363d !important; }
+        code { background: #161b22 !important; color: #c9d1d9 !important; }
+        a { color: #58a6ff !important; }
+      `;
+      doc.head.appendChild(style);
     } catch(e) {}
   }
 
@@ -4041,6 +4062,26 @@
   let _projDocEditContainer = null; // container that holds the active edit textarea
   let _projComments = [];
   let _projDocArtifact = null;  // project.json.artifacts[] entry whose `file` matches the open doc
+  // Doc-content cache for warm tab switches: key `${project.path}|${filepath}`
+  // → {content, comments, artifact}. Lets openProjectDoc paint a remembered
+  // file synchronously while the three /api/project-* fetches reconcile in
+  // the background. Only used for the text/markdown/csv/json path inside
+  // _renderDocInto — notebooks/HTML/images have their own renderers and
+  // are excluded. Survives tab switches; reset on full page reload.
+  const _projDocCache = new Map();
+  function _projDocCacheKey(projectPath, filepath) {
+    return (projectPath || '') + '|' + (filepath || '');
+  }
+  // Sidebar payload cache keyed by `currentProject.path`. Stores the
+  // last-known `{files, pinned, references}` triple so warm switches
+  // can re-render the file tree synchronously from memory instead of
+  // waiting on /api/project-files + /api/project-info every time.
+  // `_refreshProjectSidebar` reconciles against the server in the
+  // background after a warm paint and writes through to this map.
+  const _projectSidebarCache = new Map();
+  // Same idea for the project attrs bar (the row with status / P:N /
+  // Due / LOE / description / Snooze controls). Keyed by project id.
+  const _projectAttrsCache = new Map();
 
   // Per-project memory of the last file the user had open. Survives
   // tab switches and reloads; map keyed by absolute project path.
@@ -4099,6 +4140,14 @@
   // toggle. Mirrors cerebroRenderHtml; the pref is shared via
   // localStorage so opening the same file in Cerebro keeps the same view.
   async function _projectRenderHtml(container, filepath, absKey, mode) {
+    // Race guard against the user navigating away mid-fetch — same
+    // shape as the one in _renderDocInto.
+    const _navProjectPath = (currentProject && currentProject.path) || null;
+    const _stillActiveNav = () => (
+      _projDocPath === filepath
+      && currentProject
+      && currentProject.path === _navProjectPath
+    );
     const toolbar = `
       <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px">
         <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>
@@ -4109,21 +4158,36 @@
       </div>`;
     if (mode === 'rendered') {
       const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      // Skip the re-mount when the iframe is already pointed at this src
+      // (and the toolbar reflects 'rendered'). The WS index-updated event
+      // re-runs this render path on every save anywhere in content/, and
+      // re-creating the iframe causes a visible white flash while the new
+      // document loads. The existing iframe is still live — leave it.
+      const existing = container.querySelector('iframe.html-iframe');
+      const activeBtn = container.querySelector('.html-toolbar .html-toggle.active');
+      if (existing && existing.getAttribute('src') === src
+          && activeBtn && activeBtn.getAttribute('data-mode') === 'rendered') {
+        return;
+      }
+      if (!_stillActiveNav()) return;
       container.innerHTML = `<div style="padding:24px">${toolbar}<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe></div>`;
     } else {
       try {
         const r = await fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
+        if (!_stillActiveNav()) return;
         if (!r.ok) {
           const msg = await r.json().catch(() => ({}));
           container.innerHTML = `<div style="padding:24px">${toolbar}<p style="color:var(--red)">Error: ${esc(msg.detail || r.statusText)}</p></div>`;
         } else {
           const data = await r.json();
+          if (!_stillActiveNav()) return;
           container.innerHTML = `<div style="padding:24px">${toolbar}<pre style="background:var(--bg-secondary);padding:14px;border-radius:6px;overflow:auto"><code class="language-html">${esc(data.content || '')}</code></pre></div>`;
           if (window.hljs) {
             container.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
           }
         }
       } catch (e) {
+        if (!_stillActiveNav()) return;
         container.innerHTML = `<div style="padding:24px">${toolbar}<p style="color:var(--red)">Error: ${esc(e.message || e)}</p></div>`;
       }
     }
@@ -4138,9 +4202,24 @@
   }
 
   async function _renderDocInto(filepath, container, { preserveScroll = false } = {}) {
+    // Capture the project that owned this render call so an async paint
+    // landing AFTER the user has switched away to a different project
+    // (or a different file in the same project) bails instead of
+    // stomping the new view's content. _projDocPath is set
+    // synchronously by openProjectDoc / selectRepo before this function
+    // is called, so a mismatch here means a newer navigation has
+    // already taken over `container` and we must not paint.
+    const _navProjectPath = (currentProject && currentProject.path) || null;
+    const _stillActiveNav = () => (
+      _projDocPath === filepath
+      && currentProject
+      && currentProject.path === _navProjectPath
+    );
+
     // Image files
     const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
     if (imageExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
+      if (!_stillActiveNav()) return;
       const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
       container.innerHTML = `<div style="padding:24px;max-width:900px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
       return;
@@ -4265,6 +4344,11 @@
         cellsHostHtml += _renderPendingFor(null);
 
         const addBtnHtml = renderNbAddCellButton();
+        // Race guard: notebook fetches can take seconds. If the user
+        // navigated to a different file (or project) while we were
+        // fetching, do NOT stomp the new view's content with this
+        // notebook's HTML.
+        if (!_stillActiveNav()) return;
         container.innerHTML = `<div style="padding:24px">${header}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
         // Bind every interactive cell + inserters + the trailing add-cell
@@ -4285,6 +4369,7 @@
           runningCell.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       } catch (err) {
+        if (!_stillActiveNav()) return;
         container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
       }
       return;
@@ -4292,6 +4377,20 @@
 
     // All other files: fetch content + comments + artifact info, then renderProjectDoc
     try {
+      // Optimistic paint from the doc cache. When this file has been
+      // opened earlier in the browser session, paint it synchronously
+      // here so the user sees the page immediately. The three fetches
+      // below still fire to reconcile; we only re-render if the fresh
+      // data differs (skip-on-match avoids flicker for unchanged docs).
+      const cacheKey = _projDocCacheKey(currentProject.path, filepath);
+      const cached = _projDocCache.get(cacheKey);
+      if (cached) {
+        _projDocContent = cached.content;
+        _projComments = cached.comments;
+        _projDocArtifact = cached.artifact;
+        if (!_stillActiveNav()) return;
+        renderProjectDoc(filepath, container);
+      }
       const [fileRes, commentsRes, infoRes] = await Promise.all([
         fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
         fetch(`/api/project-comments?path=${encodeURIComponent(currentProject.path)}`),
@@ -4302,11 +4401,26 @@
       const newComments = (await commentsRes.json()).filter(c => c.file === filepath);
       const info = infoRes.ok ? await infoRes.json() : {};
       const artifacts = Array.isArray(info.artifacts) ? info.artifacts : [];
+      const newArtifact = artifacts.find(a => a && a.file === filepath) || null;
+      _projDocCache.set(cacheKey, {content: data.content, comments: newComments, artifact: newArtifact});
+      // Skip re-render if we already painted from cache and the server
+      // returned identical data — avoids a flicker on every warm
+      // switch when nothing has changed.
+      if (cached
+          && data.content === cached.content
+          && JSON.stringify(newComments) === JSON.stringify(cached.comments)
+          && JSON.stringify(newArtifact) === JSON.stringify(cached.artifact)) {
+        return;
+      }
+      // Race guard: drop a late fetch if the user has navigated away.
+      // (We still updated the cache above, so the next visit benefits.)
+      if (!_stillActiveNav()) return;
       _projDocContent = data.content;
       _projComments = newComments;
-      _projDocArtifact = artifacts.find(a => a && a.file === filepath) || null;
+      _projDocArtifact = newArtifact;
       renderProjectDoc(filepath, container);
     } catch (err) {
+      if (!_stillActiveNav()) return;
       container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
     }
   }
@@ -4318,7 +4432,16 @@
     setLastProjectDoc(currentProject.path, filepath);
     const content = document.getElementById('content');
     const prevScroll = preserveScroll ? content.scrollTop : 0;
-    if (!preserveScroll) content.innerHTML = '<div class="loading">Loading...</div>';
+    // Skip the "Loading..." flash when we have a cached copy of this
+    // doc — _renderDocInto's text branch will paint synchronously from
+    // the cache below. For cache misses (or non-text files we don't
+    // cache: notebooks/HTML/images) we still show the spinner.
+    if (!preserveScroll) {
+      const cacheKey = _projDocCacheKey(currentProject.path, filepath);
+      if (!_projDocCache.has(cacheKey)) {
+        content.innerHTML = '<div class="loading">Loading...</div>';
+      }
+    }
 
     // Highlight active in sidebar. Match on data-filepath (exact path) so the
     // mark lands on a single entry even when multiple files share a basename.
@@ -4330,12 +4453,20 @@
 
     // preserveScroll early-return: skip re-render when content/comments/artifact unchanged
     if (preserveScroll) {
+      // Capture the project/file at entry so an async paint landing
+      // after the user has navigated to a different file bails instead
+      // of stomping the new view.
+      const _navProjectPath = currentProject.path;
+      const _stillActiveNav = () => (
+        _projDocPath === filepath && currentProject && currentProject.path === _navProjectPath
+      );
       // Notebooks, images, and HTML iframes have no meaningful _projDocContent to diff
       // against — delegate straight to _renderDocInto so they get the correct renderer.
       const lower = filepath.toLowerCase();
       const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
       if (lower.endsWith('.ipynb') || lower.endsWith('.html') || imageExts.some(ext => lower.endsWith(ext))) {
         await _renderDocInto(filepath, content, { preserveScroll: true });
+        if (!_stillActiveNav()) return;
         content.scrollTop = prevScroll;
         return;
       }
@@ -4351,17 +4482,25 @@
         const info = infoRes.ok ? await infoRes.json() : {};
         const artifacts = Array.isArray(info.artifacts) ? info.artifacts : [];
         const newArtifact = artifacts.find(a => a && a.file === filepath) || null;
+        // Refresh the cache with the latest server state. Keeps warm
+        // tab-switches in sync with WS-triggered refreshes — without
+        // this write, the cache could stay stale after Claude/an
+        // external editor edits the file while it's open.
+        _projDocCache.set(_projDocCacheKey(_navProjectPath, filepath),
+          {content: data.content, comments: newComments, artifact: newArtifact});
         if (data.content === _projDocContent
             && JSON.stringify(newComments) === JSON.stringify(_projComments)
             && JSON.stringify(newArtifact) === JSON.stringify(_projDocArtifact)) {
           return;
         }
+        if (!_stillActiveNav()) return;
         _projDocContent = data.content;
         _projComments = newComments;
         _projDocArtifact = newArtifact;
         renderProjectDoc(filepath, content);
         content.scrollTop = prevScroll;
       } catch (err) {
+        if (!_stillActiveNav()) return;
         content.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
       }
       return;
@@ -5201,25 +5340,78 @@
   // of showProjectInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
-  async function _refreshProjectSidebar({preserveScroll = false} = {}) {
+  async function _refreshProjectSidebar({preserveScroll = false, _data = null} = {}) {
     if (!currentProject || !currentProject.is_project) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
+    const projectPath = currentProject.path;
+
+    // Warm switch: when no `_data` override is passed but the cache has
+    // a payload for this project, paint instantly from the cache and
+    // then reconcile against the server in the background. The
+    // recursive call with `_data` set skips the fetches entirely so
+    // the second paint only re-runs the render body (no network).
+    if (!_data) {
+      const cachedPayload = _projectSidebarCache.get(projectPath);
+      if (cachedPayload) {
+        // Synchronous warm paint — recursive call returns a Promise but
+        // because `_data` short-circuits both fetches, all the render
+        // work happens in the synchronous prefix.
+        _refreshProjectSidebar({preserveScroll, _data: cachedPayload});
+        // Background reconcile.
+        Promise.resolve().then(async () => {
+          try {
+            const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(projectPath)}&include_dotfiles=${showProjectDotFiles}`);
+            const files = await filesRes.json();
+            let pinned = [], references = [];
+            try {
+              const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
+              if (infoRes.ok) {
+                const info = await infoRes.json();
+                if (Array.isArray(info.pinned)) pinned = info.pinned;
+                if (Array.isArray(info.references)) references = info.references;
+              }
+            } catch {}
+            const fresh = {files, pinned, references};
+            const prev = _projectSidebarCache.get(projectPath);
+            _projectSidebarCache.set(projectPath, fresh);
+            // Re-render only if (a) the data actually changed and (b)
+            // the user is still on this project.
+            if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
+            if (!currentProject || currentProject.path !== projectPath) return;
+            _refreshProjectSidebar({preserveScroll: true, _data: fresh});
+          } catch (e) {
+            console.error('[_refreshProjectSidebar] reconcile failed:', e && e.stack || e);
+          }
+        });
+        return;
+      }
+    }
+
     try {
-      const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(currentProject.path)}&include_dotfiles=${showProjectDotFiles}`);
-      const files = await filesRes.json();
-      // Load pinned list + references from project.json in one fetch.
-      let pinnedNames = [];
-      let references = [];
-      try {
-        const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
-        if (infoRes.ok) {
-          const info = await infoRes.json();
-          if (Array.isArray(info.pinned)) pinnedNames = info.pinned;
-          if (Array.isArray(info.references)) references = info.references;
-        }
-      } catch(e) {}
+      let files, pinnedNames, references;
+      if (_data) {
+        // Render from pre-loaded payload — cache hit or reconcile path.
+        files = _data.files;
+        pinnedNames = _data.pinned || [];
+        references = _data.references || [];
+      } else {
+        // Cold path: fetch fresh + write to cache.
+        const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(currentProject.path)}&include_dotfiles=${showProjectDotFiles}`);
+        files = await filesRes.json();
+        pinnedNames = [];
+        references = [];
+        try {
+          const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+          if (infoRes.ok) {
+            const info = await infoRes.json();
+            if (Array.isArray(info.pinned)) pinnedNames = info.pinned;
+            if (Array.isArray(info.references)) references = info.references;
+          }
+        } catch(e) {}
+        _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references});
+      }
       const pinnedSet = new Set(pinnedNames);
       const pinnedFiles = pinnedNames.filter(n => files.some(f => f.name === n));
       const otherFiles = files.filter(f => !pinnedSet.has(f.name));
@@ -5377,46 +5569,19 @@
       const _shClChildren = _shClOpen ? ' open' : '';
       sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — shared skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/ (shared)</div>`;
       sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+      // `content/code/` — source for code-* skills. Same shared/async
+      // pattern as `.claude/`.
+      const sharedCodeFid = 'sf-code-' + Math.random().toString(36).substr(2, 6);
+      const _shCdOpen = _treeIsOpen('shared-code', 'code', false);
+      const _shCdArrow = _shCdOpen ? ' open' : '';
+      const _shCdChildren = _shCdOpen ? ' open' : '';
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-code" data-tree-path="code" data-tree-target="${sharedCodeFid}" onclick="_treeToggleFolder(this)" title="content/code/ — source for code-* skills" style="opacity:.7"><span class="folder-arrow${_shCdArrow}">▶</span>code/ (shared)</div>`;
+      sbHtml += `<div class="sidebar-folder-children${_shCdChildren}" id="${sharedCodeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
-      // Fetch the shared .claude/ subtree and populate the placeholder.
-      // Tooltips on every entry show the monorepo-relative path so the
-      // user knows exactly where each file lives.
-      fetch('/api/cerebro/tree').then(r => r.ok ? r.json() : []).then(tree => {
-        const node = (tree || []).find(n => n && n.name === '.claude');
-        const host = document.getElementById(sharedClaudeFid);
-        if (!host) return;
-        if (node && node.children && node.children.length) {
-          host.innerHTML = renderSharedClaudeTree(node.children, '.claude');
-          // Add path tooltips to every newly rendered entry.
-          host.querySelectorAll('a.sidebar-file').forEach(a => {
-            const onclickAttr = a.getAttribute('onclick') || '';
-            const m = onclickAttr.match(/openSharedFile\('([^']+)'\)/);
-            if (m) a.title = m[1];
-          });
-          host.querySelectorAll('.sidebar-folder').forEach(d => {
-            // Each `.sidebar-folder` and its `.sidebar-folder-children`
-            // container are DOM siblings, not parent-child. To walk UP
-            // through the folder hierarchy we hop: folder → its parent
-            // container → that container's previousElementSibling (the
-            // parent folder), repeat until we reach the host.
-            const parts = [];
-            let cur = d;
-            while (cur && cur !== host) {
-              if (cur.classList && cur.classList.contains('sidebar-folder')) {
-                const label = (cur.firstChild && cur.firstChild.nextSibling ? cur.firstChild.nextSibling.textContent : cur.textContent).trim();
-                parts.unshift(label.replace(/\/$/, ''));
-              }
-              const parent = cur.parentElement;
-              if (!parent || parent === host) break;
-              cur = parent.previousElementSibling;
-            }
-            d.title = '.claude/' + parts.join('/') + '/';
-          });
-        } else {
-          host.innerHTML = `<div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">(empty)</div>`;
-        }
-      }).catch(() => {});
+      // Populate both `.claude/` and `code/` placeholders from one
+      // /api/cerebro/tree fetch.
+      _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
     } catch(e) {
       // Surface the underlying failure so it lands in the browser console
       // AND the server-side client-errors log (window.onerror -> /api/log).
@@ -5631,8 +5796,10 @@
       // Race guard: showProjectInfo fires several async fetches and only
       // writes to `content` at the end. If the user clicked a repo tab
       // mid-flight, selectProjectRepo + loadDiff already painted the diff.
-      // Don't stomp on it with the dashboard HTML.
-      if (currentRepo) return;
+      // Also bail if `_projDocPath` is set — selectRepo now fires
+      // showProjectInfo and openProjectDoc in parallel, and the doc paint
+      // owns `content` whenever a remembered doc was found.
+      if (currentRepo || _projDocPath) return;
       content.innerHTML = html;
       if (preserveScroll) content.scrollTop = prevContentScroll;
 
@@ -5704,6 +5871,14 @@
   // Pseudo-project like Cerebro; no folder under knowledge/projects/.
   const SELF_PROJECT_ID = '__self__';
   const SELF_REPO_PATH = '{{ MONOREPO_ROOT }}';  // populated server-side (see routes/index.py)
+
+  // Per-project session pill cache (warm-switch fast path). Declared up
+  // here — alongside the other pseudo-project consts — instead of with
+  // the rest of the terminal-panel state lower in the script, because
+  // initCerebro/initSelf now read it synchronously before their first
+  // await. The terminal state block at ~line 5780 still hosts the rest
+  // of the related globals; this is the one that needs to win the TDZ.
+  const _termSessionsCache = new Map(); // projectId -> sessions[]
 
   loadRepos();
   if (!UI_CHECK) setInterval(loadRepos, 5000);
@@ -5786,6 +5961,10 @@
   // True cross-project continuity would need in-page navigation
   // (history.pushState + view swap) — out of scope for the current bug.
   const _termCache = new Map(); // name -> {xterm, fitAddon, ws, container}
+  // `_termSessionsCache` (projectId -> sessions[]) is the warm-switch
+  // fast-path cache: it's declared at the top of the script (next to
+  // CEREBRO_PROJECT_ID / SELF_PROJECT_ID) so initCerebro/initSelf can
+  // read it synchronously without tripping the temporal dead zone.
   // Sessions the server has confirmed are gone ("no-session" exit frame)
   // OR that we've failed to reach N times in a row. While a name is in
   // this set, termAttach/onclose refuse to reconnect. Cleared only by an
@@ -6144,6 +6323,35 @@
     document.body.classList.add('term-open');
     document.body.classList.remove('term-collapsed');
 
+    // Warm switch: this project has been opened earlier in the browser
+    // session, so we have its pill list in memory. Paint it instantly
+    // and attach the cached session — no network wait, no respawn
+    // detour. Background-refresh reconciles via termRefreshSessions
+    // and the periodic poller; if a Claude died meanwhile its pill
+    // shows up `dead` (click to retry). Avoids the multi-second
+    // "resuming N session(s)…" wait that fired on every tab click.
+    const isWarmSwitch = _termSessionsCache.has(projectId);
+    if (isWarmSwitch) {
+      termSessions = _termSessionsCache.get(projectId) || [];
+      termRenderSessionList();
+      if (termSessions.length > 0) {
+        const pick = _termPickRestoreName(projectId);
+        if (pick) termAttach(pick);
+      } else {
+        termDetach();
+        termShowEmpty();
+        termSetStatus('idle', 'no session — click + New');
+      }
+      termRefreshSessions(projectId);  // background reconcile, no await
+      termStartPeriodicRefresh();
+      termStartStatusPolling();
+      return;
+    }
+
+    // Cold open (first visit to this project this browser session). Full
+    // restore path: pull saved sessions out of project.json and respawn
+    // any that aren't live in tmux. This is the path that surfaces saved
+    // Claude conversations after a browser reload.
     await termRefreshSessions(projectId);
 
     let saved = [];
@@ -6414,10 +6622,21 @@
   async function termRefreshSessions(projectId) {
     projectId = projectId || (currentProject && currentProject.is_project ? currentProject.name : null);
     if (!projectId) return;
+    let fresh = [];
+    let ok = false;
     try {
       const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(projectId));
-      termSessions = r.ok ? await r.json() : [];
-    } catch { termSessions = []; }
+      ok = r.ok;
+      fresh = r.ok ? await r.json() : [];
+    } catch { fresh = []; ok = false; }
+    if (ok) _termSessionsCache.set(projectId, fresh);
+    // Stale-response guard. termOpenForProject's warm-switch path fires
+    // this refresh without awaiting, so by the time the response lands
+    // the user may already be on a different tab. Cache the result but
+    // don't touch globals or repaint — the active view's own refresh
+    // will handle its own pills.
+    if (projectId !== _termActiveProjectId()) return;
+    termSessions = fresh;
     // Any name that's no longer in the live list is genuinely gone —
     // don't keep its dead/backoff bookkeeping around. If tmux later
     // spawns a new session with the same name, we'll treat it fresh.
@@ -6824,6 +7043,15 @@
     const prev = termCurrentSession;
     if (soft) {
       // Park: hide the session's container div, stash refs in cache. Never evict.
+      // We deliberately leave the WS listeners attached so server output
+      // continues to land in the cached xterm — that's what keeps the
+      // pane warm so a switch back doesn't have to replay scrollback
+      // through tmux. The exit-frame handler in onmessage already
+      // checks whether this WS is still the active one before marking
+      // dead, so a tmux-side death while parked won't pop the recovery
+      // overlay over an unrelated project. (We did try nulling all
+      // listeners here — that turned out to break input echo on the
+      // cache-hit re-attach because the WS was reused without rebinding.)
       if (prev && termWS && termXterm) {
         if (termContainer) termContainer.style.display = 'none';
         _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS, container: termContainer });
@@ -7005,8 +7233,43 @@
           const xt = _xtermFor(name);
           if (xt) xt.write(_termStripModes(msg.data));
         } else if (msg.type === 'exit') {
+          // If this WS is parked (we're viewing a different session /
+          // project), don't surface the exit. The user has no UI for
+          // this pane right now, and the next attach will discover
+          // the dead socket via cached.ws.readyState !== OPEN and
+          // reconnect through _openWS.
+          if (name !== termCurrentSession) return;
           if (msg.reason === 'no-session') {
-            _termMarkDead(name, 'session not found');
+            // Warm-switch race: the pill came from _termSessionsCache,
+            // which can lag actual tmux state by up to one background
+            // refresh. Before showing the recovery overlay, confirm
+            // the session really is gone — if a fresh
+            // /api/term/sessions still lists it, the "no-session" was
+            // for a stale name and we should silently re-attach to
+            // whatever the server now considers canonical. Same wait-
+            // for-refresh-then-decide dance the close-loop reconnect
+            // path already uses below.
+            const pid = _termActiveProjectId();
+            (async () => {
+              if (pid) {
+                try {
+                  if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID) {
+                    await termRefreshSessionsByProjectId(pid);
+                  } else {
+                    await termRefreshSessions(pid);
+                  }
+                } catch {}
+              }
+              if (termSessions.some(s => s.name === name)) {
+                // tmux still has it — the "no-session" was stale.
+                // Reconnect without showing the recovery overlay.
+                termWS = null;
+                termCurrentSession = null;
+                termAttach(name);
+              } else {
+                _termMarkDead(name, 'session not found');
+              }
+            })();
           } else {
             termSetStatus('idle', 'detached — ' + (msg.reason || 'closed'));
           }
@@ -7462,6 +7725,14 @@
       </div>`;
     if (mode === 'rendered') {
       const src = '/api/cerebro/asset?path=' + encodeURIComponent(path);
+      // Same iframe re-mount guard as _projectRenderHtml — avoids a white
+      // flash on every WS index-updated event.
+      const existing = host.querySelector('iframe.html-iframe');
+      const activeBtn = host.querySelector('.html-toolbar .html-toggle.active');
+      if (existing && existing.getAttribute('src') === src
+          && activeBtn && activeBtn.getAttribute('data-mode') === 'rendered') {
+        return;
+      }
       host.innerHTML = toolbar + `<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe>`;
     } else {
       try {
@@ -7490,22 +7761,117 @@
     });
   }
 
-  // Renders the shared `.claude/` subtree (fetched from /api/cerebro/tree)
-  // as a collapsible folder structure in the Meta sidebar section.
-  // File clicks call openSharedFile with the monorepo-relative path.
-  function renderSharedClaudeTree(nodes, basePath) {
+  // Populate both `.claude/` and `code/` placeholders in the Meta
+  // section. Called after every sidebar render. The fid args are kept
+  // for back-compat but we no longer use them — the placeholder host is
+  // looked up via a stable data-attribute selector so that races
+  // between sidebar re-renders and the (slow, ~1.4s) /api/cerebro/tree
+  // fetch don't strand the "loading…" placeholder.
+  //
+  // Caches the response in `cerebroTreeData` so the second+ render in a
+  // session paints synchronously with no network — the tree is reused
+  // by the Cerebro view's `cerebroRefresh` for the same reason.
+  function _populateSharedMetaPlaceholders(_claudeFid, _codeFid) {
+    // Cache hit: paint immediately, then fire a background reconcile
+    // so the next render also sees fresh data.
+    if (cerebroTreeData && cerebroTreeData.length) {
+      _renderMetaFromCerebroTree(cerebroTreeData);
+      _fetchCerebroTree().then(t => {
+        if (t && t.length) _renderMetaFromCerebroTree(t);
+      }).catch(err => console.error('[populateSharedMeta] background:', err));
+      return;
+    }
+    _fetchCerebroTree().then(t => {
+      _renderMetaFromCerebroTree(t || []);
+    }).catch(err => console.error('[populateSharedMeta] failed:', err));
+  }
+
+  function _fetchCerebroTree() {
+    return fetch('/api/cerebro/tree')
+      .then(r => r.ok ? r.json() : [])
+      .then(tree => { cerebroTreeData = tree || []; return cerebroTreeData; });
+  }
+
+  function _renderMetaFromCerebroTree(tree) {
+    const ts = tree || [];
+    // Look up the host via the folder's stable data attributes — the
+    // children container is its next DOM sibling. Survives sidebar
+    // re-renders that mint new random fids each time.
+    const claudeHost = document.querySelector(
+      '.sidebar-folder[data-tree-scope="shared-claude"][data-tree-path=".claude"] + .sidebar-folder-children'
+    );
+    const codeHost = document.querySelector(
+      '.sidebar-folder[data-tree-scope="shared-code"][data-tree-path="code"] + .sidebar-folder-children'
+    );
+    _renderSharedMetaPlaceholder({
+      host: claudeHost,
+      node: ts.find(n => n && n.name === '.claude'),
+      basePath: '.claude',
+      scope: 'shared-claude',
+      labelPrefix: '.claude/',
+    });
+    _renderSharedMetaPlaceholder({
+      host: codeHost,
+      node: ts.find(n => n && n.name === 'code'),
+      basePath: 'code',
+      scope: 'shared-code',
+      labelPrefix: 'code/',
+    });
+  }
+
+  function _renderSharedMetaPlaceholder({host, node, basePath, scope, labelPrefix}) {
+    if (!host) return;
+    if (!node || !node.children || !node.children.length) {
+      host.innerHTML = `<div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">(empty)</div>`;
+      return;
+    }
+    host.innerHTML = renderSharedClaudeTree(node.children, basePath, scope);
+    host.querySelectorAll('a.sidebar-file').forEach(a => {
+      const onclickAttr = a.getAttribute('onclick') || '';
+      const m = onclickAttr.match(/openSharedFile\('([^']+)'\)/);
+      if (m) a.title = m[1];
+    });
+    // Folder tooltips show the full cerebro-relative path. Folders and
+    // their children-containers are DOM siblings, so we hop up by:
+    // folder → its parent container → that container's
+    // previousElementSibling (the enclosing folder), repeat.
+    host.querySelectorAll('.sidebar-folder').forEach(d => {
+      const parts = [];
+      let cur = d;
+      while (cur && cur !== host) {
+        if (cur.classList && cur.classList.contains('sidebar-folder')) {
+          const label = (cur.firstChild && cur.firstChild.nextSibling ? cur.firstChild.nextSibling.textContent : cur.textContent).trim();
+          parts.unshift(label.replace(/\/$/, ''));
+        }
+        const parent = cur.parentElement;
+        if (!parent || parent === host) break;
+        cur = parent.previousElementSibling;
+      }
+      d.title = labelPrefix + parts.join('/') + '/';
+    });
+  }
+
+  // Renders a shared subtree (fetched from /api/cerebro/tree) as a
+  // collapsible folder structure in the Meta sidebar section. File
+  // clicks call openSharedFile with the cerebro-relative path.
+  //
+  // `scope` controls expand-state namespacing in _treeIsOpen — pass
+  // 'shared-claude' for the `.claude/` tree, 'shared-code' for the
+  // `code/` tree, etc. State is keyed (scope, path), so distinct
+  // scopes keep their open-folder sets separate.
+  function renderSharedClaudeTree(nodes, basePath, scope = 'shared-claude') {
     let html = '';
     const dirs = nodes.filter(n => n.type === 'dir');
     const files = nodes.filter(n => n.type !== 'dir');
     dirs.forEach(d => {
       const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
       const fullPath = basePath + '/' + d.name;
-      const open = _treeIsOpen('shared-claude', fullPath, false);
+      const open = _treeIsOpen(scope, fullPath, false);
       const arrowCls = open ? ' open' : '';
       const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder" data-tree-scope="shared-claude" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${esc(d.name)}/</div>`;
+      html += `<div class="sidebar-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${esc(d.name)}/</div>`;
       html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-      html += renderSharedClaudeTree(d.children || [], fullPath);
+      html += renderSharedClaudeTree(d.children || [], fullPath, scope);
       html += '</div>';
     });
     files.forEach(f => {
@@ -7514,6 +7880,7 @@
         : f.name.endsWith('.json') ? '\u{1F4CB}'
         : f.name.endsWith('.html') || f.name.endsWith('.htm') ? '\u{1F310}'
         : f.name.endsWith('.csv') ? '\u{1F4CA}'
+        : f.name.endsWith('.py') ? '\u{1F40D}'
         : '\u{1F4C3}';
       html += `<a class="sidebar-file" onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${icon} ${esc(f.name)}</span></a>`;
     });
@@ -8256,13 +8623,44 @@
       return;
     }
     const pid = currentProject.name;
+
+    // Warm switch: paint synchronously from the last-known project
+    // record so the bar (status / P:N / Due / LOE / description /
+    // Snooze) shows instantly. Background reconcile re-paints only on
+    // change. Cache miss falls through to the foreground fetch below.
+    const cached = _projectAttrsCache.get(pid);
+    if (cached) {
+      _renderAttrsBarFromRecord(bar, pid, cached);
+      Promise.resolve().then(async () => {
+        try {
+          const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
+          if (!r.ok) return;
+          const fresh = await r.json();
+          const prev = _projectAttrsCache.get(pid);
+          _projectAttrsCache.set(pid, fresh);
+          if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
+          if (!currentProject || currentProject.name !== pid) return;
+          _renderAttrsBarFromRecord(bar, pid, fresh);
+        } catch {}
+      });
+      return;
+    }
+
     let p = null;
     try {
       const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
       if (r.ok) p = await r.json();
     } catch {}
     if (!p) { bar.innerHTML = ''; return; }
+    _projectAttrsCache.set(pid, p);
+    _renderAttrsBarFromRecord(bar, pid, p);
+  }
 
+  // Extracted from refreshAttrsBar so both the cold and warm-switch
+  // paths share one render. Pure DOM write — no network, no state
+  // mutation. Reads only what's on the project record `p` plus the
+  // global `holdState` / `projectMissingFields` helpers.
+  function _renderAttrsBarFromRecord(bar, pid, p) {
     const info = holdState(p.hold);
     const statusCls = p.status || 'active';
     const dueText = p.due ? fmtDate(p.due) : 'set due';
@@ -8840,20 +9238,29 @@
     };
     document.getElementById('diffTabs').style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
-    // Do NOT call projTabsRender() here — projTabsHot/All are still empty
-    // at this point (projTabsRefresh() fetch is in flight). Calling render
-    // now would momentarily show *only* the productivity tab and cause the
-    // other tabs to flicker out. projTabsRefresh() calls projTabsRender()
-    // once data arrives; by then self-active is already set so the tab
-    // highlights correctly.
-    // Populate the left sidebar with the repo file tree.
-    await selfPopulateSidebar();
-    // Paint the content area with the self-dashboard scaffold so that
-    // selfRefreshTasks / selfRefreshDiff / selfRefreshCommits find their IDs.
+    // Re-render the tab strip so the Productivity tab flips to `.active`
+    // immediately. On in-page navigation (the common case) projTabsAll
+    // is already populated so all tabs render correctly. On the very
+    // first page load with `?view=productivity` projTabsAll may still
+    // be empty for ~50ms — the in-flight projTabsRefresh() will repaint
+    // with the full tab list as soon as it returns. Mirrors what
+    // initCerebro and selectRepo already do.
+    if (typeof projTabsRender === 'function') projTabsRender();
+
+    // Paint the content scaffold synchronously — the scaffold doesn't
+    // need any network and gives the user something to look at while
+    // the sidebar + tasks/diff/commits fetches stream in.
     selfPaintContent();
-    // Fetch tasks + diff + commits in parallel.
-    await Promise.all([selfRefreshTasks(), selfRefreshDiff(), selfRefreshCommits()]);
+    // Fire all the async paints in parallel — they hit disjoint DOM
+    // regions (term-panel, sidebar, scaffold sub-elements) and don't
+    // depend on each other. Previously the term panel was gated behind
+    // a sidebar fetch + 3-way Promise.all, which is what made the
+    // Productivity tab feel sluggish even on warm switches.
     if (!UI_CHECK) termOpenForSelf();
+    selfPopulateSidebar();
+    selfRefreshTasks();
+    selfRefreshDiff();
+    selfRefreshCommits();
   }
 
   // Populate #sidebar with a file tree rooted at SELF_REPO_PATH.
@@ -8932,7 +9339,36 @@
       }
 
       sbHtml += renderSelfTree(tree, 0, '');
+
+      // Meta section — mirrors the per-project sidebar so `.claude/`
+      // (shared skills, agents, hooks, settings) is one click away from
+      // the productivity tab too. The `.claude/` placeholder is filled
+      // async by /api/cerebro/tree, same as the project view.
+      sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
+      const sharedClaudeFid = 'sf-claude-self-' + Math.random().toString(36).substr(2, 6);
+      const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
+      const _shClArrow = _shClOpen ? ' open' : '';
+      const _shClChildren = _shClOpen ? ' open' : '';
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/</div>`;
+      sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+
+      // `content/code/` — the source for code-* skills (hello.py,
+      // spike_analysis.py, etc.). Same placeholder-then-async pattern
+      // as .claude/. Tree scope 'shared-code' keeps its expand state
+      // separate from .claude/.
+      const sharedCodeFid = 'sf-code-self-' + Math.random().toString(36).substr(2, 6);
+      const _shCdOpen = _treeIsOpen('shared-code', 'code', false);
+      const _shCdArrow = _shCdOpen ? ' open' : '';
+      const _shCdChildren = _shCdOpen ? ' open' : '';
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-code" data-tree-path="code" data-tree-target="${sharedCodeFid}" onclick="_treeToggleFolder(this)" title="content/code/ — source for code-* skills" style="opacity:.7"><span class="folder-arrow${_shCdArrow}">▶</span>code/</div>`;
+      sbHtml += `<div class="sidebar-folder-children${_shCdChildren}" id="${sharedCodeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+
       sidebar.innerHTML = sbHtml;
+
+      // Populate both `.claude/` and `code/` placeholders from one
+      // /api/cerebro/tree fetch. Same scope as the project view so
+      // expand state syncs across tabs.
+      _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
     } catch(e) {
       sidebar.innerHTML = '<div class="sidebar-title">Productivity</div>';
     }
@@ -9134,6 +9570,26 @@
     document.body.classList.add('term-open');
     document.body.classList.remove('term-collapsed');
 
+    // Warm switch — same fast path as termOpenForProject. See comment
+    // there for the why.
+    const isWarmSwitch = _termSessionsCache.has(SELF_PROJECT_ID);
+    if (isWarmSwitch) {
+      termSessions = _termSessionsCache.get(SELF_PROJECT_ID) || [];
+      termRenderSessionList();
+      if (termSessions.length > 0) {
+        const pick = _termPickRestoreName(SELF_PROJECT_ID);
+        if (pick) termAttach(pick);
+      } else {
+        termDetach();
+        termShowEmpty();
+        termSetStatus('idle', 'no session — click + New');
+      }
+      termRefreshSessionsByProjectId(SELF_PROJECT_ID);  // background
+      termStartPeriodicRefresh();
+      termStartStatusPolling();
+      return;
+    }
+
     await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
 
     let saved = [];
@@ -9195,15 +9651,28 @@
         _treeSetOpen('cerebro', acc, true);
       }
     }
-    await cerebroRefresh();
-    if (initialPath) await cerebroOpen(initialPath);
-    // Wire up the filter input.
+    // Fire the terminal panel early so it warm-switches from cache in
+    // parallel with the tree refresh and file fetch. Same idea as
+    // termOpenForProject — the term panel paints into its own DOM
+    // region and doesn't need to wait on the file tree.
+    if (!UI_CHECK) termOpenForCerebro();
+    // Paint the file tree immediately from the last-known data so the
+    // sidebar isn't blank for the round-trip to /api/cerebro/tree on
+    // every tab switch. cerebroRefresh() then reconciles in the
+    // background.
+    if (cerebroTreeData && cerebroTreeData.length) cerebroRenderTree();
+    const treeP = cerebroRefresh();
+    if (initialPath) {
+      // cerebroOpen can run in parallel with the tree refresh — the
+      // file-content fetch and the tree fetch hit different endpoints.
+      cerebroOpen(initialPath);
+    }
+    await treeP;
+    // Wire up the filter input. Must run after cerebroRefresh paints
+    // the tree so the input exists; safe to run after cerebroOpen since
+    // it paints into a different element.
     const f = document.getElementById('cerebroFilter');
     if (f) f.addEventListener('input', cerebroRenderTree);
-    // Cerebro gets its own terminal panel (claude session scoped to knowledge/).
-    if (!UI_CHECK) {
-      termOpenForCerebro();
-    }
   }
 
   async function cerebroRefresh() {
@@ -9487,6 +9956,14 @@
       </div>`;
     if (mode === 'rendered') {
       const src = '/api/cerebro/asset?path=' + encodeURIComponent(full);
+      // Same iframe re-mount guard as _projectRenderHtml — avoids a white
+      // flash on every WS index-updated event.
+      const existing = pane.querySelector('iframe.html-iframe');
+      const activeBtn = pane.querySelector('.html-toolbar .html-toggle.active');
+      if (existing && existing.getAttribute('src') === src
+          && activeBtn && activeBtn.getAttribute('data-mode') === 'rendered') {
+        return;
+      }
       pane.innerHTML = toolbar + `<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe>`;
     } else {
       try {
@@ -9546,6 +10023,25 @@
     document.body.classList.add('term-open');
     document.body.classList.remove('term-collapsed');
 
+    // Warm switch — same fast path as termOpenForProject.
+    const isWarmSwitch = _termSessionsCache.has(CEREBRO_PROJECT_ID);
+    if (isWarmSwitch) {
+      termSessions = _termSessionsCache.get(CEREBRO_PROJECT_ID) || [];
+      termRenderSessionList();
+      if (termSessions.length > 0) {
+        const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
+        if (pick) termAttach(pick);
+      } else {
+        termDetach();
+        termShowEmpty();
+        termSetStatus('idle', 'no session — click + New');
+      }
+      termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);  // background
+      termStartPeriodicRefresh();
+      termStartStatusPolling();
+      return;
+    }
+
     // Fetch the saved sessions for __cerebro__ and restore them.
     await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
 
@@ -9604,10 +10100,17 @@
 
   async function termRefreshSessionsByProjectId(pid) {
     // Fetches the live session list and re-renders the pill row.
+    let fresh = [];
+    let ok = false;
     try {
       const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(pid));
-      termSessions = r.ok ? await r.json() : [];
-    } catch { termSessions = []; }
+      ok = r.ok;
+      fresh = r.ok ? await r.json() : [];
+    } catch { fresh = []; ok = false; }
+    if (ok) _termSessionsCache.set(pid, fresh);
+    // Stale-response guard — see termRefreshSessions for why.
+    if (pid !== _termActiveProjectId()) return;
+    termSessions = fresh;
     // Forget dead/backoff bookkeeping for sessions tmux no longer has.
     const live = new Set(termSessions.map(s => s.name));
     for (const n of Array.from(termDeadSessions)) {
