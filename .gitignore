@@ -28,6 +28,10 @@ repositories/
 # Superpowers scratch
 .superpowers/
 
+# html-proposal scratch: tmp/YYYY-MM-DD-<slug>.html files written by
+# the html-proposal skill. Local-only working docs, never tracked.
+tmp/
+
 apps/server/.venv/
 apps/server/.coverage
 .lab-server.pid
