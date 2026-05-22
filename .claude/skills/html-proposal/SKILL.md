@@ -46,7 +46,7 @@ Plan rendered at:
   tmp/YYYY-MM-DD-<slug>.html
 
 Open in lab UI (auto-reloads on every file change — fine for short reads):
-  http://localhost:3333/?project=<absolute project path>
+  $(scripts/lab-url.sh)/?project=<absolute project path>
   Sidebar → tmp/<filename>.html
 
 Open in a fresh browser tab (no auto-reload — best for long reads):

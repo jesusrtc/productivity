@@ -38,13 +38,18 @@ Pick a notebook path under any project (or `content/notebooks/` for
 ad-hoc), then `POST /api/nb/exec` with a two-line cell:
 
 ```bash
-curl -s -X POST http://localhost:3333/api/nb/exec \
+curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H 'Content-Type: application/json' \
   -d '{
     "path": "content/projects/<id>/notebooks/<name>.ipynb",
     "code": "from code.<module> import <fn>\n<fn>(...)"
   }'
 ```
+
+`scripts/lab-url.sh` reads the actual lab server port (default `3333`, but
+the user may have started it with `make start PORT=NNNN`). Never hardcode
+`localhost:3333` in commands — it will silently miss a server bound to a
+different port.
 
 Same kernel session is pinned to the notebook path, so consecutive
 cells share state.

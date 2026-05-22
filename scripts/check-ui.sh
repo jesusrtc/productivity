@@ -7,14 +7,15 @@
 #        scripts/check-ui.sh [url]
 #
 # Also accepts a URL override — useful for testing a specific project view:
-#   scripts/check-ui.sh "http://localhost:3333/?project=/abs/path"
+#   scripts/check-ui.sh "$(scripts/lab-url.sh)/?project=/abs/path"
 
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-BASE_URL="${1:-http://localhost:3333/}"
+LAB_URL="$("$REPO_ROOT/scripts/lab-url.sh")"
+BASE_URL="${1:-$LAB_URL/}"
 # Append ?ui_check=1 so the page disables persistent timers + WebSocket.
 # Without that, Chrome's --dump-dom never reaches network idle.
 if [[ "$BASE_URL" == *"?"* ]]; then
@@ -36,9 +37,11 @@ STARTED_BY_US=""
 if ! pgrep -f "apps/server/.venv/bin/python -m server" >/dev/null 2>&1; then
   make start-bg >/dev/null
   STARTED_BY_US=1
-  # Give uvicorn a moment to finish lifespan startup.
+  # Give uvicorn a moment to finish lifespan startup. Re-resolve the URL
+  # because the server only writes .lab-server.port once it's listening.
   for _ in 1 2 3 4 5; do
-    if curl -sS -o /dev/null -w '%{http_code}\n' "http://localhost:3333/api/ping" 2>/dev/null | grep -q '^200$'; then
+    PING_URL="$("$REPO_ROOT/scripts/lab-url.sh")/api/ping"
+    if curl -sS -o /dev/null -w '%{http_code}\n' "$PING_URL" 2>/dev/null | grep -q '^200$'; then
       break
     fi
     sleep 0.5

@@ -9,9 +9,28 @@ LAB_VENV := apps/lab/.venv
 SERVER_VENV := apps/server/.venv
 BIN_DIR := $(HOME)/.local/bin
 PID_FILE := .lab-server.pid
+PORT_FILE := .lab-server.port
 LOG_FILE := .lab-server.log
-PORT := 3333
+# Port can be overridden per-run with any of these (in priority order):
+#   make start PORT=4444     # canonical, all-caps
+#   make start port=4444     # lowercase accepted for muscle-memory
+# The chosen value is exported as LAB_PORT to the server subprocess and
+# recorded in $(PORT_FILE) on startup so other tools (lab CLI, scripts,
+# Claude curl examples) discover the actual running port without hardcoding.
+# Note: ports below 1024 (e.g. 80, 443) need root to bind on macOS/Linux.
+PORT ?= $(or $(port),3333)
 SERVER_CMD_PATTERN := apps/server/.venv/bin/python -m server
+
+# ─── Reject unknown command-line variables ──────────────────────────────────
+# Make silently accepts any `KEY=VALUE` on the CLI as a top-level variable,
+# even if nothing reads it. That hides typos like `make start pot=3333`
+# (which would silently fall back to the default port). Whitelist the keys
+# we actually support and bail out on anything else.
+ALLOWED_MAKE_VARS := PORT port
+$(foreach _pair,$(MAKEOVERRIDES),\
+  $(eval _key := $(firstword $(subst =, ,$(_pair))))\
+  $(if $(filter $(_key),$(ALLOWED_MAKE_VARS)),,\
+    $(error unknown make variable '$(_key)'. Allowed: $(ALLOWED_MAKE_VARS). Did you mean PORT=?)))
 
 # Python bootstrap: we require >=3.11. Preference order (first hit wins):
 #   1. Standalone pythons on PATH (python3.13/12/11, then /opt/homebrew/bin/python3)
@@ -111,50 +130,68 @@ test-all: ## run every test, including @slow (latency budgets, reconnect storms)
 	@$(LAB_VENV)/bin/pytest apps/lab/tests -v && \
 	 $(SERVER_VENV)/bin/pytest apps/server/tests -v -o "addopts=-ra --cov=server --cov-report=term-missing"
 
-# `_stop-quiet` reliably kills any prior server. We match on the exact module
-# invocation so we can never touch other python processes. Only called when
-# the user explicitly asks to replace a running server (stop / restart).
+# `_stop-quiet` reliably kills the running server. Strategy:
+#   1. Kill whatever holds the port recorded in $(PORT_FILE) (port-accurate).
+#   2. Sweep any remaining server processes by command-line pattern (safety
+#      net — catches an orphaned PID whose port file got deleted, or a stale
+#      instance from a previous shell). We match on the exact module
+#      invocation so we never touch other python processes.
+# Only called when the user explicitly asks to stop / restart.
 _stop-quiet:
+	@running_port=$$(cat $(PORT_FILE) 2>/dev/null); \
+	if [ -n "$$running_port" ]; then \
+		pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
+		[ -n "$$pids" ] && kill -TERM $$pids 2>/dev/null || true; \
+	fi
 	@pkill -TERM -f "$(SERVER_CMD_PATTERN)" 2>/dev/null || true
 	@n=0; while pgrep -f "$(SERVER_CMD_PATTERN)" >/dev/null 2>&1 && [ $$n -lt 10 ]; do \
 		sleep 0.2; n=$$((n+1)); \
 	done
+	@running_port=$$(cat $(PORT_FILE) 2>/dev/null); \
+	if [ -n "$$running_port" ]; then \
+		pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
+		[ -n "$$pids" ] && kill -KILL $$pids 2>/dev/null || true; \
+	fi
 	@pkill -KILL -f "$(SERVER_CMD_PATTERN)" 2>/dev/null || true
-	@rm -f $(PID_FILE)
+	@rm -f $(PID_FILE) $(PORT_FILE)
 
-# Foreground mode. No-op (exits 0) if a server is already running so running
-# `make start` from a second terminal doesn't nuke the first one. Use
-# `make restart` to forcibly replace.
-start: ## run server in foreground (port 3333)
+# Background server. `make start` is always non-blocking — the server runs
+# detached, logs go to $(LOG_FILE), and the bound port is written to
+# $(PORT_FILE) by the server on startup.
+#
+# Single-instance / single-port rule: at most one lab server may run, on at
+# most one port. If a server is already up, the rules are:
+#   - same port → no-op, exit 0 (running `make start` from a 2nd shell
+#     doesn't clobber the first).
+#   - different port → exit 1 with a clear error. The user must either keep
+#     using the already-running port, or `make restart PORT=NNNN` to switch.
+#
+# Override the port per-run with `make start PORT=4444`. The chosen value is
+# exported as $$LAB_PORT (honored by server/config.py).
+start: ## start server in background (override port with PORT=NNNN)
 	@if pgrep -f "$(SERVER_CMD_PATTERN)" >/dev/null 2>&1; then \
-		echo "server is already running (pid $$(pgrep -f "$(SERVER_CMD_PATTERN)" | head -1)) at http://localhost:$(PORT)/"; \
-		echo "  - tail:  tail -f $(LOG_FILE)"; \
-		echo "  - stop:  make stop"; \
-		echo "  - swap:  make restart"; \
-		exit 0; \
-	elif lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
-		echo "ERROR: port $(PORT) held by another process:"; \
-		lsof -nP -iTCP:$(PORT) -sTCP:LISTEN 2>/dev/null | head -5; \
-		exit 1; \
-	fi; \
-	echo "Serving at http://localhost:$(PORT)/   (logs → $(LOG_FILE))"; \
-	$(SERVER_VENV)/bin/python -m server 2>&1 | tee $(LOG_FILE)
-
-# Background mode. Same "already-running" guard as foreground.
-start-bg: ## run server in background (port 3333)
-	@if pgrep -f "$(SERVER_CMD_PATTERN)" >/dev/null 2>&1; then \
-		echo "server is already running (pid $$(pgrep -f "$(SERVER_CMD_PATTERN)" | head -1)) at http://localhost:$(PORT)/"; \
-		echo "  - tail:  tail -f $(LOG_FILE)"; \
-		echo "  - stop:  make stop"; \
-		echo "  - swap:  make restart"; \
-		exit 0; \
+		running_port=$$(cat $(PORT_FILE) 2>/dev/null || echo "$(PORT)"); \
+		running_pid=$$(pgrep -f "$(SERVER_CMD_PATTERN)" | head -1); \
+		if [ "$$running_port" = "$(PORT)" ]; then \
+			echo "server is already running (pid $$running_pid) at http://localhost:$$running_port/"; \
+			echo "  - tail:  tail -f $(LOG_FILE)"; \
+			echo "  - stop:  make stop"; \
+			echo "  - swap:  make restart PORT=$$running_port"; \
+			exit 0; \
+		else \
+			echo "ERROR: a lab server is already running on port $$running_port (pid $$running_pid)."; \
+			echo "       Refusing to start a second instance on port $(PORT)."; \
+			echo "       To switch ports:  make restart PORT=$(PORT)"; \
+			echo "       To keep current:  open http://localhost:$$running_port/"; \
+			exit 1; \
+		fi; \
 	elif lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "ERROR: port $(PORT) held by another process:"; \
 		lsof -nP -iTCP:$(PORT) -sTCP:LISTEN 2>/dev/null | head -5; \
 		exit 1; \
 	fi; \
 	: > $(LOG_FILE); \
-	nohup $(SERVER_VENV)/bin/python -m server >> $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
+	LAB_PORT=$(PORT) nohup $(SERVER_VENV)/bin/python -m server >> $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
 	n=0; while ! lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1 && [ $$n -lt 25 ]; do \
 		if ! pgrep -f "$(SERVER_CMD_PATTERN)" >/dev/null 2>&1; then break; fi; \
 		sleep 0.2; n=$$((n+1)); \
@@ -170,16 +207,21 @@ start-bg: ## run server in background (port 3333)
 		exit 1; \
 	fi
 
+# Alias kept for existing callers (lab CLI, check-ui.sh) — `start` is already
+# background, but `start-bg` still works.
+start-bg: start ## alias for `start` (kept for back-compat)
+
 stop: _stop-quiet ## stop the running server
 	@echo "stopped."
 
-# Explicit replace: kill any existing instance, then start fresh in the bg.
-restart: _stop-quiet start-bg ## stop then start server in background
+# Explicit replace: kill any existing instance, then start fresh.
+restart: _stop-quiet start ## stop then start the server (override port with PORT=NNNN)
 
 status: ## show server status and port holder
 	@if pgrep -f "$(SERVER_CMD_PATTERN)" >/dev/null 2>&1; then \
-		echo "server running: $$(pgrep -f "$(SERVER_CMD_PATTERN)" | tr '\n' ' ')"; \
-		lsof -nP -iTCP:$(PORT) -sTCP:LISTEN 2>/dev/null | tail -n +2; \
+		running_port=$$(cat $(PORT_FILE) 2>/dev/null || echo "$(PORT)"); \
+		echo "server running: $$(pgrep -f "$(SERVER_CMD_PATTERN)" | tr '\n' ' ')at http://localhost:$$running_port/"; \
+		lsof -nP -iTCP:$$running_port -sTCP:LISTEN 2>/dev/null | tail -n +2; \
 	else \
 		echo "no server running."; \
 		other=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null); \
@@ -217,7 +259,8 @@ setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python 
 	@echo
 	@echo "setup complete."
 	@echo "  - lab CLI:    $(BIN_DIR)/lab"
-	@echo "  - server:     make start  (http://localhost:$(PORT)/)"
+	@echo "  - server:     make start              (http://localhost:$(PORT)/)"
+	@echo "                make start PORT=4444    (override port)"
 	@echo "  - worktrees:  lab project add <project> <mp>"
 
 pull-repos: ## clone/update repos listed in repositories.list

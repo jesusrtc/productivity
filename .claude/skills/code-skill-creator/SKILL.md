@@ -74,7 +74,7 @@ Write the file via the Write tool. Then immediately exercise it through
 `POST /api/nb/exec`:
 
 ```bash
-curl -s -X POST http://localhost:3333/api/nb/exec \
+curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H 'Content-Type: application/json' \
   -d '{
     "path": "content/projects/<project>/notebooks/<name>.ipynb",
@@ -188,7 +188,7 @@ End with a one-paragraph summary:
    ```
 3. Smoke test:
    ```bash
-   curl -s -X POST http://localhost:3333/api/nb/exec -H 'Content-Type: application/json' \
+   curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" -H 'Content-Type: application/json' \
      -d '{"path":"content/projects/code-runner-demo/notebooks/pod_info.ipynb",
           "code":"from code.pod_info import hostname\nprint(hostname())"}'
    ```

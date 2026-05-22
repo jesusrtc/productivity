@@ -103,9 +103,11 @@ this?" question before the reader gets to the drill-down table.
 
 ## Run it through the lab notebook executor
 
-Always send these cells via `POST http://localhost:3333/api/nb/exec`
+Always send these cells via `POST "$(scripts/lab-url.sh)/api/nb/exec"`
 (not `darwin code execute` directly), so the notebook becomes a durable
-artifact and the lab UI shows the chart live. See
+artifact and the lab UI shows the chart live. `scripts/lab-url.sh` reads
+the actual lab server port (default `3333`; the user may run it on a
+different port via `make start PORT=NNNN`). See
 `content/projects/CLAUDE.md` in the monorepo for the recipe.
 
 ## Rules

@@ -345,8 +345,11 @@ async def _exec_bootstrap(session: str, kernel: str | None) -> None:
     Idempotent: re-running is harmless (sys.path check is a no-op,
     lipy-davi install short-circuits when already present).
     """
+    # Cold-pod + first-time `pip install lipy-davi` can easily take 5+ min;
+    # the bootstrap timeout has to absorb that or the user sees a useless
+    # "darwin timed out after 210s" on their first cell.
     await _darwin_exec(
-        _BOOTSTRAP_CODE, session=session, kernel=kernel, timeout=180
+        _BOOTSTRAP_CODE, session=session, kernel=kernel, timeout=900
     )
 
 
@@ -647,7 +650,10 @@ class ExecBody(BaseModel):
         default=None,
         description="Darwin kernel type (python3, pyspark, spark-scala, r, python3-gpu)",
     )
-    timeout: int = Field(default=600, ge=1, le=3600)
+    # No upper bound — long-running analytical queries (multi-stage Trino
+    # joins, full-window dashboards) can legitimately need 10+ minutes.
+    # Default is 30 minutes so the common case works without explicit override.
+    timeout: int = Field(default=1800, ge=1)
     # When None: append a new cell at the end.
     # When set: replace the cell at that index (source + outputs).
     cell_index: int | None = Field(default=None, ge=0)

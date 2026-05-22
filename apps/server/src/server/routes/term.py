@@ -120,6 +120,20 @@ def _tmux_prefix() -> str:
 # tabs strip, can be closed (X), and reopened from the Home dashboard.
 CEREBRO_PROJECT_ID = "__cerebro__"
 SELF_PROJECT_ID = "__self__"
+# Per-repo pseudo project for the Code Search tab. The id is
+# ``__cs_<repo>__`` where ``<repo>`` is a directory name under
+# ``repositories/``. Used so each Code-Search repo has its own scoped
+# terminal panel (cwd = repositories/<repo>) without needing a real
+# project.json.
+_CS_PREFIX = "__cs_"
+_CS_SUFFIX = "__"
+
+
+def _cs_repo_name(project_id: str) -> str | None:
+    if not project_id.startswith(_CS_PREFIX) or not project_id.endswith(_CS_SUFFIX):
+        return None
+    name = project_id[len(_CS_PREFIX):-len(_CS_SUFFIX)]
+    return name or None
 
 
 def _sessions_file(root: Path) -> Path:
@@ -140,13 +154,17 @@ def _project_json(root: Path, project_id: str) -> Path:
 def _project_cwd(root: Path, project_id: str) -> Path:
     """Absolute cwd for a project_id.
 
-    - ``__cerebro__`` → content/
-    - ``__self__``    → monorepo root (so claude sees apps/, docs/, etc.)
+    - ``__cerebro__``     → content/
+    - ``__self__``        → monorepo root (so claude sees apps/, docs/, etc.)
+    - ``__cs_<repo>__``   → repositories/<repo> (Code Search per-repo terminal)
     """
     if project_id == CEREBRO_PROJECT_ID:
         return (root / "content").resolve()
     if project_id == SELF_PROJECT_ID:
         return root.resolve()
+    repo = _cs_repo_name(project_id)
+    if repo:
+        return (root / "repositories" / repo).resolve()
     return (root / "content" / "projects" / project_id).resolve()
 
 
@@ -627,6 +645,9 @@ async def projects_with_sessions(request: Request) -> list[str]:
     """Project IDs that currently have at least one live tmux session.
 
     Drives the topbar tab strip (tabs == projects with active sessions).
+    Code Search per-repo pseudo-projects (``__cs_<repo>__``) are
+    filtered out — they aren't standalone tabs, they're driven by the
+    single ``🔍 code-search`` pseudo-tab and the in-tab repo picker.
     """
     root: Path = request.app.state.index_cache.root
     meta = _load_meta(root)
@@ -636,8 +657,11 @@ async def projects_with_sessions(request: Request) -> list[str]:
     for name in live_names:
         info = meta.get(name) or {}
         pid = info.get("project_id")
-        if pid and pid not in ids:
-            ids.append(pid)
+        if not pid or pid in ids:
+            continue
+        if _cs_repo_name(pid):
+            continue
+        ids.append(pid)
     return ids
 
 

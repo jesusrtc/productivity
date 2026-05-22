@@ -97,6 +97,13 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- Extra language packs not in highlight.js's core bundle. Scala +
+     Groovy are heavily used in the LinkedIn repos under repositories/
+     so the Code Search modal can highlight them properly. Protobuf
+     covers .proto schema files in those repos. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/scala.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/groovy.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/protobuf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
@@ -1320,6 +1327,156 @@
   body.cerebro-active .layout { display: none; }
   body.cerebro-active .home-view { display: none; }
   body.cerebro-active .repo-tabs { display: none; }
+
+  /* ─── Code Search view (?view=code-search) ──────────────────────── */
+  /* Three-pane workspace: repo rail | search workspace | git history.
+     Same fixed-position-under-topbar pattern as cerebro/self views.
+     Shrinks on the right when the terminal panel is open (so the
+     docked terminal panel stays usable alongside the workspace, just
+     like the project view). */
+  .cs-view { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; background: var(--bg-primary); z-index: 55; }
+  body.code-search-active .cs-view { display: grid; grid-template-columns: 220px 1fr 320px; min-height: 0; }
+  body.code-search-active .diff-tabs { display: none; }
+  body.code-search-active .layout { display: none; }
+  body.code-search-active .home-view { display: none; }
+  body.code-search-active .repo-tabs { display: none; }
+  body.code-search-active .attrs-bar { display: none; }
+  body.term-open.code-search-active .cs-view { right: var(--term-width); }
+  body.term-open.term-collapsed.code-search-active .cs-view { right: 0; }
+
+  .cs-view .cs-rail-left { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; background: var(--bg-primary); }
+  .cs-view .cs-rail-right { border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; background: var(--bg-primary); }
+  .cs-view .cs-ws { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-primary); }
+
+  .cs-view .rail-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .cs-view .rail-head .label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; flex: 1; }
+  .cs-view .rail-head input { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; font-size: 12px; color: var(--text-primary); font-family: ui-monospace, monospace; width: 100%; box-sizing: border-box; }
+  .cs-view .rail-head input:focus { outline: none; border-color: var(--accent); }
+  .cs-view .rail-head .scope { font-size: 10px; color: var(--accent); font-family: ui-monospace, monospace; margin-left: auto; }
+
+  .cs-view .repo-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+  .cs-view .repo-item { padding: 7px 12px; cursor: pointer; border-left: 2px solid transparent; }
+  .cs-view .repo-item:hover { background: rgba(88,166,255,0.06); }
+  .cs-view .repo-item.active { background: rgba(88,166,255,0.10); border-left-color: var(--accent); }
+  .cs-view .repo-item .repo-name { font-size: 13px; color: var(--text-primary); font-family: ui-monospace, monospace; }
+  .cs-view .repo-item .repo-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+  .cs-view .ws-header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+  .cs-view .ws-header .title { font-size: 14px; color: var(--text-primary); font-family: ui-monospace, monospace; font-weight: 600; }
+  .cs-view .ws-header .clone { font-size: 11px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+  .cs-view .ws-header .badges { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+  .cs-view .ws-header .h-badge { background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-secondary); font-size: 11px; padding: 1px 7px; border-radius: 4px; font-family: ui-monospace, monospace; }
+  .cs-view .ws-header .h-badge .v { color: var(--text-primary); }
+
+  .cs-view .search-bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .cs-view .search-modes { display: inline-flex; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+  .cs-view .search-modes button { background: transparent; color: var(--text-secondary); border: none; padding: 4px 12px; font-size: 11px; cursor: pointer; font-family: inherit; border-radius: 4px; }
+  .cs-view .search-modes button.active { background: var(--accent); color: #fff; }
+  .cs-view .search-input { flex: 1; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-size: 13px; font-family: ui-monospace, monospace; }
+  .cs-view .search-input:focus { outline: none; border-color: var(--accent); }
+  .cs-view .search-hint { font-size: 11px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+
+  .cs-view .ws-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 38%) 1fr; }
+  .cs-view .results-pane { border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-primary); }
+  .cs-view .pane-head { padding: 6px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 1; }
+  .cs-view .res-item { padding: 7px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-family: ui-monospace, monospace; font-size: 12px; }
+  .cs-view .res-item:hover { background: rgba(88,166,255,0.06); }
+  .cs-view .res-item.active { background: rgba(88,166,255,0.12); border-left: 2px solid var(--accent); padding-left: 10px; }
+  .cs-view .res-item .path { color: var(--text-primary); }
+  .cs-view .res-item .line { color: var(--accent); font-weight: 600; }
+  .cs-view .res-item .snippet { color: var(--text-secondary); margin-top: 3px; white-space: pre; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+  .cs-view .res-item .meta { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
+  .cs-view .res-empty { color: var(--text-dim); font-style: italic; padding: 24px 16px; font-size: 12px; }
+
+  .cs-view .preview-pane { display: flex; flex-direction: column; min-height: 0; background: var(--bg-primary); }
+  .cs-view .preview-head { padding: 6px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); font-family: ui-monospace, monospace; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .cs-view .preview-head .empty-act { margin-left: auto; font-size: 10px; color: var(--text-dim); }
+  .cs-view .file-body { flex: 1; overflow: auto; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.55; padding: 0; position: relative; }
+  .cs-view .file-line { display: grid; grid-template-columns: 48px 1fr; user-select: text; }
+  .cs-view .file-line .ln { color: var(--text-dim); text-align: right; padding: 0 10px 0 6px; user-select: none; }
+  .cs-view .file-line .src { padding: 0 14px; white-space: pre; color: var(--text-primary); }
+  .cs-view .file-line.sel { background: rgba(88,166,255,0.10); }
+  .cs-view .file-line.sel .ln { color: var(--accent); }
+  .cs-view .file-line:hover .ln { color: var(--text-primary); }
+  .cs-view .file-line.hit { background: rgba(210,153,34,0.10); }
+  .cs-view .preview-empty { color: var(--text-dim); padding: 24px 16px; font-size: 12px; font-style: italic; }
+  .cs-view .range-pop { position: absolute; right: 16px; background: var(--bg-secondary); border: 1px solid var(--accent); border-radius: 6px; padding: 8px 12px; font-size: 11px; box-shadow: 0 6px 18px rgba(0,0,0,0.45); display: none; align-items: center; gap: 8px; z-index: 5; }
+  .cs-view .range-pop.on { display: inline-flex; }
+  .cs-view .range-pop button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 11px; border-radius: 4px; cursor: pointer; font-family: inherit; }
+  .cs-view .range-pop .lines { color: var(--text-secondary); font-family: ui-monospace, monospace; }
+
+  .cs-view .git-list { flex: 1; overflow-y: auto; }
+  .cs-view .git-item { padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .cs-view .git-item:hover { background: rgba(88,166,255,0.06); }
+  .cs-view .git-item.range { background: rgba(63,185,80,0.06); border-left: 2px solid var(--green); padding-left: 10px; }
+  .cs-view .git-item .sha { font-family: ui-monospace, monospace; font-size: 10px; color: var(--accent); }
+  .cs-view .git-item .subj { font-size: 12px; color: var(--text-primary); margin: 2px 0; }
+  .cs-view .git-item .who { font-size: 10px; color: var(--text-dim); }
+  .cs-view .git-empty { color: var(--text-dim); padding: 16px 12px; font-style: italic; font-size: 11px; }
+
+  /* Commit drawer overlay — same pattern as the doc modal but slides
+     in from the right inside the cs-view. */
+  .cs-drawer-overlay { position: fixed; inset: 48px 0 0 0; background: rgba(0,0,0,0.45); display: none; z-index: 80; }
+  body.term-open .cs-drawer-overlay { right: var(--term-width); }
+  body.term-open.term-collapsed .cs-drawer-overlay { right: 0; }
+  .cs-drawer-overlay.on { display: block; }
+  .cs-drawer { position: absolute; right: 0; top: 0; bottom: 0; width: 56%; min-width: 420px; max-width: 900px; background: var(--bg-primary); border-left: 1px solid var(--accent); transform: translateX(100%); transition: transform 0.18s ease; box-shadow: -8px 0 24px rgba(0,0,0,0.55); display: flex; flex-direction: column; }
+  .cs-drawer-overlay.on .cs-drawer { transform: translateX(0); }
+  .cs-drawer-head { padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--bg-secondary); flex-shrink: 0; }
+  .cs-drawer-head .sha { font-family: ui-monospace, monospace; color: var(--accent); font-size: 12px; }
+  .cs-drawer-head .subj { color: var(--text-primary); font-size: 13px; }
+  .cs-drawer-head .close { margin-left: auto; background: transparent; border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; padding: 2px 10px; border-radius: 4px; font-family: inherit; font-size: 13px; }
+  .cs-drawer-head .close:hover { color: var(--text-primary); }
+  .cs-drawer-meta { padding: 8px 18px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .cs-drawer-meta b { color: var(--text-primary); }
+  .cs-drawer-body { flex: 1; overflow: auto; padding: 14px 0; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; }
+  .cs-drawer-body .dline { display: block; padding: 0 18px; }
+  .cs-drawer-body .dline.add { background: rgba(63,185,80,0.10); color: #aff5b4; }
+  .cs-drawer-body .dline.del { background: rgba(248,81,73,0.10); color: #ffb7af; }
+  .cs-drawer-body .dline.hunk { color: var(--accent); background: var(--bg-secondary); }
+  .cs-drawer-body .dline.meta { color: var(--text-dim); }
+
+  /* ─── Code Search file modal ─────────────────────────────────────
+     Big centered modal — file content with syntax highlighting, left
+     rail listing every match in the file, header with the language
+     badge and a copy-path / show-history actions. */
+  .cs-file-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; z-index: 220; justify-content: center; align-items: center; padding: 24px; }
+  .cs-file-modal-overlay.on { display: flex; }
+  .cs-file-modal { background: var(--bg-primary); border: 1px solid var(--accent); border-radius: 10px; box-shadow: 0 16px 48px rgba(0,0,0,0.6); width: 100%; max-width: 1280px; height: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
+  .cs-file-modal-head { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--bg-secondary); flex-shrink: 0; }
+  .cs-file-modal-head .path { font-family: ui-monospace, monospace; color: var(--text-primary); font-size: 13px; }
+  .cs-file-modal-head .lang-badge { font-family: ui-monospace, monospace; font-size: 10px; color: var(--accent); border: 1px solid var(--accent); padding: 1px 6px; border-radius: 3px; text-transform: lowercase; }
+  .cs-file-modal-head .match-count { font-size: 11px; color: var(--text-dim); font-family: ui-monospace, monospace; }
+  .cs-file-modal-head .copy,
+  .cs-file-modal-head .hist,
+  .cs-file-modal-head .close { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: inherit; }
+  .cs-file-modal-head .copy:hover,
+  .cs-file-modal-head .hist:hover { color: var(--text-primary); border-color: var(--accent); }
+  .cs-file-modal-head .close:hover { color: var(--text-primary); border-color: var(--accent); }
+  .cs-file-modal-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px 1fr; background: var(--bg-primary); }
+  .cs-file-modal .match-rail { border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg-primary); }
+  .cs-file-modal .match-rail .match-head { padding: 6px 12px; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+  .cs-file-modal .match-item { padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-family: ui-monospace, monospace; font-size: 11px; }
+  .cs-file-modal .match-item:hover { background: rgba(88,166,255,0.06); }
+  .cs-file-modal .match-item.active { background: rgba(88,166,255,0.14); border-left: 2px solid var(--accent); padding-left: 10px; }
+  .cs-file-modal .match-item .ln { color: var(--accent); font-weight: 600; margin-right: 8px; }
+  .cs-file-modal .match-item .snippet { color: var(--text-secondary); white-space: pre; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+  .cs-file-modal .match-empty { color: var(--text-dim); font-style: italic; padding: 14px 12px; font-size: 11px; }
+  .cs-file-modal .code-pane { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .cs-file-modal .code-scroll { flex: 1; overflow: auto; background: var(--bg-primary); }
+  .cs-file-modal .code-pre { margin: 0; padding: 12px 0; background: var(--bg-primary); white-space: pre; counter-reset: csln; }
+  .cs-file-modal .code-pre code { background: transparent; padding: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; display: block; }
+  /* Per-line wrapper: line number on the left, source on the right.
+     Generated by JS — see _csRenderCodeWithHighlight. Match lines get
+     the .hit class, currently selected match gets .current. */
+  .cs-file-modal .code-line { display: grid; grid-template-columns: 56px 1fr; align-items: start; }
+  .cs-file-modal .code-line .csln { color: var(--text-dim); text-align: right; padding: 0 14px 0 6px; user-select: none; font-variant-numeric: tabular-nums; }
+  .cs-file-modal .code-line .csrc { padding: 0 16px 0 0; white-space: pre; }
+  .cs-file-modal .code-line.hit { background: rgba(210,153,34,0.10); }
+  .cs-file-modal .code-line.hit .csln { color: var(--warning); font-weight: 600; }
+  .cs-file-modal .code-line.current { background: rgba(88,166,255,0.18); }
+  .cs-file-modal .code-line.current .csln { color: var(--accent); }
+  .cs-file-modal .code-line:hover .csln { color: var(--text-secondary); }
   .k-sidebar { width: 320px; min-width: 320px; max-width: 420px; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); }
   .k-sidebar-head { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-shrink: 0; }
   .k-filter { flex: 1; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 12px; }
@@ -1566,6 +1723,110 @@
   </div>
   <div class="k-pane" id="cerebroPane">
     <div class="k-empty">Select a file on the left. Markdown files render in place; other files show metadata only.</div>
+  </div>
+</div>
+
+<!-- Code Search view: repo picker + filename/code search + file preview + git
+     history rail. Active when ?view=code-search. Each repo gets its own
+     scoped terminal panel via the __cs_<repo>__ pseudo project id. -->
+<div class="cs-view" id="codeSearchView">
+  <aside class="cs-rail-left">
+    <div class="rail-head">
+      <span class="label">Repositories</span>
+    </div>
+    <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+      <input id="csRepoFilter" type="text" placeholder="filter repos…" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-size:12px;color:var(--text-primary);font-family:ui-monospace,monospace;width:100%;box-sizing:border-box" />
+    </div>
+    <div class="repo-list" id="csRepoList"></div>
+  </aside>
+
+  <main class="cs-ws">
+    <div class="ws-header" id="csHeader">
+      <span class="title" id="csTitle">— pick a repo —</span>
+      <span class="clone" id="csClone"></span>
+      <span class="badges" id="csBadges"></span>
+    </div>
+
+    <div class="search-bar">
+      <div class="search-modes" id="csModes">
+        <button data-mode="filenames" class="active">Filenames</button>
+        <button data-mode="code">Code (rg)</button>
+      </div>
+      <input id="csSearchInput" class="search-input" type="text" placeholder='search this repo (Enter to run)…' />
+      <span class="search-hint" id="csSearchHint">pick a repo</span>
+    </div>
+
+    <div class="ws-body">
+      <section class="results-pane">
+        <div class="pane-head" id="csResultsLabel">Results</div>
+        <div id="csResultsList"></div>
+      </section>
+      <section class="preview-pane">
+        <div class="preview-head">
+          <span id="csPreviewPath">no file open</span>
+          <span class="empty-act" id="csPreviewHint">click a result to preview · double-click for full modal</span>
+        </div>
+        <div class="file-body" id="csFileBody">
+          <div class="preview-empty">Click a result on the left to preview the file. Double-click for the full-screen modal with all matches highlighted.</div>
+          <div class="range-pop" id="csRangePop">
+            <span class="lines" id="csRangeLines">lines —</span>
+            <button onclick="csShowRangeHistory()">git log -L ↗</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="cs-rail-right">
+    <div class="rail-head">
+      <span class="label">Git history</span>
+      <span class="scope" id="csGitScope">—</span>
+    </div>
+    <div class="git-list" id="csGitList">
+      <div class="git-empty">Pick a repo to see commits.</div>
+    </div>
+  </aside>
+</div>
+<!-- Code Search file modal — opened on result click. Shows the file's
+     full content with syntax highlighting plus a left rail listing
+     every match within that file (jump-to-line on click). Replaces
+     the previous inline preview pane. -->
+<div class="cs-file-modal-overlay" id="csFileModalOverlay" onclick="if(event.target===this)csCloseFileModal()">
+  <div class="cs-file-modal">
+    <div class="cs-file-modal-head">
+      <span class="path" id="csFileModalPath">—</span>
+      <span class="lang-badge" id="csFileModalLang">—</span>
+      <span class="match-count" id="csFileModalMatches"></span>
+      <span style="flex:1"></span>
+      <button class="copy" id="csFileModalCopy" title="Copy path">&#x1F4CB; copy path</button>
+      <button class="hist" id="csFileModalHist" title="Show this file's git history">⤴ history</button>
+      <button class="close" onclick="csCloseFileModal()">Close</button>
+    </div>
+    <div class="cs-file-modal-body">
+      <aside class="match-rail">
+        <div class="match-head" id="csMatchRailHead">Matches in this file</div>
+        <div class="match-list" id="csMatchRailList"></div>
+      </aside>
+      <main class="code-pane">
+        <div class="code-scroll" id="csCodeScroll">
+          <pre class="code-pre"><code id="csCodeBlock"></code></pre>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- Commit drawer for the Code Search view. Sits outside the cs-view
+     so it can overlay the whole workspace; visibility toggled by JS. -->
+<div class="cs-drawer-overlay" id="csDrawerOverlay" onclick="if(event.target===this)csCloseDrawer()">
+  <div class="cs-drawer">
+    <div class="cs-drawer-head">
+      <span class="sha" id="csDrawerSha">—</span>
+      <span class="subj" id="csDrawerSubj">—</span>
+      <button class="close" onclick="csCloseDrawer()">Close</button>
+    </div>
+    <div class="cs-drawer-meta" id="csDrawerMeta">—</div>
+    <div class="cs-drawer-body" id="csDrawerBody"></div>
   </div>
 </div>
 
@@ -6084,6 +6345,11 @@
   const SELF_PROJECT_ID = '__self__';
   const SELF_REPO_PATH = '{{ MONOREPO_ROOT }}';  // populated server-side (see routes/index.py)
 
+  // Code Search fixed view: also a pseudo-project. The actual per-repo
+  // terminal panel uses `__cs_<repo>__` ids (see _csProjectId); this
+  // constant is only for the single topbar tab entry.
+  const CODE_SEARCH_PROJECT_ID = '__code_search__';
+
   // Per-project session pill cache (warm-switch fast path). Declared up
   // here — alongside the other pseudo-project consts — instead of with
   // the rest of the terminal-panel state lower in the script, because
@@ -6091,6 +6357,14 @@
   // await. The terminal state block at ~line 5780 still hosts the rest
   // of the related globals; this is the one that needs to win the TDZ.
   const _termSessionsCache = new Map(); // projectId -> sessions[]
+
+  // localStorage key prefix for per-view terminal-visibility. Same
+  // hoisting rule as the consts above — the visibility helpers are
+  // called from termOpenForSelf/Cerebro during the initial URL
+  // dispatch (`?view=…`), which runs before the helper definitions
+  // further down the script. Without this hoist the helpers hit a
+  // TDZ on `_TERM_VIS_KEY_PREFIX`.
+  const _TERM_VIS_KEY_PREFIX = 'labTermShown:';
 
   loadRepos();
   if (!UI_CHECK) setInterval(loadRepos, 5000);
@@ -6107,6 +6381,9 @@
     initCerebro(urlCerebroPath);
   } else if (urlView === 'productivity') {
     initSelf();
+  } else if (urlView === 'code-search') {
+    document.body.classList.add('code-search-active');
+    initCodeSearch(new URLSearchParams(location.search).get('repo'));
   }
 
   // Auto-refresh project view when any file in the project folder changes (mtime check)
@@ -6202,6 +6479,9 @@
     if (currentProject && currentProject.is_project) return currentProject.name;
     if (document.body.classList.contains('cerebro-active')) return CEREBRO_PROJECT_ID;
     if (document.body.classList.contains('self-active')) return SELF_PROJECT_ID;
+    if (document.body.classList.contains('code-search-active') && _csState && _csState.repo) {
+      return _csProjectId(_csState.repo);
+    }
     return null;
   }
   function _termRememberLast(projectId, logicalName) {
@@ -6253,7 +6533,14 @@
         fetch('/api/ui/tab-order'),
         fetch('/api/term/projects-attention'),
       ]);
-      projTabsHot = hotRes.ok ? await hotRes.json() : [];
+      const hotRaw = hotRes.ok ? await hotRes.json() : [];
+      // Filter out the Code Search per-repo pseudo-project ids
+      // (`__cs_<repo>__`). They spawn real tmux sessions when the
+      // user opens a repo in the Code Search tab, which puts them in
+      // /api/term/projects-with-sessions — but they shouldn't show up
+      // as standalone tabs. The single `🔍 code-search` pseudo-tab in
+      // projTabsRender already covers them.
+      projTabsHot = (Array.isArray(hotRaw) ? hotRaw : []).filter(id => !id.startsWith('__cs_'));
       projTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_project);
       projTabsOrder = orderRes.ok ? await orderRes.json() : [];
       if (!Array.isArray(projTabsOrder)) projTabsOrder = [];
@@ -6289,6 +6576,16 @@
       seen.add(SELF_PROJECT_ID);
       tabs.push({id: SELF_PROJECT_ID, hot: false});
     }
+    // Code Search is a fixed pseudo-tab — always pinned in the strip
+    // (same UX as the productivity / cerebro pseudo-projects, which
+    // are pinned via tab_open in their hidden project.json shells).
+    // No gate: the user wants it one click away regardless of whether
+    // a repo was previously opened or the view is currently active.
+    const csViewActive = document.body.classList.contains('code-search-active');
+    if (!seen.has(CODE_SEARCH_PROJECT_ID)) {
+      seen.add(CODE_SEARCH_PROJECT_ID);
+      tabs.push({id: CODE_SEARCH_PROJECT_ID, hot: false});
+    }
 
     // Apply the user's saved order. Anything in `projTabsOrder` that's
     // still a candidate keeps its relative position; leftovers append.
@@ -6306,25 +6603,38 @@
     el.innerHTML = ordered.map(t => {
       const isCerebro = t.id === CEREBRO_PROJECT_ID;
       const isSelf = t.id === SELF_PROJECT_ID;
-      const isPseudo = isCerebro || isSelf;
+      const isCodeSearch = t.id === CODE_SEARCH_PROJECT_ID;
+      const isPseudo = isCerebro || isSelf || isCodeSearch;
       const active =
         (isCerebro && cerebroViewActive) ||
         (isSelf && selfViewActive) ||
+        (isCodeSearch && csViewActive) ||
         (!isPseudo && t.id === activeId) ? ' active' : '';
       const dotCls = t.hot ? '' : ' cold';
-      const label = isCerebro ? 'cerebro' : (isSelf ? 'productivity' : t.id);
-      const icon = isCerebro ? '🧠 ' : (isSelf ? '🛠️ ' : '');
-      // Pseudo-projects (cerebro, self) are never "attention"-worthy
-      // since they can't have a stuck Claude session.
+      const label = isCerebro ? 'cerebro'
+        : isSelf ? 'productivity'
+        : isCodeSearch ? 'code-search'
+        : t.id;
+      const icon = isCerebro ? '🧠 '
+        : isSelf ? '🛠️ '
+        : isCodeSearch ? '🔍 '
+        : '';
+      // Pseudo-projects (cerebro, self, code-search) are never
+      // "attention"-worthy since they can't have a stuck Claude session.
       const needsAttn = !isPseudo && attnSet.has(t.id);
       const attn = needsAttn ? ' attention' : '';
       const attnTitle = needsAttn ? ' · needs your attention (all Claude idle)' : '';
-      const tabCls = isCerebro ? ' cerebro-tab' : (isSelf ? ' self-tab' : '');
+      const tabCls = isCerebro ? ' cerebro-tab'
+        : isSelf ? ' self-tab'
+        : isCodeSearch ? ' code-search-tab'
+        : '';
       const closeTitle = isCerebro
         ? 'Close Cerebro (tab disappears; reopen from Home)'
         : (isSelf
             ? 'Close Productivity (tab disappears; reopen from Home)'
-            : 'Close this project (kills its tmux sessions)');
+            : (isCodeSearch
+                ? 'Close Code Search (tab disappears; reopen from Home)'
+                : 'Close this project (kills its tmux sessions)'));
       return `
         <div class="proj-tab${active}${tabCls}${attn}" draggable="true" data-pid="${projTabsEsc(t.id)}" role="tab" title="${projTabsEsc(label)}${attnTitle}">
           <span class="dot${dotCls}" title="${t.hot ? 'live session(s)' : 'no session yet'}"></span>
@@ -6340,8 +6650,9 @@
       const pid = node.getAttribute('data-pid');
       node.addEventListener('click', (e) => {
         if (e.target.closest('.x')) return;  // X handled separately
-        if (pid === CEREBRO_PROJECT_ID) { goToCerebro(); return; }
-        if (pid === SELF_PROJECT_ID)    { goToProductivity(); return; }
+        if (pid === CEREBRO_PROJECT_ID)     { goToCerebro(); return; }
+        if (pid === SELF_PROJECT_ID)        { goToProductivity(); return; }
+        if (pid === CODE_SEARCH_PROJECT_ID) { goToCodeSearch(); return; }
         const proj = projTabsAll.find(p => p.name === pid);
         if (proj && proj.path) goToProject(proj.path);
       });
@@ -6495,11 +6806,16 @@
         <span>🧠 cerebro</span>
         <span class="meta">knowledge base</span>
       </div>`;
-    if (!selfRow && !cerebroRow && candidates.length === 0) {
+    const codeSearchRow = inTabs.has(CODE_SEARCH_PROJECT_ID) ? '' : `
+      <div class="row" data-code-search="1">
+        <span>🔍 code-search</span>
+        <span class="meta">repositories/</span>
+      </div>`;
+    if (!selfRow && !cerebroRow && !codeSearchRow && candidates.length === 0) {
       picker.innerHTML = '<div class="empty">Everything is already open.</div>';
       return;
     }
-    picker.innerHTML = selfRow + cerebroRow + candidates.map(p => `
+    picker.innerHTML = selfRow + cerebroRow + codeSearchRow + candidates.map(p => `
       <div class="row" data-path="${projTabsEsc(p.path)}">
         <span>${projTabsEsc(p.name)}</span>
         <span class="meta">${(p.repos || []).length} repo(s)</span>
@@ -6507,8 +6823,9 @@
     picker.querySelectorAll('.row').forEach(row => {
       row.addEventListener('click', () => {
         picker.classList.remove('open');
-        if (row.getAttribute('data-self') === '1')    { goToProductivity(); return; }
-        if (row.getAttribute('data-cerebro') === '1') { goToCerebro(); return; }
+        if (row.getAttribute('data-self') === '1')        { goToProductivity(); return; }
+        if (row.getAttribute('data-cerebro') === '1')     { goToCerebro(); return; }
+        if (row.getAttribute('data-code-search') === '1') { goToCodeSearch(); return; }
         const path = row.getAttribute('data-path');
         if (path) goToProject(path);
       });
@@ -6533,7 +6850,9 @@
     // ``localStorage.labTermAutoSpawn = "0"``.
     if (!projectId) { termClose(); return; }
     document.body.classList.add('term-open');
-    document.body.classList.remove('term-collapsed');
+    // Restore the user's last-known collapse state for this view
+    // (default = visible for projects).
+    _termApplyRememberedVisibility();
 
     // Warm switch: this project has been opened earlier in the browser
     // session, so we have its pill list in memory. Paint it instantly
@@ -6729,9 +7048,51 @@
 
   function termToggleCollapse() {
     document.body.classList.toggle('term-collapsed');
-    if (!document.body.classList.contains('term-collapsed') && termXterm && termFitAddon) {
+    const shown = !document.body.classList.contains('term-collapsed');
+    _termRememberVisibility(_termVisibilityKey(), shown);
+    if (shown && termXterm && termFitAddon) {
       setTimeout(() => { try { termFitAddon.fit(); termSendResize(); } catch {} }, 60);
     }
+  }
+
+  // Per-view persistence of "is the terminal panel collapsed?" so the
+  // user's last toggle sticks across tab switches and reloads. The key
+  // is namespaced by the active view (a real project id, the cerebro/
+  // self pseudo id, or "__code_search__" for the code-search tab).
+  // Default-visibility differs per view: code-search starts collapsed
+  // (it has its own three-pane layout that wants the width); every-
+  // thing else starts expanded.
+  // (`_TERM_VIS_KEY_PREFIX` is declared higher up to avoid a TDZ when
+  // these helpers run during the initial `?view=…` URL dispatch.)
+  function _termVisibilityKey() {
+    if (document.body.classList.contains('code-search-active')) return _TERM_VIS_KEY_PREFIX + 'code-search';
+    if (document.body.classList.contains('cerebro-active')) return _TERM_VIS_KEY_PREFIX + 'cerebro';
+    if (document.body.classList.contains('self-active')) return _TERM_VIS_KEY_PREFIX + 'self';
+    if (currentProject && currentProject.is_project) return _TERM_VIS_KEY_PREFIX + 'project:' + currentProject.name;
+    return _TERM_VIS_KEY_PREFIX + 'unknown';
+  }
+  function _termRememberVisibility(key, shown) {
+    try { localStorage.setItem(key, shown ? '1' : '0'); } catch {}
+  }
+  function _termRecallVisibility(key, defaultShown) {
+    try {
+      const v = localStorage.getItem(key);
+      if (v === '1') return true;
+      if (v === '0') return false;
+    } catch {}
+    return defaultShown;
+  }
+  // Apply the remembered (or default) visibility for the current view.
+  // Called from termOpenForProject/Self/Cerebro and initCodeSearch so
+  // every view enters with the user's last preference for that view.
+  // Default is "shown" except for code-search, which has its own
+  // 3-pane layout that wants the width — terminal is hidden until
+  // the user clicks the toggle.
+  function _termApplyRememberedVisibility() {
+    const key = _termVisibilityKey();
+    const defaultShown = !key.endsWith(':code-search');
+    const shown = _termRecallVisibility(key, defaultShown);
+    document.body.classList.toggle('term-collapsed', !shown);
   }
 
   // Percentage-based resize of the two vertical dividers between the
@@ -7732,7 +8093,8 @@
   function _swapViewState() {
     if (typeof termDetach === 'function') termDetach(true);
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'home-active', 'project-active', 'has-diff-tabs',
+      'cerebro-active', 'self-active', 'home-active', 'project-active',
+      'code-search-active', 'has-diff-tabs',
     );
     currentProject = null;
     currentRepo = null;
@@ -7911,7 +8273,14 @@
         const rows = cerebroParseCSV(raw);
         rendered = `<div class="doc">${cerebroRenderCSV(rows)}</div>`;
       } else {
-        rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow:auto">${esc(raw)}</pre>`;
+        // Code / plain-text fallback. Wrap in <pre><code class="language-…">
+        // so the hljs.highlightElement loop below colors it (matches what
+        // the JSON branch already does). getHljsLang returns null for
+        // unknown extensions; hljs then falls back to plain text without
+        // an exception.
+        const lang = getHljsLang(path);
+        const codeClass = lang ? ` class="language-${lang}"` : '';
+        rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow:auto"><code${codeClass}>${esc(raw)}</code></pre>`;
       }
 
       content.innerHTML = `<div class="project-content" style="padding:24px;max-width:900px">${header}${rendered}</div>`;
@@ -8126,6 +8495,822 @@
     initSelf();
   }
 
+  // ─── Code Search tab ─────────────────────────────────────────────
+  // Per-repo pseudo project ids drive the terminal panel and the
+  // warm-switch cache. Backend treats `__cs_<repo>__` as cwd=
+  // repositories/<repo> (see term.py:_project_cwd).
+  function _csProjectId(repoName) {
+    return repoName ? ('__cs_' + repoName + '__') : null;
+  }
+
+  function goToCodeSearch(opts = {}) {
+    _swapViewState();
+    const initialRepo = (opts && opts.repo) || _csRecallLastRepo() || null;
+    if (!opts.replace) {
+      const url = new URL(window.location);
+      url.searchParams.delete('project');
+      url.searchParams.delete('repo');
+      url.searchParams.delete('path');
+      url.searchParams.set('view', 'code-search');
+      if (initialRepo) url.searchParams.set('repo', initialRepo);
+      history.pushState({nav: 'code-search', repo: initialRepo}, '', url.pathname + url.search + url.hash);
+    }
+    initCodeSearch(initialRepo);
+  }
+
+  // Persist the last-visited code-search repo so re-entering the tab
+  // restores it (open question #4 answered: auto-pick).
+  const _CS_LAST_KEY = 'labCsLastRepo';
+  function _csRememberLastRepo(repo) {
+    try { if (repo) localStorage.setItem(_CS_LAST_KEY, repo); } catch {}
+  }
+  function _csRecallLastRepo() {
+    try { return localStorage.getItem(_CS_LAST_KEY) || null; } catch { return null; }
+  }
+
+  // In-memory caches so tab switches paint instantly. Keys:
+  //   - _csReposCache:    one entry (list of repos from /api/code-search/repos)
+  //   - _csStatsCache:    repo name → stats object
+  //   - _csSearchCache:   `${repo}|${mode}|${q}` → results blob
+  //   - _csFileCache:     `${repo}|${path}` → {content, lines}
+  //   - _csLogCache:      `${repo}|${path||''}|${range||''}` → commits[]
+  const _csCache = {
+    repos: null,
+    stats: new Map(),
+    search: new Map(),
+    file: new Map(),
+    log: new Map(),
+  };
+
+  // Working state for the currently active Code Search workspace.
+  const _csState = {
+    repo: null,         // currently picked repo name
+    filter: '',         // repo filter input
+    mode: 'filenames',  // filenames | code
+    query: '',
+    openFile: null,     // path within repo
+    fileLines: null,    // file content split by '\n'
+    selectedRange: null,// [start,end] (1-indexed) or null
+    rangeScope: false,  // when true, git rail shows range log
+    hitLine: null,      // line to highlight + scroll-to in preview
+  };
+
+  async function initCodeSearch(initialRepo) {
+    document.body.classList.add('code-search-active');
+    document.title = 'Code search';
+    if (typeof projTabsRender === 'function') projTabsRender();
+
+    // Wire input handlers once. The view's HTML is static template
+    // markup, so attaching listeners on every init would double-fire
+    // them on the second visit; guard with a flag on the root.
+    const view = document.getElementById('codeSearchView');
+    if (view && !view._wired) {
+      view._wired = true;
+      _csWireHandlers();
+    }
+
+    // Paint repos from cache instantly, then reconcile in the
+    // background. First-visit hit is one network round-trip; warm
+    // switches are zero.
+    if (_csCache.repos) {
+      _csRenderRepoList(_csCache.repos);
+    }
+    _csFetchRepos().then(() => {
+      if (!document.body.classList.contains('code-search-active')) return;
+      _csRenderRepoList(_csCache.repos);
+      // Once we have the live list, pick the requested repo (or the
+      // remembered one, or the first).
+      const picked = initialRepo
+        || (_csCache.repos && _csCache.repos.find(r => r.name === _csRecallLastRepo()) && _csRecallLastRepo())
+        || (_csCache.repos && _csCache.repos[0] && _csCache.repos[0].name);
+      if (picked) _csSelectRepo(picked);
+    }).catch((e) => {
+      const el = document.getElementById('csRepoList');
+      if (el) el.innerHTML = `<div style="padding:14px 12px;color:var(--red);font-size:12px">Failed to load repos: ${csEsc(e.message || e)}</div>`;
+    });
+
+    // Open the terminal panel scoped to the selected repo (or none
+    // if no repo yet — we'll re-open on selection).
+    if (!UI_CHECK && initialRepo) {
+      const pid = _csProjectId(initialRepo);
+      if (pid && typeof termOpenForProject === 'function') {
+        // Hack: set currentProject to a synthetic value so
+        // termOpenForProject's stale-response guards line up.
+        currentProject = {name: pid, path: '', is_project: true, repos: []};
+        termOpenForProject(pid);
+      }
+    }
+  }
+
+  // ── Code Search helpers ──────────────────────────────────────────
+  function csEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function _csFetchRepos() {
+    const r = await fetch('/api/code-search/repos');
+    if (!r.ok) throw new Error(`/api/code-search/repos → ${r.status}`);
+    _csCache.repos = await r.json();
+  }
+
+  async function _csFetchStats(repo) {
+    if (_csCache.stats.has(repo)) return _csCache.stats.get(repo);
+    try {
+      const r = await fetch(`/api/code-search/repos/${encodeURIComponent(repo)}/stats`);
+      if (!r.ok) throw new Error(`stats ${r.status}`);
+      const data = await r.json();
+      _csCache.stats.set(repo, data);
+      return data;
+    } catch { return null; }
+  }
+
+  function _csRenderRepoList(repos) {
+    const el = document.getElementById('csRepoList');
+    if (!el) return;
+    const filter = (_csState.filter || '').toLowerCase();
+    const list = (repos || []).filter(r => !filter || r.name.toLowerCase().includes(filter));
+    if (!list.length) {
+      el.innerHTML = '<div style="padding:14px 12px;color:var(--text-dim);font-size:12px;font-style:italic">no repos match</div>';
+      return;
+    }
+    el.innerHTML = list.map(r => {
+      const last = r.last || {};
+      const active = r.name === _csState.repo ? ' active' : '';
+      const meta = last.when ? `${csEsc(last.when)} · ${csEsc(last.who || '')}` : 'no commits';
+      return `<div class="repo-item${active}" data-repo="${csEsc(r.name)}" title="${csEsc(r.name)} · ${csEsc(last.subj || '')}">
+        <div class="repo-name">${csEsc(r.name)}</div>
+        <div class="repo-meta">${meta}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function _csSelectRepo(repo) {
+    if (!repo) return;
+    _csState.repo = repo;
+    _csState.openFile = null;
+    _csState.fileLines = null;
+    _csState.selectedRange = null;
+    _csState.rangeScope = false;
+    _csState.hitLine = null;
+    _csRememberLastRepo(repo);
+    // URL: keep repo in the query string so reload restores.
+    try {
+      const url = new URL(window.location);
+      url.searchParams.set('view', 'code-search');
+      url.searchParams.set('repo', repo);
+      url.searchParams.delete('path');
+      history.replaceState(null, '', url);
+    } catch {}
+    _csRenderRepoList(_csCache.repos);
+    _csRenderHeader();
+    _csRenderResults({mode: _csState.mode, results: [], truncated: false});
+    _csRenderPreview();
+    _csRenderGitRail();
+    // Kick off background stats fetch (badges).
+    _csFetchStats(repo).then(() => _csRenderHeader());
+    // Auto-load whole-repo log so the git rail isn't empty.
+    _csLoadLog().then(() => _csRenderGitRail());
+    // If query was already typed, re-run it for the new repo.
+    if (_csState.query) _csRunSearch();
+    // Re-scope the terminal panel to this repo.
+    if (!UI_CHECK) {
+      const pid = _csProjectId(repo);
+      currentProject = {name: pid, path: '', is_project: true, repos: []};
+      if (typeof termOpenForProject === 'function') termOpenForProject(pid);
+    }
+  }
+
+  function _csRenderHeader() {
+    const repo = _csState.repo;
+    if (!repo) {
+      document.getElementById('csTitle').textContent = '— pick a repo —';
+      document.getElementById('csClone').textContent = '';
+      document.getElementById('csBadges').innerHTML = '';
+      document.getElementById('csSearchHint').textContent = 'pick a repo';
+      return;
+    }
+    const r = (_csCache.repos || []).find(x => x.name === repo) || {};
+    const stats = _csCache.stats.get(repo) || {};
+    document.getElementById('csTitle').textContent = repo;
+    document.getElementById('csClone').textContent = stats.clone || '';
+    const last = r.last || {};
+    const badges = [];
+    if (r.branch) badges.push(`<span class="h-badge">branch <span class="v">${csEsc(r.branch)}</span></span>`);
+    if (typeof stats.commits === 'number') badges.push(`<span class="h-badge">${stats.commits.toLocaleString()} <span class="v">commits</span></span>`);
+    if (typeof stats.contribs === 'number') badges.push(`<span class="h-badge">${stats.contribs} <span class="v">contributors</span></span>`);
+    if (typeof stats.files === 'number') badges.push(`<span class="h-badge">${stats.files} <span class="v">files</span></span>`);
+    if (last.when) badges.push(`<span class="h-badge">last <span class="v">${csEsc(last.when)}</span></span>`);
+    document.getElementById('csBadges').innerHTML = badges.join('');
+    document.getElementById('csSearchHint').textContent = _csState.query ? 'press Enter to search' : 'type a query, then Enter';
+  }
+
+  async function _csRunSearch() {
+    const repo = _csState.repo;
+    const q = (_csState.query || '').trim();
+    const mode = _csState.mode;
+    if (!repo) return;
+    if (!q) { _csRenderResults({mode, results: [], truncated: false}); return; }
+    const cacheKey = `${repo}|${mode}|${q}`;
+    if (_csCache.search.has(cacheKey)) {
+      _csRenderResults(_csCache.search.get(cacheKey));
+      return;
+    }
+    document.getElementById('csSearchHint').textContent = 'searching…';
+    try {
+      const r = await fetch(`/api/code-search/repos/${encodeURIComponent(repo)}/search?mode=${mode}&q=${encodeURIComponent(q)}&limit=200`);
+      if (!r.ok) throw new Error(`search ${r.status}`);
+      const data = await r.json();
+      _csCache.search.set(cacheKey, data);
+      _csRenderResults(data);
+    } catch (e) {
+      _csRenderResults({mode, results: [], truncated: false, error: e.message || String(e)});
+    }
+  }
+
+  function _csRenderResults(data) {
+    const list = document.getElementById('csResultsList');
+    const label = document.getElementById('csResultsLabel');
+    const hint = document.getElementById('csSearchHint');
+    if (!list || !label) return;
+    const mode = data.mode || _csState.mode;
+    const results = data.results || [];
+    if (data.error) {
+      list.innerHTML = `<div class="res-empty" style="color:var(--red)">${csEsc(data.error)}</div>`;
+      label.textContent = 'Error';
+      hint.textContent = '';
+      return;
+    }
+    if (!results.length) {
+      list.innerHTML = `<div class="res-empty">${_csState.query ? 'no matches' : 'type a query and press Enter'}</div>`;
+      label.textContent = mode === 'filenames' ? 'Filenames' : 'Code';
+      hint.textContent = _csState.query ? `0 results${data.truncated ? ' (truncated)' : ''}` : 'pick a query';
+      return;
+    }
+    if (mode === 'filenames') {
+      list.innerHTML = results.map(f => `
+        <div class="res-item" data-path="${csEsc(f.path)}">
+          <div class="path">${csEsc(f.path)}</div>
+          <div class="meta">${f.size != null ? `${f.size.toLocaleString()} bytes` : ''}</div>
+        </div>
+      `).join('');
+      label.textContent = `Filenames — ${results.length} match${results.length === 1 ? '' : 'es'}`;
+    } else {
+      list.innerHTML = results.map(c => `
+        <div class="res-item" data-path="${csEsc(c.path)}" data-line="${c.line}">
+          <div><span class="path">${csEsc(c.path)}</span><span class="line">:${c.line}</span></div>
+          <div class="snippet">${csEsc(c.snippet || '')}</div>
+        </div>
+      `).join('');
+      label.textContent = `Code — ${results.length} hit${results.length === 1 ? '' : 's'}`;
+    }
+    hint.textContent = data.truncated ? `${results.length} (truncated)` : `${results.length} results`;
+  }
+
+  // Map extensions → highlight.js language id. Anything not listed
+  // falls back to plaintext (no colors, still wraps + line-numbered).
+  // Extra packs loaded above include scala, groovy, protobuf so those
+  // entries are real here, not no-ops.
+  const _CS_LANG_BY_EXT = {
+    py: 'python', pyi: 'python', ipynb: 'json',
+    scala: 'scala', sc: 'scala',
+    java: 'java', kt: 'kotlin', kts: 'kotlin',
+    js: 'javascript', mjs: 'javascript', cjs: 'javascript',
+    ts: 'typescript', tsx: 'typescript', jsx: 'javascript',
+    json: 'json', json5: 'json',
+    yml: 'yaml', yaml: 'yaml',
+    md: 'markdown', markdown: 'markdown',
+    sh: 'bash', bash: 'bash', zsh: 'bash',
+    gradle: 'groovy', groovy: 'groovy',
+    sql: 'sql', html: 'xml', htm: 'xml', xml: 'xml',
+    css: 'css', scss: 'scss',
+    toml: 'ini', ini: 'ini', cfg: 'ini',
+    avsc: 'json',
+    proto: 'protobuf',
+    go: 'go', rs: 'rust', rb: 'ruby', php: 'php',
+    c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp',
+    dockerfile: 'dockerfile', make: 'makefile', mk: 'makefile',
+    drl: 'java',  // Drools .drl files look enough like Java to highlight usefully
+    acl: 'json',  // ACL files are JSON-shaped in the LinkedIn repos
+  };
+
+  function _csLangForPath(path) {
+    if (!path) return 'plaintext';
+    const base = path.split('/').pop() || '';
+    if (base.toLowerCase() === 'dockerfile') return 'dockerfile';
+    if (base.toLowerCase() === 'makefile') return 'makefile';
+    const m = /\.([A-Za-z0-9]+)$/.exec(base);
+    if (!m) return 'plaintext';
+    return _CS_LANG_BY_EXT[m[1].toLowerCase()] || 'plaintext';
+  }
+
+  // Either the path's natural language, or — for notebooks — python,
+  // since we transform ipynb JSON into Python-shaped source before
+  // displaying it.
+  function _csEffectiveLang(path) {
+    if (path && path.toLowerCase().endsWith('.ipynb')) return 'python';
+    return _csLangForPath(path);
+  }
+
+  // Transform a Jupyter notebook's JSON into a readable flat source
+  // string with per-cell separators. The result reads like one big
+  // Python file: markdown / raw cells become `# …` comment blocks,
+  // so the python highlighter renders them as dim comments, while
+  // code cells render with full syntax highlighting. The user sees
+  // code instead of raw ipynb JSON. Returns null on parse failure
+  // so the caller falls back to the original content.
+  function _csTransformIpynb(content) {
+    let nb;
+    try { nb = JSON.parse(content); } catch { return null; }
+    if (!nb || !Array.isArray(nb.cells)) return null;
+    const out = [];
+    nb.cells.forEach((cell, i) => {
+      const kind = String(cell.cell_type || 'raw');
+      let src = cell.source;
+      if (Array.isArray(src)) src = src.join('');
+      src = String(src == null ? '' : src);
+      out.push(`# ─── cell ${i + 1} · ${kind} ───────────────────────────────────────`);
+      if (kind === 'markdown' || kind === 'raw') {
+        src.split('\n').forEach(line => out.push('# ' + line));
+      } else {
+        out.push(src);
+      }
+      out.push('');
+    });
+    return out.join('\n');
+  }
+
+  // Build per-line highlighted rows from a file's source. The whole
+  // file is highlighted as one block so multi-line tokens (strings,
+  // doc-comments) resolve correctly, then we split the resulting HTML
+  // by `\n` and wrap each line in a row with line number + match /
+  // current-line classes. Browsers auto-close unbalanced spans at
+  // row boundaries, which is visually equivalent for color purposes.
+  // Returns the row-HTML join (one string); caller injects.
+  function _csHighlightRowsHtml(lines, path, opts) {
+    opts = opts || {};
+    const lang = _csEffectiveLang(path);
+    const raw = lines.join('\n');
+    let rows;
+    try {
+      const out = (window.hljs && window.hljs.getLanguage && window.hljs.getLanguage(lang))
+        ? window.hljs.highlight(raw, {language: lang, ignoreIllegals: true}).value
+        : csEsc(raw);
+      rows = out.split('\n');
+    } catch (e) {
+      rows = csEsc(raw).split('\n');
+    }
+    const hits = new Set(opts.hits || []);
+    const current = opts.current || null;
+    const rowClass = opts.rowClass || 'file-line';
+    const lnClass = opts.lnClass || 'ln';
+    const srcClass = opts.srcClass || 'src';
+    return rows.map((html, i) => {
+      const ln = i + 1;
+      const cls = rowClass
+        + (hits.has(ln) ? ' hit' : '')
+        + (ln === current ? ' sel' : '');
+      return `<div class="${cls}" data-line="${ln}"><span class="${lnClass}">${ln}</span><span class="${srcClass}">${html || '&nbsp;'}</span></div>`;
+    }).join('');
+  }
+
+  // Single-click action: inline preview in the workspace's right pane.
+  // Fast, scoped, terminal stays visible. Double-click → full modal
+  // (_csOpenFileModal below) for the rich syntax-highlighted view.
+  async function _csOpenFilePreview(path, line) {
+    if (!_csState.repo || !path) return;
+    _csState.openFile = path;
+    _csState.selectedRange = null;
+    _csState.rangeScope = false;
+    // ipynb match lines refer to the raw JSON; the rendered view is
+    // re-flowed, so the original line number isn't meaningful. Drop
+    // the jump-to-line cue for notebooks — the user can still see the
+    // hits highlighted via the match-rail rendering in the modal.
+    const isIpynb = path.toLowerCase().endsWith('.ipynb');
+    _csState.hitLine = (line && !isIpynb) ? line : null;
+    document.getElementById('csRangePop')?.classList.remove('on');
+    document.getElementById('csPreviewPath').textContent = path;
+    document.getElementById('csPreviewHint').textContent = 'loading…';
+    const cacheKey = `${_csState.repo}|${path}`;
+    let data;
+    if (_csCache.file.has(cacheKey)) {
+      data = _csCache.file.get(cacheKey);
+    } else {
+      try {
+        const r = await fetch(`/api/code-search/repos/${encodeURIComponent(_csState.repo)}/file?path=${encodeURIComponent(path)}`);
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          throw new Error(e.detail || `file ${r.status}`);
+        }
+        data = await r.json();
+        _csCache.file.set(cacheKey, data);
+      } catch (err) {
+        const body = document.getElementById('csFileBody');
+        if (body) {
+          Array.from(body.children).forEach(el => { if (el.id !== 'csRangePop') el.remove(); });
+          body.insertBefore(Object.assign(document.createElement('div'), {
+            className: 'preview-empty',
+            textContent: `Error loading file: ${err.message || err}`,
+          }), document.getElementById('csRangePop'));
+        }
+        return;
+      }
+    }
+    let content = data.content || '';
+    if (isIpynb) {
+      const transformed = _csTransformIpynb(content);
+      if (transformed != null) content = transformed;
+    }
+    _csState.fileLines = content.split('\n');
+    _csRenderPreview();
+    _csState.rangeScope = false;
+    _csLoadLog().then(() => _csRenderGitRail());
+  }
+
+  function _csRenderPreview() {
+    const body = document.getElementById('csFileBody');
+    const pop = document.getElementById('csRangePop');
+    if (!body) return;
+    Array.from(body.children).forEach(el => { if (el.id !== 'csRangePop') el.remove(); });
+    const lines = _csState.fileLines;
+    if (!_csState.openFile || !lines) {
+      const empty = document.createElement('div');
+      empty.className = 'preview-empty';
+      empty.textContent = _csState.repo
+        ? 'Click a result on the left to preview · double-click for the full modal'
+        : 'Pick a repo on the far left.';
+      body.insertBefore(empty, pop);
+      document.getElementById('csPreviewPath').textContent = 'no file open';
+      document.getElementById('csPreviewHint').textContent = _csState.repo ? 'click a result to preview · double-click for full modal' : '';
+      return;
+    }
+    const path = _csState.openFile;
+    const isIpynb = path.toLowerCase().endsWith('.ipynb');
+    document.getElementById('csPreviewPath').textContent = path;
+    document.getElementById('csPreviewHint').textContent =
+      `${lines.length} lines · ${_csEffectiveLang(path)}${isIpynb ? ' · notebook rendered as code' : ''} · double-click for modal`;
+    // ipynb match line numbers refer to the JSON, not the rendered
+    // view — skip hit highlighting in that case.
+    const matches = isIpynb ? [] : _csMatchesForFile(path);
+    const html = _csHighlightRowsHtml(lines, path, {
+      hits: matches.map(m => m.line),
+      current: _csState.hitLine,
+      rowClass: 'file-line',
+      lnClass: 'ln',
+      srcClass: 'src',
+    });
+    // Drop the new rows in front of the persistent range-pop element.
+    pop.insertAdjacentHTML('beforebegin', html);
+    if (_csState.hitLine) {
+      requestAnimationFrame(() => {
+        const row = body.querySelector(`.file-line[data-line="${_csState.hitLine}"]`);
+        if (row) row.scrollIntoView({block: 'center'});
+      });
+    }
+  }
+
+  async function csShowRangeHistory() {
+    if (!_csState.selectedRange || !_csState.openFile) return;
+    _csState.rangeScope = true;
+    document.getElementById('csGitList').innerHTML = '<div class="git-empty">loading git log -L…</div>';
+    await _csLoadLog();
+    _csRenderGitRail();
+  }
+  window.csShowRangeHistory = csShowRangeHistory;
+
+  // Double-click action: open the rich modal for `path`, jumping to
+  // `line` if provided. The match rail lists every search hit in this
+  // same file (pulled from the cached code-search results so we don't
+  // re-query the backend).
+  async function _csOpenFileModal(path, line) {
+    if (!_csState.repo || !path) return;
+    _csState.openFile = path;
+    _csState.selectedRange = null;
+    _csState.rangeScope = false;
+    const isIpynb = path.toLowerCase().endsWith('.ipynb');
+    _csState.hitLine = (line && !isIpynb) ? line : null;
+
+    const overlay = document.getElementById('csFileModalOverlay');
+    overlay.classList.add('on');
+    document.getElementById('csFileModalPath').textContent = path;
+    document.getElementById('csFileModalLang').textContent = _csEffectiveLang(path) + (isIpynb ? ' (notebook)' : '');
+    document.getElementById('csFileModalMatches').textContent = 'loading…';
+    document.getElementById('csCodeBlock').innerHTML = '<div style="padding:18px;color:var(--text-dim)">loading file…</div>';
+    document.getElementById('csMatchRailList').innerHTML = '';
+
+    const cacheKey = `${_csState.repo}|${path}`;
+    let data;
+    if (_csCache.file.has(cacheKey)) {
+      data = _csCache.file.get(cacheKey);
+    } else {
+      try {
+        const r = await fetch(`/api/code-search/repos/${encodeURIComponent(_csState.repo)}/file?path=${encodeURIComponent(path)}`);
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          throw new Error(e.detail || `file ${r.status}`);
+        }
+        data = await r.json();
+        _csCache.file.set(cacheKey, data);
+      } catch (err) {
+        document.getElementById('csCodeBlock').innerHTML = `<div style="padding:18px;color:var(--red)">Error loading file: ${csEsc(err.message || err)}</div>`;
+        document.getElementById('csFileModalMatches').textContent = 'error';
+        return;
+      }
+    }
+    let content = data.content || '';
+    if (isIpynb) {
+      const transformed = _csTransformIpynb(content);
+      if (transformed != null) content = transformed;
+    }
+    _csState.fileLines = content.split('\n');
+
+    // For non-ipynb files, surface the cached search hits in the
+    // match rail. For ipynb the hit line numbers refer to the raw
+    // JSON, not the rendered view; show a placeholder explaining
+    // that and skip the per-line highlighting.
+    const rawMatches = _csMatchesForFile(path);
+    const matchesInFile = isIpynb ? [] : rawMatches;
+    document.getElementById('csFileModalMatches').textContent = isIpynb
+      ? `${_csState.fileLines.length} lines · notebook rendered as code${rawMatches.length ? ` · ${rawMatches.length} raw JSON hit${rawMatches.length === 1 ? '' : 's'} (Cmd-F to find)` : ''}`
+      : (matchesInFile.length
+          ? `${matchesInFile.length} match${matchesInFile.length === 1 ? '' : 'es'} for "${csEsc(_csState.query)}"`
+          : `${_csState.fileLines.length} lines · no hits in this file for "${csEsc(_csState.query)}"`);
+    _csRenderMatchRail(matchesInFile, line);
+    _csRenderCodeWithHighlight(_csState.fileLines, path, matchesInFile, _csState.hitLine);
+
+    _csState.rangeScope = false;
+    _csLoadLog().then(() => _csRenderGitRail());
+  }
+
+  function _csMatchesForFile(path) {
+    // Pull every code-mode hit for this file from the cached search.
+    // Falls back to a single synthesized hit so the rail still shows
+    // the "jumped-to" line when the user opened from a filename hit.
+    const q = (_csState.query || '').trim();
+    const blob = _csCache.search.get(`${_csState.repo}|code|${q}`);
+    const hits = (blob && blob.results || []).filter(r => r.path === path);
+    return hits;
+  }
+
+  function _csRenderMatchRail(matches, currentLine) {
+    const host = document.getElementById('csMatchRailList');
+    const head = document.getElementById('csMatchRailHead');
+    if (!host) return;
+    if (!matches.length) {
+      head.textContent = 'No matches in this file';
+      host.innerHTML = '<div class="match-empty">Open from a filename — no code hits to jump to. The whole file is below.</div>';
+      return;
+    }
+    head.textContent = `${matches.length} match${matches.length === 1 ? '' : 'es'}`;
+    host.innerHTML = matches.map(m => `
+      <div class="match-item${m.line === currentLine ? ' active' : ''}" data-line="${m.line}">
+        <span class="ln">L${m.line}</span>
+        <div class="snippet">${csEsc(m.snippet || '')}</div>
+      </div>
+    `).join('');
+    host.querySelectorAll('.match-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const ln = parseInt(el.dataset.line, 10);
+        host.querySelectorAll('.match-item').forEach(x => x.classList.toggle('active', x === el));
+        _csJumpToLine(ln);
+      });
+    });
+  }
+
+  // Modal-side renderer: same one-block highlight then per-line wrap
+  // pipeline as the inline preview (_csHighlightRowsHtml), with the
+  // modal's `code-line` / `csln` / `csrc` class names.
+  function _csRenderCodeWithHighlight(lines, path, matches, jumpLine) {
+    const codeBlock = document.getElementById('csCodeBlock');
+    codeBlock.className = 'language-' + _csEffectiveLang(path) + ' hljs';
+    codeBlock.innerHTML = _csHighlightRowsHtml(lines, path, {
+      hits: (matches || []).map(m => m.line),
+      current: jumpLine,
+      rowClass: 'code-line',
+      lnClass: 'csln',
+      srcClass: 'csrc',
+    });
+    if (jumpLine) {
+      requestAnimationFrame(() => {
+        const row = codeBlock.querySelector(`.code-line[data-line="${jumpLine}"]`);
+        if (row) row.scrollIntoView({block: 'center'});
+      });
+    }
+  }
+
+  function _csJumpToLine(ln) {
+    const block = document.getElementById('csCodeBlock');
+    if (!block) return;
+    block.querySelectorAll('.code-line.current').forEach(el => el.classList.remove('current'));
+    const row = block.querySelector(`.code-line[data-line="${ln}"]`);
+    if (row) {
+      row.classList.add('current');
+      row.scrollIntoView({block: 'center', behavior: 'smooth'});
+    }
+    _csState.hitLine = ln;
+  }
+
+  function csCloseFileModal() {
+    document.getElementById('csFileModalOverlay')?.classList.remove('on');
+  }
+  window.csCloseFileModal = csCloseFileModal;
+
+  async function _csLoadLog() {
+    const repo = _csState.repo;
+    if (!repo) return;
+    const path = _csState.openFile;
+    const range = (_csState.rangeScope && _csState.selectedRange) ? _csState.selectedRange : null;
+    const key = `${repo}|${path || ''}|${range ? range.join(',') : ''}`;
+    if (_csCache.log.has(key)) return _csCache.log.get(key);
+    let url = `/api/code-search/repos/${encodeURIComponent(repo)}/log?limit=80`;
+    if (path) url += `&path=${encodeURIComponent(path)}`;
+    if (range) url += `&start=${range[0]}&end=${range[1]}`;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || `log ${r.status}`);
+      }
+      const data = await r.json();
+      _csCache.log.set(key, data);
+      return data;
+    } catch (e) {
+      return [{_error: e.message || String(e)}];
+    }
+  }
+
+  function _csRenderGitRail() {
+    const list = document.getElementById('csGitList');
+    const scope = document.getElementById('csGitScope');
+    if (!list || !scope) return;
+    if (!_csState.repo) {
+      scope.textContent = '—';
+      list.innerHTML = '<div class="git-empty">Pick a repo to see commits.</div>';
+      return;
+    }
+    const path = _csState.openFile;
+    const range = (_csState.rangeScope && _csState.selectedRange) ? _csState.selectedRange : null;
+    if (range) scope.textContent = `lines ${range[0]}–${range[1]}`;
+    else if (path) scope.textContent = path.split('/').pop();
+    else scope.textContent = 'whole repo';
+    const key = `${_csState.repo}|${path || ''}|${range ? range.join(',') : ''}`;
+    const cached = _csCache.log.get(key);
+    if (!cached) {
+      list.innerHTML = '<div class="git-empty">loading…</div>';
+      return;
+    }
+    if (cached[0] && cached[0]._error) {
+      list.innerHTML = `<div class="git-empty" style="color:var(--red)">${csEsc(cached[0]._error)}</div>`;
+      return;
+    }
+    if (!cached.length) {
+      list.innerHTML = '<div class="git-empty">No history for this scope.</div>';
+      return;
+    }
+    list.innerHTML = cached.map(c => `
+      <div class="git-item${range ? ' range' : ''}" data-sha="${csEsc(c.sha)}">
+        <div class="sha">${csEsc(c.sha)}</div>
+        <div class="subj">${csEsc(c.subj || '')}</div>
+        <div class="who">${csEsc(c.who || '')} · ${csEsc(c.when || '')}</div>
+      </div>
+    `).join('');
+  }
+
+  async function _csOpenCommit(sha) {
+    if (!_csState.repo || !sha) return;
+    let url = `/api/code-search/repos/${encodeURIComponent(_csState.repo)}/commit/${encodeURIComponent(sha)}`;
+    if (_csState.openFile) url += `?path=${encodeURIComponent(_csState.openFile)}`;
+    const overlay = document.getElementById('csDrawerOverlay');
+    overlay.classList.add('on');
+    document.getElementById('csDrawerSha').textContent = sha;
+    document.getElementById('csDrawerSubj').textContent = 'loading…';
+    document.getElementById('csDrawerMeta').textContent = '';
+    document.getElementById('csDrawerBody').textContent = '';
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || `commit ${r.status}`);
+      }
+      const c = await r.json();
+      document.getElementById('csDrawerSha').textContent = c.sha || sha;
+      document.getElementById('csDrawerSubj').textContent = c.subj || '';
+      const meta = `<b>${csEsc(c.who || '')}</b>${c.email ? ` &lt;${csEsc(c.email)}&gt;` : ''} · ${csEsc(c.when_iso || '')} (${csEsc(c.when || '')})` + (c.body ? `<br><span style="color:var(--text-primary)">${csEsc(c.body)}</span>` : '');
+      document.getElementById('csDrawerMeta').innerHTML = meta;
+      document.getElementById('csDrawerBody').innerHTML = (c.diff || '').split('\n').map(l => {
+        let cls = '';
+        if (l.startsWith('+') && !l.startsWith('+++')) cls = 'add';
+        else if (l.startsWith('-') && !l.startsWith('---')) cls = 'del';
+        else if (l.startsWith('@@')) cls = 'hunk';
+        else if (l.startsWith('diff ') || l.startsWith('index ') || l.startsWith('---') || l.startsWith('+++')) cls = 'meta';
+        return `<span class="dline ${cls}">${csEsc(l) || '&nbsp;'}</span>`;
+      }).join('');
+    } catch (e) {
+      document.getElementById('csDrawerSubj').textContent = `Error: ${e.message || e}`;
+    }
+  }
+
+  function csCloseDrawer() {
+    document.getElementById('csDrawerOverlay')?.classList.remove('on');
+  }
+  window.csCloseDrawer = csCloseDrawer;
+
+  function _csWireHandlers() {
+    document.getElementById('csRepoFilter').addEventListener('input', (e) => {
+      _csState.filter = e.target.value;
+      _csRenderRepoList(_csCache.repos);
+    });
+    document.getElementById('csRepoList').addEventListener('click', (e) => {
+      const it = e.target.closest('.repo-item');
+      if (!it) return;
+      _csSelectRepo(it.dataset.repo);
+    });
+    document.getElementById('csModes').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-mode]');
+      if (!btn) return;
+      _csState.mode = btn.dataset.mode;
+      document.querySelectorAll('#csModes button').forEach(b => b.classList.toggle('active', b === btn));
+      _csRunSearch();
+    });
+    const input = document.getElementById('csSearchInput');
+    input.addEventListener('input', (e) => { _csState.query = e.target.value; });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); _csRunSearch(); }
+    });
+    document.getElementById('csResultsList').addEventListener('click', (e) => {
+      const it = e.target.closest('.res-item');
+      if (!it) return;
+      document.querySelectorAll('#csResultsList .res-item').forEach(el => el.classList.toggle('active', el === it));
+      const ln = it.dataset.line ? parseInt(it.dataset.line, 10) : null;
+      _csOpenFilePreview(it.dataset.path, ln);
+    });
+    document.getElementById('csResultsList').addEventListener('dblclick', (e) => {
+      const it = e.target.closest('.res-item');
+      if (!it) return;
+      const ln = it.dataset.line ? parseInt(it.dataset.line, 10) : null;
+      _csOpenFileModal(it.dataset.path, ln);
+    });
+    // Line-range selection on the inline preview body — drag across
+    // line numbers to pop the "git log -L" affordance. Mirrors the
+    // POC pattern.
+    let _csSel = null;
+    const fileBody = document.getElementById('csFileBody');
+    fileBody.addEventListener('mousedown', (e) => {
+      const row = e.target.closest('.file-line');
+      if (!row) return;
+      _csSel = {a: parseInt(row.dataset.line, 10), b: parseInt(row.dataset.line, 10)};
+    });
+    fileBody.addEventListener('mousemove', (e) => {
+      if (!_csSel) return;
+      const row = e.target.closest('.file-line');
+      if (!row) return;
+      _csSel.b = parseInt(row.dataset.line, 10);
+      const lo = Math.min(_csSel.a, _csSel.b), hi = Math.max(_csSel.a, _csSel.b);
+      fileBody.querySelectorAll('.file-line').forEach(r => {
+        const ln = parseInt(r.dataset.line, 10);
+        r.classList.toggle('sel', ln >= lo && ln <= hi);
+      });
+    });
+    document.addEventListener('mouseup', () => {
+      if (!_csSel) return;
+      const lo = Math.min(_csSel.a, _csSel.b), hi = Math.max(_csSel.a, _csSel.b);
+      const pop = document.getElementById('csRangePop');
+      if (hi > lo) {
+        _csState.selectedRange = [lo, hi];
+        document.getElementById('csRangeLines').textContent = `lines ${lo}–${hi}`;
+        if (pop) {
+          pop.classList.add('on');
+          const first = fileBody.querySelector(`.file-line[data-line="${lo}"]`);
+          if (first) pop.style.top = (first.offsetTop + 4) + 'px';
+        }
+      } else {
+        _csState.selectedRange = null;
+        if (pop) pop.classList.remove('on');
+        fileBody.querySelectorAll('.file-line.sel').forEach(r => r.classList.remove('sel'));
+      }
+      _csSel = null;
+    });
+    document.getElementById('csGitList').addEventListener('click', (e) => {
+      const it = e.target.closest('.git-item');
+      if (!it) return;
+      _csOpenCommit(it.dataset.sha);
+    });
+    // File modal controls.
+    document.getElementById('csFileModalCopy').addEventListener('click', () => {
+      const path = document.getElementById('csFileModalPath').textContent || '';
+      try { navigator.clipboard.writeText(path); } catch {}
+    });
+    document.getElementById('csFileModalHist').addEventListener('click', () => {
+      // Already updates the right rail when the file opens — this just
+      // closes the modal so the user can see it.
+      csCloseFileModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const overlay = document.getElementById('csFileModalOverlay');
+      if (overlay && overlay.classList.contains('on')) csCloseFileModal();
+    });
+  }
+
   // Browser back/forward → re-run the same dispatch the initial-load
   // chain runs, but with `{replace: true}` so we don't push duplicate
   // entries on top of the history state the browser just restored.
@@ -8141,6 +9326,8 @@
       goToCerebro(cerebroPath, {replace: true});
     } else if (view === 'productivity') {
       goToProductivity({replace: true});
+    } else if (view === 'code-search') {
+      goToCodeSearch({replace: true, repo: params.get('repo') || null});
     } else if (repo) {
       _swapViewState();
       fetchRepos().then(projects => {
@@ -8215,6 +9402,11 @@
         desc: 'Personal knowledge base — wikis, logs, meetings, roadmaps, and every project\'s docs.',
         href: '/?view=cerebro',
       }),
+      pseudoRowHtml({
+        id: CODE_SEARCH_PROJECT_ID, icon: '🔍', label: 'code-search',
+        desc: 'Search filenames and code across every repo under repositories/. Click a result for an inline preview, double-click for the syntax-highlighted modal.',
+        href: '/?view=code-search',
+      }),
     ].join('');
 
     // Split real projects into "Active" (status=active, not held) and "Rest"
@@ -8283,10 +9475,12 @@
         if (e.target.closest('.p-detail')) return;        // bubbled from detail
         const href = row.getAttribute('data-href');
         if (href) {
-          // Pseudo-rows (productivity, cerebro). Route in-page so the
-          // dashboard → pseudo-project click doesn't full-reload.
+          // Pseudo-rows (productivity, cerebro, code-search). Route
+          // in-page so the dashboard → pseudo-project click doesn't
+          // full-reload.
           if (href === '/?view=productivity') goToProductivity();
           else if (href === '/?view=cerebro') goToCerebro();
+          else if (href === '/?view=code-search') goToCodeSearch();
           else window.location.href = href;  // unknown — full reload
           return;
         }
@@ -9963,7 +11157,7 @@
   // repo root. Mirrors termOpenForCerebro() exactly, substituting SELF_PROJECT_ID.
   async function termOpenForSelf() {
     document.body.classList.add('term-open');
-    document.body.classList.remove('term-collapsed');
+    _termApplyRememberedVisibility();
 
     // Warm switch — same fast path as termOpenForProject. See comment
     // there for the why.
@@ -10416,7 +11610,7 @@
   async function termOpenForCerebro() {
     // Mirror termOpenForProject, but wired to the __cerebro__ pseudo-project.
     document.body.classList.add('term-open');
-    document.body.classList.remove('term-collapsed');
+    _termApplyRememberedVisibility();
 
     // Warm switch — same fast path as termOpenForProject.
     const isWarmSwitch = _termSessionsCache.has(CEREBRO_PROJECT_ID);

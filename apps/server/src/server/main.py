@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from server import config
 from server.routes import cerebro as cerebro_route
+from server.routes import code_search as code_search_route
 from server.routes import diff as diff_route
 from server.routes import git as git_route
 from server.routes import index as index_route
@@ -267,6 +268,16 @@ async def lifespan(app: FastAPI):
         _frontend_info_filter,
     )
 
+    # Drop the running port to disk so other tools (lab CLI, scripts, Claude
+    # curl examples) can discover it without hardcoding 3333. Removed in the
+    # finally block on shutdown.
+    port_file = root / ".lab-server.port"
+    try:
+        port_file.write_text(f"{config.port()}\n")
+    except OSError:
+        # Best effort — don't block startup if the FS is read-only or full.
+        pass
+
     cache = IndexCache(root)
     broadcaster = WsBroadcaster()
 
@@ -304,6 +315,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         watcher.stop()
+        try:
+            port_file.unlink(missing_ok=True)
+        except OSError:
+            pass
         # Remove and close the file handlers to flush any buffered records.
         if _file_handler is not None:
             logging.getLogger().removeHandler(_file_handler)
@@ -358,6 +373,7 @@ def create_app() -> FastAPI:
     app.include_router(log_route.router)
     app.include_router(git_route.router)
     app.include_router(proxy_route.router)
+    app.include_router(code_search_route.router)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

@@ -94,7 +94,7 @@ For anything not covered here, read `~/.claude/skills/darwin-cli/SKILL.md` and `
 
 ## Running Darwin code inside the lab UI
 
-The lab server at `:3333` exposes a notebook executor that wraps `darwin code execute` and writes the result straight to an `.ipynb` on disk. Use it instead of running `darwin code execute` directly whenever you want the run to appear in an open notebook view (your UI **and** Claude Code can share the same notebook this way).
+The lab server (default `:3333`, overridable via `make start PORT=NNNN`) exposes a notebook executor that wraps `darwin code execute` and writes the result straight to an `.ipynb` on disk. Use it instead of running `darwin code execute` directly whenever you want the run to appear in an open notebook view (your UI **and** Claude Code can share the same notebook this way). Resolve the actual URL from any shell via `$(scripts/lab-url.sh)` so you never hardcode the port.
 
 ### Endpoint — `POST /api/nb/exec`
 
@@ -117,12 +117,12 @@ Behavior:
 ### From Claude Code
 
 ```bash
-curl -s -X POST http://localhost:3333/api/nb/exec \
+curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H 'Content-Type: application/json' \
   -d '{"path":"content/projects/<id>/notebooks/scratch.ipynb","code":"import pandas as pd; pd.__version__"}' | jq .
 ```
 
-Open the notebook in the SPA: `http://localhost:3333/#/nb?path=content/projects/<id>/notebooks/scratch.ipynb`.
+Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=content/projects/<id>/notebooks/scratch.ipynb`.
 
 ### Helpers
 

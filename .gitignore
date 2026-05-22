@@ -35,6 +35,7 @@ tmp/
 apps/server/.venv/
 apps/server/.coverage
 .lab-server.pid
+.lab-server.port
 .lab-server.log
 
 # Centralized server + client error logs
