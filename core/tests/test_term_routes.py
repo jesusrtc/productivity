@@ -541,6 +541,23 @@ def test_delete_with_purge_clears_project_json_entry(client, seed_project,
     assert pjson["sessions"] == []
 
 
+def test_delete_with_purge_prevents_later_resume(client, seed_project,
+                                                  isolated_prefix) -> None:
+    seed_project("demo")
+    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+
+    client.delete(f"/api/term/sessions/{first['name']}?purge=true")
+    recreated = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "claude",
+    }).json()
+
+    assert recreated["claude_session_id"] != first["claude_session_id"]
+    assert recreated["resumed_from"] is None
+    assert "--session-id" in recreated["cmd"]
+    assert "--resume" not in recreated["cmd"]
+
+
 def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_project,
                                                         isolated_prefix,
                                                         monorepo: Path) -> None:

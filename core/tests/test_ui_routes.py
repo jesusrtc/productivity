@@ -84,3 +84,42 @@ def test_pseudo_tabs_reject_unknown_id_without_app(tmp_path) -> None:
             ui.PseudoTabState(tab_id="__unknown__", open=True),
             _request(tmp_path),
         ))
+
+
+def test_term_autospawn_defaults_enabled(client) -> None:
+    r = client.get("/api/ui/term-autospawn", params={"project_id": "demo"})
+    assert r.status_code == 200
+    assert r.json() == {"project_id": "demo", "enabled": True}
+
+
+def test_term_autospawn_roundtrip(client) -> None:
+    r = client.post("/api/ui/term-autospawn", json={
+        "project_id": "demo",
+        "enabled": False,
+    })
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "project_id": "demo", "enabled": False}
+    assert client.get(
+        "/api/ui/term-autospawn",
+        params={"project_id": "demo"},
+    ).json()["enabled"] is False
+
+    r = client.post("/api/ui/term-autospawn", json={
+        "project_id": "demo",
+        "enabled": True,
+    })
+    assert r.status_code == 200
+    assert client.get(
+        "/api/ui/term-autospawn",
+        params={"project_id": "demo"},
+    ).json()["enabled"] is True
+
+
+def test_term_autospawn_rejects_empty_project_without_app(tmp_path) -> None:
+    from core.routes import ui
+
+    with pytest.raises(ui.HTTPException):
+        asyncio.run(ui.set_term_autospawn(
+            ui.TermAutoSpawnState(project_id="", enabled=False),
+            _request(tmp_path),
+        ))

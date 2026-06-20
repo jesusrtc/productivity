@@ -1,4 +1,4 @@
-.PHONY: ls install uninstall test test-fast test-all test-slow start stop restart start-bg status dev agent-install agent-uninstall agent-status agent-tail pull-repos check-ui setup _stop-quiet _ensure-python start-all stop-all
+.PHONY: ls install uninstall test test-fast test-integration test-all test-suite test-slow start stop restart start-bg status dev agent-install agent-uninstall agent-status agent-tail pull-repos check-ui setup _stop-quiet _ensure-python start-all stop-all
 
 .DEFAULT_GOAL := ls
 
@@ -162,17 +162,31 @@ uninstall: ## remove installed binaries and venvs
 	@rm -rf $(LAB_VENV) $(CORE_VENV)
 	@echo "Uninstalled."
 
-test: ## run pytest for lab and server (default: skips @slow)
+test: ## run isolated unit + integration tests for lab/core (skips @slow)
 	@$(LAB_VENV)/bin/pytest apps/lab/tests -v && $(CORE_VENV)/bin/pytest core/tests -v
 
 test-fast: test ## alias for `make test` (skips @slow)
 
+test-integration: ## run isolated integration tests for backend endpoints + UI events
+	@$(LAB_VENV)/bin/pytest apps/lab/tests/test_integration_e2e.py -v && \
+	 $(CORE_VENV)/bin/pytest \
+		core/tests/test_integration_e2e.py \
+		core/tests/test_frontend_terminal_ui.py \
+		core/tests/test_frontend_logging.py \
+		core/tests/test_logging_infra.py \
+		core/tests/test_proxy_routes.py \
+		core/tests/test_term_routes.py \
+		core/tests/test_term_ws_reliability.py \
+		-v
+
 test-slow: ## run only the @slow tests (latency budgets, reconnect storms)
 	@$(CORE_VENV)/bin/pytest core/tests -v -m slow -o "addopts=-ra --cov=core --cov-report=term-missing"
 
-test-all: ## run every test, including @slow (latency budgets, reconnect storms)
+test-all: ## run every isolated lab/core test, including @slow
 	@$(LAB_VENV)/bin/pytest apps/lab/tests -v && \
 	 $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
+
+test-suite: test-all ## run all unit + integration tests in isolated fixtures
 
 # `_stop-quiet` reliably kills the running server. Strategy:
 #   1. Kill whatever holds the port recorded in $(PORT_FILE) (port-accurate).
