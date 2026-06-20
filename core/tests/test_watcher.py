@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
+
+from watchdog.observers.polling import PollingObserver
 
 from core.state import IndexCache
 from core.watcher import IndexWatcher
@@ -58,3 +61,16 @@ def test_watcher_stop_is_idempotent(monorepo: Path) -> None:
     w.start()
     w.stop()
     w.stop()  # should not raise
+
+
+def test_watcher_defaults_to_polling_on_darwin(
+    monorepo: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("LAB_WATCHER_OBSERVER", raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    cache = IndexCache(monorepo)
+    w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=lambda d: None)
+
+    observer = w._make_observer()
+
+    assert isinstance(observer, PollingObserver)

@@ -304,6 +304,7 @@ async def proxy_http(project_id: str, name: str, path: str, request: Request):
             )
     except (httpx.ConnectError, httpx.ConnectTimeout):
         # Friendly placeholder when the dev server isn't running yet.
+        request.state.log_level_override = logging.WARNING
         html = (
             f"<!doctype html><html><body style=\"font-family:ui-monospace,monospace;"
             f"background:#0d1117;color:#c9d1d9;padding:32px;line-height:1.5\">"

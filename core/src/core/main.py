@@ -165,7 +165,18 @@ async def _request_log_middleware(request: Request, call_next):
         "duration_ms": duration_ms,
         "client": request.client.host if request.client else None,
     }
-    if code >= 500:
+    level_override = getattr(request.state, "log_level_override", None)
+    if isinstance(level_override, int):
+        _REQUEST_LOG.log(
+            level_override,
+            "HTTP %s %s -> %d %.2fms",
+            request.method,
+            final_path,
+            code,
+            duration_ms,
+            extra=extra,
+        )
+    elif code >= 500:
         _REQUEST_LOG.error(
             "HTTP %s %s -> %d %.2fms",
             request.method,
@@ -204,6 +215,13 @@ import re as _re  # local alias to avoid colliding with `re` imports elsewhere
 _PROXY_REFERER_RE = _re.compile(
     r"^https?://[^/]+(/api/proxy/[^/]+/[^/]+)(?:/|$)"
 )
+_PROXY_REFERER_SKIP_PREFIXES = (
+    # Shared Lab endpoints that embedded/proxied apps intentionally call.
+    # Rewriting them into the proxied dev server breaks state sync and
+    # client-side logging.
+    "/api/appstate/",
+    "/api/log/",
+)
 
 
 async def _proxy_referer_rewrite(request: Request, call_next):
@@ -223,7 +241,11 @@ async def _proxy_referer_rewrite(request: Request, call_next):
     don't match the proxy-mount regex and pass through untouched.
     """
     path = request.url.path
-    if path.startswith("/api/proxy/") or path.startswith("/ws/proxy/"):
+    if (
+        path.startswith("/api/proxy/")
+        or path.startswith("/ws/proxy/")
+        or any(path.startswith(prefix) for prefix in _PROXY_REFERER_SKIP_PREFIXES)
+    ):
         return await call_next(request)
     referer = request.headers.get("referer") or ""
     m = _PROXY_REFERER_RE.match(referer)
