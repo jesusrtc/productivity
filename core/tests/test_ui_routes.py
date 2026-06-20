@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,12 @@ def _request(root):
             state=SimpleNamespace(index_cache=SimpleNamespace(root=root)),
         ),
     )
+
+
+def _run(value):
+    if inspect.isawaitable(value):
+        return asyncio.run(value)
+    return value
 
 
 def test_tab_order_defaults_to_empty(client) -> None:
@@ -60,16 +67,16 @@ def test_pseudo_tabs_open_state_roundtrip_without_app(tmp_path) -> None:
     from core.routes import ui
 
     request = _request(tmp_path)
-    assert asyncio.run(ui.get_pseudo_tabs(request)) == []
+    assert _run(ui.get_pseudo_tabs(request)) == []
 
-    opened = asyncio.run(ui.set_pseudo_tab(
+    opened = _run(ui.set_pseudo_tab(
         ui.PseudoTabState(tab_id="__logs__", open=True),
         request,
     ))
     assert opened == {"ok": True, "open": ["__logs__"]}
-    assert asyncio.run(ui.get_pseudo_tabs(request)) == ["__logs__"]
+    assert _run(ui.get_pseudo_tabs(request)) == ["__logs__"]
 
-    closed = asyncio.run(ui.set_pseudo_tab(
+    closed = _run(ui.set_pseudo_tab(
         ui.PseudoTabState(tab_id="__logs__", open=False),
         request,
     ))
@@ -80,7 +87,7 @@ def test_pseudo_tabs_reject_unknown_id_without_app(tmp_path) -> None:
     from core.routes import ui
 
     with pytest.raises(ui.HTTPException):
-        asyncio.run(ui.set_pseudo_tab(
+        _run(ui.set_pseudo_tab(
             ui.PseudoTabState(tab_id="__unknown__", open=True),
             _request(tmp_path),
         ))
@@ -119,7 +126,7 @@ def test_term_autospawn_rejects_empty_project_without_app(tmp_path) -> None:
     from core.routes import ui
 
     with pytest.raises(ui.HTTPException):
-        asyncio.run(ui.set_term_autospawn(
+        _run(ui.set_term_autospawn(
             ui.TermAutoSpawnState(project_id="", enabled=False),
             _request(tmp_path),
         ))

@@ -44,7 +44,7 @@ def _save(root: Path, data: dict) -> None:
 
 
 @router.get("/api/ui/tab-order")
-async def get_tab_order(request: Request) -> list[str]:
+def get_tab_order(request: Request) -> list[str]:
     root: Path = request.app.state.index_cache.root
     order = _load(root).get("tab_order", [])
     return order if isinstance(order, list) else []
@@ -55,7 +55,7 @@ class TabOrder(BaseModel):
 
 
 @router.post("/api/ui/tab-order")
-async def set_tab_order(body: TabOrder, request: Request) -> dict:
+def set_tab_order(body: TabOrder, request: Request) -> dict:
     if not isinstance(body.order, list):
         raise HTTPException(status_code=400, detail="order must be a list")
     root: Path = request.app.state.index_cache.root
@@ -90,7 +90,7 @@ def _open_pseudo_tabs(data: dict) -> list[str]:
 
 
 @router.get("/api/ui/pseudo-tabs")
-async def get_pseudo_tabs(request: Request) -> list[str]:
+def get_pseudo_tabs(request: Request) -> list[str]:
     root: Path = request.app.state.index_cache.root
     return _open_pseudo_tabs(_load(root))
 
@@ -101,7 +101,7 @@ class PseudoTabState(BaseModel):
 
 
 @router.post("/api/ui/pseudo-tabs")
-async def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
+def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
     if body.tab_id not in _PSEUDO_TAB_IDS:
         raise HTTPException(status_code=400, detail=f"unknown pseudo tab: {body.tab_id!r}")
     root: Path = request.app.state.index_cache.root
@@ -131,7 +131,7 @@ def _terminal_autospawn_disabled(data: dict) -> list[str]:
 
 
 @router.get("/api/ui/term-autospawn")
-async def get_term_autospawn(project_id: str, request: Request) -> dict:
+def get_term_autospawn(project_id: str, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     disabled = set(_terminal_autospawn_disabled(_load(root)))
     return {"project_id": project_id, "enabled": project_id not in disabled}
@@ -143,7 +143,7 @@ class TermAutoSpawnState(BaseModel):
 
 
 @router.post("/api/ui/term-autospawn")
-async def set_term_autospawn(body: TermAutoSpawnState, request: Request) -> dict:
+def set_term_autospawn(body: TermAutoSpawnState, request: Request) -> dict:
     if not body.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
     root: Path = request.app.state.index_cache.root

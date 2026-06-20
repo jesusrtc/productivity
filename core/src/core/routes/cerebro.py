@@ -148,7 +148,7 @@ def _build(root: Path, rel_base: Path, include_hidden: bool, depth: int = 0) -> 
 
 
 @router.get("/api/cerebro/file")
-async def cerebro_file(path: str, request: Request) -> dict:
+def cerebro_file(path: str, request: Request) -> dict:
     """Return raw text content of a non-markdown file under ``content/``.
 
     Used by the Cerebro viewer for ``.json`` / ``.csv`` / ``.html`` source
@@ -171,7 +171,7 @@ async def cerebro_file(path: str, request: Request) -> dict:
 
 
 @router.get("/api/cerebro/asset")
-async def cerebro_asset(path: str, request: Request):
+def cerebro_asset(path: str, request: Request):
     """Serve a file from ``content/`` or shared ``.claude/`` with proper
     media-type — used as the iframe ``src`` for HTML rendering. Same path
     validation as ``/api/cerebro/file``.
@@ -185,7 +185,7 @@ async def cerebro_asset(path: str, request: Request):
 
 
 @router.get("/api/cerebro/tree")
-async def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
+def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
     """Return the Cerebro tree — ``content/`` plus the monorepo-root ``.claude/``.
 
     Top-level entries are the children of ``content/`` (wikis, projects,

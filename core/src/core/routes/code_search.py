@@ -116,7 +116,7 @@ def _is_git_repo(path: Path) -> bool:
 
 
 @router.get("/api/code-search/repos")
-async def list_repos(request: Request) -> list[dict]:
+def list_repos(request: Request) -> list[dict]:
     """List git repos under `repositories/` with a cheap per-repo summary.
 
     Heavy stats (commit count, contributor count, file count) come from
@@ -158,7 +158,7 @@ async def list_repos(request: Request) -> list[dict]:
 
 
 @router.get("/api/code-search/repos/{repo}/stats")
-async def repo_stats(repo: str, request: Request) -> dict:
+def repo_stats(repo: str, request: Request) -> dict:
     """Heavier per-repo numbers. Cheap-ish but still subprocess heavy
     so cache aggressively on the client side."""
     root = _repos_root(request)
@@ -178,7 +178,7 @@ async def repo_stats(repo: str, request: Request) -> dict:
 
 
 @router.get("/api/code-search/repos/{repo}/search")
-async def search(
+def search(
     repo: str,
     request: Request,
     q: str = "",
@@ -297,7 +297,7 @@ _FILE_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
 @router.get("/api/code-search/repos/{repo}/file")
-async def read_file(repo: str, path: str, request: Request) -> dict:
+def read_file(repo: str, path: str, request: Request) -> dict:
     root = _repos_root(request)
     repo_dir = _validate_repo(root, repo)
     target = _resolve_in_repo(repo_dir, path)
@@ -325,7 +325,7 @@ async def read_file(repo: str, path: str, request: Request) -> dict:
 
 
 @router.get("/api/code-search/repos/{repo}/log")
-async def repo_log(
+def repo_log(
     repo: str,
     request: Request,
     path: Optional[str] = None,
@@ -400,7 +400,7 @@ async def repo_log(
 
 
 @router.get("/api/code-search/repos/{repo}/commit/{sha}")
-async def commit_detail(
+def commit_detail(
     repo: str,
     sha: str,
     request: Request,

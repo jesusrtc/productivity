@@ -9,11 +9,11 @@ router = APIRouter()
 
 
 @router.get("/api/tasks")
-async def list_tasks(request: Request,
-                     status: str | None = None,
-                     priority: str | None = None,
-                     tag: str | None = None,
-                     label: str | None = None) -> list[dict]:
+def list_tasks(request: Request,
+               status: str | None = None,
+               priority: str | None = None,
+               tag: str | None = None,
+               label: str | None = None) -> list[dict]:
     idx = request.app.state.index_cache.get()
     rows = idx["tasks"]
     if status == "open":
@@ -31,7 +31,7 @@ async def list_tasks(request: Request,
 
 
 @router.get("/api/tasks/due")
-async def list_tasks_due(request: Request, days: int = Query(..., ge=1)) -> list[dict]:
+def list_tasks_due(request: Request, days: int = Query(..., ge=1)) -> list[dict]:
     horizon = date.today() + timedelta(days=days)
     idx = request.app.state.index_cache.get()
     out: list[dict] = []

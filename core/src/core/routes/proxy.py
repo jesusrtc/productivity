@@ -250,7 +250,7 @@ def _rewrite_cookie(cookie: str, name_prefix: str, mount_path: str) -> str:
 
 
 @router.get("/api/proxies")
-async def list_proxies(request: Request, project_id: str) -> list[dict[str, Any]]:
+def list_proxies(request: Request, project_id: str) -> list[dict[str, Any]]:
     """List the proxies declared in a project's project.json.
 
     Drives the sidebar 'Servers' section in the frontend.

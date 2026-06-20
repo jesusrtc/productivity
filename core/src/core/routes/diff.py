@@ -132,7 +132,7 @@ def _safe_path(repo: str, filepath: str) -> Path:
 
 
 @router.get("/api/diff")
-async def api_diff(repo: str, type: str = "uncommitted", exclude: str | None = None):
+def api_diff(repo: str, type: str = "uncommitted", exclude: str | None = None):
     """Uncommitted/branch diff for ``repo``.
 
     ``exclude`` is a comma-separated list of path prefixes to omit from the
@@ -143,7 +143,7 @@ async def api_diff(repo: str, type: str = "uncommitted", exclude: str | None = N
 
 
 @router.get("/api/notebook")
-async def api_notebook(repo: str, path: str):
+def api_notebook(repo: str, path: str):
     file_path = _safe_path(repo, path)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -151,29 +151,29 @@ async def api_notebook(repo: str, path: str):
 
 
 @router.get("/api/notebook-diff")
-async def api_notebook_diff(repo: str, path: str, type: str = "uncommitted"):
+def api_notebook_diff(repo: str, path: str, type: str = "uncommitted"):
     return get_notebook_diff(repo, path, type)
 
 
 @router.get("/api/commits")
-async def api_commits(repo: str, count: int = 20, exclude: str | None = None):
+def api_commits(repo: str, count: int = 20, exclude: str | None = None):
     """Recent commits for ``repo``; ``exclude`` behaves like /api/diff's."""
     excl = [p for p in (exclude or "").split(",") if p.strip()]
     return get_commits(repo, count, exclude_paths=excl or None)
 
 
 @router.get("/api/commit-diff")
-async def api_commit_diff(repo: str, sha: str):
+def api_commit_diff(repo: str, sha: str):
     return get_commit_diff(repo, sha)
 
 
 @router.get("/api/tree")
-async def api_tree(repo: str):
+def api_tree(repo: str):
     return get_file_tree(repo)
 
 
 @router.get("/api/repos")
-async def api_repos():
+def api_repos():
     projects = get_registered_repos()
     result = []
     for proj in projects:
@@ -195,7 +195,7 @@ async def api_repos():
 
 
 @router.get("/api/project-info")
-async def api_project_info(path: str):
+def api_project_info(path: str):
     project_path = _resolve_project_path(path)
     info = _read_project_info(project_path)
     if info is None:
@@ -209,7 +209,7 @@ class ProjectInfoBody(BaseModel):
 
 
 @router.put("/api/project-info")
-async def update_project_info(body: ProjectInfoBody):
+def update_project_info(body: ProjectInfoBody):
     project_path = _resolve_project_path(body.path)
     target = project_path / "project.json"
     if not target.is_file():
@@ -223,13 +223,13 @@ async def update_project_info(body: ProjectInfoBody):
 
 
 @router.get("/api/project-actions")
-async def api_project_actions(path: str):
+def api_project_actions(path: str):
     project_path = _resolve_project_path(path)
     return _read_project_actions(project_path)
 
 
 @router.get("/api/project-alerts")
-async def api_project_alerts(path: str):
+def api_project_alerts(path: str):
     project_path = _resolve_project_path(path)
     alerts_json = project_path / "alerts.json"
     if not alerts_json.is_file():
@@ -241,7 +241,7 @@ async def api_project_alerts(path: str):
 
 
 @router.get("/api/project-artifacts")
-async def api_project_artifacts(path: str):
+def api_project_artifacts(path: str):
     project_path = _resolve_project_path(path)
     artifacts_json = project_path / "artifacts.json"
     if not artifacts_json.is_file():
@@ -253,7 +253,7 @@ async def api_project_artifacts(path: str):
 
 
 @router.get("/api/project-onepager")
-async def api_project_onepager(path: str):
+def api_project_onepager(path: str):
     project_path = _resolve_project_path(path)
     for rel in ("docs/one-pager.md", "one-pager.md"):
         candidate = project_path / rel
@@ -263,7 +263,7 @@ async def api_project_onepager(path: str):
 
 
 @router.get("/api/project-files")
-async def api_project_files(path: str, include_dotfiles: bool = False):
+def api_project_files(path: str, include_dotfiles: bool = False):
     """List all files in a project directory as a flat list with relative paths."""
     project_path = Path(path)
     if not project_path.is_dir():
@@ -340,7 +340,7 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
 
 
 @router.get("/api/project-file")
-async def api_project_file(path: str, file: str):
+def api_project_file(path: str, file: str):
     """Read a project-level file.
 
     Security: path-traversal is enforced on the *input* ``file`` parameter
@@ -363,7 +363,7 @@ async def api_project_file(path: str, file: str):
 
 
 @router.get("/api/project-mtime")
-async def api_project_mtime(path: str):
+def api_project_mtime(path: str):
     """Return the latest mtime across files in a project directory.
 
     The client polls this every 2s from the project / self view to decide
@@ -416,7 +416,7 @@ async def api_project_mtime(path: str):
 
 
 @router.get("/api/project-asset")
-async def api_project_asset(path: str, file: str):
+def api_project_asset(path: str, file: str):
     """Serve a static file (image, etc.) from a project directory. Same
     input-only traversal check as ``/api/project-file``."""
     if file.startswith("/") or ".." in Path(file).parts:
@@ -436,7 +436,7 @@ class ProjectFileBody(BaseModel):
 
 
 @router.put("/api/project-file")
-async def update_project_file(body: ProjectFileBody):
+def update_project_file(body: ProjectFileBody):
     """Save a project-level file."""
     project_path = Path(body.path).resolve()
     file_path = (project_path / body.file).resolve()
@@ -449,7 +449,7 @@ async def update_project_file(body: ProjectFileBody):
 
 
 @router.get("/api/project-comments")
-async def api_project_comments(path: str):
+def api_project_comments(path: str):
     """Read comments.json from project."""
     comments_path = Path(path) / "comments.json"
     if not comments_path.is_file():
@@ -476,7 +476,7 @@ class CommentBody(BaseModel):
 
 
 @router.post("/api/project-comments")
-async def add_project_comment(body: CommentBody):
+def add_project_comment(body: CommentBody):
     """Add a comment to comments.json.
 
     Doc comments pass only the original fields (kind left unset). Code /
@@ -513,7 +513,7 @@ class CommentDeleteBody(BaseModel):
 
 
 @router.delete("/api/project-comments")
-async def delete_project_comment(body: CommentDeleteBody):
+def delete_project_comment(body: CommentDeleteBody):
     """Delete (resolve) a comment."""
     comments_path = Path(body.path) / "comments.json"
     if not comments_path.is_file():
@@ -531,7 +531,7 @@ class ActionCompleteBody(BaseModel):
 
 
 @router.post("/api/project-action-complete")
-async def complete_project_action(body: ActionCompleteBody):
+def complete_project_action(body: ActionCompleteBody):
     """Mark an action/task item as done with optional artifacts.
 
     Writes back to the new ``tasks.json`` schema when present; falls back
@@ -579,7 +579,7 @@ class FileBody(BaseModel):
 
 
 @router.get("/api/file")
-async def get_file(repo: str, path: str):
+def get_file(repo: str, path: str):
     file_path = _safe_path(repo, path)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -591,7 +591,7 @@ async def get_file(repo: str, path: str):
 
 
 @router.put("/api/file")
-async def update_file(body: FileBody):
+def update_file(body: FileBody):
     file_path = _safe_path(body.repo, body.path)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -600,7 +600,7 @@ async def update_file(body: FileBody):
 
 
 @router.post("/api/file")
-async def create_file(body: FileBody):
+def create_file(body: FileBody):
     file_path = _safe_path(body.repo, body.path)
     if file_path.exists():
         raise HTTPException(status_code=409, detail="File already exists")
@@ -610,7 +610,7 @@ async def create_file(body: FileBody):
 
 
 @router.delete("/api/file")
-async def delete_file(repo: str, path: str):
+def delete_file(repo: str, path: str):
     file_path = _safe_path(repo, path)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")

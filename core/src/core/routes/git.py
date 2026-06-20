@@ -44,14 +44,14 @@ def _run_make(root: Path, target: str) -> dict:
 
 
 @router.post("/api/git/push-productivity")
-async def push_productivity(request: Request) -> dict:
+def push_productivity(request: Request) -> dict:
     """Push the productivity monorepo. Errors if the working tree is dirty."""
     root = request.app.state.index_cache.root
     return _run_make(root, "push-productivity")
 
 
 @router.post("/api/git/sync-content")
-async def sync_content(request: Request) -> dict:
+def sync_content(request: Request) -> dict:
     """Stage, commit (if needed), and push the content repo."""
     root = request.app.state.index_cache.root
     return _run_make(root, "push-content")

@@ -60,8 +60,8 @@ def _validate_project_id(project_id: str) -> None:
 
 
 @router.get("/api/projects")
-async def list_projects(request: Request, status: str | None = None,
-                        tag: str | None = None, label: str | None = None) -> list[dict]:
+def list_projects(request: Request, status: str | None = None,
+                  tag: str | None = None, label: str | None = None) -> list[dict]:
     idx = request.app.state.index_cache.get()
     rows = idx["projects"]
     if status:
@@ -74,7 +74,7 @@ async def list_projects(request: Request, status: str | None = None,
 
 
 @router.get("/api/projects/{project_id}")
-async def get_project(project_id: str, request: Request) -> dict:
+def get_project(project_id: str, request: Request) -> dict:
     _validate_project_id(project_id)
     root: Path = request.app.state.index_cache.root
     if paths.is_pseudo_project(project_id):
@@ -86,7 +86,7 @@ async def get_project(project_id: str, request: Request) -> dict:
 
 
 @router.get("/api/projects/{project_id}/tasks")
-async def get_project_tasks(project_id: str, request: Request) -> dict:
+def get_project_tasks(project_id: str, request: Request) -> dict:
     _validate_project_id(project_id)
     root: Path = request.app.state.index_cache.root
     if paths.is_pseudo_project(project_id):
@@ -98,7 +98,7 @@ async def get_project_tasks(project_id: str, request: Request) -> dict:
 
 
 @router.get("/api/projects/{project_id}/docs")
-async def list_project_docs(project_id: str, request: Request) -> list[dict]:
+def list_project_docs(project_id: str, request: Request) -> list[dict]:
     _validate_project_id(project_id)
     root: Path = request.app.state.index_cache.root
     pdir = paths.project_dir(root, project_id)
@@ -127,7 +127,7 @@ class HoldBody(BaseModel):
 
 
 @router.post("/api/projects/{project_id}/hold")
-async def set_project_hold(project_id: str, body: HoldBody, request: Request) -> dict:
+def set_project_hold(project_id: str, body: HoldBody, request: Request) -> dict:
     """Set (or replace) a soft-snooze hold on a project.
 
     The project stays visible everywhere; the UI uses ``hold.until`` to
@@ -167,7 +167,7 @@ async def set_project_hold(project_id: str, body: HoldBody, request: Request) ->
 
 
 @router.delete("/api/projects/{project_id}/hold")
-async def clear_project_hold(project_id: str, request: Request) -> dict:
+def clear_project_hold(project_id: str, request: Request) -> dict:
     """Remove the project's hold (no-op if nothing is set)."""
     _validate_project_id(project_id)
     root: Path = request.app.state.index_cache.root
@@ -188,7 +188,7 @@ class AgentBody(BaseModel):
 
 
 @router.post("/api/projects/{project_id}/agent")
-async def set_project_agent(project_id: str, body: AgentBody, request: Request) -> dict:
+def set_project_agent(project_id: str, body: AgentBody, request: Request) -> dict:
     """Set or clear a project's agent/model override.
 
     Empty/None values clear the override so the project inherits the global
@@ -213,7 +213,7 @@ async def set_project_agent(project_id: str, body: AgentBody, request: Request) 
 
 
 @router.get("/api/projects/{project_id}/file")
-async def get_project_file(project_id: str, path: str, request: Request):
+def get_project_file(project_id: str, path: str, request: Request):
     _validate_project_id(project_id)
     if path.startswith("/") or ".." in Path(path).parts:
         raise HTTPException(status_code=400, detail="invalid path")

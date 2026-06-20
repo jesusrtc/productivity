@@ -24,13 +24,13 @@ _AGENT_BIN = {"claude": "claude", "codex": "codex", "copilot": "copilot"}
 
 
 @router.get("/api/agents/available")
-async def agents_available() -> dict:
+def agents_available() -> dict:
     """Which agents are actually launchable (their CLI is on PATH)."""
     return {agent: bool(shutil.which(binary)) for agent, binary in _AGENT_BIN.items()}
 
 
 @router.get("/api/settings")
-async def get_settings(request: Request) -> dict:
+def get_settings(request: Request) -> dict:
     """Return the merged global settings (defaults + saved overrides)."""
     root: Path = request.app.state.index_cache.root
     return lab_settings.load(root)
@@ -45,7 +45,7 @@ class SettingsPatch(BaseModel):
 
 
 @router.post("/api/settings")
-async def update_settings(body: SettingsPatch, request: Request) -> dict:
+def update_settings(body: SettingsPatch, request: Request) -> dict:
     """Patch one or more settings (validated). Returns the full merged config."""
     root: Path = request.app.state.index_cache.root
     patch = body.model_dump(exclude_unset=True)
@@ -58,7 +58,7 @@ async def update_settings(body: SettingsPatch, request: Request) -> dict:
 
 
 @router.post("/api/agents/sync")
-async def agents_sync(request: Request, dry_run: bool = False) -> dict:
+def agents_sync(request: Request, dry_run: bool = False) -> dict:
     """Run ``lab agents sync`` (AGENTS.md + memory + skill symlinks). Idempotent."""
     root: Path = request.app.state.index_cache.root
     return agentsync.sync_all(root, dry_run=dry_run)

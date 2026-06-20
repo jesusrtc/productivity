@@ -11,6 +11,6 @@ router = APIRouter()
 
 
 @router.get("/api/search")
-async def api_search(request: Request, q: str = Query("", min_length=0)) -> dict:
+def api_search(request: Request, q: str = Query("", min_length=0)) -> dict:
     root: Path = request.app.state.index_cache.root
     return search_impl(root, q)

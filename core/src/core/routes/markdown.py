@@ -32,7 +32,7 @@ def _safe_resolve(root: Path, rel: str) -> Path:
 
 
 @router.get("/api/markdown")
-async def render_markdown(path: str, request: Request) -> dict:
+def render_markdown(path: str, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     target = _safe_resolve(root, path)
     if not target.is_file():

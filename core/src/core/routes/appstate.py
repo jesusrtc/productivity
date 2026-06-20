@@ -30,7 +30,7 @@ def _state_file(root: Path, key: str) -> Path:
 
 
 @router.get("/api/appstate/{key}")
-async def appstate_get(key: str, request: Request) -> Response:
+def appstate_get(key: str, request: Request) -> Response:
     if not _KEY_RE.match(key):
         raise HTTPException(status_code=400, detail="bad key")
     root: Path = request.app.state.index_cache.root

@@ -84,8 +84,8 @@ _PROJECT_SETTABLE_FIELDS = {
 
 
 @router.post("/api/projects/{project_id}/field")
-async def update_project_field(project_id: str, body: ProjectField,
-                               request: Request) -> dict:
+def update_project_field(project_id: str, body: ProjectField,
+                         request: Request) -> dict:
     """Partial update of a single project.json field.
 
     Wraps ``lab project set <id> <field> <value>`` so the same validation
@@ -107,8 +107,8 @@ async def update_project_field(project_id: str, body: ProjectField,
 
 
 @router.post("/api/projects/{project_id}/tab")
-async def set_project_tab(project_id: str, body: TabState,
-                          request: Request) -> dict:
+def set_project_tab(project_id: str, body: TabState,
+                    request: Request) -> dict:
     """Set the dashboard tab-open flag for a project.
 
     Persisted in ``project.json`` as ``tab_open`` so the topbar tab strip
@@ -128,7 +128,7 @@ async def set_project_tab(project_id: str, body: TabState,
 
 
 @router.post("/api/projects")
-async def create_project(body: NewProject, request: Request) -> dict:
+def create_project(body: NewProject, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(body.id)
     args = ["project", "new", body.id]
@@ -158,7 +158,7 @@ class NewTask(BaseModel):
 
 
 @router.post("/api/tasks")
-async def create_task(body: NewTask, request: Request) -> dict:
+def create_task(body: NewTask, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(body.project_id)
     args = ["task", "new", body.title, "--project", body.project_id, "--priority", body.priority]
@@ -185,8 +185,8 @@ class StatusChange(BaseModel):
 
 
 @router.post("/api/tasks/{project_id}/{task_id}/status")
-async def set_task_status(project_id: str, task_id: int, body: StatusChange,
-                          request: Request) -> dict:
+def set_task_status(project_id: str, task_id: int, body: StatusChange,
+                    request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
     if body.status == "done":
@@ -211,8 +211,8 @@ class FieldUpdate(BaseModel):
 
 
 @router.post("/api/tasks/{project_id}/{task_id}/update")
-async def update_task_field(project_id: str, task_id: int, body: FieldUpdate,
-                            request: Request) -> dict:
+def update_task_field(project_id: str, task_id: int, body: FieldUpdate,
+                      request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
     args = ["task", "set", str(task_id), body.field, body.value, "--project", project_id]
@@ -228,7 +228,7 @@ class NewPR(BaseModel):
 
 
 @router.post("/api/projects/{project_id}/prs")
-async def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
+def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
     args = [
@@ -240,7 +240,7 @@ async def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
 
 
 @router.delete("/api/projects/{project_id}/prs/{idx}")
-async def rm_pr(project_id: str, idx: int, request: Request) -> dict:
+def rm_pr(project_id: str, idx: int, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
     _run_lab(["pr", "rm", str(idx), "--project", project_id], root=root)
@@ -255,7 +255,7 @@ class NewArtifact(BaseModel):
 
 
 @router.post("/api/projects/{project_id}/artifacts")
-async def add_artifact(project_id: str, body: NewArtifact, request: Request) -> dict:
+def add_artifact(project_id: str, body: NewArtifact, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
     args = [
@@ -267,7 +267,7 @@ async def add_artifact(project_id: str, body: NewArtifact, request: Request) -> 
 
 
 @router.delete("/api/projects/{project_id}/artifacts/{idx}")
-async def rm_artifact(project_id: str, idx: int, request: Request) -> dict:
+def rm_artifact(project_id: str, idx: int, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
     _run_lab(["artifact", "rm", str(idx), "--project", project_id], root=root)

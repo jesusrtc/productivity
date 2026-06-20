@@ -156,7 +156,7 @@ def _error_log_state(log_dir: Path) -> dict:
 # ─── endpoint ─────────────────────────────────────────────────────────────────
 
 @router.post("/api/log/client")
-async def log_client(body: ClientLogBatch) -> dict:
+def log_client(body: ClientLogBatch) -> dict:
     """Ingest a batch of client-side log events.
 
     Each event is written at INFO/WARNING/ERROR level to the root logger so it
@@ -211,7 +211,7 @@ async def log_client(body: ClientLogBatch) -> dict:
 
 
 @router.get("/api/log/files")
-async def log_files(request: Request) -> dict:
+def log_files(request: Request) -> dict:
     """List known log files that the UI is allowed to tail."""
     log_dir = _log_dir(request)
     files = [_log_file_meta(log_dir, name) for name in _LOG_FILES]
@@ -224,7 +224,7 @@ async def log_files(request: Request) -> dict:
 
 
 @router.get("/api/log/error-state")
-async def log_error_state(request: Request) -> dict:
+def log_error_state(request: Request) -> dict:
     """Current cursor for the shared errors-only log.
 
     The UI stores this cursor in localStorage after the user opens the log
@@ -235,7 +235,7 @@ async def log_error_state(request: Request) -> dict:
 
 
 @router.get("/api/log/tail")
-async def log_tail(
+def log_tail(
     request: Request,
     file: str = _DEFAULT_LOG_FILE,
     tail: int = Query(default=_DEFAULT_TAIL, ge=1, le=_MAX_TAIL),

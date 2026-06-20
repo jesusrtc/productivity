@@ -429,7 +429,7 @@ def create_app() -> FastAPI:
     # every load costs more than serving the bytes. The first visible shell does
     # vary by URL, so cache a small set of rendered variants keyed by template
     # mtime and initial view state.
-    _index_cache: dict = {"mtime": None, "bytes_by_key": {}}
+    _index_cache: dict = {"mtime": None, "bytes_by_key": {}, "check_after": 0.0}
 
     def _index_initial_state(request: Request) -> dict:
         params = request.query_params
@@ -489,10 +489,14 @@ def create_app() -> FastAPI:
     async def index_page(request: Request):
         root: Path = request.app.state.index_cache.root
         tpl_file = _TEMPLATES_DIR / "index.html"
-        try:
-            mtime = tpl_file.stat().st_mtime_ns
-        except OSError:
-            mtime = None
+        mtime = _index_cache["mtime"]
+        now = time.monotonic()
+        if now >= _index_cache["check_after"]:
+            _index_cache["check_after"] = now + 1.0
+            try:
+                mtime = tpl_file.stat().st_mtime_ns
+            except OSError:
+                mtime = None
         state = _index_initial_state(request)
         key = (
             state["INITIAL_VIEW"],

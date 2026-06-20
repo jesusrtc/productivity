@@ -43,6 +43,24 @@
     }
   }
 
+  function afterPageQuiet(fn, delayMs = 750) {
+    const run = () => {
+      try {
+        const ret = fn && fn();
+        if (ret && typeof ret.catch === 'function') ret.catch(() => {});
+      } catch {}
+    };
+    if (document.readyState === 'complete' && performance.now() > 2000) {
+      run();
+      return;
+    }
+    const schedule = () => setTimeout(() => {
+      run();
+    }, delayMs);
+    if (document.readyState === 'complete') schedule();
+    else window.addEventListener('load', schedule, { once: true });
+  }
+
   const _assetPromises = new Map();
   function loadScriptOnce(src) {
     if (_assetPromises.has(src)) return _assetPromises.get(src);
@@ -176,7 +194,7 @@
       // Project-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
       if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
-        afterFirstPaint(() => termOpenForProject(currentProject.name));
+        afterPageQuiet(() => termOpenForProject(currentProject.name));
       }
       // Re-render project tabs so the active highlight tracks the selection.
       if (typeof projTabsRender === 'function') projTabsRender();
@@ -4632,7 +4650,7 @@
     }
   }
 
-  afterFirstPaint(loadSettings);
+  afterPageQuiet(loadSettings);
 
   // ─── Init ───
   // Drop the pre-paint "hide the placeholder" class now that JS owns
@@ -4694,6 +4712,9 @@
   // Knowledge-view state. Same hoisting rule — initCerebro uses these.
   const CEREBRO_PROJECT_ID = '__cerebro__';
   let cerebroTreeData = [];
+  let _cerebroTreePromise = null;
+  let _cerebroTreeFetchedAt = 0;
+  const CEREBRO_TREE_TTL_MS = 15000;
   let cerebroActivePath = null;
   // Hydrate from localStorage so folded/unfolded state survives reloads.
   // Persisted in lockstep on every toggle below.
@@ -4752,12 +4773,12 @@
   const _SIDEBAR_VIS_KEY_PREFIX = 'labSidebarShown:';
   const _SIDEBAR_PCT_KEY_PREFIX = 'labSidebarPct:';
 
-  loadRepos();
-  if (!UI_CHECK) setInterval(loadRepos, 5000);
-  if (!UI_CHECK) setInterval(refreshDiff, 3000);
+  afterPageQuiet(loadRepos);
+  if (!UI_CHECK) afterPageQuiet(() => setInterval(loadRepos, 8000), 1000);
+  if (!UI_CHECK) afterPageQuiet(() => setInterval(refreshDiff, 5000), 1000);
   // Project tab strip: initial render + periodic refresh.
-  afterFirstPaint(projTabsRefresh);
-  if (!UI_CHECK) afterFirstPaint(projTabsStartPolling);
+  afterPageQuiet(projTabsRefresh);
+  if (!UI_CHECK) afterPageQuiet(projTabsStartPolling, 1000);
 
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // project/repo init path entirely and render the mdview-style browser.
@@ -5416,10 +5437,10 @@
         termSetStatus('err', 'session ended: ' + prev);
         termShowRecovery();
       }
-    }, 5000);
+    }, 8000);
   }
 
-  // Poll /api/term/sessions/status every ~3s so session pills show live
+  // Poll /api/term/sessions/status periodically so session pills show live
   // "working / waiting on you" state. Cheap server-side (cached), cheap
   // client-side (tiny response). Stops when the panel closes.
   function termStartStatusPolling() {
@@ -5445,8 +5466,8 @@
         termRenderSessionList();
       } catch {}
     };
-    tick();
-    _termStatusTimer = setInterval(tick, 3000);
+    afterPageQuiet(tick, 500);
+    _termStatusTimer = setInterval(tick, 8000);
   }
 
   function termStopStatusPolling() {
@@ -7060,9 +7081,9 @@
     // so the next render also sees fresh data.
     if (cerebroTreeData && cerebroTreeData.length) {
       _renderMetaFromCerebroTree(cerebroTreeData);
-      _fetchCerebroTree().then(t => {
+      afterPageQuiet(() => _fetchCerebroTree({force: true}).then(t => {
         if (t && t.length) _renderMetaFromCerebroTree(t);
-      }).catch(err => console.error('[populateSharedMeta] background:', err));
+      }).catch(err => console.error('[populateSharedMeta] background:', err)), 1500);
       return;
     }
     _fetchCerebroTree().then(t => {
@@ -7070,10 +7091,20 @@
     }).catch(err => console.error('[populateSharedMeta] failed:', err));
   }
 
-  function _fetchCerebroTree() {
-    return fetch('/api/cerebro/tree')
+  function _fetchCerebroTree({force = false} = {}) {
+    const fresh = cerebroTreeData && cerebroTreeData.length
+      && (Date.now() - _cerebroTreeFetchedAt) < CEREBRO_TREE_TTL_MS;
+    if (!force && fresh) return Promise.resolve(cerebroTreeData);
+    if (_cerebroTreePromise) return _cerebroTreePromise;
+    _cerebroTreePromise = fetch('/api/cerebro/tree')
       .then(r => r.ok ? r.json() : [])
-      .then(tree => { cerebroTreeData = tree || []; return cerebroTreeData; });
+      .then(tree => {
+        cerebroTreeData = tree || [];
+        _cerebroTreeFetchedAt = Date.now();
+        return cerebroTreeData;
+      })
+      .finally(() => { _cerebroTreePromise = null; });
+    return _cerebroTreePromise;
   }
 
   function _renderMetaFromCerebroTree(tree) {
@@ -7262,7 +7293,7 @@
     logsPaintShell();
     if (typeof projTabsRender === 'function') projTabsRender();
     logsStopLive();
-    afterFirstPaint(() => {
+    afterPageQuiet(() => {
       logsLoadFiles()
         .then(() => logsRefresh({forceTail: true, forceScroll: true}))
         .catch(() => logsRefresh({forceTail: true, forceScroll: true}))
@@ -7571,7 +7602,7 @@
         // Hack: set currentProject to a synthetic value so
         // termOpenForProject's stale-response guards line up.
         currentProject = {name: pid, path: '', is_project: true, repos: []};
-        afterFirstPaint(() => termOpenForProject(pid));
+        afterPageQuiet(() => termOpenForProject(pid));
       }
     }
   }
@@ -8336,17 +8367,28 @@
   }
 
   async function renderHomePanel() {
-    if (_homeRendering) return;
-    _homeRendering = true;
-    try {
-      const el = document.getElementById('homePanel');
-      if (homeTab !== 'search') paintHomeShell(el, homeTab);
-      if (homeTab === 'dashboard') await renderDashboard(el);
-      else if (homeTab === 'snoozed') await renderSnoozed(el);
-      else if (homeTab === 'timeline') await renderTimeline(el);
-      else if (homeTab === 'search') renderSearch(el);
-    } finally {
-      _homeRendering = false;
+    const el = document.getElementById('homePanel');
+    const tab = homeTab;
+    if (tab !== 'search') paintHomeShell(el, tab);
+    if (tab === 'search') {
+      renderSearch(el);
+      return;
+    }
+    const fill = async () => {
+      if (_homeRendering || homeTab !== tab) return;
+      _homeRendering = true;
+      try {
+        if (tab === 'dashboard') await renderDashboard(el);
+        else if (tab === 'snoozed') await renderSnoozed(el);
+        else if (tab === 'timeline') await renderTimeline(el);
+      } finally {
+        _homeRendering = false;
+      }
+    };
+    if (document.readyState !== 'complete' || performance.now() < 2000) {
+      afterPageQuiet(fill);
+    } else {
+      await fill();
     }
   }
 
@@ -9863,7 +9905,7 @@
     // need any network and gives the user something to look at while
     // the sidebar + tasks/diff/commits fetches stream in.
     selfPaintContent();
-    afterFirstPaint(() => {
+    afterPageQuiet(() => {
       selfRefreshTasks();
       selfPopulateSidebar();
       selfRefreshDiff();
@@ -10270,7 +10312,7 @@
       const tree = document.getElementById('cerebroTree');
       if (tree) tree.innerHTML = '<ul><li><div class="row"><span class="caret">&nbsp;</span><span class="icon">...</span><span class="name">Loading...</span></div></li></ul>';
     }
-    afterFirstPaint(() => {
+    afterPageQuiet(() => {
       cerebroRefresh();
       if (!UI_CHECK) termOpenForCerebro();
     });
@@ -10287,8 +10329,7 @@
 
   async function cerebroRefresh() {
     try {
-      const r = await fetch('/api/cerebro/tree');
-      cerebroTreeData = r.ok ? await r.json() : [];
+      cerebroTreeData = await _fetchCerebroTree();
     } catch { cerebroTreeData = []; }
     cerebroRenderTree();
   }

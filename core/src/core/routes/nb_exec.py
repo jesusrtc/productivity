@@ -671,7 +671,7 @@ class CellDeleteBody(BaseModel):
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/api/nb/session")
-async def session_for(path: str, request: Request) -> dict:
+def session_for(path: str, request: Request) -> dict:
     """Return the Darwin session name pinned to ``path``.
 
     Lets the UI show which kernel a notebook is using before the first run.
@@ -862,7 +862,7 @@ async def session_restart(body: SessionRestartBody, request: Request) -> dict:
 
 
 @router.post("/api/nb/cell/delete")
-async def delete_cell(body: CellDeleteBody, request: Request) -> dict:
+def delete_cell(body: CellDeleteBody, request: Request) -> dict:
     """Remove the cell at ``body.cell_index`` from ``body.path``."""
     root: Path = request.app.state.index_cache.root
     target = _safe_resolve(root, body.path)
