@@ -500,31 +500,35 @@ def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
     assert "--resume" in resumed["cmd"]
 
 
-def test_logs_pseudo_project_lifecycle(client, isolated_prefix,
-                                         monorepo: Path) -> None:
-    """The Logs tab owns its own terminal sessions and saved state."""
+def test_logs_pseudo_project_uses_own_saved_state(monorepo: Path) -> None:
+    """The Logs tab owns terminal metadata separate from other tabs."""
+    from core.routes import term as term_mod
+
     (monorepo / "logs").mkdir(exist_ok=True)
 
-    r = client.post("/api/term/sessions", json={
-        "project_id": "__logs__", "kind": "terminal",
-    })
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["name"] == isolated_prefix + "__logs__-bash"
-    assert body["project_id"] == "__logs__"
-    assert body["logical_name"] == "bash"
-    assert body["cwd"].endswith("/logs")
+    assert term_mod.LOGS_PROJECT_ID == "__logs__"
+    assert term_mod._project_json(monorepo, term_mod.LOGS_PROJECT_ID) == (
+        monorepo / "content" / ".logs-project.json"
+    )
+    assert term_mod._project_cwd(monorepo, term_mod.LOGS_PROJECT_ID) == (
+        monorepo / "logs"
+    ).resolve()
+    assert term_mod._load_project(monorepo, term_mod.LOGS_PROJECT_ID) == {}
+    assert term_mod.LOGS_PROJECT_ID in term_mod._known_project_ids(monorepo)
+
+    term_mod._upsert_project_session(
+        monorepo,
+        term_mod.LOGS_PROJECT_ID,
+        {"name": "bash", "kind": "terminal"},
+    )
 
     meta_path = monorepo / "content" / ".logs-project.json"
     assert meta_path.is_file()
     data = json.loads(meta_path.read_text())
     assert data["sessions"] == [{"name": "bash", "kind": "terminal"}]
-
-    saved = client.get("/api/term/sessions/saved?project_id=__logs__").json()
-    assert saved == [{"name": "bash", "kind": "terminal"}]
-
-    live = client.get("/api/term/sessions?project_id=__logs__").json()
-    assert [s["name"] for s in live] == [body["name"]]
+    assert term_mod._get_project_sessions(monorepo, term_mod.LOGS_PROJECT_ID) == [
+        {"name": "bash", "kind": "terminal"}
+    ]
 
 
 def test_delete_with_purge_clears_project_json_entry(client, seed_project,
