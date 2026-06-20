@@ -12,9 +12,16 @@ const apiBaseUrl = (() => {
   return url.toString().replace(/\/$/, '');
 })();
 const iterations = Number(process.argv[3] || process.env.LAB_PERF_ITERATIONS || 12);
+const settleMs = Number(process.env.LAB_PERF_SETTLE_MS || 350);
 const terminalSamples = Number(process.env.LAB_TERMINAL_SAMPLES || 100);
 const loadBudgetMs = Number(process.env.LAB_LOAD_BUDGET_MS || 50);
 const shellBudgetMs = Number(process.env.LAB_SHELL_BUDGET_MS || 50);
+const loadMaxBudgetMs = process.env.LAB_LOAD_MAX_BUDGET_MS == null
+  ? null
+  : Number(process.env.LAB_LOAD_MAX_BUDGET_MS);
+const shellMaxBudgetMs = process.env.LAB_SHELL_MAX_BUDGET_MS == null
+  ? null
+  : Number(process.env.LAB_SHELL_MAX_BUDGET_MS);
 const terminalP95BudgetMs = Number(process.env.LAB_TERMINAL_P95_BUDGET_MS || 8);
 const terminalMaxBudgetMs = process.env.LAB_TERMINAL_MAX_BUDGET_MS == null
   ? null
@@ -295,7 +302,7 @@ async function measureRoute(port, route) {
         await client.send('Page.reload');
       }
       await loadEvent;
-      await sleep(5);
+      await sleep(settleMs);
       const evalResult = await client.send('Runtime.evaluate', {
       returnByValue: true,
       expression: `(() => {
@@ -500,6 +507,8 @@ function pageFailures(results) {
   return results.filter((r) =>
     r.p95Load >= loadBudgetMs
     || (r.p95Shell != null && r.p95Shell >= shellBudgetMs)
+    || (loadMaxBudgetMs != null && r.maxLoad >= loadMaxBudgetMs)
+    || (shellMaxBudgetMs != null && r.maxShell != null && r.maxShell >= shellMaxBudgetMs)
     || r.errors.length
   );
 }
