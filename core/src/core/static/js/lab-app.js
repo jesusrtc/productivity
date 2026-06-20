@@ -4879,6 +4879,27 @@
     if (currentProject && currentProject.is_project) return currentProject.name;
     return null;
   }
+  async function termAutoSpawnEnabled(projectId) {
+    if (!projectId) return true;
+    try {
+      const r = await fetch('/api/ui/term-autospawn?project_id=' + encodeURIComponent(projectId));
+      if (!r.ok) return true;
+      const body = await r.json();
+      return body.enabled !== false;
+    } catch {
+      return true;
+    }
+  }
+  async function termSetAutoSpawnEnabled(projectId, enabled) {
+    if (!projectId) return;
+    try {
+      await fetch('/api/ui/term-autospawn', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: projectId, enabled: !!enabled}),
+      });
+    } catch {}
+  }
   function _termRememberLast(projectId, logicalName) {
     if (!projectId || !logicalName) return;
     try {
@@ -5276,7 +5297,9 @@
     // ``claude-2`` (and friends) coming back after a tab-close → reopen.
     //
     // Per-user opt-out of both auto-respawn and first-time auto-spawn via
-    // ``localStorage.labTermAutoSpawn = "0"``.
+    // ``localStorage.labTermAutoSpawn = "0"``. Explicitly closing the last
+    // terminal also disables only the first-time auto-spawn for this project
+    // so a reload does not recreate a terminal the user just removed.
     if (!projectId) { termClose(); return; }
     document.body.classList.add('term-open');
     // Restore the user's last-known collapse state for this view
@@ -5322,9 +5345,10 @@
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const autoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId);
 
-    if (toRestore.length > 0 && autoSpawn) {
+    if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
       // Respawn in parallel. Each POST goes through the idempotent "known
       // name + saved UUID → --resume" branch on the server.
@@ -5350,7 +5374,7 @@
     } else {
       termDetach();
       termShowEmpty();
-      if (autoSpawn) {
+      if (projectAutoSpawn) {
         termSetStatus('idle', 'auto-spawning claude…');
         await termSpawnSession('claude', { startFresh: false });
       } else {
@@ -5958,6 +5982,7 @@
         return;
       }
       const created = await r.json();
+      await termSetAutoSpawnEnabled(projectId, true);
       // Brand-new session — clear any stale dead/backoff state for this
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
@@ -5978,19 +6003,14 @@
 
   async function termKillCurrent() {
     if (!termCurrentSession) return;
-    if (!confirm('Kill tmux session ' + termCurrentSession + '?')) return;
+    const projectId = _termActiveProjectId();
+    if (!confirm('Close terminal session ' + termCurrentSession + '? It will stay closed after reload.')) return;
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
-    try { await fetch('/api/term/sessions/' + encodeURIComponent(name), {method: 'DELETE'}); } catch {}
-    // Pick the right project-id to refresh against. Active pseudo-views win
-    // over a stale currentProject from the previous tab.
-    let projectId = null;
-    if (document.body.classList.contains('logs-active')) projectId = LOGS_PROJECT_ID;
-    else if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
-    else if (document.body.classList.contains('self-active')) projectId = SELF_PROJECT_ID;
-    else if (currentProject && currentProject.is_project) projectId = currentProject.name;
+    try { await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true', {method: 'DELETE'}); } catch {}
+    await termSetAutoSpawnEnabled(projectId, false);
     if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
-    else await termRefreshSessions(projectId);
+    else if (projectId) await termRefreshSessions(projectId);
     if (termSessions.length > 0) termAttach(termSessions[0].name);
     else { termShowEmpty(); termSetStatus('idle', 'no session — click + New'); }
   }
@@ -10188,9 +10208,10 @@
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const autoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(SELF_PROJECT_ID);
 
-    if (toRestore.length > 0 && autoSpawn) {
+    if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
       await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
         method: 'POST',
@@ -10205,7 +10226,7 @@
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(SELF_PROJECT_ID);
       if (pick) termAttach(pick);
-    } else if (autoSpawn) {
+    } else if (projectAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       await fetch('/api/term/sessions', {
         method: 'POST',
@@ -10642,9 +10663,10 @@
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const autoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(LOGS_PROJECT_ID);
 
-    if (toRestore.length > 0 && autoSpawn) {
+    if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
       await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
         method: 'POST',
@@ -10663,7 +10685,7 @@
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(LOGS_PROJECT_ID);
       if (pick) termAttach(pick);
-    } else if (autoSpawn) {
+    } else if (projectAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       await fetch('/api/term/sessions', {
         method: 'POST',
@@ -10722,9 +10744,10 @@
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const autoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(CEREBRO_PROJECT_ID);
 
-    if (toRestore.length > 0 && autoSpawn) {
+    if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
       await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
         method: 'POST',
@@ -10743,7 +10766,7 @@
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
       if (pick) termAttach(pick);
-    } else if (autoSpawn) {
+    } else if (projectAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       // Call termSpawnSession-style, but using CEREBRO_PROJECT_ID.
       await fetch('/api/term/sessions', {

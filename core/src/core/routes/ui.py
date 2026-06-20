@@ -2,8 +2,8 @@
 
 Small catch-all for per-monorepo UI preferences that need to persist across
 browsers / machines (so localStorage isn't the right place). Today that's
-the tab-strip order and pseudo-tab open state; future: pinned projects,
-theme per-project, etc.
+the tab-strip order, pseudo-tab open state, and per-project terminal
+auto-spawn suppression; future: pinned projects, theme per-project, etc.
 
 State lives in ``content/.ui-state.json``. The watcher's self-write guard
 already ignores dotfiles under ``content/`` that start with ``.`` — writes
@@ -114,3 +114,45 @@ async def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
     data["pseudo_tabs_open"] = open_tabs
     _save(root, data)
     return {"ok": True, "open": open_tabs}
+
+
+def _terminal_autospawn_disabled(data: dict) -> list[str]:
+    raw = data.get("terminal_autospawn_disabled", [])
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for project_id in raw:
+        if not isinstance(project_id, str) or not project_id or project_id in seen:
+            continue
+        seen.add(project_id)
+        out.append(project_id)
+    return out
+
+
+@router.get("/api/ui/term-autospawn")
+async def get_term_autospawn(project_id: str, request: Request) -> dict:
+    root: Path = request.app.state.index_cache.root
+    disabled = set(_terminal_autospawn_disabled(_load(root)))
+    return {"project_id": project_id, "enabled": project_id not in disabled}
+
+
+class TermAutoSpawnState(BaseModel):
+    project_id: str
+    enabled: bool
+
+
+@router.post("/api/ui/term-autospawn")
+async def set_term_autospawn(body: TermAutoSpawnState, request: Request) -> dict:
+    if not body.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    root: Path = request.app.state.index_cache.root
+    data = _load(root)
+    disabled = set(_terminal_autospawn_disabled(data))
+    if body.enabled:
+        disabled.discard(body.project_id)
+    else:
+        disabled.add(body.project_id)
+    data["terminal_autospawn_disabled"] = sorted(disabled)
+    _save(root, data)
+    return {"ok": True, "project_id": body.project_id, "enabled": body.enabled}
