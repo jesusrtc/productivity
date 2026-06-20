@@ -1,31 +1,127 @@
 """Tests for /api/term/* session CRUD.
 
-We talk to a real tmux server but isolate ourselves under a per-test prefix
-so we can't step on the user's existing `lab-*` sessions. The `command` the
-session wraps is `sh` (always present, quick to spawn); we don't test the
-WebSocket PTY bridge here — that requires a PTY-capable test harness and is
-better exercised by the manual `make check-ui` flow.
+These endpoint tests run against a per-test fake ``tmux`` binary on PATH. That
+keeps the API/storage flow real while avoiding the user's production tmux
+server and socket. The WebSocket PTY bridge is covered separately.
 """
 from __future__ import annotations
 
 import json
-import shutil
+import os
 import subprocess
+import textwrap
 import uuid
 from pathlib import Path
 
 import pytest
 
 
-TMUX_AVAILABLE = shutil.which("tmux") is not None
-pytestmark = pytest.mark.skipif(not TMUX_AVAILABLE, reason="tmux not installed")
-
-
 @pytest.fixture()
-def isolated_prefix(monkeypatch: pytest.MonkeyPatch):
-    """Unique tmux prefix per test so parallel runs / real sessions can't collide."""
+def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Unique prefix plus a fake tmux state file per test."""
     prefix = f"lab-test-{uuid.uuid4().hex[:6]}-"
     monkeypatch.setenv("LAB_TMUX_PREFIX", prefix)
+    state_file = tmp_path / "fake-tmux-state.json"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    tmux = bin_dir / "tmux"
+    tmux.write_text(textwrap.dedent(r'''#!/usr/bin/env python3
+        import json
+        import sys
+        import time
+        from pathlib import Path
+
+        STATE = Path(__STATE_FILE__)
+
+        def load():
+            if not STATE.is_file():
+                return {}
+            try:
+                return json.loads(STATE.read_text())
+            except Exception:
+                return {}
+
+        def save(data):
+            STATE.write_text(json.dumps(data))
+
+        def opt(args, flag, default=None):
+            try:
+                return args[args.index(flag) + 1]
+            except (ValueError, IndexError):
+                return default
+
+        args = sys.argv[1:]
+        if not args:
+            sys.exit(0)
+
+        cmd = args[0]
+        data = load()
+
+        if cmd == "list-sessions":
+            sessions = data.get("sessions", {})
+            if not sessions:
+                sys.stderr.write("no server running\n")
+                sys.exit(1)
+            fmt = opt(args, "-F", "#{session_name}")
+            rows = []
+            for name, info in sessions.items():
+                if fmt == "#{session_name}":
+                    rows.append(name)
+                else:
+                    rows.append("|".join([
+                        name,
+                        str(info.get("created", 0)),
+                        str(info.get("attached", 0)),
+                        str(info.get("windows", 1)),
+                    ]))
+            sys.stdout.write("\n".join(rows) + ("\n" if rows else ""))
+            sys.exit(0)
+
+        if cmd == "new-session":
+            name = opt(args, "-s")
+            if not name:
+                sys.stderr.write("missing session name\n")
+                sys.exit(1)
+            sessions = data.setdefault("sessions", {})
+            if name in sessions:
+                sys.stderr.write("duplicate session: " + name + "\n")
+                sys.exit(1)
+            sessions[name] = {
+                "created": int(time.time()),
+                "attached": 0,
+                "windows": 1,
+                "cwd": opt(args, "-c", ""),
+                "cmd": args[-1] if args else "",
+            }
+            save(data)
+            sys.exit(0)
+
+        if cmd == "has-session":
+            name = opt(args, "-t")
+            sys.exit(0 if name in data.get("sessions", {}) else 1)
+
+        if cmd == "kill-session":
+            name = opt(args, "-t")
+            data.get("sessions", {}).pop(name, None)
+            save(data)
+            sys.exit(0)
+
+        if cmd == "capture-pane":
+            sys.stdout.write("$ \n")
+            sys.exit(0)
+
+        if cmd in ("set-option", "bind-key", "unbind-key"):
+            sys.exit(0)
+
+        if cmd == "-V":
+            sys.stdout.write("tmux fake\n")
+            sys.exit(0)
+
+        sys.stderr.write("unsupported fake tmux command: " + " ".join(args) + "\n")
+        sys.exit(1)
+    ''').replace("\n        ", "\n").replace("__STATE_FILE__", json.dumps(str(state_file))))
+    tmux.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
     yield prefix
 
