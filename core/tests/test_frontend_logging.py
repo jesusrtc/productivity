@@ -202,6 +202,9 @@ def test_embedded_logs_view_registered_in_main_shell() -> None:
     assert "termOpenForLogs()" in lab_app
     assert "function termOpenForLogs" in lab_app
     assert "if (document.body.classList.contains('logs-active')) return LOGS_PROJECT_ID" in lab_app
+    logs_resolver = "if (document.body.classList.contains('logs-active')) return LOGS_PROJECT_ID"
+    project_resolver = "if (currentProject && currentProject.is_project) return currentProject.name"
+    assert lab_app.index(logs_resolver) < lab_app.index(project_resolver)
     assert "_TERM_VIS_KEY_PREFIX + 'logs'" in lab_app
     assert "return 'logs'" in lab_app
     assert "function logsStartLive" in lab_app
