@@ -1,4 +1,4 @@
-.PHONY: ls install uninstall test test-fast test-integration test-all test-suite test-slow start stop restart start-bg status dev agent-install agent-uninstall agent-status agent-tail pull-repos check-ui setup _stop-quiet _ensure-python start-all stop-all
+.PHONY: ls install uninstall test test-fast test-integration test-all test-suite test-slow perf-prod start stop restart start-bg status dev agent-install agent-uninstall agent-status agent-tail pull-repos check-ui setup _stop-quiet _ensure-python start-all stop-all
 
 .DEFAULT_GOAL := ls
 
@@ -189,6 +189,9 @@ test-all: ## run every isolated lab/core test, including @slow
 	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-suite: test-all ## run all unit + integration tests in isolated fixtures
+
+perf-prod: ## verify production page-load and terminal latency budgets against the running server
+	@node scripts/perf/lab_perf_matrix.mjs "$$(scripts/lab-url.sh)" "$${LAB_PERF_ITERATIONS:-12}"
 
 # `_stop-quiet` reliably kills the running server. Strategy:
 #   1. Kill whatever holds the port recorded in $(PORT_FILE) (port-accurate).

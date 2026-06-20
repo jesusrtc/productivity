@@ -359,7 +359,13 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="lab-core", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="lab-core",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+    )
 
     # Allow local dev frontends (Vite, Live Server, etc.) in addition to same-origin.
     app.add_middleware(
@@ -476,10 +482,11 @@ def create_app() -> FastAPI:
         }
 
     def _compact_index_html(html: str) -> str:
+        html = _re.sub(r"<!--.*?-->", "", html, flags=_re.S)
         return _re.sub(r">\s+<", "><", html)
 
     @app.get("/", response_class=HTMLResponse)
-    def index_page(request: Request):
+    async def index_page(request: Request):
         root: Path = request.app.state.index_cache.root
         tpl_file = _TEMPLATES_DIR / "index.html"
         try:

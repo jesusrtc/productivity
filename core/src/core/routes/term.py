@@ -674,8 +674,8 @@ _WORKING_HINTS_RE = re.compile(
 )
 
 _STATUS_CACHE: dict[str, tuple[float, str]] = {}
-_STATUS_TTL_S = 1.5
-_PROJECTS_CACHE_TTL_S = 1.0
+_STATUS_TTL_S = 8.0
+_PROJECTS_CACHE_TTL_S = 8.0
 _PROJECTS_ATTENTION_CACHE: tuple[float, list[str]] | None = None
 _PROJECTS_WITH_SESSIONS_CACHE: tuple[float, list[str]] | None = None
 

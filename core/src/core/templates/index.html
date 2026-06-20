@@ -18,81 +18,6 @@
     }
   })();
 
-  // Minimal AMD-ish loader for Jupyter/DAVI/Plotly notebook outputs. We
-  // implement just enough of the surface DAVI actually touches:
-  //   require.undef("plotly")       — clear a cached registration
-  //   define("plotly", factory)     — register a module (CJS pseudo-deps)
-  //   require(["plotly"], fn)       — async consume
-  //   require("name")               — sync consume
-  //
-  // Deliberately: we do NOT set `define.amd`. UMD libraries (marked,
-  // highlight.js and lazily loaded terminal/chart bundles) test
-  // `typeof define === "function" && define.amd` before registering via
-  // AMD — if .amd is truthy they skip the global-assignment branch and
-  // window.marked / window.Terminal / window.FitAddon never get set,
-  // which breaks the rest of the page. Plotly's bundle handles our
-  // missing .amd fine: its inner UMD wrapper picks the CJS branch
-  // (module.exports = …) when it sees the exports/module pseudo-deps
-  // we inject into the factory.
-  //
-  // Installed synchronously in <head> so it's present before any notebook
-  // script executes. Idempotent.
-  (function () {
-    if (typeof window.define === 'function' && window.define._isLabShim) return;
-    var registry = {};
-    function resolve(name) {
-      if (name in registry) return registry[name];
-      // convenience: Plotly's UMD fallback path may set window.Plotly even
-      // when `define` is present — honor that as a last-resort lookup.
-      if (name === 'plotly' && window.Plotly) return window.Plotly;
-      return undefined;
-    }
-    function require(deps, fn) {
-      if (typeof deps === 'string') return resolve(deps);
-      var resolved = (deps || []).map(resolve);
-      if (typeof fn === 'function') return fn.apply(null, resolved);
-      return resolved[0];
-    }
-    require.undef = function (name) { delete registry[name]; };
-    require.config = function () {};
-    function define(name, deps, factory) {
-      // Accept all AMD overloads: define(factory), define(deps, factory),
-      // define(name, factory), define(name, deps, factory).
-      if (typeof name === 'function') { factory = name; deps = null; name = undefined; }
-      else if (Array.isArray(name)) { factory = deps; deps = name; name = undefined; }
-      else if (typeof deps === 'function') { factory = deps; deps = null; }
-      // CommonJS-wrapper idiom: `define(function(require, exports, module){…})`
-      // with no explicit deps. AMD spec says default the deps to the CJS
-      // pseudo-deps. Without this, the Plotly bundle's factory receives no
-      // args and its `module.exports = …` assignment blows up on undefined.
-      if (deps == null && typeof factory === 'function') {
-        deps = factory.length > 0
-          ? ['require', 'exports', 'module'].slice(0, factory.length)
-          : [];
-      }
-      var mod = { exports: {} };
-      var args = (deps || []).map(function (d) {
-        if (d === 'require') return require;
-        if (d === 'exports') return mod.exports;
-        if (d === 'module') return mod;
-        return resolve(d);
-      });
-      var ret = typeof factory === 'function' ? factory.apply(null, args) : factory;
-      // AMD: factory may return a value OR mutate module.exports. Prefer the
-      // return value; fall back to module.exports for the CJS path.
-      var exported = ret !== undefined ? ret : mod.exports;
-      // Named defines only — we rely on `define.amd` being absent so UMD
-      // libraries take the global-assignment branch rather than calling our
-      // `define` anonymously. See the top-of-block comment for why.
-      if (name) {
-        registry[name] = exported;
-        if (name === 'plotly' && exported && !window.Plotly) window.Plotly = exported;
-      }
-    }
-    define._isLabShim = true;  // sentinel so a second inclusion becomes a no-op
-    window.require = require;
-    window.define = define;
-  })();
 </script>
 <style>
   :root { --bg-primary:#0d1117; --bg-secondary:#161b22; --bg-tertiary:#21262d; --border:#30363d; --text-primary:#e6edf3; --text-secondary:#8b949e; --text-dim:#484f58; --accent:#58a6ff; --green:#3fb950; --red:#f85149; }
@@ -142,7 +67,7 @@
       var s = document.createElement('script');
       s.src = '/static/js/lib/error-report.js';
       document.head.appendChild(s);
-    }, 0);
+    }, 300);
   }, { once: true });
 </script>
 <noscript><link rel="stylesheet" href="/static/css/lab-shell.css"></noscript>
@@ -836,7 +761,51 @@
 <script>window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};</script>
 <script>
   (function () {
+    function installLabAmdShim() {
+      if (typeof window.define === 'function' && window.define._isLabShim) return;
+      var registry = {};
+      function resolve(name) {
+        if (name in registry) return registry[name];
+        if (name === 'plotly' && window.Plotly) return window.Plotly;
+        return undefined;
+      }
+      function require(deps, fn) {
+        if (typeof deps === 'string') return resolve(deps);
+        var resolved = (deps || []).map(resolve);
+        if (typeof fn === 'function') return fn.apply(null, resolved);
+        return resolved[0];
+      }
+      require.undef = function (name) { delete registry[name]; };
+      require.config = function () {};
+      function define(name, deps, factory) {
+        if (typeof name === 'function') { factory = name; deps = null; name = undefined; }
+        else if (Array.isArray(name)) { factory = deps; deps = name; name = undefined; }
+        else if (typeof deps === 'function') { factory = deps; deps = null; }
+        if (deps == null && typeof factory === 'function') {
+          deps = factory.length > 0
+            ? ['require', 'exports', 'module'].slice(0, factory.length)
+            : [];
+        }
+        var mod = { exports: {} };
+        var args = (deps || []).map(function (d) {
+          if (d === 'require') return require;
+          if (d === 'exports') return mod.exports;
+          if (d === 'module') return mod;
+          return resolve(d);
+        });
+        var ret = typeof factory === 'function' ? factory.apply(null, args) : factory;
+        var exported = ret !== undefined ? ret : mod.exports;
+        if (name) {
+          registry[name] = exported;
+          if (name === 'plotly' && exported && !window.Plotly) window.Plotly = exported;
+        }
+      }
+      define._isLabShim = true;
+      window.require = require;
+      window.define = define;
+    }
     function loadLabApp() {
+      installLabAmdShim();
       var s = document.createElement('script');
       s.src = '/static/js/lab-app.js';
       document.head.appendChild(s);
