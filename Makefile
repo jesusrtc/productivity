@@ -7,6 +7,7 @@ ls: ## list available make targets
 
 LAB_VENV := apps/lab/.venv
 CORE_VENV := core/.venv
+PYTEST_STUBS := $(CURDIR)/scripts/pytest-stubs
 BIN_DIR := $(HOME)/.local/bin
 PID_FILE := .lab-server.pid
 PORT_FILE := .lab-server.port
@@ -163,13 +164,14 @@ uninstall: ## remove installed binaries and venvs
 	@echo "Uninstalled."
 
 test: ## run isolated unit + integration tests for lab/core (skips @slow)
-	@$(LAB_VENV)/bin/pytest apps/lab/tests -v && $(CORE_VENV)/bin/pytest core/tests -v
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest apps/lab/tests -v && \
+	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v
 
 test-fast: test ## alias for `make test` (skips @slow)
 
 test-integration: ## run isolated integration tests for backend endpoints + UI events
-	@$(LAB_VENV)/bin/pytest apps/lab/tests/test_integration_e2e.py -v && \
-	 $(CORE_VENV)/bin/pytest \
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest apps/lab/tests/test_integration_e2e.py -v && \
+	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest \
 		core/tests/test_integration_e2e.py \
 		core/tests/test_frontend_terminal_ui.py \
 		core/tests/test_frontend_logging.py \
@@ -180,11 +182,11 @@ test-integration: ## run isolated integration tests for backend endpoints + UI e
 		-v
 
 test-slow: ## run only the @slow tests (latency budgets, reconnect storms)
-	@$(CORE_VENV)/bin/pytest core/tests -v -m slow -o "addopts=-ra --cov=core --cov-report=term-missing"
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -m slow -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-all: ## run every isolated lab/core test, including @slow
-	@$(LAB_VENV)/bin/pytest apps/lab/tests -v && \
-	 $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest apps/lab/tests -v && \
+	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-suite: test-all ## run all unit + integration tests in isolated fixtures
 
