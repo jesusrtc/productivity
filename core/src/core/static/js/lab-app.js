@@ -61,6 +61,15 @@
     else window.addEventListener('load', schedule, { once: true });
   }
 
+  function afterColdPageQuiet(fn, delayMs = 750) {
+    if (document.readyState !== 'complete' || performance.now() < 2000) {
+      afterPageQuiet(fn, delayMs);
+      return;
+    }
+    const ret = fn && fn();
+    if (ret && typeof ret.catch === 'function') ret.catch(() => {});
+  }
+
   const _assetPromises = new Map();
   function loadScriptOnce(src) {
     if (_assetPromises.has(src)) return _assetPromises.get(src);
@@ -176,12 +185,14 @@
       document.body.classList.remove('has-diff-tabs');
       // A real project is active — reveal the attrs bar.
       document.body.classList.add('project-active');
-      refreshAttrsBar();
+      const hydrateProjectChrome = () => {
+        refreshAttrsBar();
+        showProjectInfo({keepShell: !remembered});
+      };
       // Decide synchronously whether a doc or the dashboard will paint
-      // the content area, then fire the three view paints in parallel.
-      // showProjectInfo, openProjectDoc, and termOpenForProject hit
-      // disjoint DOM regions (sidebar, content, term-panel) and the
-      // serial-await chain was adding 1-3 RTTs to every tab switch.
+      // the content area. On cold full-page loads, keep the server-rendered
+      // shell isolated from sidebar/dashboard fetches; warm in-app switches
+      // hydrate immediately.
       // Set `_projDocPath` up-front so showProjectInfo's dashboard-paint
       // race guard knows a doc is on its way and doesn't stomp the doc
       // render. If no remembered doc, _projDocPath is null and
@@ -189,7 +200,7 @@
       const remembered = getLastProjectDoc(currentProject.path);
       _projDocPath = remembered || null;
       if (!remembered) paintProjectShell();
-      showProjectInfo({keepShell: !remembered});
+      afterColdPageQuiet(hydrateProjectChrome);
       if (remembered) openProjectDoc(remembered);
       // Project-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
@@ -7086,9 +7097,9 @@
       }).catch(err => console.error('[populateSharedMeta] background:', err)), 1500);
       return;
     }
-    _fetchCerebroTree().then(t => {
+    afterPageQuiet(() => _fetchCerebroTree().then(t => {
       _renderMetaFromCerebroTree(t || []);
-    }).catch(err => console.error('[populateSharedMeta] failed:', err));
+    }).catch(err => console.error('[populateSharedMeta] failed:', err)), 1500);
   }
 
   function _fetchCerebroTree({force = false} = {}) {
