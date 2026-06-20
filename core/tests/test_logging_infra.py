@@ -397,6 +397,76 @@ class TestBackendRequestLogging:
         assert "RuntimeError: boom" in rec["exc"]
 
 
+# ─── Log tail API / viewer ─────────────────────────────────────────────────
+
+
+class TestLogTailApi:
+    def test_log_files_lists_whitelisted_logs(self, client):
+        r = client.get("/api/log/files")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["default_file"] == "errors.log"
+        assert body["default_tail"] == 500
+        names = {f["name"] for f in body["files"]}
+        assert {"errors.log", "backend-errors.log", "frontend-errors.log"} <= names
+
+    def test_log_tail_reads_configured_tail_from_error_file(self, client, monorepo: Path):
+        path = monorepo / "logs" / "errors.log"
+        rows = [
+            {"level": "ERROR", "msg": "old", "path": "/old"},
+            {"level": "ERROR", "msg": "newer", "path": "/newer"},
+            {"level": "ERROR", "msg": "newest", "path": "/newest"},
+        ]
+        path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+
+        r = client.get("/api/log/tail?file=errors.log&tail=2")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["file"] == "errors.log"
+        assert body["tail"] == 2
+        assert body["line_count"] == 2
+        assert body["state"]["file"] == "errors.log"
+        assert body["state"]["exists"] is True
+        assert body["state"]["cursor"].startswith("errors.log:")
+        assert [e["msg"] for e in body["entries"]] == ["newer", "newest"]
+
+    def test_error_state_cursor_changes_when_error_log_changes(self, client, monorepo: Path):
+        path = monorepo / "logs" / "errors.log"
+        path.write_text(json.dumps({"level": "ERROR", "msg": "first"}) + "\n")
+
+        first = client.get("/api/log/error-state")
+        assert first.status_code == 200
+        first_body = first.json()
+        assert first_body["exists"] is True
+        assert first_body["size"] > 0
+
+        path.write_text(path.read_text() + json.dumps({"level": "ERROR", "msg": "second"}) + "\n")
+
+        second = client.get("/api/log/error-state")
+        assert second.status_code == 200
+        assert second.json()["cursor"] != first_body["cursor"]
+
+    def test_log_tail_preserves_raw_non_json_lines(self, client, monorepo: Path):
+        path = monorepo / "logs" / "errors.log"
+        path.write_text("not json\n")
+
+        r = client.get("/api/log/tail?file=errors.log&tail=1")
+        assert r.status_code == 200
+        assert r.json()["entries"] == [{"raw": "not json"}]
+
+    def test_log_tail_rejects_path_traversal(self, client):
+        r = client.get("/api/log/tail?file=../project.json&tail=10")
+        assert r.status_code == 400
+
+    def test_log_viewer_page_served(self, client):
+        r = client.get("/logs?file=errors.log&tail=25")
+        assert r.status_code == 200
+        assert '<main id="view"></main>' in r.text
+        assert "/static/js/lib/error-report.js" in r.text
+        assert "/static/js/lib/log-alert.js" in r.text
+        assert "/static/js/views/logs.js" in r.text
+
+
 # ─── RotatingFileHandler survives rollover ─────────────────────────────────
 
 

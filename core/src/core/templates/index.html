@@ -25,7 +25,7 @@
   //   require("name")               — sync consume
   //
   // Deliberately: we do NOT set `define.amd`. UMD libraries (marked,
-  // highlight.js, xterm, xterm-addon-fit) test
+  // highlight.js and lazily loaded terminal/chart bundles) test
   // `typeof define === "function" && define.amd` before registering via
   // AMD — if .amd is truthy they skip the global-assignment branch and
   // window.marked / window.Terminal / window.FitAddon never get set,
@@ -96,9 +96,9 @@
 <style>html.loading .no-repo { display: none; }</style>
 <!-- All third-party libraries are vendored under /static/vendor (version-
      stamped directories, served with immutable cache headers). No CDN
-     round trips: the app loads at localhost speed and works offline. -->
+     round trips: the app loads at localhost speed and works offline.
+     Heavy terminal and chart bundles are loaded on demand. -->
 <link rel="stylesheet" href="/static/vendor/highlightjs@11.9.0/github-dark.min.css">
-<link rel="stylesheet" href="/static/vendor/xterm@5.3.0/xterm.min.css">
 <script src="/static/vendor/highlightjs@11.9.0/highlight.min.js"></script>
 <!-- Extra language packs not in highlight.js's core bundle. Scala +
      Groovy are heavily used in the LinkedIn repos under repositories/
@@ -108,20 +108,8 @@
 <script src="/static/vendor/highlightjs@11.9.0/languages/groovy.min.js"></script>
 <script src="/static/vendor/highlightjs@11.9.0/languages/protobuf.min.js"></script>
 <script src="/static/vendor/marked@12.0.1/marked.min.js"></script>
-<script src="/static/vendor/xterm@5.3.0/xterm.min.js"></script>
-<script src="/static/vendor/xterm-addon-fit@0.8.0/xterm-addon-fit.min.js"></script>
-<!-- GPU renderer for xterm.js. Loaded onto the *active* session's terminal
-     only (see _termEnableWebgl) so parked sessions don't hold WebGL
-     contexts; falls back to the DOM renderer automatically on failure. -->
-<script src="/static/vendor/xterm-addon-webgl@0.16.0/xterm-addon-webgl.min.js"></script>
-<!-- Plotly: lazy-loadable pattern would be nicer, but the bundle is
-     also sometimes missing from DAVI cells (the kernel inlines it only on
-     the first chart call per session). Preloading guarantees
-     window.Plotly is set the moment any notebook with a `require(["plotly"],
-     fn)` cell is rendered. ~3.5 MB, local + immutable-cached, fetched once.
-     `defer` so it never blocks the initial paint. -->
-<script defer src="/static/vendor/plotly@2.27.0/plotly.min.js"></script>
 <script src="/static/js/lib/error-report.js"></script>
+<script src="/static/js/lib/log-alert.js" defer></script>
 <style>
   /* View modal code table */
   .modal-body .code-scroll { height: 100%; overflow: auto; }
@@ -2298,6 +2286,70 @@
     return p;
   }
 
+  function afterFirstPaint(fn) {
+    const run = () => {
+      try {
+        const ret = fn && fn();
+        if (ret && typeof ret.catch === 'function') ret.catch(() => {});
+      } catch {}
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => setTimeout(run, 0));
+    } else {
+      setTimeout(run, 0);
+    }
+  }
+
+  const _assetPromises = new Map();
+  function loadScriptOnce(src) {
+    if (_assetPromises.has(src)) return _assetPromises.get(src);
+    const p = new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        if (existing.dataset.loaded === '1') return resolve();
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error('failed to load ' + src)), { once: true });
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = () => { s.dataset.loaded = '1'; resolve(); };
+      s.onerror = () => reject(new Error('failed to load ' + src));
+      document.head.appendChild(s);
+    });
+    _assetPromises.set(src, p);
+    return p;
+  }
+
+  function loadStyleOnce(href) {
+    if (_assetPromises.has(href)) return _assetPromises.get(href);
+    const p = new Promise((resolve, reject) => {
+      const existing = document.querySelector(`link[rel="stylesheet"][href="${href}"]`);
+      if (existing) return resolve();
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = href;
+      l.onload = () => resolve();
+      l.onerror = () => reject(new Error('failed to load ' + href));
+      document.head.appendChild(l);
+    });
+    _assetPromises.set(href, p);
+    return p;
+  }
+
+  function ensureTerminalLibs() {
+    loadStyleOnce('/static/vendor/xterm@5.3.0/xterm.min.css').catch(() => {});
+    return loadScriptOnce('/static/vendor/xterm@5.3.0/xterm.min.js')
+      .then(() => loadScriptOnce('/static/vendor/xterm-addon-fit@0.8.0/xterm-addon-fit.min.js'))
+      .then(() => loadScriptOnce('/static/vendor/xterm-addon-webgl@0.16.0/xterm-addon-webgl.min.js'));
+  }
+
+  function ensurePlotly() {
+    if (window.Plotly) return Promise.resolve();
+    return loadScriptOnce('/static/vendor/plotly@2.27.0/plotly.min.js');
+  }
+
   async function loadRepos() {
     try {
       projectsList = await fetchRepos();
@@ -2364,7 +2416,7 @@
       // Project-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
       if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
-        termOpenForProject(currentProject.name);
+        afterFirstPaint(() => termOpenForProject(currentProject.name));
       }
       // Re-render project tabs so the active highlight tracks the selection.
       if (typeof projTabsRender === 'function') projTabsRender();
@@ -4376,13 +4428,9 @@
   // <div id="..."> — so without this helper, the chart area stays blank. Walk
   // the inserted notebook subtree, clone each <script> as a live element, and
   // swap it in. Also shim `require(["plotly"], fn)` (Jupyter's requirejs
-  // idiom) so the chart init script can find the Plotly global that the
-  // preceding inline bundle sets up on window.
-  // `defer`-loaded Plotly from the head tag might not have finished parsing
-  // by the time the user clicks a notebook. If any cell script will call
-  // `require(["plotly"], fn)`, wait (briefly) for window.Plotly before
-  // activating — otherwise the chart's init script fires first, resolves
-  // Plotly to undefined, and throws `Cannot read properties of undefined`.
+  // idiom) so the chart init script can find the Plotly global.
+  // Plotly is intentionally lazy-loaded; if any cell script will call
+  // `require(["plotly"], fn)`, load it and wait briefly before activating.
   function _waitForPlotly(root, timeoutMs) {
     var hasRequirePlotly = false;
     root.querySelectorAll('.nb-outputs script, .nb-output-html script').forEach(function (s) {
@@ -4392,13 +4440,16 @@
       }
     });
     if (!hasRequirePlotly || window.Plotly) return Promise.resolve();
-    return new Promise(function (resolve) {
-      var start = Date.now();
-      (function poll() {
-        if (window.Plotly) return resolve();
-        if (Date.now() - start > (timeoutMs || 5000)) return resolve();
-        setTimeout(poll, 50);
-      })();
+    return ensurePlotly().catch(function () {}).then(function () {
+      if (window.Plotly) return;
+      return new Promise(function (resolve) {
+        var start = Date.now();
+        (function poll() {
+          if (window.Plotly) return resolve();
+          if (Date.now() - start > (timeoutMs || 5000)) return resolve();
+          setTimeout(poll, 50);
+        })();
+      });
     });
   }
 
@@ -6765,7 +6816,7 @@
     }
   }
 
-  loadSettings();
+  afterFirstPaint(loadSettings);
 
   // ─── Init ───
   // Drop the pre-paint "hide the placeholder" class now that JS owns
@@ -6848,8 +6899,8 @@
   if (!UI_CHECK) setInterval(loadRepos, 5000);
   if (!UI_CHECK) setInterval(refreshDiff, 3000);
   // Project tab strip: initial render + periodic refresh.
-  projTabsRefresh();
-  if (!UI_CHECK) projTabsStartPolling();
+  afterFirstPaint(projTabsRefresh);
+  if (!UI_CHECK) afterFirstPaint(projTabsStartPolling);
 
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
   // project/repo init path entirely and render the mdview-style browser.
@@ -6900,9 +6951,10 @@
   }, 1000);
 
   // ─── Terminal panel (tmux + PTY bridge) ───
-  // Visible whenever a project is active; scoped to that project. Uses
-  // xterm.js + xterm-addon-fit loaded from CDN. State declared before the
-  // init dispatch for the same TDZ reason the home state is.
+  // Visible whenever a project is active; scoped to that project. xterm.js
+  // and addons are vendored and lazy-loaded before the first attach. State
+  // is declared before the init dispatch for the same TDZ reason the home
+  // state is.
 
   let termXterm = null;         // xterm.js Terminal instance (active session)
   let termFitAddon = null;      // addon that sizes xterm to its container (active)
@@ -8311,7 +8363,7 @@
     try { entry.container.remove(); } catch {}
   }
 
-  function termAttach(name) {
+  async function termAttach(name) {
     console.log('[term] termAttach', name, 'currentSession=', termCurrentSession, 'cacheHas=', _termCache.has(name));
     if (!name) return;
     if (name === termCurrentSession && termWS && termWS.readyState === WebSocket.OPEN) {
@@ -8324,6 +8376,14 @@
       console.log('[term] dead session', name);
       termSetStatus('err', 'session ended: ' + name);
       termShowRecovery();
+      return;
+    }
+
+    try {
+      await ensureTerminalLibs();
+    } catch (e) {
+      console.warn('[term] terminal assets failed to load', e);
+      termSetStatus('err', 'terminal assets failed to load');
       return;
     }
 
@@ -9237,19 +9297,24 @@
     // switches are zero.
     if (_csCache.repos) {
       _csRenderRepoList(_csCache.repos);
-    }
-    _csFetchRepos().then(() => {
-      if (!document.body.classList.contains('code-search-active')) return;
-      _csRenderRepoList(_csCache.repos);
-      // Once we have the live list, pick the requested repo (or the
-      // remembered one, or the first).
-      const picked = initialRepo
-        || (_csCache.repos && _csCache.repos.find(r => r.name === _csRecallLastRepo()) && _csRecallLastRepo())
-        || (_csCache.repos && _csCache.repos[0] && _csCache.repos[0].name);
-      if (picked) _csSelectRepo(picked);
-    }).catch((e) => {
+    } else {
       const el = document.getElementById('csRepoList');
-      if (el) el.innerHTML = `<div style="padding:14px 12px;color:var(--red);font-size:12px">Failed to load repos: ${csEsc(e.message || e)}</div>`;
+      if (el) el.innerHTML = '<div style="padding:14px 12px;color:var(--text-dim);font-size:12px">Loading repos...</div>';
+    }
+    afterFirstPaint(() => {
+      _csFetchRepos().then(() => {
+        if (!document.body.classList.contains('code-search-active')) return;
+        _csRenderRepoList(_csCache.repos);
+        // Once we have the live list, pick the requested repo (or the
+        // remembered one, or the first).
+        const picked = initialRepo
+          || (_csCache.repos && _csCache.repos.find(r => r.name === _csRecallLastRepo()) && _csRecallLastRepo())
+          || (_csCache.repos && _csCache.repos[0] && _csCache.repos[0].name);
+        if (picked) _csSelectRepo(picked);
+      }).catch((e) => {
+        const el = document.getElementById('csRepoList');
+        if (el) el.innerHTML = `<div style="padding:14px 12px;color:var(--red);font-size:12px">Failed to load repos: ${csEsc(e.message || e)}</div>`;
+      });
     });
 
     // Open the terminal panel scoped to the selected repo (or none
@@ -9260,7 +9325,7 @@
         // Hack: set currentProject to a synthetic value so
         // termOpenForProject's stale-response guards line up.
         currentProject = {name: pid, path: '', is_project: true, repos: []};
-        termOpenForProject(pid);
+        afterFirstPaint(() => termOpenForProject(pid));
       }
     }
   }
@@ -11508,16 +11573,13 @@
     // need any network and gives the user something to look at while
     // the sidebar + tasks/diff/commits fetches stream in.
     selfPaintContent();
-    // Fire all the async paints in parallel — they hit disjoint DOM
-    // regions (term-panel, sidebar, scaffold sub-elements) and don't
-    // depend on each other. Previously the term panel was gated behind
-    // a sidebar fetch + 3-way Promise.all, which is what made the
-    // Productivity tab feel sluggish even on warm switches.
-    if (!UI_CHECK) termOpenForSelf();
-    selfPopulateSidebar();
-    selfRefreshTasks();
-    selfRefreshDiff();
-    selfRefreshCommits();
+    afterFirstPaint(() => {
+      selfRefreshTasks();
+      selfPopulateSidebar();
+      selfRefreshDiff();
+      selfRefreshCommits();
+      if (!UI_CHECK) termOpenForSelf();
+    });
   }
 
   // Populate #sidebar with a file tree rooted at SELF_REPO_PATH.
@@ -11645,7 +11707,7 @@
           <h2>Tasks <span class="count" id="selfTasksCount"></span>
             <button class="refresh-btn" onclick="selfRefreshTasks()">⟳ reload</button>
           </h2>
-          <ul class="s-tasks" id="selfTasksList"></ul>
+          <ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>
           <form class="s-task-form" id="selfTaskForm" onsubmit="return selfAddTask(event)">
             <input type="text" id="selfTaskTitle" placeholder="New task title…" required />
             <select id="selfTaskPriority">
@@ -11661,13 +11723,13 @@
           <h2>Uncommitted changes <span class="count" id="selfDiffCount"></span>
             <button class="refresh-btn" onclick="selfRefreshDiff()">⟳ reload</button>
           </h2>
-          <ul class="s-files" id="selfDiffList"></ul>
+          <ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>
         </div>
         <div class="s-section" id="selfCommitsSection">
           <h2>Recent commits <span class="count" id="selfCommitsCount"></span>
             <button class="refresh-btn" onclick="selfRefreshCommits()">⟳ reload</button>
           </h2>
-          <ul class="s-commits" id="selfCommitsList"></ul>
+          <ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>
         </div>
       </div>`;
   }
@@ -11677,7 +11739,7 @@
     _projDocPath = null;
     document.querySelectorAll('#sidebar .sidebar-file').forEach(el => el.classList.remove('active'));
     selfPaintContent();
-    Promise.all([selfRefreshTasks(), selfRefreshDiff(), selfRefreshCommits()]);
+    afterFirstPaint(() => Promise.all([selfRefreshTasks(), selfRefreshDiff(), selfRefreshCommits()]));
   }
 
   // Toggle hidden-files visibility for the productivity sidebar.
@@ -11907,26 +11969,27 @@
         _treeSetOpen('cerebro', acc, true);
       }
     }
-    // Fire the terminal panel early so it warm-switches from cache in
-    // parallel with the tree refresh and file fetch. Same idea as
-    // termOpenForProject — the term panel paints into its own DOM
-    // region and doesn't need to wait on the file tree.
-    if (!UI_CHECK) termOpenForCerebro();
     // Paint the file tree immediately from the last-known data so the
     // sidebar isn't blank for the round-trip to /api/cerebro/tree on
     // every tab switch. cerebroRefresh() then reconciles in the
     // background.
-    if (cerebroTreeData && cerebroTreeData.length) cerebroRenderTree();
-    const treeP = cerebroRefresh();
+    if (cerebroTreeData && cerebroTreeData.length) {
+      cerebroRenderTree();
+    } else {
+      const tree = document.getElementById('cerebroTree');
+      if (tree) tree.innerHTML = '<ul><li><div class="row"><span class="caret">&nbsp;</span><span class="icon">...</span><span class="name">Loading...</span></div></li></ul>';
+    }
+    afterFirstPaint(() => {
+      cerebroRefresh();
+      if (!UI_CHECK) termOpenForCerebro();
+    });
     if (initialPath) {
       // cerebroOpen can run in parallel with the tree refresh — the
       // file-content fetch and the tree fetch hit different endpoints.
       cerebroOpen(initialPath);
     }
-    await treeP;
-    // Wire up the filter input. Must run after cerebroRefresh paints
-    // the tree so the input exists; safe to run after cerebroOpen since
-    // it paints into a different element.
+    // The filter input is already in the shell; future refreshes use
+    // its current value when they paint the tree.
     const f = document.getElementById('cerebroFilter');
     if (f) f.addEventListener('input', cerebroRenderTree);
   }

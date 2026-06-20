@@ -152,11 +152,36 @@ process.stdout.write(JSON.stringify({ uploads, ev }));
 
 def test_frontend_logger_loaded_by_all_html_entrypoints(client, monorepo: Path) -> None:
     script = '<script src="/static/js/lib/error-report.js"></script>'
+    alert_script = '<script src="/static/js/lib/log-alert.js" defer></script>'
     root = Path(__file__).resolve().parents[2]
     assert script in (root / "core/src/core/templates/index.html").read_text()
     assert script in (root / "core/src/core/templates/spa.html").read_text()
+    assert alert_script in (root / "core/src/core/templates/index.html").read_text()
+    assert alert_script in (root / "core/src/core/templates/spa.html").read_text()
 
     (monorepo / "content" / "sample.md").write_text("# sample\n", encoding="utf-8")
     r = client.get("/view", params={"path": "content/sample.md"})
     assert r.status_code == 200
     assert script in r.text
+
+
+def test_logs_spa_route_and_nav_are_registered() -> None:
+    root = Path(__file__).resolve().parents[2]
+    app_js = (root / "core/src/core/static/js/app.js").read_text()
+    spa_html = (root / "core/src/core/templates/spa.html").read_text()
+    logs_js = (root / "core/src/core/static/js/views/logs.js").read_text()
+
+    assert '#/logs' in spa_html
+    assert './views/logs.js' in app_js
+    assert 'api.logTail' in logs_js
+    assert 'api.logFiles' in logs_js
+
+
+def test_log_alert_script_tracks_unseen_error_cursor() -> None:
+    root = Path(__file__).resolve().parents[2]
+    log_alert = (root / "core/src/core/static/js/lib/log-alert.js").read_text()
+
+    assert "/api/log/error-state" in log_alert
+    assert "lab.errorLog.seenCursor" in log_alert
+    assert "has-unseen" in log_alert
+    assert "/logs?file=errors.log&tail=500" in log_alert

@@ -9,6 +9,7 @@ const routes = [
   { pattern: /^\/md$/, loader: () => import("./views/markdown.js") },
   { pattern: /^\/nb$/, loader: () => import("./views/notebook.js") },
   { pattern: /^\/search$/, loader: () => import("./views/search.js") },
+  { pattern: /^\/logs$/, loader: () => import("./views/logs.js") },
 ];
 
 let currentRender = null;

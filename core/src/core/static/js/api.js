@@ -42,6 +42,11 @@ export const api = {
     request("GET", `/api/nb/session?path=${encodeURIComponent(path)}`),
   execCell: (body) => request("POST", "/api/nb/exec", body),
   search: (q) => request("GET", "/api/search?q=" + encodeURIComponent(q)),
+  logFiles: () => request("GET", "/api/log/files"),
+  logTail: (file, tail) => {
+    const qs = new URLSearchParams({ file, tail: String(tail) });
+    return request("GET", "/api/log/tail?" + qs.toString());
+  },
 
   // Writes
   createProject: (body) => request("POST", "/api/projects", body),
