@@ -152,11 +152,13 @@ process.stdout.write(JSON.stringify({ uploads, ev }));
 
 def test_frontend_logger_loaded_by_all_html_entrypoints(client, monorepo: Path) -> None:
     script = '<script src="/static/js/lib/error-report.js"></script>'
+    script_path = "/static/js/lib/error-report.js"
     alert_script = '<script src="/static/js/lib/log-alert.js" defer></script>'
     alert_path = "/static/js/lib/log-alert.js"
     root = Path(__file__).resolve().parents[2]
     index_html = (root / "core/src/core/templates/index.html").read_text()
-    assert script in index_html
+    assert script_path in index_html
+    assert script not in index_html
     assert alert_path in index_html
     assert script in (root / "core/src/core/templates/spa.html").read_text()
     assert alert_script in (root / "core/src/core/templates/spa.html").read_text()
@@ -199,6 +201,13 @@ def test_embedded_logs_view_registered_in_main_shell() -> None:
     assert "const LOGS_POLL_MS = 2000" in lab_app
     assert "function goToLogs" in lab_app
     assert "function initLogs" in lab_app
+    assert "projTabsPseudoOpen" in lab_app
+    assert "function projTabsSetPseudoOpen" in lab_app
+    assert "/api/ui/pseudo-tabs" in lab_app
+    assert "projTabsSetPseudoOpen(LOGS_PROJECT_ID, true)" in lab_app
+    assert "await projTabsSetPseudoOpen(pid, false)" in lab_app
+    assert "Logs is pinned in slot 1 whenever it is open, active or not." in lab_app
+    assert "ordered.findIndex(t => t.id === LOGS_PROJECT_ID)" in lab_app
     assert "termOpenForLogs()" in lab_app
     assert "function termOpenForLogs" in lab_app
     assert "if (document.body.classList.contains('logs-active')) return LOGS_PROJECT_ID" in lab_app

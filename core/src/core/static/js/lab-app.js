@@ -4650,13 +4650,17 @@
   let projTabsAttention = [];     // project ids where every claude is idle
   let projTabsRefreshTimer = null;
   let projTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
+  let projTabsPseudoOpen = [];   // open pseudo-tabs from /api/ui/pseudo-tabs
   let projTabsDragPid = null;    // pid currently being dragged
 
   // Project tabs the user has opened. Source of truth is `tab_open` in
-  // each project's project.json (exposed by /api/repos). The setter
-  // updates the server then refreshes the strip.
+  // each project's project.json (exposed by /api/repos). Pseudo-tabs such
+  // as Logs store their open flag in content/.ui-state.json instead.
   function projTabsOpenIds() {
     return (projTabsAll || []).filter(p => p && p.tab_open).map(p => p.name);
+  }
+  function projTabsPseudoOpenIds() {
+    return (projTabsPseudoOpen || []).filter(id => id === LOGS_PROJECT_ID);
   }
   async function projTabsSetOpen(pid, open) {
     if (!pid) return;
@@ -4670,6 +4674,21 @@
     // Reflect locally so the strip updates without waiting for /api/repos.
     const p = (projTabsAll || []).find(x => x && x.name === pid);
     if (p) p.tab_open = !!open;
+  }
+  async function projTabsSetPseudoOpen(pid, open) {
+    if (pid !== LOGS_PROJECT_ID) return;
+    const ids = new Set(projTabsPseudoOpenIds());
+    if (open) ids.add(pid);
+    else ids.delete(pid);
+    projTabsPseudoOpen = Array.from(ids);
+    if (typeof projTabsRender === 'function') projTabsRender();
+    try {
+      await fetch('/api/ui/pseudo-tabs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tab_id: pid, open: !!open}),
+      });
+    } catch (e) { /* best-effort; next refresh will pick up the truth */ }
   }
 
   // Knowledge-view state. Same hoisting rule — initCerebro uses these.
@@ -4903,11 +4922,12 @@
       // Use fetchRepos() so the shared in-flight promise covers the
       // initial-load case (loadRepos + urlProject branch hit it too).
       // Wrap it so Promise.all gets four comparable values.
-      const [hotRes, all, orderRes, attnRes] = await Promise.all([
+      const [hotRes, all, orderRes, attnRes, pseudoRes] = await Promise.all([
         fetch('/api/term/projects-with-sessions'),
         fetchRepos(),
         fetch('/api/ui/tab-order'),
         fetch('/api/term/projects-attention'),
+        fetch('/api/ui/pseudo-tabs'),
       ]);
       const hotRaw = hotRes.ok ? await hotRes.json() : [];
       // Filter out the Code Search per-repo pseudo-project ids
@@ -4922,6 +4942,8 @@
       if (!Array.isArray(projTabsOrder)) projTabsOrder = [];
       projTabsAttention = attnRes.ok ? await attnRes.json() : [];
       if (!Array.isArray(projTabsAttention)) projTabsAttention = [];
+      projTabsPseudoOpen = pseudoRes.ok ? await pseudoRes.json() : [];
+      if (!Array.isArray(projTabsPseudoOpen)) projTabsPseudoOpen = [];
     } catch { /* leave stale state; next tick will retry */ }
     projTabsRender();
   }
@@ -4929,12 +4951,13 @@
   function projTabsRender() {
     const el = document.getElementById('projectTabs');
     if (!el) return;
-    // Candidate tabs = hot sessions ∪ {currentProject} ∪ {cerebro if it's the view}
-    //                  ∪ user-opened tabs persisted in localStorage.
+    // Candidate tabs = hot sessions ∪ {currentProject} ∪ active pseudo-view
+    //                  ∪ persisted open tabs.
     const seen = new Set();
     const tabs = [];
     const logsViewActive = document.body.classList.contains('logs-active');
-    if (logsViewActive) {
+    const pseudoOpen = new Set(projTabsPseudoOpenIds());
+    if (logsViewActive || pseudoOpen.has(LOGS_PROJECT_ID)) {
       seen.add(LOGS_PROJECT_ID);
       tabs.push({id: LOGS_PROJECT_ID, hot: false});
     }
@@ -4979,10 +5002,9 @@
     for (const t of tabs) {
       if (!used.has(t.id)) ordered.push(t);
     }
-    if (logsViewActive) {
-      const idx = ordered.findIndex(t => t.id === LOGS_PROJECT_ID);
-      if (idx > 0) ordered.unshift(ordered.splice(idx, 1)[0]);
-    }
+    // Logs is pinned in slot 1 whenever it is open, active or not.
+    const logsIdx = ordered.findIndex(t => t.id === LOGS_PROJECT_ID);
+    if (logsIdx > 0) ordered.unshift(ordered.splice(logsIdx, 1)[0]);
 
     const attnSet = new Set(projTabsAttention || []);
     el.innerHTML = ordered.map(t => {
@@ -5020,7 +5042,7 @@
         : '';
       const unseenCls = isLogs && document.body.classList.contains('logs-have-unseen-errors') ? ' has-unseen' : '';
       const closeTitle = isLogs
-        ? 'Close Logs'
+        ? 'Close Logs (kills its terminal sessions)'
         : isCerebro
         ? 'Close Cerebro (tab disappears; reopen from Home)'
         : (isSelf
@@ -5134,10 +5156,6 @@
 
   async function projTabsClose(pid) {
     if (!pid) return;
-    if (pid === LOGS_PROJECT_ID) {
-      goHome();
-      return;
-    }
     const label =
       pid === CEREBRO_PROJECT_ID ? 'Cerebro'
       : pid === SELF_PROJECT_ID ? 'Productivity'
@@ -5149,7 +5167,9 @@
     } catch (e) { /* best effort */ }
     // Persist tab-closed in project.json so it doesn't reappear on next
     // Home/refresh. Pseudo-projects don't have a project.json — skip them.
-    if (pid !== CEREBRO_PROJECT_ID && pid !== SELF_PROJECT_ID && pid !== LOGS_PROJECT_ID) {
+    if (pid === LOGS_PROJECT_ID) {
+      await projTabsSetPseudoOpen(pid, false);
+    } else if (pid !== CEREBRO_PROJECT_ID && pid !== SELF_PROJECT_ID) {
       await projTabsSetOpen(pid, false);
     }
     await projTabsRefresh();
@@ -5190,6 +5210,7 @@
     const picker = document.getElementById('projTabsPicker');
     if (!picker) return;
     const inTabs = new Set(projTabsHot);
+    for (const id of projTabsPseudoOpenIds()) inTabs.add(id);
     const activeId = (currentProject && currentProject.is_project) ? currentProject.name : null;
     if (activeId) inTabs.add(activeId);
     if (document.body.classList.contains('logs-active')) inTabs.add(LOGS_PROJECT_ID);
@@ -7203,6 +7224,7 @@
     const file = logsNormalizeFile(opts.file || params.get('file') || logsState.file);
     const tail = logsNormalizeTail(opts.tail || params.get('tail') || logsState.tail);
     _swapViewState();
+    projTabsSetPseudoOpen(LOGS_PROJECT_ID, true);
     logsState.file = file;
     logsState.tail = tail;
     if (!opts.replace) logsUpdateUrl(true);

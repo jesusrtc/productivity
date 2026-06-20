@@ -2,7 +2,8 @@
 
 Small catch-all for per-monorepo UI preferences that need to persist across
 browsers / machines (so localStorage isn't the right place). Today that's
-just the tab-strip order; future: pinned projects, theme per-project, etc.
+the tab-strip order and pseudo-tab open state; future: pinned projects,
+theme per-project, etc.
 
 State lives in ``content/.ui-state.json``. The watcher's self-write guard
 already ignores dotfiles under ``content/`` that start with ``.`` — writes
@@ -18,6 +19,8 @@ from pydantic import BaseModel
 
 
 router = APIRouter()
+
+_PSEUDO_TAB_IDS = {"__logs__"}
 
 
 def _state_file(root: Path) -> Path:
@@ -68,3 +71,46 @@ async def set_tab_order(body: TabOrder, request: Request) -> dict:
     data["tab_order"] = deduped
     _save(root, data)
     return {"ok": True, "order": deduped}
+
+
+def _open_pseudo_tabs(data: dict) -> list[str]:
+    raw = data.get("pseudo_tabs_open", [])
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for tab_id in raw:
+        if not isinstance(tab_id, str):
+            continue
+        if tab_id not in _PSEUDO_TAB_IDS or tab_id in seen:
+            continue
+        seen.add(tab_id)
+        out.append(tab_id)
+    return out
+
+
+@router.get("/api/ui/pseudo-tabs")
+async def get_pseudo_tabs(request: Request) -> list[str]:
+    root: Path = request.app.state.index_cache.root
+    return _open_pseudo_tabs(_load(root))
+
+
+class PseudoTabState(BaseModel):
+    tab_id: str
+    open: bool
+
+
+@router.post("/api/ui/pseudo-tabs")
+async def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
+    if body.tab_id not in _PSEUDO_TAB_IDS:
+        raise HTTPException(status_code=400, detail=f"unknown pseudo tab: {body.tab_id!r}")
+    root: Path = request.app.state.index_cache.root
+    data = _load(root)
+    open_tabs = _open_pseudo_tabs(data)
+    if body.open and body.tab_id not in open_tabs:
+        open_tabs.append(body.tab_id)
+    elif not body.open:
+        open_tabs = [tab_id for tab_id in open_tabs if tab_id != body.tab_id]
+    data["pseudo_tabs_open"] = open_tabs
+    _save(root, data)
+    return {"ok": True, "open": open_tabs}

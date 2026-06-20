@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Git Diff Viewer</title>
+<link rel="icon" href="data:,">
 <script>
   // Pre-paint: suppress the "Git Diff Viewer" home-screen placeholder
   // when the URL already names a project/repo/view. Without this, every
@@ -135,7 +136,15 @@
      stamped directories, served with immutable cache headers). No CDN
      round trips: the app loads at localhost speed and works offline.
      Heavy terminal and chart bundles are loaded on demand. -->
-<script src="/static/js/lib/error-report.js"></script>
+<script>
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      var s = document.createElement('script');
+      s.src = '/static/js/lib/error-report.js';
+      document.head.appendChild(s);
+    }, 0);
+  }, { once: true });
+</script>
 <noscript><link rel="stylesheet" href="/static/css/lab-shell.css"></noscript>
 <script>
   (function () {
@@ -154,7 +163,7 @@
   })();
 </script>
 </head>
-<body>
+<body class="{{ INITIAL_BODY_CLASS }}">
 
 <!-- JS error banner + capture for headless UI checks.
      Silent unless an error fires; then becomes a visible red toast. Errors
@@ -304,9 +313,9 @@
         <input id="logsTailInput" type="text" inputmode="numeric" value="500" autocomplete="off" />
       </label>
       <button class="logs-refresh" id="logsRefreshBtn" type="button" onclick="logsRefresh()">Refresh</button>
-      <span class="logs-status" id="logsStatus"></span>
+      <span class="logs-status" id="logsStatus">{% if INITIAL_VIEW == 'logs' %}queued{% endif %}</span>
     </div>
-    <div class="logs-terminal" id="logsTerminal"></div>
+    <div class="logs-terminal" id="logsTerminal">{% if INITIAL_VIEW == 'logs' %}<div class="logs-terminal-head"><span class="prompt">$</span> tail -n 500 logs/errors.log</div><div class="logs-empty">Fetching log tail...</div>{% endif %}</div>
   </main>
 </div>
 
@@ -415,6 +424,25 @@
     </div>
   </div>
 </div>
+<script>
+  (function () {
+    var hash = (location.hash || '').replace(/^#/, '');
+    if (hash !== 'snoozed' && hash !== 'timeline' && hash !== 'search') return;
+    var panel = document.getElementById('homePanel');
+    if (!panel) return;
+    ['dashboard', 'snoozed', 'timeline', 'search'].forEach(function (name) {
+      var btn = document.getElementById('homeTab' + name.charAt(0).toUpperCase() + name.slice(1));
+      if (btn) btn.classList.toggle('active', name === hash);
+    });
+    if (hash === 'search') {
+      panel.innerHTML = '<h2>Search</h2><input type="text" class="search-input" placeholder="Search projects, tasks, and docs..." disabled><p class="search-status">Loading search...</p><div id="searchResults"></div>';
+    } else if (hash === 'snoozed') {
+      panel.innerHTML = '<div class="snooze-section"><h3>Ready for review <span class="count">...</span></h3><p class="snooze-empty">Loading snoozed projects...</p></div>';
+    } else {
+      panel.innerHTML = '<h2>Timeline</h2><div class="bucket"><h3>Open work</h3><p style="color:var(--text-dim)">Loading timeline...</p></div>';
+    }
+  })();
+</script>
 
 <div class="repo-tabs" id="repoTabs" style="display:none"></div>
 
@@ -423,7 +451,7 @@
      is active. Hidden on Home, Cerebro, and Productivity views via CSS. -->
 <div class="attrs-bar" id="projectAttrsBar"></div>
 
-<div class="diff-tabs" id="diffTabs">
+<div class="diff-tabs" id="diffTabs" {% if INITIAL_VIEW != 'repo' %}style="display:none"{% endif %}>
   <button class="diff-tab" id="tabProject" onclick="switchDiffTab('project')">
     Project
   </button>
@@ -447,10 +475,50 @@
   </div>
   <div class="sidebar-resizer" id="sidebarResizer" title="Drag to resize the files sidebar"></div>
   <div class="main" id="content">
+    {% if INITIAL_VIEW == 'productivity' %}
+    <div class="s-inner">
+      <div class="s-head">
+        <h1>Productivity</h1>
+        <span class="branch" id="selfBranch">...</span>
+      </div>
+      <div class="s-section" id="selfTasksSection">
+        <h2>Tasks <span class="count" id="selfTasksCount"></span></h2>
+        <ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>
+      </div>
+      <div class="s-section" id="selfDiffSection">
+        <h2>Uncommitted changes <span class="count" id="selfDiffCount"></span></h2>
+        <ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>
+      </div>
+      <div class="s-section" id="selfCommitsSection">
+        <h2>Recent commits <span class="count" id="selfCommitsCount"></span></h2>
+        <ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>
+      </div>
+    </div>
+    {% elif INITIAL_VIEW == 'project' or INITIAL_VIEW == 'repo' %}
+    <div style="padding:24px;max-width:900px">
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">{{ INITIAL_PROJECT_NAME }}</h1>
+        </div>
+        <p style="color:var(--text-secondary);font-size:16px;line-height:1.6;margin:0">{% if INITIAL_IS_REPO %}Opening repository diff...{% else %}Opening project dashboard...{% endif %}</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg-secondary)">
+          <h3 style="color:var(--text-primary);margin-bottom:12px;font-size:16px">Action Items</h3>
+          <p style="color:var(--text-dim);font-size:13px;margin:0">Loading details...</p>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg-secondary)">
+          <h3 style="color:var(--text-primary);margin-bottom:12px;font-size:14px">Repositories</h3>
+          <p style="color:var(--text-dim);font-size:13px;font-style:italic;margin:0">Loading repos...</p>
+        </div>
+      </div>
+    </div>
+    {% else %}
     <div class="no-repo">
       <h2>Git Diff Viewer</h2>
       <p>Select a repo from the dropdown or pass ?repo=/path</p>
     </div>
+    {% endif %}
   </div>
 </div>
 
@@ -766,112 +834,6 @@
 </div>
 
 <script>window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};</script>
-<script>
-  (function () {
-    var params = new URLSearchParams(location.search);
-    var project = params.get('project');
-    var repo = params.get('repo');
-    var view = params.get('view');
-    var content = document.getElementById('content');
-    if (!content) return;
-    function esc(value) {
-      return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
-        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
-      });
-    }
-    function setBody(cls) {
-      document.body.classList.remove('home-active', 'cerebro-active', 'project-active', 'self-active', 'code-search-active', 'logs-active', 'has-diff-tabs');
-      if (cls) document.body.classList.add(cls);
-      document.documentElement.classList.remove('loading');
-      var diffTabs = document.getElementById('diffTabs');
-      if (diffTabs && cls !== 'project-active') diffTabs.style.display = 'none';
-    }
-    function setHomeShell(tab) {
-      setBody('home-active');
-      var names = ['dashboard', 'snoozed', 'timeline', 'search'];
-      for (var i = 0; i < names.length; i += 1) {
-        var name = names[i];
-        var btn = document.getElementById('homeTab' + name.charAt(0).toUpperCase() + name.slice(1));
-        if (btn) btn.classList.toggle('active', name === tab);
-      }
-      if (tab === 'search') {
-        content = document.getElementById('homePanel') || content;
-        content.innerHTML = '<h2>Search</h2><input type="text" class="search-input" placeholder="Search projects, tasks, and docs..." disabled><p class="search-status">Loading search...</p><div id="searchResults"></div>';
-      } else if (tab === 'snoozed') {
-        content = document.getElementById('homePanel') || content;
-        content.innerHTML = '<div class="snooze-section"><h3>Ready for review <span class="count">...</span></h3><p class="snooze-empty">Loading snoozed projects...</p></div>';
-      } else if (tab === 'timeline') {
-        content = document.getElementById('homePanel') || content;
-        content.innerHTML = '<h2>Timeline</h2><div class="bucket"><h3>Open work</h3><p style="color:var(--text-dim)">Loading timeline...</p></div>';
-      }
-    }
-    if (view === 'productivity') {
-      setBody('self-active');
-      content.innerHTML = '<div class="s-inner">'
-        + '<div class="s-head"><h1>Productivity</h1><span class="branch" id="selfBranch">...</span></div>'
-        + '<div class="s-section" id="selfTasksSection">'
-        + '<h2>Tasks <span class="count" id="selfTasksCount"></span></h2>'
-        + '<ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>'
-        + '</div>'
-        + '<div class="s-section" id="selfDiffSection">'
-        + '<h2>Uncommitted changes <span class="count" id="selfDiffCount"></span></h2>'
-        + '<ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>'
-        + '</div>'
-        + '<div class="s-section" id="selfCommitsSection">'
-        + '<h2>Recent commits <span class="count" id="selfCommitsCount"></span></h2>'
-        + '<ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>'
-        + '</div>'
-        + '</div>';
-      return;
-    }
-    if (view === 'cerebro') {
-      setBody('cerebro-active');
-      return;
-    }
-    if (view === 'code-search') {
-      setBody('code-search-active');
-      return;
-    }
-    if (view === 'logs') {
-      setBody('logs-active');
-      var logsStatus = document.getElementById('logsStatus');
-      var logsTerminal = document.getElementById('logsTerminal');
-      if (logsStatus) logsStatus.textContent = 'queued';
-      if (logsTerminal && !logsTerminal.textContent.trim()) {
-        logsTerminal.innerHTML = '<div class="logs-terminal-head"><span class="prompt">$</span> tail -n 500 logs/errors.log</div><div class="logs-empty">Fetching log tail...</div>';
-      }
-      return;
-    }
-    if (!project && !repo) {
-      var hash = (location.hash || '').replace(/^#/, '');
-      setHomeShell(hash === 'snoozed' || hash === 'timeline' || hash === 'search' ? hash : 'dashboard');
-      return;
-    }
-    var target = project || repo || '';
-    var name = (target.replace(/\/+$/, '').split('/').pop() || (repo ? 'Repository' : 'Project'));
-    setBody('project-active');
-    var projectDiffTabs = document.getElementById('diffTabs');
-    if (projectDiffTabs) projectDiffTabs.style.display = repo ? 'flex' : 'none';
-    content.innerHTML = '<div style="padding:24px;max-width:900px">'
-      + '<div style="margin-bottom:28px">'
-      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">'
-      + '<h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">' + esc(name) + '</h1>'
-      + '</div>'
-      + '<p style="color:var(--text-secondary);font-size:16px;line-height:1.6;margin:0">' + (repo ? 'Opening repository diff...' : 'Opening project dashboard...') + '</p>'
-      + '</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">'
-      + '<div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg-secondary)">'
-      + '<h3 style="color:var(--text-primary);margin-bottom:12px;font-size:16px">Action Items</h3>'
-      + '<p style="color:var(--text-dim);font-size:13px;margin:0">Loading details...</p>'
-      + '</div>'
-      + '<div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg-secondary)">'
-      + '<h3 style="color:var(--text-primary);margin-bottom:12px;font-size:14px">Repositories</h3>'
-      + '<p style="color:var(--text-dim);font-size:13px;font-style:italic;margin:0">Loading repos...</p>'
-      + '</div>'
-      + '</div>'
-      + '</div>';
-  })();
-</script>
 <script>
   (function () {
     function loadLabApp() {

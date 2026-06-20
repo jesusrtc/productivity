@@ -631,6 +631,7 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
             seen.add(n)
     data["sessions"] = new_list
     _save_project(root, body.project_id, data)
+    _invalidate_project_term_caches()
     return {"ok": True, "order": [s.get("name") for s in new_list]}
 
 
@@ -674,6 +675,24 @@ _WORKING_HINTS_RE = re.compile(
 
 _STATUS_CACHE: dict[str, tuple[float, str]] = {}
 _STATUS_TTL_S = 1.5
+_PROJECTS_CACHE_TTL_S = 1.0
+_PROJECTS_ATTENTION_CACHE: tuple[float, list[str]] | None = None
+_PROJECTS_WITH_SESSIONS_CACHE: tuple[float, list[str]] | None = None
+
+
+def _invalidate_project_term_caches() -> None:
+    global _PROJECTS_ATTENTION_CACHE, _PROJECTS_WITH_SESSIONS_CACHE
+    _PROJECTS_ATTENTION_CACHE = None
+    _PROJECTS_WITH_SESSIONS_CACHE = None
+
+
+def _fresh_project_cache(cache: tuple[float, list[str]] | None) -> list[str] | None:
+    if not cache:
+        return None
+    ts, value = cache
+    if time.monotonic() - ts >= _PROJECTS_CACHE_TTL_S:
+        return None
+    return list(value)
 
 
 def _classify_pane(name: str) -> str:
@@ -743,6 +762,11 @@ def projects_attention(request: Request) -> list[str]:
     shouldn't pulse. Once the hold expires, the project rejoins the
     attention set normally.
     """
+    global _PROJECTS_ATTENTION_CACHE
+    cached = _fresh_project_cache(_PROJECTS_ATTENTION_CACHE)
+    if cached is not None:
+        return cached
+
     root: Path = request.app.state.index_cache.root
     prefix = _tmux_prefix()
     listing = _tmux_list(prefix)
@@ -788,6 +812,7 @@ def projects_attention(request: Request) -> list[str]:
         # Attention: at least one claude, none of them working.
         if statuses and not any(s == "working" for s in statuses):
             attention.append(pid)
+    _PROJECTS_ATTENTION_CACHE = (time.monotonic(), list(attention))
     return attention
 
 
@@ -807,6 +832,11 @@ def projects_with_sessions(request: Request) -> list[str]:
     filtered out — they aren't standalone tabs, they're driven by the
     single ``🔍 code-search`` pseudo-tab and the in-tab repo picker.
     """
+    global _PROJECTS_WITH_SESSIONS_CACHE
+    cached = _fresh_project_cache(_PROJECTS_WITH_SESSIONS_CACHE)
+    if cached is not None:
+        return cached
+
     root: Path = request.app.state.index_cache.root
     prefix = _tmux_prefix()
     listing = _tmux_list(prefix)
@@ -821,6 +851,7 @@ def projects_with_sessions(request: Request) -> list[str]:
         if _cs_repo_name(pid):
             continue
         ids.append(pid)
+    _PROJECTS_WITH_SESSIONS_CACHE = (time.monotonic(), list(ids))
     return ids
 
 
@@ -944,6 +975,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         "created_at": int(time.time()),
     }
     _save_meta(root, meta)
+    _invalidate_project_term_caches()
 
     # Record durable entry (claude session id survives restart).
     if body.project_id:
@@ -953,6 +985,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         if claude_session_id:
             entry["claude_session_id"] = claude_session_id
         _upsert_project_session(root, body.project_id, entry)
+        _invalidate_project_term_caches()
 
     return {"name": tmux_name, **meta[tmux_name]}
 
@@ -974,6 +1007,7 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
         subprocess.run(["tmux", "kill-session", "-t", name], capture_output=True, text=True)
     meta.pop(name, None)
     _save_meta(root, meta)
+    _invalidate_project_term_caches()
 
     if purge and project_id and logical_name:
         data = _load_project(root, project_id)
@@ -981,6 +1015,7 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
             data["sessions"] = [s for s in data["sessions"]
                                 if not (isinstance(s, dict) and s.get("name") == logical_name)]
             _save_project(root, project_id, data)
+            _invalidate_project_term_caches()
 
     return {"ok": True, "purged": purge}
 
@@ -1003,11 +1038,13 @@ def kill_project_sessions(project_id: str, request: Request, purge: bool = False
         meta.pop(name, None)
         killed.append(name)
     _save_meta(root, meta)
+    _invalidate_project_term_caches()
     if purge:
         data = _load_project(root, project_id)
         if data and isinstance(data.get("sessions"), list):
             data["sessions"] = []
             _save_project(root, project_id, data)
+            _invalidate_project_term_caches()
     return {"ok": True, "killed": killed, "purged": purge}
 
 

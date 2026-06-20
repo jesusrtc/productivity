@@ -269,6 +269,7 @@ async def logs_page() -> HTMLResponse:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>lab logs</title>
+  <link rel="icon" href="data:,">
   <style>
     body { margin: 0; background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     header { height: 48px; display: flex; align-items: center; gap: 18px; padding: 0 16px; background: #161b22; border-bottom: 1px solid #30363d; }
@@ -297,7 +298,15 @@ async def logs_page() -> HTMLResponse:
       }
     }, { once: true });
   </script>
-  <script src="/static/js/lib/error-report.js"></script>
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        var s = document.createElement("script");
+        s.src = "/static/js/lib/error-report.js";
+        document.head.appendChild(s);
+      }, 0);
+    }, { once: true });
+  </script>
 </head>
 <body>
   <header>

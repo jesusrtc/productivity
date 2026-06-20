@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -419,27 +419,91 @@ def create_app() -> FastAPI:
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-    # The index template is ~600KB; re-rendering it through Jinja on every
-    # load costs more than serving the bytes. The rendered page only varies
-    # with the template file itself (MONOREPO_ROOT is fixed per process), so
-    # cache the HTML keyed by the template's mtime — editing index.html
-    # still takes effect on the next request, without LAB_RELOAD.
-    _index_cache: dict = {"mtime": None, "html": ""}
+    # The index template is large enough that re-rendering it through Jinja on
+    # every load costs more than serving the bytes. The first visible shell does
+    # vary by URL, so cache a small set of rendered variants keyed by template
+    # mtime and initial view state.
+    _index_cache: dict = {"mtime": None, "bytes_by_key": {}}
+
+    def _index_initial_state(request: Request) -> dict:
+        params = request.query_params
+        view = params.get("view") or ""
+        project = params.get("project") or ""
+        repo = params.get("repo") or ""
+
+        if view == "productivity":
+            return {
+                "INITIAL_VIEW": "productivity",
+                "INITIAL_BODY_CLASS": "self-active",
+                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_IS_REPO": False,
+            }
+        if view == "cerebro":
+            return {
+                "INITIAL_VIEW": "cerebro",
+                "INITIAL_BODY_CLASS": "cerebro-active",
+                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_IS_REPO": False,
+            }
+        if view == "code-search":
+            return {
+                "INITIAL_VIEW": "code-search",
+                "INITIAL_BODY_CLASS": "code-search-active",
+                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_IS_REPO": False,
+            }
+        if view == "logs":
+            return {
+                "INITIAL_VIEW": "logs",
+                "INITIAL_BODY_CLASS": "logs-active",
+                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_IS_REPO": False,
+            }
+        if project or repo:
+            target = (repo or project).rstrip("/")
+            name = Path(target).name or ("Repository" if repo else "Project")
+            return {
+                "INITIAL_VIEW": "repo" if repo else "project",
+                "INITIAL_BODY_CLASS": "project-active",
+                "INITIAL_PROJECT_NAME": name,
+                "INITIAL_IS_REPO": bool(repo),
+            }
+        return {
+            "INITIAL_VIEW": "home",
+            "INITIAL_BODY_CLASS": "home-active",
+            "INITIAL_PROJECT_NAME": "",
+            "INITIAL_IS_REPO": False,
+        }
+
+    def _compact_index_html(html: str) -> str:
+        return _re.sub(r">\s+<", "><", html)
 
     @app.get("/", response_class=HTMLResponse)
-    async def index_page(request: Request):
+    def index_page(request: Request):
         root: Path = request.app.state.index_cache.root
         tpl_file = _TEMPLATES_DIR / "index.html"
         try:
             mtime = tpl_file.stat().st_mtime_ns
         except OSError:
             mtime = None
+        state = _index_initial_state(request)
+        key = (
+            state["INITIAL_VIEW"],
+            state["INITIAL_BODY_CLASS"],
+            state["INITIAL_PROJECT_NAME"],
+            state["INITIAL_IS_REPO"],
+        )
         if mtime is None or _index_cache["mtime"] != mtime:
-            _index_cache["html"] = templates.get_template("index.html").render(
-                MONOREPO_ROOT=str(root)
-            )
+            _index_cache["bytes_by_key"] = {}
             _index_cache["mtime"] = mtime
-        return HTMLResponse(_index_cache["html"])
+        bytes_by_key = _index_cache["bytes_by_key"]
+        if key not in bytes_by_key:
+            html = templates.get_template("index.html").render(
+                MONOREPO_ROOT=str(root),
+                **state,
+            )
+            bytes_by_key[key] = _compact_index_html(html).encode("utf-8")
+        return Response(bytes_by_key[key], media_type="text/html")
 
     @app.get("/p/{project_id}")
     async def spa_project(request: Request, project_id: str):

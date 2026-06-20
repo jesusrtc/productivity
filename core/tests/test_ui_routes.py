@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+
+
+def _request(root):
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(index_cache=SimpleNamespace(root=root)),
+        ),
+    )
+
 
 def test_tab_order_defaults_to_empty(client) -> None:
     r = client.get("/api/ui/tab-order")
@@ -41,3 +54,33 @@ def test_tab_order_filters_non_string_entries(client) -> None:
     order = r.json()["order"]
     assert order[0] == "a"
     assert "b" in order
+
+
+def test_pseudo_tabs_open_state_roundtrip_without_app(tmp_path) -> None:
+    from core.routes import ui
+
+    request = _request(tmp_path)
+    assert asyncio.run(ui.get_pseudo_tabs(request)) == []
+
+    opened = asyncio.run(ui.set_pseudo_tab(
+        ui.PseudoTabState(tab_id="__logs__", open=True),
+        request,
+    ))
+    assert opened == {"ok": True, "open": ["__logs__"]}
+    assert asyncio.run(ui.get_pseudo_tabs(request)) == ["__logs__"]
+
+    closed = asyncio.run(ui.set_pseudo_tab(
+        ui.PseudoTabState(tab_id="__logs__", open=False),
+        request,
+    ))
+    assert closed == {"ok": True, "open": []}
+
+
+def test_pseudo_tabs_reject_unknown_id_without_app(tmp_path) -> None:
+    from core.routes import ui
+
+    with pytest.raises(ui.HTTPException):
+        asyncio.run(ui.set_pseudo_tab(
+            ui.PseudoTabState(tab_id="__unknown__", open=True),
+            _request(tmp_path),
+        ))
