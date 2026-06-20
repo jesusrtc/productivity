@@ -405,6 +405,7 @@ def test_projects_attention_needs_idle_claude(client, seed_project, isolated_pre
     monkeypatch.setattr(sp, "run", fake_run)
     import core.routes.term as term_mod
     monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
+    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
 
     # Working → not in attention list.
     assert client.get("/api/term/projects-attention").json() == []
@@ -412,6 +413,7 @@ def test_projects_attention_needs_idle_claude(client, seed_project, isolated_pre
     # Idle → in attention list.
     pane_text["value"] = "some prompt:"
     monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})  # bust the 1.5s cache
+    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
     assert client.get("/api/term/projects-attention").json() == ["demo"]
 
     # Held → excluded from attention even when Claude is idle. A snoozed
@@ -425,6 +427,7 @@ def test_projects_attention_needs_idle_claude(client, seed_project, isolated_pre
     pjson.write_text(_json.dumps(data))
     client.app.state.index_cache.rebuild()
     monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
+    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
     assert client.get("/api/term/projects-attention").json() == []
 
     # Hold in the past → attention returns (ready-for-review still pings).
@@ -432,6 +435,7 @@ def test_projects_attention_needs_idle_claude(client, seed_project, isolated_pre
     pjson.write_text(_json.dumps(data))
     client.app.state.index_cache.rebuild()
     monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
+    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
     assert client.get("/api/term/projects-attention").json() == ["demo"]
 
 
