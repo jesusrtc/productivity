@@ -10,7 +10,11 @@ CORE_VENV := core/.venv
 BIN_DIR := $(HOME)/.local/bin
 PID_FILE := .lab-server.pid
 PORT_FILE := .lab-server.port
-LOG_FILE := .lab-server.log
+APP_LOG_DIR := logs
+BACKEND_LOG := $(APP_LOG_DIR)/backend.log
+FRONTEND_LOG := $(APP_LOG_DIR)/frontend.log
+ERROR_LOG := $(APP_LOG_DIR)/errors.log
+PROCESS_OUTPUT := /dev/null
 # Port can be overridden per-run with any of these (in priority order):
 #   make start PORT=4444     # canonical, all-caps
 #   make start port=4444     # lowercase accepted for muscle-memory
@@ -52,8 +56,8 @@ define AGENT_PLIST_CONTENT
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
-  <key>StandardOutPath</key><string>$(CURDIR)/$(LOG_FILE)</string>
-  <key>StandardErrorPath</key><string>$(CURDIR)/$(LOG_FILE)</string>
+  <key>StandardOutPath</key><string>$(PROCESS_OUTPUT)</string>
+  <key>StandardErrorPath</key><string>$(PROCESS_OUTPUT)</string>
   <key>ProcessType</key><string>Interactive</string>
 </dict>
 </plist>
@@ -196,8 +200,9 @@ _stop-quiet:
 	@rm -f $(PID_FILE) $(PORT_FILE)
 
 # Background server. `make start` is always non-blocking — the server runs
-# detached, logs go to $(LOG_FILE), and the bound port is written to
-# $(PORT_FILE) by the server on startup.
+# detached, and the bound port is written to $(PORT_FILE) by the server on
+# startup. App logs are written by core itself to exactly:
+# $(BACKEND_LOG), $(FRONTEND_LOG), and $(ERROR_LOG).
 #
 # Single-instance / single-port rule: at most one lab server may run, on at
 # most one port. If a server is already up, the rules are:
@@ -214,7 +219,7 @@ start: ## start server in background (override port with PORT=NNNN)
 		running_pid=$$(pgrep -f "$(CORE_CMD_PATTERN)" | head -1); \
 		if [ "$$running_port" = "$(PORT)" ]; then \
 			echo "server is already running (pid $$running_pid) at http://localhost:$$running_port/"; \
-			echo "  - tail:  tail -f $(LOG_FILE)"; \
+			echo "  - tail:  make agent-tail"; \
 			echo "  - stop:  make stop"; \
 			echo "  - swap:  make restart PORT=$$running_port"; \
 			exit 0; \
@@ -230,8 +235,8 @@ start: ## start server in background (override port with PORT=NNNN)
 		lsof -nP -iTCP:$(PORT) -sTCP:LISTEN 2>/dev/null | head -5; \
 		exit 1; \
 	fi; \
-	: > $(LOG_FILE); \
-	LAB_PORT=$(PORT) nohup $(CORE_VENV)/bin/python -m core >> $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
+	mkdir -p $(APP_LOG_DIR); \
+	LAB_PORT=$(PORT) nohup $(CORE_VENV)/bin/python -m core >> $(PROCESS_OUTPUT) 2>&1 & echo $$! > $(PID_FILE); \
 	n=0; while ! lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1 && [ $$n -lt 25 ]; do \
 		if ! pgrep -f "$(CORE_CMD_PATTERN)" >/dev/null 2>&1; then break; fi; \
 		sleep 0.2; n=$$((n+1)); \
@@ -239,10 +244,10 @@ start: ## start server in background (override port with PORT=NNNN)
 	if lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		actual=$$(pgrep -f "$(CORE_CMD_PATTERN)" | head -1); \
 		[ -n "$$actual" ] && echo $$actual > $(PID_FILE); \
-		echo "started — http://localhost:$(PORT)/   (pid $$(cat $(PID_FILE)), logs → $(LOG_FILE))"; \
+		echo "started — http://localhost:$(PORT)/   (pid $$(cat $(PID_FILE)), logs → $(BACKEND_LOG), $(FRONTEND_LOG), $(ERROR_LOG))"; \
 	else \
-		echo "server failed to start. Last log lines:"; \
-		tail -30 $(LOG_FILE) 2>/dev/null | sed 's/^/  /'; \
+		echo "server failed to start. Last app log lines:"; \
+		tail -30 $(BACKEND_LOG) $(ERROR_LOG) 2>/dev/null | sed 's/^/  /'; \
 		rm -f $(PID_FILE); \
 		exit 1; \
 	fi
@@ -266,7 +271,7 @@ restart: ## stop then start the server (uses launchctl kickstart if agent is loa
 	@if launchctl print $(AGENT_TARGET) >/dev/null 2>&1; then \
 		echo "agent-supervised restart via launchctl kickstart…"; \
 		launchctl kickstart -k $(AGENT_TARGET); \
-		echo "kicked. (tail logs: tail -f $(LOG_FILE))"; \
+		echo "kicked. (tail logs: make agent-tail)"; \
 	else \
 		$(MAKE) -s _stop-quiet start PORT=$(PORT); \
 	fi
@@ -320,13 +325,13 @@ start-all: start ## start core (8080) + resume/programming/type-and-recall dev s
 	@if lsof -nP -iTCP:$(PROGRAMMING_PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "programming dev server already running at http://localhost:$(PROGRAMMING_PORT)/"; \
 	elif [ -d $(PROGRAMMING_DIR) ]; then \
-		(cd $(PROGRAMMING_DIR) && nohup python3 -m http.server $(PROGRAMMING_PORT) > .devserver.log 2>&1 & echo $$! > .devserver.pid); \
+		(cd $(PROGRAMMING_DIR) && nohup python3 -m http.server $(PROGRAMMING_PORT) > /dev/null 2>&1 & echo $$! > .devserver.pid); \
 		echo "programming dev server started at http://localhost:$(PROGRAMMING_PORT)/"; \
 	fi
 	@if lsof -nP -iTCP:$(T_AND_R_PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "type-and-recall dev server already running at http://localhost:$(T_AND_R_PORT)/"; \
 	elif [ -d $(T_AND_R_DIR) ]; then \
-		(cd $(T_AND_R_DIR) && nohup node_modules/.bin/vite > .devserver.log 2>&1 & echo $$! > .devserver.pid); \
+		(cd $(T_AND_R_DIR) && nohup node_modules/.bin/vite > /dev/null 2>&1 & echo $$! > .devserver.pid); \
 		echo "type-and-recall dev server started at http://localhost:$(T_AND_R_PORT)/"; \
 	fi
 
@@ -357,13 +362,13 @@ agent-install: ## install + load launchd agent (always-on, restart on crash)
 	done
 	@if lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "installed — http://localhost:$(PORT)/   (plist: $(AGENT_PLIST))"; \
-		echo "  - logs:    tail -f $(LOG_FILE)"; \
+		echo "  - logs:    make agent-tail"; \
 		echo "  - kick:    make restart"; \
 		echo "  - status:  make agent-status"; \
 		echo "  - remove:  make agent-uninstall"; \
 	else \
-		echo "agent loaded but server didn't come up. Last log lines:"; \
-		tail -30 $(LOG_FILE) 2>/dev/null | sed 's/^/  /'; \
+		echo "agent loaded but server didn't come up. Last app log lines:"; \
+		tail -30 $(BACKEND_LOG) $(ERROR_LOG) 2>/dev/null | sed 's/^/  /'; \
 		exit 1; \
 	fi
 
@@ -380,7 +385,8 @@ agent-status: ## show launchd agent status
 	fi
 
 agent-tail: ## tail the agent's log file
-	@tail -f $(LOG_FILE)
+	@mkdir -p $(APP_LOG_DIR); touch $(BACKEND_LOG) $(FRONTEND_LOG) $(ERROR_LOG)
+	@tail -f $(BACKEND_LOG) $(FRONTEND_LOG) $(ERROR_LOG)
 
 push-productivity: ## push productivity to origin/main (errors if dirty)
 	@if [ -n "$$(git status --porcelain)" ]; then \

@@ -83,7 +83,7 @@ export async function render(parent, { params } = {}) {
   const selectedFile = readFile(params);
   const selectedTail = readTail(params || new URLSearchParams());
 
-  const controls = h("form", { class: "log-controls" },
+  const controls = h("form", { class: "log-controls", novalidate: "novalidate" },
     h("label", null, "File",
       h("select", { name: "file" },
         h("option", { value: selectedFile }, selectedFile),
@@ -92,10 +92,8 @@ export async function render(parent, { params } = {}) {
     h("label", null, "Tail",
       h("input", {
         name: "tail",
-        type: "number",
-        min: "1",
-        max: "5000",
-        step: "50",
+        type: "text",
+        inputmode: "numeric",
         value: String(selectedTail),
       }),
     ),
@@ -124,6 +122,7 @@ export async function render(parent, { params } = {}) {
   async function load() {
     const file = fileSelect.value || DEFAULT_FILE;
     const tail = readTail(new URLSearchParams({ tail: tailInput.value }));
+    tailInput.value = String(tail);
     status.textContent = `Loading ${file}...`;
     refreshButton.disabled = true;
     try {

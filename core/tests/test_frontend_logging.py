@@ -153,10 +153,12 @@ process.stdout.write(JSON.stringify({ uploads, ev }));
 def test_frontend_logger_loaded_by_all_html_entrypoints(client, monorepo: Path) -> None:
     script = '<script src="/static/js/lib/error-report.js"></script>'
     alert_script = '<script src="/static/js/lib/log-alert.js" defer></script>'
+    alert_path = "/static/js/lib/log-alert.js"
     root = Path(__file__).resolve().parents[2]
-    assert script in (root / "core/src/core/templates/index.html").read_text()
+    index_html = (root / "core/src/core/templates/index.html").read_text()
+    assert script in index_html
+    assert alert_path in index_html
     assert script in (root / "core/src/core/templates/spa.html").read_text()
-    assert alert_script in (root / "core/src/core/templates/index.html").read_text()
     assert alert_script in (root / "core/src/core/templates/spa.html").read_text()
 
     (monorepo / "content" / "sample.md").write_text("# sample\n", encoding="utf-8")
@@ -175,6 +177,9 @@ def test_logs_spa_route_and_nav_are_registered() -> None:
     assert './views/logs.js' in app_js
     assert 'api.logTail' in logs_js
     assert 'api.logFiles' in logs_js
+    assert 'novalidate: "novalidate"' in logs_js
+    assert 'inputmode: "numeric"' in logs_js
+    assert 'step: "50"' not in logs_js
 
 
 def test_log_alert_script_tracks_unseen_error_cursor() -> None:

@@ -98,16 +98,6 @@
      stamped directories, served with immutable cache headers). No CDN
      round trips: the app loads at localhost speed and works offline.
      Heavy terminal and chart bundles are loaded on demand. -->
-<link rel="stylesheet" href="/static/vendor/highlightjs@11.9.0/github-dark.min.css">
-<script src="/static/vendor/highlightjs@11.9.0/highlight.min.js"></script>
-<!-- Extra language packs not in highlight.js's core bundle. Scala +
-     Groovy are heavily used in the LinkedIn repos under repositories/
-     so the Code Search modal can highlight them properly. Protobuf
-     covers .proto schema files in those repos. -->
-<script src="/static/vendor/highlightjs@11.9.0/languages/scala.min.js"></script>
-<script src="/static/vendor/highlightjs@11.9.0/languages/groovy.min.js"></script>
-<script src="/static/vendor/highlightjs@11.9.0/languages/protobuf.min.js"></script>
-<script src="/static/vendor/marked@12.0.1/marked.min.js"></script>
 <script src="/static/js/lib/error-report.js"></script>
 <script src="/static/js/lib/log-alert.js" defer></script>
 <style>
@@ -2350,6 +2340,22 @@
     return loadScriptOnce('/static/vendor/plotly@2.27.0/plotly.min.js');
   }
 
+  function ensureMarked() {
+    if (window.marked) return Promise.resolve();
+    return loadScriptOnce('/static/vendor/marked@12.0.1/marked.min.js');
+  }
+
+  function ensureHighlight() {
+    if (window.hljs && window.hljs.getLanguage && window.hljs.getLanguage('scala')) {
+      return Promise.resolve();
+    }
+    loadStyleOnce('/static/vendor/highlightjs@11.9.0/github-dark.min.css').catch(() => {});
+    return loadScriptOnce('/static/vendor/highlightjs@11.9.0/highlight.min.js')
+      .then(() => loadScriptOnce('/static/vendor/highlightjs@11.9.0/languages/scala.min.js'))
+      .then(() => loadScriptOnce('/static/vendor/highlightjs@11.9.0/languages/groovy.min.js'))
+      .then(() => loadScriptOnce('/static/vendor/highlightjs@11.9.0/languages/protobuf.min.js'));
+  }
+
   async function loadRepos() {
     try {
       projectsList = await fetchRepos();
@@ -3329,6 +3335,10 @@
       try {
         const res = await fetch(`/api/notebook?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}`);
         const cells = await res.json();
+        await Promise.all([
+          ensureMarked().catch(() => {}),
+          ensureHighlight().catch(() => {}),
+        ]);
         container.innerHTML = `<div class="code-scroll"><div class="nb-container" style="padding:12px">${cells.map(c => renderNotebookCell(c, null)).join('')}</div></div>`;
         // Hide edit for notebooks
         setModalFooter('view');
@@ -4470,6 +4480,10 @@
     try {
       const res = await fetch(`/api/notebook?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}`);
       const cells = await res.json();
+      await Promise.all([
+        ensureMarked().catch(() => {}),
+        ensureHighlight().catch(() => {}),
+      ]);
       content.innerHTML = `<div class="file-viewer-header">
         <span class="fv-path">${esc(filepath)}</span>
       </div>
@@ -4486,6 +4500,10 @@
     try {
       const res = await fetch(`/api/notebook-diff?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}&type=${diffType}`);
       const data = await res.json();
+      await Promise.all([
+        ensureMarked().catch(() => {}),
+        ensureHighlight().catch(() => {}),
+      ]);
       const header = `<div class="file-header" style="margin:0 0 8px;cursor:default">
         <span class="badge badge-modified">notebook</span>
         <span class="filename">${esc(filepath)}</span>
@@ -4716,6 +4734,7 @@
         } else {
           const data = await r.json();
           if (!_stillActiveNav()) return;
+          await ensureHighlight().catch(() => {});
           container.innerHTML = `<div style="padding:24px">${toolbar}<pre style="background:var(--bg-secondary);padding:14px;border-radius:6px;overflow:auto"><code class="language-html">${esc(data.content || '')}</code></pre></div>`;
           if (window.hljs) {
             container.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
@@ -4876,6 +4895,10 @@
         const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>${sessionBadge}${restartBtnHtml}<span style="font-size:11px;color:var(--text-secondary)">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
         const realCells = nb.cells || [];
+        await Promise.all([
+          ensureMarked().catch(() => {}),
+          ensureHighlight().catch(() => {}),
+        ]);
         // Build the cells host: an "insert here" bar before every real cell,
         // any pending cells targeting that position, the real cell itself,
         // a final inserter after the last real cell, and finally any pending
@@ -4950,6 +4973,14 @@
 
     // All other files: fetch content + comments + artifact info, then renderProjectDoc
     try {
+      const lowerPath = filepath.toLowerCase();
+      const needsMarked = /\.(md|markdown)$/.test(lowerPath);
+      const needsHighlight = needsMarked || /\.json$/.test(lowerPath) || !!filenameLang(filepath);
+      await Promise.all([
+        needsMarked ? ensureMarked().catch(() => {}) : Promise.resolve(),
+        needsHighlight ? ensureHighlight().catch(() => {}) : Promise.resolve(),
+      ]);
+
       // Optimistic paint from the doc cache. When this file has been
       // opened earlier in the browser session, paint it synchronously
       // here so the user sees the page immediately. The three fetches
@@ -5927,7 +5958,8 @@
     const section = lines.slice(startIdx, endIdx).join('\n').trim();
 
     // Copy as rich text (rendered) for Google Docs pasting
-    const rendered = marked.parse(section);
+    await ensureMarked().catch(() => {});
+    const rendered = window.marked ? marked.parse(section) : `<pre>${esc(section)}</pre>`;
     const container = document.createElement('div');
     container.innerHTML = rendered;
     container.style.cssText = 'font-family:Arial,sans-serif;color:#000000;background:#ffffff;';
@@ -8413,7 +8445,7 @@
     // in onmessage, but during the cache-refactor sequence (8f8508f →
     // 76f063f) intermediate WIP states had the const declared in a scope
     // that didn't enclose every reachable handler call site, causing
-    // ReferenceError storms (logs/server.log shows 539 hits at
+    // ReferenceError storms (logs/errors.log showed 539 hits at
     // 20:39:05–20:42:51). Resolving the right xterm at write-time via
     // `_xtermFor(name)` is robust to every cache state: active session,
     // parked-via-soft-detach, mid-restore — and can never throw
@@ -8992,6 +9024,10 @@
       }
       const body = await r.json();
       const raw = body.content || '';
+      await Promise.all([
+        isMd ? ensureMarked().catch(() => {}) : Promise.resolve(),
+        (isJson || (!isMd && !isCsv)) ? ensureHighlight().catch(() => {}) : Promise.resolve(),
+      ]);
 
       let rendered = '';
       if (isMd) {
@@ -9064,6 +9100,7 @@
           host.innerHTML = toolbar + `<p style="color:var(--red)">Error: ${esc(msg.detail || r.statusText)}</p>`;
         } else {
           const body = await r.json();
+          await ensureHighlight().catch(() => {});
           host.innerHTML = toolbar + `<pre style="background:var(--bg-secondary);padding:14px;border-radius:6px;overflow:auto"><code class="language-html">${esc(body.content)}</code></pre>`;
           if (window.hljs) {
             host.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
@@ -9648,6 +9685,7 @@
       const transformed = _csTransformIpynb(content);
       if (transformed != null) content = transformed;
     }
+    await ensureHighlight().catch(() => {});
     _csState.fileLines = content.split('\n');
     _csRenderPreview();
     _csState.rangeScope = false;
@@ -9749,6 +9787,7 @@
       const transformed = _csTransformIpynb(content);
       if (transformed != null) content = transformed;
     }
+    await ensureHighlight().catch(() => {});
     _csState.fileLines = content.split('\n');
 
     // For non-ipynb files, surface the cached search hits in the
@@ -12132,6 +12171,7 @@
           ${fmChips}
           <div class="doc">${body.html}</div>`;
         // Run highlight.js on fresh code blocks if available.
+        await ensureHighlight().catch(() => {});
         if (window.hljs) {
           pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
         }
@@ -12167,6 +12207,7 @@
             </div>
             ${warn}
             <div class="doc"><pre><code class="language-json">${cerebroEsc(pretty)}</code></pre></div>`;
+          await ensureHighlight().catch(() => {});
           if (window.hljs) {
             pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
           }
@@ -12292,6 +12333,7 @@
           pane.innerHTML = toolbar + `<div class="doc"><p style="color:var(--red)">Error: ${cerebroEsc(msg.detail || r.statusText)}</p></div>`;
         } else {
           const body = await r.json();
+          await ensureHighlight().catch(() => {});
           pane.innerHTML = toolbar + `<div class="doc"><pre><code class="language-html">${cerebroEsc(body.content)}</code></pre></div>`;
           if (window.hljs) {
             pane.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });

@@ -51,6 +51,7 @@ import httpx
 import websockets
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+from starlette.requests import ClientDisconnect
 
 
 router = APIRouter()
@@ -76,6 +77,54 @@ HOP_BY_HOP = {
     # We rewrite/set this ourselves.
     "host",
 }
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _incoming_port(conn: Request | WebSocket) -> int | None:
+    url = getattr(conn, "url", None)
+    if url is not None and url.port:
+        return int(url.port)
+    server = conn.scope.get("server")
+    if server and len(server) >= 2 and server[1]:
+        return int(server[1])
+    scheme = conn.scope.get("scheme")
+    if scheme in {"http", "ws"}:
+        return 80
+    if scheme in {"https", "wss"}:
+        return 443
+    return None
+
+
+def _is_self_proxy(cfg: dict[str, Any], conn: Request | WebSocket) -> bool:
+    if int(cfg.get("port") or 0) != _incoming_port(conn):
+        return False
+    host = str(cfg.get("host") or "").strip().lower().strip("[]")
+    if host in _LOCAL_HOSTS:
+        return True
+    url_host = getattr(getattr(conn, "url", None), "hostname", None)
+    if url_host and host == url_host.lower().strip("[]"):
+        return True
+    server = conn.scope.get("server")
+    return bool(server and server[0] and host == str(server[0]).lower().strip("[]"))
+
+
+def _self_proxy_response(project_id: str, name: str, cfg: dict[str, Any]) -> Response:
+    html = (
+        "<!doctype html><html><body style=\"font-family:ui-monospace,monospace;"
+        "background:#0d1117;color:#c9d1d9;padding:32px;line-height:1.5\">"
+        "<h2 style=\"color:#f78166;margin-top:0\">Proxy points at Lab itself</h2>"
+        f"<p>Proxy <b>{name}</b> in project <b>{project_id}</b> targets "
+        f"<code>{cfg['host']}:{cfg['port']}</code>, which is this Lab server.</p>"
+        "<p style=\"color:#8b949e\">Change the proxy port to your dev server port "
+        "or remove the proxy entry.</p>"
+        "</body></html>"
+    )
+    return Response(
+        content=html.encode("utf-8"),
+        status_code=409,
+        media_type="text/html; charset=utf-8",
+    )
 
 
 def _project_dir(root: Path, project_id: str) -> Path:
@@ -227,6 +276,8 @@ async def proxy_http(project_id: str, name: str, path: str, request: Request):
             status_code=500,
             detail=f"proxy {name!r} has no port configured",
         )
+    if _is_self_proxy(cfg, request):
+        return _self_proxy_response(project_id, name, cfg)
 
     upstream = f"http://{cfg['host']}:{cfg['port']}/{path}"
     if request.url.query:
@@ -240,10 +291,14 @@ async def proxy_http(project_id: str, name: str, path: str, request: Request):
     }
     headers["host"] = f"{cfg['host']}:{cfg['port']}"
 
-    body = await request.body()
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        return Response(status_code=499)
 
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        timeout = httpx.Timeout(30.0, connect=1.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             upstream_resp = await client.request(
                 request.method, upstream, headers=headers, content=body,
             )
@@ -321,6 +376,14 @@ async def proxy_ws(websocket: WebSocket, project_id: str, name: str, path: str):
         # 4404 is in the application close-code range (4000-4999), used
         # here as "not configured".
         await websocket.close(code=4404)
+        return
+    if _is_self_proxy(cfg, websocket):
+        log.warning(
+            "WS proxy %s points at lab itself",
+            path_info,
+            extra={"path_info": path_info, "event_type": "ws.self_proxy"},
+        )
+        await websocket.close(code=4409)
         return
 
     await websocket.accept()

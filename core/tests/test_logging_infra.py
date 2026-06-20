@@ -19,7 +19,6 @@ from __future__ import annotations
 import io
 import json
 import logging
-import logging.handlers
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,6 +35,13 @@ def _jsonl(path: Path) -> list[dict]:
         if line.strip().startswith("{"):
             rows.append(json.loads(line))
     return rows
+
+
+def _log_names(monorepo: Path) -> set[str]:
+    log_dir = monorepo / "logs"
+    if not log_dir.exists():
+        return set()
+    return {p.name for p in log_dir.iterdir() if p.is_file()}
 
 
 # ─── _JsonFormatter unit tests ─────────────────────────────────────────────
@@ -163,8 +169,8 @@ class TestJsonFormatter:
 class TestClientLogIngest:
     """End-to-end through FastAPI. We re-use the existing ``client``
     fixture (and therefore the real lifespan hook that attaches the
-    rotating file handler under ``<monorepo>/logs/server.log``). Tests
-    assert both the HTTP contract and, where relevant, the file output."""
+    file handlers under ``<monorepo>/logs``). Tests assert both the HTTP
+    contract and, where relevant, the file output."""
 
     def test_happy_path_records_to_file(self, client, monorepo: Path):
         r = client.post("/api/log/client", json={"events": [
@@ -175,17 +181,13 @@ class TestClientLogIngest:
         body = r.json()
         assert body == {"ok": True, "logged": 2}
 
-        log_file = monorepo / "logs" / "server.log"
-        # Lifespan created the dir + handler; writes flush on close but
-        # WARNING/ERROR via the rotating handler is line-buffered and
-        # reaches disk immediately. Give it a tick just in case.
-        assert log_file.exists(), "server.log should be created by lifespan"
         frontend = _jsonl(monorepo / "logs" / "frontend.log")
         assert any(r["msg"] == "Uncaught TypeError: foo" and r["level"] == "ERROR" for r in frontend)
         assert any(r["msg"] == "deprecated API" and r["level"] == "WARNING" for r in frontend)
         errors = _jsonl(monorepo / "logs" / "errors.log")
         assert any(r["source"] == "client" and r["msg"] == "Uncaught TypeError: foo" for r in errors)
         assert not any(r["msg"] == "deprecated API" for r in errors)
+        assert _log_names(monorepo) == {"backend.log", "frontend.log", "errors.log"}
 
     def test_empty_batch_ok_but_zero_logged(self, client):
         r = client.post("/api/log/client", json={"events": []})
@@ -303,14 +305,12 @@ class TestClientLogIngest:
         assert rec["method"] == "POST"
         assert rec["status_code"] == 200
         assert rec["duration_ms"] == 12.5
-        assert not _jsonl(monorepo / "logs" / "frontend-errors.log")
         assert not _jsonl(monorepo / "logs" / "errors.log")
+        assert _log_names(monorepo) == {"backend.log", "frontend.log", "errors.log"}
 
     def test_concurrent_writes_produce_valid_jsonl(self, client, monkeypatch, monorepo: Path):
-        """Fire 50 concurrent POSTs. Each line in server.log that comes
-        from our ingest must be parseable JSON — no interleaving mid-line.
-        The RotatingFileHandler takes a lock internally; this test just
-        guards against a regression if that contract ever changes."""
+        """Fire 50 concurrent POSTs. Each line in frontend.log that comes
+        from our ingest must be parseable JSON — no interleaving mid-line."""
         from core.routes import log as log_route
 
         # Reset rate limit + raise the cap for this test; otherwise we'd
@@ -328,19 +328,18 @@ class TestClientLogIngest:
             codes = list(pool.map(_post, range(50)))
         assert all(c == 200 for c in codes)
 
-        log_file = monorepo / "logs" / "server.log"
+        log_file = monorepo / "logs" / "frontend.log"
         assert log_file.exists()
-        # Every non-empty line must parse cleanly as JSON. Uvicorn startup
-        # lines don't go through our JSON formatter (different handler
-        # chain), so we filter to lines that at least look like objects.
+        # Every non-empty line must parse cleanly as JSON.
         for line in log_file.read_text().splitlines():
             if not line.strip() or not line.startswith("{"):
                 continue
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError as e:
-                pytest.fail(f"invalid JSON line in server.log: {line!r} ({e})")
+                pytest.fail(f"invalid JSON line in frontend.log: {line!r} ({e})")
             assert "msg" in obj, f"missing msg in {obj}"
+        assert _log_names(monorepo) == {"backend.log", "frontend.log", "errors.log"}
 
 
 # ─── Backend request logging ───────────────────────────────────────────────
@@ -370,7 +369,6 @@ class TestBackendRequestLogging:
         rec = next(r for r in backend if r.get("path") == "/missing")
         assert rec["level"] == "WARNING"
         assert rec["status_code"] == 404
-        assert not _jsonl(monorepo / "logs" / "backend-errors.log")
         assert not _jsonl(monorepo / "logs" / "errors.log")
 
     def test_unhandled_exception_logged_to_errors_only_file(self, monorepo: Path):
@@ -407,8 +405,8 @@ class TestLogTailApi:
         body = r.json()
         assert body["default_file"] == "errors.log"
         assert body["default_tail"] == 500
-        names = {f["name"] for f in body["files"]}
-        assert {"errors.log", "backend-errors.log", "frontend-errors.log"} <= names
+        names = [f["name"] for f in body["files"]]
+        assert names == ["errors.log", "backend.log", "frontend.log"]
 
     def test_log_tail_reads_configured_tail_from_error_file(self, client, monorepo: Path):
         path = monorepo / "logs" / "errors.log"
@@ -458,63 +456,16 @@ class TestLogTailApi:
         r = client.get("/api/log/tail?file=../project.json&tail=10")
         assert r.status_code == 400
 
+    def test_log_tail_rejects_removed_legacy_logs(self, client):
+        for name in ("server.log", "backend-errors.log", "frontend-errors.log", "backend.log.1"):
+            r = client.get(f"/api/log/tail?file={name}&tail=10")
+            assert r.status_code == 400
+
     def test_log_viewer_page_served(self, client):
         r = client.get("/logs?file=errors.log&tail=25")
         assert r.status_code == 200
-        assert '<main id="view"></main>' in r.text
+        assert '<main id="view">' in r.text
+        assert 'class="log-view"' in r.text
         assert "/static/js/lib/error-report.js" in r.text
         assert "/static/js/lib/log-alert.js" in r.text
         assert "/static/js/views/logs.js" in r.text
-
-
-# ─── RotatingFileHandler survives rollover ─────────────────────────────────
-
-
-class TestRotationSurvival:
-    """When the log file hits ``maxBytes``, ``RotatingFileHandler`` renames
-    it and opens a new stream. The next record must NOT be dropped — a
-    regression here would silently lose client error reports."""
-
-    def test_rollover_preserves_subsequent_writes(self, tmp_path: Path):
-        from core.main import _JsonFormatter
-
-        logger = logging.getLogger("test.rollover")
-        logger.setLevel(logging.WARNING)
-        # Small maxBytes so we roll over in the test window.
-        h = logging.handlers.RotatingFileHandler(
-            tmp_path / "srv.log", maxBytes=200, backupCount=2, encoding="utf-8",
-        )
-        h.setFormatter(_JsonFormatter())
-        logger.addHandler(h)
-        try:
-            for i in range(50):
-                logger.warning("filler %03d - padding to force rollover", i)
-            logger.error("LAST_RECORD_SENTINEL")
-        finally:
-            logger.removeHandler(h)
-            h.close()
-
-        # The sentinel must appear in one of the files — current or rotated.
-        files = sorted(tmp_path.glob("srv.log*"))
-        assert files, "at least one log file should exist"
-        found = any("LAST_RECORD_SENTINEL" in f.read_text() for f in files)
-        assert found, f"sentinel missing from rotated logs: {[f.name for f in files]}"
-
-    def test_rotation_produces_backup_files(self, tmp_path: Path):
-        from core.main import _JsonFormatter
-
-        logger = logging.getLogger("test.rollover2")
-        logger.setLevel(logging.WARNING)
-        h = logging.handlers.RotatingFileHandler(
-            tmp_path / "srv.log", maxBytes=150, backupCount=3, encoding="utf-8",
-        )
-        h.setFormatter(_JsonFormatter())
-        logger.addHandler(h)
-        try:
-            for i in range(200):
-                logger.warning("fill-%02d", i)
-        finally:
-            logger.removeHandler(h)
-            h.close()
-        backups = sorted(tmp_path.glob("srv.log.*"))
-        assert backups, "expected at least one .1/.2/.3 backup after 200 records"

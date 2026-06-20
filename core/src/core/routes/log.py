@@ -25,11 +25,8 @@ _log = logging.getLogger("core.client_errors")
 
 _LOG_FILES = (
     "errors.log",
-    "backend-errors.log",
-    "frontend-errors.log",
     "backend.log",
     "frontend.log",
-    "server.log",
 )
 _DEFAULT_LOG_FILE = "errors.log"
 _DEFAULT_TAIL = 500
@@ -87,15 +84,7 @@ def _log_dir(request: Request) -> Path:
 
 
 def _is_allowed_log_name(name: str) -> bool:
-    if Path(name).name != name:
-        return False
-    for base in _LOG_FILES:
-        if name == base:
-            return True
-        if name.startswith(base + "."):
-            suffix = name[len(base) + 1:]
-            return suffix.isdigit()
-    return False
+    return Path(name).name == name and name in _LOG_FILES
 
 
 def _tail_text_lines(path: Path, limit: int) -> list[str]:
@@ -139,9 +128,7 @@ def _log_file_meta(log_dir: Path, name: str) -> dict:
         "exists": exists,
         "size": stat.st_size if stat else 0,
         "modified": stat.st_mtime if stat else None,
-        "error_only": name.startswith("errors.log")
-        or name.startswith("backend-errors.log")
-        or name.startswith("frontend-errors.log"),
+        "error_only": name == "errors.log",
     }
 
 
@@ -227,14 +214,7 @@ async def log_client(body: ClientLogBatch) -> dict:
 async def log_files(request: Request) -> dict:
     """List known log files that the UI is allowed to tail."""
     log_dir = _log_dir(request)
-    names = set(_LOG_FILES)
-    if log_dir.exists():
-        for base in _LOG_FILES:
-            for path in log_dir.glob(base + ".*"):
-                if _is_allowed_log_name(path.name):
-                    names.add(path.name)
-
-    files = [_log_file_meta(log_dir, name) for name in sorted(names)]
+    files = [_log_file_meta(log_dir, name) for name in _LOG_FILES]
     return {
         "default_file": _DEFAULT_LOG_FILE,
         "default_tail": _DEFAULT_TAIL,
@@ -301,7 +281,15 @@ async def logs_page() -> HTMLResponse:
       <a href="/#/logs">SPA logs</a>
     </nav>
   </header>
-  <main id="view"></main>
+  <main id="view">
+    <section class="log-view">
+      <div class="log-heading">
+        <h2>Error Logs</h2>
+        <p>Loading logs...</p>
+      </div>
+      <div class="log-status">Loading logs...</div>
+    </section>
+  </main>
   <script type="module">
     import { render } from "/static/js/views/logs.js";
     render(document.getElementById("view"), { params: new URLSearchParams(location.search) });

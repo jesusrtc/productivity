@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import logging.handlers
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -40,11 +39,11 @@ from core.watcher import IndexWatcher
 
 
 # ─── Structured file logging ─────────────────────────────────────────────────
-# Single JSON-lines formatter used by the rotating file handler attached to
-# the root logger during lifespan startup.  Console output is unchanged.
+# Single JSON-lines formatter used by the file handlers attached to the root
+# logger during lifespan startup.  Console output is unchanged.
 
 class _JsonFormatter(logging.Formatter):
-    """Newline-delimited JSON log entries for logs/server.log.
+    """Newline-delimited JSON log entries for the app's three log files.
 
     Fields: ts, level, logger, source, msg, path, exc (if any), session_id (if any).
     Server entries derive ``path`` from the LogRecord's filename:lineno.
@@ -98,8 +97,7 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(entry, ensure_ascii=False)
 
 # Keep module-level references so lifespan can remove them on shutdown.
-_file_handler: logging.handlers.RotatingFileHandler | None = None
-_split_handlers: list[logging.Handler] = []
+_log_file_handlers: list[logging.Handler] = []
 
 
 # ── Split-file filters ──────────────────────────────────────────────────────
@@ -112,22 +110,6 @@ def _is_backend(r: logging.LogRecord) -> bool:
 
 def _is_frontend(r: logging.LogRecord) -> bool:
     return getattr(r, "source", "server") == "client"
-
-
-def _backend_errors_filter(r: logging.LogRecord) -> bool:
-    return _is_backend(r) and r.levelno >= logging.WARNING
-
-
-def _backend_info_filter(r: logging.LogRecord) -> bool:
-    return _is_backend(r) and r.levelno < logging.WARNING
-
-
-def _frontend_errors_filter(r: logging.LogRecord) -> bool:
-    return _is_frontend(r) and r.levelno >= logging.ERROR
-
-
-def _frontend_info_filter(r: logging.LogRecord) -> bool:
-    return _is_frontend(r) and r.levelno < logging.ERROR
 
 
 def _backend_all_filter(r: logging.LogRecord) -> bool:
@@ -280,35 +262,20 @@ class _ImmutableStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _file_handler
     root = config.monorepo_root()
 
     # ── File logging setup ──────────────────────────────────────────────────
-    # Log files land in ``logs/`` so future Claude turns can tail the smallest
-    # relevant one without scanning a combined log:
+    # The app writes exactly three JSONL files under ``logs/``:
     #
-    #   server.log              — legacy combined (WARNING+), 10MB×5 rotation.
-    #   backend.log             — backend INFO+ regular log.
-    #   frontend.log            — client-side INFO+ regular log.
-    #   errors.log              — ERROR+ only across frontend and backend.
-    #   backend-errors.log      — backend ERROR+ only.
-    #   frontend-errors.log     — frontend ERROR+ only.
+    #   backend.log   — backend INFO+ regular log.
+    #   frontend.log  — client-side INFO+ regular log.
+    #   errors.log    — ERROR+ only across frontend and backend.
     #
-    # The split is done with filters on the JSON formatter; ``source`` is
-    # "server" for backend records and "client" for events POSTed by the
-    # browser via routes/log.py.
+    # There is deliberately no legacy combined log and no source-specific
+    # error log. ``source`` is "server" for backend records and "client" for
+    # events POSTed by the browser via routes/log.py.
     log_dir = root / "logs"
     log_dir.mkdir(exist_ok=True)
-
-    _file_handler = logging.handlers.RotatingFileHandler(
-        log_dir / "server.log",
-        maxBytes=10 * 1024 * 1024,  # 10 MB per file
-        backupCount=5,
-        encoding="utf-8",
-    )
-    _file_handler.setLevel(logging.WARNING)
-    _file_handler.setFormatter(_JsonFormatter())
-    logging.getLogger().addHandler(_file_handler)
 
     # Split files. The root logger's effective level needs to allow INFO
     # through so the info-level split handlers see anything at all — but we
@@ -318,66 +285,20 @@ async def lifespan(app: FastAPI):
     if root_logger.level > logging.INFO or root_logger.level == logging.NOTSET:
         root_logger.setLevel(logging.INFO)
 
-    _split_handlers.clear()
+    _log_file_handlers.clear()
 
-    def _make(handler: logging.Handler, level: int, flt) -> logging.Handler:
+    def _make(name: str, level: int, flt) -> logging.Handler:
+        handler = logging.FileHandler(log_dir / name, encoding="utf-8")
         handler.setLevel(level)
         handler.setFormatter(_JsonFormatter())
         handler.addFilter(flt)
         root_logger.addHandler(handler)
-        _split_handlers.append(handler)
+        _log_file_handlers.append(handler)
         return handler
 
-    _make(
-        logging.handlers.RotatingFileHandler(
-            log_dir / "backend.log",
-            maxBytes=50 * 1024 * 1024,
-            backupCount=10,
-            encoding="utf-8",
-        ),
-        logging.INFO,
-        _backend_all_filter,
-    )
-    _make(
-        logging.handlers.RotatingFileHandler(
-            log_dir / "frontend.log",
-            maxBytes=50 * 1024 * 1024,
-            backupCount=10,
-            encoding="utf-8",
-        ),
-        logging.INFO,
-        _frontend_all_filter,
-    )
-    _make(
-        logging.handlers.RotatingFileHandler(
-            log_dir / "errors.log",
-            maxBytes=50 * 1024 * 1024,
-            backupCount=10,
-            encoding="utf-8",
-        ),
-        logging.ERROR,
-        _errors_only_filter,
-    )
-    _make(
-        logging.handlers.RotatingFileHandler(
-            log_dir / "backend-errors.log",
-            maxBytes=50 * 1024 * 1024,
-            backupCount=10,
-            encoding="utf-8",
-        ),
-        logging.ERROR,
-        _backend_errors_filter,
-    )
-    _make(
-        logging.handlers.RotatingFileHandler(
-            log_dir / "frontend-errors.log",
-            maxBytes=50 * 1024 * 1024,
-            backupCount=10,
-            encoding="utf-8",
-        ),
-        logging.ERROR,
-        _frontend_errors_filter,
-    )
+    _make("backend.log", logging.INFO, _backend_all_filter)
+    _make("frontend.log", logging.INFO, _frontend_all_filter)
+    _make("errors.log", logging.ERROR, _errors_only_filter)
 
     # Drop the running port to disk so other tools (lab CLI, scripts, Claude
     # curl examples) can discover it without hardcoding 3333. Removed in the
@@ -431,13 +352,10 @@ async def lifespan(app: FastAPI):
         except OSError:
             pass
         # Remove and close the file handlers to flush any buffered records.
-        if _file_handler is not None:
-            logging.getLogger().removeHandler(_file_handler)
-            _file_handler.close()
-        for h in _split_handlers:
+        for h in _log_file_handlers:
             logging.getLogger().removeHandler(h)
             h.close()
-        _split_handlers.clear()
+        _log_file_handlers.clear()
 
 
 def create_app() -> FastAPI:

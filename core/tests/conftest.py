@@ -216,12 +216,13 @@ def resource_snapshot() -> Iterator[Callable[[], None]]:
 
 @pytest.fixture()
 def tmp_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Redirect the server's RotatingFileHandler target to a per-test
-    directory. The lifespan hook reads ``root / "logs"`` so we only need
-    to set LAB_ROOT (already done by ``monorepo``) — this fixture is
-    mainly a place to centralize the expected log path."""
+    """Return the per-test app log directory.
+
+    The lifespan hook writes the three app logs under ``root / "logs"``; this
+    fixture centralizes that path for tests that need direct file assertions.
+    """
     # Lifespan creates logs/ under LAB_ROOT; this just computes the path
-    # so tests can locate the server.log file without hardcoding it.
+    # so tests can locate app log files without hardcoding it.
     root = Path(os.environ.get("LAB_ROOT", tmp_path))
     log_dir = root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
