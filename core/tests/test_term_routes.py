@@ -544,13 +544,17 @@ def test_delete_with_purge_clears_project_json_entry(client, seed_project,
 def test_delete_with_purge_prevents_later_resume(client, seed_project,
                                                   isolated_prefix) -> None:
     seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
+    assert r.status_code == 200, r.text
+    first = r.json()
 
     client.delete(f"/api/term/sessions/{first['name']}?purge=true")
-    recreated = client.post("/api/term/sessions", json={
+    r = client.post("/api/term/sessions", json={
         "project_id": "demo",
         "kind": "claude",
-    }).json()
+    })
+    assert r.status_code == 200, r.text
+    recreated = r.json()
 
     assert recreated["claude_session_id"] != first["claude_session_id"]
     assert recreated["resumed_from"] is None
