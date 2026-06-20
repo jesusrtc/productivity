@@ -4851,13 +4851,13 @@
   // Stored as a single JSON map {projectId: logicalName}.
   const TERM_LAST_KEY = 'labTermLastSession';
   function _termActiveProjectId() {
-    if (currentProject && currentProject.is_project) return currentProject.name;
     if (document.body.classList.contains('logs-active')) return LOGS_PROJECT_ID;
     if (document.body.classList.contains('cerebro-active')) return CEREBRO_PROJECT_ID;
     if (document.body.classList.contains('self-active')) return SELF_PROJECT_ID;
     if (document.body.classList.contains('code-search-active') && _csState && _csState.repo) {
       return _csProjectId(_csState.repo);
     }
+    if (currentProject && currentProject.is_project) return currentProject.name;
     return null;
   }
   function _termRememberLast(projectId, logicalName) {
@@ -5353,13 +5353,13 @@
       // Skip a tick if a reorder is still writing — otherwise the GET can
       // beat the POST and stomp the user's fresh drop.
       if (_termReorderPending) return;
-      // Real project? Use its id. Cerebro view? Use the pseudo-id. Neither?
-      // Nothing to refresh against; skip this tick.
+      // Active pseudo-views win over a stale currentProject from the previous
+      // tab. Otherwise, use the loaded real project id.
       let pid = null;
-      if (currentProject && currentProject.is_project) pid = currentProject.name;
-      else if (document.body.classList.contains('logs-active')) pid = LOGS_PROJECT_ID;
+      if (document.body.classList.contains('logs-active')) pid = LOGS_PROJECT_ID;
       else if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
       else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
+      else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
       const prev = termCurrentSession;
       if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(pid);
@@ -5385,10 +5385,10 @@
         return;
       }
       let pid = null;
-      if (currentProject && currentProject.is_project) pid = currentProject.name;
-      else if (document.body.classList.contains('logs-active')) pid = LOGS_PROJECT_ID;
+      if (document.body.classList.contains('logs-active')) pid = LOGS_PROJECT_ID;
       else if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
       else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
+      else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
       try {
         const r = await fetch('/api/term/sessions/status?project_id=' + encodeURIComponent(pid));
@@ -5833,10 +5833,10 @@
 
     // Persist server-side. Same project-id resolution used elsewhere.
     let projectId = null;
-    if (currentProject && currentProject.is_project) projectId = currentProject.name;
-    else if (document.body.classList.contains('logs-active')) projectId = LOGS_PROJECT_ID;
+    if (document.body.classList.contains('logs-active')) projectId = LOGS_PROJECT_ID;
     else if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
     else if (document.body.classList.contains('self-active')) projectId = SELF_PROJECT_ID;
+    else if (currentProject && currentProject.is_project) projectId = currentProject.name;
     if (!projectId) return;
     // Suspend the periodic refresh while the POST is in flight: otherwise a
     // 5s-tick GET can race the POST and re-paint the old order, making the
@@ -5902,19 +5902,18 @@
   }
 
   async function termSpawnSession(kind, { startFresh = false, agent = null } = {}) {
-    // Resolve the project id the new session belongs to. Cerebro is a
-    // pseudo-project with no `currentProject`, so fall back to
-    // CEREBRO_PROJECT_ID when the Cerebro view is active. Without this,
-    // clicking "+ New → Terminal" in Cerebro was a silent no-op.
+    // Resolve the project id the new session belongs to. Active pseudo-views
+    // can coexist with a stale currentProject from the previous tab, so check
+    // them first.
     let projectId = null;
-    if (currentProject && currentProject.is_project) {
-      projectId = currentProject.name;
+    if (document.body.classList.contains('logs-active')) {
+      projectId = LOGS_PROJECT_ID;
     } else if (document.body.classList.contains('cerebro-active')) {
       projectId = CEREBRO_PROJECT_ID;
-    } else if (document.body.classList.contains('logs-active')) {
-      projectId = LOGS_PROJECT_ID;
     } else if (document.body.classList.contains('self-active')) {
       projectId = SELF_PROJECT_ID;
+    } else if (currentProject && currentProject.is_project) {
+      projectId = currentProject.name;
     }
     if (!projectId) return;
 
@@ -5962,13 +5961,13 @@
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name), {method: 'DELETE'}); } catch {}
-    // Pick the right project-id to refresh against — real project if one's
-    // loaded, else the Cerebro pseudo-project when its view is active.
+    // Pick the right project-id to refresh against. Active pseudo-views win
+    // over a stale currentProject from the previous tab.
     let projectId = null;
-    if (currentProject && currentProject.is_project) projectId = currentProject.name;
+    if (document.body.classList.contains('logs-active')) projectId = LOGS_PROJECT_ID;
     else if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
     else if (document.body.classList.contains('self-active')) projectId = SELF_PROJECT_ID;
-    else if (document.body.classList.contains('logs-active')) projectId = LOGS_PROJECT_ID;
+    else if (currentProject && currentProject.is_project) projectId = currentProject.name;
     if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
     else await termRefreshSessions(projectId);
     if (termSessions.length > 0) termAttach(termSessions[0].name);
