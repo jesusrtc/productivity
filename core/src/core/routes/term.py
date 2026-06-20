@@ -118,10 +118,12 @@ def _tmux_prefix() -> str:
 # Reserved pseudo-project ids.
 #  * __cerebro__ — the personal knowledge-base view (cwd = content/)
 #  * __self__    — the productivity monorepo itself    (cwd = repo root)
-# Both behave like regular projects otherwise: they show up in the project-
+#  * __logs__    — the embedded logs view              (cwd = logs/)
+# They behave like regular projects otherwise: they show up in the project-
 # tabs strip, can be closed (X), and reopened from the Home dashboard.
 CEREBRO_PROJECT_ID = "__cerebro__"
 SELF_PROJECT_ID = "__self__"
+LOGS_PROJECT_ID = "__logs__"
 # Per-repo pseudo project for the Code Search tab. The id is
 # ``__cs_<repo>__`` where ``<repo>`` is a directory name under
 # ``repositories/``. Used so each Code-Search repo has its own scoped
@@ -150,6 +152,8 @@ def _project_json(root: Path, project_id: str) -> Path:
         return root / "content" / ".cerebro-project.json"
     if project_id == SELF_PROJECT_ID:
         return root / "content" / ".self-project.json"
+    if project_id == LOGS_PROJECT_ID:
+        return root / "content" / ".logs-project.json"
     return root / "projects" / project_id / "project.json"
 
 
@@ -158,12 +162,15 @@ def _project_cwd(root: Path, project_id: str) -> Path:
 
     - ``__cerebro__``     → content/
     - ``__self__``        → monorepo root (so claude sees apps/, docs/, etc.)
+    - ``__logs__``        → logs/
     - ``__cs_<repo>__``   → repositories/<repo> (Code Search per-repo terminal)
     """
     if project_id == CEREBRO_PROJECT_ID:
         return (root / "content").resolve()
     if project_id == SELF_PROJECT_ID:
         return root.resolve()
+    if project_id == LOGS_PROJECT_ID:
+        return (root / "logs").resolve()
     repo = _cs_repo_name(project_id)
     if repo:
         return (root / "repositories" / repo).resolve()
@@ -202,11 +209,11 @@ def _load_project(root: Path, project_id: str) -> dict | None:
             except OSError:
                 pass  # best effort; fall through
     if not p.is_file():
-        # Pseudo-projects (Cerebro, Self) have no ``lab project new``
+        # Pseudo-projects (Cerebro, Self, Logs) have no ``lab project new``
         # ceremony — bootstrap an empty shell so session IDs get persisted
         # on first use. Real projects still return None; creating their
         # project.json is the CLI's job.
-        if project_id in (CEREBRO_PROJECT_ID, SELF_PROJECT_ID):
+        if project_id in (CEREBRO_PROJECT_ID, SELF_PROJECT_ID, LOGS_PROJECT_ID):
             return {}
         return None
     try:
@@ -258,7 +265,7 @@ def _upsert_project_session(root: Path, project_id: str, entry: dict) -> None:
 # /api/term/projects-with-sessions and greys out every tab in the UI.
 
 def _known_project_ids(root: Path) -> list[str]:
-    ids = [CEREBRO_PROJECT_ID, SELF_PROJECT_ID]
+    ids = [CEREBRO_PROJECT_ID, SELF_PROJECT_ID, LOGS_PROJECT_ID]
     projects = root / "projects"
     if projects.is_dir():
         ids += [p.name for p in projects.iterdir() if p.is_dir()]

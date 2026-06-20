@@ -182,6 +182,34 @@ def test_logs_spa_route_and_nav_are_registered() -> None:
     assert 'step: "50"' not in logs_js
 
 
+def test_embedded_logs_view_registered_in_main_shell() -> None:
+    root = Path(__file__).resolve().parents[2]
+    index_html = (root / "core/src/core/templates/index.html").read_text()
+    lab_app = (root / "core/src/core/static/js/lab-app.js").read_text()
+
+    assert "/static/js/lab-app.js" in index_html
+    assert 'id="logsView"' in index_html
+    assert 'class="logs-terminal"' in index_html
+    assert 'data-file="errors.log"' in index_html
+    assert 'data-file="backend.log"' in index_html
+    assert 'data-file="frontend.log"' in index_html
+    assert ">Backend<" in index_html
+    assert ">Frontend<" in index_html
+    assert "const LOGS_PROJECT_ID = '__logs__'" in lab_app
+    assert "const LOGS_POLL_MS = 2000" in lab_app
+    assert "function goToLogs" in lab_app
+    assert "function initLogs" in lab_app
+    assert "termOpenForLogs()" in lab_app
+    assert "function termOpenForLogs" in lab_app
+    assert "if (document.body.classList.contains('logs-active')) return LOGS_PROJECT_ID" in lab_app
+    assert "_TERM_VIS_KEY_PREFIX + 'logs'" in lab_app
+    assert "return 'logs'" in lab_app
+    assert "function logsStartLive" in lab_app
+    assert "function logsRefresh" in lab_app
+    assert "'logs-active'" in lab_app
+    assert "window.goToLogs = goToLogs" in lab_app
+
+
 def test_log_alert_script_tracks_unseen_error_cursor() -> None:
     root = Path(__file__).resolve().parents[2]
     log_alert = (root / "core/src/core/static/js/lib/log-alert.js").read_text()
@@ -189,4 +217,6 @@ def test_log_alert_script_tracks_unseen_error_cursor() -> None:
     assert "/api/log/error-state" in log_alert
     assert "lab.errorLog.seenCursor" in log_alert
     assert "has-unseen" in log_alert
-    assert "/logs?file=errors.log&tail=500" in log_alert
+    assert "/?view=logs&file=errors.log&tail=500" in log_alert
+    assert "Logs: new" in log_alert
+    assert "window.goToLogs" in log_alert

@@ -1,6 +1,6 @@
 (function () {
   const STATE_URL = "/api/log/error-state";
-  const LOG_URL = "/logs?file=errors.log&tail=500";
+  const LOG_URL = "/?view=logs&file=errors.log&tail=500";
   const STORAGE_KEY = "lab.errorLog.seenCursor";
   const POLL_MS = 15000;
 
@@ -88,11 +88,20 @@
     if (!button) return;
     const unseen = hasUnseen(latestState);
     button.classList.toggle("has-unseen", unseen);
+    if (document.body) {
+      document.body.classList.toggle("logs-have-unseen-errors", unseen);
+    }
+    document.querySelectorAll(".proj-tab.logs-tab").forEach((tab) => {
+      tab.classList.toggle("has-unseen", unseen);
+    });
+    document.querySelectorAll('.logs-source[data-file="errors.log"]').forEach((tab) => {
+      tab.classList.toggle("has-unseen", unseen);
+    });
     button.title = unseen
-      ? "New errors since you last opened the error log"
-      : "Open error logs";
+      ? "New errors since you last opened logs"
+      : "Open logs";
     const label = button.querySelector(".lab-log-label");
-    if (label) label.textContent = unseen ? "Errors: new" : "Errors";
+    if (label) label.textContent = unseen ? "Logs: new" : "Logs";
   }
 
   function ensureButton() {
@@ -105,7 +114,7 @@
       button.id = "labLogAlertButton";
       button.className = "lab-log-alert";
       button.href = LOG_URL;
-      button.innerHTML = '<span class="lab-log-dot"></span><span class="lab-log-label">Errors</span>';
+      button.innerHTML = '<span class="lab-log-dot"></span><span class="lab-log-label">Logs</span>';
 
       const topbar = document.querySelector(".topbar");
       const settings = document.getElementById("settingsBtn");
@@ -124,6 +133,16 @@
       }
     }
 
+    button.href = LOG_URL;
+    if (!button._labLogsClickWired) {
+      button._labLogsClickWired = true;
+      button.addEventListener("click", (event) => {
+        if (typeof window.goToLogs === "function" && window.location.pathname === "/") {
+          event.preventDefault();
+          window.goToLogs({ file: "errors.log", tail: 500 });
+        }
+      });
+    }
     return button;
   }
 

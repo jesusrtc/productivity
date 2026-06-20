@@ -269,9 +269,35 @@ async def logs_page() -> HTMLResponse:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>lab logs</title>
-  <link rel="stylesheet" href="/static/css/app.css">
+  <style>
+    body { margin: 0; background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    header { height: 48px; display: flex; align-items: center; gap: 18px; padding: 0 16px; background: #161b22; border-bottom: 1px solid #30363d; }
+    header h1 { font-size: 16px; margin: 0; }
+    header a { color: #58a6ff; text-decoration: none; }
+    main { padding: 18px 20px; }
+    .log-view { border: 1px solid #30363d; border-radius: 6px; background: #161b22; padding: 16px; }
+    .log-heading h2 { margin: 0 0 4px; }
+    .log-heading p, .log-status { color: #8b949e; margin: 0; }
+  </style>
+  <noscript><link rel="stylesheet" href="/static/css/app.css"></noscript>
+  <script>
+    window.addEventListener("load", function () {
+      var loadCss = function () {
+        var l = document.createElement("link");
+        l.rel = "stylesheet";
+        l.href = "/static/css/app.css";
+        document.head.appendChild(l);
+      };
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { setTimeout(loadCss, 0); });
+        });
+      } else {
+        setTimeout(loadCss, 0);
+      }
+    }, { once: true });
+  </script>
   <script src="/static/js/lib/error-report.js"></script>
-  <script src="/static/js/lib/log-alert.js" defer></script>
 </head>
 <body>
   <header>
@@ -293,6 +319,15 @@ async def logs_page() -> HTMLResponse:
   <script type="module">
     import { render } from "/static/js/views/logs.js";
     render(document.getElementById("view"), { params: new URLSearchParams(location.search) });
+  </script>
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        var s = document.createElement("script");
+        s.src = "/static/js/lib/log-alert.js";
+        document.head.appendChild(s);
+      }, 0);
+    }, { once: true });
   </script>
 </body>
 </html>"""

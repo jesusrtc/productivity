@@ -500,6 +500,33 @@ def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
     assert "--resume" in resumed["cmd"]
 
 
+def test_logs_pseudo_project_lifecycle(client, isolated_prefix,
+                                         monorepo: Path) -> None:
+    """The Logs tab owns its own terminal sessions and saved state."""
+    (monorepo / "logs").mkdir(exist_ok=True)
+
+    r = client.post("/api/term/sessions", json={
+        "project_id": "__logs__", "kind": "terminal",
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == isolated_prefix + "__logs__-bash"
+    assert body["project_id"] == "__logs__"
+    assert body["logical_name"] == "bash"
+    assert body["cwd"].endswith("/logs")
+
+    meta_path = monorepo / "content" / ".logs-project.json"
+    assert meta_path.is_file()
+    data = json.loads(meta_path.read_text())
+    assert data["sessions"] == [{"name": "bash", "kind": "terminal"}]
+
+    saved = client.get("/api/term/sessions/saved?project_id=__logs__").json()
+    assert saved == [{"name": "bash", "kind": "terminal"}]
+
+    live = client.get("/api/term/sessions?project_id=__logs__").json()
+    assert [s["name"] for s in live] == [body["name"]]
+
+
 def test_delete_with_purge_clears_project_json_entry(client, seed_project,
                                                       isolated_prefix, monorepo: Path) -> None:
     seed_project("demo")
