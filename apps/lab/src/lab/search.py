@@ -39,7 +39,7 @@ def search(root: Path, query: str) -> dict:
     tasks: list[dict] = []
     docs: list[dict] = []
 
-    projects_root = root / "content" / "projects"
+    projects_root = root / "projects"
     if projects_root.is_dir():
         for child in sorted(projects_root.iterdir()):
             if not child.is_dir():

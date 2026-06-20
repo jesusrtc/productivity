@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import click
 
+from lab.commands.agents import agents_group
 from lab.commands.artifact import artifact_group
+from lab.commands.config import config_group
 from lab.commands.index import index_group
 from lab.commands.link import link_group
 from lab.commands.ref import ref_group
@@ -21,6 +23,8 @@ def main() -> None:
 
 
 main.add_command(project_group)
+main.add_command(config_group)
+main.add_command(agents_group)
 main.add_command(task_group)
 main.add_command(pr_group)
 main.add_command(artifact_group)

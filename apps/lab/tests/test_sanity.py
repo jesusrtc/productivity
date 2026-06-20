@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_monorepo_fixture_creates_structure(monorepo: Path) -> None:
-    assert (monorepo / "content" / "projects").is_dir()
+    assert (monorepo / "projects").is_dir()
     assert (monorepo / ".git").is_dir()
 
 

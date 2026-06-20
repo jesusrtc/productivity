@@ -22,7 +22,7 @@ def test_project_new_creates_directory_and_files(monorepo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "new", "davi-vision", "--desc", "Reshape DAVI"])
     assert result.exit_code == 0, result.output
-    pdir = monorepo / "content" / "projects" / "davi-vision"
+    pdir = monorepo / "projects" / "davi-vision"
     assert pdir.is_dir()
     assert (pdir / "docs").is_dir()
     assert (pdir / "notes").is_dir()
@@ -48,7 +48,7 @@ def test_project_new_with_priority_due_tags_labels(monorepo: Path) -> None:
         "--labels", "abuse-scoring-rules",
     ])
     assert result.exit_code == 0, result.output
-    proj = json.loads((monorepo / "content" / "projects" / "drools-rate" / "project.json").read_text())
+    proj = json.loads((monorepo / "projects" / "drools-rate" / "project.json").read_text())
     assert proj["priority"] == "P1"
     assert proj["due"] == "2026-05-01"
     assert proj["tags"] == ["limits", "abuse"]
@@ -69,44 +69,79 @@ def test_project_new_rejects_bad_id(monorepo: Path) -> None:
     assert result.exit_code != 0
     assert "must match" in result.output.lower()
     # The invalid id should never create a directory.
-    assert not (monorepo / "content" / "projects" / "Bad ID!").exists()
+    assert not (monorepo / "projects" / "Bad ID!").exists()
 
 
-def test_project_relink_converts_file_to_symlink(monorepo: Path, seed_project) -> None:
-    """Projects predating the symlink design get retroactively linked."""
+# ─── `lab agents sync` — AGENTS.md canonical + CLAUDE.md/Copilot/memory links ──
+# These supersede the never-implemented `lab project relink` design. They
+# monkeypatch HOME so the sync's ~/.claude + ~/.codex writes land in a temp dir.
+
+
+def test_agents_sync_links_project_claude_md(monorepo: Path, seed_project,
+                                             monkeypatch, tmp_path) -> None:
+    """A hand-written project CLAUDE.md becomes a symlink to a canonical AGENTS.md."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     pdir = seed_project("legacy")
-    # Seed an old-style hand-written CLAUDE.md.
-    (pdir / "CLAUDE.md").write_text("# old content — should be replaced")
+    (pdir / "CLAUDE.md").write_text("# legacy project instructions\n")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "relink"])
+    result = runner.invoke(main, ["agents", "sync"])
     assert result.exit_code == 0, result.output
-    link = pdir / "CLAUDE.md"
-    assert link.is_symlink()
-    assert "lab project status" in link.read_text()
+    agents = pdir / "AGENTS.md"
+    claude = pdir / "CLAUDE.md"
+    assert agents.is_file() and not agents.is_symlink()
+    assert "legacy project instructions" in agents.read_text()
+    assert claude.is_symlink()
+    assert claude.resolve() == agents.resolve()
 
 
-def test_project_relink_is_idempotent(monorepo: Path, seed_project) -> None:
+def test_agents_sync_root_instructions_and_memory(monorepo: Path,
+                                                  monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    runner = CliRunner()
+    result = runner.invoke(main, ["agents", "sync"])
+    assert result.exit_code == 0, result.output
+    # Root CLAUDE.md (a real file in the fixture) → moved to AGENTS.md + symlinked.
+    assert (monorepo / "AGENTS.md").is_file()
+    assert (monorepo / "CLAUDE.md").is_symlink()
+    cop = monorepo / ".github" / "copilot-instructions.md"
+    assert cop.is_symlink()
+    assert cop.resolve() == (monorepo / "AGENTS.md").resolve()
+    # Repo-local memory dir + index created, and AGENTS.md carries the rule.
+    assert (monorepo / ".agents" / "memory" / "MEMORY.md").is_file()
+    assert "Memory (repo-local" in (monorepo / "AGENTS.md").read_text()
+
+
+def test_agents_sync_is_idempotent(monorepo: Path, seed_project,
+                                   monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     seed_project("one")
-    seed_project("two")
     runner = CliRunner()
-    runner.invoke(main, ["project", "relink"])
-    r2 = runner.invoke(main, ["project", "relink"])
-    assert r2.exit_code == 0
-    # Second run finds both already correct.
-    assert "already correct 2" in r2.output
+    first = runner.invoke(main, ["agents", "sync"])
+    assert first.exit_code == 0, first.output
+    second = runner.invoke(main, ["agents", "sync"])
+    assert second.exit_code == 0, second.output
+    assert "nothing to do" in second.output
 
 
-def test_project_new_creates_claude_md_symlink(monorepo: Path) -> None:
-    """CLAUDE.md is a symlink to the canonical content/skills file so all
-    projects share one documented source of truth."""
+def test_agents_sync_links_shared_skills(monorepo: Path, seed_project,
+                                         monkeypatch, tmp_path) -> None:
+    """Canonical .claude/skills is exposed via .agents/skills at root + per project."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (monorepo / ".claude" / "skills" / "demo").mkdir(parents=True)
+    (monorepo / ".claude" / "skills" / "demo" / "SKILL.md").write_text("# demo\n")
+    pdir = seed_project("p")
     runner = CliRunner()
-    runner.invoke(main, ["project", "new", "x", "--desc", "Do stuff"])
-    link = monorepo / "content" / "projects" / "x" / "CLAUDE.md"
-    assert link.is_symlink()
-    target = (monorepo / "content" / "skills" / "project-CLAUDE.md").resolve()
-    assert link.resolve() == target
-    # Symlink is readable + points at the shared content.
-    assert "lab project status" in link.read_text()
+    r = runner.invoke(main, ["agents", "sync"])
+    assert r.exit_code == 0, r.output
+    # Root tool-neutral alias.
+    root_alias = monorepo / ".agents" / "skills"
+    assert root_alias.is_symlink()
+    assert (root_alias / "demo" / "SKILL.md").is_file()
+    # Each project sees the shared skills via both the Claude and tool-neutral paths.
+    for sub in (".claude/skills", ".agents/skills"):
+        link = pdir / sub
+        assert link.is_symlink(), sub
+        assert (link / "demo" / "SKILL.md").is_file(), sub
 
 
 def test_project_ls_empty(monorepo: Path) -> None:
@@ -174,7 +209,7 @@ def test_project_set_updates_field(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "set", "alpha", "description", "New desc"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert data["description"] == "New desc"
 
 
@@ -183,7 +218,7 @@ def test_project_set_status(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "set", "alpha", "status", "paused"])
     assert result.exit_code == 0
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert data["status"] == "paused"
 
 
@@ -200,7 +235,7 @@ def test_project_set_priority_and_due(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "set", "alpha", "priority", "P0"])
     runner.invoke(main, ["project", "set", "alpha", "due", "2026-05-15"])
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert data["priority"] == "P0"
     assert data["due"] == "2026-05-15"
 
@@ -210,7 +245,7 @@ def test_project_set_tags_and_labels_csv(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     runner.invoke(main, ["project", "set", "alpha", "tags", "a,b,c"])
     runner.invoke(main, ["project", "set", "alpha", "labels", "lipy-davi"])
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert data["tags"] == ["a", "b", "c"]
     assert data["labels"] == ["lipy-davi"]
 
@@ -220,7 +255,7 @@ def test_project_archive(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "archive", "alpha"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert data["status"] == "archived"
 
 
@@ -230,7 +265,7 @@ def test_project_rm_requires_confirmation(monorepo: Path, seed_project) -> None:
     # No confirmation → aborts
     result = runner.invoke(main, ["project", "rm", "alpha"], input="\n")
     assert result.exit_code != 0
-    assert (monorepo / "content" / "projects" / "alpha").exists()
+    assert (monorepo / "projects" / "alpha").exists()
 
 
 def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
@@ -238,7 +273,7 @@ def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "rm", "alpha", "--yes"])
     assert result.exit_code == 0, result.output
-    assert not (monorepo / "content" / "projects" / "alpha").exists()
+    assert not (monorepo / "projects" / "alpha").exists()
 
 
 def test_project_rm_missing(monorepo: Path) -> None:
@@ -321,7 +356,7 @@ def test_project_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["project", "new", "doomed", "--desc", "test"])
     assert result.exit_code != 0
-    assert not (monorepo / "content" / "projects" / "doomed").exists()
+    assert not (monorepo / "projects" / "doomed").exists()
 
 
 def test_project_add_missing_mp(monorepo, seed_project, monkeypatch) -> None:
@@ -409,7 +444,7 @@ def test_project_add_stores_worktrees_subfolder_path(monorepo, seed_project, tmp
     result = runner.invoke(main, ["project", "add", "alpha", "some-mp"])
     assert result.exit_code == 0, result.output
 
-    pdir = monorepo / "content" / "projects" / "alpha"
+    pdir = monorepo / "projects" / "alpha"
     data = json.loads((pdir / "project.json").read_text())
     assert len(data["worktrees"]) == 1
     wt = data["worktrees"][0]
@@ -420,7 +455,7 @@ def test_project_add_stores_worktrees_subfolder_path(monorepo, seed_project, tmp
 def test_project_remove_force_flag(monorepo, seed_project, monkeypatch) -> None:
     """--force should pass through to `git worktree remove --force`."""
     seed_project("alpha")
-    pdir = monorepo / "content" / "projects" / "alpha"
+    pdir = monorepo / "projects" / "alpha"
     # Seed a worktree entry + the dir (pretend git already set it up).
     data = json.loads((pdir / "project.json").read_text())
     data["worktrees"] = [{"mp": "some-mp", "dir": "worktrees/sm-alpha", "branch": "x"}]
@@ -457,7 +492,7 @@ def test_pr_add_and_ls(monorepo, seed_project) -> None:
     r = runner.invoke(main, ["pr", "ls", "--project", "alpha"])
     assert "https://example/pr/1" in r.output
 
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert data["prs"][0]["url"] == "https://example/pr/1"
     assert data["prs"][0]["mp"] == "lipy-davi"
 
@@ -469,7 +504,7 @@ def test_pr_rm(monorepo, seed_project) -> None:
     runner.invoke(main, ["pr", "add", "https://x/2", "--project", "alpha"])
     r = runner.invoke(main, ["pr", "rm", "0", "--project", "alpha"])
     assert r.exit_code == 0
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert [p["url"] for p in data["prs"]] == ["https://x/2"]
 
 
@@ -481,7 +516,7 @@ def test_artifact_add_and_ls(monorepo, seed_project) -> None:
         "--type", "google_doc", "--title", "Design doc",
     ])
     assert r.exit_code == 0, r.output
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     a = data["artifacts"][0]
     assert a["type"] == "google_doc"
     assert a["title"] == "Design doc"
@@ -495,5 +530,5 @@ def test_artifact_rm_by_id(monorepo, seed_project) -> None:
     runner.invoke(main, ["artifact", "add", "https://b", "--project", "alpha"])
     r = runner.invoke(main, ["artifact", "rm", "1", "--project", "alpha"])
     assert r.exit_code == 0
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert [a["url"] for a in data["artifacts"]] == ["https://b"]

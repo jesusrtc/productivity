@@ -67,8 +67,8 @@ notebook, and saves a PNG copy to `assets/`. No raw Plotly. No
 
 | Caller | PNG path |
 |---|---|
-| Investigation | `content/projects/<id>/assets/<slug>_ioc_over_time.png` |
-| ASTA coverage | `content/projects/<id>/assets/<slug>_coverage_over_time.png` |
+| Investigation | `projects/<id>/assets/<slug>_ioc_over_time.png` |
+| ASTA coverage | `projects/<id>/assets/<slug>_coverage_over_time.png` |
 
 The one-pager skills reference these paths in their markdown embeds.
 
@@ -108,7 +108,7 @@ Always send these cells via `POST "$(scripts/lab-url.sh)/api/nb/exec"`
 artifact and the lab UI shows the chart live. `scripts/lab-url.sh` reads
 the actual lab server port (default `3333`; the user may run it on a
 different port via `make start PORT=NNNN`). See
-`content/projects/CLAUDE.md` in the monorepo for the recipe.
+`projects/CLAUDE.md` in the monorepo for the recipe.
 
 ## Rules
 

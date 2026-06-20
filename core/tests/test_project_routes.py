@@ -120,6 +120,36 @@ def test_get_project_file_missing(client, seed_project) -> None:
     assert r.status_code == 404
 
 
+def test_project_files_marks_symlinks(client, seed_project) -> None:
+    pdir = seed_project("alpha")
+    (pdir / "AGENTS.md").write_text("# canonical\n")
+    (pdir / "CLAUDE.md").symlink_to("AGENTS.md")
+    (pdir / "real-docs").mkdir()
+    (pdir / "real-docs" / "note.md").write_text("# note\n")
+    (pdir / "linked-docs").symlink_to("real-docs", target_is_directory=True)
+    (pdir / ".claude").mkdir()
+    (pdir / ".claude" / "skills").symlink_to("../real-docs", target_is_directory=True)
+
+    r = client.get(f"/api/project-files?path={pdir}")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.json()}
+
+    assert files["CLAUDE.md"]["is_symlink"] is True
+    assert files["CLAUDE.md"]["symlink_target"] == "AGENTS.md"
+    assert "is_symlink" not in files["AGENTS.md"]
+    assert files["linked-docs"]["type"] == "dir"
+    assert files["linked-docs"]["is_symlink"] is True
+    assert files["linked-docs"]["symlink_target"] == "real-docs"
+    assert files["linked-docs/note.md"]["type"] == "file"
+
+    r = client.get(f"/api/project-files?path={pdir}&include_dotfiles=true")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.json()}
+    assert files[".claude/skills"]["type"] == "dir"
+    assert files[".claude/skills"]["is_symlink"] is True
+    assert files[".claude/skills"]["symlink_target"] == "../real-docs"
+
+
 def test_set_project_hold_with_duration(client, seed_project) -> None:
     pdir = seed_project("alpha")
     r = client.post("/api/projects/alpha/hold", json={

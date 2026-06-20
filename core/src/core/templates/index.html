@@ -94,27 +94,34 @@
   })();
 </script>
 <style>html.loading .no-repo { display: none; }</style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- All third-party libraries are vendored under /static/vendor (version-
+     stamped directories, served with immutable cache headers). No CDN
+     round trips: the app loads at localhost speed and works offline. -->
+<link rel="stylesheet" href="/static/vendor/highlightjs@11.9.0/github-dark.min.css">
+<link rel="stylesheet" href="/static/vendor/xterm@5.3.0/xterm.min.css">
+<script src="/static/vendor/highlightjs@11.9.0/highlight.min.js"></script>
 <!-- Extra language packs not in highlight.js's core bundle. Scala +
      Groovy are heavily used in the LinkedIn repos under repositories/
      so the Code Search modal can highlight them properly. Protobuf
      covers .proto schema files in those repos. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/scala.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/groovy.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/protobuf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-<!-- Plotly CDN: lazy-loadable pattern would be nicer, but the bundle is
+<script src="/static/vendor/highlightjs@11.9.0/languages/scala.min.js"></script>
+<script src="/static/vendor/highlightjs@11.9.0/languages/groovy.min.js"></script>
+<script src="/static/vendor/highlightjs@11.9.0/languages/protobuf.min.js"></script>
+<script src="/static/vendor/marked@12.0.1/marked.min.js"></script>
+<script src="/static/vendor/xterm@5.3.0/xterm.min.js"></script>
+<script src="/static/vendor/xterm-addon-fit@0.8.0/xterm-addon-fit.min.js"></script>
+<!-- GPU renderer for xterm.js. Loaded onto the *active* session's terminal
+     only (see _termEnableWebgl) so parked sessions don't hold WebGL
+     contexts; falls back to the DOM renderer automatically on failure. -->
+<script src="/static/vendor/xterm-addon-webgl@0.16.0/xterm-addon-webgl.min.js"></script>
+<!-- Plotly: lazy-loadable pattern would be nicer, but the bundle is
      also sometimes missing from DAVI cells (the kernel inlines it only on
      the first chart call per session). Preloading guarantees
      window.Plotly is set the moment any notebook with a `require(["plotly"],
-     fn)` cell is rendered. ~3.5 MB; served gzipped, fetched once and
-     HTTP-cached by jsdelivr. `defer` so it never blocks the initial paint. -->
-<script defer src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<script defer src="/static/js/lib/error-report.js"></script>
+     fn)` cell is rendered. ~3.5 MB, local + immutable-cached, fetched once.
+     `defer` so it never blocks the initial paint. -->
+<script defer src="/static/vendor/plotly@2.27.0/plotly.min.js"></script>
+<script src="/static/js/lib/error-report.js"></script>
 <style>
   /* View modal code table */
   .modal-body .code-scroll { height: 100%; overflow: auto; }
@@ -230,6 +237,13 @@
   .sidebar-badge.added { background: #238636; }
   .sidebar-badge.deleted { background: #da3633; }
   .sidebar-badge.renamed { background: #58a6ff; }
+  .symlink-mark { display: inline-block; width: 12px; text-align: center; color: var(--accent); font-size: 11px; line-height: 1; flex-shrink: 0; }
+  .symlink-legend { display: flex; align-items: center; gap: 4px; padding: 2px 16px 6px; color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .sidebar-file.is-symlink .sidebar-fname,
+  .sidebar-folder.is-symlink,
+  .tree-file.is-symlink,
+  .tree-dir.is-symlink,
+  .k-tree .row.is-symlink .name { color: var(--text-primary); }
   .sidebar-create { display: block; padding: 8px 16px; }
   .sidebar-create button { background: #238636; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; width: 100%; }
   .sidebar-create button:hover { background: #2ea043; }
@@ -387,6 +401,13 @@
   .form-modal .fm-actions .btn-cancel:hover { background: var(--border); }
   .form-modal .fm-actions .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .form-modal .fm-actions .btn-primary:hover { filter: brightness(1.1); }
+  /* Segmented control used in the Settings modal (agent + theme pickers). */
+  .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; width: fit-content; }
+  .seg-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: none; border-right: 1px solid var(--border); padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .seg-btn:last-child { border-right: none; }
+  .seg-btn:hover { color: var(--text-primary); }
+  .seg-btn.active { background: var(--accent); color: #fff; }
+  .seg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* Proxies-modal row grid. One row per proxy (name / host / port /
      path / label / remove); empty grid template the same on every row
@@ -1542,6 +1563,9 @@
   /* Match the page background so an iframe whose body is transparent
      (e.g. after applyIframeDarkMode) doesn't show a stark white pane. */
   .html-iframe { width: 100%; height: calc(100vh - 160px); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; background: var(--bg-primary); }
+  /* PDFs render in the browser's native viewer (its own toolbar/zoom), so
+     give it a near-full-height pane and a neutral backdrop. */
+  .pdf-iframe { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; background: #525659; }
   .k-empty { padding: 40px; color: var(--text-secondary); font-size: 14px; text-align: center; }
 
   /* ─── Terminal panel (right-docked when a project is active) ─── */
@@ -1640,6 +1664,18 @@
   body.term-collapsed .term-toggle { right: 0; border-right: 1px solid var(--border); border-radius: 6px 0 0 6px; }
   body.term-collapsed.term-open .term-toggle { display: block; }
 
+  /* Files-sidebar collapse — the terminal toggle's mirror image on the
+     LEFT edge. Visible only on views that actually render the sidebar
+     (project + self; home/cerebro/code-search hide .layout entirely).
+     Collapse state and sidebar width are persisted PER VIEW (see
+     _sidebarApplyForView) so hiding/resizing in one project never
+     affects another. */
+  .sidebar-toggle { position: fixed; top: 50%; left: var(--sidebar-width); transform: translateY(-50%); background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-left: none; border-radius: 0 6px 6px 0; padding: 10px 4px; font-size: 10px; writing-mode: vertical-rl; cursor: pointer; z-index: 61; display: none; }
+  body.project-active .sidebar-toggle, body.self-active .sidebar-toggle { display: block; }
+  body.sidebar-collapsed .sidebar, body.sidebar-collapsed .sidebar-resizer { display: none; }
+  body.sidebar-collapsed .main { margin-left: 0; }
+  body.sidebar-collapsed .sidebar-toggle { left: 0; }
+
   /* Project proxy iframe — fullscreen mode hides the rest of the lab
      UI chrome (sidebar, attrs/repo/diff bars, terminal panel, topbar)
      so the proxied app fills the viewport. Pure CSS toggle; the JS
@@ -1650,6 +1686,7 @@
   body.proxy-fullscreen .diff-tabs,
   body.proxy-fullscreen .sidebar,
   body.proxy-fullscreen .sidebar-resizer,
+  body.proxy-fullscreen .sidebar-toggle,
   body.proxy-fullscreen .term-panel,
   body.proxy-fullscreen .term-toggle { display: none !important; }
   body.proxy-fullscreen .main { margin: 0 !important; padding: 0 !important; }
@@ -1709,7 +1746,7 @@
     <option value="">Select repo...</option>
   </select>
   <span class="branch" id="branchLabel"></span>
-  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">Dark</button>
+  <button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>
 </div>
 
 <!-- Cerebro view: mdview-style sidebar + markdown pane. Active when ?view=cerebro. -->
@@ -1719,6 +1756,7 @@
       <input type="search" class="k-filter" id="cerebroFilter" placeholder="filter…" />
       <button class="k-refresh" onclick="cerebroRefresh()" title="Rebuild tree">&#x21BB;</button>
     </div>
+    <div class="symlink-legend"><span class="symlink-mark">&#x21AA;</span><span>symlink</span></div>
     <div class="k-tree" id="cerebroTree"></div>
   </div>
   <div class="k-pane" id="cerebroPane">
@@ -1927,7 +1965,9 @@
     <div class="term-new-wrap">
       <button id="termNewBtn" onclick="termToggleNewPicker(event)" title="New session in this project">+ New</button>
       <div class="term-new-picker" id="termNewPicker">
-        <button onclick="termCreateNew('claude')" title="Fresh Claude session with --session-id + --permission-mode auto">Claude</button>
+        <button data-agent="claude" onclick="termCreateNew('claude','claude')" title="Claude Code — fresh session (--session-id + --permission-mode auto)">Claude Code</button>
+        <button data-agent="codex" onclick="termCreateNew('claude','codex')" title="OpenAI Codex CLI">Codex</button>
+        <button data-agent="copilot" onclick="termCreateNew('claude','copilot')" title="GitHub Copilot CLI">Copilot</button>
         <button onclick="termCreateNew('terminal')" title="Plain $SHELL (bash / zsh)">Terminal</button>
       </div>
     </div>
@@ -1945,6 +1985,7 @@
   </div>
 </div>
 <div class="term-toggle" id="termToggle" onclick="termToggleCollapse()" title="Show/hide terminal">Terminal</div>
+<div class="sidebar-toggle" id="sidebarToggle" onclick="sidebarToggleCollapse()" title="Show/hide files sidebar (remembered per project)">Files</div>
 
 <!-- Diff popover -->
 <div class="diff-popover" id="diffPopover"></div>
@@ -2040,6 +2081,63 @@
         <button type="submit" class="btn-primary" id="npSubmit">Create</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Settings modal — global default agent / model / theme, plus a per-project
+     agent override when a project tab is active. Opened by the ⚙ button in the
+     topbar (replaced the old Dark/Light pill). Reads GET /api/settings; writes
+     POST /api/settings and POST /api/projects/<id>/agent. -->
+<div class="modal-overlay" id="settingsModal" onclick="if(event.target===this)closeSettings()">
+  <div class="form-modal" role="dialog" aria-labelledby="settingsTitle" style="width:520px">
+    <div class="fm-header">
+      <span class="fm-title" id="settingsTitle">Settings</span>
+      <button class="fm-close" type="button" onclick="closeSettings()" aria-label="Close">&times;</button>
+    </div>
+    <div class="fm-body">
+      <div class="fm-err" id="settingsError"></div>
+
+      <label>Default agent
+        <div class="seg-group" id="setAgentSeg"></div>
+        <span class="hint">Which CLI a project terminal launches by default.</span>
+      </label>
+
+      <label>Default model
+        <select id="setModel"></select>
+        <span class="hint">Stored as-is; the options shown depend on the agent above.</span>
+      </label>
+
+      <label>Theme
+        <div class="seg-group" id="setThemeSeg"></div>
+      </label>
+
+      <div id="setProjectSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-top:2px; flex-direction:column; gap:12px">
+        <div style="font-size:12px; color:var(--text-secondary)">
+          This project · <span id="setProjectName" style="color:var(--text-primary); font-family:ui-monospace,monospace"></span>
+        </div>
+        <label>Agent for this project
+          <select id="setProjectAgent">
+            <option value="">Inherit global</option>
+            <option value="claude">Claude Code</option>
+            <option value="codex">Codex</option>
+            <option value="copilot">Copilot</option>
+          </select>
+          <span class="hint">Overrides the global default for terminals opened in this project.</span>
+        </label>
+        <label>Model for this project
+          <select id="setProjectModel"></select>
+        </label>
+      </div>
+
+      <div style="border-top:1px solid var(--border); padding-top:14px; margin-top:2px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+        <button type="button" class="btn-cancel" id="setResyncBtn" onclick="resyncAgents()">Re-sync agent files</button>
+        <span class="hint" id="setResyncHint" style="flex:1; min-width:160px">Relink AGENTS.md, memory &amp; skills across Claude / Codex / Copilot.</span>
+      </div>
+    </div>
+    <div class="fm-actions">
+      <button type="button" class="btn-cancel" onclick="closeSettings()">Close</button>
+      <button type="button" class="btn-primary" id="setSaveBtn" onclick="saveSettings()">Save</button>
+    </div>
   </div>
 </div>
 
@@ -2840,6 +2938,66 @@
       .replace(/'/g, '&#39;');
   }
 
+  function symlinkMarker(node) {
+    if (!node || !node.is_symlink) return '';
+    const target = node.symlink_target ? ` -> ${node.symlink_target}` : '';
+    return `<span class="symlink-mark" title="${escAttr('Symlink' + target)}">&#x21AA;</span>`;
+  }
+
+  function symlinkClass(node) {
+    return node && node.is_symlink ? ' is-symlink' : '';
+  }
+
+  function symlinkTitle(node) {
+    if (!node || !node.is_symlink) return '';
+    const target = node.symlink_target ? ` -> ${node.symlink_target}` : '';
+    return ` title="${escAttr('Symlink' + target)}"`;
+  }
+
+  function symlinkLegendHtml() {
+    return '<div class="symlink-legend"><span class="symlink-mark">&#x21AA;</span><span>symlink</span></div>';
+  }
+
+  function buildSidebarTree(entries) {
+    const tree = {};
+    const ensureDir = (path, meta = null) => {
+      const parts = String(path || '').split('/').filter(Boolean);
+      let node = tree;
+      let fullPath = '';
+      parts.forEach((part, idx) => {
+        fullPath = fullPath ? `${fullPath}/${part}` : part;
+        if (!node[part]) node[part] = {};
+        if (meta && idx === parts.length - 1) {
+          node[part].__entry__ = { ...meta, name: part, path: fullPath, type: 'dir' };
+        }
+        node = node[part];
+      });
+      return node;
+    };
+    (entries || []).filter(e => e && e.type === 'dir').forEach(d => ensureDir(d.path || d.name, d));
+    (entries || []).filter(e => e && e.type !== 'dir').forEach(f => {
+      const path = String(f.path || f.name || '');
+      const parts = path.split('/').filter(Boolean);
+      if (!parts.length) return;
+      const parent = ensureDir(parts.slice(0, -1).join('/'));
+      parent.__files__ = parent.__files__ || [];
+      parent.__files__.push(f);
+    });
+    return tree;
+  }
+
+  function treeFolderNames(node) {
+    return Object.keys(node || {}).filter(k => k !== '__files__' && k !== '__entry__').sort();
+  }
+
+  function treeFolderEntry(node, folder, fullPath) {
+    return (node && node[folder] && node[folder].__entry__) || { name: folder, path: fullPath, type: 'dir' };
+  }
+
+  function treeFiles(node) {
+    return (node && node.__files__) || [];
+  }
+
   // ─── Persistent sidebar-tree folder state ───────────────────────────────
   // Each tree (self / per-project / shared-claude / cerebro) is a scope.
   // Within a scope, folder paths map to true=open, false=closed. Absence of
@@ -3326,6 +3484,7 @@
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
     sb.innerHTML = '<div class="sidebar-title">Project</div>' +
       '<div style="padding:4px 16px"><label style="font-size:11px;color:#8b949e;cursor:pointer;user-select:none"><input type="checkbox" id="dotFilesToggle" onchange="toggleDotFiles(this.checked)" ' + (showDotFiles ? 'checked' : '') + ' style="margin-right:4px"> Include dotfiles</label></div>' +
+      symlinkLegendHtml() +
       '<div class="sidebar-create"><button onclick="openCreateModal()">+ New File</button></div>' +
       '<ul class="tree-node">' + renderTreeNodes(filtered, changedFiles) + '</ul>';
   }
@@ -3342,8 +3501,8 @@
         const collapsed = hasChanged ? '' : ' collapsed';
         const arrow = hasChanged ? '' : ' collapsed';
         return `<li>
-          <div class="tree-dir" onclick="toggleTreeDir(this)">
-            <span class="arrow${arrow}">▾</span>${node.name}/
+          <div class="tree-dir${symlinkClass(node)}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
+            <span class="arrow${arrow}">▾</span>${symlinkMarker(node)}${node.name}/
           </div>
           <ul class="tree-node tree-dir-children${collapsed}">${renderTreeNodes(node.children, changedFiles)}</ul>
         </li>`;
@@ -3355,8 +3514,8 @@
         else if (status) badge = '<span class="sidebar-badge modified"></span>';
         const cls = projectOpenFile === node.path ? ' active' : '';
         return `<li>
-          <div class="tree-file${cls}" onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
-            ${badge}${node.name}
+          <div class="tree-file${cls}${symlinkClass(node)}"${symlinkTitle(node)} onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
+            ${badge}${symlinkMarker(node)}${node.name}
           </div>
         </li>`;
       }
@@ -4550,6 +4709,44 @@
       return;
     }
 
+    // PDF files: hand the raw bytes to the browser's built-in PDF viewer via
+    // an iframe. /api/project-asset serves them as application/pdf with no
+    // attachment disposition, so they display inline (zoom/page/print come
+    // from the browser's own viewer chrome). Same anti-flicker guard as the
+    // HTML viewer: the WS index-updated event re-runs this render on every
+    // save under content/, and re-creating the iframe flashes + resets the
+    // user's scroll/zoom — so leave a live iframe already pointed here alone.
+    if (filepath.toLowerCase().endsWith('.pdf')) {
+      if (!_stillActiveNav()) return;
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      const existing = container.querySelector('iframe.pdf-iframe');
+      if (existing && existing.getAttribute('src') === src) return;
+      container.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span><a href="${src}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-secondary)">open ↗</a></div><iframe class="pdf-iframe" src="${esc(src)}" title="${esc(filepath)}"></iframe></div>`;
+      return;
+    }
+
+    // Video files: native <video> player streaming from /api/project-asset.
+    // FileResponse supports HTTP Range requests, so seeking works without
+    // downloading the whole file. Same anti-flicker guard as the PDF
+    // iframe: watcher-triggered re-renders (project mtime poll, WS events)
+    // must leave an already-mounted player alone — recreating the element
+    // would restart playback mid-watch.
+    const videoExts = ['.mp4', '.webm', '.mov', '.m4v'];
+    if (videoExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
+      if (!_stillActiveNav()) return;
+      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      const existing = container.querySelector('video.project-video');
+      if (existing && existing.getAttribute('src') === src) return;
+      container.innerHTML = `<div style="padding:24px;max-width:1100px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>
+          <a href="${esc(src)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-secondary)">open ↗</a>
+        </div>
+        <video class="project-video" src="${esc(src)}" controls playsinline preload="metadata" style="width:100%;max-height:calc(100vh - 220px);background:#000;border-radius:6px;outline:none"></video>
+      </div>`;
+      return;
+    }
+
     // HTML files: rendered iframe by default, with a "Code" toggle to
     // view source instead. Choice is sticky per file via localStorage.
     if (/\.(html|htm)$/i.test(filepath)) {
@@ -4793,11 +4990,13 @@
       const _stillActiveNav = () => (
         _projDocPath === filepath && currentProject && currentProject.path === _navProjectPath
       );
-      // Notebooks, images, and HTML iframes have no meaningful _projDocContent to diff
-      // against — delegate straight to _renderDocInto so they get the correct renderer.
+      // Notebooks, images, video, and HTML iframes have no meaningful _projDocContent
+      // to diff against — delegate straight to _renderDocInto so they get the correct
+      // renderer (its per-type guards keep live players/iframes unmolested).
       const lower = filepath.toLowerCase();
       const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
-      if (lower.endsWith('.ipynb') || lower.endsWith('.html') || imageExts.some(ext => lower.endsWith(ext))) {
+      const videoExts = ['.mp4', '.webm', '.mov', '.m4v'];
+      if (lower.endsWith('.ipynb') || lower.endsWith('.html') || lower.endsWith('.pdf') || imageExts.some(ext => lower.endsWith(ext)) || videoExts.some(ext => lower.endsWith(ext))) {
         await _renderDocInto(filepath, content, { preserveScroll: true });
         if (!_stillActiveNav()) return;
         content.scrollTop = prevScroll;
@@ -4862,20 +5061,31 @@
     return `/api/proxy/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}/`;
   }
 
+  // Direct upstream URL (http://host:port/path) for a proxy entry,
+  // regardless of proxy/direct mode. Returns null if there's no port.
+  // Because the upstream runs on a *different port* it's a different
+  // origin from the lab — so opening it escapes the installed-PWA scope
+  // and Chrome gives it a real browser window (with the address bar)
+  // instead of a frameless app popup. Used by "Pop out" and by
+  // direct-mode iframes.
+  function _proxyDirectUrl(p) {
+    if (!p || !p.port) return null;
+    let host = String(p.host || 'localhost').replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    if (!host || host === '0.0.0.0') host = 'localhost';
+    const path = (p && p.path) ? String(p.path) : '/';
+    const cleanPath = path.startsWith('/') ? path : '/' + path;
+    return `http://${host}:${p.port}${cleanPath}`;
+  }
+
   function _proxyInitialUrl(p, name) {
     const projectId = currentProject && currentProject.name;
     if (!projectId || !name) return null;
-    const path = (p && p.path) ? String(p.path) : '/';
     // Direct mode: iframe straight to the upstream origin. Faster + no
     // path rewriting needed, but the browser must be able to reach
     // the upstream host:port directly (so won't work over an SSH
     // port-forward where only the lab port is exposed).
-    if (p && p.mode === 'direct') {
-      const host = (p.host || 'localhost').replace(/\/+$/, '');
-      const port = p.port;
-      const cleanPath = path.startsWith('/') ? path : '/' + path;
-      return `http://${host}:${port}${cleanPath}`;
-    }
+    if (p && p.mode === 'direct') return _proxyDirectUrl(p);
+    const path = (p && p.path) ? String(p.path) : '/';
     const initial = path.replace(/^\/+/, '');
     return _proxyMountPath(projectId, name) + initial;
   }
@@ -4887,6 +5097,16 @@
   async function openProjectProxy(name) {
     if (!currentProject || !currentProject.is_project) return;
     if (!name) return;
+    // The iframe hosts a live, stateful app — never rebuild it when this
+    // proxy is already the active view (file-watcher refreshes, sidebar
+    // re-clicks, and tab revisits all funnel here and used to reload the
+    // inner app, losing its state). The toolbar "Reload" button is the
+    // explicit way to restart it.
+    const existingWrap = document.getElementById('proxyWrap');
+    if (existingWrap && existingWrap.dataset.proxy === name && document.getElementById('proxyIframe')) {
+      _projDocPath = '__proxy__/' + name;
+      return;
+    }
     const p = _proxyFromCachedSidebar(name);
     const proxyPath = '__proxy__/' + name;
     _projDocPath = proxyPath;
@@ -4913,6 +5133,8 @@
           <span style="flex:1"></span>
           <button onclick="reloadProjectProxy('${safeName}')" title="Reload" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x21BB; Reload</button>
           <button onclick="openProjectProxyTab('${safeName}')" title="Open in new browser tab" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Pop out &#x2197;</button>
+          <button onclick="copyProjectProxyInstallCmd('${safeName}', this)" title="Copy osacompile command to create a Chrome standalone-window app for this URL" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x1F4E6; Install</button>
+          <button onclick="copyProjectProxyUninstallCmd('${safeName}', this)" title="Copy command to remove the installed Chrome app from $HOME/Applications" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x1F5D1; Uninstall</button>
           <button onclick="toggleProjectProxyFullscreen()" id="proxyFullscreenBtn" title="Expand to fill the viewport (Esc to exit)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x26F6; Fullscreen</button>
         </div>
         <iframe id="proxyIframe" src="${esc(url)}" style="flex:1;width:100%;border:0;background:#fff" onload="applyIframeDarkMode(this)"></iframe>
@@ -4931,8 +5153,86 @@
 
   function openProjectProxyTab(name) {
     const p = _proxyFromCachedSidebar(name);
-    const url = _proxyInitialUrl(p, name);
+    // Pop out via the same-origin /api/proxy mount so the new tab stays
+    // on the lab origin (shared cookies, reachable wherever the lab is
+    // reachable). Falls back to the direct upstream URL only if we
+    // can't build a proxy mount (no current project id).
+    const url = _proxyInitialUrl(p, name) || _proxyDirectUrl(p);
     if (url) window.open(url, '_blank', 'noopener');
+  }
+
+  function _projectProxyAppName(name) {
+    return String(name || '').replace(/[^A-Za-z0-9_-]/g, '');
+  }
+
+  function _copyProjectProxyCommand(cmd, btn) {
+    const done = () => {
+      if (!btn) return;
+      const original = btn.innerHTML;
+      btn.innerHTML = '&#x2713; Copied';
+      setTimeout(() => { btn.innerHTML = original; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd).then(done, () => {});
+    } else {
+      // Fallback for non-secure contexts where the async Clipboard API
+      // isn't available.
+      const ta = document.createElement('textarea');
+      ta.value = cmd; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch {}
+      document.body.removeChild(ta);
+    }
+  }
+
+  function copyProjectProxyInstallCmd(name, btn) {
+    const p = _proxyFromCachedSidebar(name);
+    const rel = _proxyInitialUrl(p, name);
+    // Absolute URL: relative proxy mount paths become absolute by joining
+    // with the lab origin; direct URLs are already absolute.
+    const url = rel && rel.startsWith('/') ? location.origin + rel : (rel || _proxyDirectUrl(p));
+    if (!url) return;
+    // osacompile command that builds a Chrome standalone-window .app
+    // pointing at this proxy URL. Proxy names created from the modal are
+    // already limited to [A-Za-z0-9_-]; keep the generated filename under
+    // that same contract so install and uninstall target the same path.
+    const safeName = _projectProxyAppName(name);
+    if (!safeName) return;
+    const safeUrl = String(url).replace(/["\\]/g, '');
+    // Find-or-focus: `open -na ... --app=` ALWAYS spawns a new window, so
+    // launching the .app repeatedly (Alfred, Spotlight) piled up duplicate
+    // instances. The applet now scans Chrome's windows for a tab already on
+    // this URL and raises it; only when none exists does it open a fresh
+    // app window. First launch prompts once to allow controlling Chrome.
+    const slashUrl = safeUrl.endsWith('/') ? safeUrl : safeUrl + '/';
+    const bareUrl = slashUrl.slice(0, -1);
+    const cmd = [
+      `osacompile -o "$HOME/Applications/${safeName}.app"`,
+      `-e 'set appUrl to "${slashUrl}"'`,
+      `-e 'if application "Google Chrome" is running then'`,
+      `-e 'tell application "Google Chrome"'`,
+      `-e 'repeat with w in windows'`,
+      `-e 'repeat with t in tabs of w'`,
+      `-e 'if (URL of t is "${bareUrl}") or (URL of t starts with appUrl) then'`,
+      `-e 'set minimized of w to false'`,
+      `-e 'set index of w to 1'`,
+      `-e 'activate'`,
+      `-e 'return'`,
+      `-e 'end if'`,
+      `-e 'end repeat'`,
+      `-e 'end repeat'`,
+      `-e 'end tell'`,
+      `-e 'end if'`,
+      `-e 'do shell script "open -na \\"Google Chrome\\" --args --app=\\"" & appUrl & "\\""'`,
+    ].join(' ');
+    _copyProjectProxyCommand(cmd, btn);
+  }
+
+  function copyProjectProxyUninstallCmd(name, btn) {
+    const safeName = _projectProxyAppName(name);
+    if (!safeName) return;
+    const cmd = `rm -rf "$HOME/Applications/${safeName}.app"`;
+    _copyProjectProxyCommand(cmd, btn);
   }
 
   // Fullscreen: hide the sidebar, term panel, attrs/repo/diff strips so
@@ -5863,9 +6163,12 @@
         } catch(e) {}
         _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references, proxies});
       }
+      const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
+      const dirEntries = (files || []).filter(f => f && f.type === 'dir');
       const pinnedSet = new Set(pinnedNames);
-      const pinnedFiles = pinnedNames.filter(n => files.some(f => f.name === n));
-      const otherFiles = files.filter(f => !pinnedSet.has(f.name));
+      const filesByName = new Map(fileEntries.map(f => [f.name, f]));
+      const pinnedFiles = pinnedNames.filter(n => fileEntries.some(f => f.name === n));
+      const otherFiles = fileEntries.filter(f => !pinnedSet.has(f.name));
 
       // "Meta" files are demoted to a bottom section so the sidebar reads as
       // a working list of docs first, plumbing second. Still visible; just
@@ -5887,11 +6190,13 @@
       const dashActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
       sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="toggleProjectDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
+      sbHtml += symlinkLegendHtml();
       pinnedFiles.forEach(name => {
+        const f = filesByName.get(name) || {name, path: name};
         const safeName = name.replace(/'/g, "\\'");
         const label = name.replace(/\.md$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const activeCls = activePath === name ? ' active' : '';
-        sbHtml += `<a class="sidebar-file${activeCls}" data-filepath="${esc(name)}" onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
+        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
 
       // Servers — proxied local dev servers declared in project.json
@@ -5923,41 +6228,31 @@
       // hit `ReferenceError: _projTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
       const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '');
-      if (mainFiles.length > 0) {
+      if (mainFiles.length > 0 || dirEntries.length > 0) {
         sbHtml += '<div class="sidebar-title">Files</div>';
-        // Build folder tree
-        const tree = {};
-        mainFiles.forEach(f => {
-          const parts = f.path.split('/');
-          let node = tree;
-          for (let i = 0; i < parts.length - 1; i++) {
-            if (!node[parts[i]]) node[parts[i]] = {};
-            node = node[parts[i]];
-          }
-          node['__files__'] = node['__files__'] || [];
-          node['__files__'].push(f);
-        });
+        const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
         function renderTree(node, depth, parentPath) {
           let html = '';
           // Render folders first
-          const folders = Object.keys(node).filter(k => k !== '__files__').sort();
+          const folders = treeFolderNames(node);
           folders.forEach(folder => {
             const fid = 'folder-' + Math.random().toString(36).substr(2, 6);
             const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
+            const d = treeFolderEntry(node, folder, fullPath);
             const autoOpen = depth === 0 && AUTO_OPEN_FOLDERS.has(folder);
             const open = _treeIsOpen(_projTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
-            html += `<div class="sidebar-folder" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${folder}/</div>`;
+            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
             html += renderTree(node[folder], depth + 1, fullPath);
             html += '</div>';
           });
           // Then files
-          (node['__files__'] || []).forEach(f => {
+          treeFiles(node).forEach(f => {
             const safePath = f.path.replace(/'/g, "\\'");
             const fname = f.path.split('/').pop();
-            const icon = f.type === 'image' ? '\u{1F5BC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
+            const icon = f.type === 'image' ? '\u{1F5BC}' : /\.(mp4|webm|mov|m4v)$/i.test(fname) ? '\u{1F3AC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
             // Notebook activity indicators — running (green pulse) and
             // unseen-results (amber static). Running wins if both apply
             // since "actively running" is the more urgent state.
@@ -5984,7 +6279,7 @@
               dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
             }
             const activeCls = activePath === f.path ? ' active' : '';
-            html += `<a class="sidebar-file${activeCls}" data-filepath="${esc(f.path)}" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
           });
           return html;
         }
@@ -6023,14 +6318,17 @@
           const fname = f.name;
           const icon = fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C4}';
           const activeCls = activePath === f.path ? ' active' : '';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}" data-filepath="${esc(f.path)}" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon} ${fname}</span></a>`;
+          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${symlinkMarker(f)}${icon} ${fname}</span></a>`;
         });
       } else {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       }
-      // Shared content/projects/CLAUDE.md — auto-loaded for every project
+      // Shared projects/CLAUDE.md — auto-loaded for every project
       // via Claude Code's CLAUDE.md walk-up. Renders inline in the doc pane.
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('content/projects/CLAUDE.md')" title="content/projects/CLAUDE.md — shared boilerplate applied to every project under content/projects/" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} CLAUDE.md (shared)</span></a>`;
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('projects/CLAUDE.md')" title="projects/CLAUDE.md — shared boilerplate applied to every project under projects/" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} CLAUDE.md (shared)</span></a>`;
+      // Canonical cross-tool instructions at the monorepo root. CLAUDE.md is a
+      // symlink to this; Codex / Copilot read AGENTS.md directly.
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions at the monorepo root (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} AGENTS.md (shared)</span></a>`;
       // Shared `.claude/` from the monorepo root, rendered as an
       // expandable folder. Children fetched from /api/cerebro/tree; each
       // file opens inline via openSharedFile. Placeholder rendered first;
@@ -6042,6 +6340,14 @@
       const _shClChildren = _shClOpen ? ' open' : '';
       sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — shared skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/ (shared)</div>`;
       sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+      // Shared `.agents/` (config, memory, cross-tool skills) from the monorepo
+      // root — same expandable/async pattern as `.claude/`.
+      const sharedAgentsFid = 'sf-agents-' + Math.random().toString(36).substr(2, 6);
+      const _shAgOpen = _treeIsOpen('shared-agents', '.agents', false);
+      const _shAgArrow = _shAgOpen ? ' open' : '';
+      const _shAgChildren = _shAgOpen ? ' open' : '';
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-agents" data-tree-path=".agents" data-tree-target="${sharedAgentsFid}" onclick="_treeToggleFolder(this)" title=".agents/ — shared config, memory & skills (cross-tool: Claude / Codex / Copilot)" style="opacity:.7"><span class="folder-arrow${_shAgArrow}">▶</span>.agents/ (shared)</div>`;
+      sbHtml += `<div class="sidebar-folder-children${_shAgChildren}" id="${sharedAgentsFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
       // `content/code/` — source for code-* skills. Same shared/async
       // pattern as `.claude/`.
       const sharedCodeFid = 'sf-code-' + Math.random().toString(36).substr(2, 6);
@@ -6282,17 +6588,184 @@
     }
   }
 
-  // ─── Theme ───
-  function toggleTheme() {
-    const isLight = document.body.classList.toggle('light-mode');
-    document.getElementById('themeToggle').textContent = isLight ? 'Light' : 'Dark';
-    localStorage.setItem('gdiff-theme', isLight ? 'light' : 'dark');
+  // ─── Theme + Settings ───
+  const THEME_KEY = 'gdiff-theme';
+  const AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex', copilot: 'Copilot' };
+  // Best-effort model suggestions per agent. Stored free-form server-side, so an
+  // unknown saved model is preserved (added as an extra option below).
+  const MODEL_OPTIONS = {
+    claude: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+    codex: ['gpt-5-codex', 'gpt-5'],
+    copilot: ['claude-sonnet-4-6', 'gpt-5', 'gpt-4.1'],
+  };
+  let _settings = { defaultAgent: 'claude', model: null, theme: 'dark' };
+  let _setDraft = null;      // {defaultAgent, model, theme} while the modal is open
+  let _setProjDraft = null;  // {agent, model} override for the active project
+
+  function applyTheme(theme) {
+    const light = theme === 'light';
+    document.body.classList.toggle('light-mode', light);
+    try { localStorage.setItem(THEME_KEY, light ? 'light' : 'dark'); } catch {}
   }
-  // Restore saved theme
-  if (localStorage.getItem('gdiff-theme') === 'light') {
-    document.body.classList.add('light-mode');
-    document.getElementById('themeToggle').textContent = 'Light';
+  // Fast-path: apply the cached theme before the settings fetch resolves (no flash).
+  applyTheme(localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark');
+
+  async function loadSettings() {
+    try {
+      const r = await fetch('/api/settings');
+      if (r.ok) {
+        _settings = await r.json();
+        if (_settings.theme) applyTheme(_settings.theme);
+      }
+    } catch {}
   }
+
+  function _fillModelSelect(sel, agent, selected) {
+    const opts = MODEL_OPTIONS[agent] || [];
+    const seen = new Set(opts);
+    let html = '<option value="">Default (let agent decide)</option>';
+    for (const m of opts) html += `<option value="${m}">${m}</option>`;
+    if (selected && !seen.has(selected)) html += `<option value="${selected}">${selected}</option>`;
+    sel.innerHTML = html;
+    sel.value = selected || '';
+  }
+
+  function _buildSeg(containerId, options, current, onPick) {
+    const c = document.getElementById(containerId);
+    c.innerHTML = '';
+    for (const o of options) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg-btn' + (o.value === current ? ' active' : '');
+      b.textContent = o.label;
+      b.onclick = () => onPick(o.value);
+      c.appendChild(b);
+    }
+  }
+
+  function _renderSettingsGlobal() {
+    _buildSeg('setAgentSeg',
+      Object.keys(AGENT_LABELS).map(a => ({ value: a, label: AGENT_LABELS[a] })),
+      _setDraft.defaultAgent,
+      (a) => { _setDraft.defaultAgent = a; _renderSettingsGlobal(); });
+    const modelSel = document.getElementById('setModel');
+    _fillModelSelect(modelSel, _setDraft.defaultAgent, _setDraft.model);
+    modelSel.onchange = (e) => { _setDraft.model = e.target.value || null; };
+    _buildSeg('setThemeSeg',
+      [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }],
+      _setDraft.theme,
+      (t) => { _setDraft.theme = t; applyTheme(t); _renderSettingsGlobal(); });
+  }
+
+  async function openSettings() {
+    _setDraft = {
+      defaultAgent: _settings.defaultAgent || 'claude',
+      model: _settings.model || null,
+      theme: document.body.classList.contains('light-mode') ? 'light' : 'dark',
+    };
+    _renderSettingsGlobal();
+
+    // Per-project override (only when a real project tab is active).
+    const sec = document.getElementById('setProjectSection');
+    _setProjDraft = null;
+    const pid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
+    if (pid) {
+      document.getElementById('setProjectName').textContent = pid;
+      sec.style.display = 'flex';
+      const pAgent = document.getElementById('setProjectAgent');
+      const pModel = document.getElementById('setProjectModel');
+      pAgent.value = '';
+      _fillModelSelect(pModel, _setDraft.defaultAgent, '');
+      try {
+        const r = await fetch('/api/projects/' + encodeURIComponent(pid));
+        if (r.ok) {
+          const proj = await r.json();
+          _setProjDraft = { agent: proj.agent || '', model: proj.model || '' };
+          pAgent.value = _setProjDraft.agent || '';
+          _fillModelSelect(pModel, _setProjDraft.agent || _setDraft.defaultAgent, _setProjDraft.model);
+        }
+      } catch {}
+      pAgent.onchange = (e) => {
+        _setProjDraft = _setProjDraft || { agent: '', model: '' };
+        _setProjDraft.agent = e.target.value;
+        _fillModelSelect(pModel, e.target.value || _setDraft.defaultAgent, _setProjDraft.model);
+      };
+      pModel.onchange = (e) => {
+        _setProjDraft = _setProjDraft || { agent: '', model: '' };
+        _setProjDraft.model = e.target.value;
+      };
+    } else {
+      sec.style.display = 'none';
+    }
+
+    document.getElementById('settingsError').classList.remove('on');
+    document.getElementById('settingsModal').classList.add('active');
+  }
+
+  function closeSettings() {
+    document.getElementById('settingsModal').classList.remove('active');
+  }
+
+  async function saveSettings() {
+    const btn = document.getElementById('setSaveBtn');
+    const err = document.getElementById('settingsError');
+    err.classList.remove('on');
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          defaultAgent: _setDraft.defaultAgent,
+          model: _setDraft.model || null,
+          theme: _setDraft.theme,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'save failed');
+      _settings = await r.json();
+      applyTheme(_settings.theme);
+
+      const pid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
+      if (_setProjDraft && pid) {
+        const pr = await fetch('/api/projects/' + encodeURIComponent(pid) + '/agent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent: _setProjDraft.agent || null,
+            model: _setProjDraft.model || null,
+          }),
+        });
+        if (!pr.ok) throw new Error((await pr.json().catch(() => ({}))).detail || 'project override failed');
+      }
+      closeSettings();
+    } catch (e) {
+      err.textContent = String(e.message || e);
+      err.classList.add('on');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function resyncAgents() {
+    const btn = document.getElementById('setResyncBtn');
+    const hint = document.getElementById('setResyncHint');
+    const old = hint.textContent;
+    btn.disabled = true;
+    hint.textContent = 'syncing…';
+    try {
+      const r = await fetch('/api/agents/sync', { method: 'POST' });
+      const data = await r.json();
+      const n = (data.actions || []).length;
+      hint.textContent = n ? `done — ${n} change(s).` : 'already in sync.';
+    } catch (e) {
+      hint.textContent = 'sync failed: ' + (e.message || e);
+    } finally {
+      btn.disabled = false;
+      setTimeout(() => { hint.textContent = old; }, 6000);
+    }
+  }
+
+  loadSettings();
 
   // ─── Init ───
   // Drop the pre-paint "hide the placeholder" class now that JS owns
@@ -6365,6 +6838,11 @@
   // further down the script. Without this hoist the helpers hit a
   // TDZ on `_TERM_VIS_KEY_PREFIX`.
   const _TERM_VIS_KEY_PREFIX = 'labTermShown:';
+  // Same TDZ hoist for the files-sidebar per-view persistence: the apply
+  // helper runs inside _termApplyRememberedVisibility during the same
+  // initial `?view=…` dispatch.
+  const _SIDEBAR_VIS_KEY_PREFIX = 'labSidebarShown:';
+  const _SIDEBAR_PCT_KEY_PREFIX = 'labSidebarPct:';
 
   loadRepos();
   if (!UI_CHECK) setInterval(loadRepos, 5000);
@@ -6383,7 +6861,8 @@
     initSelf();
   } else if (urlView === 'code-search') {
     document.body.classList.add('code-search-active');
-    initCodeSearch(new URLSearchParams(location.search).get('repo'));
+    const initialCodeSearchRepo = new URLSearchParams(location.search).get('repo');
+    setTimeout(() => initCodeSearch(initialCodeSearchRepo), 0);
   }
 
   // Auto-refresh project view when any file in the project folder changes (mtime check)
@@ -6905,6 +7384,7 @@
         body: JSON.stringify({
           project_id: projectId,
           kind: s.kind || 'claude',
+          agent: s.agent,  // undefined for old/claude sessions → server resolves default
           name: s.name,
           auto: true,
         }),
@@ -7093,6 +7573,51 @@
     const defaultShown = !key.endsWith(':code-search');
     const shown = _termRecallVisibility(key, defaultShown);
     document.body.classList.toggle('term-collapsed', !shown);
+    // The files sidebar piggy-backs on the same per-view entry point: every
+    // view init (project / self / cerebro) lands here, so this is the one
+    // place that restores the sidebar's per-view collapse state + width.
+    _sidebarApplyForView();
+  }
+
+  // ─── Files-sidebar collapse + per-view width ───
+  // Same UX as the terminal toggle, mirrored on the left edge. Both the
+  // collapsed flag and the dragged width are namespaced by view (project
+  // id / self / cerebro), so hiding or resizing the sidebar in one project
+  // never leaks into another. The un-suffixed legacy key `labSidebarPct`
+  // remains as the boot-time default for views without their own entry.
+  // (The two key-prefix consts are hoisted next to _TERM_VIS_KEY_PREFIX —
+  // same initial-dispatch TDZ rule.)
+  function _sidebarViewSuffix() {
+    if (document.body.classList.contains('code-search-active')) return 'code-search';
+    if (document.body.classList.contains('cerebro-active')) return 'cerebro';
+    if (document.body.classList.contains('self-active')) return 'self';
+    if (currentProject && currentProject.is_project) return 'project:' + currentProject.name;
+    return 'unknown';
+  }
+  function sidebarToggleCollapse() {
+    document.body.classList.toggle('sidebar-collapsed');
+    const shown = !document.body.classList.contains('sidebar-collapsed');
+    try { localStorage.setItem(_SIDEBAR_VIS_KEY_PREFIX + _sidebarViewSuffix(), shown ? '1' : '0'); } catch {}
+  }
+  function _sidebarApplyForView() {
+    const sfx = _sidebarViewSuffix();
+    let shown = true;
+    try { if (localStorage.getItem(_SIDEBAR_VIS_KEY_PREFIX + sfx) === '0') shown = false; } catch {}
+    document.body.classList.toggle('sidebar-collapsed', !shown);
+    let pct = NaN;
+    try { pct = parseFloat(localStorage.getItem(_SIDEBAR_PCT_KEY_PREFIX + sfx)); } catch {}
+    if (!Number.isFinite(pct) || pct <= 0) {
+      try { pct = parseFloat(localStorage.getItem('labSidebarPct')); } catch {}
+    }
+    if (Number.isFinite(pct) && pct > 0) {
+      document.documentElement.style.setProperty('--sidebar-width', pct + '%');
+    } else {
+      // No width saved for this view (nor a legacy global): clear any
+      // inline value left over from the previous view so this one falls
+      // back to the stylesheet default instead of inheriting a neighbor's
+      // drag.
+      document.documentElement.style.removeProperty('--sidebar-width');
+    }
   }
 
   // Percentage-based resize of the two vertical dividers between the
@@ -7161,14 +7686,22 @@
       });
     };
 
-    // Sidebar/main divider: dragging right grows the sidebar.
+    // Sidebar/main divider: dragging right grows the sidebar. The width is
+    // saved under the active view's key ONLY (per-project by request) —
+    // the legacy global key is read as a fallback default but never
+    // written anymore, so resizing project A can't restyle project B.
     wire('sidebarResizer', 'sidebar-resizing', (dx, startSidebar /*, startTerm*/) => {
       const nextPx = Math.max(MIN_SIDEBAR_PX, (startSidebar * vw() / 100) + dx);
       const termPx = currentTermPct() * vw() / 100;
       const maxPx = vw() - termPx - MIN_MAIN_PX;
       const clamped = Math.min(nextPx, Math.max(MIN_SIDEBAR_PX, maxPx));
       setSidebarPct(pxToPct(clamped));
-    }, () => localStorage.setItem(SIDEBAR_KEY, String(currentSidebarPct())));
+    }, () => {
+      try {
+        localStorage.setItem(_SIDEBAR_PCT_KEY_PREFIX + _sidebarViewSuffix(),
+                             String(currentSidebarPct()));
+      } catch {}
+    });
 
     // Main/terminal divider: dragging left grows the terminal.
     wire('termResizer', 'term-resizing', (dx, _startSidebar, startTerm) => {
@@ -7240,19 +7773,27 @@
     el.innerHTML = termSessions.map(s => {
       const display = s.logical_name || s.name;
       const kind = (s.kind || '').toLowerCase();
-      const icon = kind === 'claude' ? '🤖' : '💻';
+      // Badge + icon reflect the actual agent (claude/codex/copilot), not the
+      // transport kind — codex sessions have kind==='claude' but must not read
+      // "CLAUDE". Terminal sessions show their kind ('terminal').
+      const agent = (s.agent || (kind === 'claude' ? 'claude' : '')).toLowerCase();
+      const isClaude = agent === 'claude';
+      const badge = kind === 'claude' ? (agent || 'claude') : kind;
+      const icon = kind !== 'claude' ? '💻'
+        : agent === 'codex' ? '🧠'
+        : agent === 'copilot' ? '🐙'
+        : '🤖';
       const active = s.name === termCurrentSession ? ' active' : '';
       const logical = s.logical_name || '';
       const dead = termDeadSessions.has(s.name) ? ' dead' : '';
-      // status: 'working' (pulsing yellow dot) or 'idle' (solid red dot)
-      // for claude sessions. Terminal sessions get no status dot. A
-      // session marked dead ignores live status (it's unreachable).
+      // status: 'working' (pulsing yellow dot) or 'idle' (solid red dot) — only
+      // the Claude agent has a UI we can classify. codex/copilot/terminal: none.
       const status = termStatus[s.name] || '';
-      const statusCls = (!dead && kind === 'claude' && (status === 'working' || status === 'idle'))
+      const statusCls = (!dead && isClaude && (status === 'working' || status === 'idle'))
         ? ` ${status}` : '';
       const statusTitle = dead
         ? 'Session unreachable — click to retry'
-        : (kind === 'claude'
+        : (isClaude
             ? (status === 'working' ? 'Claude is working…'
                : status === 'idle'   ? 'Claude idle — needs your input'
                : 'Claude — status unknown')
@@ -7261,7 +7802,7 @@
         <span class="stat"></span>
         <span>${icon}</span>
         <span>${termSessEsc(display)}</span>
-        <span class="k">${termSessEsc(kind)}</span>
+        <span class="k">${termSessEsc(badge)}</span>
       </span>`;
     }).join('');
     el.querySelectorAll('.sess').forEach(node => {
@@ -7382,6 +7923,7 @@
     el.classList.toggle('open');
     // One-shot outside-click listener to dismiss.
     if (el.classList.contains('open')) {
+      termRefreshAgentAvail(el);
       const off = (e) => {
         if (!el.contains(e.target) && e.target.id !== 'termNewBtn') {
           el.classList.remove('open');
@@ -7392,13 +7934,31 @@
     }
   }
 
-  function termCreateNew(kind) {
-    document.getElementById('termNewPicker')?.classList.remove('open');
-    // Explicit + New: always spawn a fresh session (new name + new UUID).
-    termSpawnSession(kind, { startFresh: true });
+  // Gray out agents whose CLI isn't installed (e.g. copilot). Cached after the
+  // first lookup; failures leave every option enabled (the spawn surfaces a
+  // clean error anyway).
+  let _agentAvail = null;
+  async function termRefreshAgentAvail(picker) {
+    try {
+      if (!_agentAvail) _agentAvail = await (await fetch('/api/agents/available')).json();
+    } catch { return; }
+    picker.querySelectorAll('button[data-agent]').forEach(btn => {
+      const a = btn.dataset.agent;
+      const ok = _agentAvail[a] !== false;
+      btn.disabled = !ok;
+      btn.style.opacity = ok ? '' : '0.45';
+      const base = btn.textContent.replace(/ — not installed$/, '');
+      btn.textContent = ok ? base : base + ' — not installed';
+    });
   }
 
-  async function termSpawnSession(kind, { startFresh = false } = {}) {
+  function termCreateNew(kind, agent) {
+    document.getElementById('termNewPicker')?.classList.remove('open');
+    // Explicit + New: always spawn a fresh session (new name + new UUID).
+    termSpawnSession(kind, { startFresh: true, agent });
+  }
+
+  async function termSpawnSession(kind, { startFresh = false, agent = null } = {}) {
     // Resolve the project id the new session belongs to. Cerebro is a
     // pseudo-project with no `currentProject`, so fall back to
     // CEREBRO_PROJECT_ID when the Cerebro view is active. Without this,
@@ -7413,7 +7973,7 @@
     }
     if (!projectId) return;
 
-    termSetStatus('idle', kind === 'claude' ? 'creating claude…' : 'creating terminal…');
+    termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
       const r = await fetch('/api/term/sessions', {
         method: 'POST',
@@ -7421,6 +7981,7 @@
         body: JSON.stringify({
           project_id: projectId,
           kind,
+          agent,  // null → server resolves project override / global default
           start_fresh: startFresh,
           auto: true,  // only meaningful for claude; ignored for terminal
         }),
@@ -7584,6 +8145,43 @@
     }
   }
 
+  // ─── GPU rendering (xterm-addon-webgl) ───
+  // The DOM renderer re-lays-out hundreds of spans per repaint — visibly
+  // sluggish under Claude Code's TUI, which redraws its whole status area
+  // several times a second. The WebGL renderer draws glyphs on the GPU and
+  // is the single biggest client-side latency win for typing echo.
+  //
+  // Browsers cap live WebGL contexts (~8-16 per page) and we keep parked
+  // terminals alive in _termCache, so the context is attached to the
+  // ACTIVE session only: enabled on attach, disposed on park/detach.
+  // Any failure (no WebGL, context-limit hit, context loss) falls back to
+  // the DOM renderer silently — rendering correctness is unaffected.
+  let _termWebglFailed = false;  // hard failure → stop retrying this page-load
+  function _termEnableWebgl() {
+    if (_termWebglFailed || !termXterm || typeof WebglAddon === 'undefined') return;
+    if (termXterm._webglAddon) return;  // already on
+    try {
+      const addon = new WebglAddon.WebglAddon();
+      addon.onContextLoss(() => {
+        // GPU context evicted (too many contexts / driver reset). Drop to
+        // the DOM renderer for this terminal; next attach retries WebGL.
+        try { addon.dispose(); } catch {}
+        if (termXterm && termXterm._webglAddon === addon) termXterm._webglAddon = null;
+      });
+      termXterm.loadAddon(addon);
+      termXterm._webglAddon = addon;
+    } catch (e) {
+      console.warn('[term] WebGL renderer unavailable, using DOM renderer', e);
+      _termWebglFailed = true;
+    }
+  }
+  function _termDisableWebgl(xt) {
+    if (xt && xt._webglAddon) {
+      try { xt._webglAddon.dispose(); } catch {}
+      xt._webglAddon = null;
+    }
+  }
+
   function termShowEmpty() {
     const body = document.getElementById('termBody');
     if (!body) return;
@@ -7627,6 +8225,11 @@
       // cache-hit re-attach because the WS was reused without rebinding.)
       if (prev && termWS && termXterm) {
         if (termContainer) termContainer.style.display = 'none';
+        // Release the GPU context while parked — hidden panes render fine
+        // (and cheaply) on the DOM renderer, and this keeps us well under
+        // the browser's WebGL context cap no matter how many sessions are
+        // cached. Re-enabled on the next attach.
+        _termDisableWebgl(termXterm);
         _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS, container: termContainer });
         console.log('[term] parked', prev, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
       }
@@ -7756,10 +8359,38 @@
     // parked-via-soft-detach, mid-restore — and can never throw
     // "myXterm is not defined" because there is no closure-captured
     // identifier to fall out of scope.
-    const _openWS = (freshPane) => {
+    const _openWS = (freshPane, _attempt = 0) => {
       termSetStatus('idle', 'connecting to ' + name);
+      // Pass the fitted geometry so the server forks the PTY at the right
+      // size. Without it tmux attaches at 80x24 and reflows the whole
+      // session twice (once to 80x24, once to the real size when our
+      // first resize lands) — the leftovers of that double redraw showed
+      // up as a corrupted pane on every reconnect.
+      //
+      // On a COLD page load the panel may not be laid out yet (zero-size
+      // container → fit() can't compute dims). Connecting anyway would
+      // reintroduce the 80x24 bounce, so wait for layout — the pane has
+      // no visible size at that point, so there's nothing to show yet
+      // anyway. Bounded retry; after ~1s we connect with defaults rather
+      // than never attaching.
+      let dims = '';
+      try {
+        const p = termFitAddon && termFitAddon.proposeDimensions();
+        if (p && p.cols > 2 && p.rows > 2) {
+          termFitAddon.fit();
+          dims = `?cols=${termXterm.cols}&rows=${termXterm.rows}`;
+        }
+      } catch {}
+      if (!dims && _attempt < 20) {
+        setTimeout(() => {
+          // Abort the deferred dial if the user moved on meanwhile.
+          if (termCurrentSession !== name || termUserDetached) return;
+          _openWS(freshPane, _attempt + 1);
+        }, 50);
+        return null;
+      }
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}`);
+      const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}${dims}`);
       termWS = myWS;
       const isStale = () => termWS !== myWS && _termCache.get(name)?.ws !== myWS;
       const detachListeners = () => {
@@ -7775,6 +8406,15 @@
         const badge = document.getElementById('termAutoBadge');
         if (badge) badge.style.display = (meta && meta.auto) ? 'inline-block' : 'none';
         termSetStatus('live', 'attached · ' + name);
+        // Reconnect into an EXISTING xterm (freshPane=false): wipe the
+        // local grid before tmux's replay arrives. The old content was
+        // drawn by a previous connection — replaying on top of it leaves
+        // stale fragments wherever the repaint doesn't cover. This is a
+        // purely client-side reset: nothing is sent to tmux/claude (the
+        // historical "typed input got wiped" bug was a Ctrl-L sent to the
+        // app, which this is not); the replay repaints the full screen
+        // including claude's in-progress input line.
+        if (!freshPane && termXterm) { try { termXterm.reset(); } catch {} }
         try { termFitAddon.fit(); } catch {}
         termSendResize();
         // NOTE: we deliberately do NOT send Ctrl-L on connect.
@@ -7898,6 +8538,7 @@
       termContainer = cached.container;
       _termCache.delete(name);
       if (termContainer) termContainer.style.display = 'block';
+      _termEnableWebgl();
       try { termFitAddon.fit(); } catch {}
       // Do NOT send resize here — SIGWINCH causes Claude TUI to redraw and
       // clear any in-progress input. ResizeObserver on the container handles
@@ -7918,6 +8559,7 @@
       termContainer = cached.container;
       _termCache.delete(name);
       if (termContainer) termContainer.style.display = 'block';
+      _termEnableWebgl();
       try { termFitAddon.fit(); } catch {}
       // Reconnect without clobbering claude's in-progress input: see _openWS.
       _openWS(false);
@@ -7942,6 +8584,11 @@
     const myRO = new ResizeObserver(() => {
       clearTimeout(_resizeTimer);
       _resizeTimer = setTimeout(() => {
+        // Only the ACTIVE pane may drive fit/resize. This observer also
+        // fires when ITS container is hidden by a session switch (size →
+        // 0x0); at that point the module-level termFitAddon/termWS belong
+        // to a DIFFERENT session and must not be poked from here.
+        if (termContainer !== myContainer) return;
         try { termFitAddon.fit(); } catch {}
         if (termXterm && (termXterm.rows !== _lastRows || termXterm.cols !== _lastCols)) {
           _lastRows = termXterm.rows;
@@ -7957,6 +8604,18 @@
       }
     });
     myContainer.style.display = 'block';
+    // Fit BEFORE dialing the WebSocket so _openWS can pass the real
+    // geometry in the URL and tmux attaches at the right size from byte
+    // one (no 80x24 → real-size double reflow). Prime the RO's last-seen
+    // dims so its initial fire doesn't send a redundant resize.
+    try {
+      termFitAddon.fit();
+      _lastRows = termXterm.rows;
+      _lastCols = termXterm.cols;
+    } catch {}
+    // Enable the GPU renderer once the pane is visible (the addon reads
+    // cell metrics from the live DOM, so it must come after display:block).
+    _termEnableWebgl();
     termXterm.clear();
     _openWS(true);
   }
@@ -7984,7 +8643,29 @@
   let homeSearchResults = null;
   let _homeRendering = false;
 
-  // Deep-link support: #/nb?path=content/projects/<id>/<rest>.ipynb
+  // Code Search can be initialized by the direct ?view=code-search dispatch
+  // below, so its state must be ready before that dispatch runs.
+  const _CS_LAST_KEY = 'labCsLastRepo';
+  const _csCache = {
+    repos: null,
+    stats: new Map(),
+    search: new Map(),
+    file: new Map(),
+    log: new Map(),
+  };
+  const _csState = {
+    repo: null,
+    filter: '',
+    mode: 'filenames',
+    query: '',
+    openFile: null,
+    fileLines: null,
+    selectedRange: null,
+    rangeScope: false,
+    hitLine: null,
+  };
+
+  // Deep-link support: #/nb?path=projects/<id>/<rest>.ipynb
   // The fragment-style URL points at a notebook directly. We resolve the
   // owning project, plant the doc in last-opened state so the existing
   // `selectRepo → getLastProjectDoc → openProjectDoc` flow opens it, and
@@ -7996,12 +8677,12 @@
     if (!m) return;
     const params = new URLSearchParams(m[1]);
     const rel = params.get('path') || '';
-    const seg = rel.match(/^content\/projects\/([^/]+)\/(.+\.ipynb)$/i);
+    const seg = rel.match(/^projects\/([^/]+)\/(.+\.ipynb)$/i);
     if (!seg) return;
     const projectId = seg[1];
     const docPath = seg[2];
     const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
-    const absProject = rootPrefix + 'content/projects/' + projectId;
+    const absProject = rootPrefix + 'projects/' + projectId;
     setLastProjectDoc(absProject, docPath);
     _nbHashProject = absProject;
     const url = new URL(location.href);
@@ -8034,8 +8715,8 @@
         }
       }
     });
-  } else if (urlView === 'cerebro') {
-    // Cerebro view handles its own init above; skip Home.
+  } else if (urlView === 'cerebro' || urlView === 'productivity' || urlView === 'code-search') {
+    // These views handle their own init above; skip Home.
   } else {
     // No project or repo in URL → show Home (dashboard / timeline / search).
     initHome();
@@ -8195,7 +8876,7 @@
   }
 
   // Renders any monorepo-relative "shared" file inline in the project doc
-  // pane — used by Meta sidebar entries for `content/projects/CLAUDE.md`
+  // pane — used by Meta sidebar entries for `projects/CLAUDE.md`
   // and any file under the shared `.claude/`. For `.md` we use the same
   // marked.js client renderer the project doc pane uses (so styling
   // matches the rest of the UI); for `.json/.csv` we use the same
@@ -8384,12 +9065,22 @@
     const codeHost = document.querySelector(
       '.sidebar-folder[data-tree-scope="shared-code"][data-tree-path="code"] + .sidebar-folder-children'
     );
+    const agentsHost = document.querySelector(
+      '.sidebar-folder[data-tree-scope="shared-agents"][data-tree-path=".agents"] + .sidebar-folder-children'
+    );
     _renderSharedMetaPlaceholder({
       host: claudeHost,
       node: ts.find(n => n && n.name === '.claude'),
       basePath: '.claude',
       scope: 'shared-claude',
       labelPrefix: '.claude/',
+    });
+    _renderSharedMetaPlaceholder({
+      host: agentsHost,
+      node: ts.find(n => n && n.name === '.agents'),
+      basePath: '.agents',
+      scope: 'shared-agents',
+      labelPrefix: '.agents/',
     });
     _renderSharedMetaPlaceholder({
       host: codeHost,
@@ -8450,7 +9141,7 @@
       const open = _treeIsOpen(scope, fullPath, false);
       const arrowCls = open ? ' open' : '';
       const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${esc(d.name)}/</div>`;
+      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(d.name)}/</div>`;
       html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
       html += renderSharedClaudeTree(d.children || [], fullPath, scope);
       html += '</div>';
@@ -8463,7 +9154,7 @@
         : f.name.endsWith('.csv') ? '\u{1F4CA}'
         : f.name.endsWith('.py') ? '\u{1F40D}'
         : '\u{1F4C3}';
-      html += `<a class="sidebar-file" onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${icon} ${esc(f.name)}</span></a>`;
+      html += `<a class="sidebar-file${symlinkClass(f)}"${symlinkTitle(f)} onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${symlinkMarker(f)}${icon} ${esc(f.name)}</span></a>`;
     });
     return html;
   }
@@ -8520,40 +9211,12 @@
 
   // Persist the last-visited code-search repo so re-entering the tab
   // restores it (open question #4 answered: auto-pick).
-  const _CS_LAST_KEY = 'labCsLastRepo';
   function _csRememberLastRepo(repo) {
     try { if (repo) localStorage.setItem(_CS_LAST_KEY, repo); } catch {}
   }
   function _csRecallLastRepo() {
     try { return localStorage.getItem(_CS_LAST_KEY) || null; } catch { return null; }
   }
-
-  // In-memory caches so tab switches paint instantly. Keys:
-  //   - _csReposCache:    one entry (list of repos from /api/code-search/repos)
-  //   - _csStatsCache:    repo name → stats object
-  //   - _csSearchCache:   `${repo}|${mode}|${q}` → results blob
-  //   - _csFileCache:     `${repo}|${path}` → {content, lines}
-  //   - _csLogCache:      `${repo}|${path||''}|${range||''}` → commits[]
-  const _csCache = {
-    repos: null,
-    stats: new Map(),
-    search: new Map(),
-    file: new Map(),
-    log: new Map(),
-  };
-
-  // Working state for the currently active Code Search workspace.
-  const _csState = {
-    repo: null,         // currently picked repo name
-    filter: '',         // repo filter input
-    mode: 'filenames',  // filenames | code
-    query: '',
-    openFile: null,     // path within repo
-    fileLines: null,    // file content split by '\n'
-    selectedRange: null,// [start,end] (1-indexed) or null
-    rangeScope: false,  // when true, git rail shows range log
-    hitLine: null,      // line to highlight + scroll-to in preview
-  };
 
   async function initCodeSearch(initialRepo) {
     document.body.classList.add('code-search-active');
@@ -10505,6 +11168,11 @@
     if (pri) pri.value = 'P2';
     const err = document.getElementById('npError');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
+    // Reset the submit button too: a successful create leaves it disabled
+    // saying "Creating…" (only the failure path restored it), so every
+    // subsequent open showed a permanently-loading button.
+    const submit = document.getElementById('npSubmit');
+    if (submit) { submit.disabled = false; submit.textContent = 'Create'; }
     overlay.classList.add('active');
     setTimeout(() => { document.getElementById('npId')?.focus(); }, 30);
     document.addEventListener('keydown', _newProjectEscHandler);
@@ -10868,41 +11536,32 @@
       const dashActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="selfShowDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
       sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="selfToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
+      sbHtml += symlinkLegendHtml();
       sbHtml += '<div class="sidebar-title">Files</div>';
 
-      // Build folder tree (same algorithm as showProjectInfo)
-      const tree = {};
-      files.forEach(f => {
-        const parts = f.path.split('/');
-        let node = tree;
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (!node[parts[i]]) node[parts[i]] = {};
-          node = node[parts[i]];
-        }
-        node['__files__'] = node['__files__'] || [];
-        node['__files__'].push(f);
-      });
+      const tree = buildSidebarTree(files);
 
       const AUTO_OPEN_SELF = new Set(['apps', 'docs', 'knowledge']);
 
       function renderSelfTree(node, depth, parentPath) {
         let html = '';
-        Object.keys(node).filter(k => k !== '__files__').sort().forEach(folder => {
+        treeFolderNames(node).forEach(folder => {
           const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
           const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
+          const d = treeFolderEntry(node, folder, fullPath);
           const autoOpen = depth === 0 && AUTO_OPEN_SELF.has(folder);
           const open = _treeIsOpen('self', fullPath, autoOpen);
           const arrowCls = open ? ' open' : '';
           const childrenCls = open ? ' open' : '';
-          html += `<div class="sidebar-folder" data-tree-scope="self" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${folder}/</div>`;
+          html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="self" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
           html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
           html += renderSelfTree(node[folder], depth + 1, fullPath);
           html += '</div>';
         });
-        (node['__files__'] || []).forEach(f => {
+        treeFiles(node).forEach(f => {
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.path.split('/').pop();
-          const icon = f.type === 'image' ? '\u{1F5BC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
+          const icon = f.type === 'image' ? '\u{1F5BC}' : /\.(mp4|webm|mov|m4v)$/i.test(fname) ? '\u{1F3AC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
           const activeCls = activePath === f.path ? ' active' : '';
           // Notebook running / unseen dots — same logic as the project view's
           // _refreshProjectSidebar so the self view (productivity monorepo)
@@ -10922,7 +11581,7 @@
           } else if (hasUnseen) {
             dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
           }
-          html += `<a class="sidebar-file${activeCls}" data-filepath="${esc(f.path)}" onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon} ${fname}</span></a>`;
+          html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon} ${fname}</span></a>`;
         });
         return html;
       }
@@ -10934,12 +11593,20 @@
       // the productivity tab too. The `.claude/` placeholder is filled
       // async by /api/cerebro/tree, same as the project view.
       sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
+      // Canonical cross-tool instructions at the monorepo root (CLAUDE.md → AGENTS.md).
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} AGENTS.md</span></a>`;
       const sharedClaudeFid = 'sf-claude-self-' + Math.random().toString(36).substr(2, 6);
       const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
       const _shClArrow = _shClOpen ? ' open' : '';
       const _shClChildren = _shClOpen ? ' open' : '';
       sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/</div>`;
       sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+      const sharedAgentsFid = 'sf-agents-self-' + Math.random().toString(36).substr(2, 6);
+      const _shAgOpen = _treeIsOpen('shared-agents', '.agents', false);
+      const _shAgArrow = _shAgOpen ? ' open' : '';
+      const _shAgChildren = _shAgOpen ? ' open' : '';
+      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-agents" data-tree-path=".agents" data-tree-target="${sharedAgentsFid}" onclick="_treeToggleFolder(this)" title=".agents/ — shared config, memory & skills (cross-tool)" style="opacity:.7"><span class="folder-arrow${_shAgArrow}">▶</span>.agents/</div>`;
+      sbHtml += `<div class="sidebar-folder-children${_shAgChildren}" id="${sharedAgentsFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
 
       // `content/code/` — the source for code-* skills (hello.py,
       // spike_analysis.py, etc.). Same placeholder-then-async pattern
@@ -11197,7 +11864,7 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          project_id: SELF_PROJECT_ID, kind: s.kind || 'claude', name: s.name, auto: true,
+          project_id: SELF_PROJECT_ID, kind: s.kind || 'claude', agent: s.agent, name: s.name, auto: true,
         }),
       }).catch(() => null)));
       await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
@@ -11306,10 +11973,10 @@
         ? '<ul>' + node.children.map(c => cerebroRenderNode(c, filterVal)).join('') + '</ul>'
         : '';
       return `<li>
-        <div class="row dir" data-path="${cerebroEsc(path)}">
+        <div class="row dir${symlinkClass(node)}" data-path="${cerebroEsc(path)}"${symlinkTitle(node)}>
           <span class="caret">${caret}</span>
           <span class="icon">${icon}</span>
-          <span class="name">${cerebroEsc(node.name)}</span>
+          ${symlinkMarker(node)}<span class="name">${cerebroEsc(node.name)}</span>
         </div>${children}
       </li>`;
     }
@@ -11319,10 +11986,10 @@
     const icon = node.type === 'markdown' ? '📄' : (node.type === 'text' ? '📝' : '📦');
     const active = path === cerebroActivePath ? ' active' : '';
     return `<li>
-      <div class="row ${kind}${active}" data-path="${cerebroEsc(path)}">
+      <div class="row ${kind}${active}${symlinkClass(node)}" data-path="${cerebroEsc(path)}"${symlinkTitle(node)}>
         <span class="caret">&nbsp;</span>
         <span class="icon">${icon}</span>
-        <span class="name">${cerebroEsc(node.name)}</span>
+        ${symlinkMarker(node)}<span class="name">${cerebroEsc(node.name)}</span>
         <span class="size">${cerebroFormatSize(node.size)}</span>
       </div>
     </li>`;
@@ -11652,6 +12319,7 @@
         body: JSON.stringify({
           project_id: CEREBRO_PROJECT_ID,
           kind: s.kind || 'claude',
+          agent: s.agent,  // undefined for old/claude sessions → server resolves default
           name: s.name,
           auto: true,
         }),

@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from server.state import IndexCache
-from server.watcher import IndexWatcher
+from core.state import IndexCache
+from core.watcher import IndexWatcher
 
 
 def test_watcher_debounces_bursts(monorepo: Path) -> None:
@@ -19,7 +19,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
     w.start()
     try:
-        target = monorepo / "content" / "projects" / ".probe"
+        target = monorepo / "projects" / ".probe"
         target.mkdir()
         for i in range(5):
             (target / f"f{i}.md").write_text("x")

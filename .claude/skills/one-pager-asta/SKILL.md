@@ -13,7 +13,7 @@ description: >-
 
 # ASTA one-pager
 
-Output goes to `content/projects/<id>/docs/one-pager.md`. **Never publish
+Output goes to `projects/<id>/docs/one-pager.md`. **Never publish
 to Google Docs.** Local file only.
 
 Often follows an investigation one-pager when the investigation

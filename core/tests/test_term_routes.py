@@ -65,9 +65,9 @@ def test_create_claude_session_for_project(client, seed_project, isolated_prefix
                           capture_output=True).returncode == 0
 
     # project.json now has a durable sessions[] entry with the id.
-    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"] == [{
-        "name": "claude", "kind": "claude",
+        "name": "claude", "kind": "claude", "agent": "claude",
         "claude_session_id": body["claude_session_id"],
     }]
 
@@ -181,7 +181,7 @@ def test_kill_project_sessions_removes_all(client, seed_project, isolated_prefix
     # No live sessions remain.
     assert client.get("/api/term/sessions?project_id=demo").json() == []
     # But project.json still has the saved entries (not purged).
-    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
     assert len(pjson["sessions"]) == 2
 
 
@@ -192,7 +192,7 @@ def test_kill_project_sessions_purge_clears_saved(client, seed_project, isolated
 
     r = client.delete("/api/term/sessions/project/demo?purge=true")
     assert r.status_code == 200
-    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"] == []
 
 
@@ -201,7 +201,7 @@ def test_classify_pane_subagent_is_working(monkeypatch) -> None:
     `esc to interrupt` hint wrapped off the capture, but other signals —
     `…(1m 36s`, `thought for 27s`, `↓ 343 tokens` — are still present.
     The classifier must see the session as WORKING."""
-    import server.routes.term as term_mod
+    import core.routes.term as term_mod
     # Stub tmux + clear the TTL cache.
     import subprocess as sp
 
@@ -231,7 +231,7 @@ def test_classify_pane_subagent_is_working(monkeypatch) -> None:
 def test_classify_pane_idle_prompt(monkeypatch) -> None:
     """Opposite: a freshly-idle Claude showing just its prompt — no timer,
     no token count, no interrupt hint — should classify IDLE."""
-    import server.routes.term as term_mod
+    import core.routes.term as term_mod
     import subprocess as sp
 
     pane_text = (
@@ -281,7 +281,7 @@ def test_session_status_working_vs_idle(client, seed_project, isolated_prefix,
         return real_run(cmd, *a, **kw)
     monkeypatch.setattr(sp, "run", fake_run)
     # Stub cache too — it's time-based; wipe between calls.
-    import server.routes.term as term_mod
+    import core.routes.term as term_mod
     monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
 
     rows = client.get("/api/term/sessions/status?project_id=demo").json()
@@ -307,7 +307,7 @@ def test_projects_attention_needs_idle_claude(client, seed_project, isolated_pre
             return R()
         return real_run(cmd, *a, **kw)
     monkeypatch.setattr(sp, "run", fake_run)
-    import server.routes.term as term_mod
+    import core.routes.term as term_mod
     monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
 
     # Working → not in attention list.
@@ -371,7 +371,7 @@ def test_session_order_reorder_saved_and_affect_live_list(client, seed_project,
     assert r.json()["order"] == new_order
 
     # Saved order updated.
-    pjson = _json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
+    pjson = _json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
     assert [s["name"] for s in pjson["sessions"]] == new_order
 
     # Live list reflects saved order.
@@ -425,7 +425,7 @@ def test_delete_single_session_does_not_purge_project_json(client, seed_project,
     assert subprocess.run(["tmux", "has-session", "-t", first["name"]],
                           capture_output=True).returncode != 0
     # …but the project.json entry with the claude UUID persists so we can --resume later.
-    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"][0]["claude_session_id"] == first["claude_session_id"]
 
 
@@ -506,5 +506,59 @@ def test_delete_with_purge_clears_project_json_entry(client, seed_project,
     first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
 
     client.delete(f"/api/term/sessions/{first['name']}?purge=true")
-    pjson = json.loads((monorepo / "content" / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
     assert pjson["sessions"] == []
+
+
+def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_project,
+                                                        isolated_prefix,
+                                                        monorepo: Path) -> None:
+    """Regression (2026-06-10): .sessions.json got wiped while sessions were
+    live, orphaning every tab (project_id=None → grey tabs, empty
+    projects-with-sessions). The registry must self-heal from the tmux
+    session names + the durable project.json entries."""
+    seed_project("demo")
+    created = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude",
+    }).json()
+
+    # Simulate the wipe.
+    (monorepo / "content" / ".sessions.json").write_text("{}\n")
+
+    rows = client.get("/api/term/sessions?project_id=demo").json()
+    assert [r["name"] for r in rows] == [created["name"]]
+    assert rows[0]["project_id"] == "demo"
+    assert rows[0]["logical_name"] == "claude"
+    assert rows[0]["kind"] == "claude"
+    assert rows[0]["agent"] == "claude"
+    # claude_session_id recovered from project.json so --resume keeps working.
+    assert rows[0]["claude_session_id"] == created["claude_session_id"]
+
+    assert client.get("/api/term/projects-with-sessions").json() == ["demo"]
+    # And the rebuilt entry is persisted.
+    meta = json.loads((monorepo / "content" / ".sessions.json").read_text())
+    assert meta[created["name"]]["project_id"] == "demo"
+
+
+def test_failed_tmux_listing_does_not_prune_registry(client, seed_project,
+                                                      isolated_prefix,
+                                                      monorepo: Path,
+                                                      monkeypatch) -> None:
+    """Regression (2026-06-10): a transient `tmux list-sessions` failure
+    must read as *unknown*, not as "no sessions" — pruning on it destroyed
+    the whole registry."""
+    from core.routes import term as term_route
+
+    seed_project("demo")
+    created = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude",
+    }).json()
+
+    monkeypatch.setattr(term_route, "_tmux_list", lambda prefix: None)
+    assert client.get("/api/term/sessions").json() == []
+    assert client.get("/api/term/projects-with-sessions").json() == []
+    assert client.get("/api/term/sessions/status").json() == []
+    assert client.get("/api/term/projects-attention").json() == []
+
+    meta = json.loads((monorepo / "content" / ".sessions.json").read_text())
+    assert created["name"] in meta, "failed listing must not prune the registry"

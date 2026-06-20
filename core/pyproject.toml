@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lab-server"
+name = "lab-core"
 version = "0.1.0"
-description = "Unified HTTP+WS backend for the productivity monorepo (absorbed lab-backend + gdiff)"
+description = "Core HTTP+WS backend for the productivity monorepo (absorbed lab-backend + gdiff; formerly lab-server)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109",
@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lab-server = "server.main:run"
+core = "core.main:run"
 
 [project.optional-dependencies]
 dev = [
@@ -41,7 +41,7 @@ testpaths = ["tests"]
 # Default: skip ``@pytest.mark.slow`` (latency budgets, reconnect storms).
 # Run them explicitly with ``pytest -m slow``; the Makefile has a
 # ``test-all`` target that runs everything.
-addopts = "-ra --cov=server --cov-report=term-missing -m 'not slow'"
+addopts = "-ra --cov=core --cov-report=term-missing -m 'not slow'"
 markers = [
     "slow: latency/load/storm tests. Skipped by default; run with 'pytest -m slow' or 'make test-all'.",
 ]

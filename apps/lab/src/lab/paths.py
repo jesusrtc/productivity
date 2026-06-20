@@ -32,13 +32,13 @@ def find_monorepo_root(start: Path | None = None) -> Path:
 
 
 # Pseudo-project id for the productivity monorepo itself. Like __cerebro__,
-# it has no folder under content/projects/ — its meta + tasks live in
+# it has no folder under projects/ — its meta + tasks live in
 # hidden files under content/ so they don't clutter the project listing.
 SELF_PROJECT_ID = "__self__"
 
 
 def is_pseudo_project(project_id: str) -> bool:
-    """True for ids that aren't backed by content/projects/<id>/."""
+    """True for ids that aren't backed by projects/<id>/."""
     return project_id == SELF_PROJECT_ID
 
 
@@ -49,7 +49,7 @@ def project_dir(root: Path, project_id: str) -> Path:
     # a real project folder should check is_pseudo_project() first.
     if is_pseudo_project(project_id):
         return root / "content"
-    return root / "content" / "projects" / project_id
+    return root / "projects" / project_id
 
 
 def project_file(root: Path, project_id: str) -> Path:
@@ -99,17 +99,17 @@ def ensure_self_files(root: Path) -> None:
 
 
 class ProjectNotFound(RuntimeError):
-    """Raised when PWD is not inside any project under content/projects/."""
+    """Raised when PWD is not inside any project under projects/."""
 
 
 def find_project_id_from_pwd(root: Path, start: Path | None = None) -> str:
     """Walk up from `start` (defaults to PWD) to find the project folder.
 
     Returns the project id (the directory name whose parent is
-    `<root>/content/projects/`). Raises `ProjectNotFound` if the walk
+    `<root>/projects/`). Raises `ProjectNotFound` if the walk
     reaches `root` without finding a project folder.
     """
-    projects_root = (root / "content" / "projects").resolve()
+    projects_root = (root / "projects").resolve()
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         if candidate.parent == projects_root:
@@ -124,3 +124,43 @@ def find_project_id_from_pwd(root: Path, start: Path | None = None) -> str:
 def index_file(root: Path) -> Path:
     """Return the path of the global index cache (gitignored)."""
     return root / "content" / ".index.json"
+
+
+# ─── Cross-tool agent config + memory ────────────────────────────────────────
+# `.agents/` is the committed home shared by Claude Code, Codex and Copilot for
+# config + memory. It is distinct from `.claude/agents/` (Claude subagents).
+
+def agents_dir(root: Path) -> Path:
+    """Cross-tool agent home (committed to the productivity repo)."""
+    return root / ".agents"
+
+
+def config_file(root: Path) -> Path:
+    """Global lab/agent settings file (defaultAgent, model, theme)."""
+    return agents_dir(root) / "config.json"
+
+
+def memory_dir(root: Path, project_id: str | None = None) -> Path:
+    """Canonical, repo-committed agent memory directory.
+
+    Monorepo-level memory lives at ``<root>/.agents/memory/`` (productivity
+    repo). Per-project memory lives at ``projects/<id>/.agents/memory/``
+    (committed to the content repo, so it travels with project work).
+    """
+    if project_id and not is_pseudo_project(project_id):
+        return project_dir(root, project_id) / ".agents" / "memory"
+    return agents_dir(root) / "memory"
+
+
+def claude_project_slug(path: Path) -> str:
+    """Claude Code's ``~/.claude/projects/<slug>`` name for an absolute path.
+
+    Claude derives the slug by replacing every path separator with ``-`` (e.g.
+    ``/Volumes/SSD/.../productivity`` → ``-Volumes-SSD-...-productivity``).
+    """
+    return str(Path(path).resolve()).replace("/", "-")
+
+
+def claude_memory_dir(path: Path) -> Path:
+    """The built-in ``~/.claude`` memory dir for a project rooted at ``path``."""
+    return Path.home() / ".claude" / "projects" / claude_project_slug(path) / "memory"

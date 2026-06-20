@@ -13,6 +13,7 @@ view covers both Cerebro content and per-project docs.
 from __future__ import annotations
 
 import mimetypes
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -42,15 +43,22 @@ def _resolve_cerebro_path(root: Path, path: str) -> Path:
         raise HTTPException(status_code=400, detail="invalid path")
     content_root = (root / "content").resolve()
     shared_claude = (root / ".claude").resolve()
+    shared_agents = (root / ".agents").resolve()
+    shared_projects = (root / "projects").resolve()  # projects/ is a top-level sibling now
+    # Canonical root instructions surfaced in every project's Meta section.
+    # CLAUDE.md is a symlink to AGENTS.md, so both resolve to the same file.
+    shared_files = {(root / "AGENTS.md").resolve(), (root / "CLAUDE.md").resolve()}
     candidates = (
-        (root / path).resolve(),          # monorepo-relative — .claude/... lands here
+        (root / path).resolve(),          # monorepo-relative — .claude/..., .agents/..., projects/... land here
         (content_root / path).resolve(),  # content-relative — code/..., wikis/..., etc.
     )
     for target in candidates:
-        for allowed_root in (content_root, shared_claude):
+        if target in shared_files:
+            return target
+        for allowed_root in (content_root, shared_claude, shared_agents, shared_projects):
             if target == allowed_root or allowed_root in target.parents:
                 return target
-    raise HTTPException(status_code=400, detail="path escapes content/ or .claude/")
+    raise HTTPException(status_code=400, detail="path escapes content/, .claude/, .agents/ or projects/")
 
 
 # Dirs we don't want to crawl into, ever. Mostly ignored caches + vendor
@@ -69,6 +77,19 @@ _MD_EXTS = {".md", ".markdown"}
 _TEXT_EXTS = {".md", ".markdown", ".txt", ".json", ".yaml", ".yml", ".toml", ".py", ".sh", ".csv"}
 
 
+def _symlink_fields(path: Path) -> dict:
+    if not path.is_symlink():
+        return {}
+    try:
+        target = os.readlink(path)
+    except OSError:
+        target = ""
+    fields = {"is_symlink": True}
+    if target:
+        fields["symlink_target"] = target
+    return fields
+
+
 def _node(path: Path, rel: Path, include_hidden: bool) -> dict | None:
     name = path.name
     # `.claude/` carries the project's shared skills/agents/hooks. We
@@ -81,12 +102,14 @@ def _node(path: Path, rel: Path, include_hidden: bool) -> dict | None:
             return None
         if str(rel) == ".claude/logs":
             return None
-        return {
+        node = {
             "name": name,
             "path": str(rel) if str(rel) != "." else "",
             "type": "dir",
             "children": [],
         }
+        node.update(_symlink_fields(path))
+        return node
     if path.is_file():
         suffix = path.suffix.lower()
         kind = "markdown" if suffix in _MD_EXTS else ("text" if suffix in _TEXT_EXTS else "file")
@@ -94,12 +117,14 @@ def _node(path: Path, rel: Path, include_hidden: bool) -> dict | None:
             size = path.stat().st_size
         except OSError:
             size = 0
-        return {
+        node = {
             "name": name,
             "path": str(rel),
             "type": kind,
             "size": size,
         }
+        node.update(_symlink_fields(path))
+        return node
     return None
 
 
@@ -186,5 +211,30 @@ async def cerebro_tree(request: Request, include_hidden: bool = False) -> list[d
             "type": "dir",
             "children": _build(shared, Path(".claude"), include_hidden),
         }
+        shared_node.update(_symlink_fields(shared))
         nodes.insert(0, shared_node)
+    # Also surface the tool-neutral `.agents/` (config, memory, shared skills)
+    # so it's browseable from every project's Meta section, like `.claude/`.
+    shared_agents = root / ".agents"
+    if shared_agents.is_dir():
+        agents_node = {
+            "name": ".agents",
+            "path": ".agents",
+            "type": "dir",
+            "children": _build(shared_agents, Path(".agents"), include_hidden),
+        }
+        agents_node.update(_symlink_fields(shared_agents))
+        nodes.insert(0, agents_node)
+    # Surface the top-level `projects/` (popped out of content/) so projects
+    # stay browseable in Cerebro, exactly as they were when nested under content/.
+    projects = root / "projects"
+    if projects.is_dir():
+        projects_node = {
+            "name": "projects",
+            "path": "projects",
+            "type": "dir",
+            "children": _build(projects, Path("projects"), include_hidden),
+        }
+        projects_node.update(_symlink_fields(projects))
+        nodes.insert(0, projects_node)
     return nodes

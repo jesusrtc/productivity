@@ -42,7 +42,7 @@ class TestSafeSendHelper:
         return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
 
     def test_happy_path_returns_true(self):
-        from server.routes.term import _ws_send_text_safe
+        from core.routes.term import _ws_send_text_safe
 
         ws = MagicMock()
         ws.send_text = AsyncMock(return_value=None)
@@ -64,7 +64,7 @@ class TestSafeSendHelper:
         re-raised. Covers starlette.WSDisconnect, uvicorn ClientDisconnected
         (ConnectionError subclass), send-after-close (RuntimeError), and
         dead-socket OSError — the exact combo that crashed prod."""
-        from server.routes.term import _ws_send_text_safe
+        from core.routes.term import _ws_send_text_safe
 
         ws = MagicMock()
         # WebSocketDisconnect requires a code arg; ConnectionError doesn't.
@@ -85,13 +85,13 @@ class TestSafeSendHelper:
         """Even an exception outside the documented race family must not
         propagate out of the handler — the whole point of the helper is
         that callers never see a traceback for a send failure."""
-        from server.routes.term import _ws_send_text_safe
+        from core.routes.term import _ws_send_text_safe
 
         ws = MagicMock()
         ws.send_text = AsyncMock(side_effect=ValueError("unexpected"))
         loop = asyncio.new_event_loop()
         try:
-            with caplog.at_level("DEBUG", logger="server.term"):
+            with caplog.at_level("DEBUG", logger="core.term"):
                 result = loop.run_until_complete(_ws_send_text_safe(ws, "x"))
         finally:
             loop.close()
@@ -108,7 +108,7 @@ class TestSafeCloseHelper:
         WebSocketDisconnect, ConnectionError, RuntimeError, OSError, Exception,
     ])
     def test_never_raises(self, exc_cls):
-        from server.routes.term import _ws_close_safe
+        from core.routes.term import _ws_close_safe
 
         ws = MagicMock()
         def _raise(*_a, **_k):
@@ -142,7 +142,7 @@ class TestNameValidation:
         "ABC_xyz-123",
     ])
     def test_accepts_legal_names(self, name: str):
-        from server.routes.term import _VALID_WS_NAME
+        from core.routes.term import _VALID_WS_NAME
         assert _VALID_WS_NAME.match(name), f"{name!r} should be accepted"
 
     @pytest.mark.parametrize("name", [
@@ -159,7 +159,7 @@ class TestNameValidation:
         "lab-ü",                    # non-ASCII
     ])
     def test_rejects_hazardous_names(self, name: str):
-        from server.routes.term import _VALID_WS_NAME
+        from core.routes.term import _VALID_WS_NAME
         assert not _VALID_WS_NAME.match(name), f"{name!r} should be rejected"
 
 
@@ -188,14 +188,14 @@ class TestTermWSNoSession:
         our send_text, we must not log an ERROR traceback. The helpers
         downgrade to DEBUG."""
         # Connect + immediately close; the server race path is internal.
-        with caplog.at_level("ERROR", logger="server.term"):
+        with caplog.at_level("ERROR", logger="core.term"):
             with client.websocket_connect("/ws/term/lab-ghost") as ws:
                 try:
                     ws.receive_json()
                 except Exception:
                     pass
         # No ERROR-level records from our logger.
-        ours = [r for r in caplog.records if r.name == "server.term" and r.levelname == "ERROR"]
+        ours = [r for r in caplog.records if r.name == "core.term" and r.levelname == "ERROR"]
         assert not ours, f"unexpected ERROR logs: {[r.message for r in ours]}"
 
 
@@ -206,7 +206,7 @@ class TestTermWSInvalidName:
     for a hazardous name (patched to fail loudly)."""
 
     def test_invalid_name_rejected_before_subprocess(self, client, monkeypatch):
-        from server.routes import term as term_route
+        from core.routes import term as term_route
 
         calls: list[list] = []
 
@@ -237,7 +237,7 @@ class TestTermWSInvalidName:
         "lab-a=b",   # equals — URL-safe, rejected by regex
     ])
     def test_hazardous_names_fall_through_cleanly(self, client, monkeypatch, bad_name):
-        from server.routes import term as term_route
+        from core.routes import term as term_route
         monkeypatch.setattr(term_route, "_tmux_available", lambda: True)
         # Force has-session True so only the regex can reject.
         monkeypatch.setattr(term_route, "_tmux_has_session", lambda n: True)
@@ -253,7 +253,7 @@ class TestTermWSPrefixMismatch:
     sessions on the user's machine. The WS handler enforces both."""
 
     def test_wrong_prefix_rejected(self, client, monkeypatch):
-        from server.routes import term as term_route
+        from core.routes import term as term_route
 
         # Ensure _tmux_has_session would say "yes" if asked, so any
         # failure to reject isn't masked by a happy downstream state.
@@ -270,7 +270,7 @@ class TestTermWSTmuxUnavailable:
     must still accept and cleanly close without crashing."""
 
     def test_tmux_missing(self, client, monkeypatch):
-        from server.routes import term as term_route
+        from core.routes import term as term_route
         monkeypatch.setattr(term_route, "_tmux_available", lambda: False)
 
         with client.websocket_connect("/ws/term/lab-whatever") as ws:
@@ -292,7 +292,7 @@ class TestTermWSExecutorOffload:
         import threading
         import time
         from concurrent.futures import ThreadPoolExecutor
-        from server.routes import term as term_route
+        from core.routes import term as term_route
 
         ready = threading.Event()
 
@@ -332,7 +332,7 @@ def test_send_race_errors_tuple_contains_expected_classes():
     """Regression-guard the tuple of exceptions we promise to swallow in
     ``_ws_send_text_safe``. If a future refactor narrows this, we want a
     loud test failure, not silent regressions to the original crash."""
-    from server.routes.term import _WS_SEND_RACE_ERRORS
+    from core.routes.term import _WS_SEND_RACE_ERRORS
 
     # At minimum these four: WSDisconnect, ConnectionError (covers
     # uvicorn ClientDisconnected + websockets ConnectionClosed sub-classes),

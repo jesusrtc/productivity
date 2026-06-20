@@ -1,8 +1,8 @@
 """Tests for the logging pipeline: ``_JsonFormatter`` + ``/api/log/client``.
 
-The server funnels both its own WARNING+ records and the browser's error
-events into ``logs/server.log`` as newline-delimited JSON. Two pieces to
-cover:
+The server writes structured JSONL logs split by source and severity:
+backend regular logs, frontend regular logs, and errors-only logs. Two pieces
+to cover:
 
 - The **formatter** must produce one-line records with the documented
   shape (ts, level, logger, source, msg, path, optional exc/session_id)
@@ -28,6 +28,16 @@ from pathlib import Path
 import pytest
 
 
+def _jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text().splitlines():
+        if line.strip().startswith("{"):
+            rows.append(json.loads(line))
+    return rows
+
+
 # ─── _JsonFormatter unit tests ─────────────────────────────────────────────
 
 
@@ -36,13 +46,13 @@ class TestJsonFormatter:
     no network, just string → dict round-trips. Fast + deterministic."""
 
     def _format(self, record: logging.LogRecord) -> dict:
-        from server.main import _JsonFormatter
+        from core.main import _JsonFormatter
         out = _JsonFormatter().format(record)
         # One JSON object per line — no trailing newline, no extras.
         assert "\n" not in out, "formatter must produce a single line"
         return json.loads(out)
 
-    def _make_record(self, *, name="server.term", level=logging.WARNING,
+    def _make_record(self, *, name="core.term", level=logging.WARNING,
                      msg="hello", extra=None, exc_info=None):
         rec = logging.LogRecord(name=name, level=level, pathname="x.py",
                                 lineno=42, msg=msg, args=(), exc_info=exc_info)
@@ -56,14 +66,14 @@ class TestJsonFormatter:
         d = self._format(rec)
         assert set(d.keys()) >= {"ts", "level", "logger", "source", "msg", "path"}
         assert d["level"] == "WARNING"
-        assert d["logger"] == "server.term"
+        assert d["logger"] == "core.term"
         assert d["source"] == "server"
         assert d["msg"] == "boom"
         assert ":42" in d["path"], f"server path should be file:lineno, got {d['path']!r}"
 
     def test_shape_client_source(self):
         rec = self._make_record(
-            name="server.client_errors",
+            name="core.client_errors",
             msg="TypeError: undefined is not a function",
             extra={"source": "client", "path_info": "/?project=xyz",
                    "session_id": "abc-123"},
@@ -72,6 +82,27 @@ class TestJsonFormatter:
         assert d["source"] == "client"
         assert d["path"] == "/?project=xyz"
         assert d["session_id"] == "abc-123"
+
+    def test_request_path_info_wins_for_server_records(self):
+        rec = self._make_record(
+            name="core.http",
+            level=logging.INFO,
+            msg="HTTP GET /api/ping -> 200",
+            extra={
+                "path_info": "/api/ping",
+                "method": "GET",
+                "status_code": 200,
+                "duration_ms": 1.25,
+                "route": "/api/ping",
+            },
+        )
+        d = self._format(rec)
+        assert d["source"] == "server"
+        assert d["path"] == "/api/ping"
+        assert d["method"] == "GET"
+        assert d["status_code"] == 200
+        assert d["duration_ms"] == 1.25
+        assert d["route"] == "/api/ping"
 
     def test_ts_is_iso8601_with_tz(self):
         d = self._format(self._make_record())
@@ -97,7 +128,7 @@ class TestJsonFormatter:
     def test_unicode_preserved_not_escaped(self):
         rec = self._make_record(msg="café → 🧠")
         raw = logging.getLogger("unused")  # silence
-        from server.main import _JsonFormatter
+        from core.main import _JsonFormatter
         # ensure_ascii=False was an explicit choice in the formatter.
         line = _JsonFormatter().format(rec)
         assert "café" in line and "🧠" in line
@@ -114,7 +145,7 @@ class TestJsonFormatter:
         """An exc_info tuple with a broken traceback shouldn't crash the
         handler. Standard library's ``formatException`` is robust but we
         guard here because a crash inside a handler is catastrophic."""
-        from server.main import _JsonFormatter
+        from core.main import _JsonFormatter
         # Pass an exc_info whose traceback is None (valid per the spec
         # — logging.py allows exc_info=(type, value, None)).
         rec = self._make_record(
@@ -149,8 +180,12 @@ class TestClientLogIngest:
         # WARNING/ERROR via the rotating handler is line-buffered and
         # reaches disk immediately. Give it a tick just in case.
         assert log_file.exists(), "server.log should be created by lifespan"
-        # We don't assert on content here because uvicorn also writes
-        # lifecycle lines; the structural tests below cover content.
+        frontend = _jsonl(monorepo / "logs" / "frontend.log")
+        assert any(r["msg"] == "Uncaught TypeError: foo" and r["level"] == "ERROR" for r in frontend)
+        assert any(r["msg"] == "deprecated API" and r["level"] == "WARNING" for r in frontend)
+        errors = _jsonl(monorepo / "logs" / "errors.log")
+        assert any(r["source"] == "client" and r["msg"] == "Uncaught TypeError: foo" for r in errors)
+        assert not any(r["msg"] == "deprecated API" for r in errors)
 
     def test_empty_batch_ok_but_zero_logged(self, client):
         r = client.post("/api/log/client", json={"events": []})
@@ -192,7 +227,7 @@ class TestClientLogIngest:
     def test_rate_limit_trips_past_threshold(self, client, monkeypatch):
         """Reset the rate-limit counters, then post >200 events; the
         over-the-line batch must report ``rate_limited``."""
-        from server.routes import log as log_route
+        from core.routes import log as log_route
 
         # Reset counters so this test is deterministic regardless of what
         # other tests in the session did.
@@ -211,8 +246,7 @@ class TestClientLogIngest:
         assert body.get("ok") is False and body.get("reason") == "rate_limited"
 
     def test_level_mapping_error_vs_warning(self, client, monkeypatch):
-        """``level: "error"`` → Python ERROR; anything else (warning,
-        warn, typo) → WARNING. Avoids surprising promotions."""
+        """``level`` maps predictably without promoting typos to warnings."""
         import logging as stdlog
         captured = []
 
@@ -221,10 +255,10 @@ class TestClientLogIngest:
                 captured.append(record.levelno)
 
         cap = Cap()
-        stdlog.getLogger("server.client_errors").addHandler(cap)
+        stdlog.getLogger("core.client_errors").addHandler(cap)
         try:
             # Reset rate limit.
-            from server.routes import log as log_route
+            from core.routes import log as log_route
             monkeypatch.setattr(log_route, "_rate_count", 0, raising=False)
             monkeypatch.setattr(log_route, "_rate_window_start", 0.0, raising=False)
 
@@ -235,18 +269,49 @@ class TestClientLogIngest:
                 {"level": "banana",  "msg": "d"},
             ]})
         finally:
-            stdlog.getLogger("server.client_errors").removeHandler(cap)
+            stdlog.getLogger("core.client_errors").removeHandler(cap)
         assert captured[0] == stdlog.ERROR
         assert captured[1] == stdlog.WARNING
         assert captured[2] == stdlog.WARNING
-        assert captured[3] == stdlog.WARNING
+        assert captured[3] == stdlog.INFO
+
+    def test_info_action_fields_land_in_frontend_regular_log(self, client, monorepo: Path):
+        r = client.post("/api/log/client", json={"events": [{
+            "level": "info",
+            "msg": "client action: click",
+            "path": "/#/p/demo",
+            "action": "click",
+            "target": "button \"Run\"",
+            "event_type": "click",
+            "href": "#/p/demo",
+            "method": "POST",
+            "status_code": 200,
+            "duration_ms": 12.5,
+        }]})
+        assert r.status_code == 200
+        assert r.json()["logged"] == 1
+
+        frontend = _jsonl(monorepo / "logs" / "frontend.log")
+        rec = next(r for r in frontend if r.get("msg") == "client action: click")
+        assert rec["level"] == "INFO"
+        assert rec["source"] == "client"
+        assert rec["path"] == "/#/p/demo"
+        assert rec["action"] == "click"
+        assert rec["target"] == "button \"Run\""
+        assert rec["event_type"] == "click"
+        assert rec["href"] == "#/p/demo"
+        assert rec["method"] == "POST"
+        assert rec["status_code"] == 200
+        assert rec["duration_ms"] == 12.5
+        assert not _jsonl(monorepo / "logs" / "frontend-errors.log")
+        assert not _jsonl(monorepo / "logs" / "errors.log")
 
     def test_concurrent_writes_produce_valid_jsonl(self, client, monkeypatch, monorepo: Path):
         """Fire 50 concurrent POSTs. Each line in server.log that comes
         from our ingest must be parseable JSON — no interleaving mid-line.
         The RotatingFileHandler takes a lock internally; this test just
         guards against a regression if that contract ever changes."""
-        from server.routes import log as log_route
+        from core.routes import log as log_route
 
         # Reset rate limit + raise the cap for this test; otherwise we'd
         # hit the 200-event ceiling before covering the concurrency shape.
@@ -278,6 +343,60 @@ class TestClientLogIngest:
             assert "msg" in obj, f"missing msg in {obj}"
 
 
+# ─── Backend request logging ───────────────────────────────────────────────
+
+
+class TestBackendRequestLogging:
+    def test_successful_http_endpoint_logged_to_backend_regular_file(self, client, monorepo: Path):
+        r = client.get("/api/ping")
+        assert r.status_code == 200
+
+        backend = _jsonl(monorepo / "logs" / "backend.log")
+        rec = next(r for r in backend if r.get("path") == "/api/ping")
+        assert rec["source"] == "server"
+        assert rec["logger"] == "core.http"
+        assert rec["level"] == "INFO"
+        assert rec["method"] == "GET"
+        assert rec["status_code"] == 200
+        assert rec["route"] == "/api/ping"
+        assert isinstance(rec["duration_ms"], (int, float))
+        assert not _jsonl(monorepo / "logs" / "errors.log")
+
+    def test_404_is_warning_not_error_only(self, client, monorepo: Path):
+        r = client.get("/missing")
+        assert r.status_code == 404
+
+        backend = _jsonl(monorepo / "logs" / "backend.log")
+        rec = next(r for r in backend if r.get("path") == "/missing")
+        assert rec["level"] == "WARNING"
+        assert rec["status_code"] == 404
+        assert not _jsonl(monorepo / "logs" / "backend-errors.log")
+        assert not _jsonl(monorepo / "logs" / "errors.log")
+
+    def test_unhandled_exception_logged_to_errors_only_file(self, monorepo: Path):
+        from fastapi.testclient import TestClient
+
+        from core.main import create_app
+
+        app = create_app()
+
+        @app.get("/boom")
+        async def boom():
+            raise RuntimeError("boom")
+
+        with TestClient(app, raise_server_exceptions=False) as raw:
+            r = raw.get("/boom")
+        assert r.status_code == 500
+
+        errors = _jsonl(monorepo / "logs" / "errors.log")
+        rec = next(r for r in errors if r.get("path") == "/boom")
+        assert rec["level"] == "ERROR"
+        assert rec["source"] == "server"
+        assert rec["method"] == "GET"
+        assert rec["status_code"] == 500
+        assert "RuntimeError: boom" in rec["exc"]
+
+
 # ─── RotatingFileHandler survives rollover ─────────────────────────────────
 
 
@@ -287,7 +406,7 @@ class TestRotationSurvival:
     regression here would silently lose client error reports."""
 
     def test_rollover_preserves_subsequent_writes(self, tmp_path: Path):
-        from server.main import _JsonFormatter
+        from core.main import _JsonFormatter
 
         logger = logging.getLogger("test.rollover")
         logger.setLevel(logging.WARNING)
@@ -312,7 +431,7 @@ class TestRotationSurvival:
         assert found, f"sentinel missing from rotated logs: {[f.name for f in files]}"
 
     def test_rotation_produces_backup_files(self, tmp_path: Path):
-        from server.main import _JsonFormatter
+        from core.main import _JsonFormatter
 
         logger = logging.getLogger("test.rollover2")
         logger.setLevel(logging.WARNING)

@@ -46,7 +46,7 @@ def _now_iso() -> str:
 
 
 def _iter_all_tasks(root: Path):
-    projects_root = root / "content" / "projects"
+    projects_root = root / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):

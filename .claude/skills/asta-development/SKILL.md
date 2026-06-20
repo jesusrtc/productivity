@@ -50,7 +50,7 @@ Cut a worktree, write code + tests, wire the registry, push.
 cd /Users/jcortes/src/productivity/repositories/abuse-short-term-action
 git fetch origin master
 git worktree add \
-  /Users/jcortes/src/productivity/content/projects/<proj>/worktrees/asta-<slug> \
+  /Users/jcortes/src/productivity/projects/<proj>/worktrees/asta-<slug> \
   -b jcortes/<slug> origin/master
 ```
 
@@ -133,7 +133,7 @@ picli test upload abuse-short-term-action/jcortes
 Wait for the user to confirm the rdev is up and the upload landed.
 Once they're in the Airflow UI at the rdev's direct URL (the login
 command prints it), they trigger the DAG and report back. Reference:
-`content/projects/<proj>/docs/testing-in-airflow.md` if it exists.
+`projects/<proj>/docs/testing-in-airflow.md` if it exists.
 
 ## Phase 3 — iterate on PR comments
 
@@ -205,7 +205,7 @@ week, retire the predecessor as a **separate PR**:
 - **Lab-server `/api/nb/exec` timeout.** Default 210 s bootstrap +
   3600 s body cap was too tight before the 2026-05-21 fix; if you
   see `darwin timed out after 210s`, check
-  `apps/server/src/server/routes/nb_exec.py` has the bumped values
+  `core/src/core/routes/nb_exec.py` has the bumped values
   (bootstrap 900 s, no upper bound on body).
 - **picli prompts need a TTY.** Piping `yes |` into `picli` triggers
   `Inappropriate ioctl for device`. Use a real iTerm, or

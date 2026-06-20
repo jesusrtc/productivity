@@ -34,7 +34,7 @@ fi
 # Start the server if it isn't running. Use pgrep (not the pidfile — which
 # can lie if the user started from another shell or after a crash).
 STARTED_BY_US=""
-if ! pgrep -f "apps/server/.venv/bin/python -m server" >/dev/null 2>&1; then
+if ! pgrep -f "core/.venv/bin/python -m core" >/dev/null 2>&1; then
   make start-bg >/dev/null
   STARTED_BY_US=1
   # Give uvicorn a moment to finish lifespan startup. Re-resolve the URL

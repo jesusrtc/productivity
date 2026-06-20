@@ -70,7 +70,7 @@ class TestTermSessionsLatency:
     should be near-trivial. Budget: p95 < 20ms."""
 
     def test_list_sessions_budget(self, client, mock_tmux_alive, monkeypatch):
-        from server.routes import term as term_route
+        from core.routes import term as term_route
 
         # Force an empty _tmux_list to isolate handler overhead from the
         # subprocess spawn cost (the real cost is measured in the real-
@@ -88,7 +88,7 @@ class TestClientLogPostLatency:
 
     def test_batch_post_budget(self, client, monkeypatch):
         # Reset + raise rate limit so the budget run doesn't self-throttle.
-        from server.routes import log as log_route
+        from core.routes import log as log_route
         monkeypatch.setattr(log_route, "_rate_count", 0, raising=False)
         monkeypatch.setattr(log_route, "_rate_window_start", 0.0, raising=False)
         monkeypatch.setattr(log_route, "_RATE_LIMIT", 1_000_000, raising=False)

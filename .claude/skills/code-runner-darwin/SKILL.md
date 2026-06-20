@@ -41,7 +41,7 @@ ad-hoc), then `POST /api/nb/exec` with a two-line cell:
 curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H 'Content-Type: application/json' \
   -d '{
-    "path": "content/projects/<id>/notebooks/<name>.ipynb",
+    "path": "projects/<id>/notebooks/<name>.ipynb",
     "code": "from code.<module> import <fn>\n<fn>(...)"
   }'
 ```

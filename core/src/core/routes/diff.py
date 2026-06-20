@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from server.diff_parser import (
+from core.diff_parser import (
     get_branch,
     get_commit_diff,
     get_commits,
@@ -31,25 +31,36 @@ from server.diff_parser import (
 router = APIRouter()
 
 
+def _with_symlink_fields(entry: dict, path: Path) -> dict:
+    if not path.is_symlink():
+        return entry
+    entry["is_symlink"] = True
+    try:
+        entry["symlink_target"] = os.readlink(path)
+    except OSError:
+        pass
+    return entry
+
+
 def _monorepo_root() -> Path:
     """Honors ``LAB_ROOT`` (tests), else walks up from this file.
 
-    Package sits at ``<root>/apps/server/src/server/routes/diff.py``.
+    Package sits at ``<root>/core/src/core/routes/diff.py``.
     """
     env_root = os.environ.get("LAB_ROOT")
     if env_root:
         return Path(env_root)
-    return Path(__file__).resolve().parents[5]
+    return Path(__file__).resolve().parents[4]
 
 
 def _resolve_project_path(path: str) -> Path:
     """Accept either an absolute project path or a bare project id.
 
-    Bare ids are resolved to ``<monorepo>/content/projects/<id>``.
+    Bare ids are resolved to ``<monorepo>/projects/<id>``.
     """
     if path.startswith("/"):
         return Path(path)
-    return _monorepo_root() / "content" / "projects" / path
+    return _monorepo_root() / "projects" / path
 
 
 def _read_project_info(project_path: Path) -> dict | None:
@@ -275,7 +286,7 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
     # users were most likely to want a "running" indicator on. The tracker
     # naturally clears on server restart — the Darwin subprocess also dies
     # then, so the two stay consistent.
-    from server.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
+    from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 
     def scan(dir_path, depth=0):
         if depth > MAX_DEPTH:
@@ -287,10 +298,12 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
         for child in children:
             if not include_dotfiles and child.name.startswith("."):
                 continue
+            child_is_symlink = child.is_symlink()
             if child.is_file():
                 rel = str(child.relative_to(project_path))
                 ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
                 entry = {"name": rel, "path": rel, "type": ftype}
+                _with_symlink_fields(entry, child)
                 # Flag .ipynb files that currently have a running cell
                 # so the sidebar can render a blinking activity dot
                 # without each client polling every notebook. Also include
@@ -306,8 +319,21 @@ async def api_project_files(path: str, include_dotfiles: bool = False):
                     if _ipynb_is_pending(child):
                         entry["pending"] = True
                 files.append(entry)
-            elif child.is_dir() and child.name not in SKIP_DIRS:
-                scan(child, depth + 1)
+            elif child.is_dir():
+                if child_is_symlink:
+                    rel = str(child.relative_to(project_path))
+                    entry = {"name": rel, "path": rel, "type": "dir"}
+                    _with_symlink_fields(entry, child)
+                    files.append(entry)
+                if child.name not in SKIP_DIRS:
+                    scan(child, depth + 1)
+            elif child_is_symlink:
+                # Broken symlink: still surface the row so the sidebar can
+                # distinguish it from an absent file/folder.
+                rel = str(child.relative_to(project_path))
+                entry = {"name": rel, "path": rel, "type": "file", "broken": True}
+                _with_symlink_fields(entry, child)
+                files.append(entry)
 
     scan(project_path)
     return files

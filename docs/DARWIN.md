@@ -100,7 +100,7 @@ The lab server (default `:3333`, overridable via `make start PORT=NNNN`) exposes
 
 ```json
 {
-  "path":   "content/projects/<id>/notebooks/<name>.ipynb",
+  "path":   "projects/<id>/notebooks/<name>.ipynb",
   "code":   "print('hello darwin')",
   "kernel": "python3",      // optional: python3 | pyspark | spark-scala | r | python3-gpu
   "timeout": 600             // optional, seconds
@@ -119,10 +119,10 @@ Behavior:
 ```bash
 curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H 'Content-Type: application/json' \
-  -d '{"path":"content/projects/<id>/notebooks/scratch.ipynb","code":"import pandas as pd; pd.__version__"}' | jq .
+  -d '{"path":"projects/<id>/notebooks/scratch.ipynb","code":"import pandas as pd; pd.__version__"}' | jq .
 ```
 
-Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=content/projects/<id>/notebooks/scratch.ipynb`.
+Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=projects/<id>/notebooks/scratch.ipynb`.
 
 ### Helpers
 

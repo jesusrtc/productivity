@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,7 @@ from fastapi.responses import Response
 
 
 router = APIRouter()
+log = logging.getLogger("core.proxy")
 
 
 # Hop-by-hop headers that should not be forwarded across a proxy hop.
@@ -77,8 +79,8 @@ HOP_BY_HOP = {
 
 
 def _project_dir(root: Path, project_id: str) -> Path:
-    """Map a project id to its `content/projects/<id>/` folder."""
-    return root / "content" / "projects" / project_id
+    """Map a project id to its `projects/<id>/` folder."""
+    return root / "projects" / project_id
 
 
 def _load_proxy_config(root: Path, project_id: str, name: str) -> dict[str, Any] | None:
@@ -309,13 +311,24 @@ async def proxy_ws(websocket: WebSocket, project_id: str, name: str, path: str):
     """
     root: Path = websocket.app.state.index_cache.root
     cfg = _load_proxy_config(root, project_id, name)
+    path_info = f"/ws/proxy/{project_id}/{name}/{path}"
     if cfg is None or cfg["port"] <= 0:
+        log.warning(
+            "WS proxy %s not configured",
+            path_info,
+            extra={"path_info": path_info, "event_type": "ws.reject"},
+        )
         # 4404 is in the application close-code range (4000-4999), used
         # here as "not configured".
         await websocket.close(code=4404)
         return
 
     await websocket.accept()
+    log.info(
+        "WS proxy %s connected",
+        path_info,
+        extra={"path_info": path_info, "event_type": "ws.connect"},
+    )
 
     upstream_url = f"ws://{cfg['host']}:{cfg['port']}/{path}"
     qs = websocket.scope.get("query_string", b"").decode()
@@ -363,11 +376,22 @@ async def proxy_ws(websocket: WebSocket, project_id: str, name: str, path: str):
 
             await asyncio.gather(client_to_upstream(), upstream_to_client())
     except (OSError, websockets.InvalidURI, websockets.InvalidHandshake) as e:
+        log.error(
+            "WS proxy %s upstream failed: %s",
+            path_info,
+            e,
+            extra={"path_info": path_info, "event_type": "ws.error"},
+        )
         try:
             await websocket.close(code=1011, reason=f"upstream: {e!s}"[:120])
         except Exception:
             pass
     except Exception:
+        log.exception(
+            "WS proxy %s failed",
+            path_info,
+            extra={"path_info": path_info, "event_type": "ws.error"},
+        )
         try:
             await websocket.close(code=1011)
         except Exception:
@@ -377,3 +401,9 @@ async def proxy_ws(websocket: WebSocket, project_id: str, name: str, path: str):
             await websocket.close()
         except Exception:
             pass
+    finally:
+        log.info(
+            "WS proxy %s disconnected",
+            path_info,
+            extra={"path_info": path_info, "event_type": "ws.disconnect"},
+        )

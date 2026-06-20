@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Any, Callable
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
-from server.state import IndexCache
+from core.state import IndexCache
 
 
 class IndexWatcher:
-    """Watch `content/` and rebuild the index on any change, debounced."""
+    """Watch `content/` + `projects/` and rebuild the index on any change, debounced."""
 
     def __init__(self, root: Path, cache: IndexCache, *,
                  debounce_ms: int,
@@ -77,10 +79,20 @@ class IndexWatcher:
     def start(self) -> None:
         handler = FileSystemEventHandler()
         handler.on_any_event = self._on_change
-        observer = Observer()
-        content = self._root / "content"
-        content.mkdir(parents=True, exist_ok=True)
-        observer.schedule(handler, str(content), recursive=True)
+        observer_kind = os.environ.get("LAB_WATCHER_OBSERVER", "").lower()
+        if observer_kind == "polling":
+            poll_interval = min(max(self._debounce_s / 2, 0.05), 0.25)
+            observer = PollingObserver(timeout=poll_interval)
+        else:
+            observer = Observer()
+        # Watch both content/ (knowledge + lab state) and projects/ (project
+        # folders, popped out to the repo root). Edits to project.json /
+        # tasks.json under projects/ must trigger an index rebuild + WS
+        # broadcast just like they did when projects lived under content/.
+        for sub in ("content", "projects"):
+            watched = self._root / sub
+            watched.mkdir(parents=True, exist_ok=True)
+            observer.schedule(handler, str(watched), recursive=True)
         observer.start()
         self._observer = observer
 

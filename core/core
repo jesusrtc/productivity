@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Self-contained shim: resolve symlink so the installed /usr/local/bin/server
-# (or ~/.local/bin/server) shim always uses the venv created by make install.
+# Self-contained shim: resolve symlink so the installed bin/core shim
+# always uses the venv created by make install.
 SOURCE="${BASH_SOURCE[0]}"
 while [ -L "$SOURCE" ]; do
   DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
@@ -8,4 +8,4 @@ while [ -L "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
-exec "$SCRIPT_DIR/.venv/bin/python" -m server "$@"
+exec "$SCRIPT_DIR/.venv/bin/python" -m core "$@"

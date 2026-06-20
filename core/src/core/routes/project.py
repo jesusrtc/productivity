@@ -182,6 +182,36 @@ async def clear_project_hold(project_id: str, request: Request) -> dict:
     return {"ok": True}
 
 
+class AgentBody(BaseModel):
+    agent: str | None = None   # None / "" → clear the override (inherit global)
+    model: str | None = None
+
+
+@router.post("/api/projects/{project_id}/agent")
+async def set_project_agent(project_id: str, body: AgentBody, request: Request) -> dict:
+    """Set or clear a project's agent/model override.
+
+    Empty/None values clear the override so the project inherits the global
+    default from ``.agents/config.json``. Agent is validated against
+    ``VALID_AGENTS`` via the Project model.
+    """
+    _validate_project_id(project_id)
+    root: Path = request.app.state.index_cache.root
+    pjson = paths.project_file(root, project_id)
+    if not pjson.is_file():
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    data = storage.read_json(pjson)
+    data["agent"] = body.agent or None
+    data["model"] = body.model or None
+    data["updated"] = date.today().isoformat()
+    try:
+        Project.from_dict(data)
+    except ModelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    storage.write_json(pjson, data)
+    return {"ok": True, "agent": data["agent"], "model": data["model"]}
+
+
 @router.get("/api/projects/{project_id}/file")
 async def get_project_file(project_id: str, path: str, request: Request):
     _validate_project_id(project_id)

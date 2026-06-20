@@ -11,6 +11,10 @@ venv/
 content/
 knowledge/
 
+# Projects (popped out of content/ to the repo root; same untracked model —
+# each project folder may hold git worktrees + per-project .agents/memory).
+projects/
+
 # Monorepo runtime
 repositories/
 
@@ -32,11 +36,13 @@ repositories/
 # the html-proposal skill. Local-only working docs, never tracked.
 tmp/
 
-apps/server/.venv/
-apps/server/.coverage
+core/.venv/
+core/.coverage
 .lab-server.pid
 .lab-server.port
 .lab-server.log
+.devserver.pid
+.playwright-mcp/
 
 # Centralized server + client error logs
 logs/

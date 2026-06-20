@@ -11,7 +11,7 @@ Why tmux + PTY (and not one or the other):
 
 Session identity lives in TWO places:
 
-- ``content/projects/<id>/project.json`` — durable. Stores the *logical*
+- ``projects/<id>/project.json`` — durable. Stores the *logical*
   session list: ``{name, kind, claude_session_id?}``. This is the source of
   truth for "which sessions does this project know about" and for the
   Claude session UUIDs we need to ``--resume``. Survives server restarts.
@@ -45,10 +45,12 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from lab import settings as lab_settings
+
 
 router = APIRouter()
 
-log = logging.getLogger("server.term")
+log = logging.getLogger("core.term")
 
 
 # ─── WebSocket send/close plumbing ──────────────────────────────────────────
@@ -148,7 +150,7 @@ def _project_json(root: Path, project_id: str) -> Path:
         return root / "content" / ".cerebro-project.json"
     if project_id == SELF_PROJECT_ID:
         return root / "content" / ".self-project.json"
-    return root / "content" / "projects" / project_id / "project.json"
+    return root / "projects" / project_id / "project.json"
 
 
 def _project_cwd(root: Path, project_id: str) -> Path:
@@ -165,7 +167,7 @@ def _project_cwd(root: Path, project_id: str) -> Path:
     repo = _cs_repo_name(project_id)
     if repo:
         return (root / "repositories" / repo).resolve()
-    return (root / "content" / "projects" / project_id).resolve()
+    return (root / "projects" / project_id).resolve()
 
 
 # ─── runtime metadata (.sessions.json) ──────────────────────────────────────
@@ -246,23 +248,132 @@ def _upsert_project_session(root: Path, project_id: str, entry: dict) -> None:
     _save_project(root, project_id, data)
 
 
+# ─── registry recovery ──────────────────────────────────────────────────────
+#
+# .sessions.json is rebuildable state: every live tmux session is named
+# ``<prefix><project>-<logical>`` and the durable half of its identity
+# (kind / agent / claude_session_id) lives in project.json. If the runtime
+# file is ever lost or corrupted, reconstruct it instead of leaving live
+# sessions orphaned — orphans have project_id=None, which empties
+# /api/term/projects-with-sessions and greys out every tab in the UI.
+
+def _known_project_ids(root: Path) -> list[str]:
+    ids = [CEREBRO_PROJECT_ID, SELF_PROJECT_ID]
+    projects = root / "projects"
+    if projects.is_dir():
+        ids += [p.name for p in projects.iterdir() if p.is_dir()]
+    repos = root / "repositories"
+    if repos.is_dir():
+        ids += [f"{_CS_PREFIX}{p.name}{_CS_SUFFIX}" for p in repos.iterdir() if p.is_dir()]
+    return ids
+
+
+def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
+    """Split ``<prefix><project>-<logical>`` back into (project_id, logical_name).
+
+    Project ids can themselves contain ``-`` so the split point is ambiguous;
+    match against the known project ids, longest first. Returns None for
+    names we can't attribute (e.g. the UUID fallback for project-less
+    terminals)."""
+    prefix = _tmux_prefix()
+    if not name.startswith(prefix):
+        return None
+    rest = name[len(prefix):]
+    for pid in sorted(_known_project_ids(root), key=len, reverse=True):
+        sane = _sanitize(pid)
+        if rest.startswith(sane + "-") and len(rest) > len(sane) + 1:
+            return pid, rest[len(sane) + 1:]
+    return None
+
+
+def _reconstruct_meta_entry(root: Path, name: str, created: int = 0) -> dict | None:
+    """Best-effort runtime entry for a live session .sessions.json has no
+    record of. The durable project.json entry wins where present; otherwise
+    the logical name's leading word fills the gaps ("bash" → terminal,
+    "codex" → codex agent)."""
+    parsed = _parse_tmux_name(root, name)
+    if not parsed:
+        return None
+    pid, logical = parsed
+    base = logical.split("-")[0]
+    entry: dict = {
+        "project_id": pid,
+        "logical_name": logical,
+        "kind": "terminal" if base in ("bash", "terminal", "term", "shell") else "claude",
+        "agent": None,
+        "cwd": str(_project_cwd(root, pid)),
+        "created_at": created or int(time.time()),
+        "recovered": True,
+    }
+    if entry["kind"] == "claude":
+        entry["agent"] = base if base in lab_settings.VALID_AGENTS else "claude"
+    for s in _get_project_sessions(root, pid):
+        if isinstance(s, dict) and s.get("name") == logical:
+            entry["kind"] = s.get("kind") or entry["kind"]
+            entry["agent"] = s.get("agent") or entry["agent"]
+            if s.get("claude_session_id"):
+                entry["claude_session_id"] = s["claude_session_id"]
+            break
+    return entry
+
+
+def _sync_meta(root: Path, live: list[dict] | None) -> dict:
+    """Load .sessions.json reconciled against the live tmux listing.
+
+    - ``live is None`` (listing failed) → return the registry untouched.
+      Never prune on a failed listing: one transient tmux error would
+      otherwise wipe every session's project mapping.
+    - Prune entries whose tmux session is provably gone.
+    - Rebuild entries for live sessions the registry has no record of.
+    """
+    meta = _load_meta(root)
+    if live is None:
+        return meta
+    live_by_name = {s["name"]: s for s in live}
+    changed = False
+    for n in [n for n in meta if n not in live_by_name]:
+        meta.pop(n)
+        changed = True
+    for n, s in live_by_name.items():
+        if n in meta:
+            continue
+        entry = _reconstruct_meta_entry(root, n, created=s.get("created", 0))
+        if entry:
+            meta[n] = entry
+            changed = True
+    if changed:
+        _save_meta(root, meta)
+    return meta
+
+
 # ─── tmux helpers ───────────────────────────────────────────────────────────
 
 def _tmux_available() -> bool:
     return shutil.which("tmux") is not None
 
 
-def _tmux_list(prefix: str) -> list[dict]:
-    """Return live tmux sessions whose names start with ``prefix``."""
+def _tmux_list(prefix: str) -> list[dict] | None:
+    """Return live tmux sessions whose names start with ``prefix``.
+
+    Returns ``None`` when the listing itself FAILED — tmux binary missing,
+    or ``tmux list-sessions`` errored for any reason other than "no server
+    running" (which genuinely means zero sessions and maps to ``[]``).
+    None means *unknown*, not *empty*: callers must never prune registry
+    state on a failed listing — a single transient tmux error used to wipe
+    every session's project mapping from .sessions.json (2026-06-10).
+    """
     if not _tmux_available():
-        return []
+        return None
     proc = subprocess.run(
         ["tmux", "list-sessions", "-F",
          "#{session_name}|#{session_created}|#{session_attached}|#{session_windows}"],
         capture_output=True, text=True,
     )
     if proc.returncode != 0:
-        return []
+        err = (proc.stderr or "").lower()
+        if "no server running" in err or "no sessions" in err:
+            return []
+        return None
     rows: list[dict] = []
     for line in proc.stdout.splitlines():
         if not line.strip():
@@ -348,6 +459,33 @@ def _default_logical_name(kind: str) -> str:
     return "claude" if kind == "claude" else "bash"
 
 
+def _agent_argv(agent: str) -> list[str]:
+    """Launch argv for a non-Claude agent (codex / copilot).
+
+    Resume/session bookkeeping is Claude-only for now, so these spawn a fresh
+    session. Raises HTTPException if the CLI is missing so the UI can surface a
+    clean "not installed" message instead of an opaque tmux failure.
+    """
+    if agent == "codex":
+        if not shutil.which("codex"):
+            raise HTTPException(
+                status_code=400,
+                detail="codex CLI not found on PATH — install it or pick a different agent in Settings.",
+            )
+        return ["codex"]
+    if agent == "copilot":
+        # The agentic GitHub Copilot CLI is the standalone `copilot`. We do NOT
+        # fall back to `gh copilot` — that's the suggest/explain extension, not
+        # an interactive agent REPL, so launching it in a session is useless.
+        if shutil.which("copilot"):
+            return ["copilot"]
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub Copilot CLI (`copilot`) not found on PATH — install it, or pick a different agent in Settings.",
+        )
+    raise HTTPException(status_code=400, detail=f"unsupported agent: {agent}")
+
+
 def _tmux_name_for(project_id: str | None, logical_name: str) -> str:
     """Build the tmux session name. Format: ``<prefix><project>-<logical>``.
 
@@ -389,7 +527,11 @@ class NewSession(BaseModel):
     # --resume on subsequent creates of the same name).
     # "terminal" spawns the user's $SHELL (or bash).
     kind: str = "claude"
-    # Optional explicit logical name. Defaults: "claude" / "bash".
+    # Which agent CLI to launch for kind=="claude". None → resolve from the
+    # project override / global default in .agents/config.json. One of
+    # VALID_AGENTS (claude | codex | copilot).
+    agent: str | None = None
+    # Optional explicit logical name. Defaults: agent name / "bash".
     name: str | None = None
     # Only meaningful when kind == "claude".
     auto: bool = True
@@ -401,8 +543,15 @@ class NewSession(BaseModel):
 # ─── endpoints ──────────────────────────────────────────────────────────────
 
 
+# NOTE: every endpoint below that shells out to tmux (or touches the
+# filesystem) is deliberately a *sync* ``def`` — FastAPI runs those in its
+# thread pool. As ``async def`` they ran their blocking ``subprocess.run``
+# calls ON the event loop, stalling every live terminal WebSocket for the
+# duration of each tmux spawn (a few ms, several times per second under the
+# UI's polling) — visible as typing-echo jitter.
+
 @router.get("/api/term/sessions")
-async def list_sessions(request: Request, project_id: str | None = None) -> list[dict]:
+def list_sessions(request: Request, project_id: str | None = None) -> list[dict]:
     """List live tmux sessions for a project (or all projects).
 
     Only returns sessions that are currently alive in tmux. Saved-but-dead
@@ -411,15 +560,9 @@ async def list_sessions(request: Request, project_id: str | None = None) -> list
     """
     root: Path = request.app.state.index_cache.root
     prefix = _tmux_prefix()
-    live = {s["name"]: s for s in _tmux_list(prefix)}
-    meta = _load_meta(root)
-
-    # Drop runtime metadata for sessions tmux no longer has.
-    stale = [n for n in meta if n not in live]
-    if stale:
-        for n in stale:
-            meta.pop(n, None)
-        _save_meta(root, meta)
+    listing = _tmux_list(prefix)
+    meta = _sync_meta(root, listing)
+    live = {s["name"]: s for s in (listing or [])}
 
     rows: list[dict] = []
     for name, info in live.items():
@@ -457,7 +600,7 @@ class SessionOrder(BaseModel):
 
 
 @router.post("/api/term/sessions/order")
-async def set_session_order(body: SessionOrder, request: Request) -> dict:
+def set_session_order(body: SessionOrder, request: Request) -> dict:
     """Reorder the project's saved sessions[] so /api/term/sessions reflects
     the new pill order. Any saved session not listed is appended in its
     original relative order."""
@@ -549,7 +692,7 @@ def _classify_pane(name: str) -> str:
 
 
 @router.get("/api/term/sessions/status")
-async def session_status(request: Request, project_id: str | None = None) -> list[dict]:
+def session_status(request: Request, project_id: str | None = None) -> list[dict]:
     """Per-session live status. Claude sessions → ``working`` | ``idle``;
     terminal sessions → ``n/a`` (they never "wait" on the user in a way we
     can distinguish from interactive use).
@@ -557,27 +700,30 @@ async def session_status(request: Request, project_id: str | None = None) -> lis
     root: Path = request.app.state.index_cache.root
     prefix = _tmux_prefix()
     live = _tmux_list(prefix)
-    meta = _load_meta(root)
+    meta = _sync_meta(root, live)
     out: list[dict] = []
-    for s in live:
+    for s in live or []:
         info = meta.get(s["name"]) or {}
         pid = info.get("project_id")
         if project_id and pid != project_id:
             continue
         kind = (info.get("kind") or "claude").lower()
-        status = _classify_pane(s["name"]) if kind == "claude" else "n/a"
+        agent = (info.get("agent") or "claude").lower()
+        # Only the Claude agent has a UI we can classify; codex/copilot/terminal → n/a.
+        status = _classify_pane(s["name"]) if (kind == "claude" and agent == "claude") else "n/a"
         out.append({
             "name": s["name"],
             "logical_name": info.get("logical_name"),
             "project_id": pid,
             "kind": kind,
+            "agent": info.get("agent"),
             "status": status,
         })
     return out
 
 
 @router.get("/api/term/projects-attention")
-async def projects_attention(request: Request) -> list[str]:
+def projects_attention(request: Request) -> list[str]:
     """Projects that need the user's attention.
 
     Definition: the project has at least one live Claude session AND none
@@ -592,13 +738,18 @@ async def projects_attention(request: Request) -> list[str]:
     """
     root: Path = request.app.state.index_cache.root
     prefix = _tmux_prefix()
-    live_names = {s["name"] for s in _tmux_list(prefix)}
-    meta = _load_meta(root)
+    listing = _tmux_list(prefix)
+    meta = _sync_meta(root, listing)
+    live_names = {s["name"] for s in (listing or [])}
     by_project: dict[str, list[str]] = {}
     for name, info in meta.items():
         if name not in live_names:
             continue
+        # Only Claude-agent sessions drive the "waiting for you" signal — we
+        # can't classify codex/copilot panes, so they shouldn't pulse the tab.
         if (info.get("kind") or "claude").lower() != "claude":
+            continue
+        if (info.get("agent") or "claude").lower() != "claude":
             continue
         pid = info.get("project_id")
         if not pid:
@@ -634,14 +785,14 @@ async def projects_attention(request: Request) -> list[str]:
 
 
 @router.get("/api/term/sessions/saved")
-async def list_saved_sessions(request: Request, project_id: str) -> list[dict]:
+def list_saved_sessions(request: Request, project_id: str) -> list[dict]:
     """List sessions saved in the project's project.json (may or may not be live)."""
     root: Path = request.app.state.index_cache.root
     return _get_project_sessions(root, project_id)
 
 
 @router.get("/api/term/projects-with-sessions")
-async def projects_with_sessions(request: Request) -> list[str]:
+def projects_with_sessions(request: Request) -> list[str]:
     """Project IDs that currently have at least one live tmux session.
 
     Drives the topbar tab strip (tabs == projects with active sessions).
@@ -650,9 +801,10 @@ async def projects_with_sessions(request: Request) -> list[str]:
     single ``🔍 code-search`` pseudo-tab and the in-tab repo picker.
     """
     root: Path = request.app.state.index_cache.root
-    meta = _load_meta(root)
     prefix = _tmux_prefix()
-    live_names = {s["name"] for s in _tmux_list(prefix)}
+    listing = _tmux_list(prefix)
+    meta = _sync_meta(root, listing)
+    live_names = {s["name"] for s in (listing or [])}
     ids: list[str] = []
     for name in live_names:
         info = meta.get(name) or {}
@@ -666,7 +818,7 @@ async def projects_with_sessions(request: Request) -> list[str]:
 
 
 @router.post("/api/term/sessions")
-async def create_session(body: NewSession, request: Request) -> dict:
+def create_session(body: NewSession, request: Request) -> dict:
     """Create (or re-attach / resume) a named session.
 
     Behavior:
@@ -685,6 +837,14 @@ async def create_session(body: NewSession, request: Request) -> dict:
 
     root: Path = request.app.state.index_cache.root
 
+    # For agent sessions (kind=="claude"), resolve which CLI to launch:
+    # explicit body.agent → project override → global default.
+    agent: str | None = None
+    if kind == "claude":
+        agent = (body.agent or lab_settings.resolve_agent(root, body.project_id)).lower()
+        if agent not in lab_settings.VALID_AGENTS:
+            raise HTTPException(status_code=400, detail=f"unknown agent: {agent!r}")
+
     # Resolve cwd.
     if body.cwd:
         cwd = Path(body.cwd).resolve()
@@ -696,9 +856,11 @@ async def create_session(body: NewSession, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=f"cwd not a directory: {cwd}")
 
     prefix = _tmux_prefix()
-    live_names = {s["name"] for s in _tmux_list(prefix)}
+    live_names = {s["name"] for s in (_tmux_list(prefix) or [])}
 
-    preferred = body.name or _default_logical_name(kind)
+    # Default the logical name to the agent (claude/codex/copilot) so different
+    # agents get distinct tmux sessions/tabs within the same project.
+    preferred = body.name or (agent if kind == "claude" else _default_logical_name(kind))
     preferred_tmux = _tmux_name_for(body.project_id, preferred)
 
     # Default POST is idempotent: if the preferred name is already live, we
@@ -719,7 +881,7 @@ async def create_session(body: NewSession, request: Request) -> dict:
     auto_applied = False
     resumed_from = None
     claude_session_id = None
-    if kind == "claude":
+    if kind == "claude" and agent == "claude":
         parts = ["claude"]
         if body.auto:
             parts.extend(["--permission-mode", "auto"])
@@ -739,6 +901,9 @@ async def create_session(body: NewSession, request: Request) -> dict:
             claude_session_id = str(uuid.uuid4())
             parts.extend(["--session-id", claude_session_id])
         cmd_argv = parts
+    elif kind == "claude":
+        # codex / copilot — fresh session (resume is Claude-only for now).
+        cmd_argv = _agent_argv(agent)
     else:
         # kind == "terminal"
         shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
@@ -763,6 +928,7 @@ async def create_session(body: NewSession, request: Request) -> dict:
         "project_id": body.project_id,
         "logical_name": logical,
         "kind": kind,
+        "agent": agent,
         "cwd": str(cwd),
         "cmd": cmd_str,
         "auto": auto_applied,
@@ -775,6 +941,8 @@ async def create_session(body: NewSession, request: Request) -> dict:
     # Record durable entry (claude session id survives restart).
     if body.project_id:
         entry: dict = {"name": logical, "kind": kind}
+        if agent:
+            entry["agent"] = agent
         if claude_session_id:
             entry["claude_session_id"] = claude_session_id
         _upsert_project_session(root, body.project_id, entry)
@@ -783,7 +951,7 @@ async def create_session(body: NewSession, request: Request) -> dict:
 
 
 @router.delete("/api/term/sessions/{name}")
-async def kill_session(name: str, request: Request, purge: bool = False) -> dict:
+def kill_session(name: str, request: Request, purge: bool = False) -> dict:
     """Kill a live session. The saved entry in project.json stays unless ``purge``."""
     prefix = _tmux_prefix()
     if not name.startswith(prefix):
@@ -811,7 +979,7 @@ async def kill_session(name: str, request: Request, purge: bool = False) -> dict
 
 
 @router.delete("/api/term/sessions/project/{project_id}")
-async def kill_project_sessions(project_id: str, request: Request, purge: bool = False) -> dict:
+def kill_project_sessions(project_id: str, request: Request, purge: bool = False) -> dict:
     """Kill EVERY live session belonging to ``project_id``. Powers the tab X."""
     root: Path = request.app.state.index_cache.root
     prefix = _tmux_prefix()
@@ -863,9 +1031,25 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
 _VALID_WS_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
+def _clamp_dim(raw: str | None, default: int, lo: int, hi: int) -> int:
+    try:
+        v = int(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, v))
+
+
 @router.websocket("/ws/term/{name}")
 async def term_ws(websocket: WebSocket, name: str) -> None:
     """Bridge a browser xterm.js to `tmux attach -t <name>` via a PTY.
+
+    The client SHOULD pass its fitted geometry as ``?cols=N&rows=N`` so the
+    PTY is born at the right size. Without it we'd attach at a default
+    80x24, tmux would instantly reflow the whole session to 80x24 (full
+    TUI redraw at the wrong size — mangled output, wrapped status lines),
+    then reflow AGAIN when the client's first resize lands ~100-300ms
+    later. The leftovers of that double redraw were visible as a corrupted
+    pane on every reconnect.
 
     Wire protocol (text frames, JSON):
       client -> server:  {"type":"input","data":"..."}
@@ -876,7 +1060,15 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
     """
     prefix = _tmux_prefix()
     loop = asyncio.get_running_loop()
+    path_info = f"/ws/term/{name}"
+    init_cols = _clamp_dim(websocket.query_params.get("cols"), 80, 2, 1000)
+    init_rows = _clamp_dim(websocket.query_params.get("rows"), 24, 2, 500)
     await websocket.accept()
+    log.info(
+        "WS terminal %s connected",
+        name,
+        extra={"path_info": path_info, "event_type": "ws.connect"},
+    )
 
     # Gate 1: static name validation + tmux availability. Check in an
     # executor because _tmux_has_session spawns a subprocess; don't block
@@ -894,6 +1086,11 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
             has_session = False
 
     if not (name_ok and tmux_up and has_session):
+        log.warning(
+            "WS terminal %s rejected: no session",
+            name,
+            extra={"path_info": path_info, "event_type": "ws.reject"},
+        )
         # Session doesn't exist (normal "tmux session ended" case). Send
         # the exit frame and close; both calls are race-safe — if the
         # client already dropped, we swallow it at DEBUG rather than
@@ -905,30 +1102,111 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
         await _ws_close_safe(websocket)
         return
 
-    # Fork a PTY and exec `tmux attach` in the child.
+    # Fork a PTY and exec `tmux attach` in the child. The window size is
+    # set on BOTH sides of the fork (slave in the child before exec, master
+    # in the parent) so tmux can never observe the transient default size —
+    # it must see the client's real geometry from its very first read.
     pid, fd = pty.fork()
     if pid == 0:
         env = {**os.environ, "TERM": "xterm-256color"}
+        _set_winsize(0, init_rows, init_cols)  # stdin == PTY slave post-fork
         try:
             os.execvpe("tmux", ["tmux", "attach", "-t", name], env)
         except Exception:  # pragma: no cover
             os._exit(1)
 
-    _set_winsize(fd, 24, 80)
+    _set_winsize(fd, init_rows, init_cols)
+    log.info(
+        "WS terminal %s attached %dx%d",
+        name,
+        init_cols,
+        init_rows,
+        extra={"path_info": path_info, "event_type": "ws.attach"},
+    )
 
-    async def pump_pty_to_ws() -> None:
-        # PTY → WS. Any failure to send means the client is gone; stop
-        # reading so we don't pull bytes that would be dropped on the
-        # floor. The outer `finally` handles the tmux/PTY cleanup.
+    # Latency-critical byte path. The PTY master fd is registered directly
+    # with the event loop (kqueue/epoll) instead of round-tripping every
+    # chunk through the default thread-pool executor — no thread handoff
+    # between "tmux produced bytes" and "WS frame goes out". The fd is
+    # non-blocking so the reader callback can drain everything available
+    # and bail on EAGAIN.
+    os.set_blocking(fd, False)
+
+    _READ_SIZE = 65536
+    out_q: asyncio.Queue[bytes | None] = asyncio.Queue()
+    reader_registered = False
+
+    def _on_pty_readable() -> None:
+        # Runs on the event loop. Drain what's available; never block.
         while True:
             try:
-                data = await loop.run_in_executor(None, os.read, fd, 4096)
+                chunk = os.read(fd, _READ_SIZE)
+            except BlockingIOError:
+                return
             except (OSError, ValueError):
-                # ValueError: os.read on a closed fd during shutdown.
+                # EIO: tmux attach exited and the slave side closed.
+                chunk = b""
+            if not chunk:
+                try:
+                    loop.remove_reader(fd)
+                except (OSError, ValueError):
+                    pass
+                out_q.put_nowait(None)
+                return
+            out_q.put_nowait(chunk)
+            if len(chunk) < _READ_SIZE:
+                return
+
+    try:
+        loop.add_reader(fd, _on_pty_readable)
+        reader_registered = True
+    except (NotImplementedError, OSError):  # pragma: no cover — darwin/linux
+        reader_registered = False
+
+    async def pump_pty_to_ws() -> None:
+        # Queue → WS. Frames are decoded incrementally so a multi-byte
+        # UTF-8 char split across reads never renders as U+FFFD. While a
+        # send is in flight, newly-arrived chunks pile up in the queue and
+        # get coalesced into the next frame — burst replay (tmux attach)
+        # becomes a handful of big frames instead of hundreds of small ones,
+        # while a lone keystroke echo still goes out immediately.
+        import codecs
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        if not reader_registered:
+            # Fallback pump for loops without add_reader support.
+            os.set_blocking(fd, True)
+            while True:
+                try:
+                    data = await loop.run_in_executor(None, os.read, fd, _READ_SIZE)
+                except (OSError, ValueError):
+                    break
+                if not data:
+                    break
+                ok = await _ws_send_text_safe(
+                    websocket,
+                    json.dumps({"type": "data", "data": decoder.decode(data)}),
+                )
+                if not ok:
+                    break
+            return
+        eof = False
+        while not eof:
+            chunk = await out_q.get()
+            if chunk is None:
                 break
-            if not data:
-                break
-            text = data.decode("utf-8", errors="replace")
+            parts = [chunk]
+            while True:
+                try:
+                    nxt = out_q.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if nxt is None:
+                    eof = True
+                    break
+                parts.append(nxt)
+            text = decoder.decode(b"".join(parts))
+            if not text:
+                continue
             ok = await _ws_send_text_safe(
                 websocket,
                 json.dumps({"type": "data", "data": text}),
@@ -937,6 +1215,33 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
                 break
 
     reader_task = asyncio.create_task(pump_pty_to_ws())
+
+    async def _pty_write(data: bytes) -> bool:
+        """Write to the non-blocking PTY master. Big pastes can overrun the
+        kernel's PTY input buffer (~16KB on macOS); on EAGAIN we wait for
+        writability instead of dropping bytes or busy-looping."""
+        view = memoryview(data)
+        while view.nbytes:
+            try:
+                n = os.write(fd, view)
+                view = view[n:]
+            except BlockingIOError:
+                writable = asyncio.Event()
+                try:
+                    loop.add_writer(fd, writable.set)
+                except (NotImplementedError, OSError):
+                    await asyncio.sleep(0.01)
+                    continue
+                try:
+                    await writable.wait()
+                finally:
+                    try:
+                        loop.remove_writer(fd)
+                    except (OSError, ValueError):
+                        pass
+            except OSError:
+                return False
+        return True
 
     try:
         while True:
@@ -949,9 +1254,7 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
             if t == "input":
                 data = ctrl.get("data", "")
                 if isinstance(data, str):
-                    try:
-                        os.write(fd, data.encode("utf-8"))
-                    except OSError:
+                    if not await _pty_write(data.encode("utf-8")):
                         # PTY went away under us (tmux exited). Bail so
                         # the finally block runs cleanup.
                         break
@@ -964,10 +1267,22 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
         # ClientDisconnected, ConnectionClosed, OSError from a torn-down
         # socket. Fall through to cleanup without a traceback.
         pass
+    except Exception:
+        log.exception(
+            "WS terminal %s failed",
+            name,
+            extra={"path_info": path_info, "event_type": "ws.error"},
+        )
+        raise
     finally:
-        # Cleanup order matters: stop the reader first so it can't race
-        # with us on the same fd, then tear down tmux attach + fd, then
-        # best-effort send "exit" and close the WS.
+        # Cleanup order matters: unhook the fd from the loop and stop the
+        # pump first so they can't race with us on the same fd, then tear
+        # down tmux attach + fd, then best-effort send "exit" and close.
+        if reader_registered:
+            try:
+                loop.remove_reader(fd)
+            except (OSError, ValueError):
+                pass
         reader_task.cancel()
         try:
             await reader_task
@@ -987,3 +1302,8 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
             pass
         await _ws_send_text_safe(websocket, json.dumps({"type": "exit"}))
         await _ws_close_safe(websocket)
+        log.info(
+            "WS terminal %s disconnected",
+            name,
+            extra={"path_info": path_info, "event_type": "ws.disconnect"},
+        )

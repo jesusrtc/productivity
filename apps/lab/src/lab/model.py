@@ -32,6 +32,11 @@ class Priority(str, Enum):
     P3 = "P3"
 
 
+# The agent CLIs a project terminal can launch. The global default lives in
+# .agents/config.json; a project may override it via the ``agent`` field below.
+VALID_AGENTS = ("claude", "codex", "copilot")
+
+
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-_]*$")
 # Reserved pseudo-project ids (Cerebro, productivity self-view, ...). They
 # bypass the regular id regex because they start with ``__`` to avoid
@@ -134,6 +139,17 @@ def validate_id(value: str, *, field_name: str = "id") -> str:
 _validate_id = validate_id
 
 
+def _parse_agent(value: Any, *, field_name: str = "agent") -> str | None:
+    """Validate an optional per-project agent override (None = inherit global)."""
+    if value in (None, ""):
+        return None
+    if value not in VALID_AGENTS:
+        raise ModelError(
+            f"{field_name}: {value!r} is not one of: {', '.join(VALID_AGENTS)}"
+        )
+    return str(value)
+
+
 @dataclass
 class Project:
     id: str
@@ -157,6 +173,11 @@ class Project:
     references: list[dict[str, Any]] = field(default_factory=list)
     pinned: list[str] = field(default_factory=list)
     hold: dict[str, Any] | None = None
+    # Per-project agent override (None → inherit the global default in
+    # .agents/config.json). ``agent`` ∈ VALID_AGENTS; ``model`` is free-form
+    # (its valid values depend on the chosen agent, so we don't enum it).
+    agent: str | None = None
+    model: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Project:
@@ -178,6 +199,8 @@ class Project:
             references=list(data.get("references", []) or []),
             pinned=list(data.get("pinned", []) or []),
             hold=_parse_hold(data.get("hold")),
+            agent=_parse_agent(data.get("agent")),
+            model=(None if data.get("model") in (None, "") else str(data["model"])),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -199,6 +222,8 @@ class Project:
             "references": list(self.references),
             "pinned": list(self.pinned),
             "hold": dict(self.hold) if self.hold else None,
+            "agent": self.agent,
+            "model": self.model,
         }
 
 

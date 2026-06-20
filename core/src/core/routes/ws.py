@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 
 router = APIRouter()
+log = logging.getLogger("core.ws")
 
 
 @router.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket) -> None:
     broadcaster = websocket.app.state.ws_broadcaster
     await websocket.accept()
+    log.info(
+        "WS /ws connected",
+        extra={"path_info": "/ws", "event_type": "ws.connect"},
+    )
     await broadcaster.add(websocket)
     try:
         while True:
@@ -20,3 +27,7 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         pass
     finally:
         await broadcaster.remove(websocket)
+        log.info(
+            "WS /ws disconnected",
+            extra={"path_info": "/ws", "event_type": "ws.disconnect"},
+        )

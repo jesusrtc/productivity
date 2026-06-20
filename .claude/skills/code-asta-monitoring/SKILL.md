@@ -24,7 +24,7 @@ file is written; nbconvert handles sharing if needed.
 1. Make sure the project has the asta-monitoring notebook. If it's
    missing, copy it from any existing project that has one, or write a
    fresh one (template below). Canonical location:
-   `content/projects/<id>/notebooks/asta-monitoring.ipynb`.
+   `projects/<id>/notebooks/asta-monitoring.ipynb`.
 
 2. Run the bootstrap cell first (cell 0). It enables
    `linkedin.lisql`, sets the Holdem cluster + `trustim` proxy, and
@@ -38,7 +38,7 @@ Concretely, executing a cell via the lab server looks like this — pick
 the cell that matches the user's request and only run that one:
 
 ```bash
-NB=content/projects/<id>/notebooks/asta-monitoring.ipynb
+NB=projects/<id>/notebooks/asta-monitoring.ipynb
 LAB=$(scripts/lab-url.sh)
 
 # Bootstrap (run once per fresh kernel — cell_index 1 in the template)
@@ -79,7 +79,7 @@ After the cell completes, open the notebook in the lab UI to see the
 rendered figures:
 
 ```
-$(scripts/lab-url.sh)/#/nb?path=content/projects/<id>/notebooks/asta-monitoring.ipynb
+$(scripts/lab-url.sh)/#/nb?path=projects/<id>/notebooks/asta-monitoring.ipynb
 ```
 
 ## Function API
@@ -144,9 +144,9 @@ either `YYYY-MM-DD` or `YYYY-MM-DD-HH` form; the hour is normalized to
 
 ## Template — creating the notebook from scratch
 
-If `content/projects/<id>/notebooks/asta-monitoring.ipynb` doesn't
+If `projects/<id>/notebooks/asta-monitoring.ipynb` doesn't
 exist, write it with these cells (the canonical version is the one in
-`content/projects/asta-gofundme-revamp/notebooks/`):
+`projects/asta-gofundme-revamp/notebooks/`):
 
 - Markdown intro
 - **Bootstrap cell** — imports + `%manage_trino Holdem` +
@@ -167,5 +167,5 @@ exist, write it with these cells (the canonical version is the one in
 - **Trino timeout** — the window is too long; shorten `window_days` or
   pass narrower `start_datepartition` / `end_datepartition`.
 - **`darwin timed out after 210s`** — the lab-server timeout fix from
-  2026-05-21 wasn't applied. See `apps/server/src/server/routes/nb_exec.py`
+  2026-05-21 wasn't applied. See `core/src/core/routes/nb_exec.py`
   (bootstrap timeout 180→900s, `body.timeout` upper bound removed).

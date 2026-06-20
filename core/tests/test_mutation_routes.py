@@ -14,7 +14,7 @@ def test_post_project_new_creates_on_disk(client, monorepo) -> None:
     assert body["id"] == "alpha"
     assert body["priority"] == "P1"
 
-    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert on_disk["description"] == "Alpha description"
     assert on_disk["tags"] == ["x", "y"]
 
@@ -120,7 +120,7 @@ def test_post_tab_open_persists_to_project_json(client, monorepo, seed_project) 
     assert r.status_code == 200, r.text
     assert r.json()["tab_open"] is True
 
-    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert on_disk["tab_open"] is True
 
 
@@ -131,7 +131,7 @@ def test_post_tab_close_persists_to_project_json(client, monorepo, seed_project)
     assert r.status_code == 200, r.text
     assert r.json()["tab_open"] is False
 
-    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
     assert on_disk["tab_open"] is False
 
 

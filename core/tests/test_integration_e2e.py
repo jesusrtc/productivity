@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project) -> None:
     """Full loop: create project -> fs event -> watcher rebuild -> WS broadcast."""
-    from server.main import create_app
+    from core.main import create_app
 
     app = create_app()
     with TestClient(app) as client:

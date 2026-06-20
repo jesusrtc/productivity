@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,26 +15,28 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from server import config
-from server.routes import cerebro as cerebro_route
-from server.routes import code_search as code_search_route
-from server.routes import diff as diff_route
-from server.routes import git as git_route
-from server.routes import index as index_route
-from server.routes import log as log_route
-from server.routes import markdown as markdown_route
-from server.routes import mutation as mutation_route
-from server.routes import nb_exec as nb_exec_route
-from server.routes import notebook as notebook_route
-from server.routes import project as project_route
-from server.routes import proxy as proxy_route
-from server.routes import search as search_route
-from server.routes import task as task_route
-from server.routes import term as term_route
-from server.routes import ui as ui_route
-from server.routes import ws as ws_route
-from server.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
-from server.watcher import IndexWatcher
+from core import config
+from core.routes import appstate as appstate_route
+from core.routes import cerebro as cerebro_route
+from core.routes import code_search as code_search_route
+from core.routes import diff as diff_route
+from core.routes import git as git_route
+from core.routes import index as index_route
+from core.routes import log as log_route
+from core.routes import markdown as markdown_route
+from core.routes import mutation as mutation_route
+from core.routes import nb_exec as nb_exec_route
+from core.routes import notebook as notebook_route
+from core.routes import project as project_route
+from core.routes import proxy as proxy_route
+from core.routes import search as search_route
+from core.routes import settings as settings_route
+from core.routes import task as task_route
+from core.routes import term as term_route
+from core.routes import ui as ui_route
+from core.routes import ws as ws_route
+from core.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
+from core.watcher import IndexWatcher
 
 
 # ─── Structured file logging ─────────────────────────────────────────────────
@@ -49,13 +52,29 @@ class _JsonFormatter(logging.Formatter):
     ``path_info`` via the ``extra`` dict; the formatter routes them correctly.
     """
 
+    _optional_fields = (
+        "method",
+        "route",
+        "status_code",
+        "duration_ms",
+        "client",
+        "action",
+        "target",
+        "event_type",
+        "href",
+        "source_url",
+    )
+
     def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
         ts = datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(
             timespec="milliseconds"
         )
         source = getattr(record, "source", "server")
-        if source == "client":
-            path = getattr(record, "path_info", "")
+        path_info = getattr(record, "path_info", None)
+        if path_info is not None:
+            path = path_info
+        elif source == "client":
+            path = ""
         else:
             path = f"{record.filename}:{record.lineno}"
 
@@ -72,6 +91,10 @@ class _JsonFormatter(logging.Formatter):
         sid = getattr(record, "session_id", None)
         if sid is not None:
             entry["session_id"] = sid
+        for field in self._optional_fields:
+            value = getattr(record, field, None)
+            if value is not None:
+                entry[field] = value
         return json.dumps(entry, ensure_ascii=False)
 
 # Keep module-level references so lifespan can remove them on shutdown.
@@ -107,22 +130,86 @@ def _frontend_info_filter(r: logging.LogRecord) -> bool:
     return _is_frontend(r) and r.levelno < logging.ERROR
 
 
-# ── HTTP request middleware ─────────────────────────────────────────────────
-# Logs every response. 4xx → WARNING, 5xx → ERROR. These flow through the root
-# logger, which means they hit logs/backend-errors.log via the WARNING-level
-# split handler. Without this middleware, "404"-class failures only show up in
-# uvicorn's INFO access log and aren't captured anywhere persistent.
+def _backend_all_filter(r: logging.LogRecord) -> bool:
+    return _is_backend(r)
 
-_REQUEST_LOG = logging.getLogger("server.http")
+
+def _frontend_all_filter(r: logging.LogRecord) -> bool:
+    return _is_frontend(r)
+
+
+def _errors_only_filter(r: logging.LogRecord) -> bool:
+    return r.levelno >= logging.ERROR
+
+
+# ── HTTP request middleware ─────────────────────────────────────────────────
+# Logs every response. 2xx/3xx → INFO, 4xx → WARNING, 5xx → ERROR. Unhandled
+# exceptions are logged with exc_info before FastAPI turns them into 500s.
+
+_REQUEST_LOG = logging.getLogger("core.http")
 
 
 async def _request_log_middleware(request: Request, call_next):
-    response = await call_next(request)
+    started = time.perf_counter()
+    start_path = request.url.path
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        _REQUEST_LOG.exception(
+            "HTTP %s %s -> 500 %.2fms",
+            request.method,
+            start_path,
+            duration_ms,
+            extra={
+                "method": request.method,
+                "path_info": start_path,
+                "route": getattr(request.scope.get("route"), "path", None),
+                "status_code": 500,
+                "duration_ms": duration_ms,
+                "client": request.client.host if request.client else None,
+            },
+        )
+        raise
     code = response.status_code
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    route = getattr(request.scope.get("route"), "path", None)
+    final_path = request.scope.get("path") or start_path
+    extra = {
+        "method": request.method,
+        "path_info": final_path,
+        "route": route,
+        "status_code": code,
+        "duration_ms": duration_ms,
+        "client": request.client.host if request.client else None,
+    }
     if code >= 500:
-        _REQUEST_LOG.error("%s %s -> %d", request.method, request.url.path, code)
+        _REQUEST_LOG.error(
+            "HTTP %s %s -> %d %.2fms",
+            request.method,
+            final_path,
+            code,
+            duration_ms,
+            extra=extra,
+        )
     elif code >= 400:
-        _REQUEST_LOG.warning("%s %s -> %d", request.method, request.url.path, code)
+        _REQUEST_LOG.warning(
+            "HTTP %s %s -> %d %.2fms",
+            request.method,
+            final_path,
+            code,
+            duration_ms,
+            extra=extra,
+        )
+    else:
+        _REQUEST_LOG.info(
+            "HTTP %s %s -> %d %.2fms",
+            request.method,
+            final_path,
+            code,
+            duration_ms,
+            extra=extra,
+        )
     return response
 
 
@@ -175,21 +262,37 @@ _STATIC_DIR = _PKG_DIR / "static"
 _TEMPLATES_DIR = _PKG_DIR / "templates"
 
 
+class _ImmutableStaticFiles(StaticFiles):
+    """StaticFiles with a far-future immutable Cache-Control header.
+
+    Used for ``/static/vendor`` only: every file there lives in a
+    version-stamped directory (``xterm@5.3.0/...``), so its content can
+    never change under the same URL. The browser then skips even the
+    304-revalidation round trip on reloads — the PWA cold-start fetches
+    exactly one HTML document and reads everything else from disk cache.
+    """
+
+    def file_response(self, *args, **kwargs):  # type: ignore[override]
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _file_handler
     root = config.monorepo_root()
 
     # ── File logging setup ──────────────────────────────────────────────────
-    # Five files land in ``logs/`` so future Claude turns can tail the smallest
-    # relevant one without scanning a 200KB combined log:
+    # Log files land in ``logs/`` so future Claude turns can tail the smallest
+    # relevant one without scanning a combined log:
     #
     #   server.log              — legacy combined (WARNING+), 10MB×5 rotation.
-    #   backend-errors.log      — backend WARNING+ only (incl. 4xx/5xx via
-    #                             _request_log_middleware). Long retention.
-    #   backend-info.log        — backend INFO/DEBUG. Daily rotation, 3 days.
-    #   frontend-errors.log     — client-side ERROR events (from /api/log/client).
-    #   frontend-info.log       — client-side WARNING events. Daily, 3 days.
+    #   backend.log             — backend INFO+ regular log.
+    #   frontend.log            — client-side INFO+ regular log.
+    #   errors.log              — ERROR+ only across frontend and backend.
+    #   backend-errors.log      — backend ERROR+ only.
+    #   frontend-errors.log     — frontend ERROR+ only.
     #
     # The split is done with filters on the JSON formatter; ``source`` is
     # "server" for backend records and "client" for events POSTed by the
@@ -227,24 +330,43 @@ async def lifespan(app: FastAPI):
 
     _make(
         logging.handlers.RotatingFileHandler(
+            log_dir / "backend.log",
+            maxBytes=50 * 1024 * 1024,
+            backupCount=10,
+            encoding="utf-8",
+        ),
+        logging.INFO,
+        _backend_all_filter,
+    )
+    _make(
+        logging.handlers.RotatingFileHandler(
+            log_dir / "frontend.log",
+            maxBytes=50 * 1024 * 1024,
+            backupCount=10,
+            encoding="utf-8",
+        ),
+        logging.INFO,
+        _frontend_all_filter,
+    )
+    _make(
+        logging.handlers.RotatingFileHandler(
+            log_dir / "errors.log",
+            maxBytes=50 * 1024 * 1024,
+            backupCount=10,
+            encoding="utf-8",
+        ),
+        logging.ERROR,
+        _errors_only_filter,
+    )
+    _make(
+        logging.handlers.RotatingFileHandler(
             log_dir / "backend-errors.log",
             maxBytes=50 * 1024 * 1024,
             backupCount=10,
             encoding="utf-8",
         ),
-        logging.WARNING,
+        logging.ERROR,
         _backend_errors_filter,
-    )
-    _make(
-        logging.handlers.TimedRotatingFileHandler(
-            log_dir / "backend-info.log",
-            when="midnight",
-            interval=1,
-            backupCount=3,
-            encoding="utf-8",
-        ),
-        logging.INFO,
-        _backend_info_filter,
     )
     _make(
         logging.handlers.RotatingFileHandler(
@@ -255,17 +377,6 @@ async def lifespan(app: FastAPI):
         ),
         logging.ERROR,
         _frontend_errors_filter,
-    )
-    _make(
-        logging.handlers.TimedRotatingFileHandler(
-            log_dir / "frontend-info.log",
-            when="midnight",
-            interval=1,
-            backupCount=3,
-            encoding="utf-8",
-        ),
-        logging.WARNING,
-        _frontend_info_filter,
     )
 
     # Drop the running port to disk so other tools (lab CLI, scripts, Claude
@@ -299,11 +410,11 @@ async def lifespan(app: FastAPI):
 
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
-        from server.diff_parser import get_registered_repos
+        from core.diff_parser import get_registered_repos
 
         projects = get_registered_repos()
         port = config.port()
-        print("\n  lab-server URLs:")
+        print("\n  core server URLs:")
         print(f"  http://localhost:{port}/")
         for proj in projects:
             print(f"  http://localhost:{port}/?project={quote(proj['path'], safe='')}")
@@ -330,7 +441,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="lab-server", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="lab-core", version="0.1.0", lifespan=lifespan)
 
     # Allow local dev frontends (Vite, Live Server, etc.) in addition to same-origin.
     app.add_middleware(
@@ -341,7 +452,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Log 4xx/5xx responses into the backend-errors split file.
+    # Log every HTTP response into the backend regular log, with ERROR+ split
+    # into the errors-only files.
     app.middleware("http")(_request_log_middleware)
 
     # When a proxied app fetches an absolute path like `/api/data` or
@@ -357,6 +469,7 @@ def create_app() -> FastAPI:
     async def ping() -> dict[str, str]:
         return {"status": "ok"}
 
+    app.include_router(appstate_route.router)
     app.include_router(index_route.router)
     app.include_router(project_route.router)
     app.include_router(task_route.router)
@@ -374,17 +487,41 @@ def create_app() -> FastAPI:
     app.include_router(git_route.router)
     app.include_router(proxy_route.router)
     app.include_router(code_search_route.router)
+    app.include_router(settings_route.router)
 
+    # Mounted before /static so the more specific path wins: vendored,
+    # version-stamped libraries get immutable caching; everything else under
+    # /static keeps the default ETag/304 behavior.
+    app.mount(
+        "/static/vendor",
+        _ImmutableStaticFiles(directory=_STATIC_DIR / "vendor"),
+        name="vendor",
+    )
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+    # The index template is ~600KB; re-rendering it through Jinja on every
+    # load costs more than serving the bytes. The rendered page only varies
+    # with the template file itself (MONOREPO_ROOT is fixed per process), so
+    # cache the HTML keyed by the template's mtime — editing index.html
+    # still takes effect on the next request, without LAB_RELOAD.
+    _index_cache: dict = {"mtime": None, "html": ""}
+
     @app.get("/", response_class=HTMLResponse)
     async def index_page(request: Request):
         root: Path = request.app.state.index_cache.root
-        return templates.TemplateResponse(
-            request, "index.html", {"MONOREPO_ROOT": str(root)}
-        )
+        tpl_file = _TEMPLATES_DIR / "index.html"
+        try:
+            mtime = tpl_file.stat().st_mtime_ns
+        except OSError:
+            mtime = None
+        if mtime is None or _index_cache["mtime"] != mtime:
+            _index_cache["html"] = templates.get_template("index.html").render(
+                MONOREPO_ROOT=str(root)
+            )
+            _index_cache["mtime"] = mtime
+        return HTMLResponse(_index_cache["html"])
 
     @app.get("/p/{project_id}")
     async def spa_project(request: Request, project_id: str):
@@ -394,7 +531,7 @@ def create_app() -> FastAPI:
         muscle memory); /p/<id> is sugar for project-id navigation.
         """
         root: Path = request.app.state.index_cache.root
-        project_dir = (root / "content" / "projects" / project_id).resolve()
+        project_dir = (root / "projects" / project_id).resolve()
         if not project_dir.is_dir():
             raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
         return RedirectResponse(url=f"/?project={quote(str(project_dir), safe='')}")
@@ -407,7 +544,7 @@ def create_app() -> FastAPI:
         rendered page instead of the raw `/api/markdown` JSON. Reuses the same
         renderer + path-safety checks as `/api/markdown`.
         """
-        from server.routes.markdown import _RENDERER, _FRONTMATTER_RE, _safe_resolve
+        from core.routes.markdown import _RENDERER, _FRONTMATTER_RE, _safe_resolve
         import yaml
 
         root: Path = request.app.state.index_cache.root
@@ -446,7 +583,7 @@ def create_app() -> FastAPI:
 <html lang="en"><head>
 <meta charset="UTF-8">
 <title>{title}</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<link rel="stylesheet" href="/static/vendor/highlightjs@11.9.0/github-dark.min.css">
 <style>
   body {{ background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; line-height: 1.7; }}
   a {{ color: #58a6ff; }}
@@ -468,6 +605,7 @@ def create_app() -> FastAPI:
 </style>
 </head><body>
 <div id="__js_errors__" data-errors="" style="display:none;position:fixed;top:0;right:0;z-index:9999;background:#f85149;color:#fff;font:11px/1.4 ui-monospace,monospace;padding:6px 10px;max-width:520px;white-space:pre-wrap;border-bottom-left-radius:6px"></div>
+<script src="/static/js/lib/error-report.js"></script>
 <script>
 (function() {{
   var box = document.getElementById('__js_errors__');
@@ -483,7 +621,7 @@ def create_app() -> FastAPI:
 <h1>{title}</h1>
 {fm_html}
 {html}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="/static/vendor/highlightjs@11.9.0/highlight.min.js"></script>
 <script>hljs.highlightAll();</script>
 </body></html>"""
         return HTMLResponse(page)
@@ -495,12 +633,21 @@ app = create_app()
 
 
 def run() -> None:
+    import os
+
     import uvicorn
 
-    uvicorn.run(
-        "server.main:app",
-        host=config.host(),
-        port=config.port(),
-        reload=False,
-        timeout_graceful_shutdown=5,
-    )
+    reload = os.environ.get("LAB_RELOAD") == "1"
+    kwargs: dict = {
+        "host": config.host(),
+        "port": config.port(),
+        "reload": reload,
+        "timeout_graceful_shutdown": 5,
+        # Terminal traffic is hundreds of tiny frames per second; permessage-
+        # deflate buys nothing on localhost and adds per-frame compression
+        # latency + CPU on both ends. Off for low-latency keystroke echo.
+        "ws_per_message_deflate": False,
+    }
+    if reload:
+        kwargs["reload_dirs"] = [str(Path(__file__).resolve().parent)]
+    uvicorn.run("core.main:app", **kwargs)

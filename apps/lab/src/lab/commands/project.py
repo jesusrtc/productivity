@@ -84,11 +84,12 @@ def _ensure_mp_cloned(root: Path, mp: str) -> None:
 
 _PROJECT_SETTABLE = {
     "description", "status", "priority", "due", "loe", "tags", "labels", "name",
+    "agent", "model",
 }
 
 
 def _iter_project_files(root: Path):
-    projects_root = root / "content" / "projects"
+    projects_root = root / "projects"
     if not projects_root.is_dir():
         return
     for child in sorted(projects_root.iterdir()):
@@ -111,7 +112,7 @@ def project_group() -> None:
 @click.option("--labels", default="", help="Comma-separated MP labels")
 def new(project_id: str, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
-    """Create a new project under content/projects/<id>/."""
+    """Create a new project under projects/<id>/."""
     root = paths.find_monorepo_root()
     try:
         project = Project.from_dict({
@@ -243,7 +244,7 @@ def set_field(project_id: str, field: str, value: str) -> None:
                 data[field] = float(value)
             except ValueError as exc:
                 raise click.ClickException(f"loe: {value!r} is not a number") from exc
-    elif field in {"priority", "due", "status"}:
+    elif field in {"priority", "due", "status", "agent", "model"}:
         data[field] = value if value not in {"", "null", "none"} else None
     else:
         data[field] = value
@@ -406,7 +407,7 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
     """Move flat-layout worktrees into each project's ``worktrees/`` subfolder.
 
     Older projects stored worktrees directly under the project dir
-    (``content/projects/<p>/<prefix>-<obj>``). New layout nests them
+    (``projects/<p>/<prefix>-<obj>``). New layout nests them
     under a dedicated ``worktrees/`` sibling. Uses ``git worktree move``
     so the MP-side admin state stays consistent, then rewrites
     ``project.json.worktrees[].dir`` to the new relative path.
@@ -414,7 +415,7 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
     Skips entries already at ``worktrees/*``. Safe to re-run.
     """
     root = paths.find_monorepo_root()
-    projects_root = root / "content" / "projects"
+    projects_root = root / "projects"
     if not projects_root.is_dir():
         click.echo("no projects yet.")
         return
@@ -480,7 +481,7 @@ def migrate_worktrees(project_id: str | None, dry_run: bool) -> None:
 @click.argument("mp")
 @click.option("--branch", default=None, help="Override computed branch name")
 def add(project_id: str, mp: str, branch: str | None) -> None:
-    """Create a git worktree of MP at content/projects/<project>/<mp-prefix>-<objective>/."""
+    """Create a git worktree of MP at projects/<project>/<mp-prefix>-<objective>/."""
     pid = _require_valid_id(project_id)
     root = paths.find_monorepo_root()
     pdir = paths.project_dir(root, pid)

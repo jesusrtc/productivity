@@ -18,10 +18,11 @@ from fastapi.testclient import TestClient
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Minimal monorepo for backend tests. Mirrors lab's fixture."""
     root = tmp_path / "productivity"
-    (root / "content" / "projects").mkdir(parents=True)
-    (root / "content" / "meetings").mkdir()
+    (root / "projects").mkdir(parents=True)
+    (root / "content" / "meetings").mkdir(parents=True)
     (root / ".git").mkdir()
     monkeypatch.setenv("LAB_ROOT", str(root))
+    monkeypatch.setenv("LAB_WATCHER_OBSERVER", "polling")
     monkeypatch.chdir(root)
     return root
 
@@ -29,7 +30,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture()
 def seed_project(monorepo: Path):
     def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "content" / "projects" / project_id
+        pdir = monorepo / "projects" / project_id
         pdir.mkdir(parents=True)
         (pdir / "project.json").write_text(json.dumps({
             "id": project_id,
@@ -108,7 +109,7 @@ def client(monorepo: Path):
     venv_bin = Path(sys.executable).parent
     os.environ["PATH"] = f"{venv_bin}:{os.environ.get('PATH', '')}"
 
-    from server.main import create_app
+    from core.main import create_app
     app = create_app()
     with TestClient(app) as c:
         yield MaterializedClient(c)
@@ -236,7 +237,7 @@ def mock_tmux_alive(monkeypatch: pytest.MonkeyPatch):
     should either spawn a real tmux (integration, @slow) or patch the
     fork chain explicitly. This fixture is for tests that only care about
     the pre-PTY guard path."""
-    from server.routes import term as term_route
+    from core.routes import term as term_route
 
     monkeypatch.setattr(term_route, "_tmux_available", lambda: True)
     monkeypatch.setattr(term_route, "_tmux_has_session", lambda name: True)
@@ -247,7 +248,7 @@ def mock_tmux_alive(monkeypatch: pytest.MonkeyPatch):
 def mock_tmux_dead(monkeypatch: pytest.MonkeyPatch):
     """Patch ``_tmux_has_session`` to report no live session for every
     name (the exact condition that triggered the original crash)."""
-    from server.routes import term as term_route
+    from core.routes import term as term_route
 
     monkeypatch.setattr(term_route, "_tmux_available", lambda: True)
     monkeypatch.setattr(term_route, "_tmux_has_session", lambda name: False)

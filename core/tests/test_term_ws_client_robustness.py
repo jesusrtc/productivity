@@ -97,10 +97,10 @@ class TestNoErrorLogsOnRace:
                 with client.websocket_connect(f"/ws/term/lab-err-{i}") as ws:
                     ws.receive_json()
         term_errors = [r for r in caplog.records
-                       if r.name.startswith("server.term")
+                       if r.name.startswith("core.term")
                        and r.levelno >= 40]  # ERROR
         assert not term_errors, \
-            f"server.term ERROR logs surfaced: {[r.message for r in term_errors]}"
+            f"core.term ERROR logs surfaced: {[r.message for r in term_errors]}"
 
 
 # ─── Concurrent WS connects from separate threads ──────────────────────────
@@ -148,7 +148,7 @@ class TestAbandonMidHandshake:
                     # we yield — that's still a clean interaction.
                     pass
         term_errors = [r for r in caplog.records
-                       if r.name.startswith("server.term")
+                       if r.name.startswith("core.term")
                        and r.levelno >= 40]
         assert not term_errors, \
             f"abandon-midhandshake surfaced ERRORs: {[r.message for r in term_errors]}"

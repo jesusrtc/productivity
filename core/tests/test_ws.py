@@ -7,7 +7,7 @@ def test_ws_connects_and_closes(client) -> None:
 def test_ws_receives_index_updated_after_broadcast(client) -> None:
     import asyncio
 
-    from server.state import IndexUpdatedEvent
+    from core.state import IndexUpdatedEvent
 
     with client.websocket_connect("/ws") as ws:
         app = client.app

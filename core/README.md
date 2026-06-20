@@ -1,6 +1,6 @@
-# lab-server
+# core
 
-Unified FastAPI backend for the productivity monorepo. Serves the cached global index, project/task reads and writes, markdown rendering, search, the gdiff project view, and broadcasts index-updated events over a WebSocket — defaults to **:3333**, overridable per-run.
+Core FastAPI backend for the productivity monorepo (package `core`; formerly `apps/server`, package `server`). Serves the cached global index, project/task reads and writes, markdown rendering, search, the gdiff project view, and broadcasts index-updated events over a WebSocket — defaults to **:3333**, overridable per-run.
 
 This app absorbed `apps/backend/` (the old `lab-backend`) and `apps/gdiff/` (the project track viewer) during the backend unification. See `docs/UNIFY-BACKEND.md`.
 
@@ -19,7 +19,7 @@ make start PORT=4444       # override the port
 make stop
 ```
 
-The chosen port is honored via the `LAB_PORT` env var (see `src/server/config.py`)
+The chosen port is honored via the `LAB_PORT` env var (see `src/core/config.py`)
 and recorded in `.lab-server.port` on startup. Any tool/script/doc snippet that
 needs to call the server should resolve the URL via `scripts/lab-url.sh` rather
 than hardcoding `localhost:3333`.

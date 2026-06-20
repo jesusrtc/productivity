@@ -39,7 +39,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from server.diff_parser import parse_notebook
+from core.diff_parser import parse_notebook
 
 
 router = APIRouter()
@@ -707,6 +707,11 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     target = _safe_resolve(root, body.path)
     session = _session_for(body.path)
+    if body.cell_index is not None and body.insert_at is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="cell_index and insert_at are mutually exclusive",
+        )
 
     # Phase 1: write the pending placeholder so the UI sees a running
     # cell immediately. Pick the exec_count now so the placeholder shows

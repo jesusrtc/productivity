@@ -32,6 +32,8 @@ def test_project_from_dict_roundtrip() -> None:
         "references": [],
         "pinned": [],
         "hold": None,
+        "agent": None,
+        "model": None,
     }
     p = Project.from_dict(data)
     assert p.id == "davi-vision"

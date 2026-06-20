@@ -10,17 +10,17 @@ def _monorepo_root() -> Path:
 
     Honors ``LAB_ROOT`` (so tests can point at a fixture tree). Otherwise falls
     back to the package's filesystem location: this module lives at
-    ``<root>/apps/server/src/server/diff_parser.py``, so the root is four
+    ``<root>/core/src/core/diff_parser.py``, so the root is three
     levels above the package dir.
     """
     env_root = os.environ.get("LAB_ROOT")
     if env_root:
         return Path(env_root)
-    return Path(__file__).resolve().parents[4]
+    return Path(__file__).resolve().parents[3]
 
 
 def _projects_dir() -> Path:
-    return _monorepo_root() / "content" / "projects"
+    return _monorepo_root() / "projects"
 
 
 def get_branch(repo: str) -> str:
@@ -346,17 +346,25 @@ def get_file_tree(repo: str) -> list[dict]:
                 dir_map[parent_path].append(node)
         # Add file
         parent_path = "/".join(parts[:-1])
-        dir_map[parent_path].append({
+        node = {
             "name": parts[-1],
             "path": filepath,
             "type": "file",
-        })
+        }
+        disk_path = Path(repo) / filepath
+        if disk_path.is_symlink():
+            node["is_symlink"] = True
+            try:
+                node["symlink_target"] = os.readlink(disk_path)
+            except OSError:
+                pass
+        dir_map[parent_path].append(node)
 
     return root
 
 
 def _discover_monorepo_projects() -> list[dict]:
-    """Scan <monorepo>/content/projects/*/project.json and return project dicts.
+    """Scan <monorepo>/projects/*/project.json and return project dicts.
 
     Shape matches what the UI expects:
       {"name": str, "is_project": bool, "path": str, "repos": [str]}
@@ -391,7 +399,7 @@ def _discover_monorepo_projects() -> list[dict]:
         # ``dir`` from `lab project add` is the worktree's *basename* (e.g.
         # "im-test-davi-vision"), meant to be relative to this project's
         # folder. We try that first, then fall back to monorepo-root for
-        # older entries that stored a full "content/projects/…/…" path.
+        # older entries that stored a full "projects/…/…" path.
         repos: list[str] = []
         worktrees = data.get("worktrees") or []
 
@@ -445,7 +453,7 @@ def get_registered_repos() -> list[dict]:
     """Return project dicts the UI expects.
 
     Primary source: auto-discovered projects from
-    ``<monorepo>/content/projects/*/project.json``.
+    ``<monorepo>/projects/*/project.json``.
 
     Fallback: ``/tmp/gdiff-repos.json`` (the legacy registry), when no
     monorepo projects are found or the monorepo layout is absent.

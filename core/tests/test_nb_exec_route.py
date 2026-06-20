@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from server.routes import nb_exec as nb_exec_route
+from core.routes import nb_exec as nb_exec_route
 
 
 def _fake_completed(stdout: str, *, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
@@ -47,8 +47,8 @@ def patch_darwin(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> None:
-    rel = "content/projects/demo/notebooks/x.ipynb"
-    (monorepo / "content" / "projects" / "demo" / "notebooks").mkdir(parents=True, exist_ok=True)
+    rel = "projects/demo/notebooks/x.ipynb"
+    (monorepo / "projects" / "demo" / "notebooks").mkdir(parents=True, exist_ok=True)
 
     r = client.get(f"/api/nb/session?path={rel}")
     assert r.status_code == 200, r.text
@@ -64,7 +64,7 @@ def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> No
 
 def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin) -> None:
     _, calls = patch_darwin
-    rel = "content/projects/demo/notebooks/new.ipynb"
+    rel = "projects/demo/notebooks/new.ipynb"
 
     r = client.post("/api/nb/exec", json={"path": rel, "code": "print(42)"})
     assert r.status_code == 200, r.text
@@ -102,7 +102,7 @@ def test_exec_appends_to_existing_notebook_and_pins_session(
     client, monorepo: Path, patch_darwin
 ) -> None:
     _, calls = patch_darwin
-    rel = "content/projects/demo/notebooks/grow.ipynb"
+    rel = "projects/demo/notebooks/grow.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -145,7 +145,7 @@ def test_exec_error_cell_is_persisted_as_200(
              "traceback": ["Traceback…", "NameError: name 'foo' is not defined"]},
         ],
     }))
-    rel = "content/projects/demo/notebooks/err.ipynb"
+    rel = "projects/demo/notebooks/err.ipynb"
     r = client.post("/api/nb/exec", json={"path": rel, "code": "foo"})
     assert r.status_code == 200, r.text
 
@@ -169,7 +169,7 @@ def test_exec_kernel_error_returns_200_with_error_cell(
         }),
         returncode=6,
     )
-    rel = "content/projects/demo/notebooks/kerr.ipynb"
+    rel = "projects/demo/notebooks/kerr.ipynb"
     r = client.post("/api/nb/exec", json={"path": rel, "code": "%sql SELECT 1"})
 
     assert r.status_code == 200, r.text
@@ -191,7 +191,7 @@ def test_exec_maps_auth_failure_to_401(client, monorepo: Path, patch_darwin) -> 
     )
     r = client.post(
         "/api/nb/exec",
-        json={"path": "content/projects/demo/notebooks/q.ipynb", "code": "1"},
+        json={"path": "projects/demo/notebooks/q.ipynb", "code": "1"},
     )
     assert r.status_code == 401
     assert "auth" in r.json()["detail"].lower()
@@ -208,7 +208,7 @@ def test_exec_rejects_path_traversal(client, patch_darwin) -> None:
 def test_exec_rejects_non_ipynb(client, patch_darwin) -> None:
     r = client.post(
         "/api/nb/exec",
-        json={"path": "content/projects/demo/notes.txt", "code": "1"},
+        json={"path": "projects/demo/notes.txt", "code": "1"},
     )
     assert r.status_code == 400
 
@@ -220,7 +220,7 @@ def test_exec_handles_missing_darwin_binary(client, monorepo: Path, monkeypatch)
     monkeypatch.setattr(nb_exec_route.subprocess, "run", fake_run)
     r = client.post(
         "/api/nb/exec",
-        json={"path": "content/projects/demo/notebooks/x.ipynb", "code": "1"},
+        json={"path": "projects/demo/notebooks/x.ipynb", "code": "1"},
     )
     assert r.status_code == 503
     assert "darwin" in r.json()["detail"].lower()
@@ -230,7 +230,7 @@ def test_exec_with_cell_index_replaces_in_place(
     client, monorepo: Path, patch_darwin
 ) -> None:
     fake_run, _ = patch_darwin
-    rel = "content/projects/demo/notebooks/inplace.ipynb"
+    rel = "projects/demo/notebooks/inplace.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -272,7 +272,7 @@ def test_exec_with_cell_index_replaces_in_place(
 def test_exec_with_out_of_range_cell_index_returns_404(
     client, monorepo: Path, patch_darwin
 ) -> None:
-    rel = "content/projects/demo/notebooks/short.ipynb"
+    rel = "projects/demo/notebooks/short.ipynb"
     (monorepo / rel).parent.mkdir(parents=True, exist_ok=True)
     (monorepo / rel).write_text(json.dumps({
         "nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [],
@@ -286,7 +286,7 @@ def test_exec_with_out_of_range_cell_index_returns_404(
 
 
 def test_delete_cell_removes_at_index(client, monorepo: Path) -> None:
-    rel = "content/projects/demo/notebooks/del.ipynb"
+    rel = "projects/demo/notebooks/del.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -317,13 +317,13 @@ def test_delete_cell_removes_at_index(client, monorepo: Path) -> None:
 def test_delete_cell_404_on_missing_notebook(client) -> None:
     r = client.post(
         "/api/nb/cell/delete",
-        json={"path": "content/projects/demo/notebooks/nope.ipynb", "cell_index": 0},
+        json={"path": "projects/demo/notebooks/nope.ipynb", "cell_index": 0},
     )
     assert r.status_code == 404
 
 
 def test_delete_cell_out_of_range(client, monorepo: Path) -> None:
-    rel = "content/projects/demo/notebooks/oob.ipynb"
+    rel = "projects/demo/notebooks/oob.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -348,7 +348,7 @@ def test_exec_insert_at_inserts_between_cells(
     given index — the wire used by the UI's hover-revealed `+` button between
     cells."""
     fake_run, calls = patch_darwin
-    rel = "content/projects/demo/notebooks/insert.ipynb"
+    rel = "projects/demo/notebooks/insert.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -386,7 +386,7 @@ def test_exec_insert_at_zero_prepends(
 ) -> None:
     """``insert_at=0`` puts the new cell at the very top."""
     fake_run, _ = patch_darwin
-    rel = "content/projects/demo/notebooks/prepend.ipynb"
+    rel = "projects/demo/notebooks/prepend.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -412,7 +412,7 @@ def test_exec_insert_at_end_equals_append(
 ) -> None:
     """``insert_at == len(cells)`` is identical to a plain append."""
     fake_run, _ = patch_darwin
-    rel = "content/projects/demo/notebooks/insert_end.ipynb"
+    rel = "projects/demo/notebooks/insert_end.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -434,7 +434,7 @@ def test_exec_insert_at_end_equals_append(
 def test_exec_insert_at_out_of_range_returns_404(
     client, monorepo: Path, patch_darwin
 ) -> None:
-    rel = "content/projects/demo/notebooks/oob_insert.ipynb"
+    rel = "projects/demo/notebooks/oob_insert.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -449,7 +449,7 @@ def test_exec_rejects_cell_index_and_insert_at_together(
     client, monorepo: Path, patch_darwin
 ) -> None:
     """The two are mutually exclusive — server must reject the ambiguity."""
-    rel = "content/projects/demo/notebooks/conflict.ipynb"
+    rel = "projects/demo/notebooks/conflict.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({

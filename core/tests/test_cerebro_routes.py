@@ -27,6 +27,24 @@ def test_cerebro_tree_lists_md_files(client, monorepo: Path) -> None:
     assert kinds["binary.png"] == "file"
 
 
+def test_cerebro_tree_marks_symlinks(client, monorepo: Path) -> None:
+    wikis = monorepo / "content" / "wikis"
+    real_dir = wikis / "real"
+    real_dir.mkdir(parents=True, exist_ok=True)
+    (wikis / "target.md").write_text("# target\n")
+    (wikis / "linked.md").symlink_to("target.md")
+    (wikis / "linked-dir").symlink_to("real", target_is_directory=True)
+
+    tree = client.get("/api/cerebro/tree").json()
+    wikis_node = next(n for n in tree if n["name"] == "wikis")
+    children = {c["name"]: c for c in wikis_node["children"]}
+
+    assert children["linked.md"]["is_symlink"] is True
+    assert children["linked.md"]["symlink_target"] == "target.md"
+    assert children["linked-dir"]["is_symlink"] is True
+    assert children["linked-dir"]["symlink_target"] == "real"
+
+
 def test_cerebro_tree_skips_dotfiles_by_default(client, monorepo: Path) -> None:
     (monorepo / "content" / ".sessions.json").write_text("{}")
     tree = client.get("/api/cerebro/tree").json()
@@ -40,8 +58,8 @@ def test_cerebro_tree_skips_dotfiles_by_default(client, monorepo: Path) -> None:
 
 def test_cerebro_tree_includes_projects_tree(client, monorepo: Path, seed_project) -> None:
     seed_project("demo")
-    (monorepo / "content" / "projects" / "demo" / "docs").mkdir(exist_ok=True)
-    (monorepo / "content" / "projects" / "demo" / "docs" / "one-pager.md").write_text("# one-pager")
+    (monorepo / "projects" / "demo" / "docs").mkdir(exist_ok=True)
+    (monorepo / "projects" / "demo" / "docs" / "one-pager.md").write_text("# one-pager")
 
     tree = client.get("/api/cerebro/tree").json()
     projects = next(n for n in tree if n["name"] == "projects")

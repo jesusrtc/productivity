@@ -16,7 +16,7 @@ def _completed(returncode: int, stdout: str = "", stderr: str = "") -> subproces
 
 
 def test_push_productivity_success(client) -> None:
-    with patch("server.routes.git.subprocess.run",
+    with patch("core.routes.git.subprocess.run",
                return_value=_completed(0, stdout="Everything up-to-date")) as run:
         r = client.post("/api/git/push-productivity")
     assert r.status_code == 200, r.text
@@ -25,7 +25,7 @@ def test_push_productivity_success(client) -> None:
 
 
 def test_push_productivity_dirty_tree_returns_409(client) -> None:
-    with patch("server.routes.git.subprocess.run",
+    with patch("core.routes.git.subprocess.run",
                return_value=_completed(1, stderr="productivity: working tree is dirty. Commit changes before pushing.")):
         r = client.post("/api/git/push-productivity")
     assert r.status_code == 409, r.text
@@ -33,7 +33,7 @@ def test_push_productivity_dirty_tree_returns_409(client) -> None:
 
 
 def test_sync_content_success(client) -> None:
-    with patch("server.routes.git.subprocess.run",
+    with patch("core.routes.git.subprocess.run",
                return_value=_completed(0, stdout="[main abc1234] Sync content 2026-04-29 15:00")) as run:
         r = client.post("/api/git/sync-content")
     assert r.status_code == 200, r.text
@@ -42,7 +42,7 @@ def test_sync_content_success(client) -> None:
 
 
 def test_sync_content_push_failure_returns_409(client) -> None:
-    with patch("server.routes.git.subprocess.run",
+    with patch("core.routes.git.subprocess.run",
                return_value=_completed(1, stderr="fatal: no upstream")):
         r = client.post("/api/git/sync-content")
     assert r.status_code == 409, r.text
@@ -50,7 +50,7 @@ def test_sync_content_push_failure_returns_409(client) -> None:
 
 
 def test_timeout_returns_504(client) -> None:
-    with patch("server.routes.git.subprocess.run",
+    with patch("core.routes.git.subprocess.run",
                side_effect=subprocess.TimeoutExpired(cmd=["make"], timeout=30)):
         r = client.post("/api/git/push-productivity")
     assert r.status_code == 504

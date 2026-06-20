@@ -81,7 +81,7 @@ class TestNoLeaksInHotPaths:
         gc.collect()
 
     def test_log_ingest_cycle_clean(self, client, monkeypatch, resource_snapshot):
-        from server.routes import log as log_route
+        from core.routes import log as log_route
         monkeypatch.setattr(log_route, "_rate_count", 0, raising=False)
         monkeypatch.setattr(log_route, "_rate_window_start", 0.0, raising=False)
         monkeypatch.setattr(log_route, "_RATE_LIMIT", 10_000, raising=False)

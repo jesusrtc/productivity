@@ -21,7 +21,7 @@ def test_find_monorepo_root_uses_env_var(monorepo: Path, monkeypatch: pytest.Mon
 
 def test_find_monorepo_root_walks_up_from_subdir(monorepo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LAB_ROOT", raising=False)
-    sub = monorepo / "content" / "projects"
+    sub = monorepo / "projects"
     monkeypatch.chdir(sub)
     # macOS tmp_path is under /var → /private/var symlink; compare resolved paths.
     assert find_monorepo_root().resolve() == monorepo.resolve()
@@ -35,11 +35,11 @@ def test_find_monorepo_root_raises_when_not_in_repo(tmp_path: Path, monkeypatch:
 
 
 def test_project_dir_composes_path(monorepo: Path) -> None:
-    assert project_dir(monorepo, "davi-vision") == monorepo / "content" / "projects" / "davi-vision"
+    assert project_dir(monorepo, "davi-vision") == monorepo / "projects" / "davi-vision"
 
 
 def test_project_file_and_tasks_file(monorepo: Path) -> None:
-    pdir = monorepo / "content" / "projects" / "davi-vision"
+    pdir = monorepo / "projects" / "davi-vision"
     assert project_file(monorepo, "davi-vision") == pdir / "project.json"
     assert tasks_file(monorepo, "davi-vision") == pdir / "tasks.json"
 

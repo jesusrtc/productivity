@@ -8,7 +8,7 @@ duplicating content.
 
 Example:
 
-    cd content/projects/foo
+    cd projects/foo
     lab link add ../bar/docs/one-pager.md            # -> links/one-pager.md
     lab link add content/wikis/platform.md           # -> links/platform.md
     lab link add ../bar/docs/vision.md --name vision # -> links/vision.md

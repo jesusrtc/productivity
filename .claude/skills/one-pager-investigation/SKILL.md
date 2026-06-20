@@ -12,7 +12,7 @@ description: >-
 
 # Investigation one-pager
 
-Output goes to `content/projects/<id>/docs/one-pager.md`. **Never
+Output goes to `projects/<id>/docs/one-pager.md`. **Never
 publish to Google Docs.** Local file only.
 
 ## Ask first (single message, then wait)

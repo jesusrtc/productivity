@@ -34,12 +34,12 @@ def _now_iso() -> str:
 
 
 def build_index(root: Path) -> Index:
-    """Walk content/projects/ and return the cached index shape.
+    """Walk projects/ and return the cached index shape.
 
     Projects are sorted by id. Tasks are emitted flat (one per row) with
     `project_id`, `task_id`, and path fields for cheap filtering.
     """
-    projects_root = root / "content" / "projects"
+    projects_root = root / "projects"
     project_rows: list[dict[str, Any]] = []
     task_rows: list[dict[str, Any]] = []
 
@@ -76,7 +76,7 @@ def build_index(root: Path) -> Index:
                 "created": pdata.get("created"),
                 "updated": pdata.get("updated"),
                 "hold": pdata.get("hold") or None,
-                "path": f"content/projects/{child.name}",
+                "path": f"projects/{child.name}",
                 "prs": prs,
                 "pr_counts": pr_counts,
                 **summary,
@@ -98,7 +98,7 @@ def build_index(root: Path) -> Index:
                     "created": t.get("created"),
                     "updated": t.get("updated"),
                     "closed_at": t.get("closed_at"),
-                    "path": f"content/projects/{child.name}/tasks.json#{t['id']}",
+                    "path": f"projects/{child.name}/tasks.json#{t['id']}",
                 })
 
     # Include the __self__ pseudo-project so its tasks surface in global
