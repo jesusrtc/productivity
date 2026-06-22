@@ -61,6 +61,8 @@ dir. This applies to every agent (Claude Code, Codex, Copilot):
   productivity repo); per-project memory lives at `projects/<id>/.agents/memory/`
   and travels with that project folder. Use whichever matches the scope of the fact.
 
-Claude Code's built-in memory directory is symlinked into `.agents/memory/`, so
-its automatic memory writes land in the repo too — do not write memory anywhere
-under `~/.claude`.
+Claude Code auto-memory is redirected by `.claude/settings.local.json`
+(`autoMemoryDirectory`) to the repo-local memory directory; `lab agents sync`
+may also leave a `~/.claude/projects/.../memory` symlink as a compatibility
+fallback for older Claude installs. Do not write memory anywhere under
+`~/.claude`.

@@ -43,6 +43,8 @@ core/.coverage
 .lab-server.log
 .devserver.pid
 .playwright-mcp/
+.claude/settings.local.json
+projects/*/.claude/settings.local.json
 
 # Centralized server + client error logs
 logs/

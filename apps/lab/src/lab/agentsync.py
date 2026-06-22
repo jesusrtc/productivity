@@ -7,6 +7,7 @@ Canonical layout (see also the plan and CLAUDE.md):
     CLAUDE.md            -> AGENTS.md   symlink (Claude Code)
     .github/copilot-instructions.md -> ../AGENTS.md
     .agents/memory/                    canonical memory (committed); MEMORY.md index
+    .claude/settings.local.json        Claude autoMemoryDirectory -> .agents/memory
     ~/.claude/projects/<slug>/memory -> <repo>/.agents/memory   (built-in feature → repo)
 
 Everything here is idempotent and safe to re-run. The same engine backs both
@@ -14,6 +15,7 @@ Everything here is idempotent and safe to re-run. The same engine backs both
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -44,9 +46,11 @@ dir. This applies to every agent (Claude Code, Codex, Copilot):
   productivity repo); per-project memory lives at `projects/<id>/.agents/memory/`
   and travels with that project folder. Use whichever matches the scope of the fact.
 
-Claude Code's built-in memory directory is symlinked into `.agents/memory/`, so
-its automatic memory writes land in the repo too — do not write memory anywhere
-under `~/.claude`.
+Claude Code auto-memory is redirected by `.claude/settings.local.json`
+(`autoMemoryDirectory`) to the repo-local memory directory; `lab agents sync`
+may also leave a `~/.claude/projects/.../memory` symlink as a compatibility
+fallback for older Claude installs. Do not write memory anywhere under
+`~/.claude`.
 """
 
 _MEMORY_INDEX_STUB = (
@@ -188,6 +192,39 @@ def _ensure_memory_index(repo_mem: Path, *, actions: list[str],
         actions.append(f"create {_rel(index, root)}")
 
 
+def _ensure_claude_auto_memory_setting(scope_dir: Path, repo_mem: Path, *,
+                                       actions: list[str], root: Path,
+                                       dry_run: bool) -> None:
+    """Point Claude Code's official auto-memory setting at the repo memory dir.
+
+    Claude requires an absolute or `~/` path. Write it to settings.local.json
+    so the repository does not commit a machine-specific absolute path. The
+    ~/.claude symlink remains as a compatibility fallback for older Claude
+    versions and already-created project memory directories.
+    """
+    settings = scope_dir / ".claude" / "settings.local.json"
+    wanted = str(repo_mem.resolve())
+    data: dict[str, object] = {}
+    if settings.exists():
+        try:
+            loaded = json.loads(settings.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            actions.append(f"skip {_rel(settings, root)}: invalid JSON")
+            return
+        if not isinstance(loaded, dict):
+            actions.append(f"skip {_rel(settings, root)}: JSON is not an object")
+            return
+        data = loaded
+    if data.get("autoMemoryDirectory") == wanted:
+        return
+    data["autoMemoryDirectory"] = wanted
+    if not dry_run:
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n",
+                            encoding="utf-8")
+    actions.append(f"set {_rel(settings, root)} autoMemoryDirectory -> {_rel(repo_mem, root)}")
+
+
 def _relocate_memory(claude_dir: Path, repo_dir: Path, *, actions: list[str],
                      root: Path, dry_run: bool) -> None:
     """Make ``repo_dir`` the canonical memory and ``claude_dir`` a symlink to it."""
@@ -237,7 +274,7 @@ def _relocate_memory(claude_dir: Path, repo_dir: Path, *, actions: list[str],
 
 def _write_adapter(dest: Path, name: str, rel_skill: str,
                    *, actions: list[str], root: Path, dry_run: bool) -> None:
-    """Write a thin pointer adapter for Codex/Copilot.
+    """Write a thin pointer adapter for GitHub prompt-file surfaces.
 
     Idempotent: skips hand-written files, and skips generated files that are
     already up to date (so re-runs report no action).
@@ -247,7 +284,7 @@ def _write_adapter(dest: Path, name: str, rel_skill: str,
         f"# {name}\n\n"
         f"Follow the instructions in `{rel_skill}` (relative to the repo root). "
         f"That file is the canonical definition of this capability; this is a thin "
-        f"pointer so Codex / Copilot can invoke it too.\n"
+        f"repo-local pointer for GitHub prompt-file surfaces.\n"
     )
     if dest.exists():
         try:
@@ -270,7 +307,6 @@ def _sync_skill_adapters(root: Path, *, actions: list[str], dry_run: bool) -> No
     if not skills_dir.is_dir():
         return
     gh_prompts = root / ".github" / "prompts"
-    codex_prompts = Path.home() / ".codex" / "prompts"
     for skill in sorted(skills_dir.iterdir()):
         if not (skill / "SKILL.md").is_file():
             continue
@@ -278,8 +314,118 @@ def _sync_skill_adapters(root: Path, *, actions: list[str], dry_run: bool) -> No
         rel_skill = f".claude/skills/{name}/SKILL.md"
         _write_adapter(gh_prompts / f"{name}.prompt.md", name, rel_skill,
                        actions=actions, root=root, dry_run=dry_run)
-        _write_adapter(codex_prompts / f"{name}.md", name, rel_skill,
-                       actions=actions, root=root, dry_run=dry_run)
+
+
+def _check_link(checks: list[dict[str, object]], label: str, link: Path,
+                target: Path) -> None:
+    ok = link.is_symlink()
+    if ok:
+        try:
+            ok = link.resolve() == target.resolve()
+        except OSError:
+            ok = False
+    checks.append({
+        "label": label,
+        "ok": ok,
+        "detail": f"{_rel(link, target.parent)} -> {_rel(target, target.parent)}",
+    })
+
+
+def _check_claude_memory_setting(checks: list[dict[str, object]], label: str,
+                                 scope_dir: Path, repo_mem: Path) -> None:
+    settings = scope_dir / ".claude" / "settings.local.json"
+    detail = str(settings)
+    ok = False
+    if settings.is_file():
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            detail = f"{settings}: invalid JSON"
+        else:
+            wanted = str(repo_mem.resolve())
+            actual = data.get("autoMemoryDirectory") if isinstance(data, dict) else None
+            ok = actual == wanted
+            detail = f"autoMemoryDirectory={actual!r}"
+    checks.append({"label": label, "ok": ok, "detail": detail})
+
+
+def _copilot_ready() -> bool:
+    return bool(shutil.which("copilot"))
+
+
+def doctor_all(root: Path, *, include_cli: bool = True) -> dict:
+    """Return a structural/CLI health report for cross-agent setup."""
+    checks: list[dict[str, object]] = []
+
+    root_agents = root / "AGENTS.md"
+    checks.append({
+        "label": "root AGENTS.md exists",
+        "ok": root_agents.is_file(),
+        "detail": _rel(root_agents, root),
+    })
+    _check_link(checks, "root CLAUDE.md -> AGENTS.md", root / "CLAUDE.md", root_agents)
+    _check_link(checks, "Copilot instructions -> AGENTS.md",
+                root / ".github" / "copilot-instructions.md", root_agents)
+
+    root_mem = paths.memory_dir(root)
+    checks.append({
+        "label": "root repo memory index exists",
+        "ok": (root_mem / "MEMORY.md").is_file(),
+        "detail": _rel(root_mem / "MEMORY.md", root),
+    })
+    _check_claude_memory_setting(checks, "root Claude auto-memory -> repo memory",
+                                 root, root_mem)
+
+    skills = root / ".claude" / "skills"
+    if skills.is_dir():
+        _check_link(checks, "root .agents/skills -> .claude/skills",
+                    root / ".agents" / "skills", skills)
+
+    projects_root = root / "projects"
+    if projects_root.is_dir():
+        for pdir in sorted(projects_root.iterdir()):
+            if not (pdir / "project.json").is_file():
+                continue
+            project = pdir.name
+            agents_md = pdir / "AGENTS.md"
+            if agents_md.exists():
+                _check_link(checks, f"{project} CLAUDE.md -> AGENTS.md",
+                            pdir / "CLAUDE.md", agents_md)
+            proj_mem = paths.memory_dir(root, project)
+            checks.append({
+                "label": f"{project} repo memory index exists",
+                "ok": (proj_mem / "MEMORY.md").is_file(),
+                "detail": _rel(proj_mem / "MEMORY.md", root),
+            })
+            _check_claude_memory_setting(
+                checks, f"{project} Claude auto-memory -> repo memory", pdir, proj_mem
+            )
+            if skills.is_dir():
+                _check_link(checks, f"{project} .claude/skills -> root skills",
+                            pdir / ".claude" / "skills", skills)
+                _check_link(checks, f"{project} .agents/skills -> root skills",
+                            pdir / ".agents" / "skills", skills)
+
+    cli_checks: list[dict[str, object]] = []
+    if include_cli:
+        cli_checks = [
+            {"label": "Claude Code CLI", "ok": bool(shutil.which("claude")),
+             "detail": shutil.which("claude") or "not found"},
+            {"label": "Codex CLI", "ok": bool(shutil.which("codex")),
+             "detail": shutil.which("codex") or "not found"},
+            {"label": "GitHub Copilot CLI", "ok": _copilot_ready(),
+             "detail": (
+                 shutil.which("copilot")
+                 or "not ready: install the `copilot` CLI"
+             )},
+        ]
+
+    return {
+        "ok": all(bool(c["ok"]) for c in checks),
+        "checks": checks,
+        "cli": cli_checks,
+        "cli_ok": all(bool(c["ok"]) for c in cli_checks) if include_cli else None,
+    }
 
 
 def sync_all(root: Path, *, dry_run: bool = False) -> dict:
@@ -296,6 +442,8 @@ def sync_all(root: Path, *, dry_run: bool = False) -> dict:
     # 2. Root memory: relocate FIRST (so a real MEMORY.md migrates intact), then
     #    ensure an index stub only if the dir ended up without one.
     repo_mem = paths.memory_dir(root)
+    _ensure_claude_auto_memory_setting(root, repo_mem,
+                                       actions=actions, root=root, dry_run=dry_run)
     _relocate_memory(paths.claude_memory_dir(root), repo_mem,
                      actions=actions, root=root, dry_run=dry_run)
     _ensure_memory_index(repo_mem, actions=actions, root=root, dry_run=dry_run)
@@ -310,6 +458,8 @@ def sync_all(root: Path, *, dry_run: bool = False) -> dict:
             _migrate_instructions(pdir, create_stub=False,
                                   actions=actions, root=root, dry_run=dry_run)
             proj_mem = paths.memory_dir(root, pdir.name)
+            _ensure_claude_auto_memory_setting(pdir, proj_mem,
+                                               actions=actions, root=root, dry_run=dry_run)
             _relocate_memory(paths.claude_memory_dir(pdir), proj_mem,
                              actions=actions, root=root, dry_run=dry_run)
             _ensure_memory_index(proj_mem, actions=actions, root=root, dry_run=dry_run)
@@ -318,7 +468,8 @@ def sync_all(root: Path, *, dry_run: bool = False) -> dict:
     #    the root and inside every project.
     _link_shared_skills(root, actions=actions, dry_run=dry_run)
 
-    # 5. Skills: best-effort pointer adapters for Codex / Copilot.
+    # 5. Skills: best-effort repo-local pointer adapters for GitHub prompt
+    #    surfaces. Claude, Codex, and Copilot CLI use the skill dirs directly.
     _sync_skill_adapters(root, actions=actions, dry_run=dry_run)
 
     return {"actions": actions, "dry_run": dry_run}

@@ -92,6 +92,8 @@ def test_agents_sync_links_project_claude_md(monorepo: Path, seed_project,
     assert "legacy project instructions" in agents.read_text()
     assert claude.is_symlink()
     assert claude.resolve() == agents.resolve()
+    local_settings = json.loads((pdir / ".claude" / "settings.local.json").read_text())
+    assert local_settings["autoMemoryDirectory"] == str((pdir / ".agents" / "memory").resolve())
 
 
 def test_agents_sync_root_instructions_and_memory(monorepo: Path,
@@ -108,6 +110,8 @@ def test_agents_sync_root_instructions_and_memory(monorepo: Path,
     assert cop.resolve() == (monorepo / "AGENTS.md").resolve()
     # Repo-local memory dir + index created, and AGENTS.md carries the rule.
     assert (monorepo / ".agents" / "memory" / "MEMORY.md").is_file()
+    local_settings = json.loads((monorepo / ".claude" / "settings.local.json").read_text())
+    assert local_settings["autoMemoryDirectory"] == str((monorepo / ".agents" / "memory").resolve())
     assert "Memory (repo-local" in (monorepo / "AGENTS.md").read_text()
 
 
@@ -142,6 +146,41 @@ def test_agents_sync_links_shared_skills(monorepo: Path, seed_project,
         link = pdir / sub
         assert link.is_symlink(), sub
         assert (link / "demo" / "SKILL.md").is_file(), sub
+    assert not (tmp_path / "home" / ".codex" / "prompts").exists()
+
+
+def test_agents_doctor_passes_after_sync(monorepo: Path, seed_project,
+                                         monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (monorepo / ".claude" / "skills" / "demo").mkdir(parents=True)
+    (monorepo / ".claude" / "skills" / "demo" / "SKILL.md").write_text("# demo\n")
+    seed_project("p")
+    runner = CliRunner()
+
+    sync = runner.invoke(main, ["agents", "sync"])
+    assert sync.exit_code == 0, sync.output
+    result = runner.invoke(main, ["agents", "doctor"])
+
+    assert result.exit_code == 0, result.output
+    assert "root CLAUDE.md -> AGENTS.md" in result.output
+    assert "root Claude auto-memory -> repo memory" in result.output
+    assert "GitHub Copilot CLI" in result.output
+
+
+def test_agents_doctor_require_cli_fails_when_cli_missing(monorepo: Path,
+                                                         monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    from lab import agentsync
+
+    monkeypatch.setattr(agentsync.shutil, "which", lambda cmd: None)
+    runner = CliRunner()
+    sync = runner.invoke(main, ["agents", "sync"])
+    assert sync.exit_code == 0, sync.output
+
+    result = runner.invoke(main, ["agents", "doctor", "--require-cli"])
+
+    assert result.exit_code != 0
+    assert "agent setup has problems" in result.output
 
 
 def test_project_ls_empty(monorepo: Path) -> None:

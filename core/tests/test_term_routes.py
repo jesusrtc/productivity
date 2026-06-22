@@ -184,6 +184,39 @@ def test_unknown_kind_rejected(client, seed_project, isolated_prefix) -> None:
     assert r.status_code == 400
 
 
+def test_agent_argv_copilot_prefers_standalone(monkeypatch) -> None:
+    import core.routes.term as term_mod
+
+    def fake_which(cmd: str) -> str | None:
+        return f"/fake/{cmd}" if cmd == "copilot" else None
+
+    monkeypatch.setattr(term_mod.shutil, "which", fake_which)
+    assert term_mod._agent_argv("copilot") == ["copilot"]
+
+
+def test_agent_argv_copilot_rejects_gh_without_standalone_copilot(monkeypatch) -> None:
+    import core.routes.term as term_mod
+
+    def fake_which(cmd: str) -> str | None:
+        return f"/fake/{cmd}" if cmd == "gh" else None
+
+    monkeypatch.setattr(term_mod.shutil, "which", fake_which)
+
+    with pytest.raises(term_mod.HTTPException) as exc:
+        term_mod._agent_argv("copilot")
+    assert exc.value.status_code == 400
+    assert "`copilot`" in exc.value.detail
+
+
+def test_agent_argv_copilot_unavailable(monkeypatch) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setattr(term_mod.shutil, "which", lambda cmd: None)
+    with pytest.raises(term_mod.HTTPException) as exc:
+        term_mod._agent_argv("copilot")
+    assert exc.value.status_code == 400
+
+
 def test_second_claude_gets_suffix(client, seed_project, isolated_prefix) -> None:
     """`+ New` while a default-named session is already live spawns claude-2."""
     seed_project("demo")

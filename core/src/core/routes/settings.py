@@ -18,15 +18,19 @@ from lab import settings as lab_settings
 router = APIRouter()
 
 
-# The CLI binary each agent launches (see routes/term.py). copilot is the
-# standalone agentic CLI, not the `gh copilot` suggest/explain extension.
+# The CLI binary each agent launches (see routes/term.py).
 _AGENT_BIN = {"claude": "claude", "codex": "codex", "copilot": "copilot"}
+
+
+def _agent_available(agent: str) -> bool:
+    binary = _AGENT_BIN.get(agent)
+    return bool(binary and shutil.which(binary))
 
 
 @router.get("/api/agents/available")
 def agents_available() -> dict:
     """Which agents are actually launchable (their CLI is on PATH)."""
-    return {agent: bool(shutil.which(binary)) for agent, binary in _AGENT_BIN.items()}
+    return {agent: _agent_available(agent) for agent in ("claude", "codex", "copilot")}
 
 
 @router.get("/api/settings")

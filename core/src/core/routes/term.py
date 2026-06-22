@@ -481,14 +481,11 @@ def _agent_argv(agent: str) -> list[str]:
             )
         return ["codex"]
     if agent == "copilot":
-        # The agentic GitHub Copilot CLI is the standalone `copilot`. We do NOT
-        # fall back to `gh copilot` — that's the suggest/explain extension, not
-        # an interactive agent REPL, so launching it in a session is useless.
         if shutil.which("copilot"):
             return ["copilot"]
         raise HTTPException(
             status_code=400,
-            detail="GitHub Copilot CLI (`copilot`) not found on PATH — install it, or pick a different agent in Settings.",
+            detail="GitHub Copilot CLI (`copilot`) not found on PATH — install it or pick a different agent in Settings.",
         )
     raise HTTPException(status_code=400, detail=f"unsupported agent: {agent}")
 

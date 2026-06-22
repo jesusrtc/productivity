@@ -8,3 +8,4 @@
 - [Lab proxy injects base href](lab-proxy-injects-base-href.md) — static sites viewed via `/api/proxy/...` need `<base target="_self">` in every page or subdirectory links/assets break
 - [Remotion: render-only, no Studio](remotion-render-only-no-studio.md) — user removed Remotion Studio (2026-06-10); videos are reviewed by rendering mp4/stills to `out/`, don't reintroduce the Studio or proxy hacks
 - [ElevenLabs expressive settings gotcha](elevenlabs-expressive-settings-gotcha.md) — don't force stability/style on designed/cloned voices; check sidecar pacing (words >1s, gaps >0.8s) before building beats
+- [Claude memory uses repo path](claude-memory-auto-directory.md) — prefer `autoMemoryDirectory` in ignored `.claude/settings.local.json`; keep `~/.claude/projects/.../memory` symlink only as fallback
