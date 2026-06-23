@@ -15,9 +15,10 @@ Session identity lives in TWO places:
   session list: ``{name, kind, claude_session_id?}``. This is the source of
   truth for "which sessions does this project know about" and for the
   Claude session UUIDs we need to ``--resume``. Survives server restarts.
-- ``content/.sessions.json`` — runtime. Maps the live tmux session name
-  (``lab-<project>-<logical>``) back to ``{project_id, logical_name, cwd,
-  created_at}``. Re-created on session spawn, cleaned on session kill.
+- ``.lab/state/sessions/sessions.json`` — runtime. Maps the live tmux
+  session name (``lab-<project>-<logical>``) back to ``{project_id,
+  logical_name, cwd, created_at}``. Re-created on session spawn, cleaned
+  on session kill.
 
 Killing a session (the "X on a tab" flow) removes it from tmux + the runtime
 file but **keeps** the project.json entry so a later re-open can
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -110,14 +112,31 @@ async def _ws_close_safe(ws: WebSocket, code: int = 1000) -> None:
 
 # ─── paths + env ────────────────────────────────────────────────────────────
 
-def _tmux_prefix() -> str:
-    """Prefix for every tmux session we spawn. Env override isolates tests."""
-    return os.environ.get("LAB_TMUX_PREFIX", "lab-")
+def _tmux_prefix(root: Path | None = None) -> str:
+    """Prefix for every tmux session we spawn.
+
+    ``LAB_TMUX_PREFIX`` remains the explicit override for tests and unusual
+    local setups. Otherwise, namespace sessions by active workspace so two
+    workspaces with the same project id never discover or collide with each
+    other's live tmux sessions.
+    """
+    env_prefix = os.environ.get("LAB_TMUX_PREFIX")
+    if env_prefix:
+        return env_prefix
+    if root is None:
+        return "lab-"
+    try:
+        resolved = root.expanduser().resolve()
+    except OSError:
+        resolved = root.expanduser()
+    label = re.sub(r"[^A-Za-z0-9_-]+", "-", resolved.name).strip("-") or "workspace"
+    digest = hashlib.sha1(str(resolved).encode("utf-8")).hexdigest()[:8]
+    return f"lab-{label}-{digest}-"
 
 
 # Reserved pseudo-project ids.
 #  * __cerebro__ — the personal knowledge-base view (cwd = content/)
-#  * __self__    — the productivity monorepo itself    (cwd = repo root)
+#  * __self__    — the Lab framework checkout itself   (cwd = repo root)
 #  * __logs__    — the embedded logs view              (cwd = logs/)
 # They behave like regular projects otherwise: they show up in the project-
 # tabs strip, can be closed (X), and reopened from the Home dashboard.
@@ -141,7 +160,8 @@ def _cs_repo_name(project_id: str) -> str | None:
 
 
 def _sessions_file(root: Path) -> Path:
-    return root / "content" / ".sessions.json"
+    from lab import paths
+    return paths.sessions_file(root)
 
 
 def _project_json(root: Path, project_id: str) -> Path:
@@ -151,6 +171,10 @@ def _project_json(root: Path, project_id: str) -> Path:
     if project_id == CEREBRO_PROJECT_ID:
         return root / "content" / ".cerebro-project.json"
     if project_id == SELF_PROJECT_ID:
+        from core import config
+        from lab import paths
+        if config.dev_mode():
+            root = paths.find_framework_root()
         return root / "content" / ".self-project.json"
     if project_id == LOGS_PROJECT_ID:
         return root / "content" / ".logs-project.json"
@@ -168,9 +192,14 @@ def _project_cwd(root: Path, project_id: str) -> Path:
     if project_id == CEREBRO_PROJECT_ID:
         return (root / "content").resolve()
     if project_id == SELF_PROJECT_ID:
+        from core import config
+        from lab import paths
+        if config.dev_mode():
+            return paths.find_framework_root().resolve()
         return root.resolve()
     if project_id == LOGS_PROJECT_ID:
-        return (root / "logs").resolve()
+        from lab import paths
+        return paths.logs_dir(root).resolve()
     repo = _cs_repo_name(project_id)
     if repo:
         return (root / "repositories" / repo).resolve()
@@ -181,6 +210,9 @@ def _project_cwd(root: Path, project_id: str) -> Path:
 
 def _load_meta(root: Path) -> dict:
     p = _sessions_file(root)
+    legacy = root / "content" / ".sessions.json"
+    if not p.is_file() and legacy.is_file():
+        p = legacy
     if not p.is_file():
         return {}
     try:
@@ -282,7 +314,7 @@ def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
     match against the known project ids, longest first. Returns None for
     names we can't attribute (e.g. the UUID fallback for project-less
     terminals)."""
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     if not name.startswith(prefix):
         return None
     rest = name[len(prefix):]
@@ -490,15 +522,16 @@ def _agent_argv(agent: str) -> list[str]:
     raise HTTPException(status_code=400, detail=f"unsupported agent: {agent}")
 
 
-def _tmux_name_for(project_id: str | None, logical_name: str) -> str:
+def _tmux_name_for(project_id: str | None, logical_name: str,
+                   root: Path | None = None) -> str:
     """Build the tmux session name. Format: ``<prefix><project>-<logical>``.
 
     When no project is given (rare — standalone terminals) we fall back to a
     UUID so the name is globally unique.
     """
     if not project_id:
-        return _tmux_prefix() + uuid.uuid4().hex[:8]
-    return _tmux_prefix() + _sanitize(project_id) + "-" + _sanitize(logical_name)
+        return _tmux_prefix(root) + uuid.uuid4().hex[:8]
+    return _tmux_prefix(root) + _sanitize(project_id) + "-" + _sanitize(logical_name)
 
 
 def _pick_unique_logical_name(root: Path, project_id: str, preferred: str,
@@ -509,12 +542,12 @@ def _pick_unique_logical_name(root: Path, project_id: str, preferred: str,
     exactly how ``--resume`` finds its claude_session_id.
     """
     candidate = _sanitize(preferred)
-    if _tmux_name_for(project_id, candidate) not in live_names:
+    if _tmux_name_for(project_id, candidate, root) not in live_names:
         return candidate
     # Live collision — pick the next available "-N" suffix.
     for n in range(2, 1000):
         alt = f"{candidate}-{n}"
-        if _tmux_name_for(project_id, alt) not in live_names:
+        if _tmux_name_for(project_id, alt, root) not in live_names:
             return alt
     # Pathological fallback.
     return f"{candidate}-{uuid.uuid4().hex[:6]}"
@@ -563,7 +596,7 @@ def list_sessions(request: Request, project_id: str | None = None) -> list[dict]
     ``/api/term/sessions/saved``.
     """
     root: Path = request.app.state.index_cache.root
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     listing = _tmux_list(prefix)
     meta = _sync_meta(root, listing)
     live = {s["name"]: s for s in (listing or [])}
@@ -721,7 +754,7 @@ def session_status(request: Request, project_id: str | None = None) -> list[dict
     can distinguish from interactive use).
     """
     root: Path = request.app.state.index_cache.root
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     live = _tmux_list(prefix)
     meta = _sync_meta(root, live)
     out: list[dict] = []
@@ -765,7 +798,7 @@ def projects_attention(request: Request) -> list[str]:
         return cached
 
     root: Path = request.app.state.index_cache.root
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     listing = _tmux_list(prefix)
     meta = _sync_meta(root, listing)
     live_names = {s["name"] for s in (listing or [])}
@@ -835,7 +868,7 @@ def projects_with_sessions(request: Request) -> list[str]:
         return cached
 
     root: Path = request.app.state.index_cache.root
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     listing = _tmux_list(prefix)
     meta = _sync_meta(root, listing)
     live_names = {s["name"] for s in (listing or [])}
@@ -890,13 +923,13 @@ def create_session(body: NewSession, request: Request) -> dict:
     if not cwd.is_dir():
         raise HTTPException(status_code=400, detail=f"cwd not a directory: {cwd}")
 
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     live_names = {s["name"] for s in (_tmux_list(prefix) or [])}
 
     # Default the logical name to the agent (claude/codex/copilot) so different
     # agents get distinct tmux sessions/tabs within the same project.
     preferred = body.name or (agent if kind == "claude" else _default_logical_name(kind))
-    preferred_tmux = _tmux_name_for(body.project_id, preferred)
+    preferred_tmux = _tmux_name_for(body.project_id, preferred, root)
 
     # Default POST is idempotent: if the preferred name is already live, we
     # just return that session. Only `start_fresh` forces a brand-new session
@@ -910,7 +943,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     if preferred_tmux in live_names and body.start_fresh:
         logical = _pick_unique_logical_name(root, body.project_id or "",
                                              preferred, live_names)
-    tmux_name = _tmux_name_for(body.project_id, logical)
+    tmux_name = _tmux_name_for(body.project_id, logical, root)
 
     # Build the command line.
     auto_applied = False
@@ -990,10 +1023,10 @@ def create_session(body: NewSession, request: Request) -> dict:
 @router.delete("/api/term/sessions/{name}")
 def kill_session(name: str, request: Request, purge: bool = False) -> dict:
     """Kill a live session. The saved entry in project.json stays unless ``purge``."""
-    prefix = _tmux_prefix()
+    root: Path = request.app.state.index_cache.root
+    prefix = _tmux_prefix(root)
     if not name.startswith(prefix):
         raise HTTPException(status_code=400, detail="invalid session name")
-    root: Path = request.app.state.index_cache.root
 
     meta = _load_meta(root)
     info = meta.get(name) or {}
@@ -1021,7 +1054,7 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
 def kill_project_sessions(project_id: str, request: Request, purge: bool = False) -> dict:
     """Kill EVERY live session belonging to ``project_id``. Powers the tab X."""
     root: Path = request.app.state.index_cache.root
-    prefix = _tmux_prefix()
+    prefix = _tmux_prefix(root)
     meta = _load_meta(root)
     killed: list[str] = []
     for name in list(meta.keys()):
@@ -1099,7 +1132,8 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
       server -> client:  {"type":"data","data":"..."}        # PTY bytes (utf-8)
                          {"type":"exit"}                      # tmux attach exited
     """
-    prefix = _tmux_prefix()
+    root: Path = websocket.app.state.index_cache.root
+    prefix = _tmux_prefix(root)
     loop = asyncio.get_running_loop()
     path_info = f"/ws/term/{name}"
     init_cols = _clamp_dim(websocket.query_params.get("cols"), 80, 2, 1000)

@@ -44,6 +44,21 @@ def test_terminal_close_button_is_wired_to_persistent_close_handler() -> None:
     assert "keep it closed after reload" in html
 
 
+def test_productivity_view_uses_workbench_without_duplicate_hidden_ids() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    lab_app = LAB_APP.read_text(encoding="utf-8")
+
+    assert 'id="selfView"' not in html
+    assert html.count('id="selfBranch"') == 1
+    assert html.count('id="selfTasksList"') == 1
+    assert html.count('id="selfDiffList"') == 1
+    assert html.count('id="selfCommitsList"') == 1
+    assert "Lab Workbench" in html
+    assert "selfShowWorkbench()" in lab_app
+    assert "data-workbench=\"1\"" in lab_app
+    assert "selfRefreshWorkbench()" in lab_app
+
+
 def test_terminal_close_click_purges_saved_session_and_disables_autospawn() -> None:
     term_kill_current = _js_between(
         "async function termKillCurrent()",
@@ -68,6 +83,7 @@ const SELF_PROJECT_ID = '__self__';
 const LOGS_PROJECT_ID = '__logs__';
 
 function _termActiveProjectId() { return 'demo'; }
+function _termIsScopeActive(projectId) { return projectId === 'demo'; }
 function confirm(msg) { confirmMessages.push(msg); return true; }
 function termDetach() { detached = true; termCurrentSession = null; }
 async function termSetAutoSpawnEnabled(projectId, enabled) {
@@ -161,6 +177,7 @@ function termClose() {}
 function _termApplyRememberedVisibility() {}
 function termRenderSessionList() {}
 function _termPickRestoreName() { return null; }
+function _termIsScopeActive() { return true; }
 function termAttach(name) { attached.push(name); }
 function termDetach() { detached = true; }
 function termShowEmpty() { emptyShown = true; }
@@ -215,4 +232,808 @@ async function fetch(input, opts = {}) {
     assert result["statuses"][-1] == {
         "kind": "idle",
         "text": "no session — click + New",
+    }
+
+
+def test_stale_warm_project_open_does_not_attach_previous_project_terminal() -> None:
+    term_open_for_project = _js_between(
+        "async function termOpenForProject(projectId)",
+        "function termStartPeriodicRefresh()",
+    )
+    result = _run_node(
+        """
+const attached = [];
+const refreshed = [];
+const rendered = [];
+const classes = new Set();
+let activeProject = 'beta';
+let termSessions = [];
+const _termSessionsCache = new Map([
+  ['alpha', [{name: 'lab-alpha-claude', logical_name: 'claude', project_id: 'alpha'}]],
+]);
+
+const document = {
+  body: {
+    classList: {
+      add(cls) { classes.add(cls); },
+      remove(cls) { classes.delete(cls); },
+      contains(cls) { return classes.has(cls); },
+    },
+  },
+};
+const localStorage = { getItem() { return null; } };
+
+function _termIsScopeActive(projectId) { return activeProject === projectId; }
+function termClose() { rendered.push('close'); }
+function _termApplyRememberedVisibility() { rendered.push('visibility'); }
+function termRenderSessionList() { rendered.push('sessions'); }
+function _termPickRestoreName() { return 'lab-alpha-claude'; }
+function termAttach(name, projectId) { attached.push({name, projectId}); }
+function termDetach() { rendered.push('detach'); }
+function termShowEmpty() { rendered.push('empty'); }
+function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
+function termStartPeriodicRefresh() { rendered.push('periodic'); }
+function termStartStatusPolling() { rendered.push('status'); }
+async function termRefreshSessions(projectId) {
+  refreshed.push(projectId);
+  termSessions = [];
+}
+async function termAutoSpawnEnabled() { return true; }
+async function termSpawnSession() { rendered.push('spawn'); }
+async function fetch() {
+  throw new Error('stale warm open must not fetch');
+}
+""" + term_open_for_project + """
+
+(async () => {
+  await termOpenForProject('alpha');
+  process.stdout.write(JSON.stringify({
+    attached,
+    refreshed,
+    rendered,
+    termOpen: classes.has('term-open'),
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result["attached"] == []
+    assert result["refreshed"] == []
+    assert result["rendered"] == []
+    assert result["termOpen"] is False
+
+
+def test_project_open_aborts_after_refresh_if_user_switches_projects() -> None:
+    term_open_for_project = _js_between(
+        "async function termOpenForProject(projectId)",
+        "function termStartPeriodicRefresh()",
+    )
+    result = _run_node(
+        """
+const attached = [];
+const fetchCalls = [];
+const rendered = [];
+const classes = new Set(['project-active']);
+let activeProject = 'alpha';
+let termSessions = [];
+const _termSessionsCache = new Map();
+
+const document = {
+  body: {
+    classList: {
+      add(cls) { classes.add(cls); },
+      remove(cls) { classes.delete(cls); },
+      contains(cls) { return classes.has(cls); },
+    },
+  },
+};
+const localStorage = { getItem() { return null; } };
+
+function _termIsScopeActive(projectId) { return activeProject === projectId; }
+function termClose() { rendered.push('close'); }
+function _termApplyRememberedVisibility() { rendered.push('visibility'); }
+function termRenderSessionList() { rendered.push('sessions'); }
+function _termPickRestoreName() { return 'lab-alpha-claude'; }
+function termAttach(name, projectId) { attached.push({name, projectId}); }
+function termDetach() { rendered.push('detach'); }
+function termShowEmpty() { rendered.push('empty'); }
+function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
+function termStartPeriodicRefresh() { rendered.push('periodic'); }
+function termStartStatusPolling() { rendered.push('status'); }
+async function termRefreshSessions(projectId) {
+  termSessions = [{name: 'lab-alpha-claude', logical_name: 'claude', project_id: projectId}];
+  activeProject = 'beta';
+}
+async function termAutoSpawnEnabled() { rendered.push('autospawn-check'); return true; }
+async function termSpawnSession() { rendered.push('spawn'); }
+async function fetch(input) {
+  fetchCalls.push(String(input));
+  return {ok: true, json: async () => []};
+}
+""" + term_open_for_project + """
+
+(async () => {
+  await termOpenForProject('alpha');
+  process.stdout.write(JSON.stringify({
+    attached,
+    fetchCalls,
+    rendered,
+    termOpen: classes.has('term-open'),
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result["attached"] == []
+    assert result["fetchCalls"] == []
+    assert "autospawn-check" not in result["rendered"]
+    assert result["termOpen"] is True
+
+
+def test_term_attach_rejects_inactive_project_scope_before_loading_assets() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    term_attach = _js_between(
+        "async function termAttach(name",
+        "  function termSetStatus",
+    )
+    result = _run_node(
+        """
+console.log = () => {};
+console.warn = () => {};
+
+let activeProject = 'beta';
+let termSessions = [
+  {name: 'lab-alpha-claude', logical_name: 'claude', project_id: 'alpha'},
+];
+let ensureCalls = 0;
+let detached = false;
+let remembered = [];
+
+let termCurrentSession = null;
+let termCurrentProjectId = null;
+let termWS = null;
+let termXterm = null;
+let termFitAddon = null;
+let termContainer = null;
+let termUserDetached = false;
+let termReconnectTimer = null;
+const _termCache = new Map();
+const termDeadSessions = new Set();
+const termReconnectAttempts = {};
+const TERM_MAX_RECONNECT_ATTEMPTS = 3;
+const TERM_RECONNECT_BASE_MS = 800;
+const TERM_RECONNECT_CAP_MS = 30000;
+const WebSocket = {OPEN: 1};
+
+function _termActiveProjectId() { return activeProject; }
+function _termRecallLast() { return null; }
+function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+async function ensureTerminalLibs() { ensureCalls += 1; }
+function termDetach() { detached = true; }
+function termSetStatus() {}
+function termShowRecovery() {}
+function termRenderSessionList() {}
+function _termClearDead() {}
+function _termStripModes(s) { return s; }
+function termSendResize() {}
+function _termEnableWebgl() {}
+function termEnsureXterm() {}
+function _termMakeContainer() { return {classList: {add() {}}, style: {}}; }
+function _termDisableWebgl() {}
+function _termMarkDead() {}
+function termRefreshSessions() {}
+function termRefreshSessionsByProjectId() {}
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const LOGS_PROJECT_ID = '__logs__';
+const location = {protocol: 'http:', host: 'localhost'};
+""" + helper_block + term_attach + """
+
+(async () => {
+  await termAttach('lab-alpha-claude', 'alpha');
+  process.stdout.write(JSON.stringify({
+    ensureCalls,
+    detached,
+    remembered,
+    termCurrentSession,
+    termCurrentProjectId,
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result["ensureCalls"] == 0
+    assert result["detached"] is False
+    assert result["remembered"] == []
+    assert result["termCurrentSession"] is None
+    assert result["termCurrentProjectId"] is None
+
+
+def test_soft_detach_removes_pending_pane_without_websocket() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    term_detach = _js_between(
+        "function termDetach(soft = false)",
+        "  // Compute the next reconnect delay",
+    )
+    result = _run_node(
+        """
+console.log = () => {};
+
+let activeProject = 'demo';
+let termSessions = [];
+let disposed = false;
+let removed = false;
+const pane = {
+  style: {display: 'block'},
+  remove() { removed = true; },
+};
+const badge = {style: {display: 'inline-block'}};
+const document = {
+  getElementById(id) {
+    if (id === 'termBody') {
+      return {querySelectorAll() { return [pane]; }};
+    }
+    if (id === 'termAutoBadge') return badge;
+    return null;
+  },
+};
+
+let termCurrentSession = 'lab-demo-a';
+let termCurrentProjectId = 'demo';
+let termWS = null;
+let termXterm = {dispose() { disposed = true; }};
+let termFitAddon = {id: 'fit'};
+let termContainer = pane;
+let termUserDetached = false;
+let termReconnectTimer = null;
+let termAttachRequestSeq = 0;
+const _termCache = new Map();
+
+function _termActiveProjectId() { return activeProject; }
+function _termDisableWebgl() {}
+function _termEvictCache() { throw new Error('full eviction should not run for soft detach'); }
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const LOGS_PROJECT_ID = '__logs__';
+""" + helper_block + term_detach + """
+
+termDetach(true);
+process.stdout.write(JSON.stringify({
+  disposed,
+  removed,
+  cacheSize: _termCache.size,
+  paneDisplay: pane.style.display,
+  termCurrentSession,
+  termCurrentProjectId,
+  termWS,
+  termXterm,
+  termFitAddon,
+  termContainer,
+  badgeDisplay: badge.style.display,
+}));
+"""
+    )
+
+    assert result == {
+        "disposed": True,
+        "removed": True,
+        "cacheSize": 0,
+        "paneDisplay": "none",
+        "termCurrentSession": None,
+        "termCurrentProjectId": None,
+        "termWS": None,
+        "termXterm": None,
+        "termFitAddon": None,
+        "termContainer": None,
+        "badgeDisplay": "none",
+    }
+
+
+def test_same_project_attach_ignores_older_request_after_asset_load() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    term_attach = _js_between(
+        "async function termAttach(name",
+        "  function termSetStatus",
+    )
+    result = _run_node(
+        """
+console.log = () => {};
+console.warn = () => {};
+
+let activeProject = 'demo';
+let termAttachRequestSeq = 0;
+let termSessions = [
+  {name: 'lab-demo-a', logical_name: 'a', project_id: 'demo'},
+  {name: 'lab-demo-b', logical_name: 'b', project_id: 'demo'},
+];
+let ensureCalls = 0;
+const ensureResolvers = [];
+const detached = [];
+const remembered = [];
+const statuses = [];
+let rendered = 0;
+
+const paneA = {id: 'pane-a', style: {display: 'block'}};
+const paneB = {id: 'pane-b', style: {display: 'none'}};
+const badge = {style: {display: 'none'}};
+const empty = {style: {display: 'block'}};
+const document = {
+  getElementById(id) {
+    if (id === 'termBody') {
+      return {querySelectorAll() { return [paneA, paneB]; }};
+    }
+    if (id === 'termAutoBadge') return badge;
+    if (id === 'termEmpty') return empty;
+    return null;
+  },
+};
+
+let termCurrentSession = null;
+let termCurrentProjectId = null;
+let termWS = null;
+let termXterm = null;
+let termFitAddon = null;
+let termContainer = null;
+let termUserDetached = false;
+let termReconnectTimer = null;
+const _termCache = new Map();
+const termDeadSessions = new Set();
+const termReconnectAttempts = {};
+const TERM_MAX_RECONNECT_ATTEMPTS = 3;
+const TERM_RECONNECT_BASE_MS = 800;
+const TERM_RECONNECT_CAP_MS = 30000;
+const WebSocket = {OPEN: 1};
+
+function _termActiveProjectId() { return activeProject; }
+function _termRecallLast() { return null; }
+function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+function ensureTerminalLibs() {
+  ensureCalls += 1;
+  return new Promise(resolve => ensureResolvers.push(resolve));
+}
+function termDetach(soft) {
+  detached.push({soft, beforeSession: termCurrentSession, beforeProject: termCurrentProjectId});
+  termCurrentSession = null;
+  termCurrentProjectId = null;
+  termWS = null;
+  termXterm = null;
+  termFitAddon = null;
+  termContainer = null;
+}
+function termSetStatus(kind, text) { statuses.push({kind, text}); }
+function termShowRecovery() {}
+function termRenderSessionList() { rendered += 1; }
+function _termClearDead() {}
+function _termStripModes(s) { return s; }
+function termSendResize() {}
+function _termEnableWebgl() {}
+function termEnsureXterm() {}
+function _termMakeContainer() { throw new Error('cache hit should not create a fresh container'); }
+function _termDisableWebgl() {}
+function _termMarkDead() {}
+function termRefreshSessions() {}
+function termRefreshSessionsByProjectId() {}
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const LOGS_PROJECT_ID = '__logs__';
+const location = {protocol: 'http:', host: 'localhost'};
+
+_termCache.set('demo::lab-demo-a', {
+  projectId: 'demo',
+  name: 'lab-demo-a',
+  xterm: {id: 'xterm-a'},
+  fitAddon: {fit() {}},
+  ws: {readyState: WebSocket.OPEN},
+  container: paneA,
+});
+_termCache.set('demo::lab-demo-b', {
+  projectId: 'demo',
+  name: 'lab-demo-b',
+  xterm: {id: 'xterm-b'},
+  fitAddon: {fit() {}},
+  ws: {readyState: WebSocket.OPEN},
+  container: paneB,
+});
+""" + helper_block + term_attach + """
+
+(async () => {
+  const first = termAttach('lab-demo-a', 'demo');
+  const second = termAttach('lab-demo-b', 'demo');
+  ensureResolvers[1]();
+  await second;
+  ensureResolvers[0]();
+  await first;
+  process.stdout.write(JSON.stringify({
+    ensureCalls,
+    detached,
+    remembered,
+    statuses,
+    rendered,
+    termCurrentSession,
+    termCurrentProjectId,
+    activeXterm: termXterm && termXterm.id,
+    paneADisplay: paneA.style.display,
+    paneBDisplay: paneB.style.display,
+    cacheKeys: Array.from(_termCache.keys()).sort(),
+    emptyDisplay: empty.style.display,
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result["ensureCalls"] == 2
+    assert result["detached"] == [
+        {"soft": True, "beforeSession": None, "beforeProject": None}
+    ]
+    assert result["remembered"] == [{"projectId": "demo", "logicalName": "b"}]
+    assert result["termCurrentSession"] == "lab-demo-b"
+    assert result["termCurrentProjectId"] == "demo"
+    assert result["activeXterm"] == "xterm-b"
+    assert result["paneADisplay"] == "none"
+    assert result["paneBDisplay"] == "block"
+    assert result["cacheKeys"] == ["demo::lab-demo-a"]
+    assert result["emptyDisplay"] == "none"
+    assert result["statuses"][-1] == {
+        "kind": "live",
+        "text": "attached \u00b7 lab-demo-b",
+    }
+    assert result["rendered"] == 1
+
+
+def test_clicking_active_terminal_cancels_pending_attach() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    term_attach = _js_between(
+        "async function termAttach(name",
+        "  function termSetStatus",
+    )
+    result = _run_node(
+        """
+console.log = () => {};
+console.warn = () => {};
+
+let activeProject = 'demo';
+let termAttachRequestSeq = 0;
+let termSessions = [
+  {name: 'lab-demo-a', logical_name: 'a', project_id: 'demo'},
+  {name: 'lab-demo-b', logical_name: 'b', project_id: 'demo'},
+];
+let ensureCalls = 0;
+let detachCalls = 0;
+let focused = 0;
+const ensureResolvers = [];
+
+function pane(id) {
+  return {
+    id,
+    inert: false,
+    style: {display: id === 'pane-b' ? 'block' : 'none'},
+    attrs: {},
+    contains() { return false; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    removeAttribute(k) { delete this.attrs[k]; },
+  };
+}
+const paneA = pane('pane-a');
+const paneB = pane('pane-b');
+const document = {
+  activeElement: null,
+  getElementById(id) {
+    if (id === 'termBody') return {querySelectorAll() { return [paneA, paneB]; }};
+    if (id === 'termEmpty') return {style: {display: 'block'}};
+    if (id === 'termAutoBadge') return {style: {display: 'none'}};
+    return null;
+  },
+};
+
+let termCurrentSession = 'lab-demo-b';
+let termCurrentProjectId = 'demo';
+let termWS = {readyState: 1};
+let termXterm = {focus() { focused += 1; }};
+let termFitAddon = null;
+let termContainer = paneB;
+let termUserDetached = false;
+let termReconnectTimer = null;
+const _termCache = new Map();
+const termDeadSessions = new Set();
+const termReconnectAttempts = {};
+const TERM_MAX_RECONNECT_ATTEMPTS = 3;
+const TERM_RECONNECT_BASE_MS = 800;
+const TERM_RECONNECT_CAP_MS = 30000;
+const WebSocket = {OPEN: 1};
+
+function _termActiveProjectId() { return activeProject; }
+function _termRecallLast() { return null; }
+function _termRememberLast() {}
+function ensureTerminalLibs() {
+  ensureCalls += 1;
+  return new Promise(resolve => ensureResolvers.push(resolve));
+}
+function termDetach() { detachCalls += 1; }
+function termSetStatus() {}
+function termShowRecovery() {}
+function termRenderSessionList() {}
+function _termClearDead() {}
+function _termStripModes(s) { return s; }
+function termSendResize() {}
+function _termEnableWebgl() {}
+function termEnsureXterm() { throw new Error('stale attach must not create a terminal'); }
+function _termMakeContainer() { throw new Error('stale attach must not create a pane'); }
+function _termDisableWebgl() {}
+function _termMarkDead() {}
+function termRefreshSessions() {}
+function termRefreshSessionsByProjectId() {}
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const LOGS_PROJECT_ID = '__logs__';
+const location = {protocol: 'http:', host: 'localhost'};
+""" + helper_block + term_attach + """
+
+(async () => {
+  const stale = termAttach('lab-demo-a', 'demo');
+  await termAttach('lab-demo-b', 'demo');
+  ensureResolvers[0]();
+  await stale;
+  process.stdout.write(JSON.stringify({
+    ensureCalls,
+    detachCalls,
+    termCurrentSession,
+    termCurrentProjectId,
+    paneADisplay: paneA.style.display,
+    paneBDisplay: paneB.style.display,
+    paneAHidden: paneA.attrs['aria-hidden'],
+    paneBHidden: paneB.attrs['aria-hidden'],
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result == {
+        "ensureCalls": 1,
+        "detachCalls": 0,
+        "termCurrentSession": "lab-demo-b",
+        "termCurrentProjectId": "demo",
+        "paneADisplay": "none",
+        "paneBDisplay": "block",
+        "paneAHidden": "true",
+        "paneBHidden": "false",
+    }
+
+
+def test_hidden_parked_xterm_cannot_send_input_to_active_terminal() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    term_detach = _js_between(
+        "function termDetach(soft = false)",
+        "  // Compute the next reconnect delay",
+    )
+    term_attach = _js_between(
+        "async function termAttach(name",
+        "  function termSetStatus",
+    )
+    result = _run_node(
+        """
+console.log = () => {};
+console.warn = () => {};
+
+let activeProject = 'demo';
+let termAttachRequestSeq = 0;
+let termSessions = [
+  {name: 'lab-demo-a', logical_name: 'a', project_id: 'demo'},
+  {name: 'lab-demo-b', logical_name: 'b', project_id: 'demo'},
+];
+let xtermSeq = 0;
+const panes = [];
+const callbacks = {};
+const focused = [];
+const sockets = [];
+const statuses = [];
+const remembered = [];
+
+function makePane(id) {
+  return {
+    id,
+    inert: false,
+    style: {display: 'none'},
+    attrs: {},
+    classList: {add() {}},
+    contains(el) { return el && el.ownerPane === this; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    remove() { this.removed = true; },
+  };
+}
+const badge = {style: {display: 'none'}};
+const empty = {style: {display: 'block'}};
+const document = {
+  activeElement: null,
+  getElementById(id) {
+    if (id === 'termBody') return {querySelectorAll() { return panes; }};
+    if (id === 'termAutoBadge') return badge;
+    if (id === 'termEmpty') return empty;
+    return null;
+  },
+};
+function ResizeObserver() { this.observe = () => {}; }
+function WebSocket(url) {
+  this.url = url;
+  this.readyState = WebSocket.OPEN;
+  this.sent = [];
+  this.send = (data) => this.sent.push(JSON.parse(data));
+  this.close = () => { this.readyState = 3; };
+  sockets.push(this);
+}
+WebSocket.OPEN = 1;
+
+let termCurrentSession = null;
+let termCurrentProjectId = null;
+let termWS = null;
+let termXterm = null;
+let termFitAddon = null;
+let termContainer = null;
+let termUserDetached = false;
+let termReconnectTimer = null;
+const _termCache = new Map();
+const termDeadSessions = new Set();
+const termReconnectAttempts = {};
+const TERM_MAX_RECONNECT_ATTEMPTS = 3;
+const TERM_RECONNECT_BASE_MS = 800;
+const TERM_RECONNECT_CAP_MS = 30000;
+
+function _termActiveProjectId() { return activeProject; }
+function _termRecallLast() { return null; }
+function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+async function ensureTerminalLibs() {}
+function termSetStatus(kind, text) { statuses.push({kind, text}); }
+function termShowRecovery() {}
+function termRenderSessionList() {}
+function _termClearDead() {}
+function _termStripModes(s) { return s; }
+function termSendResize() {}
+function _termEnableWebgl() {}
+function _termDisableWebgl() {}
+function _termMarkDead() {}
+function termRefreshSessions() {}
+function termRefreshSessionsByProjectId() {}
+function _termEvictCache() { throw new Error('full eviction should not run'); }
+function termEnsureXterm() {
+  const id = xtermSeq === 0 ? 'xterm-a' : 'xterm-b';
+  xtermSeq += 1;
+  termXterm = {
+    id,
+    rows: 24,
+    cols: 80,
+    clear() {},
+    dispose() {},
+    open(container) { container.openedBy = id; },
+    onData(cb) { callbacks[id] = cb; },
+    focus() { focused.push(id); },
+  };
+  termFitAddon = {
+    fit() {},
+    proposeDimensions() { return {cols: 80, rows: 24}; },
+  };
+}
+function _termMakeContainer() {
+  const pane = makePane('pane-' + (panes.length === 0 ? 'a' : 'b'));
+  panes.push(pane);
+  return pane;
+}
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const LOGS_PROJECT_ID = '__logs__';
+const location = {protocol: 'http:', host: 'localhost'};
+""" + helper_block + term_detach + term_attach + """
+
+(async () => {
+  await termAttach('lab-demo-a', 'demo');
+  await termAttach('lab-demo-b', 'demo');
+  callbacks['xterm-a']('old-input');
+  callbacks['xterm-b']('new-input');
+  process.stdout.write(JSON.stringify({
+    current: termCurrentSession,
+    cacheKeys: Array.from(_termCache.keys()).sort(),
+    paneA: {display: panes[0].style.display, hidden: panes[0].attrs['aria-hidden'], inert: panes[0].inert},
+    paneB: {display: panes[1].style.display, hidden: panes[1].attrs['aria-hidden'], inert: panes[1].inert},
+    socketASent: sockets[0].sent,
+    socketBSent: sockets[1].sent,
+    remembered,
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result["current"] == "lab-demo-b"
+    assert result["cacheKeys"] == ["demo::lab-demo-a"]
+    assert result["paneA"] == {"display": "none", "hidden": "true", "inert": True}
+    assert result["paneB"] == {"display": "block", "hidden": "false", "inert": False}
+    assert result["socketASent"] == []
+    assert result["socketBSent"] == [{"type": "input", "data": "new-input"}]
+    assert result["remembered"] == [
+        {"projectId": "demo", "logicalName": "a"},
+        {"projectId": "demo", "logicalName": "b"},
+    ]
+
+
+def test_xterm_cache_lookup_is_project_scoped() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    xterm_for = _js_between(
+        "function _xtermFor(name",
+        "  // Evict a session from the xterm cache",
+    )
+    result = _run_node(
+        """
+let activeProject = 'beta';
+let termSessions = [];
+let termCurrentProjectId = null;
+let termCurrentSession = null;
+let termXterm = null;
+const _termCache = new Map();
+const alphaXterm = {id: 'alpha-pane'};
+const betaXterm = {id: 'beta-pane'};
+
+function _termActiveProjectId() { return activeProject; }
+""" + helper_block + xterm_for + """
+
+_termCache.set(_termCacheKey('alpha', 'lab-shared-claude'), {
+  projectId: 'alpha',
+  name: 'lab-shared-claude',
+  xterm: alphaXterm,
+});
+_termCache.set(_termCacheKey('beta', 'lab-shared-claude'), {
+  projectId: 'beta',
+  name: 'lab-shared-claude',
+  xterm: betaXterm,
+});
+
+const implicit = _xtermFor('lab-shared-claude');
+const alpha = _xtermFor('lab-shared-claude', 'alpha');
+const beta = _xtermFor('lab-shared-claude', 'beta');
+
+process.stdout.write(JSON.stringify({
+  implicit: implicit && implicit.id,
+  alpha: alpha && alpha.id,
+  beta: beta && beta.id,
+}));
+"""
+    )
+
+    assert result == {
+        "implicit": "beta-pane",
+        "alpha": "alpha-pane",
+        "beta": "beta-pane",
     }

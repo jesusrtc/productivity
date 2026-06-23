@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
-const baseUrl = (process.argv[2] || process.env.LAB_BASE_URL || 'http://127.0.0.1:8080').replace(/\/$/, '');
+const baseUrl = (process.argv[2] || process.env.LAB_BASE_URL || 'http://127.0.0.1:3333').replace(/\/$/, '');
 const apiBaseUrl = (() => {
   const url = new URL(baseUrl);
   if (url.hostname === 'localhost') url.hostname = '127.0.0.1';

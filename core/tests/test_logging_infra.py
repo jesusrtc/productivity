@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pytest
+from lab import paths
 
 
 def _jsonl(path: Path) -> list[dict]:
@@ -38,7 +39,8 @@ def _jsonl(path: Path) -> list[dict]:
 
 
 def _log_names(monorepo: Path) -> set[str]:
-    log_dir = monorepo / "logs"
+    from lab import paths
+    log_dir = paths.logs_dir(monorepo)
     if not log_dir.exists():
         return set()
     return {p.name for p in log_dir.iterdir() if p.is_file()}
@@ -169,7 +171,7 @@ class TestJsonFormatter:
 class TestClientLogIngest:
     """End-to-end through FastAPI. We re-use the existing ``client``
     fixture (and therefore the real lifespan hook that attaches the
-    file handlers under ``<monorepo>/logs``). Tests assert both the HTTP
+    file handlers under workspace-local ``.lab/state/logs``). Tests assert both the HTTP
     contract and, where relevant, the file output."""
 
     def test_happy_path_records_to_file(self, client, monorepo: Path):
@@ -181,10 +183,10 @@ class TestClientLogIngest:
         body = r.json()
         assert body == {"ok": True, "logged": 2}
 
-        frontend = _jsonl(monorepo / "logs" / "frontend.log")
+        frontend = _jsonl(paths.logs_dir(monorepo) / "frontend.log")
         assert any(r["msg"] == "Uncaught TypeError: foo" and r["level"] == "ERROR" for r in frontend)
         assert any(r["msg"] == "deprecated API" and r["level"] == "WARNING" for r in frontend)
-        errors = _jsonl(monorepo / "logs" / "errors.log")
+        errors = _jsonl(paths.logs_dir(monorepo) / "errors.log")
         assert any(r["source"] == "client" and r["msg"] == "Uncaught TypeError: foo" for r in errors)
         assert not any(r["msg"] == "deprecated API" for r in errors)
         assert _log_names(monorepo) == {"backend.log", "frontend.log", "errors.log"}
@@ -277,6 +279,41 @@ class TestClientLogIngest:
         assert captured[2] == stdlog.WARNING
         assert captured[3] == stdlog.INFO
 
+    def test_transient_fetch_disconnects_are_not_error_log_entries(
+        self, client, monorepo: Path, monkeypatch
+    ):
+        """Old open tabs may still POST these as error-level events after a
+        restart; the server downgrades them so errors.log stays actionable."""
+        from core.routes import log as log_route
+
+        monkeypatch.setattr(log_route, "_rate_count", 0, raising=False)
+        monkeypatch.setattr(log_route, "_rate_window_start", 0.0, raising=False)
+
+        r = client.post("/api/log/client", json={"events": [
+            {
+                "level": "error",
+                "msg": "frontend fetch GET /api/project-files failed: Failed to fetch",
+                "path": "/?project=test",
+                "action": "fetch",
+                "target": "/api/project-files",
+                "href": "/api/project-files?path=/tmp/test",
+            },
+            {
+                "level": "error",
+                "msg": "[_refreshProjectSidebar] failed: TypeError: Failed to fetch\n"
+                       "    at window.fetch (http://localhost:8080/static/js/lib/error-report.js:210:14)\n"
+                       "    at _refreshProjectSidebar (http://localhost:8080/static/js/lab-app.js:4017:32)",
+                "path": "/?project=test",
+                "action": "console.error",
+            },
+        ]})
+
+        assert r.status_code == 200
+        assert r.json()["logged"] == 2
+        frontend = _jsonl(paths.logs_dir(monorepo) / "frontend.log")
+        assert [row["level"] for row in frontend[-2:]] == ["WARNING", "WARNING"]
+        assert not _jsonl(paths.logs_dir(monorepo) / "errors.log")
+
     def test_info_action_fields_land_in_frontend_regular_log(self, client, monorepo: Path):
         r = client.post("/api/log/client", json={"events": [{
             "level": "info",
@@ -293,7 +330,7 @@ class TestClientLogIngest:
         assert r.status_code == 200
         assert r.json()["logged"] == 1
 
-        frontend = _jsonl(monorepo / "logs" / "frontend.log")
+        frontend = _jsonl(paths.logs_dir(monorepo) / "frontend.log")
         rec = next(r for r in frontend if r.get("msg") == "client action: click")
         assert rec["level"] == "INFO"
         assert rec["source"] == "client"
@@ -305,7 +342,7 @@ class TestClientLogIngest:
         assert rec["method"] == "POST"
         assert rec["status_code"] == 200
         assert rec["duration_ms"] == 12.5
-        assert not _jsonl(monorepo / "logs" / "errors.log")
+        assert not _jsonl(paths.logs_dir(monorepo) / "errors.log")
         assert _log_names(monorepo) == {"backend.log", "frontend.log", "errors.log"}
 
     def test_concurrent_writes_produce_valid_jsonl(self, client, monkeypatch, monorepo: Path):
@@ -328,7 +365,7 @@ class TestClientLogIngest:
             codes = list(pool.map(_post, range(50)))
         assert all(c == 200 for c in codes)
 
-        log_file = monorepo / "logs" / "frontend.log"
+        log_file = paths.logs_dir(monorepo) / "frontend.log"
         assert log_file.exists()
         # Every non-empty line must parse cleanly as JSON.
         for line in log_file.read_text().splitlines():
@@ -350,7 +387,7 @@ class TestBackendRequestLogging:
         r = client.get("/api/ping")
         assert r.status_code == 200
 
-        backend = _jsonl(monorepo / "logs" / "backend.log")
+        backend = _jsonl(paths.logs_dir(monorepo) / "backend.log")
         rec = next(r for r in backend if r.get("path") == "/api/ping")
         assert rec["source"] == "server"
         assert rec["logger"] == "core.http"
@@ -359,17 +396,17 @@ class TestBackendRequestLogging:
         assert rec["status_code"] == 200
         assert rec["route"] == "/api/ping"
         assert isinstance(rec["duration_ms"], (int, float))
-        assert not _jsonl(monorepo / "logs" / "errors.log")
+        assert not _jsonl(paths.logs_dir(monorepo) / "errors.log")
 
     def test_404_is_warning_not_error_only(self, client, monorepo: Path):
         r = client.get("/missing")
         assert r.status_code == 404
 
-        backend = _jsonl(monorepo / "logs" / "backend.log")
+        backend = _jsonl(paths.logs_dir(monorepo) / "backend.log")
         rec = next(r for r in backend if r.get("path") == "/missing")
         assert rec["level"] == "WARNING"
         assert rec["status_code"] == 404
-        assert not _jsonl(monorepo / "logs" / "errors.log")
+        assert not _jsonl(paths.logs_dir(monorepo) / "errors.log")
 
     def test_unhandled_exception_logged_to_errors_only_file(self, monorepo: Path):
         from fastapi.testclient import TestClient
@@ -386,7 +423,7 @@ class TestBackendRequestLogging:
             r = raw.get("/boom")
         assert r.status_code == 500
 
-        errors = _jsonl(monorepo / "logs" / "errors.log")
+        errors = _jsonl(paths.logs_dir(monorepo) / "errors.log")
         rec = next(r for r in errors if r.get("path") == "/boom")
         assert rec["level"] == "ERROR"
         assert rec["source"] == "server"
@@ -409,7 +446,7 @@ class TestLogTailApi:
         assert names == ["errors.log", "backend.log", "frontend.log"]
 
     def test_log_tail_reads_configured_tail_from_error_file(self, client, monorepo: Path):
-        path = monorepo / "logs" / "errors.log"
+        path = paths.logs_dir(monorepo) / "errors.log"
         rows = [
             {"level": "ERROR", "msg": "old", "path": "/old"},
             {"level": "ERROR", "msg": "newer", "path": "/newer"},
@@ -429,7 +466,7 @@ class TestLogTailApi:
         assert [e["msg"] for e in body["entries"]] == ["newer", "newest"]
 
     def test_error_state_cursor_changes_when_error_log_changes(self, client, monorepo: Path):
-        path = monorepo / "logs" / "errors.log"
+        path = paths.logs_dir(monorepo) / "errors.log"
         path.write_text(json.dumps({"level": "ERROR", "msg": "first"}) + "\n")
 
         first = client.get("/api/log/error-state")
@@ -445,7 +482,7 @@ class TestLogTailApi:
         assert second.json()["cursor"] != first_body["cursor"]
 
     def test_log_tail_preserves_raw_non_json_lines(self, client, monorepo: Path):
-        path = monorepo / "logs" / "errors.log"
+        path = paths.logs_dir(monorepo) / "errors.log"
         path.write_text("not json\n")
 
         r = client.get("/api/log/tail?file=errors.log&tail=1")

@@ -1,6 +1,7 @@
-# Productivity monorepo
+# Lab framework repo
 
-You're in a single-user productivity monorepo. Everything lives here.
+You're in the Lab framework source checkout. User workspaces live in separate
+repos and are selected through `lab workspace` or `LAB_WORKSPACE`.
 
 ## How to do anything
 
@@ -8,14 +9,12 @@ Use `lab`. Run `lab --help` for commands. Never hand-edit `project.json`, `tasks
 
 ## Where things live
 
-- `projects/<id>/` — active projects (one folder each, at the **repo root** as a sibling of `apps/`, `content/`, `core/`; contains `project.json`, `tasks.json`, `docs/`, `notes/`, `assets/`, and any worktrees). Gitignored/untracked from the productivity repo — projects hold user data + git worktrees, so they live outside its history. (Formerly `content/projects/`.)
-- `content/{meetings,wikis,roadmaps,logs,updates}/` — knowledge that isn't project-scoped. `content/` also holds lab state (`.index.json`, `.sessions.json`, the `__self__`/`__cerebro__` pseudo-project files) and is itself gitignored.
-- `content/skills/` — shared templates (investigation, one-pager, weekly-update)
-- `apps/lab/` — unified CLI (writes)
-- `core/` — unified HTTP+WS backend (the **core** server; Python package `core`, formerly `apps/server` / package `server`). Sits as a sibling of `apps/`. Default port `3333`; override per-run with `make start PORT=NNNN`. The actual port is recorded in `.lab-server.port` on startup. Resolve it from any tool, doc snippet, or curl command via `$(scripts/lab-url.sh)` — do **not** hardcode `localhost:3333`.
-- `apps/darwin-backups/`, `apps/trustim-*` — auxiliary CLIs
-- `repositories/` — gitignored repo clones (MPs and other repos; added in Plan 4)
-- `.claude/agents/` — shared agents (added in later plans)
+- `core/` — framework-owned backend, UI assets, and package `core`. Default port `3333`; override per-run with `make start PORT=NNNN`. The actual port is recorded in the active workspace at `.lab/state/server.port`. Resolve it from any tool, doc snippet, or curl command via `$(scripts/lab-url.sh)` — do **not** hardcode `localhost:3333`.
+- `core/cli/` — framework-owned installable `lab` CLI.
+- `apps/` — reserved for workspace/client apps. Do not put framework internals here.
+- `docs/` — framework docs, proposals, and migration notes.
+- `scripts/` — framework helper scripts.
+- `.claude/agents/` — shared framework agents.
 
 ## Darwin / notebooks
 

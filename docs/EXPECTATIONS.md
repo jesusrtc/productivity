@@ -54,11 +54,8 @@ content**, not as an empty shell.
 ### B. Tools live in the monorepo
 
 - [x] **`apps/darwin-runner/` — retired 2026-05-11.** Notebook execution on Darwin now goes through the `darwin-cli` Claude skill (the `darwin` CLI / `go/darwin`). See `docs/DARWIN.md`. The old wrapper around `lipy-darwin-local-client` and the `lab darwin` subcommand are gone.
-- [ ] `apps/darwin-backups/` ← from `productivity-old/darwin-backups/` (notebook store + `q` query CLI)
-- [ ] `apps/trustim-ir-cli/` ← from `productivity-old/trustim-ir-cli/` (inResponse CLI)
-- [ ] `apps/trustim-investigation/` ← reference skills/templates folder moved in (gitignored if large)
-- [ ] `~/.local/bin/` symlinks for each: `darwin-backups`, `trustim-ir-cli`
-- [ ] Both CLIs runnable from anywhere on PATH
+- [x] Framework-owned code no longer lives under `apps/`; that folder is reserved for workspace-owned apps.
+- [ ] Personal/client CLIs such as old `darwin-backups` or `trustim-ir-cli` should live in a workspace repo or a standalone repo, not in the Lab framework checkout.
 
 ### C. Repositories + worktrees
 
@@ -134,7 +131,7 @@ content**, not as an empty shell.
 
 ### I. Install + everyday workflow
 
-- [x] `make install` creates venvs, symlinks `lab` and `lab-backend` onto PATH
+- [x] `make install` creates venvs, symlinks `lab` and `core` onto PATH, and keeps `lab-server`/`gdiff` as server aliases
 - [x] `make start-bg` / `make stop` / `make test`
 - [ ] `make pull-repos` works (needs §C)
 - [ ] `make seed` creates 2–3 sample projects for demos / new installs (optional)
@@ -167,7 +164,7 @@ Ordered by user-value-per-minute:
 1. **Content migration** (§A) — copy cerebro/* into content/*, run a migration sweep on the 13 keeper projects under `~/projects/*`. After this step the user can actually use the monorepo with their real data instead of a blank dashboard.
 2. **Frontend polish** (§F bullets) — inline form modal for new project/new task, fix the docs tab for non-md files, filter done tasks out of the due strip, wire WS auto-reconnect.
 3. **Worktree commands** (§C + §D) — `lab project add/remove`, MP prefix config, `make pull-repos`. Enables coding work against lipy-davi / abuse-scoring-rules / abuse-short-term-action.
-4. **Tool apps migration** (§B) — move darwin-backups, trustim-ir-cli into `apps/`, add symlinks, verify they still run. (darwin-runner is retired — see `docs/DARWIN.md`.)
+4. **Workspace app migration** (§B) — keep personal/client tools such as old darwin-backups or trustim-ir-cli outside the framework checkout, either in a Lab workspace's `apps/` folder or in standalone repos. (darwin-runner is retired — see `docs/DARWIN.md`.)
 5. **Shared agents + skills** (§G) — copy the intake-processor / query-reference agents in, scaffold investigation + one-pager skill folders.
 6. **Search** (§D + §E + §F) — `lab search`, `/api/search`, `/search` view. Grep-based first, smarter later.
 7. **Diff view** (§E + §F) — fold gdiff per-worktree diffs into `/api/diff` + a tab on the project view.

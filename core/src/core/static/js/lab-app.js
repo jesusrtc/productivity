@@ -29,6 +29,56 @@
     return p;
   }
 
+  let _workspaceSwitching = false;
+  async function workspaceRefresh() {
+    const sel = document.getElementById('workspaceSelect');
+    if (!sel) return;
+    try {
+      const r = await fetch('/api/workspaces');
+      if (!r.ok) return;
+      const data = await r.json();
+      const rows = Array.isArray(data.workspaces) ? data.workspaces : [];
+      sel.innerHTML = '';
+      rows.forEach(row => {
+        const opt = document.createElement('option');
+        opt.value = row.id;
+        opt.textContent = row.name || row.id;
+        opt.title = row.path || '';
+        opt.disabled = row.exists === false;
+        opt.selected = row.active === true || row.id === data.active;
+        sel.appendChild(opt);
+      });
+      if (!rows.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No workspaces';
+        sel.appendChild(opt);
+      }
+    } catch {}
+  }
+
+  async function workspaceUse(id) {
+    if (!id || _workspaceSwitching) return;
+    const sel = document.getElementById('workspaceSelect');
+    _workspaceSwitching = true;
+    if (sel) sel.disabled = true;
+    try {
+      const r = await fetch('/api/workspaces/use', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id}),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      location.href = '/';
+    } catch (e) {
+      if (sel) sel.disabled = false;
+      _workspaceSwitching = false;
+      console.error('workspace switch failed', e);
+      workspaceRefresh();
+    }
+  }
+  window.workspaceUse = workspaceUse;
+
   function afterFirstPaint(fn) {
     const run = () => {
       try {
@@ -205,7 +255,11 @@
       // Project-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
       if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
-        afterPageQuiet(() => termOpenForProject(currentProject.name));
+        const terminalProjectId = currentProject.name;
+        afterPageQuiet(() => {
+          if (typeof _termIsScopeActive === 'function' && !_termIsScopeActive(terminalProjectId)) return;
+          termOpenForProject(terminalProjectId);
+        });
       }
       // Re-render project tabs so the active highlight tracks the selection.
       if (typeof projTabsRender === 'function') projTabsRender();
@@ -4684,12 +4738,14 @@
 
   // Project tabs the user has opened. Source of truth is `tab_open` in
   // each project's project.json (exposed by /api/repos). Pseudo-tabs such
-  // as Logs store their open flag in content/.ui-state.json instead.
+  // as Logs store their open flag in workspace-local .lab/state/ui-state.json.
   function projTabsOpenIds() {
     return (projTabsAll || []).filter(p => p && p.tab_open).map(p => p.name);
   }
   function projTabsPseudoOpenIds() {
-    return (projTabsPseudoOpen || []).filter(id => id === LOGS_PROJECT_ID);
+    return (projTabsPseudoOpen || []).filter(id =>
+      id === LOGS_PROJECT_ID || (LAB_DEV_MODE && id === SELF_PROJECT_ID)
+    );
   }
   async function projTabsSetOpen(pid, open) {
     if (!pid) return;
@@ -4705,7 +4761,7 @@
     if (p) p.tab_open = !!open;
   }
   async function projTabsSetPseudoOpen(pid, open) {
-    if (pid !== LOGS_PROJECT_ID) return;
+    if (!(pid === LOGS_PROJECT_ID || (LAB_DEV_MODE && pid === SELF_PROJECT_ID))) return;
     const ids = new Set(projTabsPseudoOpenIds());
     if (open) ids.add(pid);
     else ids.delete(pid);
@@ -4735,14 +4791,14 @@
   // Pseudo-project like Cerebro; no folder under knowledge/projects/.
   const SELF_PROJECT_ID = '__self__';
   const SELF_REPO_PATH = window.LAB_MONOREPO_ROOT || '';  // populated by index.html
+  const LAB_DEV_MODE = !!window.LAB_DEV_MODE;
 
   // Code Search fixed view: also a pseudo-project. The actual per-repo
   // terminal panel uses `__cs_<repo>__` ids (see _csProjectId); this
   // constant is only for the single topbar tab entry.
   const CODE_SEARCH_PROJECT_ID = '__code_search__';
 
-  // Logs fixed view: terminal-style reader for logs/errors.log,
-  // logs/backend.log, and logs/frontend.log.
+  // Logs fixed view: terminal-style reader for errors, backend, and frontend logs.
   const LOGS_PROJECT_ID = '__logs__';
   const LOGS_DEFAULT_FILE = 'errors.log';
   const LOGS_DEFAULT_TAIL = 500;
@@ -4788,6 +4844,7 @@
   if (!UI_CHECK) afterPageQuiet(() => setInterval(loadRepos, 8000), 1000);
   if (!UI_CHECK) afterPageQuiet(() => setInterval(refreshDiff, 5000), 1000);
   // Project tab strip: initial render + periodic refresh.
+  afterPageQuiet(workspaceRefresh, 250);
   afterPageQuiet(projTabsRefresh);
   if (!UI_CHECK) afterPageQuiet(projTabsStartPolling, 1000);
 
@@ -4798,7 +4855,7 @@
   const urlCerebroPath = initialParams.get('path') || '';
   if (urlView === 'cerebro') {
     initCerebro(urlCerebroPath);
-  } else if (urlView === 'productivity') {
+  } else if (urlView === 'productivity' && LAB_DEV_MODE) {
     initSelf();
   } else if (urlView === 'code-search') {
     document.body.classList.add('code-search-active');
@@ -4856,26 +4913,22 @@
   let termWS = null;            // active WebSocket to /ws/term/<name>
   let termContainer = null;     // per-session <div> inside #termBody (active session)
   let termCurrentSession = null; // tmux session name currently attached
+  let termCurrentProjectId = null; // project/pseudo-project owning the active session
   let termSessions = [];        // last known list from /api/term/sessions
   let termUserDetached = false; // distinguishes user-initiated close from dropped WS
   let termRefreshTimer = null;  // periodic poll of /api/term/sessions
   let termReconnectTimer = null; // one-shot post-disconnect recovery
   let _termWheelListenerAdded = false; // wheel listener added once to termBody
   let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
+  let termAttachRequestSeq = 0;       // latest requested attach; prevents out-of-order switches
   // Per-session xterm+WS cache so SESSION-PILL switches (within the same
   // project, no navigation) don't wipe in-progress input.
   //
-  // ⚠ Limitation: this Map lives in module scope of the inline <script>
-  // in index.html. Project-tab clicks call `window.location.href = '/?project=…'`
-  // (see `projTabsRender` click handler) which is a FULL page reload —
-  // the entire JS scope, including this Map, is recreated empty. So the
-  // cache CANNOT preserve client-side state across project-tab navigations.
-  // The backend tmux session DOES persist (claude keeps running), so on
-  // reconnect we rely on tmux's pane replay to show the current state
-  // (including any unsubmitted text in claude's input line).
-  // True cross-project continuity would need in-page navigation
-  // (history.pushState + view swap) — out of scope for the current bug.
-  const _termCache = new Map(); // name -> {xterm, fitAddon, ws, container}
+  // Project-tab clicks now navigate in-page, so this cache survives across
+  // project switches. That makes the project id part of the identity: a
+  // delayed attach from project A must never be allowed to display while
+  // project B is active, even if both have a "claude" logical session.
+  const _termCache = new Map(); // "projectId::name" -> {projectId, name, xterm, fitAddon, ws, container}
   // `_termSessionsCache` (projectId -> sessions[]) is the warm-switch
   // fast-path cache: it's declared at the top of the script (next to
   // CEREBRO_PROJECT_ID / SELF_PROJECT_ID) so initCerebro/initSelf can
@@ -4963,6 +5016,62 @@
     const claude = termSessions.find(s => s.logical_name === 'claude');
     return (claude || termSessions[0]).name;
   }
+  function _termCacheKey(projectId, name) {
+    return String(projectId || '') + '::' + String(name || '');
+  }
+  function _termIsScopeActive(projectId) {
+    return !!projectId && _termActiveProjectId() === projectId;
+  }
+  function _termSessionMeta(name) {
+    return (termSessions || []).find(s => s && s.name === name) || null;
+  }
+  function _termSessionBelongsTo(projectId, name) {
+    const meta = _termSessionMeta(name);
+    return !!meta && (!meta.project_id || meta.project_id === projectId);
+  }
+  function _termCanAttach(projectId, name) {
+    return _termIsScopeActive(projectId) && _termSessionBelongsTo(projectId, name);
+  }
+  function _termAttachRequestIsCurrent(seq, projectId, name) {
+    return seq === termAttachRequestSeq && _termCanAttach(projectId, name);
+  }
+  function _termSetPaneActive(container, active) {
+    if (!container) return;
+    if (!active && typeof container.contains === 'function') {
+      const focused = document.activeElement;
+      if (focused && container.contains(focused) && typeof focused.blur === 'function') {
+        try { focused.blur(); } catch {}
+      }
+    }
+    container.style.display = active ? 'block' : 'none';
+    if (active) {
+      if ('inert' in container) container.inert = false;
+      if (typeof container.removeAttribute === 'function') container.removeAttribute('inert');
+      if (typeof container.setAttribute === 'function') container.setAttribute('aria-hidden', 'false');
+    } else {
+      if ('inert' in container) container.inert = true;
+      if (typeof container.setAttribute === 'function') container.setAttribute('inert', '');
+      if (typeof container.setAttribute === 'function') container.setAttribute('aria-hidden', 'true');
+    }
+  }
+  function _termHidePanesExcept(keep = null) {
+    const body = document.getElementById('termBody');
+    if (!body) return;
+    for (const c of body.querySelectorAll('.term-pane')) {
+      _termSetPaneActive(c, c === keep);
+    }
+  }
+  function _termShowPane(pane) {
+    _termHidePanesExcept(pane);
+    _termSetPaneActive(pane, true);
+  }
+  function _termFocusActiveSoon(container = termContainer, xterm = termXterm) {
+    setTimeout(() => {
+      if (container !== termContainer || xterm !== termXterm) return;
+      if (!termCurrentSession || !termCurrentProjectId) return;
+      try { xterm && xterm.focus && xterm.focus(); } catch {}
+    }, 0);
+  }
 
   // ─── Project tabs (Chrome-style) ───
   // State declarations are hoisted to the init block above (same TDZ reason
@@ -5029,7 +5138,7 @@
       tabs.push({id: CEREBRO_PROJECT_ID, hot: false});
     }
     const selfViewActive = document.body.classList.contains('self-active');
-    if (selfViewActive && !seen.has(SELF_PROJECT_ID)) {
+    if (LAB_DEV_MODE && !seen.has(SELF_PROJECT_ID)) {
       seen.add(SELF_PROJECT_ID);
       tabs.push({id: SELF_PROJECT_ID, hot: false});
     }
@@ -5220,7 +5329,7 @@
     } catch (e) { /* best effort */ }
     // Persist tab-closed in project.json so it doesn't reappear on next
     // Home/refresh. Pseudo-projects don't have a project.json — skip them.
-    if (pid === LOGS_PROJECT_ID) {
+    if (pid === LOGS_PROJECT_ID || pid === SELF_PROJECT_ID) {
       await projTabsSetPseudoOpen(pid, false);
     } else if (pid !== CEREBRO_PROJECT_ID && pid !== SELF_PROJECT_ID) {
       await projTabsSetOpen(pid, false);
@@ -5268,7 +5377,7 @@
     if (activeId) inTabs.add(activeId);
     if (document.body.classList.contains('logs-active')) inTabs.add(LOGS_PROJECT_ID);
     if (document.body.classList.contains('cerebro-active')) inTabs.add(CEREBRO_PROJECT_ID);
-    if (document.body.classList.contains('self-active')) inTabs.add(SELF_PROJECT_ID);
+    if (LAB_DEV_MODE || document.body.classList.contains('self-active')) inTabs.add(SELF_PROJECT_ID);
     const candidates = projTabsAll.filter(p => !inTabs.has(p.name));
     // Pseudo-projects sit at the top of the picker
     // unless they're already a tab.
@@ -5277,7 +5386,7 @@
         <span>logs</span>
         <span class="meta">errors · backend · frontend</span>
       </div>`;
-    const selfRow = inTabs.has(SELF_PROJECT_ID) ? '' : `
+    const selfRow = (!LAB_DEV_MODE || inTabs.has(SELF_PROJECT_ID)) ? '' : `
       <div class="row" data-self="1">
         <span>🛠️ productivity</span>
         <span class="meta">this repo</span>
@@ -5333,6 +5442,7 @@
     // terminal also disables only the first-time auto-spawn for this project
     // so a reload does not recreate a terminal the user just removed.
     if (!projectId) { termClose(); return; }
+    if (!_termIsScopeActive(projectId)) return;
     document.body.classList.add('term-open');
     // Restore the user's last-known collapse state for this view
     // (default = visible for projects).
@@ -5351,7 +5461,7 @@
       termRenderSessionList();
       if (termSessions.length > 0) {
         const pick = _termPickRestoreName(projectId);
-        if (pick) termAttach(pick);
+        if (pick) termAttach(pick, projectId);
       } else {
         termDetach();
         termShowEmpty();
@@ -5368,17 +5478,20 @@
     // any that aren't live in tmux. This is the path that surfaces saved
     // Claude conversations after a browser reload.
     await termRefreshSessions(projectId);
+    if (!_termIsScopeActive(projectId)) return;
 
     let saved = [];
     try {
       const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(projectId));
       if (r.ok) saved = await r.json();
     } catch { /* ignore, we'll just skip restore */ }
+    if (!_termIsScopeActive(projectId)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
     const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId);
+    if (!_termIsScopeActive(projectId)) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
@@ -5396,13 +5509,14 @@
         }),
       }).catch(() => null)));
       await termRefreshSessions(projectId);
+      if (!_termIsScopeActive(projectId)) return;
     }
 
     if (termSessions.length > 0) {
       // Prefer the user's last selection for this project; fall back to the
       // canonical "claude" pill, then to the first session in the list.
       const pick = _termPickRestoreName(projectId);
-      if (pick) termAttach(pick);
+      if (pick) termAttach(pick, projectId);
     } else {
       termDetach();
       termShowEmpty();
@@ -5504,7 +5618,7 @@
     const body = document.getElementById('termBody');
     if (!body) return;
     // Hide all per-session containers; show the recovery overlay.
-    for (const c of body.querySelectorAll('.term-pane')) c.style.display = 'none';
+    _termHidePanesExcept(null);
     let el = document.getElementById('termEmpty');
     if (!el) {
       el = document.createElement('div');
@@ -5531,7 +5645,8 @@
     for (const k of Object.keys(termReconnectAttempts)) delete termReconnectAttempts[k];
     if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(pid);
     else await termRefreshSessions(pid);
-    if (termSessions.length > 0) termAttach(termSessions[0].name);
+    if (!_termIsScopeActive(pid)) return;
+    if (termSessions.length > 0) termAttach(termSessions[0].name, pid);
     else termShowRecovery();
   }
 
@@ -5794,7 +5909,7 @@
         : agent === 'codex' ? '🧠'
         : agent === 'copilot' ? '🐙'
         : '🤖';
-      const active = s.name === termCurrentSession ? ' active' : '';
+      const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
       const logical = s.logical_name || '';
       const dead = termDeadSessions.has(s.name) ? ' dead' : '';
       // status: 'working' (pulsing yellow dot) or 'idle' (solid red dot) — only
@@ -5836,12 +5951,14 @@
                 }
               } catch {}
             }
-            if (termSessions.some(s => s.name === name)) termAttach(name);
+            if (termSessions.some(s => s.name === name)) termAttach(name, pid);
             else termShowRecovery();
           })();
           return;
         }
-        if (name !== termCurrentSession) termAttach(name);
+        if (name !== termCurrentSession || _termActiveProjectId() !== termCurrentProjectId) {
+          termAttach(name, _termActiveProjectId());
+        }
       });
     });
     termWireSessionDnD(el);
@@ -6026,7 +6143,13 @@
       } else {
         await termRefreshSessions(projectId);
       }
-      termAttach(created.name);
+      if (!_termIsScopeActive(projectId)) return;
+      if (!termSessions.some(s => s && s.name === created.name)) {
+        termSessions = [{...created, project_id: created.project_id || projectId}, ...termSessions];
+        _termSessionsCache.set(projectId, termSessions);
+        termRenderSessionList();
+      }
+      termAttach(created.name, projectId);
     } catch (e) {
       alert('Failed to create session: ' + e.message);
       termSetStatus('err', 'create failed');
@@ -6043,7 +6166,8 @@
     await termSetAutoSpawnEnabled(projectId, false);
     if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
     else if (projectId) await termRefreshSessions(projectId);
-    if (termSessions.length > 0) termAttach(termSessions[0].name);
+    if (!_termIsScopeActive(projectId)) return;
+    if (termSessions.length > 0) termAttach(termSessions[0].name, projectId);
     else { termShowEmpty(); termSetStatus('idle', 'no session — click + New'); }
   }
 
@@ -6204,7 +6328,7 @@
     const body = document.getElementById('termBody');
     if (!body) return;
     // Hide all per-session containers; show the empty state overlay.
-    for (const c of body.querySelectorAll('.term-pane')) c.style.display = 'none';
+    _termHidePanesExcept(null);
     let el = document.getElementById('termEmpty');
     if (!el) {
       el = document.createElement('div');
@@ -6227,9 +6351,11 @@
   // soft=false (default): full close — evict cache entry, close WS.
   function termDetach(soft = false) {
     console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
+    termAttachRequestSeq += 1;  // cancel any attach still waiting on assets/layout
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
     const prev = termCurrentSession;
+    const prevProjectId = termCurrentProjectId;
     if (soft) {
       // Park: hide the session's container div, stash refs in cache. Never evict.
       // We deliberately leave the WS listeners attached so server output
@@ -6241,15 +6367,35 @@
       // overlay over an unrelated project. (We did try nulling all
       // listeners here — that turned out to break input echo on the
       // cache-hit re-attach because the WS was reused without rebinding.)
-      if (prev && termWS && termXterm) {
-        if (termContainer) termContainer.style.display = 'none';
+      const prevContainer = termContainer;
+      _termSetPaneActive(prevContainer, false);
+      if (prev && prevProjectId && termWS && termXterm && prevContainer) {
         // Release the GPU context while parked — hidden panes render fine
         // (and cheaply) on the DOM renderer, and this keeps us well under
         // the browser's WebGL context cap no matter how many sessions are
         // cached. Re-enabled on the next attach.
         _termDisableWebgl(termXterm);
-        _termCache.set(prev, { xterm: termXterm, fitAddon: termFitAddon, ws: termWS, container: termContainer });
-        console.log('[term] parked', prev, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
+        if (prevProjectId) {
+          _termCache.set(_termCacheKey(prevProjectId, prev), {
+            projectId: prevProjectId,
+            name: prev,
+            xterm: termXterm,
+            fitAddon: termFitAddon,
+            ws: termWS,
+            container: prevContainer,
+          });
+        }
+        console.log('[term] parked', prev, 'project=', prevProjectId, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
+      } else {
+        // If a pane was still connecting, it may not have a WebSocket yet.
+        // Do not leave that orphaned container visible behind the next
+        // terminal; there is no live stream to preserve.
+        if (termWS) {
+          try { termWS.send(JSON.stringify({ type: 'detach' })); } catch {}
+          try { termWS.close(); } catch {}
+        }
+        if (termXterm) { try { termXterm.dispose(); } catch {} }
+        if (prevContainer) { try { prevContainer.remove(); } catch {} }
       }
     } else {
       if (termWS) {
@@ -6257,13 +6403,14 @@
         try { termWS.close(); } catch {}
         termWS = null;
       }
-      if (prev) _termEvictCache(prev);
+      if (prev) _termEvictCache(prev, prevProjectId);
     }
     termXterm = null;
     termFitAddon = null;
     termWS = null;
     termContainer = null;
     termCurrentSession = null;
+    termCurrentProjectId = null;
     const badge = document.getElementById('termAutoBadge');
     if (badge) badge.style.display = 'none';
   }
@@ -6280,18 +6427,23 @@
   // Mark a session dead: stop reconnecting, clear timers, render the
   // recovery overlay. Used both from the explicit "no-session" server
   // signal and from the reconnect loop after MAX_ATTEMPTS failures.
-  function _termMarkDead(name, statusText) {
-    console.log('[term] MARK DEAD', name, statusText);
+  function _termMarkDead(name, statusText, projectId = termCurrentProjectId || _termActiveProjectId()) {
+    console.log('[term] MARK DEAD', name, 'project=', projectId, statusText);
     termDeadSessions.add(name);
     delete termReconnectAttempts[name];
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
-    if (name === termCurrentSession) termCurrentSession = null;
-    _termEvictCache(name);  // drop xterm+WS for this dead session
-    if (statusText) termSetStatus('err', statusText);
-    termShowRecovery();
-    // Refresh the pill list so dead sessions drop out (tmux is gone)
-    // or get the `dead` class applied when they're still on the list.
-    termRenderSessionList();
+    if (name === termCurrentSession && projectId === termCurrentProjectId) {
+      termCurrentSession = null;
+      termCurrentProjectId = null;
+    }
+    _termEvictCache(name, projectId);  // drop xterm+WS for this dead session
+    if (_termIsScopeActive(projectId)) {
+      if (statusText) termSetStatus('err', statusText);
+      termShowRecovery();
+      // Refresh the pill list so dead sessions drop out (tmux is gone)
+      // or get the `dead` class applied when they're still on the list.
+      termRenderSessionList();
+    }
   }
 
   // User-initiated clear of the dead state. Called when the user clicks
@@ -6310,30 +6462,45 @@
   // Used by the WS onmessage handler so a stale closure can never crash
   // the page with "myXterm is not defined" — there's no `myXterm` to
   // reference; the lookup happens fresh on every frame.
-  function _xtermFor(name) {
-    if (name === termCurrentSession && termXterm) return termXterm;
-    const entry = _termCache.get(name);
+  function _xtermFor(name, projectId = termCurrentProjectId || _termActiveProjectId()) {
+    if (projectId === termCurrentProjectId && name === termCurrentSession && termXterm) return termXterm;
+    const entry = _termCache.get(_termCacheKey(projectId, name));
     return entry && entry.xterm ? entry.xterm : null;
   }
 
   // Evict a session from the xterm cache: close its WS, dispose the
   // Terminal instance, and remove its container from the DOM.
-  function _termEvictCache(name) {
-    console.log('[term] EVICT', name, 'exists=', _termCache.has(name));
-    const entry = _termCache.get(name);
-    if (!entry) return;
-    _termCache.delete(name);
-    try { entry.ws.send(JSON.stringify({ type: 'detach' })); } catch {}
-    try { entry.ws.close(); } catch {}
-    try { entry.xterm.dispose(); } catch {}
-    try { entry.container.remove(); } catch {}
+  function _termEvictCache(name, projectId = termCurrentProjectId || _termActiveProjectId()) {
+    const keys = [];
+    if (projectId) {
+      keys.push(_termCacheKey(projectId, name));
+    } else {
+      for (const [key, entry] of _termCache.entries()) {
+        if (entry && entry.name === name) keys.push(key);
+      }
+    }
+    console.log('[term] EVICT', name, 'project=', projectId, 'keys=', keys);
+    for (const key of keys) {
+      const entry = _termCache.get(key);
+      if (!entry) continue;
+      _termCache.delete(key);
+      try { entry.ws.send(JSON.stringify({ type: 'detach' })); } catch {}
+      try { entry.ws.close(); } catch {}
+      try { entry.xterm.dispose(); } catch {}
+      try { entry.container.remove(); } catch {}
+    }
   }
 
-  async function termAttach(name) {
-    console.log('[term] termAttach', name, 'currentSession=', termCurrentSession, 'cacheHas=', _termCache.has(name));
-    if (!name) return;
-    if (name === termCurrentSession && termWS && termWS.readyState === WebSocket.OPEN) {
+  async function termAttach(name, projectId = _termActiveProjectId()) {
+    projectId = projectId || _termActiveProjectId();
+    console.log('[term] termAttach', name, 'project=', projectId, 'currentSession=', termCurrentSession, 'currentProject=', termCurrentProjectId, 'cacheHas=', _termCache.has(_termCacheKey(projectId, name)));
+    if (!name || !projectId) return;
+    if (!_termCanAttach(projectId, name)) return;
+    const attachRequestSeq = ++termAttachRequestSeq;
+    if (name === termCurrentSession && projectId === termCurrentProjectId && termWS && termWS.readyState === WebSocket.OPEN) {
       console.log('[term] early return — same session already open');
+      _termShowPane(termContainer);
+      _termFocusActiveSoon();
       return;
     }
     // A previous connect confirmed the session is gone. Don't hammer
@@ -6352,23 +6519,26 @@
       termSetStatus('err', 'terminal assets failed to load');
       return;
     }
+    if (!_termAttachRequestIsCurrent(attachRequestSeq, projectId, name)) return;
 
     // Park the current session: hide its container, stash refs in cache.
     termDetach(true);
     termUserDetached = false;  // fresh attach — future drops should trigger recovery
     termCurrentSession = name;
+    termCurrentProjectId = projectId;
     // Persist the selection so a full page reload (project-tab navigation)
     // can restore the same pill instead of snapping back to "claude".
     const _attachMeta = (termSessions || []).find(s => s.name === name);
     if (_attachMeta && _attachMeta.logical_name) {
-      _termRememberLast(_termActiveProjectId(), _attachMeta.logical_name);
+      _termRememberLast(projectId, _attachMeta.logical_name);
     }
     console.log('[term] after soft detach, cache keys=', Array.from(_termCache.keys()));
     // Hide the empty/recovery overlay if visible.
     const _emptyEl = document.getElementById('termEmpty');
     if (_emptyEl) _emptyEl.style.display = 'none';
 
-    const cached = _termCache.get(name);
+    const scopeKey = _termCacheKey(projectId, name);
+    const cached = _termCache.get(scopeKey);
     // Shared WS-open logic. `freshPane` is currently informational only —
     // both branches behave identically on the wire (no Ctrl-L, no clear).
     // Kept on the signature so callers in cache-miss vs cache-stale paths
@@ -6386,6 +6556,7 @@
     // "myXterm is not defined" because there is no closure-captured
     // identifier to fall out of scope.
     const _openWS = (freshPane, _attempt = 0) => {
+      if (termCurrentSession !== name || termCurrentProjectId !== projectId) return null;
       termSetStatus('idle', 'connecting to ' + name);
       // Pass the fitted geometry so the server forks the PTY at the right
       // size. Without it tmux attaches at 80x24 and reflows the whole
@@ -6410,7 +6581,7 @@
       if (!dims && _attempt < 20) {
         setTimeout(() => {
           // Abort the deferred dial if the user moved on meanwhile.
-          if (termCurrentSession !== name || termUserDetached) return;
+          if (termCurrentSession !== name || termCurrentProjectId !== projectId || termUserDetached) return;
           _openWS(freshPane, _attempt + 1);
         }, 50);
         return null;
@@ -6418,7 +6589,11 @@
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const myWS = new WebSocket(`${proto}//${location.host}/ws/term/${encodeURIComponent(name)}${dims}`);
       termWS = myWS;
-      const isStale = () => termWS !== myWS && _termCache.get(name)?.ws !== myWS;
+      const isParked = () => _termCache.get(scopeKey)?.ws === myWS;
+      const isStale = () => {
+        if (isParked()) return false;
+        return termWS !== myWS || termCurrentSession !== name || termCurrentProjectId !== projectId;
+      };
       const detachListeners = () => {
         try { myWS.onopen = null; } catch {}
         try { myWS.onmessage = null; } catch {}
@@ -6428,6 +6603,7 @@
       myWS.onopen = () => {
         if (isStale()) { detachListeners(); return; }
         _termClearDead(name);
+        if (isParked()) return;
         const meta = termSessions.find(s => s.name === name);
         const badge = document.getElementById('termAutoBadge');
         if (badge) badge.style.display = (meta && meta.auto) ? 'inline-block' : 'none';
@@ -6469,7 +6645,7 @@
         if (msg.type === 'data') {
           // Resolve the live xterm at write-time — not a closure-captured
           // reference. See _openWS comment for the regression context.
-          const xt = _xtermFor(name);
+          const xt = _xtermFor(name, projectId);
           if (xt) xt.write(_termStripModes(msg.data));
         } else if (msg.type === 'exit') {
           // If this WS is parked (we're viewing a different session /
@@ -6477,7 +6653,7 @@
           // this pane right now, and the next attach will discover
           // the dead socket via cached.ws.readyState !== OPEN and
           // reconnect through _openWS.
-          if (name !== termCurrentSession) return;
+          if (name !== termCurrentSession || projectId !== termCurrentProjectId) return;
           if (msg.reason === 'no-session') {
             // Warm-switch race: the pill came from _termSessionsCache,
             // which can lag actual tmux state by up to one background
@@ -6499,14 +6675,15 @@
                   }
                 } catch {}
               }
-              if (termSessions.some(s => s.name === name)) {
+              if (_termCanAttach(projectId, name)) {
                 // tmux still has it — the "no-session" was stale.
                 // Reconnect without showing the recovery overlay.
                 termWS = null;
                 termCurrentSession = null;
-                termAttach(name);
+                termCurrentProjectId = null;
+                termAttach(name, projectId);
               } else {
-                _termMarkDead(name, 'session not found');
+                _termMarkDead(name, 'session not found', projectId);
               }
             })();
           } else {
@@ -6515,15 +6692,15 @@
         }
       };
       myWS.onclose = (ev) => {
-        console.log('[term] WS onclose name=', name, 'currentSession=', termCurrentSession, 'userDetached=', termUserDetached, 'cacheHas=', _termCache.has(name), 'code=', ev.code);
+        console.log('[term] WS onclose name=', name, 'project=', projectId, 'currentSession=', termCurrentSession, 'currentProject=', termCurrentProjectId, 'userDetached=', termUserDetached, 'cacheHas=', _termCache.has(scopeKey), 'code=', ev.code);
         detachListeners();
         if (isStale()) return;
-        if (termUserDetached || termCurrentSession !== name) return;
+        if (termUserDetached || termCurrentSession !== name || termCurrentProjectId !== projectId) return;
         if (termDeadSessions.has(name)) return;
         const attempts = (termReconnectAttempts[name] || 0) + 1;
         termReconnectAttempts[name] = attempts;
         if (attempts > TERM_MAX_RECONNECT_ATTEMPTS) {
-          _termMarkDead(name, 'session unreachable (' + attempts + ' attempts) — reload to retry');
+          _termMarkDead(name, 'session unreachable (' + attempts + ' attempts) — reload to retry', projectId);
           return;
         }
         const delay = _termBackoffMs(attempts);
@@ -6534,6 +6711,7 @@
         termReconnectTimer = setTimeout(async () => {
           termReconnectTimer = null;
           if (termWS !== null && termWS !== myWS) return;
+          if (!_termIsScopeActive(projectId)) return;
           if (termDeadSessions.has(name)) return;
           const pid = _termActiveProjectId();
           if (!pid) return;
@@ -6545,12 +6723,13 @@
             }
           } catch {}
           if (termDeadSessions.has(name)) return;
-          if (termSessions.some(s => s.name === name)) {
+          if (_termCanAttach(projectId, name)) {
             termWS = null;
             termCurrentSession = null;
-            termAttach(name);
+            termCurrentProjectId = null;
+            termAttach(name, projectId);
           } else {
-            _termMarkDead(name, 'session ended: ' + name);
+            _termMarkDead(name, 'session ended: ' + name, projectId);
           }
         }, delay);
       };
@@ -6568,10 +6747,12 @@
       termFitAddon = cached.fitAddon;
       termWS = cached.ws;
       termContainer = cached.container;
-      _termCache.delete(name);
-      if (termContainer) termContainer.style.display = 'block';
+      termCurrentProjectId = projectId;
+      _termCache.delete(scopeKey);
+      _termShowPane(termContainer);
       _termEnableWebgl();
       try { termFitAddon.fit(); } catch {}
+      _termFocusActiveSoon();
       // Do NOT send resize here — SIGWINCH causes Claude TUI to redraw and
       // clear any in-progress input. ResizeObserver on the container handles
       // genuine size changes once the pane is visible.
@@ -6589,10 +6770,12 @@
       termXterm = cached.xterm;
       termFitAddon = cached.fitAddon;
       termContainer = cached.container;
-      _termCache.delete(name);
-      if (termContainer) termContainer.style.display = 'block';
+      termCurrentProjectId = projectId;
+      _termCache.delete(scopeKey);
+      _termShowPane(termContainer);
       _termEnableWebgl();
       try { termFitAddon.fit(); } catch {}
+      _termFocusActiveSoon();
       // Reconnect without clobbering claude's in-progress input: see _openWS.
       _openWS(false);
       return;
@@ -6631,11 +6814,14 @@
     });
     myRO.observe(myContainer);
     termXterm.onData(data => {
+      if (termCurrentSession !== name || termCurrentProjectId !== projectId) return;
+      if (termContainer !== myContainer) return;
       if (termWS && termWS.readyState === WebSocket.OPEN) {
         termWS.send(JSON.stringify({ type: 'input', data }));
       }
     });
-    myContainer.style.display = 'block';
+    _termShowPane(myContainer);
+    _termFocusActiveSoon(myContainer, termXterm);
     // Fit BEFORE dialing the WebSocket so _openWS can pass the real
     // geometry in the URL and tmux attaches at the right size from byte
     // one (no 80x24 → real-size double reflow). Prime the RO's last-seen
@@ -7251,6 +7437,7 @@
       url.searchParams.set('view', 'productivity');
       history.pushState({nav: 'productivity'}, '', url.pathname + url.search + url.hash);
     }
+    projTabsSetPseudoOpen(SELF_PROJECT_ID, true);
     initSelf();
   }
 
@@ -8462,11 +8649,11 @@
         desc: 'Terminal-style view of errors, backend, and frontend logs.',
         href: '/?view=logs',
       }),
-      pseudoRowHtml({
+      LAB_DEV_MODE ? pseudoRowHtml({
         id: SELF_PROJECT_ID, icon: '🛠️', label: 'productivity',
         desc: 'This monorepo itself — commits on main, uncommitted changes, and repo-level tasks. Excludes repositories/.',
         href: '/?view=productivity',
-      }),
+      }) : '',
       pseudoRowHtml({
         id: CEREBRO_PROJECT_ID, icon: '🧠', label: 'cerebro',
         desc: 'Personal knowledge base — wikis, logs, meetings, roadmaps, and every project\'s docs.',
@@ -9887,8 +10074,7 @@
 
   // ─── Cerebro view (mdview-style sidebar + markdown pane) ───
 
-  // ─── Productivity self-view (file tree sidebar + doc area, same shape as
-  //     regular project tabs; tasks/diff/commits as secondary dashboard) ───
+  // ─── Productivity self-view (file tree sidebar + Lab framework workbench) ───
 
   async function initSelf() {
     document.body.classList.add('self-active');
@@ -9912,15 +10098,12 @@
     // initCerebro and selectRepo already do.
     if (typeof projTabsRender === 'function') projTabsRender();
 
-    // Paint the content scaffold synchronously — the scaffold doesn't
-    // need any network and gives the user something to look at while
-    // the sidebar + tasks/diff/commits fetches stream in.
-    selfPaintContent();
+    // Paint the workbench scaffold synchronously. The refresh fills in
+    // tasks, changed areas, and recent commits after first paint.
+    selfPaintWorkbench();
     afterPageQuiet(() => {
-      selfRefreshTasks();
       selfPopulateSidebar();
-      selfRefreshDiff();
-      selfRefreshCommits();
+      selfRefreshWorkbench();
       if (!UI_CHECK) termOpenForSelf();
     });
   }
@@ -9938,8 +10121,8 @@
       // current file highlighted. Without this the active class is only
       // applied imperatively after rebuild and the selection flickers.
       const activePath = _projDocPath || null;
-      const dashActive = !activePath ? ' active' : '';
-      let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="selfShowDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
+      const workbenchActive = !activePath ? ' active' : '';
+      let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Workbench</span></a>`;
       sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="selfToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
       sbHtml += symlinkLegendHtml();
       sbHtml += '<div class="sidebar-title">Files</div>';
@@ -9969,7 +10152,7 @@
           const icon = f.type === 'image' ? '\u{1F5BC}' : /\.(mp4|webm|mov|m4v)$/i.test(fname) ? '\u{1F3AC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
           const activeCls = activePath === f.path ? ' active' : '';
           // Notebook running / unseen dots — same logic as the project view's
-          // _refreshProjectSidebar so the self view (productivity monorepo)
+          // _refreshProjectSidebar so the self view (Lab framework checkout)
           // surfaces in-flight notebooks too. Running wins over unseen since
           // "currently executing" is the more urgent state.
           if (f.pending) _recentlyPending.set(f.path, Date.now());
@@ -10035,55 +10218,70 @@
     }
   }
 
-  // Render the self-dashboard scaffold into #content. The refresh functions
-  // (selfRefreshTasks etc.) look for element IDs inside here.
-  function selfPaintContent() {
+  // Render the Productivity workbench scaffold into #content. The refresh
+  // functions look for element IDs inside here.
+  function selfPaintWorkbench() {
     _projDocPath = null;
     const content = document.getElementById('content');
     content.innerHTML = `
-      <div class="s-inner">
+      <div class="s-inner self-workbench">
         <div class="s-head">
-          <h1>🛠️ Productivity</h1>
-          <span class="branch" id="selfBranch">…</span>
+          <h1>Lab Workbench</h1>
+          <span class="branch" id="selfBranch">...</span>
         </div>
-        <div class="s-section" id="selfTasksSection">
-          <h2>Tasks <span class="count" id="selfTasksCount"></span>
-            <button class="refresh-btn" onclick="selfRefreshTasks()">⟳ reload</button>
-          </h2>
-          <ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>
-          <form class="s-task-form" id="selfTaskForm" onsubmit="return selfAddTask(event)">
-            <input type="text" id="selfTaskTitle" placeholder="New task title…" required />
-            <select id="selfTaskPriority">
-              <option value="P2" selected>P2</option>
-              <option value="P0">P0</option>
-              <option value="P1">P1</option>
-              <option value="P3">P3</option>
-            </select>
-            <button type="submit">Add</button>
-          </form>
+        <div class="s-toolbar">
+          <button class="refresh-btn" onclick="selfRefreshWorkbench()">Refresh</button>
+          <button class="refresh-btn" onclick="openProjectDoc('AGENTS.md')">AGENTS.md</button>
+          <button class="refresh-btn" onclick="openProjectDoc('Makefile')">Makefile</button>
+          <button class="refresh-btn" onclick="openProjectDoc('README.md')">README.md</button>
         </div>
-        <div class="s-section" id="selfDiffSection">
-          <h2>Uncommitted changes <span class="count" id="selfDiffCount"></span>
-            <button class="refresh-btn" onclick="selfRefreshDiff()">⟳ reload</button>
-          </h2>
-          <ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>
+        <div class="s-summary" id="selfSummary">
+          <div class="s-metric"><span>Open tasks</span><strong>...</strong></div>
+          <div class="s-metric"><span>Changed files</span><strong>...</strong></div>
+          <div class="s-metric"><span>Tests touched</span><strong>...</strong></div>
+          <div class="s-metric"><span>Last commit</span><strong>...</strong></div>
         </div>
-        <div class="s-section" id="selfCommitsSection">
-          <h2>Recent commits <span class="count" id="selfCommitsCount"></span>
-            <button class="refresh-btn" onclick="selfRefreshCommits()">⟳ reload</button>
-          </h2>
-          <ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>
+        <div class="s-workbench-grid">
+          <div class="s-section" id="selfAttentionSection">
+            <h2>Attention</h2>
+            <ul class="s-attention" id="selfAttentionList"><li class="s-empty">Loading...</li></ul>
+          </div>
+          <div class="s-section" id="selfTasksSection">
+            <h2>Open tasks <span class="count" id="selfTasksCount"></span></h2>
+            <ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>
+            <form class="s-task-form" id="selfTaskForm" onsubmit="return selfAddTask(event)">
+              <input type="text" id="selfTaskTitle" placeholder="New task title..." required />
+              <select id="selfTaskPriority">
+                <option value="P2" selected>P2</option>
+                <option value="P0">P0</option>
+                <option value="P1">P1</option>
+                <option value="P3">P3</option>
+              </select>
+              <button type="submit">Add</button>
+            </form>
+          </div>
+          <div class="s-section" id="selfDiffSection">
+            <h2>Changed areas <span class="count" id="selfDiffCount"></span></h2>
+            <ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>
+          </div>
+          <div class="s-section" id="selfCommitsSection">
+            <h2>Recent commits <span class="count" id="selfCommitsCount"></span></h2>
+            <ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>
+          </div>
         </div>
       </div>`;
   }
 
-  // Return to the self-dashboard from a doc view (called by the sidebar "Dashboard" link).
-  function selfShowDashboard() {
+  // Return to the workbench from a doc view.
+  function selfShowWorkbench() {
     _projDocPath = null;
     document.querySelectorAll('#sidebar .sidebar-file').forEach(el => el.classList.remove('active'));
-    selfPaintContent();
-    afterFirstPaint(() => Promise.all([selfRefreshTasks(), selfRefreshDiff(), selfRefreshCommits()]));
+    selfPaintWorkbench();
+    afterFirstPaint(() => selfRefreshWorkbench());
   }
+
+  // Compatibility for older inline handlers or cached pages.
+  function selfShowDashboard() { return selfShowWorkbench(); }
 
   // Toggle hidden-files visibility for the productivity sidebar.
   // Mirrors toggleProjectDotFiles() but re-renders via selfPopulateSidebar()
@@ -10099,36 +10297,125 @@
     );
   }
 
+  function selfPriorityRank(priority) {
+    return ({P0: 0, P1: 1, P2: 2, P3: 3})[priority] ?? 9;
+  }
+
+  function selfOpenTasks(tasks) {
+    return (tasks || []).filter(t => t.status !== 'done').sort((a, b) => {
+      const byPriority = selfPriorityRank(a.priority) - selfPriorityRank(b.priority);
+      if (byPriority !== 0) return byPriority;
+      return String(a.title || '').localeCompare(String(b.title || ''));
+    });
+  }
+
+  function selfAreaForFile(filename) {
+    const f = String(filename || '');
+    if (f.startsWith('core/cli/')) return {key: 'cli', label: 'CLI', rank: 10};
+    if (f.startsWith('core/src/core/static/') || f.startsWith('core/src/core/templates/')) return {key: 'ui', label: 'UI', rank: 20};
+    if (f.startsWith('core/src/core/routes/') || f.startsWith('core/src/core/')) return {key: 'server', label: 'Server', rank: 30};
+    if (f.startsWith('core/tests/') || f.startsWith('core/cli/tests/')) return {key: 'tests', label: 'Tests', rank: 40};
+    if (f.startsWith('docs/') || f === 'README.md' || f === 'AGENTS.md') return {key: 'docs', label: 'Docs', rank: 50};
+    if (f === 'Makefile' || f.endsWith('pyproject.toml') || f === '.gitignore' || f.startsWith('.agents/')) return {key: 'config', label: 'Config', rank: 60};
+    if (f.startsWith('apps/')) return {key: 'apps', label: 'Removed apps', rank: 70};
+    return {key: 'other', label: 'Other', rank: 90};
+  }
+
+  function selfRenderSummary(tasks, files, commits) {
+    const summary = document.getElementById('selfSummary');
+    if (!summary) return;
+    const open = selfOpenTasks(tasks);
+    const urgent = open.filter(t => t.priority === 'P0' || t.priority === 'P1').length;
+    const tests = files.filter(f => selfAreaForFile(f.filename).key === 'tests').length;
+    const latest = commits[0];
+    const latestText = latest ? (latest.short_sha || '').slice(0, 8) : '-';
+    summary.innerHTML = `
+      <div class="s-metric"><span>Open tasks</span><strong>${open.length}</strong>${urgent ? `<em>${urgent} urgent</em>` : ''}</div>
+      <div class="s-metric"><span>Changed files</span><strong>${files.length}</strong></div>
+      <div class="s-metric"><span>Tests touched</span><strong>${tests}</strong></div>
+      <div class="s-metric"><span>Last commit</span><strong>${selfEsc(latestText)}</strong></div>`;
+  }
+
+  function selfRenderAttention(tasks, files) {
+    const list = document.getElementById('selfAttentionList');
+    if (!list) return;
+    const rows = [];
+    const urgentTasks = selfOpenTasks(tasks).filter(t => t.priority === 'P0' || t.priority === 'P1').slice(0, 5);
+    urgentTasks.forEach(t => rows.push({
+      kind: t.priority || 'P?',
+      title: t.title || '(untitled task)',
+      meta: `task #${t.id}`,
+    }));
+
+    const byArea = new Map();
+    files.forEach(f => {
+      const area = selfAreaForFile(f.filename);
+      const current = byArea.get(area.key) || {area, files: []};
+      current.files.push(f);
+      byArea.set(area.key, current);
+    });
+    ['tests', 'server', 'ui', 'cli', 'config'].forEach(key => {
+      const group = byArea.get(key);
+      if (!group || group.files.length === 0) return;
+      rows.push({
+        kind: group.area.label,
+        title: `${group.files.length} changed ${group.files.length === 1 ? 'file' : 'files'}`,
+        meta: group.files.slice(0, 3).map(f => f.filename).join(', '),
+        file: (group.files.find(f => f.status !== 'deleted') || {}).filename,
+      });
+    });
+    if (files.length > 25) {
+      rows.push({kind: 'Size', title: `${files.length} files changed`, meta: 'large working tree'});
+    }
+
+    if (rows.length === 0) {
+      list.innerHTML = '<li class="s-empty">No urgent tasks or risky change areas.</li>';
+      return;
+    }
+    list.innerHTML = rows.slice(0, 8).map(row => {
+      const safePath = row.file ? row.file.replace(/'/g, "\\'") : '';
+      const open = row.file ? ` onclick="openProjectDoc('${safePath}')"` : '';
+      return `<li class="s-attention-row"${open}>
+        <span class="s-attention-kind">${selfEsc(row.kind)}</span>
+        <span class="s-attention-title">${selfEsc(row.title)}</span>
+        <span class="s-attention-meta">${selfEsc(row.meta || '')}</span>
+      </li>`;
+    }).join('');
+  }
+
+  async function selfRefreshWorkbench() {
+    const [tasks, diffDoc, commits] = await Promise.all([
+      selfRefreshTasks(),
+      selfRefreshDiff(),
+      selfRefreshCommits(),
+    ]);
+    const files = (diffDoc && diffDoc.files) || [];
+    selfRenderSummary(tasks, files, commits);
+    selfRenderAttention(tasks, files);
+  }
+
   async function selfRefreshTasks() {
     const list = document.getElementById('selfTasksList');
     const count = document.getElementById('selfTasksCount');
-    if (!list) return;
     let doc = {tasks: []};
     try {
       const r = await fetch('/api/projects/' + SELF_PROJECT_ID + '/tasks');
       if (r.ok) doc = await r.json();
     } catch {}
-    const tasks = (doc.tasks || []).slice().sort((a, b) => {
-      // Open tasks first, then by priority (P0 > P1 > …).
-      const ao = a.status === 'done' ? 1 : 0;
-      const bo = b.status === 'done' ? 1 : 0;
-      if (ao !== bo) return ao - bo;
-      const pri = {P0:0, P1:1, P2:2, P3:3};
-      return (pri[a.priority] ?? 9) - (pri[b.priority] ?? 9);
-    });
-    const open = tasks.filter(t => t.status !== 'done').length;
-    count.textContent = open ? `${open} open` : '';
-    if (tasks.length === 0) {
+    const tasks = (doc.tasks || []).slice();
+    const openTasks = selfOpenTasks(tasks);
+    if (!list) return tasks;
+    count.textContent = openTasks.length ? `${openTasks.length} open` : '';
+    if (openTasks.length === 0) {
       list.innerHTML = '<li class="s-task-empty">No tasks yet. Add one below.</li>';
-      return;
+      return tasks;
     }
-    list.innerHTML = tasks.map(t => {
-      const cls = t.status === 'done' ? ' done' : '';
+    list.innerHTML = openTasks.slice(0, 12).map(t => {
       const due = t.due ? `<span class="meta">due ${selfEsc(t.due)}</span>` : '';
       const prClass = (t.priority || 'P2').toLowerCase();
       return `
-        <li class="s-task${cls}" data-tid="${t.id}">
-          <input type="checkbox" class="check" ${t.status === 'done' ? 'checked' : ''} data-tid="${t.id}" />
+        <li class="s-task" data-tid="${t.id}">
+          <input type="checkbox" class="check" data-tid="${t.id}" />
           <span class="pr-chip ${prClass}">${selfEsc(t.priority || 'P2')}</span>
           <span class="title">${selfEsc(t.title)}</span>
           ${due}
@@ -10137,6 +10424,7 @@
     list.querySelectorAll('.check').forEach(cb => {
       cb.addEventListener('change', () => selfToggleTaskDone(Number(cb.getAttribute('data-tid')), cb.checked));
     });
+    return tasks;
   }
 
   async function selfToggleTaskDone(taskId, done) {
@@ -10147,7 +10435,7 @@
         body: JSON.stringify({status: done ? 'done' : 'reopened'}),
       });
     } catch {}
-    await selfRefreshTasks();
+    await selfRefreshWorkbench();
   }
 
   async function selfAddTask(ev) {
@@ -10169,7 +10457,7 @@
       }
     } catch (e) { alert('Failed to add task: ' + (e.message || e)); return false; }
     input.value = '';
-    await selfRefreshTasks();
+    await selfRefreshWorkbench();
     return false;
   }
 
@@ -10177,7 +10465,6 @@
     const list = document.getElementById('selfDiffList');
     const count = document.getElementById('selfDiffCount');
     const branchEl = document.getElementById('selfBranch');
-    if (!list) return;
     let doc = {files: [], branch: '?'};
     try {
       const u = `/api/diff?repo=${encodeURIComponent(SELF_REPO_PATH)}&type=uncommitted&exclude=repositories`;
@@ -10186,35 +10473,55 @@
     } catch {}
     if (branchEl) branchEl.textContent = 'branch ' + (doc.branch || '?');
     const files = doc.files || [];
+    if (!list) return doc;
     count.textContent = files.length ? `${files.length} file${files.length === 1 ? '' : 's'}` : '';
     if (files.length === 0) {
       list.innerHTML = '<li class="s-empty">Working tree clean.</li>';
-      return;
+      return doc;
     }
-    list.innerHTML = files.map(f => `
-      <li class="s-file" data-file="${selfEsc(f.filename)}">
-        <span class="fname">${selfEsc(f.filename)}</span>
-        <span class="stats">
-          <span class="adds">+${f.additions || 0}</span>
-          <span class="dels">−${f.deletions || 0}</span>
-        </span>
-      </li>`).join('');
+    const groups = new Map();
+    files.forEach(f => {
+      const area = selfAreaForFile(f.filename);
+      const group = groups.get(area.key) || {area, files: [], additions: 0, deletions: 0};
+      group.files.push(f);
+      group.additions += f.additions || 0;
+      group.deletions += f.deletions || 0;
+      groups.set(area.key, group);
+    });
+    const sorted = Array.from(groups.values()).sort((a, b) => a.area.rank - b.area.rank);
+    list.innerHTML = sorted.map(group => {
+      const filesHtml = group.files.slice(0, 8).map(f => {
+        const safePath = f.filename.replace(/'/g, "\\'");
+        const isDeleted = f.status === 'deleted';
+        const name = selfEsc(f.filename);
+        const fileLabel = isDeleted
+          ? `<span class="s-file-link disabled">${name}</span>`
+          : `<button type="button" class="s-file-link" onclick="openProjectDoc('${safePath}')">${name}</button>`;
+        return `<li class="s-area-file">${fileLabel}<span class="stats"><span class="adds">+${f.additions || 0}</span><span class="dels">-${f.deletions || 0}</span></span></li>`;
+      }).join('');
+      const more = group.files.length > 8 ? `<li class="s-area-more">+${group.files.length - 8} more</li>` : '';
+      return `<li class="s-area">
+        <div class="s-area-head"><strong>${selfEsc(group.area.label)}</strong><span>${group.files.length} file${group.files.length === 1 ? '' : 's'}</span><span class="stats"><span class="adds">+${group.additions}</span><span class="dels">-${group.deletions}</span></span></div>
+        <ul class="s-area-files">${filesHtml}${more}</ul>
+      </li>`;
+    }).join('');
+    return doc;
   }
 
   async function selfRefreshCommits() {
     const list = document.getElementById('selfCommitsList');
     const count = document.getElementById('selfCommitsCount');
-    if (!list) return;
     let commits = [];
     try {
       const u = `/api/commits?repo=${encodeURIComponent(SELF_REPO_PATH)}&count=30&exclude=repositories`;
       const r = await fetch(u);
       if (r.ok) commits = await r.json();
     } catch {}
+    if (!list) return commits;
     count.textContent = commits.length ? `${commits.length}` : '';
     if (commits.length === 0) {
       list.innerHTML = '<li class="s-empty">No commits yet.</li>';
-      return;
+      return commits;
     }
     list.innerHTML = commits.map(c => `
       <li class="s-commit" data-sha="${selfEsc(c.sha)}">
@@ -10222,12 +10529,14 @@
         <span class="msg">${selfEsc(c.message || '')}</span>
         <span class="who">${selfEsc(c.author || '')} · ${selfEsc(c.date || '')}</span>
       </li>`).join('');
+    return commits;
   }
 
   // Terminal panel for the Productivity pseudo-project: claude session at repo root.
   // Terminal panel for the Productivity pseudo-project: sessions rooted at the
   // repo root. Mirrors termOpenForCerebro() exactly, substituting SELF_PROJECT_ID.
   async function termOpenForSelf() {
+    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
 
@@ -10239,7 +10548,7 @@
       termRenderSessionList();
       if (termSessions.length > 0) {
         const pick = _termPickRestoreName(SELF_PROJECT_ID);
-        if (pick) termAttach(pick);
+        if (pick) termAttach(pick, SELF_PROJECT_ID);
       } else {
         termDetach();
         termShowEmpty();
@@ -10252,17 +10561,20 @@
     }
 
     await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
+    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
 
     let saved = [];
     try {
       const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(SELF_PROJECT_ID));
       if (r.ok) saved = await r.json();
     } catch {}
+    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
     const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(SELF_PROJECT_ID);
+    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
@@ -10274,11 +10586,12 @@
         }),
       }).catch(() => null)));
       await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
+      if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
     }
 
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(SELF_PROJECT_ID);
-      if (pick) termAttach(pick);
+      if (pick) termAttach(pick, SELF_PROJECT_ID);
     } else if (projectAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       await fetch('/api/term/sessions', {
@@ -10287,7 +10600,8 @@
         body: JSON.stringify({ project_id: SELF_PROJECT_ID, kind: 'claude', auto: true }),
       }).catch(() => null);
       await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
-      if (termSessions.length > 0) termAttach(termSessions[0].name);
+      if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
+      if (termSessions.length > 0) termAttach(termSessions[0].name, SELF_PROJECT_ID);
     } else {
       termDetach();
       termShowEmpty();
@@ -10684,6 +10998,7 @@
 
   // Terminal panel for the Logs pseudo-project: sessions rooted at logs/.
   async function termOpenForLogs() {
+    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
 
@@ -10693,7 +11008,7 @@
       termRenderSessionList();
       if (termSessions.length > 0) {
         const pick = _termPickRestoreName(LOGS_PROJECT_ID);
-        if (pick) termAttach(pick);
+        if (pick) termAttach(pick, LOGS_PROJECT_ID);
       } else {
         termDetach();
         termShowEmpty();
@@ -10706,17 +11021,20 @@
     }
 
     await termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
+    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
 
     let saved = [];
     try {
       const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(LOGS_PROJECT_ID));
       if (r.ok) saved = await r.json();
     } catch {}
+    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
     const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(LOGS_PROJECT_ID);
+    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
@@ -10732,11 +11050,12 @@
         }),
       }).catch(() => null)));
       await termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
+      if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
     }
 
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(LOGS_PROJECT_ID);
-      if (pick) termAttach(pick);
+      if (pick) termAttach(pick, LOGS_PROJECT_ID);
     } else if (projectAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       await fetch('/api/term/sessions', {
@@ -10749,7 +11068,8 @@
         }),
       }).catch(() => null);
       await termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
-      if (termSessions.length > 0) termAttach(termSessions[0].name);
+      if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
+      if (termSessions.length > 0) termAttach(termSessions[0].name, LOGS_PROJECT_ID);
     } else {
       termDetach();
       termShowEmpty();
@@ -10763,6 +11083,7 @@
   // Terminal panel for the Knowledge pseudo-project: claude session rooted at knowledge/.
   async function termOpenForCerebro() {
     // Mirror termOpenForProject, but wired to the __cerebro__ pseudo-project.
+    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
 
@@ -10773,7 +11094,7 @@
       termRenderSessionList();
       if (termSessions.length > 0) {
         const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
-        if (pick) termAttach(pick);
+        if (pick) termAttach(pick, CEREBRO_PROJECT_ID);
       } else {
         termDetach();
         termShowEmpty();
@@ -10787,17 +11108,20 @@
 
     // Fetch the saved sessions for __cerebro__ and restore them.
     await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
+    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
 
     let saved = [];
     try {
       const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(CEREBRO_PROJECT_ID));
       if (r.ok) saved = await r.json();
     } catch {}
+    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
     const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(CEREBRO_PROJECT_ID);
+    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
@@ -10813,11 +11137,12 @@
         }),
       }).catch(() => null)));
       await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
+      if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
     }
 
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
-      if (pick) termAttach(pick);
+      if (pick) termAttach(pick, CEREBRO_PROJECT_ID);
     } else if (projectAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       // Call termSpawnSession-style, but using CEREBRO_PROJECT_ID.
@@ -10831,7 +11156,8 @@
         }),
       }).catch(() => null);
       await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
-      if (termSessions.length > 0) termAttach(termSessions[0].name);
+      if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
+      if (termSessions.length > 0) termAttach(termSessions[0].name, CEREBRO_PROJECT_ID);
     } else {
       termDetach();
       termShowEmpty();
@@ -10891,6 +11217,13 @@
           lastTs = event.ts;
           if (document.body.classList.contains('home-active')) {
             renderHomePanel();
+          } else if (document.body.classList.contains('self-active')
+                     && !currentRepo && !_projDocEditing) {
+            if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
+            else {
+              selfRefreshWorkbench();
+              selfPopulateSidebar();
+            }
           } else if (currentProject && currentProject.is_project
                      && !currentRepo && !_projDocEditing) {
             if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});

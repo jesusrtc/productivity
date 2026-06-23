@@ -129,7 +129,7 @@ Your answer: `_____`
 
 ## What stays out of this effort
 
-- `apps/darwin-backups`, `apps/trustim-ir-cli` — separate CLIs, not web. Stay as they are. (`apps/darwin-runner` was retired — see `docs/DARWIN.md`.)
+- Separate personal/client CLIs do not belong in the framework repo's `apps/` tree. `apps/` is now reserved for workspace-owned apps created inside a Lab workspace; framework code lives under `core/` and `core/cli/`.
 - `repositories/` + `make pull-repos` — works as-is.
 - `lab` CLI subcommands — no surface change.
 - Existing migrated content under `content/` — untouched.

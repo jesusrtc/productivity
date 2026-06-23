@@ -17,6 +17,7 @@ projects/
 
 # Monorepo runtime
 repositories/
+.lab/state/
 
 # Log files
 *.log
@@ -48,15 +49,6 @@ projects/*/.claude/settings.local.json
 
 # Centralized server + client error logs
 logs/
-
-# Tool-app venvs + runtime artifacts
-apps/darwin-backups/downloads/
-apps/darwin-backups/venv/
-apps/darwin-backups/darwin-backups
-apps/trustim-ir-cli/build/
-apps/trustim-ir-cli/.gradle/
-apps/trustim-investigation/build/
-apps/trustim-investigation/.gradle/
 
 # Trustim skill symlinks — recreated by `lab repo refresh-skills` on
 # every `lab repo pull`. They use absolute paths into

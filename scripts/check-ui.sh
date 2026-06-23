@@ -38,7 +38,7 @@ if ! pgrep -f "core/.venv/bin/python -m core" >/dev/null 2>&1; then
   make start-bg >/dev/null
   STARTED_BY_US=1
   # Give uvicorn a moment to finish lifespan startup. Re-resolve the URL
-  # because the server only writes .lab-server.port once it's listening.
+  # because the server only writes the workspace-local port file once it's listening.
   for _ in 1 2 3 4 5; do
     PING_URL="$("$REPO_ROOT/scripts/lab-url.sh")/api/ping"
     if curl -sS -o /dev/null -w '%{http_code}\n' "$PING_URL" 2>/dev/null | grep -q '^200$'; then

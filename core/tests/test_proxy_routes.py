@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from starlette.datastructures import URL
 
 from core.routes.proxy import _is_self_proxy, _self_proxy_response
+from lab import paths
 
 
 def _conn(url: str, server=("127.0.0.1", 8080)):
@@ -60,5 +61,5 @@ def test_unreachable_proxy_placeholder_does_not_enter_error_log(
 
     assert response.status_code == 502
     assert b"Dev server not reachable" in response.content
-    errors = _jsonl(monorepo / "logs" / "errors.log")
+    errors = _jsonl(paths.logs_dir(monorepo) / "errors.log")
     assert not any(r.get("path") == "/api/proxy/demo/missing/" for r in errors)

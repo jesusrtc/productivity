@@ -26,6 +26,7 @@
   html.loading .no-repo { display: none; }
   a { color: var(--accent); }
   .topbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; z-index: 100; border-bottom: 1px solid var(--border); gap: 12px; }
+  .workspace-select { max-width: 180px; min-width: 130px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
   .home-link { color: var(--text-primary); text-decoration: none; font-weight: 600; }
   .home-view, .s-view, .k-view, .cs-view, .logs-view { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; background: var(--bg-primary); overflow: auto; }
   body.home-active .home-view { display: block; }
@@ -116,6 +117,9 @@
 
 <div class="topbar">
   <a href="/" class="home-link" id="homeLink" onclick="goHome(event)">Home</a>
+  <select id="workspaceSelect" class="workspace-select" onchange="workspaceUse(this.value)" title="Workspace" aria-label="Workspace">
+    <option value="">Workspace...</option>
+  </select>
   <!-- Chrome-style tab strip. Tabs = projects with ≥1 live tmux session,
        plus the currently-viewed project (even if it has no sessions yet).
        X on a tab kills every tmux session for that project, freeing memory. -->
@@ -287,44 +291,6 @@
   </div>
 </div>
 
-<!-- Productivity self-view: tasks + uncommitted diff + commits. Active when ?view=productivity. -->
-<div class="s-view" id="selfView">
-  <div class="s-inner">
-    <div class="s-head">
-      <h1>🛠️ Productivity</h1>
-      <span class="branch" id="selfBranch">…</span>
-    </div>
-    <div class="s-section" id="selfTasksSection">
-      <h2>Tasks <span class="count" id="selfTasksCount"></span>
-        <button class="refresh-btn" onclick="selfRefreshTasks()">⟳ reload</button>
-      </h2>
-      <ul class="s-tasks" id="selfTasksList"></ul>
-      <form class="s-task-form" id="selfTaskForm" onsubmit="return selfAddTask(event)">
-        <input type="text" id="selfTaskTitle" placeholder="New task title…" required />
-        <select id="selfTaskPriority">
-          <option value="P2" selected>P2</option>
-          <option value="P0">P0</option>
-          <option value="P1">P1</option>
-          <option value="P3">P3</option>
-        </select>
-        <button type="submit">Add</button>
-      </form>
-    </div>
-    <div class="s-section" id="selfDiffSection">
-      <h2>Uncommitted changes <span class="count" id="selfDiffCount"></span>
-        <button class="refresh-btn" onclick="selfRefreshDiff()">⟳ reload</button>
-      </h2>
-      <ul class="s-files" id="selfDiffList"></ul>
-    </div>
-    <div class="s-section" id="selfCommitsSection">
-      <h2>Recent commits <span class="count" id="selfCommitsCount"></span>
-        <button class="refresh-btn" onclick="selfRefreshCommits()">⟳ reload</button>
-      </h2>
-      <ul class="s-commits" id="selfCommitsList"></ul>
-    </div>
-  </div>
-</div>
-
 <!-- Home view: dashboard + timeline + search. Active when no ?project= or ?repo=. -->
 <div class="home-view" id="homeView">
   <div class="home-tabs">
@@ -401,22 +367,47 @@
   <div class="sidebar-resizer" id="sidebarResizer" title="Drag to resize the files sidebar"></div>
   <div class="main" id="content">
     {% if INITIAL_VIEW == 'productivity' %}
-    <div class="s-inner">
+    <div class="s-inner self-workbench">
       <div class="s-head">
-        <h1>Productivity</h1>
+        <h1>Lab Workbench</h1>
         <span class="branch" id="selfBranch">...</span>
       </div>
+      <div class="s-toolbar">
+        <button class="refresh-btn" onclick="selfRefreshWorkbench()">Refresh</button>
+      </div>
+      <div class="s-summary" id="selfSummary">
+        <div class="s-metric"><span>Open tasks</span><strong>...</strong></div>
+        <div class="s-metric"><span>Changed files</span><strong>...</strong></div>
+        <div class="s-metric"><span>Tests touched</span><strong>...</strong></div>
+        <div class="s-metric"><span>Last commit</span><strong>...</strong></div>
+      </div>
+      <div class="s-workbench-grid">
+      <div class="s-section" id="selfAttentionSection">
+        <h2>Attention</h2>
+        <ul class="s-attention" id="selfAttentionList"><li class="s-empty">Loading...</li></ul>
+      </div>
       <div class="s-section" id="selfTasksSection">
-        <h2>Tasks <span class="count" id="selfTasksCount"></span></h2>
+        <h2>Open tasks <span class="count" id="selfTasksCount"></span></h2>
         <ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>
+        <form class="s-task-form" id="selfTaskForm" onsubmit="return selfAddTask(event)">
+          <input type="text" id="selfTaskTitle" placeholder="New task title..." required />
+          <select id="selfTaskPriority">
+            <option value="P2" selected>P2</option>
+            <option value="P0">P0</option>
+            <option value="P1">P1</option>
+            <option value="P3">P3</option>
+          </select>
+          <button type="submit">Add</button>
+        </form>
       </div>
       <div class="s-section" id="selfDiffSection">
-        <h2>Uncommitted changes <span class="count" id="selfDiffCount"></span></h2>
+        <h2>Changed areas <span class="count" id="selfDiffCount"></span></h2>
         <ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>
       </div>
       <div class="s-section" id="selfCommitsSection">
         <h2>Recent commits <span class="count" id="selfCommitsCount"></span></h2>
         <ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>
+      </div>
       </div>
     </div>
     {% elif INITIAL_VIEW == 'project' or INITIAL_VIEW == 'repo' %}
@@ -758,7 +749,10 @@
   </div>
 </div>
 
-<script>window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};</script>
+<script>
+  window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};
+  window.LAB_DEV_MODE = {{ LAB_DEV_MODE | tojson }};
+</script>
 <script>
   (function () {
     function installLabAmdShim() {

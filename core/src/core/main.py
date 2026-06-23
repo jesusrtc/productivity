@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from core import config
+from lab import paths as lab_paths
 from core.routes import appstate as appstate_route
 from core.routes import cerebro as cerebro_route
 from core.routes import code_search as code_search_route
@@ -33,6 +37,7 @@ from core.routes import settings as settings_route
 from core.routes import task as task_route
 from core.routes import term as term_route
 from core.routes import ui as ui_route
+from core.routes import workspace as workspace_route
 from core.routes import ws as ws_route
 from core.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
 from core.watcher import IndexWatcher
@@ -100,6 +105,98 @@ class _JsonFormatter(logging.Formatter):
 _log_file_handlers: list[logging.Handler] = []
 
 
+def _detach_file_logging() -> None:
+    """Remove and close Lab's workspace-local file handlers."""
+    root_logger = logging.getLogger()
+    for h in _log_file_handlers:
+        root_logger.removeHandler(h)
+        h.close()
+    _log_file_handlers.clear()
+
+
+def _attach_file_logging(root: Path) -> Path:
+    """Attach split JSONL file handlers for one active workspace."""
+    _detach_file_logging()
+    log_dir = lab_paths.logs_dir(root)
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Split files. The root logger's effective level needs to allow INFO
+    # through so the info-level split handlers see anything at all, but each
+    # handler's level/filter still does the routing.
+    root_logger = logging.getLogger()
+    if root_logger.level > logging.INFO or root_logger.level == logging.NOTSET:
+        root_logger.setLevel(logging.INFO)
+
+    def _make(name: str, level: int, flt) -> logging.Handler:
+        handler = logging.FileHandler(log_dir / name, encoding="utf-8")
+        handler.setLevel(level)
+        handler.setFormatter(_JsonFormatter())
+        handler.addFilter(flt)
+        root_logger.addHandler(handler)
+        _log_file_handlers.append(handler)
+        return handler
+
+    _make("backend.log", logging.INFO, _backend_all_filter)
+    _make("frontend.log", logging.INFO, _frontend_all_filter)
+    _make("errors.log", logging.ERROR, _errors_only_filter)
+    return log_dir
+
+
+def _write_port_file(root: Path) -> Path:
+    port_file = lab_paths.port_file(root)
+    try:
+        port_file.parent.mkdir(parents=True, exist_ok=True)
+        port_file.write_text(f"{config.port()}\n")
+    except OSError:
+        # Best effort; startup/switching should not fail because the port
+        # discovery file could not be written.
+        pass
+    return port_file
+
+
+def _remove_port_file(app: FastAPI) -> None:
+    port_file = getattr(app.state, "workspace_port_file", None)
+    if port_file is None:
+        return
+    try:
+        Path(port_file).unlink(missing_ok=True)
+    except OSError:
+        pass
+    app.state.workspace_port_file = None
+
+
+def _stop_workspace_runtime(app: FastAPI) -> None:
+    watcher = getattr(app.state, "index_watcher", None)
+    if watcher is not None:
+        watcher.stop()
+        app.state.index_watcher = None
+    _remove_port_file(app)
+    _detach_file_logging()
+
+
+def _start_workspace_runtime(app: FastAPI, root: Path, loop) -> None:
+    root = root.expanduser().resolve()
+    _attach_file_logging(root)
+    port_file = _write_port_file(root)
+
+    cache = IndexCache(root)
+    cache.rebuild()
+
+    def on_rebuild(_data) -> None:
+        event = IndexUpdatedEvent(
+            ts=datetime.now(tz=timezone.utc).astimezone().isoformat(timespec="seconds")
+        )
+        asyncio.run_coroutine_threadsafe(app.state.ws_broadcaster.publish(event), loop)
+
+    watcher = IndexWatcher(root, cache, debounce_ms=config.DEBOUNCE_MS, on_rebuild=on_rebuild)
+    watcher.start()
+
+    app.state.index_cache = cache
+    app.state.index_watcher = watcher
+    app.state.workspace_root = root
+    app.state.workspace_port_file = port_file
+
+
 # ── Split-file filters ──────────────────────────────────────────────────────
 # Backend vs. frontend is decided by the ``source`` extra (default "server").
 # Errors vs. non-errors is decided by levelno.
@@ -157,6 +254,8 @@ async def _request_log_middleware(request: Request, call_next):
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     route = getattr(request.scope.get("route"), "path", None)
     final_path = request.scope.get("path") or start_path
+    if request.method == "GET" and final_path == "/" and code < 400:
+        return response
     extra = {
         "method": request.method,
         "path_info": final_path,
@@ -264,6 +363,12 @@ async def _proxy_referer_rewrite(request: Request, call_next):
 _PKG_DIR = Path(__file__).parent
 _STATIC_DIR = _PKG_DIR / "static"
 _TEMPLATES_DIR = _PKG_DIR / "templates"
+try:
+    _INDEX_TEMPLATE_CHECK_INTERVAL_S = max(
+        1.0, float(os.environ.get("LAB_INDEX_TEMPLATE_CHECK_INTERVAL_S", "30"))
+    )
+except ValueError:
+    _INDEX_TEMPLATE_CHECK_INTERVAL_S = 30.0
 
 
 class _ImmutableStaticFiles(StaticFiles):
@@ -285,71 +390,22 @@ class _ImmutableStaticFiles(StaticFiles):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     root = config.monorepo_root()
-
-    # ── File logging setup ──────────────────────────────────────────────────
-    # The app writes exactly three JSONL files under ``logs/``:
-    #
-    #   backend.log   — backend INFO+ regular log.
-    #   frontend.log  — client-side INFO+ regular log.
-    #   errors.log    — ERROR+ only across frontend and backend.
-    #
-    # There is deliberately no legacy combined log and no source-specific
-    # error log. ``source`` is "server" for backend records and "client" for
-    # events POSTed by the browser via routes/log.py.
-    log_dir = root / "logs"
-    log_dir.mkdir(exist_ok=True)
-
-    # Split files. The root logger's effective level needs to allow INFO
-    # through so the info-level split handlers see anything at all — but we
-    # leave each handler's own level/filter to do the gating, so the console
-    # output uvicorn already configured is unaffected.
-    root_logger = logging.getLogger()
-    if root_logger.level > logging.INFO or root_logger.level == logging.NOTSET:
-        root_logger.setLevel(logging.INFO)
-
-    _log_file_handlers.clear()
-
-    def _make(name: str, level: int, flt) -> logging.Handler:
-        handler = logging.FileHandler(log_dir / name, encoding="utf-8")
-        handler.setLevel(level)
-        handler.setFormatter(_JsonFormatter())
-        handler.addFilter(flt)
-        root_logger.addHandler(handler)
-        _log_file_handlers.append(handler)
-        return handler
-
-    _make("backend.log", logging.INFO, _backend_all_filter)
-    _make("frontend.log", logging.INFO, _frontend_all_filter)
-    _make("errors.log", logging.ERROR, _errors_only_filter)
-
-    # Drop the running port to disk so other tools (lab CLI, scripts, Claude
-    # curl examples) can discover it without hardcoding 3333. Removed in the
-    # finally block on shutdown.
-    port_file = root / ".lab-server.port"
-    try:
-        port_file.write_text(f"{config.port()}\n")
-    except OSError:
-        # Best effort — don't block startup if the FS is read-only or full.
-        pass
-
-    cache = IndexCache(root)
     broadcaster = WsBroadcaster()
-
-    cache.rebuild()
-
-    import asyncio
     loop = asyncio.get_running_loop()
-
-    def on_rebuild(_data) -> None:
-        event = IndexUpdatedEvent(ts=datetime.now(tz=timezone.utc).astimezone().isoformat(timespec="seconds"))
-        asyncio.run_coroutine_threadsafe(broadcaster.publish(event), loop)
-
-    watcher = IndexWatcher(root, cache, debounce_ms=config.DEBOUNCE_MS, on_rebuild=on_rebuild)
-    watcher.start()
-
-    app.state.index_cache = cache
     app.state.ws_broadcaster = broadcaster
-    app.state.index_watcher = watcher
+    app.state.workspace_switch_lock = threading.Lock()
+
+    def switch_workspace(next_root: Path) -> None:
+        next_root = next_root.expanduser().resolve()
+        with app.state.workspace_switch_lock:
+            current = getattr(app.state, "index_cache", None)
+            if current is not None and Path(current.root).resolve() == next_root:
+                return
+            _stop_workspace_runtime(app)
+            _start_workspace_runtime(app, next_root, loop)
+
+    app.state.switch_workspace = switch_workspace
+    _start_workspace_runtime(app, root, loop)
 
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
@@ -368,16 +424,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        watcher.stop()
-        try:
-            port_file.unlink(missing_ok=True)
-        except OSError:
-            pass
-        # Remove and close the file handlers to flush any buffered records.
-        for h in _log_file_handlers:
-            logging.getLogger().removeHandler(h)
-            h.close()
-        _log_file_handlers.clear()
+        _stop_workspace_runtime(app)
 
 
 def create_app() -> FastAPI:
@@ -429,6 +476,7 @@ def create_app() -> FastAPI:
     app.include_router(term_route.router)
     app.include_router(cerebro_route.router)
     app.include_router(ui_route.router)
+    app.include_router(workspace_route.router)
     app.include_router(log_route.router)
     app.include_router(git_route.router)
     app.include_router(proxy_route.router)
@@ -460,6 +508,13 @@ def create_app() -> FastAPI:
         repo = params.get("repo") or ""
 
         if view == "productivity":
+            if not config.dev_mode():
+                return {
+                    "INITIAL_VIEW": "home",
+                    "INITIAL_BODY_CLASS": "home-active",
+                    "INITIAL_PROJECT_NAME": "",
+                    "INITIAL_IS_REPO": False,
+                }
             return {
                 "INITIAL_VIEW": "productivity",
                 "INITIAL_BODY_CLASS": "self-active",
@@ -514,7 +569,7 @@ def create_app() -> FastAPI:
         mtime = _index_cache["mtime"]
         now = time.monotonic()
         if now >= _index_cache["check_after"]:
-            _index_cache["check_after"] = now + 1.0
+            _index_cache["check_after"] = now + _INDEX_TEMPLATE_CHECK_INTERVAL_S
             try:
                 mtime = tpl_file.stat().st_mtime_ns
             except OSError:
@@ -525,6 +580,7 @@ def create_app() -> FastAPI:
             state["INITIAL_BODY_CLASS"],
             state["INITIAL_PROJECT_NAME"],
             state["INITIAL_IS_REPO"],
+            config.dev_mode(),
         )
         if mtime is None or _index_cache["mtime"] != mtime:
             _index_cache["bytes_by_key"] = {}
@@ -532,7 +588,8 @@ def create_app() -> FastAPI:
         bytes_by_key = _index_cache["bytes_by_key"]
         if key not in bytes_by_key:
             html = templates.get_template("index.html").render(
-                MONOREPO_ROOT=str(root),
+                MONOREPO_ROOT=str(lab_paths.find_framework_root() if config.dev_mode() else root),
+                LAB_DEV_MODE=config.dev_mode(),
                 **state,
             )
             bytes_by_key[key] = _compact_index_html(html).encode("utf-8")
@@ -657,6 +714,7 @@ def run() -> None:
         "host": config.host(),
         "port": config.port(),
         "reload": reload,
+        "access_log": False,
         "timeout_graceful_shutdown": 5,
         # Terminal traffic is hundreds of tiny frames per second; permessage-
         # deflate buys nothing on localhost and adds per-frame compression

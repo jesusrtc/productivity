@@ -1,8 +1,0 @@
-{
-  "name": "trustim-investigation",
-  "version": "1.0.0",
-  "description": "Skills and tools for Trust/Safety IR investigation during oncall, leveraging Trino queries, DAVI widgets, Darwin notebook execution, and im_playbooks",
-  "author": {
-    "name": "crew 567"
-  }
-}

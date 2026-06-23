@@ -5,22 +5,27 @@ import subprocess
 from pathlib import Path
 
 
-def _monorepo_root() -> Path:
+def _monorepo_root(root: str | Path | None = None) -> Path:
     """Best-effort monorepo root.
 
-    Honors ``LAB_ROOT`` (so tests can point at a fixture tree). Otherwise falls
-    back to the package's filesystem location: this module lives at
+    Honors an explicit root, ``LAB_WORKSPACE``, then ``LAB_ROOT`` (so tests can
+    point at a fixture tree). Otherwise falls back to the package's filesystem location: this module lives at
     ``<root>/core/src/core/diff_parser.py``, so the root is three
     levels above the package dir.
     """
+    if root is not None:
+        return Path(root)
+    env_workspace = os.environ.get("LAB_WORKSPACE")
+    if env_workspace:
+        return Path(env_workspace)
     env_root = os.environ.get("LAB_ROOT")
     if env_root:
         return Path(env_root)
     return Path(__file__).resolve().parents[3]
 
 
-def _projects_dir() -> Path:
-    return _monorepo_root() / "projects"
+def _projects_dir(root: str | Path | None = None) -> Path:
+    return _monorepo_root(root) / "projects"
 
 
 def get_branch(repo: str) -> str:
@@ -37,7 +42,7 @@ def get_branch(repo: str) -> str:
 def _exclude_pathspecs(exclude_paths: list[str] | None) -> list[str]:
     """Convert plain path prefixes into git pathspec excludes.
 
-    Given ``["repositories", "apps/darwin-backups/downloads"]`` returns
+    Given ``["repositories", "tmp/downloads"]`` returns
     the pathspec tail ``["--", ".", ":(exclude)repositories", ...]`` that
     git log/diff/status/... accept to narrow the set of tracked paths.
 
@@ -363,7 +368,7 @@ def get_file_tree(repo: str) -> list[dict]:
     return root
 
 
-def _discover_monorepo_projects() -> list[dict]:
+def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
     """Scan <monorepo>/projects/*/project.json and return project dicts.
 
     Shape matches what the UI expects:
@@ -373,11 +378,11 @@ def _discover_monorepo_projects() -> list[dict]:
     {mp, dir, branch}). The `dir` entry is assumed to be either an absolute
     path or a path relative to the monorepo root.
     """
-    projects_dir = _projects_dir()
+    projects_dir = _projects_dir(root)
     if not projects_dir.is_dir():
         return []
 
-    mono_root = _monorepo_root()
+    mono_root = _monorepo_root(root)
     out: list[dict] = []
     for proj_dir in sorted(projects_dir.iterdir()):
         if not proj_dir.is_dir():
@@ -449,7 +454,7 @@ def _discover_monorepo_projects() -> list[dict]:
     return out
 
 
-def get_registered_repos() -> list[dict]:
+def get_registered_repos(root: str | Path | None = None) -> list[dict]:
     """Return project dicts the UI expects.
 
     Primary source: auto-discovered projects from
@@ -461,7 +466,7 @@ def get_registered_repos() -> list[dict]:
     Each entry:
       {"name": str, "is_project": bool, "path": str, "repos": [str]}
     """
-    monorepo_projects = _discover_monorepo_projects()
+    monorepo_projects = _discover_monorepo_projects(root)
     if monorepo_projects:
         return monorepo_projects
 

@@ -12,7 +12,7 @@ import os
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -173,8 +173,8 @@ def api_tree(repo: str):
 
 
 @router.get("/api/repos")
-def api_repos():
-    projects = get_registered_repos()
+def api_repos(request: Request):
+    projects = get_registered_repos(request.app.state.index_cache.root)
     result = []
     for proj in projects:
         repos = []

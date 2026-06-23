@@ -41,6 +41,7 @@
   /* Top bar */
   .topbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; z-index: 100; border-bottom: 1px solid var(--border); gap: 12px; }
   .topbar select { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+  .workspace-select { max-width: 180px; min-width: 130px; flex: 0 0 auto; }
   .topbar .branch { color: var(--text-secondary); font-size: 13px; }
 
   /* Chrome-style project tabs. Tabs appear when a project has live tmux
@@ -1139,6 +1140,18 @@
   .s-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
   .s-head h1 { font-size: 22px; margin: 0; }
   .s-head .branch { color: var(--text-dim); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .self-workbench { max-width: 1280px; }
+  .s-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -6px 0 14px; }
+  .s-toolbar .refresh-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .s-toolbar .refresh-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+  .s-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .s-metric { min-height: 58px; border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 6px; padding: 9px 12px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+  .s-metric span { color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .s-metric strong { color: var(--text-primary); font-size: 22px; line-height: 1; }
+  .s-metric em { color: var(--yellow); font-style: normal; font-size: 11px; }
+  .s-workbench-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; align-items: start; }
+  .s-workbench-grid .s-section { min-width: 0; }
+  .s-workbench-grid #selfDiffSection { grid-row: span 2; }
   .s-section { margin-bottom: 28px; }
   .s-section h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 10px; }
   .s-section h2 .count { color: var(--text-dim); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 12px; margin-left: 6px; }
@@ -1174,6 +1187,32 @@
   .s-file .stats .adds { color: var(--green); }
   .s-file .stats .dels { color: var(--red); }
   .s-empty { color: var(--text-dim); font-size: 12px; padding: 12px 4px; font-style: italic; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .s-attention { list-style: none; padding: 0; margin: 0; }
+  .s-attention-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px 10px; padding: 8px; border-bottom: 1px solid var(--border); cursor: default; }
+  .s-attention-row[onclick] { cursor: pointer; }
+  .s-attention-row:hover { background: var(--bg-secondary); }
+  .s-attention-kind { grid-row: span 2; color: var(--accent); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .s-attention-title { color: var(--text-primary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s-attention-meta { color: var(--text-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s-area { list-style: none; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow: hidden; background: var(--bg-secondary); }
+  .s-area-head { display: grid; grid-template-columns: minmax(90px, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .s-area-head strong { color: var(--text-primary); }
+  .s-area-head > span { color: var(--text-secondary); }
+  .s-area-files { list-style: none; padding: 4px 0; margin: 0; }
+  .s-area-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 10px; font-size: 12px; }
+  .s-file-link { min-width: 0; border: none; background: transparent; color: var(--text-primary); padding: 0; text-align: left; font: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s-file-link:hover { color: var(--accent); }
+  .s-file-link.disabled { color: var(--text-dim); cursor: default; }
+  .s-area-file .stats, .s-area-head .stats { display: inline-flex; gap: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-dim); }
+  .s-area-file .adds, .s-area-head .adds { color: var(--green); }
+  .s-area-file .dels, .s-area-head .dels { color: var(--red); }
+  .s-area-more { color: var(--text-dim); font-size: 11px; padding: 3px 10px 6px; }
+
+  @media (max-width: 980px) {
+    .s-summary { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    .s-workbench-grid { grid-template-columns: 1fr; }
+    .s-workbench-grid #selfDiffSection { grid-row: auto; }
+  }
 
   .s-commits { list-style: none; padding: 0; margin: 0; }
   .s-commit { padding: 7px 8px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }

@@ -1,9 +1,0 @@
----
-trigger: always_on
----
-
-- Read the entire file of `.linkedin/ai-agent/architecture.md` for information about what the repo does.
-- Before generating tests, always read the entire file `.linkedin/ai-agent/test.md` for detailed instructions and
-  context.
-- For non-test code only, adhere to common coding patterns and styles outlined in `.linkedin/ai-agent/coding-pattern.md`
-  and `.linkedin/ai-agent/style.md`.

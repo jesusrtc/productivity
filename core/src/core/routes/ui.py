@@ -5,9 +5,8 @@ browsers / machines (so localStorage isn't the right place). Today that's
 the tab-strip order, pseudo-tab open state, and per-project terminal
 auto-spawn suppression; future: pinned projects, theme per-project, etc.
 
-State lives in ``content/.ui-state.json``. The watcher's self-write guard
-already ignores dotfiles under ``content/`` that start with ``.`` — writes
-here don't trigger index rebuilds.
+State lives in workspace-local ``.lab/state/ui-state.json`` so switching
+workspaces does not reuse stale frontend state.
 """
 from __future__ import annotations
 
@@ -17,18 +16,32 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from core import config
+
 
 router = APIRouter()
 
-_PSEUDO_TAB_IDS = {"__logs__"}
+_ALWAYS_PSEUDO_TAB_IDS = {"__logs__"}
+_DEV_PSEUDO_TAB_IDS = {"__self__"}
+
+
+def _pseudo_tab_ids() -> set[str]:
+    ids = set(_ALWAYS_PSEUDO_TAB_IDS)
+    if config.dev_mode():
+        ids.update(_DEV_PSEUDO_TAB_IDS)
+    return ids
 
 
 def _state_file(root: Path) -> Path:
-    return root / "content" / ".ui-state.json"
+    from lab import paths
+    return paths.ui_state_file(root)
 
 
 def _load(root: Path) -> dict:
     p = _state_file(root)
+    legacy = root / "content" / ".ui-state.json"
+    if not p.is_file() and legacy.is_file():
+        p = legacy
     if not p.is_file():
         return {}
     try:
@@ -73,26 +86,29 @@ def set_tab_order(body: TabOrder, request: Request) -> dict:
     return {"ok": True, "order": deduped}
 
 
-def _open_pseudo_tabs(data: dict) -> list[str]:
+def _open_pseudo_tabs(data: dict, *, include_dev_defaults: bool = False) -> list[str]:
     raw = data.get("pseudo_tabs_open", [])
+    allowed = _pseudo_tab_ids()
     if not isinstance(raw, list):
-        return []
+        raw = []
     seen: set[str] = set()
     out: list[str] = []
     for tab_id in raw:
         if not isinstance(tab_id, str):
             continue
-        if tab_id not in _PSEUDO_TAB_IDS or tab_id in seen:
+        if tab_id not in allowed or tab_id in seen:
             continue
         seen.add(tab_id)
         out.append(tab_id)
+    if include_dev_defaults and "__self__" in allowed and "__self__" not in seen:
+        out.append("__self__")
     return out
 
 
 @router.get("/api/ui/pseudo-tabs")
 def get_pseudo_tabs(request: Request) -> list[str]:
     root: Path = request.app.state.index_cache.root
-    return _open_pseudo_tabs(_load(root))
+    return _open_pseudo_tabs(_load(root), include_dev_defaults=True)
 
 
 class PseudoTabState(BaseModel):
@@ -102,7 +118,7 @@ class PseudoTabState(BaseModel):
 
 @router.post("/api/ui/pseudo-tabs")
 def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
-    if body.tab_id not in _PSEUDO_TAB_IDS:
+    if body.tab_id not in _pseudo_tab_ids():
         raise HTTPException(status_code=400, detail=f"unknown pseudo tab: {body.tab_id!r}")
     root: Path = request.app.state.index_cache.root
     data = _load(root)

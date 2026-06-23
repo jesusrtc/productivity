@@ -20,9 +20,9 @@ make stop
 ```
 
 The chosen port is honored via the `LAB_PORT` env var (see `src/core/config.py`)
-and recorded in `.lab-server.port` on startup. Any tool/script/doc snippet that
-needs to call the server should resolve the URL via `scripts/lab-url.sh` rather
-than hardcoding `localhost:3333`.
+and recorded in the active workspace at `.lab/state/server.port` on startup.
+Any tool/script/doc snippet that needs to call the server should resolve the
+URL via `scripts/lab-url.sh` rather than hardcoding `localhost:3333`.
 
 ## Endpoints
 

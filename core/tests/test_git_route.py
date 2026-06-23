@@ -15,7 +15,14 @@ def _completed(returncode: int, stdout: str = "", stderr: str = "") -> subproces
     return subprocess.CompletedProcess(args=["make"], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-def test_push_productivity_success(client) -> None:
+def test_push_productivity_hidden_without_dev_mode(client) -> None:
+    r = client.post("/api/git/push-productivity")
+    assert r.status_code == 404
+    assert "dev mode" in r.json()["detail"]
+
+
+def test_push_productivity_success(client, monkeypatch) -> None:
+    monkeypatch.setenv("LAB_DEV_MODE", "1")
     with patch("core.routes.git.subprocess.run",
                return_value=_completed(0, stdout="Everything up-to-date")) as run:
         r = client.post("/api/git/push-productivity")
@@ -24,7 +31,8 @@ def test_push_productivity_success(client) -> None:
     assert run.call_args.args[0] == ["make", "push-productivity"]
 
 
-def test_push_productivity_dirty_tree_returns_409(client) -> None:
+def test_push_productivity_dirty_tree_returns_409(client, monkeypatch) -> None:
+    monkeypatch.setenv("LAB_DEV_MODE", "1")
     with patch("core.routes.git.subprocess.run",
                return_value=_completed(1, stderr="productivity: working tree is dirty. Commit changes before pushing.")):
         r = client.post("/api/git/push-productivity")
@@ -49,7 +57,8 @@ def test_sync_content_push_failure_returns_409(client) -> None:
     assert "no upstream" in r.json()["detail"]
 
 
-def test_timeout_returns_504(client) -> None:
+def test_timeout_returns_504(client, monkeypatch) -> None:
+    monkeypatch.setenv("LAB_DEV_MODE", "1")
     with patch("core.routes.git.subprocess.run",
                side_effect=subprocess.TimeoutExpired(cmd=["make"], timeout=30)):
         r = client.post("/api/git/push-productivity")

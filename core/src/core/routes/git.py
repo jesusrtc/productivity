@@ -1,6 +1,6 @@
 """Git push endpoints — invoke the Makefile push targets.
 
-Two endpoints power the dashboard's "Push productivity" / "Sync content"
+Two endpoints power the dashboard's framework push / content sync
 buttons. The Makefile is the single source of truth for what each button
 does; this module just shells out via `make <target>` and surfaces
 stdout/stderr to the UI.
@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from core import config
+from lab import paths
 
 
 router = APIRouter()
@@ -45,8 +47,10 @@ def _run_make(root: Path, target: str) -> dict:
 
 @router.post("/api/git/push-productivity")
 def push_productivity(request: Request) -> dict:
-    """Push the productivity monorepo. Errors if the working tree is dirty."""
-    root = request.app.state.index_cache.root
+    """Push the Lab framework repo. Errors if the working tree is dirty."""
+    if not config.dev_mode():
+        raise HTTPException(status_code=404, detail="framework git actions are only available in dev mode")
+    root = paths.find_framework_root()
     return _run_make(root, "push-productivity")
 
 

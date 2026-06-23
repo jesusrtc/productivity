@@ -5,13 +5,14 @@
 ls: ## list available make targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-][a-zA-Z0-9_-]*:.*##/ {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-LAB_VENV := apps/lab/.venv
+LAB_VENV := core/cli/.venv
 CORE_VENV := core/.venv
 PYTEST_STUBS := $(CURDIR)/scripts/pytest-stubs
 BIN_DIR := $(HOME)/.local/bin
 PID_FILE := .lab-server.pid
-PORT_FILE := .lab-server.port
-APP_LOG_DIR := logs
+LAB_STATE_DIR := $(if $(LAB_WORKSPACE),$(LAB_WORKSPACE)/.lab/state,.lab/state)
+PORT_FILE := $(LAB_STATE_DIR)/server.port
+APP_LOG_DIR := $(LAB_STATE_DIR)/logs
 BACKEND_LOG := $(APP_LOG_DIR)/backend.log
 FRONTEND_LOG := $(APP_LOG_DIR)/frontend.log
 ERROR_LOG := $(APP_LOG_DIR)/errors.log
@@ -20,10 +21,10 @@ PROCESS_OUTPUT := /dev/null
 #   make start PORT=4444     # canonical, all-caps
 #   make start port=4444     # lowercase accepted for muscle-memory
 # The chosen value is exported as LAB_PORT to the server subprocess and
-# recorded in $(PORT_FILE) on startup so other tools (lab CLI, scripts,
+# recorded in the active workspace's $(PORT_FILE) on startup so other tools (lab CLI, scripts,
 # Claude curl examples) discover the actual running port without hardcoding.
 # Note: ports below 1024 (e.g. 80, 443) need root to bind on macOS/Linux.
-PORT ?= $(or $(port),8080)
+PORT ?= $(or $(port),$(LAB_PORT),3333)
 CORE_CMD_PATTERN := core/.venv/bin/python -m core
 
 # ─── LaunchAgent (always-on supervision) ────────────────────────────────────
@@ -129,17 +130,14 @@ install: ## create venvs + install lab/core CLIs (requires Python 3.11+; run `ma
 	mkdir -p $(BIN_DIR); \
 	test -d $(LAB_VENV)    || "$$py" -m venv $(LAB_VENV); \
 	test -d $(CORE_VENV) || "$$py" -m venv $(CORE_VENV)
-	@$(LAB_VENV)/bin/pip install -e 'apps/lab[dev]' --quiet
-	@ln -sf $(CURDIR)/apps/lab/lab $(BIN_DIR)/lab
-	@$(CORE_VENV)/bin/pip install -e 'apps/lab' --quiet
+	@$(LAB_VENV)/bin/pip install -e 'core/cli[dev]' --quiet
+	@ln -sf $(CURDIR)/core/cli/lab $(BIN_DIR)/lab
+	@$(CORE_VENV)/bin/pip install -e 'core/cli' --quiet
 	@$(CORE_VENV)/bin/pip install -e 'core[dev]' --quiet
 	@ln -sf $(CURDIR)/core/core $(BIN_DIR)/core
 	@# `lab-server` + `gdiff` stay as muscle-memory aliases for the core server.
 	@ln -sf $(CURDIR)/core/core $(BIN_DIR)/lab-server
 	@ln -sf $(CURDIR)/core/core $(BIN_DIR)/gdiff
-	@# darwin-backups, trustim-ir-cli — symlinks only (they have their own dep management)
-	@[ -f apps/darwin-backups/darwin-backups ] && ln -sf $(CURDIR)/apps/darwin-backups/darwin-backups $(BIN_DIR)/darwin-backups || true
-	@[ -f apps/trustim-ir-cli/trustim-ir-cli ] && ln -sf $(CURDIR)/apps/trustim-ir-cli/trustim-ir-cli $(BIN_DIR)/trustim-ir-cli || true
 	@# Clean up legacy shims from the pre-unification layout (incl. retired darwin-runner).
 	@rm -f $(BIN_DIR)/lab-backend $(BIN_DIR)/darwin-runner
 	@echo "Installed lab, core (aka lab-server / gdiff) → $(BIN_DIR)/"
@@ -164,13 +162,13 @@ uninstall: ## remove installed binaries and venvs
 	@echo "Uninstalled."
 
 test: ## run isolated unit + integration tests for lab/core (skips @slow)
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest apps/lab/tests -v && \
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests -v && \
 	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v
 
 test-fast: test ## alias for `make test` (skips @slow)
 
 test-integration: ## run isolated integration tests for backend endpoints + UI events
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest apps/lab/tests/test_integration_e2e.py -v && \
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests/test_integration_e2e.py -v && \
 	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest \
 		core/tests/test_integration_e2e.py \
 		core/tests/test_frontend_terminal_ui.py \
@@ -185,7 +183,7 @@ test-slow: ## run only the @slow tests (latency budgets, reconnect storms)
 	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -m slow -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-all: ## run every isolated lab/core test, including @slow
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest apps/lab/tests -v && \
+	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests -v && \
 	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-suite: test-all ## run all unit + integration tests in isolated fixtures
@@ -193,21 +191,20 @@ test-suite: test-all ## run all unit + integration tests in isolated fixtures
 perf-prod: ## verify production page-load and terminal latency budgets against the running server
 	@node scripts/perf/lab_perf_matrix.mjs "$$(scripts/lab-url.sh)" "$${LAB_PERF_ITERATIONS:-12}"
 
-# `_stop-quiet` reliably kills the running server. Strategy:
-#   1. Kill whatever holds the port recorded in $(PORT_FILE) (port-accurate).
-#   2. Sweep any remaining server processes by command-line pattern (safety
-#      net — catches an orphaned PID whose port file got deleted, or a stale
-#      instance from a previous shell). We match on the exact module
-#      invocation so we never touch other python processes.
-# Only called when the user explicitly asks to stop / restart.
+# `_stop-quiet` reliably kills this checkout's running server without touching
+# another Lab checkout that may be running on a different port.
 _stop-quiet:
 	@running_port=$$(cat $(PORT_FILE) 2>/dev/null); \
 	if [ -n "$$running_port" ]; then \
 		pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
 		[ -n "$$pids" ] && kill -TERM $$pids 2>/dev/null || true; \
 	fi
-	@pkill -TERM -f "$(CORE_CMD_PATTERN)" 2>/dev/null || true
-	@n=0; while pgrep -f "$(CORE_CMD_PATTERN)" >/dev/null 2>&1 && [ $$n -lt 10 ]; do \
+	@if [ -f $(PID_FILE) ]; then \
+		pid=$$(cat $(PID_FILE)); \
+		[ -n "$$pid" ] && kill -TERM $$pid 2>/dev/null || true; \
+	fi
+	@n=0; pid=$$(cat $(PID_FILE) 2>/dev/null); \
+	while [ -n "$$pid" ] && kill -0 $$pid 2>/dev/null && [ $$n -lt 10 ]; do \
 		sleep 0.2; n=$$((n+1)); \
 	done
 	@running_port=$$(cat $(PORT_FILE) 2>/dev/null); \
@@ -215,54 +212,43 @@ _stop-quiet:
 		pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
 		[ -n "$$pids" ] && kill -KILL $$pids 2>/dev/null || true; \
 	fi
-	@pkill -KILL -f "$(CORE_CMD_PATTERN)" 2>/dev/null || true
+	@if [ -f $(PID_FILE) ]; then \
+		pid=$$(cat $(PID_FILE)); \
+		[ -n "$$pid" ] && kill -KILL $$pid 2>/dev/null || true; \
+	fi
 	@rm -f $(PID_FILE) $(PORT_FILE)
 
 # Background server. `make start` is always non-blocking — the server runs
-# detached, and the bound port is written to $(PORT_FILE) by the server on
+# detached, and the bound port is written to the active workspace's $(PORT_FILE) by the server on
 # startup. App logs are written by core itself to exactly:
 # $(BACKEND_LOG), $(FRONTEND_LOG), and $(ERROR_LOG).
 #
-# Single-instance / single-port rule: at most one lab server may run, on at
-# most one port. If a server is already up, the rules are:
-#   - same port → no-op, exit 0 (running `make start` from a 2nd shell
-#     doesn't clobber the first).
-#   - different port → exit 1 with a clear error. The user must either keep
-#     using the already-running port, or `make restart PORT=NNNN` to switch.
+# Port rule: this checkout starts one server per requested port. Another Lab
+# checkout can keep running on a different port for migration comparisons.
 #
 # Override the port per-run with `make start PORT=4444`. The chosen value is
 # exported as $$LAB_PORT (honored by server/config.py).
-start: ## start server in background (override port with PORT=NNNN)
-	@if pgrep -f "$(CORE_CMD_PATTERN)" >/dev/null 2>&1; then \
-		running_port=$$(cat $(PORT_FILE) 2>/dev/null || echo "$(PORT)"); \
-		running_pid=$$(pgrep -f "$(CORE_CMD_PATTERN)" | head -1); \
-		if [ "$$running_port" = "$(PORT)" ]; then \
-			echo "server is already running (pid $$running_pid) at http://localhost:$$running_port/"; \
+start: ## start server in background (override port with PORT=NNNN or LAB_PORT=NNNN)
+	@pids=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null); \
+	if [ -n "$$pids" ]; then \
+		pid=$$(cat $(PID_FILE) 2>/dev/null); \
+		if [ -n "$$pid" ] && printf '%s\n' $$pids | grep -qx "$$pid"; then \
+			echo "server is already running (pid $$pid) at http://localhost:$(PORT)/"; \
 			echo "  - tail:  make agent-tail"; \
 			echo "  - stop:  make stop"; \
-			echo "  - swap:  make restart PORT=$$running_port"; \
 			exit 0; \
-		else \
-			echo "ERROR: a lab server is already running on port $$running_port (pid $$running_pid)."; \
-			echo "       Refusing to start a second instance on port $(PORT)."; \
-			echo "       To switch ports:  make restart PORT=$(PORT)"; \
-			echo "       To keep current:  open http://localhost:$$running_port/"; \
-			exit 1; \
 		fi; \
-	elif lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "ERROR: port $(PORT) held by another process:"; \
 		lsof -nP -iTCP:$(PORT) -sTCP:LISTEN 2>/dev/null | head -5; \
 		exit 1; \
 	fi; \
 	mkdir -p $(APP_LOG_DIR); \
-	LAB_PORT=$(PORT) nohup $(CORE_VENV)/bin/python -m core >> $(PROCESS_OUTPUT) 2>&1 & echo $$! > $(PID_FILE); \
+	LAB_PORT=$(PORT) nohup $(CORE_VENV)/bin/python -m core >> $(PROCESS_OUTPUT) 2>&1 & pid=$$!; echo $$pid > $(PID_FILE); \
 	n=0; while ! lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1 && [ $$n -lt 25 ]; do \
-		if ! pgrep -f "$(CORE_CMD_PATTERN)" >/dev/null 2>&1; then break; fi; \
+		if ! kill -0 $$pid 2>/dev/null; then break; fi; \
 		sleep 0.2; n=$$((n+1)); \
 	done; \
 	if lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
-		actual=$$(pgrep -f "$(CORE_CMD_PATTERN)" | head -1); \
-		[ -n "$$actual" ] && echo $$actual > $(PID_FILE); \
 		echo "started — http://localhost:$(PORT)/   (pid $$(cat $(PID_FILE)), logs → $(BACKEND_LOG), $(FRONTEND_LOG), $(ERROR_LOG))"; \
 	else \
 		echo "server failed to start. Last app log lines:"; \
@@ -274,6 +260,10 @@ start: ## start server in background (override port with PORT=NNNN)
 # Alias kept for existing callers (lab CLI, check-ui.sh) — `start` is already
 # background, but `start-bg` still works.
 start-bg: start ## alias for `start` (kept for back-compat)
+
+run: start ## alias for `start`
+
+run-dev: dev ## alias for `dev`
 
 stop: _stop-quiet ## stop the running server
 	@if launchctl print $(AGENT_TARGET) >/dev/null 2>&1; then \
@@ -310,9 +300,10 @@ dev: ## foreground server with hot reload (Ctrl-C to stop)
 	@LAB_PORT=$(PORT) LAB_RELOAD=1 $(CORE_VENV)/bin/python -m core
 
 status: ## show server status and port holder
-	@if pgrep -f "$(CORE_CMD_PATTERN)" >/dev/null 2>&1; then \
-		running_port=$$(cat $(PORT_FILE) 2>/dev/null || echo "$(PORT)"); \
-		echo "server running: $$(pgrep -f "$(CORE_CMD_PATTERN)" | tr '\n' ' ')at http://localhost:$$running_port/"; \
+	@running_port=$$(cat $(PORT_FILE) 2>/dev/null || echo "$(PORT)"); \
+	pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
+	if [ -n "$$pids" ]; then \
+		echo "server running: $$pids at http://localhost:$$running_port/"; \
 		lsof -nP -iTCP:$$running_port -sTCP:LISTEN 2>/dev/null | tail -n +2; \
 	else \
 		echo "no server running."; \
@@ -339,7 +330,7 @@ PROGRAMMING_PORT := 8002
 T_AND_R_DIR := projects/type-and-recall
 T_AND_R_PORT := 8003
 
-start-all: start ## start core (8080) + resume/programming/type-and-recall dev servers (8001/8002/8003)
+start-all: start ## start core (3333) + resume/programming/type-and-recall dev servers (8001/8002/8003)
 	@if [ -d $(RESUME_DIR) ]; then $(MAKE) -s -C $(RESUME_DIR) serve; fi
 	@if lsof -nP -iTCP:$(PROGRAMMING_PORT) -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "programming dev server already running at http://localhost:$(PROGRAMMING_PORT)/"; \

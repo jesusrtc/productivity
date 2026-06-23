@@ -22,7 +22,11 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (root / "content" / "meetings").mkdir(parents=True)
     (root / ".git").mkdir()
     monkeypatch.setenv("LAB_ROOT", str(root))
+    monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home"))
     monkeypatch.setenv("LAB_WATCHER_OBSERVER", "polling")
+    monkeypatch.setenv("LAB_WATCHER_POLL_INTERVAL_S", "0.05")
+    if "LAB_TMUX_PREFIX" not in os.environ:
+        monkeypatch.setenv("LAB_TMUX_PREFIX", "lab-")
     monkeypatch.chdir(root)
     return root
 
@@ -218,13 +222,15 @@ def resource_snapshot() -> Iterator[Callable[[], None]]:
 def tmp_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Return the per-test app log directory.
 
-    The lifespan hook writes the three app logs under ``root / "logs"``; this
-    fixture centralizes that path for tests that need direct file assertions.
+    The lifespan hook writes the three app logs under workspace-local
+    ``.lab/state/logs``; this fixture centralizes that path for tests that
+    need direct file assertions.
     """
-    # Lifespan creates logs/ under LAB_ROOT; this just computes the path
+    # Lifespan creates logs under workspace-local .lab/state; this just computes the path
     # so tests can locate app log files without hardcoding it.
     root = Path(os.environ.get("LAB_ROOT", tmp_path))
-    log_dir = root / "logs"
+    from lab import paths
+    log_dir = paths.logs_dir(root)
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 

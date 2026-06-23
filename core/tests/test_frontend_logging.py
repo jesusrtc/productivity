@@ -34,10 +34,14 @@ const code = fs.readFileSync('core/src/core/static/js/lib/error-report.js', 'utf
 const uploads = [];
 const nativeCalls = [];
 let now = 100;
+let failFetch = false;
 const listeners = {{ window: {{}}, document: {{}} }};
 
 async function nativeFetch(input, opts = {{}}) {{
   nativeCalls.push({{ input: String(input), opts }});
+  if (failFetch && String(input) !== '/api/log/client') {{
+    throw new TypeError('Failed to fetch');
+  }}
   if (String(input) === '/api/log/client') {{
     const parsed = JSON.parse(String(opts.body || '{{}}'));
     if (Array.isArray(parsed.events)) uploads.push(parsed);
@@ -108,6 +112,25 @@ process.stdout.write(JSON.stringify({ uploads, nativeCalls, ev }));
     assert ev["target"] == "/api/index"
     assert ev["path"] == "/#/dashboard"
     assert [c["input"] for c in result["nativeCalls"]] == ["/api/index", "/api/log/client"]
+
+
+def test_fetch_network_failures_are_warnings() -> None:
+    result = _run_node(_browser_harness(
+        """
+failFetch = true;
+try {
+  await windowStub.fetch('/api/project-files', { method: 'GET' });
+} catch (_) {}
+const ev = uploads[0].events[0];
+process.stdout.write(JSON.stringify({ uploads, nativeCalls, ev }));
+"""
+    ))
+    ev = result["ev"]
+    assert ev["level"] == "warning"
+    assert ev["action"] == "fetch"
+    assert ev["target"] == "/api/project-files"
+    assert "Failed to fetch" in ev["msg"]
+    assert [c["input"] for c in result["nativeCalls"]] == ["/api/project-files", "/api/log/client"]
 
 
 def test_logging_endpoint_fetch_does_not_recursively_log_itself() -> None:

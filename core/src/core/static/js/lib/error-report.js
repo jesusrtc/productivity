@@ -222,13 +222,13 @@
         return resp;
       }, function (err) {
         var duration = Math.round((_now() - started) * 100) / 100;
-        _enqueue('error', 'frontend fetch ' + method + ' ' + path + ' failed: ' + (err && err.message || err), {
+        _enqueue('warning', 'frontend fetch ' + method + ' ' + path + ' failed: ' + (err && err.message || err), {
           action: 'fetch',
           method: method,
           duration_ms: duration,
           target: path,
           href: url,
-        }, true);
+        }, false);
         throw err;
       });
     };

@@ -73,14 +73,36 @@ class ClientLogBatch(BaseModel):
     events: list[ClientLogEvent]
 
 
+def _looks_like_transient_fetch_disconnect(ev: ClientLogEvent, msg: str) -> bool:
+    """Browser fetches report server restarts/offline moments as TypeError.
+
+    Open Lab tabs keep polling while the core server restarts. Those rejected
+    same-origin API fetches are expected downtime noise; logging them at ERROR
+    refills errors.log as soon as the server comes back.
+    """
+    if "Failed to fetch" not in msg:
+        return False
+    refs = " ".join(
+        str(v or "")
+        for v in (ev.action, ev.target, ev.href, ev.source_url, msg)
+    )
+    return (
+        "frontend fetch " in msg
+        or "/api/" in refs
+        or "lab-app.js" in refs
+    )
+
+
 def _log_dir(request: Request) -> Path:
     cache = getattr(request.app.state, "index_cache", None)
     if cache is not None:
-        return Path(cache.root) / "logs"
+        from lab import paths
+        return paths.logs_dir(Path(cache.root))
 
     from core import config
+    from lab import paths
 
-    return config.monorepo_root() / "logs"
+    return paths.logs_dir(config.monorepo_root())
 
 
 def _is_allowed_log_name(name: str) -> bool:
@@ -175,12 +197,15 @@ def log_client(body: ClientLogBatch) -> dict:
     for ev in events:
         # Map "error"/"warning"/"warn"/"info" → Python log levels.
         raw = (ev.level or "error").lower()
+        msg = (ev.msg or "")[:4000]
         if raw == "error":
             level = logging.ERROR
         elif raw in ("warning", "warn"):
             level = logging.WARNING
         else:
             level = logging.INFO
+        if level == logging.ERROR and _looks_like_transient_fetch_disconnect(ev, msg):
+            level = logging.WARNING
 
         extra: dict = {
             "source": "client",
@@ -204,7 +229,6 @@ def log_client(body: ClientLogBatch) -> dict:
                 extra[field] = value
 
         # Truncate runaway messages before they hit the log.
-        msg = (ev.msg or "")[:4000]
         _log.log(level, msg, extra=extra)
 
     return {"ok": True, "logged": len(events)}
@@ -261,7 +285,7 @@ def log_tail(
 
 @router.get("/logs", response_class=HTMLResponse)
 async def logs_page() -> HTMLResponse:
-    """Standalone log viewer, useful when the server is running on port 8080."""
+    """Standalone log viewer, useful when the SPA shell is unavailable."""
     return HTMLResponse(
         """<!DOCTYPE html>
 <html lang="en">

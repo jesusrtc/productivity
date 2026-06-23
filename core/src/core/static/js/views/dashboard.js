@@ -24,7 +24,7 @@ export async function render(parent, params) {
     h("button", {
       class: "btn",
       onclick: (e) => onPushProductivity(e.target),
-      title: "git push the productivity monorepo (errors if dirty)",
+      title: "git push the Lab framework repo (errors if dirty)",
     }, "Push productivity"),
     h("button", {
       class: "btn",

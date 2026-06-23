@@ -83,6 +83,27 @@ def test_pseudo_tabs_open_state_roundtrip_without_app(tmp_path) -> None:
     assert closed == {"ok": True, "open": []}
 
 
+def test_pseudo_tabs_include_self_by_default_in_dev_mode(tmp_path, monkeypatch) -> None:
+    from core.routes import ui
+
+    monkeypatch.setenv("LAB_DEV_MODE", "1")
+    request = _request(tmp_path)
+
+    assert _run(ui.get_pseudo_tabs(request)) == ["__self__"]
+
+
+def test_pseudo_tabs_self_is_dev_only(tmp_path, monkeypatch) -> None:
+    from core.routes import ui
+
+    monkeypatch.delenv("LAB_DEV_MODE", raising=False)
+
+    with pytest.raises(ui.HTTPException):
+        _run(ui.set_pseudo_tab(
+            ui.PseudoTabState(tab_id="__self__", open=True),
+            _request(tmp_path),
+        ))
+
+
 def test_pseudo_tabs_reject_unknown_id_without_app(tmp_path) -> None:
     from core.routes import ui
 

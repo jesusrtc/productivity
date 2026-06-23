@@ -13,7 +13,7 @@ class IndexCache:
     """Thread-safe in-memory cache of the global index.
 
     On first access, builds from disk. On rebuild, regenerates from on-disk
-    projects and persists to content/.index.json.
+    projects and persists to the workspace-local index cache.
     """
 
     def __init__(self, root: Path) -> None:

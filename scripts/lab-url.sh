@@ -3,8 +3,10 @@
 #
 # Source of truth precedence:
 #   1. $LAB_PORT (env var, honored by the server itself)
-#   2. .lab-server.port (written by the server on startup)
-#   3. 3333 (legacy default)
+#   2. $LAB_WORKSPACE/.lab/state/server.port (written by the server on startup)
+#   3. active workspace in $LAB_HOME/workspaces.toml or ~/.lab/workspaces.toml
+#   4. .lab-server.port (legacy)
+#   5. 3333
 #
 # Examples:
 #   $(scripts/lab-url.sh)              # http://localhost:3333
@@ -20,6 +22,31 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 port="${LAB_PORT:-}"
+if [[ -z "$port" && -n "${LAB_WORKSPACE:-}" && -f "$LAB_WORKSPACE/.lab/state/server.port" ]]; then
+  port="$(tr -d '[:space:]' < "$LAB_WORKSPACE/.lab/state/server.port")"
+fi
+if [[ -z "$port" ]]; then
+  active_workspace="$(
+    LAB_HOME="${LAB_HOME:-$HOME/.lab}" python3 -c '
+import os, tomllib
+from pathlib import Path
+registry = Path(os.environ["LAB_HOME"]).expanduser() / "workspaces.toml"
+if registry.is_file():
+    data = tomllib.loads(registry.read_text())
+    active = data.get("active")
+    for row in data.get("workspaces") or []:
+        if str(row.get("id")) == str(active):
+            print(Path(str(row.get("path", ""))).expanduser())
+            break
+' 2>/dev/null || true
+  )"
+  if [[ -n "$active_workspace" && -f "$active_workspace/.lab/state/server.port" ]]; then
+    port="$(tr -d '[:space:]' < "$active_workspace/.lab/state/server.port")"
+  fi
+fi
+if [[ -z "$port" && -f "$REPO_ROOT/.lab/state/server.port" ]]; then
+  port="$(tr -d '[:space:]' < "$REPO_ROOT/.lab/state/server.port")"
+fi
 if [[ -z "$port" && -f "$REPO_ROOT/.lab-server.port" ]]; then
   port="$(tr -d '[:space:]' < "$REPO_ROOT/.lab-server.port")"
 fi

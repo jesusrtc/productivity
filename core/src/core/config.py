@@ -7,12 +7,11 @@ from lab import paths
 
 
 def monorepo_root() -> Path:
-    """Return the monorepo root used by all backend routes.
+    """Return the active workspace root used by all backend routes.
 
-    Honors the same `LAB_ROOT` env var as the CLI — so tests can point the
-    backend at a temp directory the same way.
+    Honors `LAB_WORKSPACE` first and keeps `LAB_ROOT` as a migration alias.
     """
-    return paths.find_monorepo_root()
+    return paths.find_workspace_root()
 
 
 def host() -> str:
@@ -21,6 +20,10 @@ def host() -> str:
 
 def port() -> int:
     return int(os.environ.get("LAB_PORT", "3333"))
+
+
+def dev_mode() -> bool:
+    return os.environ.get("LAB_DEV_MODE", "").lower() in {"1", "true", "yes", "on"}
 
 
 DEBOUNCE_MS = int(os.environ.get("LAB_DEBOUNCE_MS", "250"))

@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from watchdog.observers.polling import PollingObserver
+from watchdog.events import FileSystemEventHandler
 
 from core.state import IndexCache
 from core.watcher import IndexWatcher
@@ -53,6 +54,35 @@ def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> N
     assert len(events) == 1
     ids = [p["id"] for p in events[0]["projects"]]
     assert "late-comer" in ids
+
+
+def test_project_watches_skip_arbitrary_worktree_dirs(monorepo: Path) -> None:
+    """Project polling stays scoped to lab metadata/content, not whole worktrees."""
+    project = monorepo / "projects" / "demo"
+    (project / "docs").mkdir(parents=True)
+    (project / "scripts").mkdir()
+    (project / "worktree" / ".git").mkdir(parents=True)
+
+    class FakeObserver:
+        def __init__(self) -> None:
+            self.scheduled: list[tuple[str, bool]] = []
+
+        def schedule(self, _handler, path: str, *, recursive: bool = False):
+            self.scheduled.append((str(Path(path)), recursive))
+
+    observer = FakeObserver()
+    cache = IndexCache(monorepo)
+    w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=lambda d: None)
+    w._handler = FileSystemEventHandler()
+
+    w._schedule_project_watches(observer)  # type: ignore[arg-type]
+
+    scheduled = set(observer.scheduled)
+    assert (str(monorepo / "projects"), False) in scheduled
+    assert (str(project), False) in scheduled
+    assert (str(project / "docs"), True) in scheduled
+    assert (str(project / "scripts"), True) in scheduled
+    assert (str(project / "worktree"), True) not in scheduled
 
 
 def test_watcher_stop_is_idempotent(monorepo: Path) -> None:

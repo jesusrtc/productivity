@@ -636,15 +636,16 @@ def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
 def test_logs_pseudo_project_uses_own_saved_state(monorepo: Path) -> None:
     """The Logs tab owns terminal metadata separate from other tabs."""
     from core.routes import term as term_mod
+    from lab import paths
 
-    (monorepo / "logs").mkdir(exist_ok=True)
+    paths.logs_dir(monorepo).mkdir(parents=True, exist_ok=True)
 
     assert term_mod.LOGS_PROJECT_ID == "__logs__"
     assert term_mod._project_json(monorepo, term_mod.LOGS_PROJECT_ID) == (
         monorepo / "content" / ".logs-project.json"
     )
     assert term_mod._project_cwd(monorepo, term_mod.LOGS_PROJECT_ID) == (
-        monorepo / "logs"
+        paths.logs_dir(monorepo)
     ).resolve()
     assert term_mod._load_project(monorepo, term_mod.LOGS_PROJECT_ID) == {}
     assert term_mod.LOGS_PROJECT_ID in term_mod._known_project_ids(monorepo)
@@ -707,8 +708,10 @@ def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_project,
         "project_id": "demo", "kind": "claude",
     }).json()
 
+    from lab import paths
+    sessions_path = paths.sessions_file(monorepo)
     # Simulate the wipe.
-    (monorepo / "content" / ".sessions.json").write_text("{}\n")
+    sessions_path.write_text("{}\n")
 
     rows = client.get("/api/term/sessions?project_id=demo").json()
     assert [r["name"] for r in rows] == [created["name"]]
@@ -721,7 +724,7 @@ def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_project,
 
     assert client.get("/api/term/projects-with-sessions").json() == ["demo"]
     # And the rebuilt entry is persisted.
-    meta = json.loads((monorepo / "content" / ".sessions.json").read_text())
+    meta = json.loads(sessions_path.read_text())
     assert meta[created["name"]]["project_id"] == "demo"
 
 
@@ -745,5 +748,6 @@ def test_failed_tmux_listing_does_not_prune_registry(client, seed_project,
     assert client.get("/api/term/sessions/status").json() == []
     assert client.get("/api/term/projects-attention").json() == []
 
-    meta = json.loads((monorepo / "content" / ".sessions.json").read_text())
+    from lab import paths
+    meta = json.loads(paths.sessions_file(monorepo).read_text())
     assert created["name"] in meta, "failed listing must not prune the registry"
