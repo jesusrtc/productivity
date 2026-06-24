@@ -7,6 +7,14 @@ def test_get_index_empty(client) -> None:
     assert "generated_at" in body
 
 
+def test_productivity_view_renders_without_mode_flag(client) -> None:
+    r = client.get("/?view=productivity")
+    assert r.status_code == 200
+    assert '<body class="self-active">' in r.text
+    assert "Lab Workbench" in r.text
+    assert "window.LAB_MONOREPO_ROOT" in r.text
+
+
 def test_get_index_reflects_seeded_projects(client, seed_project) -> None:
     seed_project("alpha")
     seed_project("beta")

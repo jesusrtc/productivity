@@ -1613,9 +1613,14 @@
   .proj-tab .attn-dot { display: none; }
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
+  .term-sessions .sess .sess-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-sessions .sess .sess-label.custom { color: var(--text-primary); font-weight: 600; }
   .term-sessions .sess .k { font-size: 9px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
   .term-sessions .sess.claude .k { color: var(--green); }
   .term-sessions .sess.terminal .k { color: var(--yellow); }
+  .term-sessions .sess .rename { border: 0; background: transparent; color: var(--text-dim); padding: 0 0 0 2px; font: inherit; cursor: pointer; line-height: 1; opacity: 0; }
+  .term-sessions .sess:hover .rename, .term-sessions .sess.active .rename { opacity: 0.8; }
+  .term-sessions .sess .rename:hover { color: var(--text-primary); opacity: 1; }
   /* Dead session: server told us the tmux session is gone, or the
      reconnect loop gave up. Grayed-out + strikethrough so it's clearly
      distinct from a transient disconnect (which keeps the normal look +

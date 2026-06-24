@@ -11,7 +11,6 @@ import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from core import config
 from lab import paths
 
 
@@ -48,8 +47,6 @@ def _run_make(root: Path, target: str) -> dict:
 @router.post("/api/git/push-productivity")
 def push_productivity(request: Request) -> dict:
     """Push the Lab framework repo. Errors if the working tree is dirty."""
-    if not config.dev_mode():
-        raise HTTPException(status_code=404, detail="framework git actions are only available in dev mode")
     root = paths.find_framework_root()
     return _run_make(root, "push-productivity")
 

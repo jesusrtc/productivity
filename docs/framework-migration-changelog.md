@@ -233,7 +233,7 @@ Migration impact:
 Agent checks:
 
 - Keep Logs visible in normal installs.
-- Keep framework-only Productivity/dev UI behind dev mode.
+- Keep Productivity visible in normal installs and resolve it against the framework root.
 - Do not bundle heavy libraries into the initial shell path.
 
 ### a9d5220 - Update lab core and agent tooling

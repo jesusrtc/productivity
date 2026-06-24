@@ -67,41 +67,38 @@ def test_pseudo_tabs_open_state_roundtrip_without_app(tmp_path) -> None:
     from core.routes import ui
 
     request = _request(tmp_path)
-    assert _run(ui.get_pseudo_tabs(request)) == []
+    assert _run(ui.get_pseudo_tabs(request)) == ["__self__"]
 
     opened = _run(ui.set_pseudo_tab(
         ui.PseudoTabState(tab_id="__logs__", open=True),
         request,
     ))
-    assert opened == {"ok": True, "open": ["__logs__"]}
-    assert _run(ui.get_pseudo_tabs(request)) == ["__logs__"]
+    assert opened == {"ok": True, "open": ["__logs__", "__self__"]}
+    assert _run(ui.get_pseudo_tabs(request)) == ["__logs__", "__self__"]
 
     closed = _run(ui.set_pseudo_tab(
         ui.PseudoTabState(tab_id="__logs__", open=False),
         request,
     ))
-    assert closed == {"ok": True, "open": []}
+    assert closed == {"ok": True, "open": ["__self__"]}
 
 
-def test_pseudo_tabs_include_self_by_default_in_dev_mode(tmp_path, monkeypatch) -> None:
+def test_pseudo_tabs_include_self_by_default(tmp_path) -> None:
     from core.routes import ui
 
-    monkeypatch.setenv("LAB_DEV_MODE", "1")
     request = _request(tmp_path)
 
     assert _run(ui.get_pseudo_tabs(request)) == ["__self__"]
 
 
-def test_pseudo_tabs_self_is_dev_only(tmp_path, monkeypatch) -> None:
+def test_pseudo_tabs_self_is_always_allowed(tmp_path) -> None:
     from core.routes import ui
 
-    monkeypatch.delenv("LAB_DEV_MODE", raising=False)
-
-    with pytest.raises(ui.HTTPException):
-        _run(ui.set_pseudo_tab(
-            ui.PseudoTabState(tab_id="__self__", open=True),
-            _request(tmp_path),
-        ))
+    opened = _run(ui.set_pseudo_tab(
+        ui.PseudoTabState(tab_id="__self__", open=True),
+        _request(tmp_path),
+    ))
+    assert opened == {"ok": True, "open": ["__self__"]}
 
 
 def test_pseudo_tabs_reject_unknown_id_without_app(tmp_path) -> None:

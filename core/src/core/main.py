@@ -508,13 +508,6 @@ def create_app() -> FastAPI:
         repo = params.get("repo") or ""
 
         if view == "productivity":
-            if not config.dev_mode():
-                return {
-                    "INITIAL_VIEW": "home",
-                    "INITIAL_BODY_CLASS": "home-active",
-                    "INITIAL_PROJECT_NAME": "",
-                    "INITIAL_IS_REPO": False,
-                }
             return {
                 "INITIAL_VIEW": "productivity",
                 "INITIAL_BODY_CLASS": "self-active",
@@ -580,7 +573,6 @@ def create_app() -> FastAPI:
             state["INITIAL_BODY_CLASS"],
             state["INITIAL_PROJECT_NAME"],
             state["INITIAL_IS_REPO"],
-            config.dev_mode(),
         )
         if mtime is None or _index_cache["mtime"] != mtime:
             _index_cache["bytes_by_key"] = {}
@@ -588,8 +580,7 @@ def create_app() -> FastAPI:
         bytes_by_key = _index_cache["bytes_by_key"]
         if key not in bytes_by_key:
             html = templates.get_template("index.html").render(
-                MONOREPO_ROOT=str(lab_paths.find_framework_root() if config.dev_mode() else root),
-                LAB_DEV_MODE=config.dev_mode(),
+                MONOREPO_ROOT=str(lab_paths.find_framework_root()),
                 **state,
             )
             bytes_by_key[key] = _compact_index_html(html).encode("utf-8")

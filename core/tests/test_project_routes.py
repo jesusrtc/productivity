@@ -1,4 +1,13 @@
 import json
+from types import SimpleNamespace
+
+
+def _request(root):
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(index_cache=SimpleNamespace(root=root)),
+        ),
+    )
 
 
 def test_list_projects_empty(client) -> None:
@@ -77,6 +86,28 @@ def test_get_project_tasks_reflects_on_disk(client, seed_project) -> None:
 def test_get_project_tasks_missing_project(client) -> None:
     r = client.get("/api/projects/nope/tasks")
     assert r.status_code == 404
+
+
+def test_get_self_project_tasks_reads_framework_root(tmp_path, monkeypatch) -> None:
+    from core.routes import project as project_routes
+
+    workspace = tmp_path / "workspace"
+    framework = tmp_path / "framework"
+    (workspace / "content").mkdir(parents=True)
+    (framework / "content").mkdir(parents=True)
+    (workspace / "content" / ".self-tasks.json").write_text(json.dumps({
+        "next_id": 2,
+        "tasks": [{"id": 1, "title": "workspace task"}],
+    }))
+    (framework / "content" / ".self-tasks.json").write_text(json.dumps({
+        "next_id": 2,
+        "tasks": [{"id": 1, "title": "framework task"}],
+    }))
+    monkeypatch.setattr(project_routes.paths, "find_framework_root", lambda: framework)
+
+    body = project_routes.get_project_tasks("__self__", _request(workspace))
+
+    assert body["tasks"][0]["title"] == "framework task"
 
 
 def test_list_project_docs(client, seed_project) -> None:

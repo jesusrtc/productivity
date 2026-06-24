@@ -16,20 +16,13 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from core import config
-
-
 router = APIRouter()
 
-_ALWAYS_PSEUDO_TAB_IDS = {"__logs__"}
-_DEV_PSEUDO_TAB_IDS = {"__self__"}
+_PSEUDO_TAB_IDS = {"__logs__", "__self__"}
 
 
 def _pseudo_tab_ids() -> set[str]:
-    ids = set(_ALWAYS_PSEUDO_TAB_IDS)
-    if config.dev_mode():
-        ids.update(_DEV_PSEUDO_TAB_IDS)
-    return ids
+    return set(_PSEUDO_TAB_IDS)
 
 
 def _state_file(root: Path) -> Path:
@@ -86,7 +79,7 @@ def set_tab_order(body: TabOrder, request: Request) -> dict:
     return {"ok": True, "order": deduped}
 
 
-def _open_pseudo_tabs(data: dict, *, include_dev_defaults: bool = False) -> list[str]:
+def _open_pseudo_tabs(data: dict, *, include_defaults: bool = False) -> list[str]:
     raw = data.get("pseudo_tabs_open", [])
     allowed = _pseudo_tab_ids()
     if not isinstance(raw, list):
@@ -100,7 +93,7 @@ def _open_pseudo_tabs(data: dict, *, include_dev_defaults: bool = False) -> list
             continue
         seen.add(tab_id)
         out.append(tab_id)
-    if include_dev_defaults and "__self__" in allowed and "__self__" not in seen:
+    if include_defaults and "__self__" in allowed and "__self__" not in seen:
         out.append("__self__")
     return out
 
@@ -108,7 +101,7 @@ def _open_pseudo_tabs(data: dict, *, include_dev_defaults: bool = False) -> list
 @router.get("/api/ui/pseudo-tabs")
 def get_pseudo_tabs(request: Request) -> list[str]:
     root: Path = request.app.state.index_cache.root
-    return _open_pseudo_tabs(_load(root), include_dev_defaults=True)
+    return _open_pseudo_tabs(_load(root), include_defaults=True)
 
 
 class PseudoTabState(BaseModel):
@@ -129,7 +122,7 @@ def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
         open_tabs = [tab_id for tab_id in open_tabs if tab_id != body.tab_id]
     data["pseudo_tabs_open"] = open_tabs
     _save(root, data)
-    return {"ok": True, "open": open_tabs}
+    return {"ok": True, "open": _open_pseudo_tabs(data, include_defaults=True)}
 
 
 def _terminal_autospawn_disabled(data: dict) -> list[str]:

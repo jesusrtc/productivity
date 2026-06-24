@@ -24,7 +24,7 @@ This must preserve the existing specs:
 - `apps/` holds workspace-owned custom CLIs or small apps that projects can use.
 - The UI stays fast by loading only the active workspace.
 - The Logs view stays available to users for diagnostics and bug reports.
-- The Productivity/framework-dev tab is only for people developing Lab itself.
+- The Productivity tab stays visible and always points at the installed Lab framework checkout.
 
 ## Proposal
 
@@ -166,17 +166,11 @@ First version optimizes for one active workspace. Do not index inactive workspac
 
 ## UI Visibility
 
-Default workspace UI should show workspace features only: dashboard, projects, content/knowledge, code search, notebooks, terminals, and logs.
+Default workspace UI should show workspace features plus the framework utility tabs: dashboard, projects, content/knowledge, code search, notebooks, terminals, logs, and Productivity.
 
 The Logs view should remain available in normal installs because it helps users inspect errors and report bugs.
 
-The Productivity tab, which points at the framework repo itself, should be hidden by default. It should only appear when Lab is started explicitly in framework-dev mode:
-
-```bash
-lab start --dev
-```
-
-This keeps client workspaces focused on their own projects and avoids exposing framework internals to normal users.
+The Productivity tab points at the framework repo itself and is always visible. Its `__self__` pseudo-project must resolve reads, writes, terminal working directories, and task actions against the framework root, not the active workspace root.
 
 ## Compatibility + Speed Rules
 
@@ -187,7 +181,7 @@ This keeps client workspaces focused on their own projects and avoids exposing f
 - Do not recursively index `repositories/`, `.git`, or inactive workspaces by default.
 - Serve the cached active-workspace index; rebuild in the background where possible.
 - Release old watchers, timers, websocket subscriptions, file handles, and caches before loading another workspace.
-- Keep Logs visible in normal installs; hide Productivity/framework-dev UI unless dev mode is active.
+- Keep Logs and Productivity visible in normal installs; Productivity must keep using the framework root even when the active workspace changes.
 
 ## Test Plan
 
@@ -209,7 +203,7 @@ Backend/frontend tests:
 - Existing project/task/search/markdown routes still work against the active workspace.
 - Dropdown renders, switches, clears local state, refetches data, and handles missing workspaces cleanly.
 - Logs view remains reachable in normal installs.
-- Productivity/framework-dev tab is hidden by default and visible only in dev mode.
+- Productivity tab is visible by default and loads the framework `__self__` pseudo-project without a special startup flag.
 
 Performance/regression tests:
 

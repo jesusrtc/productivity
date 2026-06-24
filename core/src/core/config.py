@@ -22,8 +22,4 @@ def port() -> int:
     return int(os.environ.get("LAB_PORT", "3333"))
 
 
-def dev_mode() -> bool:
-    return os.environ.get("LAB_DEV_MODE", "").lower() in {"1", "true", "yes", "on"}
-
-
 DEBOUNCE_MS = int(os.environ.get("LAB_DEBOUNCE_MS", "250"))

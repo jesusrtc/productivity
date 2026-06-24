@@ -22,13 +22,9 @@ lab start
 
 Use `lab workspace list`, `lab workspace use <path>`, or the UI dropdown to switch workspaces. Only the active workspace is indexed and watched.
 
-For framework development, start with:
-
-```bash
-lab start --dev
-```
-
-That enables framework-only UI such as the Productivity tab. Logs stay visible in normal mode.
+The Logs and Productivity tabs are always visible. Logs expose framework runtime
+diagnostics; Productivity opens the Lab framework repo itself so framework tasks
+and commits stay reachable even while a workspace is active.
 
 ## Layout
 

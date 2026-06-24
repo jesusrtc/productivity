@@ -55,6 +55,12 @@ def _validate_pid(pid: str) -> None:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _root_for_project(root: Path, project_id: str) -> Path:
+    if project_id == paths.SELF_PROJECT_ID:
+        return paths.find_framework_root()
+    return root
+
+
 class NewProject(BaseModel):
     id: str
     description: str = ""
@@ -94,6 +100,7 @@ def update_project_field(project_id: str, body: ProjectField,
     """
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     if body.field not in _PROJECT_SETTABLE_FIELDS:
         raise HTTPException(
             status_code=400,
@@ -118,6 +125,7 @@ def set_project_tab(project_id: str, body: TabState,
     """
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     pjson = paths.project_file(root, project_id)
     if not pjson.is_file():
         raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
@@ -161,6 +169,7 @@ class NewTask(BaseModel):
 def create_task(body: NewTask, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(body.project_id)
+    root = _root_for_project(root, body.project_id)
     args = ["task", "new", body.title, "--project", body.project_id, "--priority", body.priority]
     if body.loe is not None:
         args += ["--loe", str(body.loe)]
@@ -189,6 +198,7 @@ def set_task_status(project_id: str, task_id: int, body: StatusChange,
                     request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     if body.status == "done":
         args = ["task", "done", str(task_id), "--project", project_id]
     elif body.status == "reopened":
@@ -215,6 +225,7 @@ def update_task_field(project_id: str, task_id: int, body: FieldUpdate,
                       request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     args = ["task", "set", str(task_id), body.field, body.value, "--project", project_id]
     _run_lab(args, root=root)
     return _find_task(root, project_id, task_id)
@@ -231,6 +242,7 @@ class NewPR(BaseModel):
 def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     args = [
         "pr", "add", body.url, "--project", project_id,
         "--mp", body.mp, "--title", body.title, "--status", body.status,
@@ -243,6 +255,7 @@ def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
 def rm_pr(project_id: str, idx: int, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     _run_lab(["pr", "rm", str(idx), "--project", project_id], root=root)
     return _read_project(root, project_id)
 
@@ -258,6 +271,7 @@ class NewArtifact(BaseModel):
 def add_artifact(project_id: str, body: NewArtifact, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     args = [
         "artifact", "add", body.url, "--project", project_id,
         "--type", body.type, "--title", body.title, "--desc", body.description,
@@ -270,5 +284,6 @@ def add_artifact(project_id: str, body: NewArtifact, request: Request) -> dict:
 def rm_artifact(project_id: str, idx: int, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(project_id)
+    root = _root_for_project(root, project_id)
     _run_lab(["artifact", "rm", str(idx), "--project", project_id], root=root)
     return _read_project(root, project_id)

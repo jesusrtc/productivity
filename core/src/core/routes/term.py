@@ -27,6 +27,8 @@ file but **keeps** the project.json entry so a later re-open can
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import fcntl
 import hashlib
 import json
@@ -171,10 +173,8 @@ def _project_json(root: Path, project_id: str) -> Path:
     if project_id == CEREBRO_PROJECT_ID:
         return root / "content" / ".cerebro-project.json"
     if project_id == SELF_PROJECT_ID:
-        from core import config
         from lab import paths
-        if config.dev_mode():
-            root = paths.find_framework_root()
+        root = paths.find_framework_root()
         return root / "content" / ".self-project.json"
     if project_id == LOGS_PROJECT_ID:
         return root / "content" / ".logs-project.json"
@@ -192,11 +192,8 @@ def _project_cwd(root: Path, project_id: str) -> Path:
     if project_id == CEREBRO_PROJECT_ID:
         return (root / "content").resolve()
     if project_id == SELF_PROJECT_ID:
-        from core import config
         from lab import paths
-        if config.dev_mode():
-            return paths.find_framework_root().resolve()
-        return root.resolve()
+        return paths.find_framework_root().resolve()
     if project_id == LOGS_PROJECT_ID:
         from lab import paths
         return paths.logs_dir(root).resolve()
@@ -269,6 +266,14 @@ def _get_project_sessions(root: Path, project_id: str) -> list[dict]:
     return sessions if isinstance(sessions, list) else []
 
 
+def _project_session_by_name(root: Path, project_id: str) -> dict[str, dict]:
+    """Saved sessions keyed by logical name."""
+    return {
+        s["name"]: s for s in _get_project_sessions(root, project_id)
+        if isinstance(s, dict) and isinstance(s.get("name"), str)
+    }
+
+
 def _upsert_project_session(root: Path, project_id: str, entry: dict) -> None:
     """Insert or update an entry (keyed by ``name``) in project.json.sessions."""
     data = _load_project(root, project_id)
@@ -285,6 +290,62 @@ def _upsert_project_session(root: Path, project_id: str, entry: dict) -> None:
     else:
         sessions.append(entry)
     _save_project(root, project_id, data)
+
+
+def _clean_optional_text(raw: str | None, *, max_len: int) -> str | None:
+    if raw is None:
+        return None
+    text = " ".join(str(raw).strip().split())
+    if not text:
+        return None
+    return text[:max_len]
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+")
+
+
+def _clean_pane_line(line: str) -> str:
+    line = _ANSI_RE.sub("", line)
+    line = _CONTROL_RE.sub("", line)
+    return " ".join(line.strip().split())
+
+
+def _infer_session_summary(name: str) -> str | None:
+    """Best-effort hover summary from the visible tmux pane.
+
+    This intentionally does not ask the agent to summarize itself; that would
+    affect latency and sometimes mutate the conversation. A cached pane
+    capture gives enough context for hover text without touching stdin.
+    """
+    now = time.monotonic()
+    cached = _SUMMARY_CACHE.get(name)
+    if cached and (now - cached[0]) < _SUMMARY_TTL_S:
+        return cached[1] or None
+    if not _tmux_available():
+        return None
+    try:
+        proc = subprocess.run(
+            ["tmux", "capture-pane", "-pt", name, "-S", "-120"],
+            capture_output=True, text=True, timeout=1.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    lines = [
+        line for line in (_clean_pane_line(raw) for raw in proc.stdout.splitlines())
+        if line and line not in ("$", ">", "%")
+    ]
+    if not lines:
+        summary = ""
+    else:
+        tail = lines[-2:]
+        summary = " / ".join(tail)
+        if len(summary) > 240:
+            summary = summary[:237].rstrip() + "..."
+    _SUMMARY_CACHE[name] = (now, summary)
+    return summary or None
 
 
 # ─── registry recovery ──────────────────────────────────────────────────────
@@ -367,12 +428,21 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
     """
     meta = _load_meta(root)
     if live is None:
+        log.warning(
+            "tmux session listing unavailable; preserving terminal registry",
+            extra={"event_type": "term.registry.unknown"},
+        )
         return meta
     live_by_name = {s["name"]: s for s in live}
     changed = False
     for n in [n for n in meta if n not in live_by_name]:
         meta.pop(n)
         changed = True
+        log.info(
+            "terminal registry pruned dead tmux session %s",
+            n,
+            extra={"event_type": "term.registry.prune", "target": n},
+        )
     for n, s in live_by_name.items():
         if n in meta:
             continue
@@ -380,6 +450,15 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
         if entry:
             meta[n] = entry
             changed = True
+            log.info(
+                "terminal registry recovered live tmux session %s",
+                n,
+                extra={
+                    "event_type": "term.registry.recover",
+                    "target": n,
+                    "action": entry.get("project_id"),
+                },
+            )
     if changed:
         _save_meta(root, meta)
     return meta
@@ -412,6 +491,11 @@ def _tmux_list(prefix: str) -> list[dict] | None:
         err = (proc.stderr or "").lower()
         if "no server running" in err or "no sessions" in err:
             return []
+        log.warning(
+            "tmux list-sessions failed: %s",
+            (proc.stderr or proc.stdout or "").strip()[:500],
+            extra={"event_type": "term.tmux.list_failed"},
+        )
         return None
     rows: list[dict] = []
     for line in proc.stdout.splitlines():
@@ -602,10 +686,21 @@ def list_sessions(request: Request, project_id: str | None = None) -> list[dict]
     live = {s["name"]: s for s in (listing or [])}
 
     rows: list[dict] = []
+    saved_by_logical = _project_session_by_name(root, project_id) if project_id else {}
     for name, info in live.items():
         row = {**info, **meta.get(name, {}), "name": name}
         if project_id and row.get("project_id") != project_id:
             continue
+        logical = row.get("logical_name")
+        saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
+        if saved:
+            for key in ("label", "summary"):
+                if saved.get(key):
+                    row[key] = saved[key]
+        if not row.get("summary"):
+            inferred = _infer_session_summary(name)
+            if inferred:
+                row["summary"] = inferred
         rows.append(row)
 
     # Order preference: if the caller scoped to one project AND that project
@@ -636,6 +731,59 @@ class SessionOrder(BaseModel):
     order: list[str]  # logical_names in the desired order
 
 
+class SessionMetadata(BaseModel):
+    project_id: str
+    # Saved logical session name, not the tmux name. Display labels must not
+    # rename tmux sessions because that would break attach/resume semantics.
+    name: str
+    label: str | None = None
+    summary: str | None = None
+
+
+class PastedImage(BaseModel):
+    project_id: str
+    data: str
+    mime: str | None = None
+    name: str | None = None
+    session_name: str | None = None
+
+
+_PASTE_IMAGE_TYPES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+_MAX_PASTE_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+def _decode_pasted_image(body: PastedImage) -> tuple[str, bytes]:
+    raw = body.data or ""
+    mime = (body.mime or "").lower().strip()
+    data = raw
+    if raw.startswith("data:"):
+        header, sep, payload = raw.partition(",")
+        if not sep:
+            raise HTTPException(status_code=400, detail="invalid data URL")
+        data = payload
+        # data:image/png;base64,...
+        meta = header[5:]
+        declared = meta.split(";", 1)[0].lower().strip()
+        if declared:
+            mime = declared
+    if mime not in _PASTE_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail=f"unsupported image type: {mime or 'unknown'}")
+    try:
+        blob = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="invalid base64 image data")
+    if not blob:
+        raise HTTPException(status_code=400, detail="empty image")
+    if len(blob) > _MAX_PASTE_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="image is too large")
+    return mime, blob
+
+
 @router.post("/api/term/sessions/order")
 def set_session_order(body: SessionOrder, request: Request) -> dict:
     """Reorder the project's saved sessions[] so /api/term/sessions reflects
@@ -663,6 +811,107 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
     _save_project(root, body.project_id, data)
     _invalidate_project_term_caches()
     return {"ok": True, "order": [s.get("name") for s in new_list]}
+
+
+@router.patch("/api/term/sessions/metadata")
+def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
+    """Persist a user-facing label/summary for a saved logical session."""
+    root: Path = request.app.state.index_cache.root
+    data = _load_project(root, body.project_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
+    sessions = data.get("sessions") if isinstance(data.get("sessions"), list) else []
+    entry = None
+    for s in sessions:
+        if isinstance(s, dict) and s.get("name") == body.name:
+            entry = s
+            break
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"session {body.name!r} not found")
+
+    fields = getattr(body, "model_fields_set", None)
+    if fields is None:
+        fields = getattr(body, "__fields_set__", set())
+    if "label" in fields:
+        label = _clean_optional_text(body.label, max_len=80)
+        if label:
+            entry["label"] = label
+        else:
+            entry.pop("label", None)
+    if "summary" in fields:
+        summary = _clean_optional_text(body.summary, max_len=320)
+        if summary:
+            entry["summary"] = summary
+        else:
+            entry.pop("summary", None)
+
+    data["sessions"] = sessions
+    _save_project(root, body.project_id, data)
+
+    tmux_name = _tmux_name_for(body.project_id, body.name, root)
+    meta = _load_meta(root)
+    if tmux_name in meta:
+        if "label" in fields:
+            if entry.get("label"):
+                meta[tmux_name]["label"] = entry["label"]
+            else:
+                meta[tmux_name].pop("label", None)
+        if "summary" in fields:
+            if entry.get("summary"):
+                meta[tmux_name]["summary"] = entry["summary"]
+            else:
+                meta[tmux_name].pop("summary", None)
+        _save_meta(root, meta)
+
+    log.info(
+        "terminal session metadata updated",
+        extra={
+            "event_type": "term.session.metadata",
+            "action": body.project_id,
+            "target": body.name,
+        },
+    )
+    return {"ok": True, "session": entry}
+
+
+@router.post("/api/term/paste-image")
+def paste_image(body: PastedImage, request: Request) -> dict:
+    """Save a pasted clipboard image under the terminal cwd and return a path.
+
+    The browser then inserts that relative path into the active PTY. Keeping
+    image handling as an explicit paste-time HTTP call avoids touching the
+    latency-critical websocket byte path used by normal typing and text paste.
+    """
+    root: Path = request.app.state.index_cache.root
+    if not body.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    cwd = _project_cwd(root, body.project_id)
+    if not cwd.is_dir():
+        raise HTTPException(status_code=400, detail=f"cwd not a directory: {cwd}")
+    mime, blob = _decode_pasted_image(body)
+    ext = _PASTE_IMAGE_TYPES[mime]
+    target_dir = cwd / ".lab" / "terminal-pastes"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    filename = f"{stamp}-{uuid.uuid4().hex[:8]}.{ext}"
+    target = target_dir / filename
+    target.write_bytes(blob)
+    rel = Path(".lab") / "terminal-pastes" / filename
+    log.info(
+        "terminal pasted image saved",
+        extra={
+            "event_type": "term.paste_image",
+            "action": body.project_id,
+            "target": str(rel),
+        },
+    )
+    return {
+        "ok": True,
+        "path": rel.as_posix(),
+        "absolute_path": str(target),
+        "mime": mime,
+        "bytes": len(blob),
+    }
 
 
 # ─── Status (working vs idle) ───────────────────────────────────────────────
@@ -705,6 +954,8 @@ _WORKING_HINTS_RE = re.compile(
 
 _STATUS_CACHE: dict[str, tuple[float, str]] = {}
 _STATUS_TTL_S = 8.0
+_SUMMARY_CACHE: dict[str, tuple[float, str]] = {}
+_SUMMARY_TTL_S = 60.0
 _PROJECTS_CACHE_TTL_S = 8.0
 _PROJECTS_ATTENTION_CACHE: tuple[float, list[str]] | None = None
 _PROJECTS_WITH_SESSIONS_CACHE: tuple[float, list[str]] | None = None
@@ -936,8 +1187,25 @@ def create_session(body: NewSession, request: Request) -> dict:
     # (with a "-N" suffix so it coexists with the original).
     if preferred_tmux in live_names and not body.start_fresh:
         meta = _load_meta(root)
-        return {"name": preferred_tmux, **(meta.get(preferred_tmux) or {}),
-                "already_running": True}
+        row = {"name": preferred_tmux, **(meta.get(preferred_tmux) or {}),
+               "already_running": True}
+        if body.project_id:
+            saved = _project_session_by_name(root, body.project_id).get(
+                row.get("logical_name") or preferred
+            )
+            if saved:
+                for key in ("label", "summary"):
+                    if saved.get(key):
+                        row[key] = saved[key]
+        log.info(
+            "terminal session already running",
+            extra={
+                "event_type": "term.session.already_running",
+                "action": body.project_id,
+                "target": preferred_tmux,
+            },
+        )
+        return row
 
     logical = preferred
     if preferred_tmux in live_names and body.start_fresh:
@@ -985,6 +1253,16 @@ def create_session(body: NewSession, request: Request) -> dict:
         capture_output=True, text=True,
     )
     if proc.returncode != 0:
+        log.error(
+            "tmux new-session failed for %s: %s",
+            tmux_name,
+            (proc.stderr or proc.stdout or "").strip()[:500],
+            extra={
+                "event_type": "term.session.create_failed",
+                "action": body.project_id,
+                "target": tmux_name,
+            },
+        )
         raise HTTPException(status_code=500, detail=(proc.stderr or proc.stdout).strip() or "tmux failed")
 
     # Mouse wheel → tmux copy-mode scrollback (no send-keys fallback).
@@ -1015,8 +1293,23 @@ def create_session(body: NewSession, request: Request) -> dict:
         if claude_session_id:
             entry["claude_session_id"] = claude_session_id
         _upsert_project_session(root, body.project_id, entry)
+        saved = _project_session_by_name(root, body.project_id).get(logical)
+        if saved:
+            for key in ("label", "summary"):
+                if saved.get(key):
+                    meta[tmux_name][key] = saved[key]
+            if saved.get("label") or saved.get("summary"):
+                _save_meta(root, meta)
         _invalidate_project_term_caches()
 
+    log.info(
+        "terminal session spawned",
+        extra={
+            "event_type": "term.session.spawn",
+            "action": body.project_id,
+            "target": tmux_name,
+        },
+    )
     return {"name": tmux_name, **meta[tmux_name]}
 
 
@@ -1047,6 +1340,14 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
             _save_project(root, project_id, data)
             _invalidate_project_term_caches()
 
+    log.info(
+        "terminal session killed",
+        extra={
+            "event_type": "term.session.kill",
+            "action": project_id,
+            "target": name,
+        },
+    )
     return {"ok": True, "purged": purge}
 
 
@@ -1075,6 +1376,14 @@ def kill_project_sessions(project_id: str, request: Request, purge: bool = False
             data["sessions"] = []
             _save_project(root, project_id, data)
             _invalidate_project_term_caches()
+    log.info(
+        "terminal project sessions killed",
+        extra={
+            "event_type": "term.session.kill_project",
+            "action": project_id,
+            "target": ",".join(killed),
+        },
+    )
     return {"ok": True, "killed": killed, "purged": purge}
 
 

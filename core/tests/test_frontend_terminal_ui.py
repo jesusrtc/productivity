@@ -306,6 +306,243 @@ async function fetch() {
     assert result["termOpen"] is False
 
 
+def test_stale_warm_project_open_reconciles_before_attaching() -> None:
+    term_open_for_project = _js_between(
+        "async function termOpenForProject(projectId)",
+        "function termStartPeriodicRefresh()",
+    )
+    result = _run_node(
+        """
+const attached = [];
+const fetchCalls = [];
+const refreshed = [];
+const rendered = [];
+const classes = new Set(['project-active']);
+let activeProject = 'demo';
+let refreshCount = 0;
+let termSessions = [];
+const _termSessionsCache = new Map([
+  ['demo', [{name: 'lab-demo-codex-old', logical_name: 'codex', project_id: 'demo'}]],
+]);
+
+const document = {
+  body: {
+    classList: {
+      add(cls) { classes.add(cls); },
+      remove(cls) { classes.delete(cls); },
+      contains(cls) { return classes.has(cls); },
+    },
+  },
+};
+const localStorage = { getItem() { return null; } };
+const location = {pathname: '/', search: '', hash: ''};
+
+function _termIsScopeActive(projectId) { return activeProject === projectId; }
+function termClose() { rendered.push('close'); }
+function _termApplyRememberedVisibility() { rendered.push('visibility'); }
+function termRenderSessionList() { rendered.push('sessions:' + termSessions.map(s => s.name).join(',')); }
+function _termPickRestoreName() { return termSessions[0] && termSessions[0].name; }
+function termAttach(name, projectId) { attached.push({name, projectId}); }
+function termDetach() { rendered.push('detach'); }
+function termShowEmpty() { rendered.push('empty'); }
+function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
+function termStartPeriodicRefresh() { rendered.push('periodic'); }
+function termStartStatusPolling() { rendered.push('status'); }
+async function termRefreshSessions(projectId) {
+  refreshed.push(projectId);
+  refreshCount += 1;
+  termSessions = refreshCount >= 2
+    ? [{name: 'lab-demo-codex', logical_name: 'codex', project_id: projectId}]
+    : [];
+}
+async function termRefreshSessionsByProjectId() { throw new Error('not pseudo'); }
+async function termAutoSpawnEnabled() { return true; }
+async function termSpawnSession() { rendered.push('spawn'); }
+async function fetch(input, opts = {}) {
+  fetchCalls.push({input: String(input), method: opts.method || 'GET'});
+  if (String(input).startsWith('/api/term/sessions/saved')) {
+    return {ok: true, json: async () => [{name: 'codex', kind: 'claude', agent: 'codex'}]};
+  }
+  return {ok: true, json: async () => ({})};
+}
+console.info = () => {};
+""" + term_open_for_project + """
+
+(async () => {
+  await termOpenForProject('demo');
+  process.stdout.write(JSON.stringify({
+    attached,
+    fetchCalls,
+    refreshed,
+    rendered,
+    termOpen: classes.has('term-open'),
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result["termOpen"] is True
+    assert result["refreshed"] == ["demo", "demo"]
+    assert {
+        "input": "/api/term/sessions",
+        "method": "POST",
+    } in result["fetchCalls"]
+    assert result["attached"] == [{"name": "lab-demo-codex", "projectId": "demo"}]
+    assert "periodic" in result["rendered"]
+    assert "status" in result["rendered"]
+
+
+def test_cached_terminal_pane_is_not_warm_after_fast_park_window() -> None:
+    cache_freshness = _js_between(
+        "function _termCachedPaneIsFresh(cached)",
+        "  function _termIsScopeActive(projectId)",
+    )
+    has_open_cached_pane = _js_between(
+        "function _termHasOpenCachedPane(projectId, name)",
+        "  async function _termTryWarmOpen(projectId)",
+    )
+    result = _run_node(
+        """
+const WebSocket = {OPEN: 1, CLOSED: 3};
+const _termCache = new Map();
+const TERM_FAST_PARK_MS = 10 * 60 * 1000;
+let now = 1_000_000;
+
+Date.now = () => now;
+function _termCacheKey(projectId, name) { return `${projectId}::${name}`; }
+""" + cache_freshness + has_open_cached_pane + """
+
+_termCache.set(_termCacheKey('demo', 'claude'), {
+  ws: {readyState: WebSocket.OPEN},
+  parkedAt: now,
+});
+const fresh = _termHasOpenCachedPane('demo', 'claude');
+
+now += TERM_FAST_PARK_MS + 1;
+const stale = _termHasOpenCachedPane('demo', 'claude');
+
+_termCache.set(_termCacheKey('demo', 'closed'), {
+  ws: {readyState: WebSocket.CLOSED},
+  parkedAt: now,
+});
+const closed = _termHasOpenCachedPane('demo', 'closed');
+
+process.stdout.write(JSON.stringify({fresh, stale, closed}));
+"""
+    )
+
+    assert result == {"fresh": True, "stale": False, "closed": False}
+
+
+def test_term_attach_evicts_aged_open_cached_pane() -> None:
+    helper_block = _js_between(
+        "function _termCacheKey(projectId, name)",
+        "  // ─── Project tabs",
+    )
+    term_attach = _js_between(
+        "async function termAttach(name",
+        "  function termSetStatus",
+    )
+    result = _run_node(
+        """
+console.log = () => {};
+console.info = () => {};
+console.warn = () => {};
+
+const WebSocket = {OPEN: 1};
+const TERM_FAST_PARK_MS = 10 * 60 * 1000;
+const _termCache = new Map();
+const termDeadSessions = new Set();
+const termReconnectAttempts = {};
+let activeProject = 'demo';
+let now = 1_000_000;
+let evicted = [];
+let ensureXtermCalls = 0;
+let remembered = [];
+
+let termSessions = [
+  {name: 'lab-demo-claude', logical_name: 'claude', project_id: 'demo'},
+];
+let termCurrentSession = null;
+let termCurrentProjectId = null;
+let termWS = null;
+let termXterm = null;
+let termFitAddon = null;
+let termContainer = null;
+let termUserDetached = false;
+let termReconnectTimer = null;
+let termAttachRequestSeq = 0;
+
+Date.now = () => now;
+const document = {getElementById() { return null; }};
+const location = {protocol: 'http:', host: 'localhost'};
+
+function _termActiveProjectId() { return activeProject; }
+function _termRecallLast() { return null; }
+function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+async function ensureTerminalLibs() {}
+function termDetach() {}
+function termSetStatus() {}
+function termShowRecovery() {}
+function termRenderSessionList() {}
+function _termClearDead() {}
+function _termStripModes(s) { return s; }
+function termSendResize() {}
+function _termEnableWebgl() {}
+function _termFocusActiveSoon() {}
+function termEnsureXterm() { ensureXtermCalls += 1; termXterm = null; }
+function _termMakeContainer() { throw new Error('aged cache should not reach fresh DOM creation without xterm'); }
+function _termDisableWebgl() {}
+function _termMarkDead() {}
+function _termShowPane() {}
+function _termEvictCache(name, projectId) {
+  evicted.push({name, projectId});
+  _termCache.delete(_termCacheKey(projectId, name));
+}
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const LOGS_PROJECT_ID = '__logs__';
+""" + helper_block + """
+
+_termCache.set(_termCacheKey('demo', 'lab-demo-claude'), {
+  projectId: 'demo',
+  name: 'lab-demo-claude',
+  ws: {readyState: WebSocket.OPEN},
+  xterm: {id: 'cached'},
+  fitAddon: {},
+  container: {},
+  parkedAt: now - TERM_FAST_PARK_MS - 1,
+});
+""" + term_attach + """
+
+(async () => {
+  await termAttach('lab-demo-claude', 'demo');
+  process.stdout.write(JSON.stringify({
+    evicted,
+    cacheSize: _termCache.size,
+    ensureXtermCalls,
+    remembered,
+    termCurrentSession,
+  }));
+})().catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+    )
+
+    assert result == {
+        "evicted": [{"name": "lab-demo-claude", "projectId": "demo"}],
+        "cacheSize": 0,
+        "ensureXtermCalls": 1,
+        "remembered": [{"projectId": "demo", "logicalName": "claude"}],
+        "termCurrentSession": "lab-demo-claude",
+    }
+
+
 def test_project_open_aborts_after_refresh_if_user_switches_projects() -> None:
     term_open_for_project = _js_between(
         "async function termOpenForProject(projectId)",

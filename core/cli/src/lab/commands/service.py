@@ -49,9 +49,7 @@ def _server_port() -> str:
               default=None, help="Workspace to serve.")
 @click.option("--port", "-p", "port", type=int, default=None,
               help="Port for this server run.")
-@click.option("--dev", is_flag=True,
-              help="Show framework-dev UI such as the Productivity tab.")
-def start(workspace_path: Path | None, port: int | None, dev: bool) -> None:
+def start(workspace_path: Path | None, port: int | None) -> None:
     """Start the backend in the background."""
     if workspace_path is not None:
         workspace = workspace_path.expanduser().resolve()
@@ -67,10 +65,6 @@ def start(workspace_path: Path | None, port: int | None, dev: bool) -> None:
     if port is not None:
         env["LAB_PORT"] = str(port)
         cmd.append(f"PORT={port}")
-    if dev:
-        env["LAB_DEV_MODE"] = "1"
-    else:
-        env.pop("LAB_DEV_MODE", None)
     subprocess.run(cmd, check=True, cwd=str(framework), env=env)
 
 

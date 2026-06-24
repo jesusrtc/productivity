@@ -4744,7 +4744,7 @@
   }
   function projTabsPseudoOpenIds() {
     return (projTabsPseudoOpen || []).filter(id =>
-      id === LOGS_PROJECT_ID || (LAB_DEV_MODE && id === SELF_PROJECT_ID)
+      id === LOGS_PROJECT_ID || id === SELF_PROJECT_ID
     );
   }
   async function projTabsSetOpen(pid, open) {
@@ -4761,7 +4761,7 @@
     if (p) p.tab_open = !!open;
   }
   async function projTabsSetPseudoOpen(pid, open) {
-    if (!(pid === LOGS_PROJECT_ID || (LAB_DEV_MODE && pid === SELF_PROJECT_ID))) return;
+    if (!(pid === LOGS_PROJECT_ID || pid === SELF_PROJECT_ID)) return;
     const ids = new Set(projTabsPseudoOpenIds());
     if (open) ids.add(pid);
     else ids.delete(pid);
@@ -4791,7 +4791,6 @@
   // Pseudo-project like Cerebro; no folder under knowledge/projects/.
   const SELF_PROJECT_ID = '__self__';
   const SELF_REPO_PATH = window.LAB_MONOREPO_ROOT || '';  // populated by index.html
-  const LAB_DEV_MODE = !!window.LAB_DEV_MODE;
 
   // Code Search fixed view: also a pseudo-project. The actual per-repo
   // terminal panel uses `__cs_<repo>__` ids (see _csProjectId); this
@@ -4855,7 +4854,7 @@
   const urlCerebroPath = initialParams.get('path') || '';
   if (urlView === 'cerebro') {
     initCerebro(urlCerebroPath);
-  } else if (urlView === 'productivity' && LAB_DEV_MODE) {
+  } else if (urlView === 'productivity') {
     initSelf();
   } else if (urlView === 'code-search') {
     document.body.classList.add('code-search-active');
@@ -4919,6 +4918,7 @@
   let termRefreshTimer = null;  // periodic poll of /api/term/sessions
   let termReconnectTimer = null; // one-shot post-disconnect recovery
   let _termWheelListenerAdded = false; // wheel listener added once to termBody
+  let _termPasteListenerAdded = false; // image paste listener added once to termBody
   let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
   let termAttachRequestSeq = 0;       // latest requested attach; prevents out-of-order switches
   // Per-session xterm+WS cache so SESSION-PILL switches (within the same
@@ -4928,7 +4928,7 @@
   // project switches. That makes the project id part of the identity: a
   // delayed attach from project A must never be allowed to display while
   // project B is active, even if both have a "claude" logical session.
-  const _termCache = new Map(); // "projectId::name" -> {projectId, name, xterm, fitAddon, ws, container}
+  const _termCache = new Map(); // "projectId::name" -> {projectId, name, xterm, fitAddon, ws, container, parkedAt}
   // `_termSessionsCache` (projectId -> sessions[]) is the warm-switch
   // fast-path cache: it's declared at the top of the script (next to
   // CEREBRO_PROJECT_ID / SELF_PROJECT_ID) so initCerebro/initSelf can
@@ -4945,6 +4945,7 @@
   const TERM_MAX_RECONNECT_ATTEMPTS = 3;
   const TERM_RECONNECT_BASE_MS = 800;
   const TERM_RECONNECT_CAP_MS = 30000;
+  const TERM_FAST_PARK_MS = 10 * 60 * 1000;
 
   // Per-project "last selected" memory so leaving and returning to a project
   // (full page reload) restores whichever session pill the user had active
@@ -5018,6 +5019,11 @@
   }
   function _termCacheKey(projectId, name) {
     return String(projectId || '') + '::' + String(name || '');
+  }
+  function _termCachedPaneIsFresh(cached) {
+    if (!(cached && cached.ws && cached.ws.readyState === WebSocket.OPEN)) return false;
+    if (cached.parkedAt && Date.now() - cached.parkedAt > TERM_FAST_PARK_MS) return false;
+    return true;
   }
   function _termIsScopeActive(projectId) {
     return !!projectId && _termActiveProjectId() === projectId;
@@ -5138,7 +5144,7 @@
       tabs.push({id: CEREBRO_PROJECT_ID, hot: false});
     }
     const selfViewActive = document.body.classList.contains('self-active');
-    if (LAB_DEV_MODE && !seen.has(SELF_PROJECT_ID)) {
+    if (!seen.has(SELF_PROJECT_ID)) {
       seen.add(SELF_PROJECT_ID);
       tabs.push({id: SELF_PROJECT_ID, hot: false});
     }
@@ -5377,7 +5383,7 @@
     if (activeId) inTabs.add(activeId);
     if (document.body.classList.contains('logs-active')) inTabs.add(LOGS_PROJECT_ID);
     if (document.body.classList.contains('cerebro-active')) inTabs.add(CEREBRO_PROJECT_ID);
-    if (LAB_DEV_MODE || document.body.classList.contains('self-active')) inTabs.add(SELF_PROJECT_ID);
+    inTabs.add(SELF_PROJECT_ID);
     const candidates = projTabsAll.filter(p => !inTabs.has(p.name));
     // Pseudo-projects sit at the top of the picker
     // unless they're already a tab.
@@ -5386,7 +5392,7 @@
         <span>logs</span>
         <span class="meta">errors · backend · frontend</span>
       </div>`;
-    const selfRow = (!LAB_DEV_MODE || inTabs.has(SELF_PROJECT_ID)) ? '' : `
+    const selfRow = inTabs.has(SELF_PROJECT_ID) ? '' : `
       <div class="row" data-self="1">
         <span>🛠️ productivity</span>
         <span class="meta">this repo</span>
@@ -5461,13 +5467,23 @@
       termRenderSessionList();
       if (termSessions.length > 0) {
         const pick = _termPickRestoreName(projectId);
-        if (pick) termAttach(pick, projectId);
+        if (pick && _termHasOpenCachedPane(projectId, pick)) {
+          termAttach(pick, projectId);
+          termRefreshSessions(projectId);  // background reconcile, no await
+        } else {
+          console.info('[term] warm cache stale; reconciling before attach', projectId, pick);
+          _termClientLog('info', 'terminal warm cache stale; reconciling before attach', {
+            event_type: 'term.restore.stale_cache',
+            target: projectId,
+          });
+          await _termRestoreSessionsForProject(projectId);
+        }
       } else {
         termDetach();
         termShowEmpty();
         termSetStatus('idle', 'no session — click + New');
+        termRefreshSessions(projectId);  // background reconcile, no await
       }
-      termRefreshSessions(projectId);  // background reconcile, no await
       termStartPeriodicRefresh();
       termStartStatusPolling();
       return;
@@ -5477,14 +5493,85 @@
     // restore path: pull saved sessions out of project.json and respawn
     // any that aren't live in tmux. This is the path that surfaces saved
     // Claude conversations after a browser reload.
-    await termRefreshSessions(projectId);
+    await _termRestoreSessionsForProject(projectId);
+    // Keep the dropdown + current attachment honest when sessions change out
+    // from under us (manual `tmux kill-session`, server restart, etc.).
+    termStartPeriodicRefresh();
+    // Live working/idle indicator on each pill.
+    termStartStatusPolling();
+  }
+
+  function _termHasOpenCachedPane(projectId, name) {
+    if (typeof _termCache === 'undefined' || typeof _termCacheKey !== 'function') return false;
+    const cached = _termCache.get(_termCacheKey(projectId, name));
+    return _termCachedPaneIsFresh(cached);
+  }
+
+  async function _termTryWarmOpen(projectId) {
+    if (!_termSessionsCache.has(projectId)) return false;
+    termSessions = _termSessionsCache.get(projectId) || [];
+    termRenderSessionList();
+    if (termSessions.length > 0) {
+      const pick = _termPickRestoreName(projectId);
+      if (pick && _termHasOpenCachedPane(projectId, pick)) {
+        termAttach(pick, projectId);
+        _termRefreshSessionsForProjectId(projectId);  // background reconcile
+      } else {
+        console.info('[term] warm cache stale; reconciling before attach', projectId, pick);
+        _termClientLog('info', 'terminal warm cache stale; reconciling before attach', {
+          event_type: 'term.restore.stale_cache',
+          target: projectId,
+        });
+        await _termRestoreSessionsForProject(projectId);
+      }
+    } else {
+      termDetach();
+      termShowEmpty();
+      termSetStatus('idle', 'no session — click + New');
+      _termRefreshSessionsForProjectId(projectId);  // background reconcile
+    }
+    return true;
+  }
+
+  async function _termRefreshSessionsForProjectId(projectId) {
+    if (projectId === '__cerebro__' || projectId === '__self__' || projectId === '__logs__') {
+      await termRefreshSessionsByProjectId(projectId);
+    } else {
+      await termRefreshSessions(projectId);
+    }
+  }
+
+  function _termClientLog(level, msg, extra = {}) {
+    try {
+      const event = {
+        level,
+        msg,
+        path: location.pathname + location.search + location.hash,
+        ...extra,
+      };
+      fetch('/api/log/client', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({events: [event]}),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {}
+  }
+
+  async function _termRestoreSessionsForProject(projectId) {
+    await _termRefreshSessionsForProjectId(projectId);
     if (!_termIsScopeActive(projectId)) return;
 
     let saved = [];
     try {
       const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(projectId));
       if (r.ok) saved = await r.json();
-    } catch { /* ignore, we'll just skip restore */ }
+    } catch (e) {
+      _termClientLog('warning', 'terminal saved-session fetch failed', {
+        event_type: 'term.restore.saved_fetch_failed',
+        target: projectId,
+      });
+    }
     if (!_termIsScopeActive(projectId)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
@@ -5495,43 +5582,39 @@
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
-      // Respawn in parallel. Each POST goes through the idempotent "known
-      // name + saved UUID → --resume" branch on the server.
+      _termClientLog('info', 'terminal restoring saved sessions', {
+        event_type: 'term.restore.saved',
+        target: projectId,
+      });
       await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           project_id: projectId,
           kind: s.kind || 'claude',
-          agent: s.agent,  // undefined for old/claude sessions → server resolves default
+          agent: s.agent,
           name: s.name,
           auto: true,
         }),
       }).catch(() => null)));
-      await termRefreshSessions(projectId);
+      await _termRefreshSessionsForProjectId(projectId);
       if (!_termIsScopeActive(projectId)) return;
     }
 
     if (termSessions.length > 0) {
-      // Prefer the user's last selection for this project; fall back to the
-      // canonical "claude" pill, then to the first session in the list.
       const pick = _termPickRestoreName(projectId);
       if (pick) termAttach(pick, projectId);
-    } else {
-      termDetach();
-      termShowEmpty();
-      if (projectAutoSpawn) {
-        termSetStatus('idle', 'auto-spawning claude…');
-        await termSpawnSession('claude', { startFresh: false });
-      } else {
-        termSetStatus('idle', 'no session — click + New');
-      }
+      return;
     }
-    // Keep the dropdown + current attachment honest when sessions change out
-    // from under us (manual `tmux kill-session`, server restart, etc.).
-    termStartPeriodicRefresh();
-    // Live working/idle indicator on each pill.
-    termStartStatusPolling();
+
+    termDetach();
+    termShowEmpty();
+    if (projectAutoSpawn) {
+      termSetStatus('idle', 'auto-spawning claude…');
+      await termSpawnSession('claude', { startFresh: false });
+    } else {
+      termSetStatus('idle', 'no session — click + New');
+    }
   }
 
   function termStartPeriodicRefresh() {
@@ -5889,6 +5972,63 @@
   const termStatus = {};
   let _termStatusTimer = null;
 
+  function _termSessionDisplay(s) {
+    return (s && (s.label || s.logical_name || s.name)) || '';
+  }
+
+  function _termSessionTitle(s, statusTitle) {
+    const parts = [];
+    const display = _termSessionDisplay(s);
+    if (display) parts.push(display);
+    if (s && s.summary) parts.push(s.summary);
+    if (s && s.name) parts.push(s.name);
+    if (statusTitle) parts.push(statusTitle);
+    parts.push('Double-click or use the pencil to rename');
+    return parts.join('\n');
+  }
+
+  async function termRenameSession(name) {
+    const session = _termSessionMeta(name);
+    if (!session) return;
+    const projectId = _termActiveProjectId();
+    const logical = session.logical_name || '';
+    if (!projectId || !logical) return;
+    const current = session.label || logical;
+    const nextRaw = prompt('Rename terminal tab', current);
+    if (nextRaw === null) return;
+    const next = nextRaw.trim();
+    try {
+      const r = await fetch('/api/term/sessions/metadata', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          project_id: projectId,
+          name: logical,
+          label: next || null,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.detail || r.statusText || 'rename failed');
+      const updated = body.session || {};
+      termSessions = (termSessions || []).map(s =>
+        s.name === name ? {...s, label: updated.label || null, summary: updated.summary || s.summary} : s
+      );
+      _termSessionsCache.set(projectId, termSessions);
+      termRenderSessionList();
+      _termClientLog('info', 'terminal tab renamed', {
+        event_type: 'term.session.rename',
+        target: projectId,
+      });
+    } catch (e) {
+      console.warn('[term] rename failed', e);
+      termSetStatus('err', 'rename failed');
+      _termClientLog('warning', 'terminal tab rename failed: ' + (e && e.message || e), {
+        event_type: 'term.session.rename_failed',
+        target: projectId,
+      });
+    }
+  }
+
   function termRenderSessionList() {
     const el = document.getElementById('termSessionList');
     if (!el) return;
@@ -5897,7 +6037,7 @@
       return;
     }
     el.innerHTML = termSessions.map(s => {
-      const display = s.logical_name || s.name;
+      const display = _termSessionDisplay(s);
       const kind = (s.kind || '').toLowerCase();
       // Badge + icon reflect the actual agent (claude/codex/copilot), not the
       // transport kind — codex sessions have kind==='claude' but must not read
@@ -5924,14 +6064,29 @@
                : status === 'idle'   ? 'Claude idle — needs your input'
                : 'Claude — status unknown')
             : '');
-      return `<span class="sess ${kind}${active}${statusCls}${dead}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(s.name)}${statusTitle ? ' · ' + termSessEsc(statusTitle) : ''}">
+      const labelCls = s.label ? ' custom' : '';
+      return `<span class="sess ${kind}${active}${statusCls}${dead}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
         <span class="stat"></span>
         <span>${icon}</span>
-        <span>${termSessEsc(display)}</span>
+        <span class="sess-label${labelCls}">${termSessEsc(display)}</span>
         <span class="k">${termSessEsc(badge)}</span>
+        <button type="button" class="rename" data-rename="${termSessEsc(s.name)}" title="Rename terminal tab" aria-label="Rename terminal tab">✎</button>
       </span>`;
     }).join('');
     el.querySelectorAll('.sess').forEach(node => {
+      const renameBtn = node.querySelector('[data-rename]');
+      if (renameBtn) {
+        renameBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          termRenameSession(renameBtn.getAttribute('data-rename'));
+        });
+      }
+      node.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        termRenameSession(node.getAttribute('data-name'));
+      });
       node.addEventListener('click', () => {
         const name = node.getAttribute('data-name');
         if (!name) return;
@@ -6233,6 +6388,72 @@
     return container;
   }
 
+  function _termClipboardImageFile(ev) {
+    const data = ev && ev.clipboardData;
+    if (!data) return null;
+    const items = Array.from(data.items || []);
+    for (const item of items) {
+      if (item && item.kind === 'file' && /^image\//i.test(item.type || '')) {
+        try { return item.getAsFile(); } catch { return null; }
+      }
+    }
+    const files = Array.from(data.files || []);
+    return files.find(f => f && /^image\//i.test(f.type || '')) || null;
+  }
+
+  function _termReadFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('read failed'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function _termHandlePaste(ev) {
+    const file = _termClipboardImageFile(ev);
+    if (!file) return;  // Let xterm handle normal text paste.
+    if (!termWS || termWS.readyState !== WebSocket.OPEN || !termCurrentSession) return;
+    const projectId = _termActiveProjectId();
+    if (!projectId) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    termSetStatus('idle', 'saving pasted image...');
+    try {
+      const dataUrl = await _termReadFileAsDataUrl(file);
+      const r = await fetch('/api/term/paste-image', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          project_id: projectId,
+          session_name: termCurrentSession,
+          name: file.name || 'clipboard-image',
+          mime: file.type || 'image/png',
+          data: dataUrl,
+        }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.detail || r.statusText || 'paste failed');
+      const path = body.path || body.absolute_path;
+      if (!path) throw new Error('paste response missing path');
+      if (termWS && termWS.readyState === WebSocket.OPEN) {
+        termWS.send(JSON.stringify({ type: 'input', data: path }));
+      }
+      termSetStatus('live', 'pasted image · ' + path);
+      _termClientLog('info', 'terminal image paste saved', {
+        event_type: 'term.paste_image',
+        target: projectId,
+      });
+    } catch (e) {
+      console.warn('[term] image paste failed', e);
+      termSetStatus('err', 'image paste failed');
+      _termClientLog('warning', 'terminal image paste failed: ' + (e && e.message || e), {
+        event_type: 'term.paste_image_failed',
+        target: projectId,
+      });
+    }
+  }
+
   function termEnsureXterm() {
     // Kept for the cache-miss fresh-connect path in termAttach; creates the
     // xterm+fitAddon and assigns to module-level termXterm/termFitAddon.
@@ -6284,6 +6505,13 @@
           termWS.send(JSON.stringify({ type: 'input', data: `\x1b[<${button};${col};${row}M` }));
         }
       }, { passive: false, capture: true });
+    }
+    if (!_termPasteListenerAdded) {
+      const body = document.getElementById('termBody');
+      if (body) {
+        _termPasteListenerAdded = true;
+        body.addEventListener('paste', _termHandlePaste, { capture: true });
+      }
     }
   }
 
@@ -6383,6 +6611,7 @@
             fitAddon: termFitAddon,
             ws: termWS,
             container: prevContainer,
+            parkedAt: Date.now(),
           });
         }
         console.log('[term] parked', prev, 'project=', prevProjectId, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
@@ -6538,7 +6767,12 @@
     if (_emptyEl) _emptyEl.style.display = 'none';
 
     const scopeKey = _termCacheKey(projectId, name);
-    const cached = _termCache.get(scopeKey);
+    let cached = _termCache.get(scopeKey);
+    if (cached && cached.ws && cached.ws.readyState === WebSocket.OPEN && !_termCachedPaneIsFresh(cached)) {
+      console.info('[term] evicting aged parked pane before attach', name, projectId);
+      _termEvictCache(name, projectId);
+      cached = null;
+    }
     // Shared WS-open logic. `freshPane` is currently informational only —
     // both branches behave identically on the wire (no Ctrl-L, no clear).
     // Kept on the signature so callers in cache-miss vs cache-stale paths
@@ -8649,11 +8883,11 @@
         desc: 'Terminal-style view of errors, backend, and frontend logs.',
         href: '/?view=logs',
       }),
-      LAB_DEV_MODE ? pseudoRowHtml({
+      pseudoRowHtml({
         id: SELF_PROJECT_ID, icon: '🛠️', label: 'productivity',
         desc: 'This monorepo itself — commits on main, uncommitted changes, and repo-level tasks. Excludes repositories/.',
         href: '/?view=productivity',
-      }) : '',
+      }),
       pseudoRowHtml({
         id: CEREBRO_PROJECT_ID, icon: '🧠', label: 'cerebro',
         desc: 'Personal knowledge base — wikis, logs, meetings, roadmaps, and every project\'s docs.',
@@ -10539,74 +10773,12 @@
     if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-
-    // Warm switch — same fast path as termOpenForProject. See comment
-    // there for the why.
-    const isWarmSwitch = _termSessionsCache.has(SELF_PROJECT_ID);
-    if (isWarmSwitch) {
-      termSessions = _termSessionsCache.get(SELF_PROJECT_ID) || [];
-      termRenderSessionList();
-      if (termSessions.length > 0) {
-        const pick = _termPickRestoreName(SELF_PROJECT_ID);
-        if (pick) termAttach(pick, SELF_PROJECT_ID);
-      } else {
-        termDetach();
-        termShowEmpty();
-        termSetStatus('idle', 'no session — click + New');
-      }
-      termRefreshSessionsByProjectId(SELF_PROJECT_ID);  // background
+    if (await _termTryWarmOpen(SELF_PROJECT_ID)) {
       termStartPeriodicRefresh();
       termStartStatusPolling();
       return;
     }
-
-    await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
-    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
-
-    let saved = [];
-    try {
-      const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(SELF_PROJECT_ID));
-      if (r.ok) saved = await r.json();
-    } catch {}
-    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
-
-    const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
-    const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
-    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(SELF_PROJECT_ID);
-    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
-
-    if (toRestore.length > 0 && globalAutoSpawn) {
-      termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
-      await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          project_id: SELF_PROJECT_ID, kind: s.kind || 'claude', agent: s.agent, name: s.name, auto: true,
-        }),
-      }).catch(() => null)));
-      await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
-      if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
-    }
-
-    if (termSessions.length > 0) {
-      const pick = _termPickRestoreName(SELF_PROJECT_ID);
-      if (pick) termAttach(pick, SELF_PROJECT_ID);
-    } else if (projectAutoSpawn) {
-      termSetStatus('idle', 'auto-spawning claude…');
-      await fetch('/api/term/sessions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ project_id: SELF_PROJECT_ID, kind: 'claude', auto: true }),
-      }).catch(() => null);
-      await termRefreshSessionsByProjectId(SELF_PROJECT_ID);
-      if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
-      if (termSessions.length > 0) termAttach(termSessions[0].name, SELF_PROJECT_ID);
-    } else {
-      termDetach();
-      termShowEmpty();
-      termSetStatus('idle', 'no session — click + New');
-    }
+    await _termRestoreSessionsForProject(SELF_PROJECT_ID);
     // Same live-status polling as real projects: pills pulse, attention flag fires.
     termStartPeriodicRefresh();
     termStartStatusPolling();
@@ -11001,81 +11173,12 @@
     if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-
-    const isWarmSwitch = _termSessionsCache.has(LOGS_PROJECT_ID);
-    if (isWarmSwitch) {
-      termSessions = _termSessionsCache.get(LOGS_PROJECT_ID) || [];
-      termRenderSessionList();
-      if (termSessions.length > 0) {
-        const pick = _termPickRestoreName(LOGS_PROJECT_ID);
-        if (pick) termAttach(pick, LOGS_PROJECT_ID);
-      } else {
-        termDetach();
-        termShowEmpty();
-        termSetStatus('idle', 'no session — click + New');
-      }
-      termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
+    if (await _termTryWarmOpen(LOGS_PROJECT_ID)) {
       termStartPeriodicRefresh();
       termStartStatusPolling();
       return;
     }
-
-    await termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
-    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
-
-    let saved = [];
-    try {
-      const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(LOGS_PROJECT_ID));
-      if (r.ok) saved = await r.json();
-    } catch {}
-    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
-
-    const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
-    const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
-    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(LOGS_PROJECT_ID);
-    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
-
-    if (toRestore.length > 0 && globalAutoSpawn) {
-      termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
-      await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          project_id: LOGS_PROJECT_ID,
-          kind: s.kind || 'claude',
-          agent: s.agent,
-          name: s.name,
-          auto: true,
-        }),
-      }).catch(() => null)));
-      await termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
-      if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
-    }
-
-    if (termSessions.length > 0) {
-      const pick = _termPickRestoreName(LOGS_PROJECT_ID);
-      if (pick) termAttach(pick, LOGS_PROJECT_ID);
-    } else if (projectAutoSpawn) {
-      termSetStatus('idle', 'auto-spawning claude…');
-      await fetch('/api/term/sessions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          project_id: LOGS_PROJECT_ID,
-          kind: 'claude',
-          auto: true,
-        }),
-      }).catch(() => null);
-      await termRefreshSessionsByProjectId(LOGS_PROJECT_ID);
-      if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
-      if (termSessions.length > 0) termAttach(termSessions[0].name, LOGS_PROJECT_ID);
-    } else {
-      termDetach();
-      termShowEmpty();
-      termSetStatus('idle', 'no session — click + New');
-    }
-
+    await _termRestoreSessionsForProject(LOGS_PROJECT_ID);
     termStartPeriodicRefresh();
     termStartStatusPolling();
   }
@@ -11086,83 +11189,12 @@
     if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-
-    // Warm switch — same fast path as termOpenForProject.
-    const isWarmSwitch = _termSessionsCache.has(CEREBRO_PROJECT_ID);
-    if (isWarmSwitch) {
-      termSessions = _termSessionsCache.get(CEREBRO_PROJECT_ID) || [];
-      termRenderSessionList();
-      if (termSessions.length > 0) {
-        const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
-        if (pick) termAttach(pick, CEREBRO_PROJECT_ID);
-      } else {
-        termDetach();
-        termShowEmpty();
-        termSetStatus('idle', 'no session — click + New');
-      }
-      termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);  // background
+    if (await _termTryWarmOpen(CEREBRO_PROJECT_ID)) {
       termStartPeriodicRefresh();
       termStartStatusPolling();
       return;
     }
-
-    // Fetch the saved sessions for __cerebro__ and restore them.
-    await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
-    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
-
-    let saved = [];
-    try {
-      const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(CEREBRO_PROJECT_ID));
-      if (r.ok) saved = await r.json();
-    } catch {}
-    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
-
-    const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
-    const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
-    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
-    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(CEREBRO_PROJECT_ID);
-    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
-
-    if (toRestore.length > 0 && globalAutoSpawn) {
-      termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
-      await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          project_id: CEREBRO_PROJECT_ID,
-          kind: s.kind || 'claude',
-          agent: s.agent,  // undefined for old/claude sessions → server resolves default
-          name: s.name,
-          auto: true,
-        }),
-      }).catch(() => null)));
-      await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
-      if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
-    }
-
-    if (termSessions.length > 0) {
-      const pick = _termPickRestoreName(CEREBRO_PROJECT_ID);
-      if (pick) termAttach(pick, CEREBRO_PROJECT_ID);
-    } else if (projectAutoSpawn) {
-      termSetStatus('idle', 'auto-spawning claude…');
-      // Call termSpawnSession-style, but using CEREBRO_PROJECT_ID.
-      await fetch('/api/term/sessions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          project_id: CEREBRO_PROJECT_ID,
-          kind: 'claude',
-          auto: true,
-        }),
-      }).catch(() => null);
-      await termRefreshSessionsByProjectId(CEREBRO_PROJECT_ID);
-      if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
-      if (termSessions.length > 0) termAttach(termSessions[0].name, CEREBRO_PROJECT_ID);
-    } else {
-      termDetach();
-      termShowEmpty();
-      termSetStatus('idle', 'no session — click + New');
-    }
+    await _termRestoreSessionsForProject(CEREBRO_PROJECT_ID);
     // Cerebro's terminal panel gets the same live-status polling as real
     // projects — pills pulse + the cerebro tab flags attention if idle.
     termStartPeriodicRefresh();

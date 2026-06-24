@@ -428,7 +428,7 @@ Create `apps/lab/tests/__init__.py`:
 ```python
 ```
 
-- [ ] **Step 6: Install package in dev mode and smoke test**
+- [ ] **Step 6: Install package in editable mode and smoke test**
 
 Run:
 ```bash

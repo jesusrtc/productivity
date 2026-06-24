@@ -6,6 +6,7 @@ server and socket. The WebSocket PTY bridge is covered separately.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -665,6 +666,21 @@ def test_logs_pseudo_project_uses_own_saved_state(monorepo: Path) -> None:
     ]
 
 
+def test_self_pseudo_project_uses_framework_root_for_terminal(monorepo: Path, tmp_path: Path,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    from core.routes import term as term_mod
+    from lab import paths
+
+    framework = tmp_path / "framework"
+    (framework / "content").mkdir(parents=True)
+    monkeypatch.setattr(paths, "find_framework_root", lambda: framework)
+
+    assert term_mod._project_json(monorepo, term_mod.SELF_PROJECT_ID) == (
+        framework / "content" / ".self-project.json"
+    )
+    assert term_mod._project_cwd(monorepo, term_mod.SELF_PROJECT_ID) == framework.resolve()
+
+
 def test_delete_with_purge_clears_project_json_entry(client, seed_project,
                                                       isolated_prefix, monorepo: Path) -> None:
     seed_project("demo")
@@ -751,3 +767,63 @@ def test_failed_tmux_listing_does_not_prune_registry(client, seed_project,
     from lab import paths
     meta = json.loads(paths.sessions_file(monorepo).read_text())
     assert created["name"] in meta, "failed listing must not prune the registry"
+
+
+def test_session_metadata_label_is_persisted_and_returned(client, seed_project,
+                                                          isolated_prefix,
+                                                          monorepo: Path) -> None:
+    seed_project("demo")
+    created = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "claude",
+        "agent": "codex",
+    }).json()
+
+    r = client.patch("/api/term/sessions/metadata", json={
+        "project_id": "demo",
+        "name": created["logical_name"],
+        "label": "review auth PR",
+        "summary": "Checking failing auth tests",
+    })
+    assert r.status_code == 200, r.text
+
+    rows = client.get("/api/term/sessions?project_id=demo").json()
+    assert rows[0]["label"] == "review auth PR"
+    assert rows[0]["summary"] == "Checking failing auth tests"
+
+    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    assert pjson["sessions"][0]["label"] == "review auth PR"
+    assert pjson["sessions"][0]["summary"] == "Checking failing auth tests"
+
+
+def test_paste_image_saves_under_project_and_returns_relative_path(client, seed_project,
+                                                                   monorepo: Path) -> None:
+    seed_project("demo")
+    png = b"\x89PNG\r\n\x1a\n"
+    data = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+    r = client.post("/api/term/paste-image", json={
+        "project_id": "demo",
+        "mime": "image/png",
+        "name": "clipboard.png",
+        "data": data,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["path"].startswith(".lab/terminal-pastes/")
+    assert body["path"].endswith(".png")
+    saved = monorepo / "projects" / "demo" / body["path"]
+    assert saved.read_bytes() == png
+    assert body["mime"] == "image/png"
+    assert body["bytes"] == len(png)
+
+
+def test_paste_image_rejects_unsupported_mime(client, seed_project) -> None:
+    seed_project("demo")
+    r = client.post("/api/term/paste-image", json={
+        "project_id": "demo",
+        "mime": "text/plain",
+        "data": base64.b64encode(b"not-image").decode("ascii"),
+    })
+    assert r.status_code == 400

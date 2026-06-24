@@ -56,29 +56,6 @@ def test_start_accepts_port(monkeypatch, tmp_path: Path) -> None:
     assert called[0]["env"]["LAB_PORT"] == "8090"
 
 
-def test_start_dev_sets_dev_mode(monkeypatch, tmp_path: Path) -> None:
-    called: list[dict] = []
-    workspace = tmp_path / "workspace"
-    framework = tmp_path / "framework"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text("[workspace]\nname = \"workspace\"\n")
-    framework.mkdir()
-    monkeypatch.setattr("lab.commands.service.paths.find_workspace_root", lambda: workspace)
-    monkeypatch.setattr("lab.commands.service.paths.find_framework_root", lambda: framework)
-    monkeypatch.setattr("lab.commands.service.paths.register_workspace", lambda *a, **k: {})
-
-    def fake_run(cmd, check, cwd=None, env=None):
-        called.append({"cmd": cmd, "cwd": cwd, "env": env})
-        class R:
-            returncode = 0
-        return R()
-
-    monkeypatch.setattr("lab.commands.service.subprocess.run", fake_run)
-    result = CliRunner().invoke(main, ["start", "--dev"])
-    assert result.exit_code == 0, result.output
-    assert called[0]["env"]["LAB_DEV_MODE"] == "1"
-
-
 def test_start_rejects_uninitialized_workspace(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

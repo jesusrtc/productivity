@@ -1,4 +1,13 @@
 import json
+from types import SimpleNamespace
+
+
+def _request(root):
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(index_cache=SimpleNamespace(root=root)),
+        ),
+    )
 
 
 def test_post_project_new_creates_on_disk(client, monorepo) -> None:
@@ -44,6 +53,44 @@ def test_post_task_new(client, seed_project) -> None:
     assert body["id"] == 1
     assert body["title"] == "Draft"
     assert body["status"] == "todo"
+
+
+def test_post_self_task_uses_framework_root(tmp_path, monkeypatch) -> None:
+    from core.routes import mutation as mutation_routes
+
+    workspace = tmp_path / "workspace"
+    framework = tmp_path / "framework"
+    (workspace / "content").mkdir(parents=True)
+    (framework / "content").mkdir(parents=True)
+    seen: dict[str, object] = {}
+
+    def fake_run_lab(args, *, root):
+        seen["args"] = args
+        seen["root"] = root
+        (root / "content" / ".self-tasks.json").write_text(json.dumps({
+            "next_id": 2,
+            "tasks": [{
+                "id": 1,
+                "title": "Framework task",
+                "status": "todo",
+                "priority": "P1",
+            }],
+        }))
+
+    monkeypatch.setattr(mutation_routes.paths, "find_framework_root", lambda: framework)
+    monkeypatch.setattr(mutation_routes, "_run_lab", fake_run_lab)
+
+    body = mutation_routes.NewTask(
+        project_id="__self__",
+        title="Framework task",
+        priority="P1",
+    )
+    created = mutation_routes.create_task(body, _request(workspace))
+
+    assert seen["root"] == framework
+    assert seen["args"][:5] == ["task", "new", "Framework task", "--project", "__self__"]
+    assert created["title"] == "Framework task"
+    assert not (workspace / "content" / ".self-tasks.json").exists()
 
 
 def test_post_task_status_done(client, seed_project) -> None:
