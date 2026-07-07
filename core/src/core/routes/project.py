@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from lab import paths, storage
 from lab.model import ModelError, Project, validate_id
 
+from core import fsguard
+
 
 router = APIRouter()
 
@@ -114,18 +116,21 @@ def list_project_docs(project_id: str, request: Request) -> list[dict]:
     if not pdir.is_dir():
         raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
 
-    out: list[dict] = []
-    for sub in ("docs", "notes", "assets", "notebooks"):
-        sub_dir = pdir / sub
-        if not sub_dir.is_dir():
-            continue
-        for f in sorted(sub_dir.rglob("*")):
-            if f.is_file():
-                out.append({
-                    "path": str(f.relative_to(pdir)),
-                    "size": f.stat().st_size,
-                })
-    return out
+    def _scan_docs() -> list[dict]:
+        found: list[dict] = []
+        for sub in ("docs", "notes", "assets", "notebooks"):
+            sub_dir = pdir / sub
+            if not sub_dir.is_dir():
+                continue
+            for f in sorted(sub_dir.rglob("*")):
+                if f.is_file():
+                    found.append({
+                        "path": str(f.relative_to(pdir)),
+                        "size": f.stat().st_size,
+                    })
+        return found
+
+    return fsguard.guarded(root, _scan_docs)
 
 
 class HoldBody(BaseModel):

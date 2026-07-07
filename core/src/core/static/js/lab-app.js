@@ -30,14 +30,20 @@
   }
 
   let _workspaceSwitching = false;
+  // The id of the workspace the server is currently serving. Only one
+  // workspace is ever active at a time, so every real project tab / active
+  // dashboard row belongs to this same id — it's read by the project-tab
+  // badge and by the dashboard row badge below.
+  let currentWorkspaceId = null;
   async function workspaceRefresh() {
-    const sel = document.getElementById('workspaceSelect');
-    if (!sel) return;
     try {
       const r = await fetch('/api/workspaces');
       if (!r.ok) return;
       const data = await r.json();
+      currentWorkspaceId = data.active || null;
       const rows = Array.isArray(data.workspaces) ? data.workspaces : [];
+      const sel = document.getElementById('workspaceSelect');
+      if (!sel) return;
       sel.innerHTML = '';
       rows.forEach(row => {
         const opt = document.createElement('option');
@@ -2428,8 +2434,12 @@
 
     let html = '';
 
+    // A server (proxy) view counts as its own tab — while one is open the
+    // Overview tab must not also read as active.
+    const proxyOpen = typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/');
+
     if (currentProject.is_project) {
-      const dashActive = !currentRepo ? ' active' : '';
+      const dashActive = (!currentRepo && !proxyOpen) ? ' active' : '';
       html += `<button class="repo-tab${dashActive}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
     }
 
@@ -2437,6 +2447,23 @@
       const active = r.path === currentRepo ? ' active' : '';
       return `<button class="repo-tab${active}" onclick="selectProjectRepo('${r.path}')">${r.name} <span style="color:#484f58;font-size:10px">${r.branch}</span></button>`;
     }).join('');
+
+    // One tab per declared server (project.json proxies) — clicking it opens
+    // the same inline iframe view as the sidebar Servers entry. The list
+    // comes from the sidebar payload cache; on a cold load it's empty until
+    // _refreshProjectSidebar fetches project-info and re-calls us.
+    if (currentProject.is_project) {
+      const cached = _projectSidebarCache.get(currentProject.path);
+      const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
+      proxies.forEach(p => {
+        if (!p || !p.name) return;
+        const name = String(p.name);
+        const safeName = name.replace(/'/g, "\\'");
+        const label = p.label || name;
+        const active = _projDocPath === '__proxy__/' + name ? ' active' : '';
+        html += `<button class="repo-tab${active}" onclick="openProjectProxy('${safeName}')">&#x1F310; ${esc(label)} <span style="color:#484f58;font-size:10px">:${esc(String(p.port || ''))}</span></button>`;
+      });
+    }
 
     // Snooze controls — right-aligned on the same bar as Overview. Always
     // render the Snooze button for a project; when a hold is active also
@@ -2879,6 +2906,9 @@
     _projDocPath = filepath;
     _projDocEditing = false;
     setLastProjectDoc(currentProject.path, filepath);
+    // Coming back from a server view (which collapses the sidebar by
+    // default) — restore this project's own sidebar preference.
+    _sidebarApplyForView();
     const content = document.getElementById('content');
     const prevScroll = preserveScroll ? content.scrollTop : 0;
     // Skip the "Loading..." flash when we have a cached copy of this
@@ -3024,6 +3054,8 @@
     const existingWrap = document.getElementById('proxyWrap');
     if (existingWrap && existingWrap.dataset.proxy === name && document.getElementById('proxyIframe')) {
       _projDocPath = '__proxy__/' + name;
+      renderRepoTabs();
+      _sidebarApplyForView();
       return;
     }
     const p = _proxyFromCachedSidebar(name);
@@ -3031,6 +3063,19 @@
     _projDocPath = proxyPath;
     _projDocEditing = false;
     setLastProjectDoc(currentProject.path, proxyPath);
+    // Server views default to a collapsed files sidebar so the embedded
+    // app gets the full left + center width (per-view remembered state —
+    // the Files edge handle still brings it back).
+    _sidebarApplyForView();
+    // The server view replaces whatever was in #content — if a repo diff
+    // view was open, drop the repo selection and its diff tabs so the top
+    // bar highlights this server's tab instead.
+    currentRepo = null;
+    currentRepoInProject = null;
+    const diffTabsEl = document.getElementById('diffTabs');
+    if (diffTabsEl) diffTabsEl.style.display = 'none';
+    document.body.classList.remove('has-diff-tabs');
+    renderRepoTabs();
     const content = document.getElementById('content');
     if (!content) return;
     const url = _proxyInitialUrl(p, name);
@@ -3954,21 +3999,29 @@
   function showProjectDashboard() {
     currentRepo = null;
     currentRepoInProject = null;
+    // Clear the doc path BEFORE rendering tabs — the Overview tab's active
+    // state (and the sidebar view suffix) both read it. User explicitly
+    // chose Dashboard, so also drop the remembered doc for this project.
+    if (currentProject) setLastProjectDoc(currentProject.path, null);
+    _projDocPath = null;
     renderRepoTabs();
+    // Restore the project's own sidebar preference (a server view may
+    // have collapsed it).
+    _sidebarApplyForView();
     // Hide diff tabs when on dashboard
     document.getElementById('diffTabs').style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
-    // User explicitly chose Dashboard — clear any remembered doc so the
-    // next project-tab return lands here too, not on a stale doc.
-    if (currentProject) setLastProjectDoc(currentProject.path, null);
-    _projDocPath = null;
     showProjectInfo();
   }
 
   function selectProjectRepo(repoPath) {
     currentRepoInProject = currentProject.repos.find(r => r.path === repoPath);
     currentRepo = repoPath;
+    // The diff view replaces any open doc/server view — clear the doc path
+    // so the server tab un-highlights and the sidebar preference resets.
+    _projDocPath = null;
     renderRepoTabs();
+    _sidebarApplyForView();
     // Show diff tabs when viewing a repo
     document.getElementById('diffTabs').style.display = 'flex';
     document.body.classList.add('has-diff-tabs');
@@ -4278,6 +4331,10 @@
       sbHtml += `<div class="sidebar-folder-children${_shCdChildren}" id="${sharedCodeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
+      // Server tabs on the top bar are derived from the same proxies list
+      // rendered above — re-sync so they appear/update as soon as the list
+      // is known (cold load fetch or background reconcile).
+      renderRepoTabs();
       // Populate both `.claude/` and `code/` placeholders from one
       // /api/cerebro/tree fetch.
       _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
@@ -4736,6 +4793,25 @@
   let projTabsPseudoOpen = [];   // open pseudo-tabs from /api/ui/pseudo-tabs
   let projTabsDragPid = null;    // pid currently being dragged
 
+  // Which tab (if any) looks blocked because a recent fetch for it hit
+  // fsguard's 503 (stalled workspace volume). error-report.js can't know
+  // which project a given fetch belongs to, so it just dispatches the
+  // event and we mark whatever project tab is currently active -- good
+  // enough to answer "is my SSD read stuck?" without precise attribution.
+  // Cleared as soon as any later fetch succeeds.
+  let tabBlocked = { pid: null, detail: null };
+  window.addEventListener('lab:resource-unavailable', (ev) => {
+    const pid = (currentProject && currentProject.is_project) ? currentProject.name : null;
+    if (!pid) return;
+    tabBlocked = { pid, detail: (ev.detail && ev.detail.message) || 'resource is not available' };
+    if (typeof projTabsRender === 'function') projTabsRender();
+  });
+  window.addEventListener('lab:resource-available', () => {
+    if (!tabBlocked.pid) return;
+    tabBlocked = { pid: null, detail: null };
+    if (typeof projTabsRender === 'function') projTabsRender();
+  });
+
   // Project tabs the user has opened. Source of truth is `tab_open` in
   // each project's project.json (exposed by /api/repos). Pseudo-tabs such
   // as Logs store their open flag in workspace-local .lab/state/ui-state.json.
@@ -4838,6 +4914,30 @@
   // initial `?view=…` dispatch.
   const _SIDEBAR_VIS_KEY_PREFIX = 'labSidebarShown:';
   const _SIDEBAR_PCT_KEY_PREFIX = 'labSidebarPct:';
+
+  // Dashboard "Servers" / "Terminals" sections (see renderDashboard and
+  // dashServersRefresh/dashTermsRefresh further down). Independent poll loop,
+  // independent re-render targets (#dashServers / #dashTerms) so they never
+  // clobber the rest of the dashboard (expanded project rows, etc). Hoisted
+  // up here — same TDZ rule as the consts above — because initSelf paints the
+  // workbench (and starts this poll loop) synchronously during the initial
+  // `?view=…` dispatch below.
+  let _dashPollTimer = null;
+  let _dashServersRows = [];
+  let _dashServersAvailable = true;   // false once GET /api/servers 404s (not deployed yet)
+  let _dashServersLoadErr = null;     // error from the GET (network/5xx)
+  let _dashServersActionErr = null;   // error from the last start/stop
+  const _dashServersPending = new Set();  // project_ids with an in-flight action
+  let _dashTermsRows = [];
+  let _dashTermsErr = null;
+  const _dashTermsPending = new Set();    // session names / "group:<pid>" in-flight
+  // Registered once at init (not per-paint, since document persists across
+  // in-page navigation) — resumes the Servers/Terminals poll the instant the
+  // tab regains focus rather than waiting out the rest of the 5s interval.
+  // dashPollTick itself is a no-op when the dashboard isn't the active view.
+  if (!UI_CHECK) {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) dashPollTick(); });
+  }
 
   afterPageQuiet(loadRepos);
   if (!UI_CHECK) afterPageQuiet(() => setInterval(loadRepos, 8000), 1000);
@@ -5218,10 +5318,24 @@
             : (isCodeSearch
                 ? 'Close Code Search (tab disappears; reopen from Home)'
                 : 'Close this project (kills its tmux sessions)'));
+      // Real project tabs all belong to the one workspace the server is
+      // currently serving — badge them with its id so it's obvious at a
+      // glance which volume a tab's data is coming from.
+      const wsBadge = (!isPseudo && currentWorkspaceId)
+        ? `<span class="ws-badge" title="workspace: ${projTabsEsc(currentWorkspaceId)}">${projTabsEsc(currentWorkspaceId)}</span>`
+        : '';
+      const isBlocked = !isPseudo && tabBlocked.pid === t.id;
+      const blockedCls = isBlocked ? ' blocked' : '';
+      const blockedTitle = isBlocked ? ' · blocked: ' + tabBlocked.detail : '';
+      const blockedIcon = isBlocked
+        ? `<span class="blocked-icon" title="${projTabsEsc(tabBlocked.detail || '')}" aria-label="blocked">&#9888;</span>`
+        : '';
       return `
-        <div class="proj-tab${active}${tabCls}${attn}${unseenCls}" draggable="true" data-pid="${projTabsEsc(t.id)}" role="tab" title="${projTabsEsc(label)}${attnTitle}">
+        <div class="proj-tab${active}${tabCls}${attn}${unseenCls}${blockedCls}" draggable="true" data-pid="${projTabsEsc(t.id)}" role="tab" title="${projTabsEsc(label)}${attnTitle}${blockedTitle}">
           <span class="dot${dotCls}" title="${t.hot ? 'live session(s)' : 'no session yet'}"></span>
           <span class="label">${icon}${projTabsEsc(label)}</span>
+          ${wsBadge}
+          ${blockedIcon}
           <span class="attn-dot" aria-label="needs attention"></span>
           <button class="x" title="${closeTitle}" data-x="${projTabsEsc(t.id)}">&times;</button>
         </div>`;
@@ -5800,7 +5914,15 @@
     if (document.body.classList.contains('logs-active')) return 'logs';
     if (document.body.classList.contains('cerebro-active')) return 'cerebro';
     if (document.body.classList.contains('self-active')) return 'self';
-    if (currentProject && currentProject.is_project) return 'project:' + currentProject.name;
+    if (currentProject && currentProject.is_project) {
+      // Server (proxy) views get their own namespace so they can default
+      // to a collapsed sidebar — the embedded app wants the full left +
+      // center width — without touching the project's normal preference.
+      if (typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/')) {
+        return 'proxy:' + currentProject.name + ':' + _projDocPath.slice('__proxy__/'.length);
+      }
+      return 'project:' + currentProject.name;
+    }
     return 'unknown';
   }
   function sidebarToggleCollapse() {
@@ -5810,8 +5932,13 @@
   }
   function _sidebarApplyForView() {
     const sfx = _sidebarViewSuffix();
-    let shown = true;
-    try { if (localStorage.getItem(_SIDEBAR_VIS_KEY_PREFIX + sfx) === '0') shown = false; } catch {}
+    // Server views start collapsed by default; everything else starts
+    // shown. An explicit user toggle (stored '0'/'1') always wins.
+    let shown = !sfx.startsWith('proxy:');
+    try {
+      const v = localStorage.getItem(_SIDEBAR_VIS_KEY_PREFIX + sfx);
+      if (v === '0') shown = false; else if (v === '1') shown = true;
+    } catch {}
     document.body.classList.toggle('sidebar-collapsed', !shown);
     let pct = NaN;
     try { pct = parseFloat(localStorage.getItem(_SIDEBAR_PCT_KEY_PREFIX + sfx)); } catch {}
@@ -6369,8 +6496,12 @@
   // xterm.js forwards click/drag events to the app instead of its own
   // selection service, making text selection impossible for the user.
   // Wheel scrolling (which also needs mouse tracking to reach tmux's
-  // WheelUpPane copy-mode binding) is handled separately in termEnsureXterm
-  // via a manual wheel listener that sends SGR mouse events directly.
+  // WheelUpPane binding) is handled separately in termEnsureXterm via a
+  // manual wheel listener that sends SGR mouse events directly. tmux then
+  // routes them: pass-through to programs that enabled mouse reporting
+  // (claude scrolls its own transcript), copy-mode line scrolling for
+  // everything else (codex, shells). See _configure_tmux_wheel_scrolling
+  // in term.py.
   function _termStripModes(s) {
     // Remove all ?<mode>h (enable) variants for the common mouse-tracking
     // modes tmux sends on attach. Disable variants (?<mode>l) can pass
@@ -6471,8 +6602,9 @@
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
       theme: { background: '#0a0e13', foreground: '#e6edf3', cursor: '#58a6ff' },
       // Scrollback here is only used for non-tmux panes (none today).
-      // Inside tmux, scrollback is tmux's job — wheel-up on a session
-      // enters tmux copy-mode via the server's WheelUpPane binding.
+      // Inside tmux, scrolling is tmux's job — wheel events are forwarded
+      // as SGR mouse input and tmux either passes them to the app (claude)
+      // or enters copy-mode (codex, shells).
       scrollback: 20000,
       convertEol: false,
     });
@@ -8858,12 +8990,23 @@
   }
 
   async function renderDashboard(el) {
-    const [idx, dueRaw] = await Promise.all([
+    const [idx, dueRaw, wsData] = await Promise.all([
       fetch('/api/index').then(r => r.json()),
       fetch('/api/tasks/due?days=7').then(r => r.json()),
+      // Best-effort: a failure here (network hiccup, old server) must not
+      // take down the rest of the dashboard — it only costs the "other
+      // workspaces" sections below.
+      fetch('/api/workspaces/projects').then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     const allProjects = idx.projects || [];
     const dueSoon = dueRaw.filter(t => t.status !== 'done');
+    if (wsData && wsData.active) currentWorkspaceId = wsData.active;
+    // Every OTHER registered workspace (not the one being served right
+    // now) — rendered as its own minimal section below so projects on a
+    // volume that isn't currently active (e.g. the SSD, when `local` is
+    // active) are still visible, not just the active workspace's.
+    const otherWorkspaces = ((wsData && wsData.workspaces) || [])
+      .filter(w => w.id !== (wsData && wsData.active));
 
     const dueStrip = dueSoon.length === 0 ? '' : `
       <div class="due-strip">
@@ -8929,6 +9072,7 @@
         <div class="p-section-head">Paused / Done / Archived / Snoozed <span class="count">${rest.length}</span></div>
         ${restRows}
       </div>`;
+    const otherWorkspaceSections = otherWorkspaces.map(otherWorkspaceSectionHtml).join('');
 
     el.innerHTML = `
       <div class="filter-row">
@@ -8936,16 +9080,35 @@
       </div>
       ${dueStrip}
       <div class="p-list">
+        <div class="p-section" id="dashKpis"></div>
+        <div class="p-section" id="dashServers">
+          <div class="p-section-head">Servers <span class="count">…</span></div>
+          <div class="srv-empty">Loading servers…</div>
+        </div>
+        <div class="p-section" id="dashTerms">
+          <div class="p-section-head">Terminals <span class="count">…</span></div>
+          <div class="term-empty">Loading terminal sessions…</div>
+        </div>
         <div class="p-section">
           <div class="p-section-head">Pinned</div>
           ${pseudoRows}
         </div>
         ${activeSection}
         ${restSection}
+        ${otherWorkspaceSections}
       </div>
     `;
 
     el.querySelector('#dashNewBtn').addEventListener('click', onHomeNewProject);
+    el.querySelector('#dashServers').addEventListener('click', dashServersOnClick);
+    el.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
+    // Independent poll loop for the two sections above — see dashStartPolling.
+    // Stopped/restarted here (not just at first mount) so navigating back to
+    // the dashboard never stacks a second interval. Under UI_CHECK persistent
+    // timers stay off (check-ui.sh contract); the one-shot tick still fills
+    // the sections for the smoke test.
+    if (!UI_CHECK) dashStartPolling();
+    dashPollTick();
     el.querySelectorAll('.due-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const pid = chip.getAttribute('data-pid');
@@ -8964,6 +9127,14 @@
         if (e.target.closest('[data-edit]')) return;      // chip clicks → popover
         if (e.target.closest('[data-act]')) return;       // detail buttons handle themselves
         if (e.target.closest('.p-detail')) return;        // bubbled from detail
+        if (row.classList.contains('ws-other')) {
+          // Project from a non-active workspace: switch to it, then open.
+          const pid = row.getAttribute('data-pid');
+          const wsId = row.getAttribute('data-ws');
+          const ws = otherWorkspaces.find(w => w.id === wsId);
+          if (pid && ws) openProjectInWorkspace(pid, ws);
+          return;
+        }
         const href = row.getAttribute('data-href');
         if (href) {
           // Pseudo-rows (productivity, cerebro, code-search). Route
@@ -9010,6 +9181,435 @@
       });
     });
     updateSnoozedBadge(allProjects);
+  }
+
+  // ─── Dashboard: Servers section ─────────────────────────────────────────
+  // GET /api/servers → {"servers": [{project_id, workspace, path, port,
+  // state: "running"|"starting"|"unhealthy"|"stopped", desired, healthy,
+  // session_name, attach_command, session_created, restarts, has_stop,
+  // health_url}]}. Rows come from every registered workspace, sorted
+  // (workspace, project_id) — a project id can repeat across workspaces, so
+  // every lookup/action below is keyed on the (workspace, project_id) pair,
+  // never project_id alone. Renders into #dashServers only — never touches
+  // the rest of renderDashboard's output. If the endpoint 404s (backend not
+  // deployed yet in this environment) the section hides itself; polling
+  // keeps retrying quietly so it appears without a reload once the backend
+  // ships. Start/stop/restart post to
+  // /api/servers/{workspace}/{project_id}/{start|stop|restart}.
+
+  // All three dashboard sections (#dashKpis, #dashServers, #dashTerms)
+  // render in two hosts: the home dashboard (`.p-section`s inside `.p-list`
+  // → `.p-section-head` header) and the productivity workbench (`.s-section`
+  // cards in `.s-workbench-grid` → `<h2>` header, matching the
+  // Attention/Open-tasks cards around them). Same ids, same render/poll
+  // code — only the header markup differs (see dashSectionHeadHtml).
+  //
+  // The ids are shared, but in-page view swaps (_swapViewState) hide the
+  // previous view WITHOUT clearing its DOM — so after home → productivity
+  // a stale hidden #dashServers can still sit in #homePanel (which comes
+  // before #content in document order and would win getElementById). Always
+  // resolve the container through the ACTIVE view's host instead.
+  function dashSectionEl(id) {
+    const host = document.body.classList.contains('self-active')
+      ? document.getElementById('content')
+      : document.body.classList.contains('home-active')
+        ? document.getElementById('homePanel')
+        : null;
+    return host ? host.querySelector('#' + id) : null;
+  }
+
+  function dashSectionHeadHtml(el, label, count) {
+    const countHtml = count == null ? '' : `<span class="count">${count}</span>`;
+    return el.classList.contains('s-section')
+      ? `<h2>${label} ${countHtml}</h2>`
+      : `<div class="p-section-head">${label} ${countHtml}</div>`;
+  }
+
+  // ─── Dashboard: KPI strip ────────────────────────────────────────────────
+  // One row of stat tiles above Servers/Terminals, derived from the same
+  // _dashServersRows/_dashTermsRows the two sections below already fetch —
+  // no extra endpoint. Reuses the .s-summary/.s-metric classes from the
+  // workbench's own header tiles (Open tasks, Changed files, Tests touched,
+  // Last commit) so the strip reads as the same component, not a bolted-on
+  // widget. Re-rendered at the end of both dashServersRender and
+  // dashTermsRender so a refresh of either section keeps it current.
+  function dashKpiTileHtml(label, value, warn) {
+    const warnAttr = warn ? ' class="warn"' : '';
+    return `<div class="s-metric"><span>${escapeHtml(label)}</span><strong${warnAttr}>${escapeHtml(String(value))}</strong></div>`;
+  }
+
+  function dashKpisRender() {
+    const el = dashSectionEl('dashKpis');
+    if (!el) return;
+    const servers = _dashServersAvailable ? (_dashServersRows || []) : [];
+    const runningCount = servers.filter(r => r.status === 'running' || r.status === 'starting' || r.status === 'external').length;
+    const unhealthyCount = servers.filter(r => r.status === 'unhealthy').length;
+    const termRows = _dashTermsRows || [];
+    const attachedCount = termRows.filter(s => s.attached).length;
+    el.innerHTML = `
+      ${dashSectionHeadHtml(el, 'Overview')}
+      <div class="s-summary dash-kpis">
+        ${dashKpiTileHtml('Servers running', `${runningCount}/${servers.length}`)}
+        ${dashKpiTileHtml('Unhealthy', unhealthyCount, unhealthyCount > 0)}
+        ${dashKpiTileHtml('Terminal sessions', termRows.length)}
+        ${dashKpiTileHtml('Attached', attachedCount)}
+      </div>`;
+  }
+
+  function dashServerStateWord(row) {
+    switch (row.status) {
+      case 'running': return 'running';
+      case 'starting': return 'starting…';
+      case 'unhealthy': return 'unhealthy';
+      case 'external': return 'external';
+      case 'stopped': return 'stopped';
+      default: return row.status || 'unknown';
+    }
+  }
+
+  // One of "running"/"starting"/"unhealthy"/"external"/"stopped" — drives
+  // both the card's left border tint and the status dot. "external" = alive
+  // but not started from this dashboard (someone ran it by hand); it gets
+  // its own accent-colored treatment (see .srv-card-external/.srv-dot-
+  // external) so it reads as "seen, not owned" rather than a managed state.
+  // Falls back to "stopped" (neutral border color) for anything else.
+  function dashServerStateClass(row) {
+    switch (row.status) {
+      case 'running': return 'running';
+      case 'starting': return 'starting';
+      case 'unhealthy': return 'unhealthy';
+      case 'external': return 'external';
+      default: return 'stopped';
+    }
+  }
+
+  // "up 2h 14m" / "up 14m" from a unix-seconds timestamp — session_created
+  // on the /api/servers row (set once the session is alive, null otherwise).
+  function dashFmtUptime(unixSeconds) {
+    if (!unixSeconds) return null;
+    const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds);
+    const h = Math.floor(diff / 3600);
+    const m = Math.floor((diff % 3600) / 60);
+    return h > 0 ? `up ${h}h ${m}m` : `up ${m}m`;
+  }
+
+  function dashServerCardHtml(row) {
+    const pid = row.project_id;
+    const ws = row.workspace || '';
+    const key = ws + '/' + pid;
+    const pending = _dashServersPending.has(key);
+    const cls = dashServerStateClass(row);
+    const wsBadge = ws
+      ? `<span class="ws-badge" title="workspace: ${escapeHtml(ws)}">${escapeHtml(ws)}</span>`
+      : '';
+    // Status line carries state via the dot + word pair only — the word
+    // itself always renders in a plain text color, never the status color
+    // (dataviz rule: color is reserved for the dot).
+    const suffixBits = [];
+    if (row.status === 'unhealthy' && row.desired === 'running') suffixBits.push('restarting');
+    if (row.restarts > 0) suffixBits.push(row.restarts + (row.restarts === 1 ? ' restart' : ' restarts'));
+    const suffixHtml = suffixBits.length
+      ? `<span class="srv-suffix">· ${escapeHtml(suffixBits.join(' · '))}</span>`
+      : '';
+    const metaBits = [row.port != null ? ':' + row.port : 'no port'];
+    if (row.status === 'running' && row.session_created) metaBits.push(dashFmtUptime(row.session_created));
+    else if (row.status === 'stopped') metaBits.push('stopped');
+    else if (row.status === 'external') metaBits.push('external');
+    // `url` is non-null whenever the server is actually listening (managed
+    // or external); fall back to deriving it from the port for older
+    // backends that don't send it yet.
+    const openUrl = row.url || (row.port != null ? `http://127.0.0.1:${row.port}/` : null);
+    const openBtn = openUrl
+      ? `<a class="mini-btn" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener" title="Open ${escapeHtml(openUrl)} in a new tab">Open</a>`
+      : '';
+    const copyBtn = row.attach_command
+      ? `<button type="button" class="mini-btn" data-act="copy-attach" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" data-attach="${escapeHtml(row.attach_command)}" title="Copy tmux attach command: ${escapeHtml(row.attach_command)}">⧉ Copy</button>`
+      : '';
+    const actionBtns = row.status === 'stopped'
+      ? `<button type="button" class="mini-btn primary" data-act="start" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" ${pending ? 'disabled' : ''}>Start</button>`
+      : `<button type="button" class="mini-btn danger" data-act="stop" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" ${pending ? 'disabled' : ''}>Stop</button>
+         <button type="button" class="mini-btn" data-act="restart" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" ${pending ? 'disabled' : ''}>Restart</button>`;
+    const titleAttr = row.path ? ` title="${escapeHtml(row.path)}"` : '';
+    return `
+      <div class="srv-card srv-card-${cls}" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}"${titleAttr}>
+        <div class="srv-card-body">
+          <div class="srv-card-head">
+            <span class="srv-name">${escapeHtml(pid)}</span>
+            ${wsBadge}
+          </div>
+          <div class="srv-status-line">
+            <span class="srv-dot srv-dot-${cls}"></span>
+            <span class="srv-state-word">${escapeHtml(dashServerStateWord(row))}</span>
+            ${suffixHtml}
+          </div>
+          <div class="srv-meta">${escapeHtml(metaBits.join(' · '))}</div>
+        </div>
+        <div class="srv-card-footer">${openBtn}${copyBtn}${actionBtns}</div>
+      </div>`;
+  }
+
+  function dashServersRender() {
+    const el = dashSectionEl('dashServers');
+    if (!el) return;
+    if (!_dashServersAvailable) { el.innerHTML = ''; dashKpisRender(); return; }
+    const rows = _dashServersRows || [];
+    const err = _dashServersActionErr || _dashServersLoadErr;
+    const errHtml = err ? `<div class="srv-err on">${escapeHtml(err)}</div>` : '';
+    const body = rows.length === 0
+      ? '<div class="srv-empty">No projects with a server Makefile (server-start target).</div>'
+      : `<div class="srv-grid">${rows.map(dashServerCardHtml).join('')}</div>`;
+    el.innerHTML = `
+      ${dashSectionHeadHtml(el, 'Servers', rows.length)}
+      ${errHtml}
+      ${body}`;
+    dashKpisRender();
+  }
+
+  async function dashServersRefresh() {
+    try {
+      const r = await fetch('/api/servers');
+      if (r.status === 404) {
+        _dashServersAvailable = false;
+        _dashServersLoadErr = null;
+      } else if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        _dashServersAvailable = true;
+        _dashServersLoadErr = (body && body.detail) || `Failed to load servers (${r.status})`;
+      } else {
+        const data = await r.json();
+        _dashServersAvailable = true;
+        _dashServersLoadErr = null;
+        _dashServersRows = Array.isArray(data && data.servers) ? data.servers : [];
+      }
+    } catch (e) {
+      // Network hiccup: keep whatever we last had, surface it inline. The
+      // fetch itself is already logged to /api/log/client by the wrapper in
+      // error-report.js — no need to console.log/error here too.
+      _dashServersLoadErr = 'Failed to load servers: ' + e.message;
+    }
+    dashServersRender();
+  }
+
+  async function dashServersOnClick(e) {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.getAttribute('data-act');
+    const pid = btn.getAttribute('data-pid');
+    const ws = btn.getAttribute('data-workspace') || '';
+    if (act === 'copy-attach') {
+      const cmd = btn.getAttribute('data-attach') || '';
+      if (cmd) await _copyToClipboard(cmd, btn);
+      return;
+    }
+    if (!pid || !['start', 'stop', 'restart'].includes(act)) return;
+    const key = ws + '/' + pid;
+    if (_dashServersPending.has(key)) return;
+    _dashServersPending.add(key);
+    _dashServersActionErr = null;
+    // Optimistic chip flip on Start/Restart: the actual state lags behind
+    // the spawned tmux session by a beat, and sitting on "stopped" until
+    // the next poll reads as broken. Stop needs no such nudge — the card's
+    // own "disabled" state already gives immediate feedback.
+    if (act === 'start' || act === 'restart') {
+      const row = (_dashServersRows || []).find(r => (r.workspace || '') === ws && r.project_id === pid);
+      if (row) row.status = 'starting';
+    }
+    dashServersRender();  // disable the card's buttons immediately
+    try {
+      const url = '/api/servers/' + encodeURIComponent(ws) + '/' + encodeURIComponent(pid) + '/' + act;
+      const r = await fetch(url, {method: 'POST'});
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        _dashServersActionErr = (body && body.detail) || `Failed to ${act} ${pid} (${r.status})`;
+      }
+    } catch (err) {
+      _dashServersActionErr = `Failed to ${act} ${pid}: ` + err.message;
+    }
+    _dashServersPending.delete(key);
+    await dashServersRefresh();  // section refreshes right after the response
+  }
+
+  // ─── Dashboard: Terminals section ───────────────────────────────────────
+  // GET /api/term/sessions — see term.py list_sessions() ~:982. Rows carry
+  // {name, created, attached, windows, workspace} from tmux plus
+  // {project_id, logical_name, kind, agent, cwd, created_at, label, summary,
+  // attach_command} from the runtime registry. Grouped by (workspace,
+  // project_id) — a project id can exist in two workspaces, so the group
+  // key must carry both; workspace-root sessions carry project_id
+  // "__self__" (SELF_PROJECT_ID) and are labeled "workspace". Sessions
+  // whose project_id couldn't be resolved at all (pre-existing orphaned
+  // tmux sessions from before a naming-scheme change) fall back to a single
+  // "(unassigned)" group with no "Close all" button, since there's no
+  // project id (or workspace) to scope that call to.
+
+  function dashFmtAgo(unixSeconds) {
+    if (!unixSeconds) return null;
+    const diff = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds);
+    if (diff < 60) return diff + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  function dashTermGroupKey(s) {
+    if (!s.project_id) return '__unknown__';
+    return (s.workspace || '') + '/' + s.project_id;
+  }
+
+  function dashTermGroupLabel(pid) {
+    if (pid === SELF_PROJECT_ID) return 'workspace';
+    if (pid === '__unknown__') return '(unassigned)';
+    return pid;
+  }
+
+  function dashTermRowHtml(s) {
+    const name = s.name;
+    const pending = _dashTermsPending.has(name);
+    const label = s.logical_name || name;
+    const metaBits = [];
+    if (s.windows != null) metaBits.push(s.windows + (s.windows === 1 ? ' window' : ' windows'));
+    const ago = dashFmtAgo(s.created || s.created_at);
+    if (ago) metaBits.push(ago);
+    const attachedHtml = s.attached ? '<span class="term-attached" title="a client is attached">attached</span>' : '';
+    return `
+      <div class="term-row" data-name="${escapeHtml(name)}">
+        <span class="term-name">${escapeHtml(label)}</span>
+        <span class="term-meta">${escapeHtml(metaBits.join(' · '))}</span>
+        ${attachedHtml}
+        <button type="button" class="mini-btn danger" data-act="term-close" data-name="${escapeHtml(name)}" data-logical="${escapeHtml(label)}" ${pending ? 'disabled' : ''}>Close</button>
+      </div>`;
+  }
+
+  function dashTermGroupHtml(key, sessions) {
+    const first = sessions[0] || {};
+    const pid = first.project_id || '__unknown__';
+    const ws = first.workspace || '';
+    const label = dashTermGroupLabel(pid);
+    const wsBadge = (key !== '__unknown__' && ws)
+      ? `<span class="ws-badge" title="workspace: ${escapeHtml(ws)}">${escapeHtml(ws)}</span>`
+      : '';
+    const pending = _dashTermsPending.has('group:' + key);
+    const closeAllBtn = key === '__unknown__'
+      ? ''
+      : `<button type="button" class="mini-btn danger" data-act="term-close-all" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" data-key="${escapeHtml(key)}" ${pending ? 'disabled' : ''}>Close all</button>`;
+    return `
+      <div class="term-card">
+        <div class="term-card-head">
+          <span class="term-card-label">${escapeHtml(label)}</span>
+          ${wsBadge}
+          <span class="count">${sessions.length}</span>
+          ${closeAllBtn}
+        </div>
+        <div class="term-card-body">${sessions.map(dashTermRowHtml).join('')}</div>
+      </div>`;
+  }
+
+  function dashTermsRender() {
+    const el = dashSectionEl('dashTerms');
+    if (!el) return;
+    const rows = _dashTermsRows || [];
+    const errHtml = _dashTermsErr ? `<div class="term-err on">${escapeHtml(_dashTermsErr)}</div>` : '';
+    let body;
+    if (rows.length === 0) {
+      body = '<div class="term-empty">No active terminal sessions.</div>';
+    } else {
+      const groups = new Map();
+      for (const s of rows) {
+        const key = dashTermGroupKey(s);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(s);
+      }
+      body = `<div class="term-grid">${Array.from(groups.entries()).map(([key, sessions]) => dashTermGroupHtml(key, sessions)).join('')}</div>`;
+    }
+    el.innerHTML = `
+      ${dashSectionHeadHtml(el, 'Terminals', rows.length)}
+      ${errHtml}
+      ${body}`;
+    dashKpisRender();
+  }
+
+  async function dashTermsRefresh() {
+    try {
+      const r = await fetch('/api/term/sessions');
+      if (!r.ok) {
+        _dashTermsErr = `Failed to load terminal sessions (${r.status})`;
+      } else {
+        const data = await r.json();
+        _dashTermsRows = Array.isArray(data) ? data : [];
+        _dashTermsErr = null;
+      }
+    } catch (e) {
+      _dashTermsErr = 'Failed to load terminal sessions: ' + e.message;
+    }
+    dashTermsRender();
+  }
+
+  async function dashTermsOnClick(e) {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.getAttribute('data-act');
+    if (act === 'term-close') {
+      const name = btn.getAttribute('data-name');
+      const logical = btn.getAttribute('data-logical') || name;
+      if (!name || _dashTermsPending.has(name)) return;
+      let msg = `Close terminal session "${logical}"? It will stay closed after reload.`;
+      if (logical === 'server') {
+        msg += ' This is a managed server session; the server will be marked stopped.';
+      }
+      if (!confirm(msg)) return;
+      _dashTermsPending.add(name);
+      dashTermsRender();
+      try {
+        await fetch('/api/term/sessions/' + encodeURIComponent(name), {method: 'DELETE'});
+      } catch (err) { /* best-effort, matches projTabsClose/termKillCurrent */ }
+      _dashTermsPending.delete(name);
+      await dashTermsRefresh();
+      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+    } else if (act === 'term-close-all') {
+      const pid = btn.getAttribute('data-pid');
+      const ws = btn.getAttribute('data-workspace') || '';
+      const key = btn.getAttribute('data-key') || (ws + '/' + pid);
+      if (!pid || _dashTermsPending.has('group:' + key)) return;
+      const sessions = (_dashTermsRows || []).filter(s => dashTermGroupKey(s) === key);
+      const label = dashTermGroupLabel(pid);
+      if (!confirm(`Close all ${sessions.length} terminal sessions for ${label}? This kills their tmux sessions.`)) return;
+      _dashTermsPending.add('group:' + key);
+      dashTermsRender();
+      try {
+        await fetch('/api/term/sessions/project/' + encodeURIComponent(pid) + '?workspace=' + encodeURIComponent(ws), {method: 'DELETE'});
+      } catch (err) { /* best-effort */ }
+      _dashTermsPending.delete('group:' + key);
+      await dashTermsRefresh();
+      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+    }
+  }
+
+  // ─── Dashboard: shared poll loop for all three sections above ───────────
+  // One interval, fetching both endpoints in parallel every 5s (the KPI
+  // strip piggybacks on the same two responses — see dashKpisRender).
+  // Self-cleans when #dashServers leaves the DOM (view navigated away /
+  // dashboard re-rendered) so navigating home repeatedly never stacks
+  // intervals — dashStartPolling also clears any prior timer up front,
+  // belt-and-braces.
+
+  function dashStopPolling() {
+    if (_dashPollTimer) { clearInterval(_dashPollTimer); _dashPollTimer = null; }
+  }
+
+  async function dashPollTick() {
+    if (!dashSectionEl('dashServers')) { dashStopPolling(); return; }
+    // Pause while the browser tab itself isn't visible — no point hammering
+    // tmux/health-check calls for a dashboard nobody's looking at. The
+    // visibilitychange listener below (registered once, at init) picks the
+    // poll back up immediately on return instead of waiting out the rest
+    // of the 5s interval.
+    if (document.hidden) return;
+    await Promise.all([dashServersRefresh(), dashTermsRefresh()]);
+  }
+
+  function dashStartPolling() {
+    dashStopPolling();
+    _dashPollTimer = setInterval(dashPollTick, 5000);
   }
 
   function pseudoRowHtml({id, icon, label, desc, href}) {
@@ -9099,11 +9699,18 @@
         ${actions}
       </div>`;
 
+    // Every real project on the dashboard belongs to the workspace the
+    // server is currently serving — badge it so it reads the same as the
+    // "other workspace" sections below, even though here it's constant.
+    const wsBadge = currentWorkspaceId
+      ? `<span class="ws-badge" title="workspace: ${escapeHtml(currentWorkspaceId)}">${escapeHtml(currentWorkspaceId)}</span>`
+      : '';
+
     return `
       <div class="p-row${rowExtraCls}" data-pid="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(statusTitle)}">
         <span class="p-status ${statusCls}" title="${escapeHtml(statusTitle)}"></span>
         ${priHtml}
-        <span class="p-name">${escapeHtml(p.id)}</span>
+        <span class="p-name">${escapeHtml(p.id)}${wsBadge}</span>
         <span class="p-repos">${repoChips}${repoMore}</span>
         <span class="p-tasks ${tasksCls}">${tasksText}</span>
         ${prChip}
@@ -9113,6 +9720,78 @@
         <span class="p-caret">›</span>
       </div>
       ${detail}`;
+  }
+
+  // ─── Other-workspace dashboard rows ─────────────────────────────────────
+  // The server only ever serves ONE workspace's full project metadata
+  // (task counts, priority, due dates, ...). For every OTHER registered
+  // workspace all we have is a directory listing of project ids (from
+  // /api/workspaces/projects), so these rows are intentionally minimal —
+  // just the id and a badge — with a click that switches workspace then
+  // opens the project.
+  function otherWorkspaceRowHtml(pid, wsId) {
+    return `
+      <div class="p-row ws-other" data-pid="${escapeHtml(pid)}" data-ws="${escapeHtml(wsId)}" role="button" tabindex="0" title="Open ${escapeHtml(pid)} (switches to workspace ${escapeHtml(wsId)})">
+        <span class="p-status"></span>
+        <span class="p-pri none">—</span>
+        <span class="p-name">${escapeHtml(pid)}<span class="ws-badge" title="workspace: ${escapeHtml(wsId)}">${escapeHtml(wsId)}</span></span>
+        <span class="p-repos"></span>
+        <span class="p-tasks empty">—</span>
+        <span class="p-prs"></span>
+        <span class="p-loe empty">—</span>
+        <span class="p-due empty">—</span>
+        <span></span>
+        <span class="p-caret">›</span>
+      </div>`;
+  }
+
+  // One dashboard section per NON-active registered workspace. `unavailable`
+  // comes straight from /api/workspaces/projects — set when that
+  // workspace's own directory scan hit fsguard's 503 (stalled volume) — and
+  // greys the section out with the same message fsguard would show
+  // elsewhere, rather than silently dropping it from the dashboard.
+  function otherWorkspaceSectionHtml(w) {
+    const label = escapeHtml(w.name || w.id);
+    const badge = `<span class="ws-badge">${escapeHtml(w.id)}</span>`;
+    if (w.unavailable) {
+      const msg = w.detail || `resource is not available for workspace ${w.id}`;
+      return `
+        <div class="p-section ws-section ws-unavailable" data-ws="${escapeHtml(w.id)}">
+          <div class="p-section-head">${label} ${badge}</div>
+          <div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">${escapeHtml(msg)}</span><span></span><span></span><span></span><span></span></div>
+        </div>`;
+    }
+    const projects = w.projects || [];
+    const rows = projects.map(pid => otherWorkspaceRowHtml(pid, w.id)).join('');
+    return `
+      <div class="p-section ws-section" data-ws="${escapeHtml(w.id)}">
+        <div class="p-section-head">${label} ${badge} <span class="count">${projects.length}</span></div>
+        ${rows || '<div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">No projects.</span><span></span><span></span><span></span><span></span></div>'}
+      </div>`;
+  }
+
+  // Open a project that belongs to `ws` (a row from /api/workspaces/projects
+  // or /api/workspaces — needs `.id` and `.path`). If it's not the active
+  // workspace, switch first (the server only ever serves one workspace's
+  // project.json/tasks.json at a time, so there's no way to read the
+  // target project's data without switching to it), then land straight on
+  // it — full reload is unavoidable here since switching workspace replaces
+  // the entire served index.
+  async function openProjectInWorkspace(pid, ws) {
+    if (!pid || !ws || !ws.id) return;
+    if (ws.id === currentWorkspaceId) { goToProjectById(pid); return; }
+    try {
+      const r = await fetch('/api/workspaces/use', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: ws.id}),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const wsPath = (ws.path || '').replace(/\/+$/, '');
+      location.href = '/?project=' + encodeURIComponent(wsPath + '/projects/' + pid);
+    } catch (e) {
+      console.error('failed to open project in workspace', ws.id, e);
+    }
   }
 
   // Keep the "Snoozed" tab badge in sync with current project data. Counts
@@ -10006,6 +10685,32 @@
     setTimeout(() => { document.getElementById('npId')?.focus(); }, 30);
     document.addEventListener('keydown', _newProjectEscHandler);
     _calInit();
+    _npPopulateWorkspaces();
+  }
+
+  // Populate the "Workspace" select with every registered workspace,
+  // defaulting to the one currently active. Stores each option's resolved
+  // root path in a data attribute so submitNewProject can build the
+  // `?project=` deep link after switching + creating in a non-active one.
+  async function _npPopulateWorkspaces() {
+    const sel = document.getElementById('npWorkspace');
+    if (!sel) return;
+    try {
+      const r = await fetch('/api/workspaces');
+      if (!r.ok) return;
+      const data = await r.json();
+      const rows = Array.isArray(data.workspaces) ? data.workspaces : [];
+      sel.innerHTML = '';
+      rows.forEach(row => {
+        const opt = document.createElement('option');
+        opt.value = row.id;
+        opt.textContent = row.name || row.id;
+        opt.dataset.path = row.path || '';
+        opt.disabled = row.exists === false;
+        opt.selected = row.active === true || row.id === data.active;
+        sel.appendChild(opt);
+      });
+    } catch {}
   }
 
   // ─── Due-date calendar (inline, no native popup) ───
@@ -10136,9 +10841,30 @@
       return;
     }
 
+    // The create endpoint always writes into whichever workspace the
+    // server is currently serving — there's no per-request workspace
+    // param — so creating in a non-active one means switching first.
+    const wsSel = document.getElementById('npWorkspace');
+    const wsOpt = wsSel && wsSel.selectedOptions && wsSel.selectedOptions[0];
+    const targetWsId = wsOpt ? wsOpt.value : '';
+    const targetWsPath = wsOpt ? (wsOpt.dataset.path || '') : '';
+    const switchingWorkspace = !!targetWsId && targetWsId !== currentWorkspaceId;
+
     submitBtn.disabled = true;
     submitBtn.textContent = 'Creating…';
     try {
+      if (switchingWorkspace) {
+        const swRes = await fetch('/api/workspaces/use', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({id: targetWsId}),
+        });
+        if (!swRes.ok) {
+          const j = await swRes.json().catch(() => ({}));
+          throw new Error(j.detail || swRes.statusText);
+        }
+        currentWorkspaceId = targetWsId;
+      }
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -10150,6 +10876,14 @@
       }
       const p = await res.json();
       closeNewProjectModal();
+      if (switchingWorkspace) {
+        // Workspace just changed under us — the whole served index/tab
+        // state is different now, so land via a full reload instead of
+        // in-page nav (same as opening an other-workspace dashboard row).
+        const wsPath = targetWsPath.replace(/\/+$/, '');
+        location.href = '/?project=' + encodeURIComponent(wsPath + '/projects/' + p.id);
+        return;
+      }
       // Refresh repos so the just-created project's path is in projectsList,
       // then in-page nav. goToProjectById falls back to /p/<id> if missing.
       try { projectsList = await fetchRepos(); } catch {}
@@ -10476,6 +11210,15 @@
           <div class="s-metric"><span>Last commit</span><strong>...</strong></div>
         </div>
         <div class="s-workbench-grid">
+          <div class="s-section" id="dashKpis"></div>
+          <div class="s-section" id="dashServers">
+            <h2>Servers <span class="count">…</span></h2>
+            <div class="srv-empty">Loading servers…</div>
+          </div>
+          <div class="s-section" id="dashTerms">
+            <h2>Terminals <span class="count">…</span></h2>
+            <div class="term-empty">Loading terminal sessions…</div>
+          </div>
           <div class="s-section" id="selfAttentionSection">
             <h2>Attention</h2>
             <ul class="s-attention" id="selfAttentionList"><li class="s-empty">Loading...</li></ul>
@@ -10504,6 +11247,17 @@
           </div>
         </div>
       </div>`;
+    // Servers / Terminals cards share their ids + render/poll machinery
+    // with the home dashboard (only the ACTIVE view's copy is ever
+    // resolved — see dashSectionEl). Scope the queries to #content: a
+    // hidden stale copy can linger in #homePanel after an in-page switch.
+    // dashStartPolling clears any previous interval, and dashPollTick
+    // self-cleans when the container leaves the active view, so
+    // home ↔ productivity navigation never stacks intervals.
+    content.querySelector('#dashServers').addEventListener('click', dashServersOnClick);
+    content.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
+    if (!UI_CHECK) dashStartPolling();
+    dashPollTick();
   }
 
   // Return to the workbench from a doc view.

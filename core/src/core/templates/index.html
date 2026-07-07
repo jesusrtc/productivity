@@ -66,19 +66,19 @@
   window.addEventListener('load', function () {
     setTimeout(function () {
       var s = document.createElement('script');
-      s.src = '/static/js/lib/error-report.js';
+      s.src = '/static/js/lib/error-report.js?v={{ ASSET_V }}';
       document.head.appendChild(s);
     }, 900);
   }, { once: true });
 </script>
-<noscript><link rel="stylesheet" href="/static/css/lab-shell.css"></noscript>
+<noscript><link rel="stylesheet" href="/static/css/lab-shell.css?v={{ ASSET_V }}"></noscript>
 <script>
   (function () {
     function loadShellCss() {
-      if (document.querySelector('link[href="/static/css/lab-shell.css"]')) return;
+      if (document.querySelector('link[href^="/static/css/lab-shell.css"]')) return;
       var l = document.createElement('link');
       l.rel = 'stylesheet';
-      l.href = '/static/css/lab-shell.css';
+      l.href = '/static/css/lab-shell.css?v={{ ASSET_V }}';
       document.head.appendChild(l);
     }
     if (document.readyState === 'complete') {
@@ -513,6 +513,10 @@
                  placeholder="e.g. davi-vision" autocomplete="off" />
           <span class="hint">lowercase letters, digits, hyphens. Must start with letter or digit.</span>
         </label>
+        <label>Workspace
+          <select id="npWorkspace"></select>
+          <span class="hint">Where the project is created. Picking a workspace other than the active one switches to it first.</span>
+        </label>
         <label>Description
           <textarea id="npDesc" rows="3" placeholder="One-liner about the project (you can edit this later)"></textarea>
         </label>
@@ -800,7 +804,7 @@
     function loadLabApp() {
       installLabAmdShim();
       var s = document.createElement('script');
-      s.src = '/static/js/lab-app.js';
+      s.src = '/static/js/lab-app.js?v={{ ASSET_V }}';
       document.head.appendChild(s);
     }
     if (document.readyState === 'complete') {

@@ -33,6 +33,7 @@ from core.routes import notebook as notebook_route
 from core.routes import project as project_route
 from core.routes import proxy as proxy_route
 from core.routes import search as search_route
+from core.routes import servers as servers_route
 from core.routes import settings as settings_route
 from core.routes import task as task_route
 from core.routes import term as term_route
@@ -407,6 +408,11 @@ async def lifespan(app: FastAPI):
     app.state.switch_workspace = switch_workspace
     _start_workspace_runtime(app, root, loop)
 
+    # Dev-server supervisor: re-resolves the active workspace root on every
+    # tick (via app.state.index_cache.root), so it survives `switch_workspace`
+    # without needing to be restarted. Gated by LAB_SERVER_SUPERVISOR.
+    servers_route.start_supervisor(app)
+
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
         from core.diff_parser import get_registered_repos
@@ -424,6 +430,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        servers_route.stop_supervisor()
         _stop_workspace_runtime(app)
 
 
@@ -474,6 +481,7 @@ def create_app() -> FastAPI:
     app.include_router(search_route.router)
     app.include_router(diff_route.router)
     app.include_router(term_route.router)
+    app.include_router(servers_route.router)
     app.include_router(cerebro_route.router)
     app.include_router(ui_route.router)
     app.include_router(workspace_route.router)
@@ -555,16 +563,25 @@ def create_app() -> FastAPI:
         html = _re.sub(r"<!--.*?-->", "", html, flags=_re.S)
         return _re.sub(r">\s+<", "><", html)
 
+    # Assets the shell loads without a fingerprinted filename. Their mtimes
+    # feed the ?v= cache-buster below so browsers (notably the installed PWA)
+    # pick up UI changes without a hard reload.
+    _index_asset_files = (
+        _TEMPLATES_DIR / "index.html",
+        _STATIC_DIR / "js" / "lab-app.js",
+        _STATIC_DIR / "css" / "lab-shell.css",
+        _STATIC_DIR / "js" / "lib" / "error-report.js",
+    )
+
     @app.get("/", response_class=HTMLResponse)
     async def index_page(request: Request):
         root: Path = request.app.state.index_cache.root
-        tpl_file = _TEMPLATES_DIR / "index.html"
         mtime = _index_cache["mtime"]
         now = time.monotonic()
         if now >= _index_cache["check_after"]:
             _index_cache["check_after"] = now + _INDEX_TEMPLATE_CHECK_INTERVAL_S
             try:
-                mtime = tpl_file.stat().st_mtime_ns
+                mtime = tuple(f.stat().st_mtime_ns for f in _index_asset_files)
             except OSError:
                 mtime = None
         state = _index_initial_state(request)
@@ -579,12 +596,21 @@ def create_app() -> FastAPI:
             _index_cache["mtime"] = mtime
         bytes_by_key = _index_cache["bytes_by_key"]
         if key not in bytes_by_key:
+            asset_v = format(max(mtime) // 1_000_000, "x") if mtime else "0"
             html = templates.get_template("index.html").render(
                 MONOREPO_ROOT=str(lab_paths.find_framework_root()),
+                ASSET_V=asset_v,
                 **state,
             )
             bytes_by_key[key] = _compact_index_html(html).encode("utf-8")
-        return Response(bytes_by_key[key], media_type="text/html")
+        # no-cache = always revalidate the tiny HTML shell; the big assets it
+        # references carry ?v= fingerprints and stay cacheable. Without this,
+        # browsers may reuse a cached shell pointing at stale asset URLs.
+        return Response(
+            bytes_by_key[key],
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/p/{project_id}")
     async def spa_project(request: Request, project_id: str):

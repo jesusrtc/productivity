@@ -17,6 +17,63 @@ from lab.util import split_csv
 
 _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
 
+# Written once into every new project's AGENTS.md (canonical; CLAUDE.md is a
+# symlink to it, same convention `lab agents sync` uses elsewhere) so the
+# dev-server convention travels with the project from day one instead of
+# depending on someone remembering to add it later. See docs/SERVERS.md in
+# the framework repo for the full contract.
+_PROJECT_AGENTS_MD_TEMPLATE = """# {name}
+
+{description}
+
+## Dev server
+
+If this project runs a local dev server, add a root `Makefile` that follows
+the Lab server convention so the dashboard can discover and control it:
+
+- `SERVER_PORT` — the port the server listens on.
+- `server-start:` — required, runs the server in the **foreground** (it is
+  launched inside a tmux session, not backgrounded with `&`).
+- `server-stop:` — optional, best-effort cleanup of strays.
+- `SERVER_HEALTH_URL` — optional; defaults to `http://127.0.0.1:<SERVER_PORT>/`.
+  Prefer a real `/healthz` endpoint (cheap, no disk access, returns 200) over
+  the default `/` if you own the server code.
+
+```make
+SERVER_PORT = 80NN
+SERVER_HEALTH_URL = http://127.0.0.1:80NN/healthz   # optional
+
+server-start:
+\t<command that runs in the foreground>
+
+server-stop:
+\t-pkill -f '<pattern matching the server-start command>'
+```
+
+Once the Makefile is in place, this project's server shows up on the Lab
+dashboard with start/stop controls and live health status. Full contract:
+docs/SERVERS.md in the framework repo.
+"""
+
+
+def _write_project_agents_md(pdir: Path, project: "Project") -> None:
+    """Seed AGENTS.md (+ CLAUDE.md symlink) for a brand-new project.
+
+    Idempotent by construction (only ever called once, right after the
+    project directory is created) and never overwrites — if either file
+    somehow already exists this is a no-op, hand edits always win.
+    """
+    agents_md = pdir / "AGENTS.md"
+    claude_md = pdir / "CLAUDE.md"
+    if not agents_md.exists():
+        description = project.description or "New project."
+        agents_md.write_text(
+            _PROJECT_AGENTS_MD_TEMPLATE.format(name=project.id, description=description),
+            encoding="utf-8",
+        )
+    if not claude_md.exists() and not claude_md.is_symlink():
+        claude_md.symlink_to("AGENTS.md")
+
 
 def _now_local() -> datetime:
     """Timezone-aware now in the local zone (so ``isoformat`` includes offset)."""
@@ -140,6 +197,7 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
 
         storage.write_json(paths.project_file(root, project.id), project.to_dict())
         storage.write_json(paths.tasks_file(root, project.id), {"next_id": 1, "tasks": []})
+        _write_project_agents_md(pdir, project)
     except Exception:
         if pdir.exists():
             shutil.rmtree(pdir, ignore_errors=True)

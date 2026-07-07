@@ -15,9 +15,9 @@ knowledge/
 # each project folder may hold git worktrees + per-project .agents/memory).
 projects/
 
-# Monorepo runtime
+# Monorepo runtime (state, terminal-pastes, logs — never tracked)
 repositories/
-.lab/state/
+.lab/
 
 # Log files
 *.log

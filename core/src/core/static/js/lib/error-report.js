@@ -136,6 +136,79 @@
     }, immediate);
   }
 
+  // ─── Resource-unavailable banner ─────────────────────────────────────────
+  // Backend routes that walk the workspace tree (core/fsguard.py) return a
+  // 503 with a plain-English `detail` when the workspace volume stalls or
+  // goes away (e.g. a disconnected USB SSD), instead of just hanging. Every
+  // fetch already flows through the wrapper below, so this is the one place
+  // that can reliably surface that message to the user regardless of which
+  // UI code path made the request.
+  var _resourceBanner = null;
+  var _resourceBannerText = null;
+  var _resourceBannerTimer = null;
+  var RESOURCE_BANNER_AUTOHIDE_MS = 20000;
+
+  function _injectResourceBannerStyle() {
+    if (document.getElementById('lab-resource-banner-style')) return;
+    var style = document.createElement('style');
+    style.id = 'lab-resource-banner-style';
+    style.textContent =
+      '.lab-resource-banner{position:fixed;left:50%;bottom:20px;' +
+      'transform:translateX(-50%);z-index:6000;max-width:90vw;' +
+      'background:#da3633;color:#fff;' +
+      'font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;' +
+      'padding:10px 14px;border-radius:8px;' +
+      'box-shadow:0 4px 16px rgba(0,0,0,0.35);' +
+      'display:flex;align-items:center;gap:10px;}' +
+      '.lab-resource-banner button{background:transparent;border:none;' +
+      'color:#fff;font-size:16px;line-height:1;cursor:pointer;padding:0 2px;}';
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function _showResourceBanner(msg) {
+    if (!msg || !document.body) return;
+    _injectResourceBannerStyle();
+    if (!_resourceBanner) {
+      _resourceBanner = document.createElement('div');
+      _resourceBanner.className = 'lab-resource-banner';
+      _resourceBanner.setAttribute('role', 'alert');
+      _resourceBannerText = document.createElement('span');
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.setAttribute('aria-label', 'Dismiss');
+      close.textContent = '×';
+      close.addEventListener('click', function () {
+        _resourceBanner.style.display = 'none';
+        if (_resourceBannerTimer) clearTimeout(_resourceBannerTimer);
+      });
+      _resourceBanner.appendChild(_resourceBannerText);
+      _resourceBanner.appendChild(close);
+      document.body.appendChild(_resourceBanner);
+    }
+    _resourceBannerText.textContent = msg;
+    _resourceBanner.style.display = 'flex';
+    if (_resourceBannerTimer) clearTimeout(_resourceBannerTimer);
+    _resourceBannerTimer = setTimeout(function () {
+      if (_resourceBanner) _resourceBanner.style.display = 'none';
+    }, RESOURCE_BANNER_AUTOHIDE_MS);
+  }
+
+  window.labShowResourceBanner = _showResourceBanner;
+
+  // Same signal, as a DOM event -- lets other UI (e.g. the project tab
+  // strip) react to a 503 without depending on the banner directly, and
+  // without this file knowing anything about tabs/projects. Dispatched on
+  // `window` so any listener registered anywhere picks it up.
+  function _dispatchResourceEvent(type, detail) {
+    try {
+      if (typeof window.dispatchEvent !== 'function') return;
+      var ev = (typeof CustomEvent === 'function')
+        ? new CustomEvent(type, { detail: detail })
+        : null;
+      if (ev) window.dispatchEvent(ev);
+    } catch (_) {}
+  }
+
   window.labLog = {
     log: _enqueue,
     info: function (msg, details) { _enqueue('info', msg, details); },
@@ -219,6 +292,25 @@
           target: path,
           href: url,
         }, level === 'error');
+        if (status === 503 && resp && typeof resp.clone === 'function') {
+          // fsguard-style "workspace unavailable" response. Clone so the
+          // caller can still read the original body via resp.json()/.text().
+          try {
+            resp.clone().json().then(function (body) {
+              var detail = body && body.detail;
+              if (detail) _showResourceBanner(detail);
+              _dispatchResourceEvent('lab:resource-unavailable', {
+                message: detail || 'resource is not available',
+                path: path,
+              });
+            }).catch(function () {});
+          } catch (_) {}
+        } else if (status && status < 500) {
+          // Any non-server-error response is evidence the resource is
+          // reachable again -- lets UI that marked itself "blocked" on a
+          // prior 503 clear that state without polling.
+          _dispatchResourceEvent('lab:resource-available', { path: path });
+        }
         return resp;
       }, function (err) {
         var duration = Math.round((_now() - started) * 100) / 100;

@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from core import fsguard
 from core.diff_parser import (
     get_branch,
     get_commit_diff,
@@ -263,7 +264,7 @@ def api_project_onepager(path: str):
 
 
 @router.get("/api/project-files")
-def api_project_files(path: str, include_dotfiles: bool = False):
+def api_project_files(path: str, request: Request, include_dotfiles: bool = False):
     """List all files in a project directory as a flat list with relative paths."""
     project_path = Path(path)
     if not project_path.is_dir():
@@ -335,7 +336,8 @@ def api_project_files(path: str, include_dotfiles: bool = False):
                 _with_symlink_fields(entry, child)
                 files.append(entry)
 
-    scan(project_path)
+    workspace_root: Path = request.app.state.index_cache.root
+    fsguard.guarded(workspace_root, scan, project_path)
     return files
 
 
@@ -363,7 +365,7 @@ def api_project_file(path: str, file: str):
 
 
 @router.get("/api/project-mtime")
-def api_project_mtime(path: str):
+def api_project_mtime(path: str, request: Request):
     """Return the latest mtime across files in a project directory.
 
     The client polls this every 2s from the project / self view to decide
@@ -411,7 +413,8 @@ def api_project_mtime(path: str):
                 # Broken symlink / disappeared mid-walk — skip.
                 continue
 
-    scan(project_path, 0)
+    workspace_root: Path = request.app.state.index_cache.root
+    fsguard.guarded(workspace_root, scan, project_path, 0)
     return {"mtime": latest}
 
 

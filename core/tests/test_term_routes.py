@@ -17,14 +17,14 @@ from pathlib import Path
 import pytest
 
 
-@pytest.fixture()
-def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    """Unique prefix plus a fake tmux state file per test."""
-    prefix = f"lab-test-{uuid.uuid4().hex[:6]}-"
-    monkeypatch.setenv("LAB_TMUX_PREFIX", prefix)
-    state_file = tmp_path / "fake-tmux-state.json"
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+def _write_fake_tmux(bin_dir: Path, state_file: Path) -> Path:
+    """Write a fake ``tmux`` binary that persists sessions to a JSON file.
+
+    Shared by every fixture that needs a real tmux binary on PATH without
+    touching the user's production tmux server/socket. Session-name
+    filtering by naming scheme happens on the Python side (``_tmux_list``
+    etc.) — this fake just stores/serves whatever name it's asked for.
+    """
     tmux = bin_dir / "tmux"
     tmux.write_text(textwrap.dedent(r'''#!/usr/bin/env python3
         import json
@@ -122,6 +122,18 @@ def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         sys.exit(1)
     ''').replace("\n        ", "\n").replace("__STATE_FILE__", json.dumps(str(state_file))))
     tmux.chmod(0o755)
+    return tmux
+
+
+@pytest.fixture()
+def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Unique prefix plus a fake tmux state file per test."""
+    prefix = f"lab-test-{uuid.uuid4().hex[:6]}-"
+    monkeypatch.setenv("LAB_TMUX_PREFIX", prefix)
+    state_file = tmp_path / "fake-tmux-state.json"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_fake_tmux(bin_dir, state_file)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
     yield prefix
@@ -133,6 +145,46 @@ def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     )
     for name in proc.stdout.splitlines():
         if name.strip().startswith(prefix):
+            subprocess.run(["tmux", "kill-session", "-t", name.strip()],
+                           capture_output=True, text=True)
+
+
+@pytest.fixture()
+def nomenclature_tmux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, monorepo: Path):
+    """Fake tmux + a registered workspace, for exercising the CURRENT
+    (non-``LAB_TMUX_PREFIX``) ``neurona-<workspace>-<project>-<tab>-<hash6>``
+    naming scheme end-to-end, instead of the plain legacy shape the other
+    tests opt into via ``isolated_prefix``.
+    """
+    monkeypatch.delenv("LAB_TMUX_PREFIX", raising=False)
+
+    # `monorepo` already points `LAB_HOME` at a per-test tmp dir, so this
+    # registry write is fully isolated from the user's real
+    # ``~/.lab/workspaces.toml``.
+    from lab import paths
+    paths.write_workspace_registry({
+        "active": "ssd",
+        "workspaces": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
+    })
+
+    import core.routes.term as term_mod
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+
+    state_file = tmp_path / "fake-tmux-state-nomenclature.json"
+    bin_dir = tmp_path / "bin-nomenclature"
+    bin_dir.mkdir()
+    _write_fake_tmux(bin_dir, state_file)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    yield "ssd"
+
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    proc = subprocess.run(
+        ["tmux", "list-sessions", "-F", "#{session_name}"],
+        capture_output=True, text=True,
+    )
+    for name in proc.stdout.splitlines():
+        if name.strip().startswith("neurona-") or name.strip().startswith("lab-"):
             subprocess.run(["tmux", "kill-session", "-t", name.strip()],
                            capture_output=True, text=True)
 
@@ -183,6 +235,40 @@ def test_unknown_kind_rejected(client, seed_project, isolated_prefix) -> None:
     seed_project("demo")
     r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "banana"})
     assert r.status_code == 400
+
+
+def test_wheel_binding_passes_mouse_apps_through(monkeypatch) -> None:
+    """Wheel-up must reach programs that enabled mouse reporting (claude
+    scrolls its own transcript), and fall back to copy-mode LINE scrolling
+    (-e, never the -eu page jump) for everything else. The condition must
+    not include alternate_on — tmux turns wheel into arrow keys for
+    alt-screen panes, which recalls prompt history in agent TUIs."""
+    import core.routes.term as term_mod
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
+
+    term_mod._configure_tmux_wheel_scrolling("sess-x")
+
+    wheel_up = [c for c in calls if "WheelUpPane" in c]
+    assert wheel_up == [[
+        "tmux", "bind-key", "-T", "root", "WheelUpPane",
+        "if-shell", "-F", "#{||:#{pane_in_mode},#{mouse_any_flag}}",
+        "send-keys -M", "copy-mode -e",
+    ]]
+    # Wheel-down stays unbound: tmux forwards it to mouse-enabled panes
+    # itself and drops it for plain shells (nothing injected into stdin).
+    assert ["tmux", "unbind-key", "-T", "root", "WheelDownPane"] in calls
+    assert not any("bind-key" in c and "WheelDownPane" in c for c in calls)
+    # Per-session options still applied.
+    assert ["tmux", "set-option", "-t", "sess-x", "mouse", "on"] in calls
+    assert ["tmux", "set-option", "-t", "sess-x", "alternate-screen", "off"] in calls
 
 
 def test_agent_argv_copilot_prefers_standalone(monkeypatch) -> None:
@@ -827,3 +913,409 @@ def test_paste_image_rejects_unsupported_mime(client, seed_project) -> None:
         "data": base64.b64encode(b"not-image").decode("ascii"),
     })
     assert r.status_code == 400
+
+
+# ─── Naming scheme: neurona-<workspace>-<project>-<tab>-<hash6> ────────────
+#
+# These tests exercise the CURRENT naming scheme (not the legacy
+# LAB_TMUX_PREFIX-based one every test above opts into), covering: workspace
+# id resolution from the registry, deterministic hashed-name generation,
+# parsing (with hyphenated project ids/tabs), legacy-scheme adoption, and
+# the attach-not-duplicate create_session path.
+
+
+def _is_hex6(s: str) -> bool:
+    return len(s) == 6 and all(c in "0123456789abcdef" for c in s)
+
+
+def test_resolve_workspace_label_prefers_registry_id(monorepo: Path) -> None:
+    import core.routes.term as term_mod
+    from lab import paths
+
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    paths.write_workspace_registry({
+        "active": "ssd",
+        "workspaces": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
+    })
+    assert term_mod._resolve_workspace_label(monorepo) == "ssd"
+
+
+def test_resolve_workspace_label_falls_back_to_lab_toml_name(monorepo: Path) -> None:
+    import core.routes.term as term_mod
+
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    (monorepo / "lab.toml").write_text('[workspace]\nname = "my-workspace"\n')
+    assert term_mod._resolve_workspace_label(monorepo) == "my-workspace"
+
+
+def test_resolve_workspace_label_falls_back_to_dirname(monorepo: Path) -> None:
+    import core.routes.term as term_mod
+
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    assert term_mod._resolve_workspace_label(monorepo) == term_mod._sanitize(monorepo.name)
+
+
+def test_resolve_workspace_label_rereads_registry_after_rename(monorepo: Path) -> None:
+    """A concurrently-running rename (e.g. `lab workspace` re-id, or moving
+    the workspace to a new registry entry) must be picked up without a
+    server restart — the id must never be hardcoded or memoized forever."""
+    import core.routes.term as term_mod
+    from lab import paths
+
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    paths.write_workspace_registry({
+        "active": "productivity",
+        "workspaces": [{"id": "productivity", "name": "productivity", "path": str(monorepo)}],
+    })
+    assert term_mod._resolve_workspace_label(monorepo) == "productivity"
+
+    paths.write_workspace_registry({
+        "active": "ssd",
+        "workspaces": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
+    })
+    term_mod._WORKSPACE_LABEL_CACHE.clear()  # simulate TTL expiry
+    assert term_mod._resolve_workspace_label(monorepo) == "ssd"
+
+
+def test_tmux_name_for_new_scheme_is_deterministic_and_hashed(nomenclature_tmux, monorepo: Path) -> None:
+    import core.routes.term as term_mod
+
+    name = term_mod._tmux_name_for("my-project", "codex-tab", monorepo)
+    assert name.startswith("neurona-ssd-my-project-codex-tab-")
+    suffix = name.rsplit("-", 1)[-1]
+    assert _is_hex6(suffix)
+    # Deterministic: same workspace+project+tab → same name, every time.
+    assert term_mod._tmux_name_for("my-project", "codex-tab", monorepo) == name
+    # A different tab hashes differently.
+    other = term_mod._tmux_name_for("my-project", "other-tab", monorepo)
+    assert other != name
+
+
+def test_parse_tmux_name_new_scheme_with_hyphenated_project_and_tab(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    seed_project("my-project")
+    import core.routes.term as term_mod
+
+    name = term_mod._tmux_name_for("my-project", "review-pr-42", monorepo)
+    assert term_mod._parse_tmux_name(monorepo, name) == ("my-project", "review-pr-42")
+
+
+def test_parse_tmux_name_tolerates_missing_hash_suffix(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    """A session hand-created outside the server (CLI/agent following the
+    ``<workspace>-<project>-<tab>`` convention but not bothering to compute
+    the hash marker) must still be discovered."""
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    name = "neurona-ssd-demo-mytab"
+    assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "mytab")
+
+
+def test_parse_tmux_name_does_not_strip_unverified_hash_looking_suffix(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    """A tab name that just happens to end in 6 hex characters must not be
+    mistaken for a hash and chopped off — only a VERIFIED hash is stripped."""
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    name = "neurona-ssd-demo-my-tab-abcdef"  # "abcdef" looks hex but is not the real hash
+    assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "my-tab-abcdef")
+
+
+def test_parse_tmux_name_adopts_namespaced_legacy_scheme(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    legacy_prefix = term_mod._legacy_namespaced_prefix(monorepo)
+    name = f"{legacy_prefix}demo-claude"
+    assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "claude")
+
+
+def test_parse_tmux_name_adopts_bare_legacy_scheme(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    assert term_mod._parse_tmux_name(monorepo, "lab-demo-bash") == ("demo", "bash")
+
+
+def test_pick_unique_logical_name_only_uniquifies_against_different_tabs() -> None:
+    import core.routes.term as term_mod
+
+    # Not taken at all → returned unchanged.
+    assert term_mod._pick_unique_logical_name("claude", set()) == "claude"
+    # Taken (by what the caller already established is a DIFFERENT tab) →
+    # bump to the next free suffix.
+    assert term_mod._pick_unique_logical_name("claude", {"claude"}) == "claude-2"
+    assert term_mod._pick_unique_logical_name("claude", {"claude", "claude-2"}) == "claude-3"
+
+
+def test_create_and_list_use_new_naming_scheme_and_expose_attach_command(
+    nomenclature_tmux, seed_project, client, monorepo: Path,
+) -> None:
+    seed_project("demo")
+    created = client.post("/api/term/sessions",
+                          json={"project_id": "demo", "kind": "terminal"}).json()
+    assert created["name"].startswith("neurona-ssd-demo-bash-")
+    assert created["attach_command"] == "tmux attach -t '{}'".format(created["name"])
+
+    rows = client.get("/api/term/sessions?project_id=demo").json()
+    assert len(rows) == 1
+    assert rows[0]["name"] == created["name"]
+    assert rows[0]["attach_command"] == created["attach_command"]
+
+
+def test_new_scheme_idempotent_when_already_live(nomenclature_tmux, seed_project, client) -> None:
+    seed_project("demo")
+    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"}).json()
+    again = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"}).json()
+    assert again["name"] == first["name"]
+    assert again["already_running"] is True
+
+
+def test_list_sessions_adopts_legacy_named_live_session(
+    nomenclature_tmux, seed_project, client, monorepo: Path,
+) -> None:
+    """A session already live under the OLD naming scheme (spawned by a
+    previous server build) must still show up in the project's session
+    list, not just vanish because its name doesn't match the current
+    scheme."""
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    legacy_prefix = term_mod._legacy_namespaced_prefix(monorepo)
+    legacy_name = f"{legacy_prefix}demo-claude"
+    subprocess.run(["tmux", "new-session", "-d", "-s", legacy_name, "-c", str(monorepo), "bash"],
+                  check=True)
+
+    rows = client.get("/api/term/sessions?project_id=demo").json()
+    assert [r["name"] for r in rows] == [legacy_name]
+    assert rows[0]["project_id"] == "demo"
+    assert rows[0]["logical_name"] == "claude"
+    assert rows[0]["attach_command"] == f"tmux attach -t '{legacy_name}'"
+
+
+def test_create_session_attaches_to_legacy_named_live_session_instead_of_duplicating(
+    nomenclature_tmux, seed_project, client, monorepo: Path,
+) -> None:
+    """The repro for the 'creates a new session for some reason' bug: a
+    session for this exact project+tab is already live, just under an
+    OLDER naming scheme (e.g. left over from before this naming change, or
+    from a server instance that landed on a different tmux socket).
+    Reopening that project+tab must attach to the live session, not spawn a
+    second, differently-named one."""
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    legacy_prefix = term_mod._legacy_namespaced_prefix(monorepo)
+    legacy_name = f"{legacy_prefix}demo-codex"
+    subprocess.run(["tmux", "new-session", "-d", "-s", legacy_name, "-c", str(monorepo), "bash"],
+                  check=True)
+
+    r = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude", "agent": "codex", "name": "codex",
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == legacy_name
+    assert body["already_running"] is True
+    assert body["attach_command"] == f"tmux attach -t '{legacy_name}'"
+
+    # Only one live tmux session for this project — no duplicate spawned.
+    rows = client.get("/api/term/sessions?project_id=demo").json()
+    assert len(rows) == 1
+    assert rows[0]["name"] == legacy_name
+
+
+def test_tmux_child_env_strips_tmux_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("TMUX", "/tmp/some-socket,1234,0")
+    monkeypatch.setenv("TMUX_PANE", "%3")
+    monkeypatch.setenv("SOME_OTHER_VAR", "keep-me")
+    env = term_mod._tmux_child_env()
+    assert "TMUX" not in env
+    assert "TMUX_PANE" not in env
+    assert env.get("SOME_OTHER_VAR") == "keep-me"
+
+
+def test_tmux_has_session_strips_tmux_env_from_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: if the lab server itself is launched from inside a tmux
+    session, every `tmux` subprocess call must still land on the DEFAULT
+    socket — not the containing session's socket that `$TMUX` points at.
+    Guard the actual call site, not just the helper, so a future edit that
+    forgets `env=_tmux_child_env()` fails loudly here instead of silently
+    reintroducing the split-server bug."""
+    import core.routes.term as term_mod
+    import subprocess as sp
+
+    monkeypatch.setenv("TMUX", "/tmp/whatever-socket,1,0")
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "no server running"
+        return R()
+
+    monkeypatch.setattr(sp, "run", fake_run)
+    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
+    term_mod._tmux_has_session("whatever")
+    assert captured["env"] is not None
+    assert "TMUX" not in captured["env"]
+
+
+# ─── multi-workspace terminal listing / killing ─────────────────────────────
+#
+# core.routes.servers manages dev servers across every registered
+# workspace, not just the active one, and the cross-workspace terminals
+# dashboard needs the matching view here: GET /api/term/sessions (unscoped)
+# spans every registered workspace tagging each row with `workspace`, and
+# the kill endpoints accept/target sessions from a non-active workspace.
+# These tests use the CURRENT naming scheme (LAB_TMUX_PREFIX unset) since
+# the legacy flat scheme carries no workspace identity to resolve.
+
+@pytest.fixture()
+def second_workspace_tmux(nomenclature_tmux, tmp_path: Path):
+    """A second registered workspace ("other"), alongside the ``monorepo``
+    ("ssd") ``nomenclature_tmux`` already registers. Returns its root."""
+    from lab import paths
+
+    other_root = tmp_path / "other-workspace"
+    (other_root / "projects" / "demo2").mkdir(parents=True)
+    (other_root / "content").mkdir(parents=True, exist_ok=True)
+
+    data = paths.read_workspace_registry()
+    rows = list(data.get("workspaces") or [])
+    rows.append({"id": "other", "name": "other", "path": str(other_root)})
+    paths.write_workspace_registry({"active": data.get("active"), "workspaces": rows})
+
+    import core.routes.term as term_mod
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    yield other_root
+    term_mod._WORKSPACE_LABEL_CACHE.clear()
+
+
+def _spawn_and_adopt(root: Path, project_id: str, tab: str) -> str:
+    """Spawn a bare tmux session named for ``(root, project_id, tab)`` and
+    reconcile THAT workspace's own runtime registry against it — mirrors
+    how a session created outside this server process (or in a workspace
+    that isn't currently active) gets adopted."""
+    import core.routes.term as term_mod
+
+    name = term_mod._tmux_name_for(project_id, tab, root)
+    subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", str(root), "bash"], check=True)
+    term_mod._sync_meta(root, term_mod._tmux_list(term_mod._tmux_discovery_prefixes(root)))
+    return name
+
+
+def test_list_sessions_unscoped_spans_all_registered_workspaces(
+    client, seed_project, second_workspace_tmux,
+) -> None:
+    seed_project("demo")
+    other_root = second_workspace_tmux
+
+    mine = client.post("/api/term/sessions",
+                       json={"project_id": "demo", "kind": "terminal"}).json()
+    other_name = _spawn_and_adopt(other_root, "demo2", "bash")
+
+    rows = client.get("/api/term/sessions").json()
+    by_name = {r["name"]: r for r in rows}
+    assert by_name[mine["name"]]["workspace"] == "ssd"
+    assert by_name[other_name]["workspace"] == "other"
+
+
+def test_kill_session_resolves_non_active_workspace(
+    client, seed_project, second_workspace_tmux,
+) -> None:
+    """Killing a session named for a workspace OTHER than the active one
+    must still validate (not 400) and clean up THAT workspace's own
+    runtime registry, not the active workspace's."""
+    other_root = second_workspace_tmux
+    other_name = _spawn_and_adopt(other_root, "demo2", "bash")
+
+    r = client.delete(f"/api/term/sessions/{other_name}")
+    assert r.status_code == 200, r.text
+    assert subprocess.run(["tmux", "has-session", "-t", other_name],
+                          capture_output=True).returncode != 0
+
+    import core.routes.term as term_mod
+    other_meta = json.loads(term_mod._sessions_file(other_root).read_text())
+    assert other_name not in other_meta
+
+
+def test_kill_session_marks_server_desired_stopped_in_owning_workspace(
+    client, second_workspace_tmux,
+) -> None:
+    """The server-tab kill hook (logical_name == 'server') must write
+    desired=stopped into the SESSION's OWN workspace state file — not the
+    active workspace's — when the killed session belongs to another
+    registered workspace."""
+    other_root = second_workspace_tmux
+    other_name = _spawn_and_adopt(other_root, "demo2", "server")
+
+    r = client.delete(f"/api/term/sessions/{other_name}")
+    assert r.status_code == 200, r.text
+
+    desired = json.loads((other_root / ".lab" / "state" / "servers.json").read_text())
+    assert desired["demo2"]["desired"] == "stopped"
+    # The active workspace's own (nonexistent) state file was not touched.
+    assert not (Path(client.app.state.index_cache.root) / ".lab" / "state" / "servers.json").is_file()
+
+
+def test_kill_project_sessions_workspace_filter_scopes_to_one_workspace(
+    client, seed_project, second_workspace_tmux,
+) -> None:
+    seed_project("demo")
+    mine = client.post("/api/term/sessions",
+                       json={"project_id": "demo", "kind": "terminal"}).json()
+    other_root = second_workspace_tmux
+    (other_root / "projects" / "demo").mkdir(parents=True)
+    other_name = _spawn_and_adopt(other_root, "demo", "bash")
+
+    r = client.delete("/api/term/sessions/project/demo?workspace=other")
+    assert r.status_code == 200, r.text
+    assert r.json()["killed"] == [other_name]
+    # The active workspace's same-project-id session survives untouched.
+    assert subprocess.run(["tmux", "has-session", "-t", mine["name"]],
+                          capture_output=True).returncode == 0
+    assert subprocess.run(["tmux", "has-session", "-t", other_name],
+                          capture_output=True).returncode != 0
+
+
+def test_kill_project_sessions_default_scopes_to_active_workspace_only(
+    client, seed_project, second_workspace_tmux,
+) -> None:
+    """Without ?workspace=, the "X" button's kill-everything call keeps its
+    pre-multi-workspace behavior: only the active workspace's sessions for
+    that project id are killed, even if another registered workspace has a
+    project with the same id."""
+    seed_project("demo")
+    mine = client.post("/api/term/sessions",
+                       json={"project_id": "demo", "kind": "terminal"}).json()
+    other_root = second_workspace_tmux
+    (other_root / "projects" / "demo").mkdir(parents=True)
+    other_name = _spawn_and_adopt(other_root, "demo", "bash")
+
+    r = client.delete("/api/term/sessions/project/demo")
+    assert r.status_code == 200, r.text
+    assert r.json()["killed"] == [mine["name"]]
+    assert subprocess.run(["tmux", "has-session", "-t", mine["name"]],
+                          capture_output=True).returncode != 0
+    assert subprocess.run(["tmux", "has-session", "-t", other_name],
+                          capture_output=True).returncode == 0
+
+
+def test_kill_project_sessions_unknown_workspace_404(client, seed_project, isolated_prefix) -> None:
+    seed_project("demo")
+    r = client.delete("/api/term/sessions/project/demo?workspace=does-not-exist")
+    assert r.status_code == 404

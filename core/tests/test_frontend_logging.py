@@ -37,6 +37,9 @@ let now = 100;
 let failFetch = false;
 const listeners = {{ window: {{}}, document: {{}} }};
 
+let nextStatus = 200;
+let nextBody = null;
+
 async function nativeFetch(input, opts = {{}}) {{
   nativeCalls.push({{ input: String(input), opts }});
   if (failFetch && String(input) !== '/api/log/client') {{
@@ -46,15 +49,26 @@ async function nativeFetch(input, opts = {{}}) {{
     const parsed = JSON.parse(String(opts.body || '{{}}'));
     if (Array.isArray(parsed.events)) uploads.push(parsed);
   }}
+  const status = nextStatus;
+  const body = nextBody;
   return {{
-    ok: true,
-    status: 200,
+    ok: status >= 200 && status < 300,
+    status: status,
     headers: {{ get() {{ return 'application/json'; }} }},
+    clone() {{ return this; }},
+    json: async () => body,
   }};
 }}
 
 const consoleStub = {{ error() {{}}, warn() {{}}, log() {{}} }};
 const navigatorStub = {{ sendBeacon() {{ return false; }} }};
+const dispatchedEvents = [];
+class CustomEventStub {{
+  constructor(type, init) {{
+    this.type = type;
+    this.detail = (init && init.detail != null) ? init.detail : null;
+  }}
+}}
 const windowStub = {{
   location: {{
     pathname: '/',
@@ -67,10 +81,31 @@ const windowStub = {{
   console: consoleStub,
   navigator: navigatorStub,
   addEventListener(type, fn) {{ listeners.window[type] = fn; }},
+  dispatchEvent(ev) {{ dispatchedEvents.push({{ type: ev.type, detail: ev.detail }}); return true; }},
   onerror: null,
 }};
+function makeElement(tag) {{
+  return {{
+    tagName: String(tag || 'div').toUpperCase(),
+    style: {{}},
+    children: [],
+    textContent: '',
+    setAttribute(name, value) {{ this[name] = value; }},
+    getAttribute(name) {{ return this[name]; }},
+    appendChild(child) {{ this.children.push(child); return child; }},
+    addEventListener(type, fn) {{ this['_on_' + type] = fn; }},
+  }};
+}}
+const bodyStub = makeElement('body');
+const headStub = makeElement('head');
+const elementsById = {{ 'lab-resource-banner-style': null }};
 const documentStub = {{
   addEventListener(type, fn) {{ listeners.document[type] = fn; }},
+  body: bodyStub,
+  head: headStub,
+  documentElement: headStub,
+  getElementById(id) {{ return elementsById[id] || null; }},
+  createElement(tag) {{ return makeElement(tag); }},
 }};
 
 const sandbox = {{
@@ -83,6 +118,7 @@ const sandbox = {{
   clearTimeout() {{}},
   URL,
   Blob,
+  CustomEvent: CustomEventStub,
 }};
 
 vm.runInNewContext(code, sandbox, {{ filename: 'error-report.js' }});
@@ -131,6 +167,80 @@ process.stdout.write(JSON.stringify({ uploads, nativeCalls, ev }));
     assert ev["target"] == "/api/project-files"
     assert "Failed to fetch" in ev["msg"]
     assert [c["input"] for c in result["nativeCalls"]] == ["/api/project-files", "/api/log/client"]
+
+
+def test_fetch_503_shows_resource_unavailable_banner() -> None:
+    """core.fsguard returns 503 with a `detail` naming the stalled workspace
+    (e.g. "resource is not available for workspace ssd"). The fetch wrapper
+    must surface that text in a visible banner, not just log it."""
+    result = _run_node(_browser_harness(
+        """
+nextStatus = 503;
+nextBody = { detail: 'resource is not available for workspace ssd' };
+await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+await Promise.resolve();
+await Promise.resolve();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  bannerText: bodyStub.children.length ? bodyStub.children[0].children[0].textContent : null,
+}));
+"""
+    ))
+    assert result["bannerText"] == "resource is not available for workspace ssd"
+
+
+def test_fetch_503_dispatches_resource_unavailable_event() -> None:
+    """The tab strip (lab-app.js) marks the active project's tab as blocked
+    by listening for a `lab:resource-unavailable` window event carrying the
+    same `detail` text as the banner -- this is the one place that can
+    dispatch it, since every fetch already flows through this wrapper."""
+    result = _run_node(_browser_harness(
+        """
+nextStatus = 503;
+nextBody = { detail: 'resource is not available for workspace ssd' };
+await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+await Promise.resolve();
+await Promise.resolve();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({ dispatchedEvents }));
+"""
+    ))
+    events = [e for e in result["dispatchedEvents"] if e["type"] == 'lab:resource-unavailable']
+    assert len(events) == 1
+    assert events[0]["detail"]["message"] == 'resource is not available for workspace ssd'
+    assert events[0]["detail"]["path"] == '/api/project-files'
+
+
+def test_fetch_ok_dispatches_resource_available_event() -> None:
+    """A subsequent successful call clears a previously-blocked tab -- the
+    UI listens for this event rather than polling."""
+    result = _run_node(_browser_harness(
+        """
+nextStatus = 200;
+nextBody = { ok: true };
+await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+process.stdout.write(JSON.stringify({ dispatchedEvents }));
+"""
+    ))
+    events = [e for e in result["dispatchedEvents"] if e["type"] == 'lab:resource-available']
+    assert len(events) == 1
+    assert events[0]["detail"]["path"] == '/api/project-files'
+
+
+def test_fetch_503_does_not_dispatch_resource_available_event() -> None:
+    result = _run_node(_browser_harness(
+        """
+nextStatus = 503;
+nextBody = { detail: 'resource is not available for workspace ssd' };
+await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({ dispatchedEvents }));
+"""
+    ))
+    assert not any(e["type"] == 'lab:resource-available' for e in result["dispatchedEvents"])
 
 
 def test_logging_endpoint_fetch_does_not_recursively_log_itself() -> None:

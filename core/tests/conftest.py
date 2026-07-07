@@ -25,6 +25,9 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home"))
     monkeypatch.setenv("LAB_WATCHER_OBSERVER", "polling")
     monkeypatch.setenv("LAB_WATCHER_POLL_INTERVAL_S", "0.05")
+    # Tests drive the servers supervisor tick directly (see
+    # test_servers_routes.py); never let the background thread start.
+    monkeypatch.setenv("LAB_SERVER_SUPERVISOR", "0")
     if "LAB_TMUX_PREFIX" not in os.environ:
         monkeypatch.setenv("LAB_TMUX_PREFIX", "lab-")
     monkeypatch.chdir(root)

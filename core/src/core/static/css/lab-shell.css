@@ -62,6 +62,20 @@
   .proj-tab.dragging { opacity: 0.45; cursor: grabbing; }
   .proj-tab.drop-before { box-shadow: -2px 0 0 var(--accent); }
   .proj-tab.drop-after { box-shadow: 2px 0 0 var(--accent); }
+
+  /* Small "which workspace does this belong to" badge — dashboard rows and
+     project tabs both use it. */
+  .ws-badge { display: inline-block; flex-shrink: 0; padding: 0 5px; font-size: 9px; line-height: 14px; border-radius: 7px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; vertical-align: middle; }
+  .proj-tab .ws-badge { margin: 0; }
+  .proj-tab.active .ws-badge { color: var(--text-secondary); }
+
+  /* Tab blocked by a 503 (fsguard: the workspace volume stalled). Read as
+     "warning", distinct from the amber "needs attention" tint above. */
+  .proj-tab .blocked-icon { display: none; color: var(--red); font-size: 12px; line-height: 1; flex-shrink: 0; }
+  .proj-tab.blocked .blocked-icon { display: inline-block; }
+  .proj-tab.blocked { box-shadow: inset 0 -2px 0 var(--red); }
+  .proj-tab.blocked .label { color: var(--red); }
+  .proj-tab.blocked:hover { background: rgba(248,81,73,0.12); }
   .proj-tab { user-select: none; }
 
   .proj-tabs-plus-wrap { position: relative; flex-shrink: 0; }
@@ -992,6 +1006,17 @@
 
   .p-name { font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .p-name .icon { margin-right: 4px; }
+  .p-name .ws-badge { margin-left: 7px; font-weight: 400; }
+
+  /* Projects from a workspace other than the one the server is currently
+     serving. Same row grid, but minimal — we only know their id (a
+     directory-listing scan), not their full project.json metadata, until
+     the workspace is switched to. */
+  .p-row.ws-other .p-name { color: var(--text-secondary); }
+  .p-row.ws-other:hover { background: var(--bg-secondary); }
+  .ws-section.ws-unavailable { opacity: 0.55; }
+  .ws-section.ws-unavailable .p-section-head { color: var(--text-dim); }
+  .ws-section.ws-unavailable .ws-badge { border-color: var(--red); color: var(--red); }
 
   .p-repos { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
   .p-repos .repo-chip { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); padding: 1px 7px; border-radius: 3px; font-size: 11px; white-space: nowrap; }
@@ -1013,6 +1038,86 @@
   .p-detail .p-desc.empty { color: var(--text-dim); font-style: italic; }
   .p-detail .p-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
   .p-detail .p-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* ─── Dashboard: Servers / Terminals / KPI strip ───
+     Three independently-refreshed panes at the top of the dashboard (see
+     dashKpisRender/dashServersRefresh/dashTermsRefresh in lab-app.js):
+     a compact stat-tile row (#dashKpis, reuses .s-summary/.s-metric from
+     the workbench header), then a card grid per project server
+     (#dashServers) and a card grid per project's terminal sessions
+     (#dashTerms). Status is always a dot + word pair (never color alone);
+     the dot and the card's left border carry the color, the word itself
+     stays a plain text token. */
+  .dash-kpis { margin-bottom: 0; }
+  .p-section .dash-kpis { margin: 10px 14px 16px; }
+  .s-metric strong.warn { color: var(--red); }
+
+  .srv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; padding: 10px 14px; }
+  .srv-card { display: flex; flex-direction: column; gap: 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .srv-card-running { border-left-color: var(--green); }
+  .srv-card-starting { border-left-color: var(--yellow); }
+  .srv-card-unhealthy { border-left-color: var(--red); }
+  /* "external" = alive but not started from this dashboard (someone ran it
+     by hand) — accent-colored, distinct from the managed green/yellow/red
+     states, so it reads as "seen, not owned". */
+  .srv-card-external { border-left-color: var(--accent); }
+  .srv-card-stopped { border-left-color: var(--border); }
+  /* Stopped cards read as "inactive" via dimmed body text — the footer
+     buttons (Start/Open) stay at full opacity so they're never harder to
+     hit than they need to be. */
+  .srv-card-stopped .srv-card-body { opacity: 0.6; }
+  .srv-card-body { display: flex; flex-direction: column; gap: 5px; }
+  .srv-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .srv-name { font-weight: 600; color: var(--text-primary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srv-status-line { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
+  .srv-status-line .srv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .srv-dot-running { background: var(--green); animation: srv-pulse 1.6s ease-in-out infinite; }
+  .srv-dot-starting { background: var(--yellow); }
+  .srv-dot-unhealthy { background: var(--red); }
+  .srv-dot-external { background: transparent; border: 1px solid var(--accent); }
+  .srv-dot-stopped { background: var(--text-dim); }
+  .srv-status-line .srv-state-word { color: var(--text-secondary); }
+  .srv-status-line .srv-suffix { color: var(--text-dim); }
+  .srv-meta { font-size: 11px; color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .srv-card-footer { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: auto; }
+  .srv-card-footer a.mini-btn { text-decoration: none; display: inline-flex; align-items: center; }
+  .srv-empty, .term-empty { padding: 10px 14px; color: var(--text-dim); font-style: italic; font-size: 12px; }
+  .srv-err, .term-err { color: var(--red); font-size: 12px; padding: 6px 14px; background: #f851491a; border-bottom: 1px solid var(--border); display: none; }
+  .srv-err.on, .term-err.on { display: block; }
+  @keyframes srv-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
+
+  .term-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; padding: 10px 14px; }
+  .term-card { display: flex; flex-direction: column; gap: 6px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .term-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .term-card-label { font-weight: 600; color: var(--text-primary); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-card-head .count { color: var(--text-dim); font-size: 11px; font-weight: 400; }
+  .term-card-head .mini-btn { margin-left: auto; flex-shrink: 0; }
+  .term-card-body { display: flex; flex-direction: column; }
+  .term-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .term-row:last-child { border-bottom: none; }
+  .term-name { font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-meta { color: var(--text-dim); font-size: 12px; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-attached { color: var(--green); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; flex-shrink: 0; }
+
+  /* .mini-btn is normally scoped under .card (see the Snooze/hold block
+     above); these sections live directly in the dashboard list, not
+     inside a .card, so re-declare the same look scoped to them. */
+  #dashServers .mini-btn, #dashTerms .mini-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-family: inherit; }
+  #dashServers .mini-btn:hover, #dashTerms .mini-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+  #dashServers .mini-btn.primary, #dashTerms .mini-btn.primary { color: var(--accent); border-color: var(--accent); }
+  #dashServers .mini-btn.danger:hover, #dashTerms .mini-btn.danger:hover { color: var(--red); border-color: var(--red); }
+  #dashServers .mini-btn:disabled, #dashTerms .mini-btn:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+
+  /* Workbench host: the same three sections also render as .s-section
+     cards inside the productivity view's .s-workbench-grid
+     (selfPaintWorkbench) — full-width rows stacked above the
+     Attention/Open-tasks/etc cards, which keep the grid's normal
+     auto-fit columns below. Card grids drop the dashboard list's 14px
+     inset so cards align flush with the neighbouring cards' content. */
+  .s-workbench-grid #dashKpis, .s-workbench-grid #dashServers, .s-workbench-grid #dashTerms { grid-column: 1 / -1; margin-bottom: 0; }
+  .s-workbench-grid .srv-grid, .s-workbench-grid .term-grid { padding: 4px 0 0; }
+  .s-workbench-grid .srv-empty, .s-workbench-grid .srv-err,
+  .s-workbench-grid .term-empty, .s-workbench-grid .term-err { padding-left: 0; padding-right: 0; }
 
   /* Missing required-fields indicator. Red chip + red left border on the row. */
   .p-row.missing-required { border-left: 3px solid var(--red); padding-left: 11px; }

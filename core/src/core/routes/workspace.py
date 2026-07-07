@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from lab import paths
 
+from core import fsguard
+
 
 router = APIRouter()
 
@@ -114,3 +116,46 @@ def use_workspace(body: WorkspaceUseRequest, request: Request) -> dict:
     paths.register_workspace(root, name=root.name, active=True)
     request.app.state.switch_workspace(root)
     return _payload(request)
+
+
+def _scan_project_ids(root: Path) -> list[str]:
+    """List project directory names under ``root/projects``.
+
+    Runs entirely inside ``fsguard.guarded()`` -- including the ``is_dir()``
+    check -- so a stalled/wedged volume can't hang on that first stat call
+    either; only ``guarded()``'s timeout ever gets to observe it.
+    """
+    projects_dir = root / "projects"
+    if not projects_dir.is_dir():
+        return []
+    return sorted(
+        p.name for p in projects_dir.iterdir()
+        if p.is_dir() and not p.name.startswith(".")
+    )
+
+
+@router.get("/api/workspaces/projects")
+def list_workspace_projects(request: Request) -> dict:
+    """All registered workspaces, each with its project ids.
+
+    One dead/stalled volume must not blank the whole dashboard: a per-
+    workspace scan that fails with fsguard's 503 is caught here and turned
+    into ``unavailable: true`` (empty ``projects``) for that entry only,
+    while every other workspace's listing still comes back normally.
+    """
+    payload = _payload(request)
+    workspaces: list[dict] = []
+    for row in payload["workspaces"]:
+        entry = dict(row)
+        root = Path(str(row["path"]))
+        try:
+            entry["projects"] = fsguard.guarded(root, _scan_project_ids, root)
+            entry["unavailable"] = False
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise
+            entry["projects"] = []
+            entry["unavailable"] = True
+            entry["detail"] = exc.detail
+        workspaces.append(entry)
+    return {"active": payload["active"], "workspaces": workspaces}

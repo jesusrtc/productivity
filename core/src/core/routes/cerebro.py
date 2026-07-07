@@ -19,6 +19,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from core import fsguard
+
 
 router = APIRouter()
 
@@ -199,42 +201,46 @@ def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
     kdir = root / "content"
     if not kdir.is_dir():
         return []
-    nodes = _build(kdir, Path(""), include_hidden)
-    # Prepend the shared `.claude/` if it exists at the monorepo root. The
-    # tree builder reuses the same dotfile/skip rules, so .claude/logs/
-    # stays hidden here just like inside content/.
-    shared = root / ".claude"
-    if shared.is_dir():
-        shared_node = {
-            "name": ".claude",
-            "path": ".claude",
-            "type": "dir",
-            "children": _build(shared, Path(".claude"), include_hidden),
-        }
-        shared_node.update(_symlink_fields(shared))
-        nodes.insert(0, shared_node)
-    # Also surface the tool-neutral `.agents/` (config, memory, shared skills)
-    # so it's browseable from every project's Meta section, like `.claude/`.
-    shared_agents = root / ".agents"
-    if shared_agents.is_dir():
-        agents_node = {
-            "name": ".agents",
-            "path": ".agents",
-            "type": "dir",
-            "children": _build(shared_agents, Path(".agents"), include_hidden),
-        }
-        agents_node.update(_symlink_fields(shared_agents))
-        nodes.insert(0, agents_node)
-    # Surface the top-level `projects/` (popped out of content/) so projects
-    # stay browseable in Cerebro, exactly as they were when nested under content/.
-    projects = root / "projects"
-    if projects.is_dir():
-        projects_node = {
-            "name": "projects",
-            "path": "projects",
-            "type": "dir",
-            "children": _build(projects, Path("projects"), include_hidden),
-        }
-        projects_node.update(_symlink_fields(projects))
-        nodes.insert(0, projects_node)
-    return nodes
+
+    def _build_tree() -> list[dict]:
+        nodes = _build(kdir, Path(""), include_hidden)
+        # Prepend the shared `.claude/` if it exists at the monorepo root. The
+        # tree builder reuses the same dotfile/skip rules, so .claude/logs/
+        # stays hidden here just like inside content/.
+        shared = root / ".claude"
+        if shared.is_dir():
+            shared_node = {
+                "name": ".claude",
+                "path": ".claude",
+                "type": "dir",
+                "children": _build(shared, Path(".claude"), include_hidden),
+            }
+            shared_node.update(_symlink_fields(shared))
+            nodes.insert(0, shared_node)
+        # Also surface the tool-neutral `.agents/` (config, memory, shared skills)
+        # so it's browseable from every project's Meta section, like `.claude/`.
+        shared_agents = root / ".agents"
+        if shared_agents.is_dir():
+            agents_node = {
+                "name": ".agents",
+                "path": ".agents",
+                "type": "dir",
+                "children": _build(shared_agents, Path(".agents"), include_hidden),
+            }
+            agents_node.update(_symlink_fields(shared_agents))
+            nodes.insert(0, agents_node)
+        # Surface the top-level `projects/` (popped out of content/) so projects
+        # stay browseable in Cerebro, exactly as they were when nested under content/.
+        projects = root / "projects"
+        if projects.is_dir():
+            projects_node = {
+                "name": "projects",
+                "path": "projects",
+                "type": "dir",
+                "children": _build(projects, Path("projects"), include_hidden),
+            }
+            projects_node.update(_symlink_fields(projects))
+            nodes.insert(0, projects_node)
+        return nodes
+
+    return fsguard.guarded(root, _build_tree)
