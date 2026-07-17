@@ -353,6 +353,12 @@
   .seg-btn.active { background: var(--accent); color: #fff; }
   .seg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+  /* Per-agent autopilot checkboxes in the Settings modal. */
+  .autopilot-row { display: flex; gap: 14px; margin: 6px 0 2px; flex-wrap: wrap; }
+  .autopilot-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none; font-weight: 400; }
+  .autopilot-check:hover { color: var(--text-primary); }
+  .autopilot-check input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
   /* Proxies-modal row grid. One row per proxy (name / host / port /
      path / label / remove); empty grid template the same on every row
      so the header stays aligned with the inputs underneath. */

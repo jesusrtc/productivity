@@ -1319,3 +1319,73 @@ def test_kill_project_sessions_unknown_workspace_404(client, seed_project, isola
     seed_project("demo")
     r = client.delete("/api/term/sessions/project/demo?workspace=does-not-exist")
     assert r.status_code == 404
+
+
+# ─── Workspace autopilot launch flags ────────────────────────────────────────
+
+
+def test_claude_launch_respects_workspace_autopilot(client, seed_project, isolated_prefix,
+                                                    monorepo: Path, tmp_path: Path) -> None:
+    from lab import settings as lab_settings
+
+    seed_project("demo")
+    # Default: claude autopilot is on → --permission-mode auto in the command.
+    r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
+    assert r.status_code == 200, r.text
+    assert r.json()["auto"] is True
+    state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    cmd = state["sessions"][r.json()["name"]]["cmd"]
+    assert "--permission-mode auto" in cmd
+
+    # Workspace opt-out: a fresh session launches without the flag.
+    lab_settings.update(monorepo, {"autopilot": {"claude": False}})
+    r = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude", "name": "claude-2",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["auto"] is False
+    state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    cmd = state["sessions"][r.json()["name"]]["cmd"]
+    assert "--permission-mode" not in cmd
+
+    # Explicit per-request auto still wins over the workspace setting.
+    r = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude", "name": "claude-3", "auto": True,
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["auto"] is True
+
+
+def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_prefix,
+                                               monorepo: Path, tmp_path: Path,
+                                               monkeypatch) -> None:
+    import shutil as real_shutil
+
+    from core.routes import term as term_route
+    from lab import settings as lab_settings
+
+    seed_project("demo")
+    real_which = real_shutil.which
+    monkeypatch.setattr(
+        term_route.shutil, "which",
+        lambda cmd: "/fake/copilot" if cmd == "copilot" else real_which(cmd),
+    )
+
+    # Off by default: bare `copilot`.
+    r = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot",
+    })
+    assert r.status_code == 200, r.text
+    state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    assert state["sessions"][r.json()["name"]]["cmd"] == "copilot"
+    assert r.json()["auto"] is False
+
+    # Workspace checkbox on: fresh sessions get --autopilot.
+    lab_settings.update(monorepo, {"autopilot": {"copilot": True}})
+    r = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot-2",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["auto"] is True
+    state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    assert state["sessions"][r.json()["name"]]["cmd"] == "copilot --autopilot"

@@ -60,3 +60,39 @@ def test_resolve_agent_unknown_project_falls_back(monorepo: Path) -> None:
     # A non-existent project id must never raise — just use the default.
     assert settings.resolve_agent(monorepo, "__missing__") == settings.DEFAULT_AGENT
     assert paths.config_file(monorepo) == monorepo / ".agents" / "config.json"
+
+
+def test_autopilot_defaults(monorepo: Path) -> None:
+    from lab import settings
+
+    cfg = settings.load(monorepo)
+    assert cfg["autopilot"] == {"claude": True, "codex": False, "copilot": False}
+    assert settings.resolve_autopilot(monorepo, "claude") is True
+    assert settings.resolve_autopilot(monorepo, "copilot") is False
+
+
+def test_autopilot_update_merges_per_agent(monorepo: Path) -> None:
+    from lab import settings
+
+    settings.update(monorepo, {"autopilot": {"copilot": True}})
+    cfg = settings.load(monorepo)
+    # copilot flipped on, claude default preserved, codex untouched.
+    assert cfg["autopilot"] == {"claude": True, "codex": False, "copilot": True}
+
+    settings.update(monorepo, {"autopilot": {"claude": False}})
+    assert settings.load(monorepo)["autopilot"] == {
+        "claude": False, "codex": False, "copilot": True,
+    }
+
+
+def test_autopilot_rejects_bad_shapes(monorepo: Path) -> None:
+    import pytest as _pytest
+
+    from lab import settings
+
+    with _pytest.raises(settings.SettingsError):
+        settings.update(monorepo, {"autopilot": {"gemini": True}})
+    with _pytest.raises(settings.SettingsError):
+        settings.update(monorepo, {"autopilot": {"claude": "yes"}})
+    with _pytest.raises(settings.SettingsError):
+        settings.update(monorepo, {"autopilot": ["claude"]})

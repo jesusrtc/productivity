@@ -21,12 +21,23 @@ from lab.model import VALID_AGENTS
 VALID_THEMES = ("dark", "light")
 DEFAULT_AGENT = "claude"
 
+# Per-agent "autopilot" launch flags — the extra argv appended when a
+# workspace enables autopilot for that agent. Claude has always launched
+# with --permission-mode auto, so its workspace default is on; the others
+# are opt-in.
+AUTOPILOT_FLAGS: dict[str, tuple[str, ...]] = {
+    "claude": ("--permission-mode", "auto"),
+    "codex": ("--full-auto",),
+    "copilot": ("--autopilot",),
+}
+
 # The full set of settable keys and their defaults. ``load`` always returns
 # exactly these keys so callers (and the UI) can rely on the shape.
 DEFAULTS: dict[str, Any] = {
     "defaultAgent": DEFAULT_AGENT,
     "model": None,
     "theme": "dark",
+    "autopilot": {"claude": True, "codex": False, "copilot": False},
 }
 
 
@@ -37,6 +48,7 @@ class SettingsError(ValueError):
 def load(root: Path) -> dict[str, Any]:
     """Return the merged global settings (defaults + any saved overrides)."""
     merged = dict(DEFAULTS)
+    merged["autopilot"] = dict(DEFAULTS["autopilot"])
     p = paths.config_file(root)
     if p.is_file():
         try:
@@ -45,7 +57,15 @@ def load(root: Path) -> dict[str, Any]:
             data = {}
         if isinstance(data, dict):
             for key in DEFAULTS:
-                if key in data:
+                if key not in data:
+                    continue
+                if key == "autopilot":
+                    # Per-agent merge over the defaults; ignore junk shapes.
+                    if isinstance(data[key], dict):
+                        for agent, on in data[key].items():
+                            if agent in VALID_AGENTS and isinstance(on, bool):
+                                merged["autopilot"][agent] = on
+                else:
                     merged[key] = data[key]
     return merged
 
@@ -65,6 +85,19 @@ def _validate(key: str, value: Any) -> Any:
         return value
     if key == "model":
         return None if value in (None, "", "null", "none") else str(value)
+    if key == "autopilot":
+        if not isinstance(value, dict):
+            raise SettingsError("autopilot: must be an object of agent → bool")
+        normalized: dict[str, bool] = {}
+        for agent, on in value.items():
+            if agent not in VALID_AGENTS:
+                raise SettingsError(
+                    f"autopilot: {agent!r} is not one of: {', '.join(VALID_AGENTS)}"
+                )
+            if not isinstance(on, bool):
+                raise SettingsError(f"autopilot.{agent}: must be true or false")
+            normalized[agent] = on
+        return normalized
     raise SettingsError(
         f"unknown setting {key!r} (allowed: {', '.join(DEFAULTS)})"
     )
@@ -74,7 +107,11 @@ def update(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
     """Validate + merge ``patch`` into the saved config, write atomically."""
     current = load(root)
     for key, value in patch.items():
-        current[key] = _validate(key, value)
+        validated = _validate(key, value)
+        if key == "autopilot":
+            current[key] = {**current.get(key, {}), **validated}
+        else:
+            current[key] = validated
     storage.write_json(paths.config_file(root), current)
     return current
 
@@ -113,3 +150,8 @@ def resolve_model(root: Path, project_id: str | None = None) -> str | None:
     if override:
         return str(override)
     return load(root).get("model")
+
+
+def resolve_autopilot(root: Path, agent: str) -> bool:
+    """Whether the workspace launches ``agent`` with its autopilot flag."""
+    return bool(load(root).get("autopilot", {}).get(agent, False))

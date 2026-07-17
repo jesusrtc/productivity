@@ -27,3 +27,20 @@ def test_agents_available_prefers_actual_agent_bins(monkeypatch) -> None:
         "codex": True,
         "copilot": True,
     }
+
+
+def test_settings_autopilot_roundtrip(client, monorepo) -> None:
+    r = client.get("/api/settings")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["autopilot"] == {"claude": True, "codex": False, "copilot": False}
+    assert body["autopilotFlags"]["copilot"] == "--autopilot"
+
+    r = client.post("/api/settings", json={"autopilot": {"copilot": True}})
+    assert r.status_code == 200, r.text
+    assert r.json()["autopilot"]["copilot"] is True
+    # merge semantics: claude's default-on survives a partial patch
+    assert r.json()["autopilot"]["claude"] is True
+
+    r = client.post("/api/settings", json={"autopilot": {"gemini": True}})
+    assert r.status_code == 400

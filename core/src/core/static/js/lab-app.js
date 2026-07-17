@@ -4830,11 +4830,33 @@
     }
   }
 
+  function _renderAutopilotRow() {
+    const c = document.getElementById('setAutopilotRow');
+    if (!c) return;
+    const flags = _settings.autopilotFlags || {};
+    c.innerHTML = '';
+    for (const a of Object.keys(AGENT_LABELS)) {
+      const label = document.createElement('label');
+      label.className = 'autopilot-check';
+      label.title = flags[a]
+        ? `Launch ${AGENT_LABELS[a]} with ${flags[a]}`
+        : `Launch ${AGENT_LABELS[a]} with its auto flag`;
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!(_setDraft.autopilot && _setDraft.autopilot[a]);
+      cb.onchange = () => { _setDraft.autopilot[a] = cb.checked; };
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(AGENT_LABELS[a]));
+      c.appendChild(label);
+    }
+  }
+
   function _renderSettingsGlobal() {
     _buildSeg('setAgentSeg',
       Object.keys(AGENT_LABELS).map(a => ({ value: a, label: AGENT_LABELS[a] })),
       _setDraft.defaultAgent,
       (a) => { _setDraft.defaultAgent = a; _renderSettingsGlobal(); });
+    _renderAutopilotRow();
     const modelSel = document.getElementById('setModel');
     _fillModelSelect(modelSel, _setDraft.defaultAgent, _setDraft.model);
     modelSel.onchange = (e) => { _setDraft.model = e.target.value || null; };
@@ -4849,6 +4871,7 @@
       defaultAgent: _settings.defaultAgent || 'claude',
       model: _settings.model || null,
       theme: document.body.classList.contains('light-mode') ? 'light' : 'dark',
+      autopilot: { ...(_settings.autopilot || {}) },
     };
     _renderSettingsGlobal();
 
@@ -4906,6 +4929,7 @@
           defaultAgent: _setDraft.defaultAgent,
           model: _setDraft.model || null,
           theme: _setDraft.theme,
+          autopilot: _setDraft.autopilot || {},
         }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'save failed');

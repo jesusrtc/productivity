@@ -33,11 +33,21 @@ def agents_available() -> dict:
     return {agent: _agent_available(agent) for agent in ("claude", "codex", "copilot")}
 
 
+def _with_flags(cfg: dict) -> dict:
+    """Attach the human-readable autopilot flag per agent so the UI can show
+    what each checkbox actually appends to the launch command."""
+    cfg["autopilotFlags"] = {
+        agent: " ".join(flags)
+        for agent, flags in lab_settings.AUTOPILOT_FLAGS.items()
+    }
+    return cfg
+
+
 @router.get("/api/settings")
 def get_settings(request: Request) -> dict:
     """Return the merged global settings (defaults + saved overrides)."""
     root: Path = request.app.state.index_cache.root
-    return lab_settings.load(root)
+    return _with_flags(lab_settings.load(root))
 
 
 class SettingsPatch(BaseModel):
@@ -46,6 +56,9 @@ class SettingsPatch(BaseModel):
     defaultAgent: str | None = None
     model: str | None = None
     theme: str | None = None
+    # Per-agent map: launch this agent with its autopilot flag (see
+    # lab.settings.AUTOPILOT_FLAGS). Partial patches merge per key.
+    autopilot: dict[str, bool] | None = None
 
 
 @router.post("/api/settings")
@@ -54,9 +67,9 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     patch = body.model_dump(exclude_unset=True)
     if not patch:
-        return lab_settings.load(root)
+        return _with_flags(lab_settings.load(root))
     try:
-        return lab_settings.update(root, patch)
+        return _with_flags(lab_settings.update(root, patch))
     except lab_settings.SettingsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

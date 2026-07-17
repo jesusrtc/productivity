@@ -1136,8 +1136,10 @@ class NewSession(BaseModel):
     agent: str | None = None
     # Optional explicit logical name. Defaults: agent name / "bash".
     name: str | None = None
-    # Only meaningful when kind == "claude".
-    auto: bool = True
+    # Only meaningful when kind == "claude". None → the workspace's
+    # per-agent autopilot setting decides (claude defaults on; see
+    # lab.settings.DEFAULTS["autopilot"]). Explicit true/false wins.
+    auto: bool | None = None
     # When True, ignore any saved claude_session_id and start a brand-new
     # conversation (new UUID). Used by the manual "+ New Claude" picker.
     start_fresh: bool = False
@@ -1796,8 +1798,13 @@ def create_session(body: NewSession, request: Request) -> dict:
     claude_session_id = None
     if kind == "claude" and agent == "claude":
         parts = ["claude"]
-        if body.auto:
-            parts.extend(["--permission-mode", "auto"])
+        wants_auto = (
+            body.auto
+            if body.auto is not None
+            else lab_settings.resolve_autopilot(root, "claude")
+        )
+        if wants_auto:
+            parts.extend(lab_settings.AUTOPILOT_FLAGS["claude"])
             auto_applied = True
         # Look up a saved claude_session_id for this project+name.
         existing_id = None
@@ -1817,6 +1824,9 @@ def create_session(body: NewSession, request: Request) -> dict:
     elif kind == "claude":
         # codex / copilot — fresh session (resume is Claude-only for now).
         cmd_argv = _agent_argv(agent)
+        if lab_settings.resolve_autopilot(root, agent):
+            cmd_argv = cmd_argv + list(lab_settings.AUTOPILOT_FLAGS.get(agent, ()))
+            auto_applied = True
     else:
         # kind == "terminal"
         shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
