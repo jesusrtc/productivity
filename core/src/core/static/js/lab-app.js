@@ -4475,10 +4475,10 @@
       }
       // Shared projects/CLAUDE.md — auto-loaded for every project
       // via Claude Code's CLAUDE.md walk-up. Renders inline in the doc pane.
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('projects/CLAUDE.md')" title="projects/CLAUDE.md — shared boilerplate applied to every project under projects/" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} CLAUDE.md (shared)</span></a>`;
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('projects/CLAUDE.md')" title="projects/CLAUDE.md — shared boilerplate applied to every project under projects/" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('CLAUDE.md')}CLAUDE.md (shared)</span></a>`;
       // Canonical cross-tool instructions at the monorepo root. CLAUDE.md is a
       // symlink to this; Codex / Copilot read AGENTS.md directly.
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions at the monorepo root (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} AGENTS.md (shared)</span></a>`;
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions at the monorepo root (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}AGENTS.md (shared)</span></a>`;
       // Shared `.claude/` from the monorepo root, rendered as an
       // expandable folder. Children fetched from /api/cerebro/tree; each
       // file opens inline via openSharedFile. Placeholder rendered first;
@@ -11406,7 +11406,7 @@
         treeFiles(node).forEach(f => {
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.path.split('/').pop();
-          const icon = f.type === 'image' ? '\u{1F5BC}' : /\.(mp4|webm|mov|m4v)$/i.test(fname) ? '\u{1F3AC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
+          const icon = fileIconHtml(fname, f);
           const activeCls = activePath === f.path ? ' active' : '';
           // Notebook running / unseen dots — same logic as the project view's
           // _refreshProjectSidebar so the self view (Lab framework checkout)
@@ -11426,7 +11426,7 @@
           } else if (hasUnseen) {
             dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
           }
-          html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon} ${fname}</span></a>`;
+          html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
         });
         return html;
       }
@@ -11439,7 +11439,7 @@
       // async by /api/cerebro/tree, same as the project view.
       sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       // Canonical cross-tool instructions at the monorepo root (CLAUDE.md → AGENTS.md).
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">\u{1F4C4} AGENTS.md</span></a>`;
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}AGENTS.md</span></a>`;
       const sharedClaudeFid = 'sf-claude-self-' + Math.random().toString(36).substr(2, 6);
       const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
       const _shClArrow = _shClOpen ? ' open' : '';
