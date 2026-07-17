@@ -70,3 +70,26 @@ def test_git_status_rejects_escape_outside_workspace(client, monorepo: Path, tmp
     for repo in (str(outside), "../", "projects/../.."):
         r = client.get("/api/git-status", params={"repo": repo})
         assert r.status_code == 400, f"{repo!r}: {r.status_code} {r.text}"
+
+
+def test_git_status_allows_registered_repo_outside_workspace(
+    client, monorepo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Pinned tabs/views live outside the active workspace; anything the
+    app's own repo registry lists must pass containment."""
+    outside = tmp_path / "pinned-checkout"
+    outside.mkdir()
+
+    from core.routes import diff as diff_route
+
+    monkeypatch.setattr(
+        diff_route,
+        "get_registered_repos",
+        lambda root: [{"name": "pinned", "is_project": False,
+                       "path": str(outside), "repos": [str(outside)]}],
+    )
+
+    r = client.get("/api/git-status", params={"repo": str(outside)})
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"files": {}, "ignored": []}

@@ -217,6 +217,28 @@ def _git_status_for_dir(key: str) -> dict:
     return {"files": files, "ignored": ignored}
 
 
+def _inside(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
+    """Containment for /api/git-status: the active workspace is always in
+    bounds; anything else must come from the app's own registry of pinned
+    tabs/views and their repos (which legitimately live outside the
+    workspace, e.g. the framework checkout itself)."""
+    if _inside(resolved, active_root):
+        return True
+    try:
+        for proj in get_registered_repos(active_root):
+            candidates = [proj.get("path"), *(proj.get("repos") or [])]
+            for c in candidates:
+                if c and _inside(resolved, Path(str(c)).expanduser().resolve()):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 @router.get("/api/git-status")
 def api_git_status(repo: str, request: Request):
     """Per-file git status for the directory ``repo``.
@@ -228,9 +250,11 @@ def api_git_status(repo: str, request: Request):
     Non-repo directories return empty maps.
 
     ``repo`` may be absolute (the sidebar passes the project's absolute
-    path) or workspace-relative, but the resolved directory must stay
-    inside the active workspace — this endpoint must not disclose status
-    for arbitrary directories on the machine.
+    path) or workspace-relative. The resolved directory must sit inside
+    the active workspace or inside a location the app itself registers
+    (pinned tabs/views and their repos can live outside the workspace) —
+    this endpoint must not disclose status for arbitrary directories on
+    the machine.
     """
     root = Path(request.app.state.index_cache.root).expanduser().resolve()
     candidate = Path(repo) if repo.startswith("/") else root / repo
@@ -238,7 +262,7 @@ def api_git_status(repo: str, request: Request):
         resolved = candidate.expanduser().resolve()
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
-    if resolved != root and root not in resolved.parents:
+    if not _git_status_dir_allowed(resolved, root):
         raise HTTPException(status_code=400, detail="repo escapes workspace")
     key = str(resolved)
     now = time.time()
