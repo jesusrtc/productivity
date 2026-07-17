@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from lab import paths
 
 from core import fsguard
+from core import workspace_config
 
 
 router = APIRouter()
@@ -78,6 +79,17 @@ def _payload(request: Request) -> dict:
         })
     if current["path"] not in seen:
         workspaces.insert(0, current)
+    # Advisory workspace.json status for the ACTIVE workspace only. Other
+    # registered roots may live on unplugged volumes; reading a file there
+    # would hang the whole dashboard, so they are not touched here.
+    try:
+        current["config"] = fsguard.guarded(
+            current_root,
+            workspace_config.summarize_workspace_config,
+            current_root,
+        )
+    except HTTPException:
+        pass
     return {
         "active": current["id"],
         "current": current,
@@ -107,6 +119,17 @@ def _validate_workspace(root: Path) -> None:
 @router.get("/api/workspaces")
 def list_workspaces(request: Request) -> dict:
     return _payload(request)
+
+
+@router.get("/api/workspace/config")
+def get_workspace_config(request: Request) -> dict:
+    """Full workspace.json load result (parsed document + validation) for the
+    active workspace. The file is optional; ``present: false`` is a normal,
+    valid answer."""
+    cache = request.app.state.index_cache
+    root = Path(cache.root).expanduser().resolve()
+    result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
+    return {"root": str(root), **result}
 
 
 @router.post("/api/workspaces/use")

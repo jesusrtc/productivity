@@ -29,12 +29,22 @@
     --border: #30363d; --text-primary: #e6edf3; --text-secondary: #8b949e;
     --text-dim: #484f58; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
     --yellow: #d29922; --purple: #a371f7; --highlight: #5c4b00;
+    /* Git status decorations (VS Code Explorer palette) */
+    --git-modified: #e2c08d; --git-added: #81b88b; --git-untracked: #73c991;
+    --git-deleted: #f85149; --git-renamed: #58a6ff; --git-ignored: #6e7681;
+    /* File-tree chrome */
+    --tree-indent-guide: rgba(110,118,129,0.28);
+    --tree-hover: rgba(110,118,129,0.14);
   }
   body.light-mode {
     --bg-primary: #ffffff; --bg-secondary: #f6f8fa; --bg-tertiary: #e8eaed;
     --border: #d0d7de; --text-primary: #1f2328; --text-secondary: #656d76;
     --text-dim: #8b949e; --accent: #0969da; --green: #1a7f37; --red: #cf222e;
     --yellow: #9a6700; --purple: #8250df; --highlight: #fff8c5;
+    --git-modified: #895503; --git-added: #1a7f37; --git-untracked: #1a7f37;
+    --git-deleted: #cf222e; --git-renamed: #0969da; --git-ignored: #8b949e;
+    --tree-indent-guide: rgba(31,35,40,0.16);
+    --tree-hover: rgba(31,35,40,0.06);
   }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-primary); color: var(--text-primary); }
 
@@ -113,8 +123,10 @@
   .layout { display: flex; padding-top: 88px; min-height: 100vh; }
   .sidebar { width: var(--sidebar-width); min-width: 150px; border-right: 1px solid var(--border); padding: 12px 0; overflow-y: auto; position: fixed; top: 88px; bottom: 0; left: 0; background: var(--bg-primary); }
   .sidebar-title { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; padding: 4px 16px 8px; letter-spacing: 0.5px; }
-  .sidebar-file { display: flex; align-items: center; padding: 3px 8px 3px 16px; font-size: 12px; font-family: monospace; color: var(--text-secondary); cursor: pointer; text-decoration: none; border-left: 2px solid transparent; gap: 4px; }
-  .sidebar-file:hover { color: var(--text-primary); background: var(--bg-secondary); }
+  /* Tree rows: VS Code Explorer metrics — 13px UI font, 22px rows, full-row
+     hover highlight. */
+  .sidebar-file { display: flex; align-items: center; min-height: 22px; padding: 1px 8px 1px 16px; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text-secondary); cursor: pointer; text-decoration: none; border-left: 2px solid transparent; gap: 4px; }
+  .sidebar-file:hover { color: var(--text-primary); background: var(--tree-hover); }
   .sidebar-file.active { color: var(--text-primary); border-left-color: #f78166; background: var(--bg-secondary); }
   .sidebar-fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-actions { display: none; gap: 2px; flex-shrink: 0; }
@@ -137,16 +149,58 @@
   .sidebar-create { display: block; padding: 8px 16px; }
   .sidebar-create button { background: #238636; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; width: 100%; }
   .sidebar-create button:hover { background: #2ea043; }
-  .sidebar-folder { padding: 3px 8px 3px 16px; font-size: 12px; font-family: monospace; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 4px; user-select: none; }
-  .sidebar-folder:hover { color: var(--text-primary); background: var(--bg-secondary); }
-  .sidebar-folder .folder-arrow { font-size: 8px; width: 12px; text-align: center; flex-shrink: 0; transition: transform 0.1s; }
+  .sidebar-folder { min-height: 22px; padding: 1px 8px 1px 16px; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; gap: 4px; user-select: none; }
+  .sidebar-folder:hover { color: var(--text-primary); background: var(--tree-hover); }
+  .sidebar-folder .folder-arrow { font-size: 9px; width: 14px; text-align: center; flex-shrink: 0; transition: transform 0.1s; opacity: 0.85; }
   .sidebar-folder .folder-arrow.open { transform: rotate(90deg); }
-  .sidebar-folder-children { display: none; }
+  .sidebar-folder-children { display: none; position: relative; }
   .sidebar-folder-children.open { display: block; }
   .sidebar-folder-children .sidebar-file { padding-left: 32px; }
   .sidebar-folder-children .sidebar-folder { padding-left: 32px; }
   .sidebar-folder-children .sidebar-folder-children .sidebar-file { padding-left: 48px; }
   .sidebar-folder-children .sidebar-folder-children .sidebar-folder { padding-left: 48px; }
+  .sidebar-folder-children .sidebar-folder-children .sidebar-folder-children .sidebar-file,
+  .sidebar-folder-children .sidebar-folder-children .sidebar-folder-children .sidebar-folder { padding-left: 64px; }
+  /* Indent guides — one vertical hairline per nesting level, VS Code-style. */
+  .sidebar-folder-children.open::before { content: ""; position: absolute; left: 22px; top: 0; bottom: 0; width: 1px; background: var(--tree-indent-guide); pointer-events: none; }
+  .sidebar-folder-children .sidebar-folder-children.open::before { left: 38px; }
+  .sidebar-folder-children .sidebar-folder-children .sidebar-folder-children.open::before { left: 54px; }
+
+  /* File-type icons (shared fileIconHtml() map — glyphs + a few inline
+     SVGs, colored with theme accent variables). */
+  .ft-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 5px; flex-shrink: 0; vertical-align: -3px; position: relative; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8px; font-weight: 700; line-height: 1; color: var(--text-dim); }
+  .ft-icon svg { display: block; }
+  .ft-icon.ft-md { color: var(--accent); font-size: 12px; }
+  .ft-icon.ft-py { color: var(--green); }
+  .ft-icon.ft-js { color: var(--yellow); }
+  .ft-icon.ft-ts { color: var(--accent); }
+  .ft-icon.ft-json { color: var(--yellow); font-size: 9px; }
+  .ft-icon.ft-nb { color: var(--yellow); font-size: 11px; }
+  .ft-icon.ft-img { color: var(--purple); }
+  .ft-icon.ft-vid { color: var(--purple); font-size: 9px; }
+  .ft-icon.ft-pdf { color: var(--red); }
+  .ft-icon.ft-html { color: var(--yellow); font-size: 9px; }
+  .ft-icon.ft-css { color: var(--accent); font-size: 10px; }
+  .ft-icon.ft-sh { color: var(--green); font-size: 10px; }
+  .ft-icon.ft-csv { color: var(--green); font-size: 11px; }
+  .ft-icon.ft-git { color: var(--text-secondary); font-size: 9px; }
+  .ft-icon.ft-generic { color: var(--text-dim); }
+  /* Symlink corner-arrow overlay on the icon, like VS Code. */
+  .ft-icon.ft-ln::after { content: "\21AA"; position: absolute; right: -4px; bottom: -2px; font-size: 8px; font-weight: 600; line-height: 1; color: var(--accent); background: var(--bg-primary); border-radius: 2px; }
+
+  /* Git status decorations (VS Code Explorer-style). Placed AFTER the
+     hover/active rules above so the tint survives hover/selection. Classes
+     and badges are applied in place by _sidebarApplyGitStatus(). */
+  .sidebar-file.git-m, .sidebar-folder.git-m { color: var(--git-modified); }
+  .sidebar-file.git-a, .sidebar-folder.git-a { color: var(--git-added); }
+  .sidebar-file.git-u, .sidebar-folder.git-u { color: var(--git-untracked); }
+  .sidebar-file.git-r, .sidebar-folder.git-r { color: var(--git-renamed); }
+  .sidebar-file.git-d, .sidebar-folder.git-d { color: var(--git-deleted); }
+  .sidebar-file.git-d .sidebar-fname { text-decoration: line-through; }
+  .sidebar-file.git-ignored, .sidebar-folder.git-ignored { color: var(--git-ignored); opacity: 0.6; }
+  .sidebar-file.git-ignored .ft-icon { color: var(--git-ignored); }
+  .git-badge { flex-shrink: 0; margin-left: 4px; min-width: 14px; text-align: center; font-size: 10px; font-weight: 700; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .sidebar-folder .git-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-left: auto; margin-right: 6px; flex-shrink: 0; opacity: 0.85; }
 
   .main { flex: 1; margin-left: var(--sidebar-width); padding: 16px; min-width: 0; }
 
@@ -362,16 +416,16 @@
 
   /* Project tab - file tree */
   .tree-node { list-style: none; padding-left: 0; }
-  .tree-node .tree-node { padding-left: 12px; }
-  .tree-dir { cursor: pointer; padding: 2px 0; color: #8b949e; font-size: 12px; font-family: monospace; user-select: none; display: flex; align-items: center; gap: 4px; }
-  .tree-dir:hover { color: #e6edf3; }
-  .tree-dir .arrow { display: inline-block; width: 12px; font-size: 10px; transition: transform 0.1s; }
+  .tree-node .tree-node { padding-left: 14px; border-left: 1px solid var(--tree-indent-guide); margin-left: 6px; }
+  .tree-dir { cursor: pointer; min-height: 22px; padding: 1px 0; color: var(--text-secondary); font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; user-select: none; display: flex; align-items: center; gap: 4px; }
+  .tree-dir:hover { color: var(--text-primary); background: var(--tree-hover); }
+  .tree-dir .arrow { display: inline-block; width: 14px; font-size: 10px; text-align: center; transition: transform 0.1s; opacity: 0.85; }
   .tree-dir .arrow.collapsed { transform: rotate(-90deg); }
   .tree-dir-children { display: block; }
   .tree-dir-children.collapsed { display: none; }
-  .tree-file { cursor: pointer; padding: 2px 0 2px 16px; font-size: 12px; font-family: monospace; color: #8b949e; display: flex; align-items: center; gap: 4px; }
-  .tree-file:hover { color: #e6edf3; background: #161b22; }
-  .tree-file.active { color: #e6edf3; background: #161b22; border-left: 2px solid #f78166; padding-left: 14px; }
+  .tree-file { cursor: pointer; min-height: 22px; padding: 1px 0 1px 16px; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+  .tree-file:hover { color: var(--text-primary); background: var(--tree-hover); }
+  .tree-file.active { color: var(--text-primary); background: var(--bg-secondary); border-left: 2px solid #f78166; padding-left: 14px; }
   .tree-file .sidebar-badge { flex-shrink: 0; }
 
   /* Project tab - inline file viewer */
@@ -1017,6 +1071,15 @@
   .ws-section.ws-unavailable { opacity: 0.55; }
   .ws-section.ws-unavailable .p-section-head { color: var(--text-dim); }
   .ws-section.ws-unavailable .ws-badge { border-color: var(--red); color: var(--red); }
+  /* Home grouped by workspace: one header per registered workspace (name +
+     id badge + count + path subtitle), projects listed beneath. */
+  .ws-group-head { font-size: 12px; font-weight: 700; color: var(--text-primary); text-transform: none; letter-spacing: 0.2px; }
+  .ws-group-head .count { font-weight: 400; }
+  .ws-group-path { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 400; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; direction: rtl; text-align: left; }
+  .ws-group-head-active { border-left: 3px solid var(--accent); padding-left: 11px; }
+  .ws-active-pill { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
+  .ws-group-head + .p-section .p-section-head { border-top: none; }
+  .ws-section.ws-unavailable .ws-group-head { color: var(--text-dim); }
 
   .p-repos { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
   .p-repos .repo-chip { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); padding: 1px 7px; border-radius: 3px; font-size: 11px; white-space: nowrap; }

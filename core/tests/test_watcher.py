@@ -20,7 +20,10 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     def on_rebuild(_data) -> None:
         rebuild_count["n"] += 1
 
-    w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
+    # Debounce wider than the 50ms poll interval by a good margin: under
+    # full-suite CPU load a delayed poll tick can deliver stragglers after a
+    # 100ms window already fired, splitting the burst into two rebuilds.
+    w = IndexWatcher(monorepo, cache, debounce_ms=300, on_rebuild=on_rebuild)
     w.start()
     try:
         target = monorepo / "projects" / ".probe"
@@ -28,7 +31,10 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
         for i in range(5):
             (target / f"f{i}.md").write_text("x")
             time.sleep(0.01)
-        time.sleep(0.3)  # give debouncer time to fire
+        deadline = time.time() + 3.0
+        while time.time() < deadline and rebuild_count["n"] == 0:
+            time.sleep(0.05)
+        time.sleep(0.7)  # quiet period: a second debounce fire would land here
     finally:
         w.stop()
 
@@ -47,12 +53,18 @@ def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> N
     w.start()
     try:
         seed_project("late-comer")
-        time.sleep(0.3)
+        # Deadline-based wait: under full-suite load the 50ms poll observer
+        # plus the debounce can overshoot a fixed sleep, and the creation
+        # burst can occasionally straddle two debounce windows. Exact
+        # coalescing is asserted by test_watcher_debounces_bursts above.
+        deadline = time.time() + 3.0
+        while time.time() < deadline and not events:
+            time.sleep(0.05)
     finally:
         w.stop()
 
-    assert len(events) == 1
-    ids = [p["id"] for p in events[0]["projects"]]
+    assert events, "watcher never rebuilt after project creation"
+    ids = [p["id"] for p in events[-1]["projects"]]
     assert "late-comer" in ids
 
 

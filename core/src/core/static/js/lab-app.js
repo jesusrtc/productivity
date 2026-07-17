@@ -859,6 +859,38 @@
     return '<div class="symlink-legend"><span class="symlink-mark">&#x21AA;</span><span>symlink</span></div>';
   }
 
+  // ─── File-type icons (VS Code Explorer-style) ───────────────────────────
+  // One shared extension → icon mapping for every sidebar file row. Glyph-
+  // based (like VS Code's seti theme) with a few theme-variable accent
+  // colors; the markup is a fixed-size span so rows align regardless of
+  // glyph width. Symlinked entries get a small corner-arrow overlay
+  // (`ft-ln`), mirroring VS Code's symlink icon decoration.
+  const _FT_SVG_DOC = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M4 1.5h5.5L13 5v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1z"/><path d="M9.5 1.5V5H13"/></svg>';
+  const _FT_SVG_IMG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="5.5" cy="6.5" r="1" fill="currentColor" stroke="none"/><path d="M2.5 11.5l3-2.8 2.8 2.3 2.7-2.5 2.5 2.5"/></svg>';
+  function fileIconHtml(name, node) {
+    const base = String(name || '').split('/').pop();
+    const lower = base.toLowerCase();
+    const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : '';
+    let cls, glyph;
+    if ((node && node.type === 'image') || ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)) { cls = 'ft-img'; glyph = _FT_SVG_IMG; }
+    else if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) { cls = 'ft-vid'; glyph = '&#x25B6;'; }
+    else if (ext === 'ipynb') { cls = 'ft-nb'; glyph = '&#x25C9;'; }
+    else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; glyph = '&#x2193;'; }
+    else if (ext === 'py') { cls = 'ft-py'; glyph = 'PY'; }
+    else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; glyph = 'JS'; }
+    else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; glyph = 'TS'; }
+    else if (['json', 'toml', 'yaml', 'yml', 'ini', 'cfg', 'lock'].includes(ext)) { cls = 'ft-json'; glyph = '{}'; }
+    else if (['html', 'htm', 'xml'].includes(ext)) { cls = 'ft-html'; glyph = '&lt;&gt;'; }
+    else if (['css', 'scss', 'less'].includes(ext)) { cls = 'ft-css'; glyph = '#'; }
+    else if (['sh', 'bash', 'zsh', 'fish'].includes(ext) || lower === 'makefile' || lower === 'dockerfile') { cls = 'ft-sh'; glyph = '$'; }
+    else if (ext === 'pdf') { cls = 'ft-pdf'; glyph = _FT_SVG_DOC; }
+    else if (['csv', 'tsv', 'parquet'].includes(ext)) { cls = 'ft-csv'; glyph = '&#x229E;'; }
+    else if (lower.startsWith('.git')) { cls = 'ft-git'; glyph = '&#x25C6;'; }
+    else { cls = 'ft-generic'; glyph = _FT_SVG_DOC; }
+    const ln = node && node.is_symlink ? ' ft-ln' : '';
+    return `<span class="ft-icon ${cls}${ln}" aria-hidden="true">${glyph}</span>`;
+  }
+
   function buildSidebarTree(entries) {
     const tree = {};
     const ensureDir = (path, meta = null) => {
@@ -4056,6 +4088,133 @@
     try { localStorage.setItem(_nbLastViewedKey(path), String(mtime || Date.now() / 1000)); } catch {}
   }
 
+  // ─── Sidebar git decorations (VS Code Explorer-style) ───────────────────
+  // Per-file status from GET /api/git-status?repo=<project path> (short-TTL
+  // cached server-side). Applied by MUTATING row classes/badges in place —
+  // never by rebuilding the tree — so open folders, scroll position, and
+  // hover state all survive a repaint.
+  const _gitStatusByPath = new Map();  // project path -> {files, ignored, ts}
+  let _gitStatusInFlight = false;
+  const _GIT_STATUS_MIN_MS = 5000;     // client-side floor between fetches
+  const _GIT_ROW_CLASSES = ['git-m', 'git-a', 'git-u', 'git-d', 'git-r', 'git-ignored'];
+  const _GIT_BADGE_TITLES = {M: 'Modified', A: 'Added', U: 'Untracked', D: 'Deleted', R: 'Renamed'};
+
+  function _gitRowClass(status) {
+    return status === 'M' ? 'git-m'
+      : status === 'A' ? 'git-a'
+      : status === 'U' ? 'git-u'
+      : status === 'D' ? 'git-d'
+      : status === 'R' ? 'git-r'
+      : '';
+  }
+
+  function _gitSetRowClass(row, cls) {
+    _GIT_ROW_CLASSES.forEach(c => { if (c !== cls) row.classList.remove(c); });
+    if (cls) row.classList.add(cls);
+  }
+
+  function _sidebarApplyGitStatus(entry) {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    const files = (entry && entry.files) || {};
+    const ignored = (entry && entry.ignored) || [];
+    const keys = Object.keys(files);
+    const isIgnored = p => ignored.some(pre => {
+      const base = pre.replace(/\/+$/, '');
+      return base && (p === base || p.startsWith(base + '/'));
+    });
+    // Untracked directories come back as ONE entry ("newdir": "U") with no
+    // per-file children — decorations inherit down to everything under it.
+    const statusFor = p => {
+      if (files[p]) return files[p];
+      for (const k of keys) {
+        if ((files[k] === 'U' || files[k] === 'A') && p.startsWith(k + '/')) return files[k];
+      }
+      return '';
+    };
+
+    sidebar.querySelectorAll('.sidebar-file[data-filepath]').forEach(row => {
+      const p = row.getAttribute('data-filepath');
+      if (!p || p.startsWith('__proxy__/')) return;
+      const st = statusFor(p);
+      const cls = st ? _gitRowClass(st) : (isIgnored(p) ? 'git-ignored' : '');
+      _gitSetRowClass(row, cls);
+      const want = st && cls && cls !== 'git-ignored' ? st : '';
+      let badge = row.querySelector('.git-badge');
+      if (want) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'git-badge';
+          row.appendChild(badge);
+        }
+        if (badge.textContent !== want) badge.textContent = want;
+        badge.title = _GIT_BADGE_TITLES[want] || want;
+      } else if (badge) {
+        badge.remove();
+      }
+    });
+
+    // Folders: tint like VS Code — gold when anything under them is
+    // modified/deleted/renamed, green when only added/untracked, dim when
+    // gitignored — plus a right-edge dot badge. Project-scoped folders only
+    // (the shared `.claude/`, `.agents/`, `code/` meta trees live outside
+    // the project and keep their plain styling).
+    sidebar.querySelectorAll('.sidebar-folder[data-tree-scope^="project:"]').forEach(row => {
+      const p = row.getAttribute('data-tree-path') || '';
+      let cls = '';
+      if (p && statusFor(p)) {
+        cls = _gitRowClass(statusFor(p));
+      } else if (p && isIgnored(p)) {
+        cls = 'git-ignored';
+      } else if (p) {
+        let worst = '';
+        for (const k of keys) {
+          if (k.startsWith(p + '/')) {
+            const s = files[k];
+            if (s === 'M' || s === 'D' || s === 'R') { worst = 'M'; break; }
+            worst = 'U';
+          }
+        }
+        cls = worst === 'M' ? 'git-m' : worst === 'U' ? 'git-u' : '';
+      }
+      _gitSetRowClass(row, cls);
+      const wantDot = !!cls && cls !== 'git-ignored';
+      let dot = row.querySelector('.git-dot');
+      if (wantDot && !dot) {
+        dot = document.createElement('span');
+        dot.className = 'git-dot';
+        dot.title = 'Contains changes';
+        row.appendChild(dot);
+      } else if (!wantDot && dot) {
+        dot.remove();
+      }
+    });
+  }
+
+  // Repaints synchronously from cache (a sidebar rebuild wipes the DOM
+  // classes), then refreshes from the server unless the cache is fresh.
+  async function _sidebarGitStatusRefresh() {
+    if (!currentProject || !currentProject.is_project || !currentProject.path) return;
+    const path = currentProject.path;
+    const cached = _gitStatusByPath.get(path);
+    if (cached) _sidebarApplyGitStatus(cached);
+    if (cached && (Date.now() - cached.ts) < _GIT_STATUS_MIN_MS) return;
+    if (_gitStatusInFlight) return;
+    _gitStatusInFlight = true;
+    try {
+      const r = await fetch(`/api/git-status?repo=${encodeURIComponent(path)}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      const entry = {files: data.files || {}, ignored: data.ignored || [], ts: Date.now()};
+      _gitStatusByPath.set(path, entry);
+      if (currentProject && currentProject.path === path) _sidebarApplyGitStatus(entry);
+    } catch (e) {
+      // Network hiccup — decorations just go stale until the next tick.
+    } finally {
+      _gitStatusInFlight = false;
+    }
+  }
+
   // Re-renders just the project file sidebar from scratch. Pulled out
   // of showProjectInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
@@ -4225,7 +4384,7 @@
           treeFiles(node).forEach(f => {
             const safePath = f.path.replace(/'/g, "\\'");
             const fname = f.path.split('/').pop();
-            const icon = f.type === 'image' ? '\u{1F5BC}' : /\.(mp4|webm|mov|m4v)$/i.test(fname) ? '\u{1F3AC}' : fname.endsWith('.ipynb') ? '\u{1F4D3}' : fname.endsWith('.md') ? '\u{1F4C4}' : fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C3}';
+            const icon = fileIconHtml(fname, f);
             // Notebook activity indicators — running (green pulse) and
             // unseen-results (amber static). Running wins if both apply
             // since "actively running" is the more urgent state.
@@ -4252,7 +4411,7 @@
               dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
             }
             const activeCls = activePath === f.path ? ' active' : '';
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon} ${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
           });
           return html;
         }
@@ -4289,9 +4448,9 @@
         metaFiles.forEach(f => {
           const safePath = f.path.replace(/'/g, "\\'");
           const fname = f.name;
-          const icon = fname.endsWith('.json') ? '\u{1F4CB}' : '\u{1F4C4}';
+          const icon = fileIconHtml(fname, f);
           const activeCls = activePath === f.path ? ' active' : '';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${symlinkMarker(f)}${icon} ${fname}</span></a>`;
+          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
         });
       } else {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
@@ -4338,6 +4497,9 @@
       // Populate both `.claude/` and `code/` placeholders from one
       // /api/cerebro/tree fetch.
       _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
+      // Git decorations: the rebuild wiped the row classes — repaint from
+      // cache synchronously, then fetch fresh in the background if stale.
+      _sidebarGitStatusRefresh();
     } catch(e) {
       // Surface the underlying failure so it lands in the browser console
       // AND the server-side client-errors log (window.onerror -> /api/log).
@@ -5018,6 +5180,17 @@
       _lastProjectMtime = mtime;
     } catch(e) {}
   }, 1000);
+
+  // Sidebar git decorations poll. Separate from the 1s mtime poll above —
+  // commits/checkouts only touch `.git/`, which the mtime walk skips — and
+  // deliberately slower: the server caches `git status` for ~4s, so a 6s
+  // cadence here means at most one subprocess per tick across all clients.
+  if (!UI_CHECK) setInterval(() => {
+    if (document.hidden) return;
+    if (!currentProject || !currentProject.is_project) return;
+    if (currentRepo) return;
+    _sidebarGitStatusRefresh();
+  }, 6000);
 
   // ─── Terminal panel (tmux + PTY bridge) ───
   // Visible whenever a project is active; scoped to that project. xterm.js
@@ -7839,13 +8012,8 @@
     });
     files.forEach(f => {
       const safePath = (basePath + '/' + f.name).replace(/'/g, "\\'");
-      const icon = f.name.endsWith('.md') ? '\u{1F4C4}'
-        : f.name.endsWith('.json') ? '\u{1F4CB}'
-        : f.name.endsWith('.html') || f.name.endsWith('.htm') ? '\u{1F310}'
-        : f.name.endsWith('.csv') ? '\u{1F4CA}'
-        : f.name.endsWith('.py') ? '\u{1F40D}'
-        : '\u{1F4C3}';
-      html += `<a class="sidebar-file${symlinkClass(f)}"${symlinkTitle(f)} onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${symlinkMarker(f)}${icon} ${esc(f.name)}</span></a>`;
+      const icon = fileIconHtml(f.name, f);
+      html += `<a class="sidebar-file${symlinkClass(f)}"${symlinkTitle(f)} onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${icon}${esc(f.name)}</span></a>`;
     });
     return html;
   }
@@ -9082,6 +9250,12 @@
     // active) are still visible, not just the active workspace's.
     const otherWorkspaces = ((wsData && wsData.workspaces) || [])
       .filter(w => w.id !== (wsData && wsData.active));
+    // The workspace being served right now — its projects (the flat index)
+    // render grouped under its own header below. Falls back to `current`
+    // (always present in the payload) and, when /api/workspaces/projects
+    // failed entirely, to null — which keeps the old ungrouped layout.
+    const activeWs = ((wsData && wsData.workspaces) || []).find(w => w.active)
+      || (wsData && wsData.current) || null;
 
     const dueStrip = dueSoon.length === 0 ? '' : `
       <div class="due-strip">
@@ -9149,6 +9323,17 @@
       </div>`;
     const otherWorkspaceSections = otherWorkspaces.map(otherWorkspaceSectionHtml).join('');
 
+    // Group the active workspace's projects (Active + Paused/Done/...)
+    // under a workspace header, mirroring the per-workspace sections that
+    // follow. Rows, sub-sections, and click behavior inside are unchanged.
+    const activeWsGroup = activeWs
+      ? `<div class="ws-group ws-group-current" data-ws="${escapeHtml(activeWs.id)}">
+          ${wsGroupHeadHtml(activeWs, {isActive: true, count: allProjects.length})}
+          ${activeSection}
+          ${restSection}
+        </div>`
+      : activeSection + restSection;
+
     el.innerHTML = `
       <div class="filter-row">
         <button class="btn-primary" id="dashNewBtn">+ New project</button>
@@ -9168,8 +9353,7 @@
           <div class="p-section-head">Pinned</div>
           ${pseudoRows}
         </div>
-        ${activeSection}
-        ${restSection}
+        ${activeWsGroup}
         ${otherWorkspaceSections}
       </div>
     `;
@@ -9820,27 +10004,39 @@
       </div>`;
   }
 
+  // Workspace group header for the Home dashboard: workspace name, id
+  // badge, project count, and the workspace path as a right-aligned muted
+  // subtitle. The active (currently served) workspace gets an accent
+  // highlight + "active" pill. Shared by the active group and every
+  // other-workspace section so all of Home reads as one grouped list.
+  function wsGroupHeadHtml(w, {isActive = false, count = null} = {}) {
+    const label = escapeHtml(w.name || w.id);
+    const badge = `<span class="ws-badge" title="workspace: ${escapeHtml(w.id)}">${escapeHtml(w.id)}</span>`;
+    const pill = isActive ? '<span class="ws-active-pill">active</span>' : '';
+    const cnt = count == null ? '' : `<span class="count">${count}</span>`;
+    const path = w.path ? `<span class="ws-group-path" title="${escapeHtml(w.path)}">${escapeHtml(w.path)}</span>` : '';
+    return `<div class="p-section-head ws-group-head${isActive ? ' ws-group-head-active' : ''}">${label} ${badge} ${pill} ${cnt} ${path}</div>`;
+  }
+
   // One dashboard section per NON-active registered workspace. `unavailable`
   // comes straight from /api/workspaces/projects — set when that
   // workspace's own directory scan hit fsguard's 503 (stalled volume) — and
   // greys the section out with the same message fsguard would show
   // elsewhere, rather than silently dropping it from the dashboard.
   function otherWorkspaceSectionHtml(w) {
-    const label = escapeHtml(w.name || w.id);
-    const badge = `<span class="ws-badge">${escapeHtml(w.id)}</span>`;
     if (w.unavailable) {
       const msg = w.detail || `resource is not available for workspace ${w.id}`;
       return `
-        <div class="p-section ws-section ws-unavailable" data-ws="${escapeHtml(w.id)}">
-          <div class="p-section-head">${label} ${badge}</div>
+        <div class="p-section ws-section ws-group ws-unavailable" data-ws="${escapeHtml(w.id)}">
+          ${wsGroupHeadHtml(w)}
           <div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">${escapeHtml(msg)}</span><span></span><span></span><span></span><span></span></div>
         </div>`;
     }
     const projects = w.projects || [];
     const rows = projects.map(pid => otherWorkspaceRowHtml(pid, w.id)).join('');
     return `
-      <div class="p-section ws-section" data-ws="${escapeHtml(w.id)}">
-        <div class="p-section-head">${label} ${badge} <span class="count">${projects.length}</span></div>
+      <div class="p-section ws-section ws-group" data-ws="${escapeHtml(w.id)}">
+        ${wsGroupHeadHtml(w, {count: projects.length})}
         ${rows || '<div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">No projects.</span><span></span><span></span><span></span><span></span></div>'}
       </div>`;
   }

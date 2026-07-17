@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -141,6 +142,120 @@ def api_diff(repo: str, type: str = "uncommitted", exclude: str | None = None):
     """
     excl = [p for p in (exclude or "").split(",") if p.strip()]
     return get_diff(repo, type, exclude_paths=excl or None)
+
+
+# ─── Git status for sidebar decorations (VS Code Explorer-style) ─────────
+# Small in-process cache keyed by resolved directory; entries expire after a
+# few seconds so the sidebar poll (every ~6s per client) rarely pays for more
+# than one `git status` subprocess per tick across all clients.
+_GIT_STATUS_TTL = 4.0
+_GIT_STATUS_CACHE: dict[str, tuple[float, dict]] = {}
+_GIT_STATUS_CACHE_MAX = 64
+
+_GIT_STATUS_LETTER = {
+    "M": "M", "T": "M", "U": "M",  # modified / type-change / conflict
+    "A": "A",
+    "D": "D",
+    "R": "R", "C": "R",            # rename / copy
+}
+
+
+def _git_status_for_dir(key: str) -> dict:
+    """Run ``git status --porcelain`` for directory ``key`` (any dir inside a
+    repo — usually a project folder) and map paths relative to that dir."""
+    empty = {"files": {}, "ignored": []}
+    if not os.path.isdir(key):
+        return empty
+
+    def _git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", key, *args],
+            capture_output=True, text=True, timeout=3,
+        )
+
+    try:
+        pre = _git("rev-parse", "--show-prefix")
+        if pre.returncode != 0:
+            return empty  # not a git repo — steady state, not an error
+        prefix = pre.stdout.strip()
+        st = _git(
+            "status", "--porcelain=v1", "--untracked-files=normal",
+            "--ignored=traditional", "--", ".",
+        )
+        if st.returncode != 0:
+            return empty
+    except (subprocess.TimeoutExpired, OSError):
+        return empty
+
+    files: dict[str, str] = {}
+    ignored: list[str] = []
+    for line in st.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        xy, rest = line[:2], line[3:]
+        # Renames come as "R  old -> new"; decorate the new path.
+        if " -> " in rest and (xy[0] in "RC" or xy[1] in "RC"):
+            rest = rest.split(" -> ", 1)[1]
+        # Paths with special chars come back C-quoted; strip the quotes
+        # (good enough for display matching — escapes are left as-is).
+        if rest.startswith('"') and rest.endswith('"'):
+            rest = rest[1:-1]
+        if prefix:
+            if not rest.startswith(prefix):
+                continue
+            rest = rest[len(prefix):]
+        rel = rest.rstrip("/")
+        if not rel:
+            continue
+        if xy == "??":
+            files[rel] = "U"
+        elif xy == "!!":
+            ignored.append(rest)
+        else:
+            c = xy[0] if xy[0] != " " else xy[1]
+            files[rel] = _GIT_STATUS_LETTER.get(c, "M")
+    return {"files": files, "ignored": ignored}
+
+
+@router.get("/api/git-status")
+def api_git_status(repo: str, request: Request):
+    """Per-file git status for the directory ``repo``.
+
+    Returns ``{"files": {"rel/path": "M"|"A"|"D"|"R"|"U"}, "ignored":
+    ["rel/prefix", ...]}`` with paths relative to the requested directory
+    (not the repo root). ``U`` = untracked; a fully-untracked or ignored
+    directory appears as a single entry covering everything under it.
+    Non-repo directories return empty maps.
+
+    ``repo`` may be absolute (the sidebar passes the project's absolute
+    path) or workspace-relative, but the resolved directory must stay
+    inside the active workspace — this endpoint must not disclose status
+    for arbitrary directories on the machine.
+    """
+    root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    candidate = Path(repo) if repo.startswith("/") else root / repo
+    try:
+        resolved = candidate.expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
+    if resolved != root and root not in resolved.parents:
+        raise HTTPException(status_code=400, detail="repo escapes workspace")
+    key = str(resolved)
+    now = time.time()
+    hit = _GIT_STATUS_CACHE.get(key)
+    if hit and now - hit[0] < _GIT_STATUS_TTL:
+        return hit[1]
+    result = _git_status_for_dir(key)
+    if len(_GIT_STATUS_CACHE) >= _GIT_STATUS_CACHE_MAX:
+        # Drop expired entries first; if all fresh, drop the oldest.
+        for k in [k for k, (ts, _) in _GIT_STATUS_CACHE.items()
+                  if now - ts >= _GIT_STATUS_TTL]:
+            _GIT_STATUS_CACHE.pop(k, None)
+        if len(_GIT_STATUS_CACHE) >= _GIT_STATUS_CACHE_MAX:
+            oldest = min(_GIT_STATUS_CACHE, key=lambda k: _GIT_STATUS_CACHE[k][0])
+            _GIT_STATUS_CACHE.pop(oldest, None)
+    _GIT_STATUS_CACHE[key] = (now, result)
+    return result
 
 
 @router.get("/api/notebook")

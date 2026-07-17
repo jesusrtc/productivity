@@ -7,6 +7,14 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer shell that exports LAB_WORKSPACE would otherwise point
+    tests at their real workspace (it wins over LAB_ROOT in
+    find_workspace_root). Same guard as core/tests/conftest.py."""
+    monkeypatch.delenv("LAB_WORKSPACE", raising=False)
+
+
 @pytest.fixture()
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a minimal monorepo layout under tmp_path and point `LAB_ROOT` at it."""
@@ -22,6 +30,7 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # git repo marker so find_monorepo_root() works without running git
     (root / ".git").mkdir()
     (root / "CLAUDE.md").write_text("# monorepo test fixture\n")
+    monkeypatch.setenv("LAB_WORKSPACE", str(root))
     monkeypatch.setenv("LAB_ROOT", str(root))
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home"))
     monkeypatch.chdir(root)
