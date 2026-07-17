@@ -228,6 +228,15 @@ def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
     workspace, e.g. the framework checkout itself)."""
     if _inside(resolved, active_root):
         return True
+    # The Productivity self-view is rooted at the framework checkout —
+    # the same path main.py injects into the template as MONOREPO_ROOT.
+    try:
+        from lab import paths as lab_paths
+
+        if _inside(resolved, Path(lab_paths.find_framework_root()).resolve()):
+            return True
+    except Exception:
+        pass
     try:
         for proj in get_registered_repos(active_root):
             candidates = [proj.get("path"), *(proj.get("repos") or [])]

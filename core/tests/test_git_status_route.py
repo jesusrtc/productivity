@@ -93,3 +93,16 @@ def test_git_status_allows_registered_repo_outside_workspace(
 
     assert r.status_code == 200, r.text
     assert r.json() == {"files": {}, "ignored": []}
+
+
+def test_git_status_allows_framework_root(client, monorepo: Path) -> None:
+    """The Productivity self-view is rooted at the framework checkout, which
+    lives outside the active workspace."""
+    from lab import paths as lab_paths
+
+    r = client.get(
+        "/api/git-status",
+        params={"repo": str(lab_paths.find_framework_root())},
+    )
+
+    assert r.status_code == 200, r.text
