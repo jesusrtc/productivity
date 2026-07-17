@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from lab import paths
+from lab import settings as lab_settings
 
 from core import fsguard
 from core import workspace_config
@@ -128,6 +131,43 @@ def get_workspace_config(request: Request) -> dict:
     valid answer."""
     cache = request.app.state.index_cache
     root = Path(cache.root).expanduser().resolve()
+    result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
+    return {"root": str(root), **result}
+
+
+def _write_starter_workspace_config(root: Path) -> None:
+    """Write a minimal valid workspace.json reflecting the workspace's
+    current identity and agent settings. Atomic; never overwrites."""
+    rows = list(paths.read_workspace_registry().get("workspaces") or [])
+    row = _workspace_row(root, rows)
+    settings = lab_settings.load(root)
+    doc = {
+        "version": 1,
+        "id": row["id"],
+        "name": row["name"],
+        "agents": {
+            "supported": list(lab_settings.VALID_AGENTS),
+            "default": settings.get("defaultAgent") or lab_settings.DEFAULT_AGENT,
+        },
+    }
+    path = root / "workspace.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+@router.post("/api/workspace/config/init")
+def init_workspace_config(request: Request) -> dict:
+    """Create a starter workspace.json at the active workspace root.
+
+    Bootstrap only: 409 when the file already exists — edits and the real
+    configuration work belong to the user's agent (the Workspace tab's
+    setup prompt explains the structure to it)."""
+    cache = request.app.state.index_cache
+    root = Path(cache.root).expanduser().resolve()
+    if (root / "workspace.json").exists():
+        raise HTTPException(status_code=409, detail="workspace.json already exists")
+    fsguard.guarded(root, _write_starter_workspace_config, root)
     result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
     return {"root": str(root), **result}
 

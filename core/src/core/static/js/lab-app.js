@@ -12088,7 +12088,12 @@
   }
 
   // "Configuration" card: workspace.json status from /api/workspace/config.
-  // The file is optional — absent is a normal, valid state.
+  // The file is optional — absent is a normal, valid state. The card offers
+  // a starter-file button when absent and, in every state, a "Copy setup
+  // prompt" button that produces a state-aware prompt for the workspace
+  // agent (structure reference + the current validation problems).
+  let _wsCfgLast = null;
+
   async function workspaceRenderConfigCard() {
     const body = document.getElementById('wsConfigBody');
     if (!body) return;
@@ -12098,12 +12103,17 @@
       if (r.ok) cfg = await r.json();
     } catch {}
     if (!body.isConnected) return;  // view repainted/navigated meanwhile
+    _wsCfgLast = cfg;
     if (!cfg) {
       body.innerHTML = '<div class="ws-muted">Could not load workspace.json status.</div>';
       return;
     }
+    const copyBtn = '<button class="refresh-btn" onclick="wsCopySetupPrompt(this)" title="Copy a prompt for your workspace agent: expected workspace.json structure plus the current validation state">Copy setup prompt</button>';
     if (!cfg.present) {
-      body.innerHTML = '<div class="ws-muted">workspace.json not present (optional).</div>';
+      body.innerHTML = [
+        '<div class="ws-muted">workspace.json not present (optional).</div>',
+        `<div class="ws-card-actions"><button class="refresh-btn" onclick="wsCreateConfig(this)">Create workspace config</button>${copyBtn}</div>`,
+      ].join('');
       return;
     }
     const errors = cfg.errors || [];
@@ -12116,9 +12126,126 @@
     }
     for (const e of errors) rows.push(`<div class="ws-cfg-issue err">${selfEsc(e)}</div>`);
     for (const w of warnings) rows.push(`<div class="ws-cfg-issue warn">${selfEsc(w)}</div>`);
-    rows.push('<div class="ws-card-actions"><button class="refresh-btn" onclick="openProjectDoc(\'workspace.json\')">Open workspace.json</button></div>');
+    rows.push(`<div class="ws-card-actions"><button class="refresh-btn" onclick="openProjectDoc('workspace.json')">Open workspace.json</button>${copyBtn}</div>`);
     body.innerHTML = rows.join('');
   }
+
+  // The setup prompt handed to the workspace agent. Self-contained: the
+  // agent works inside the workspace repo and may not have framework docs.
+  function _wsSetupPromptText() {
+    const cfg = _wsCfgLast || {};
+    const root = cfg.root || (_workspaceCurrent && _workspaceCurrent.path) || '(workspace root)';
+    const issues = [];
+    for (const e of (cfg.errors || [])) issues.push('- ERROR: ' + e);
+    for (const w of (cfg.warnings || [])) issues.push('- warning: ' + w);
+    let state;
+    if (!cfg.present) {
+      state = 'There is no workspace.json yet. Create it at ' + root + '/workspace.json.';
+    } else if (!cfg.valid) {
+      state = 'workspace.json exists but is INVALID. Fix these problems:\n' + issues.join('\n');
+    } else if (issues.length) {
+      state = 'workspace.json exists and is valid, but has warnings to clean up:\n' + issues.join('\n');
+    } else {
+      state = 'workspace.json exists and is valid. Review it against the structure below and extend it to describe what this workspace actually uses.';
+    }
+    return [
+      "Set up this workspace's workspace.json — the declarative configuration Neurona",
+      'reads at the workspace root. Work from the workspace root: ' + root,
+      '',
+      'Current state: ' + state,
+      '',
+      'Expected structure (version 1). Everything except "version" is optional —',
+      'describe only what this workspace actually uses:',
+      '',
+      '{',
+      '  "version": 1,',
+      '  "id": "workspace-id",',
+      '  "name": "Readable Name",',
+      '  "agents": {',
+      '    "supported": ["claude", "codex", "copilot"],',
+      '    "default": "claude",',
+      '    "projections": [',
+      '      {"source": "agents/instructions.md", "target": "AGENTS.md", "mode": "symlink"},',
+      '      {"source": "agents/instructions.md", "target": "CLAUDE.md", "mode": "symlink", "when": "claude"},',
+      '      {"source": "agents/instructions.md", "target": ".github/copilot-instructions.md", "mode": "adapter", "when": "copilot"}',
+      '    ]',
+      '  },',
+      '  "project": {',
+      '    "template": "templates/project",',
+      '    "features": ["tasks", "docs", "notebooks", "prs", "diffs"],',
+      '    "mounts": [',
+      '      {"source": "skills", "target": ".agents/skills", "mode": "symlink"},',
+      '      {"source": "skills", "target": ".claude/skills", "mode": "symlink", "when": "claude"}',
+      '    ]',
+      '  },',
+      '  "notebooks": {',
+      '    "enabled": true,',
+      '    "provider": "darwin",',
+      '    "kernels": ["python3", "pyspark"],',
+      '    "mounts": [{"source": "code", "target": "code"}]',
+      '  },',
+      '  "display": {',
+      '    "autoOpen": ["docs", "notebooks"],',
+      '    "hide": ["worktrees"],',
+      '    "showProjectionOrigin": true',
+      '  },',
+      '  "repositories": [],',
+      '  "services": []',
+      '}',
+      '',
+      'Field notes:',
+      '- "version" is required, an integer, currently 1. Unknown top-level fields are',
+      '  ignored with a warning, so stay within this schema.',
+      '- "agents.supported" lists the agent CLIs this workspace uses ("claude",',
+      '  "codex", "copilot"); "agents.default" must be one of them.',
+      '- "agents.projections" map one tool-neutral source file to the per-tool',
+      '  surfaces (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md).',
+      '  "mode" is "symlink" | "adapter" | "copy"; "when" limits an entry to one',
+      '  supported agent.',
+      '- "project.features" are the surfaces projects get; "project.mounts" are',
+      '  shared sources linked into each project (e.g. skills -> .agents/skills).',
+      '- "notebooks" selects the executor ("darwin" is the only provider today).',
+      '- "display" holds UI hints: "autoOpen", "hide", "showProjectionOrigin".',
+      '',
+      'How to work:',
+      '1. Look at what actually exists in the workspace tree (agents/, skills/,',
+      '   code/, templates/, projects/, repositories/) and write configuration that',
+      '   matches reality, not aspiration.',
+      '2. Write valid JSON (no comments, no trailing commas) at',
+      '   ' + root + '/workspace.json.',
+      '3. Projections declare intent. If you also apply them, use relative symlinks',
+      '   and never overwrite a real file — only replace links that already point',
+      '   into workspace sources, or files whose first line marks them generated.',
+      '4. Verify when done: ' + location.origin + '/api/workspace/config must show',
+      '   "valid": true with an empty "errors" list. The Workspace tab\'s',
+      '   Configuration card shows the same.',
+    ].join('\n');
+  }
+
+  async function wsCopySetupPrompt(btn) {
+    await _copyToClipboard(_wsSetupPromptText(), btn);
+  }
+  window.wsCopySetupPrompt = wsCopySetupPrompt;
+
+  async function wsCreateConfig(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch('/api/workspace/config/init', { method: 'POST' });
+      if (!r.ok) {
+        const detail = (await r.json().catch(() => ({}))).detail || 'create failed';
+        if (btn) { btn.textContent = String(detail); btn.disabled = false; }
+        return;
+      }
+      _wsCfgLast = await r.json();
+      // Hand the user the next step in one motion: starter written, prompt
+      // for the agent already on the clipboard.
+      await _copyToClipboard(_wsSetupPromptText(), btn);
+      await workspaceRenderConfigCard();
+    } finally {
+      if (btn && btn.isConnected) btn.disabled = false;
+    }
+  }
+  window.wsCreateConfig = wsCreateConfig;
 
   // "Agents" card: read-only display of the default agent and per-agent
   // autopilot state from /api/settings. Editing happens in Settings.

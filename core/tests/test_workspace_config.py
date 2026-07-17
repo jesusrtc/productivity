@@ -182,3 +182,20 @@ def test_workspace_config_endpoint_flags_broken_file(client, monorepo: Path) -> 
     assert body["present"] is True
     assert body["valid"] is False
     assert body["errors"]
+
+
+def test_workspace_config_init_creates_starter(client, monorepo: Path) -> None:
+    r = client.post("/api/workspace/config/init")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["present"] is True
+    assert body["valid"] is True
+    assert body["config"]["version"] == 1
+    assert body["config"]["agents"]["default"] in body["config"]["agents"]["supported"]
+    doc = json.loads((monorepo / "workspace.json").read_text())
+    assert doc["version"] == 1
+
+    # Bootstrap only: a second call refuses to overwrite.
+    r = client.post("/api/workspace/config/init")
+    assert r.status_code == 409
