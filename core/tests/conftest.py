@@ -21,6 +21,10 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (root / "projects").mkdir(parents=True)
     (root / "content" / "meetings").mkdir(parents=True)
     (root / ".git").mkdir()
+    # LAB_WORKSPACE wins over LAB_ROOT in find_workspace_root(); a developer
+    # shell that exports it would otherwise point every test's app at their
+    # real workspace (and hang/fail when that volume is unplugged).
+    monkeypatch.setenv("LAB_WORKSPACE", str(root))
     monkeypatch.setenv("LAB_ROOT", str(root))
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home"))
     monkeypatch.setenv("LAB_WATCHER_OBSERVER", "polling")

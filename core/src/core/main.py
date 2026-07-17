@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
 import threading
 import time
@@ -129,7 +130,13 @@ def _attach_file_logging(root: Path) -> Path:
         root_logger.setLevel(logging.INFO)
 
     def _make(name: str, level: int, flt) -> logging.Handler:
-        handler = logging.FileHandler(log_dir / name, encoding="utf-8")
+        # Rotate at 50MB with two backups per file: the UI polls several
+        # endpoints every few seconds and each request logs a line, so an
+        # unbounded FileHandler grew these files past 1GB within a week.
+        handler = logging.handlers.RotatingFileHandler(
+            log_dir / name, maxBytes=50 * 1024 * 1024, backupCount=2,
+            encoding="utf-8",
+        )
         handler.setLevel(level)
         handler.setFormatter(_JsonFormatter())
         handler.addFilter(flt)

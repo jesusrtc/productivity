@@ -477,6 +477,24 @@ def _save_meta(root: Path, meta: dict) -> None:
     p.write_text(json.dumps(meta, indent=2) + "\n")
 
 
+# Workspace roots already warned about being unavailable (e.g. a registered
+# workspace living on an unplugged external volume). The UI polls the session
+# endpoints every few seconds, so warn once per root, not once per cycle.
+_UNAVAILABLE_WARNED_ROOTS: set[str] = set()
+
+
+def _warn_root_unavailable_once(root: Path, action: str, exc: OSError) -> None:
+    key = str(root)
+    if key in _UNAVAILABLE_WARNED_ROOTS:
+        return
+    _UNAVAILABLE_WARNED_ROOTS.add(key)
+    log.warning(
+        "workspace storage unavailable during %s for %s: %s",
+        action, root, exc,
+        extra={"event_type": "term.workspace.unavailable", "target": str(root)},
+    )
+
+
 # ─── durable metadata (project.json.sessions) ───────────────────────────────
 
 def _load_project(root: Path, project_id: str) -> dict | None:
@@ -828,7 +846,16 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
                 },
             )
     if changed:
-        _save_meta(root, meta)
+        # Best-effort: the reconciled registry is still valid in memory, so
+        # session listing must keep working even when the workspace's volume
+        # can't take the write (unplugged drive → its stub dir under /Volumes
+        # is root-owned and mkdir raises PermissionError). The save simply
+        # retries on a later cycle once the volume is back.
+        try:
+            _save_meta(root, meta)
+            _UNAVAILABLE_WARNED_ROOTS.discard(str(root))
+        except OSError as exc:
+            _warn_root_unavailable_once(root, "terminal registry save", exc)
     return meta
 
 
@@ -1167,8 +1194,8 @@ def list_sessions(request: Request, project_id: str | None = None) -> list[dict]
     support. Unscoped: every REGISTERED workspace's sessions, each tagged
     with ``workspace`` (registry id) — this is what the cross-workspace
     terminals dashboard needs. A workspace whose path is missing/stalled
-    is skipped for that cycle (fsguard 503) rather than failing the whole
-    request.
+    is skipped for that cycle (fsguard 503, or an OSError from an
+    unmounted/unreadable volume) rather than failing the whole request.
 
     Only returns sessions that are currently alive in tmux. Saved-but-dead
     sessions (stored in project.json) are surfaced separately via
@@ -1204,6 +1231,12 @@ def list_sessions(request: Request, project_id: str | None = None) -> list[dict]
         except HTTPException as exc:
             if exc.status_code != 503:
                 raise
+            continue
+        except OSError as exc:
+            # Same degradation as the fsguard 503 above: a workspace whose
+            # volume is missing or unreadable is skipped this cycle instead
+            # of failing the listing for every other workspace.
+            _warn_root_unavailable_once(ws["path"], "session listing", exc)
             continue
         for r in ws_rows:
             r["workspace"] = ws["id"]

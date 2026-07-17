@@ -382,7 +382,13 @@ def api_project_mtime(path: str, request: Request):
     """
     project_path = Path(path)
     if not project_path.is_dir():
-        raise HTTPException(status_code=404, detail="Project not found")
+        # A missing directory is an expected steady state, not an error: a
+        # browser tab can outlive its project (deleted, or on an unplugged
+        # external volume) and keep polling for days — as a 404 each poll
+        # logged a WARNING, thousands of pure noise lines. ``null`` tells
+        # the client "nothing to compare against"; old clients treat it as
+        # a harmless no-op (``null > x`` is false).
+        return {"mtime": None}
     # Must stay in sync with api_project_files above — clients assume the
     # same tree shape (sidebar vs. mtime poll).
     SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",

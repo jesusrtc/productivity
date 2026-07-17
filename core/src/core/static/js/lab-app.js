@@ -4969,13 +4969,31 @@
 
   // Auto-refresh project view when any file in the project folder changes (mtime check)
   let _lastProjectMtime = 0;
+  let _projMtimeMissPath = null; // project path the miss counter applies to
+  let _projMtimeMisses = 0;      // consecutive "directory missing" responses
+  let _projMtimeTick = 0;
   if (!UI_CHECK) setInterval(async () => {
+    // A hidden tab can't show the refresh anyway, and the next visible
+    // tick (≤1s away) catches up — don't let backgrounded windows keep
+    // hitting the server (browser timer throttling made them poll ~1/min
+    // forever, including tabs whose project no longer existed).
+    if (document.hidden) return;
     if (!currentProject || !currentProject.is_project) return;
     if (currentRepo) return;
     if (_projDocEditing) return;
+    if (_projMtimeMissPath !== currentProject.path) {
+      _projMtimeMissPath = currentProject.path;
+      _projMtimeMisses = 0;
+    }
+    _projMtimeTick += 1;
+    // Project dir gone (deleted / volume unplugged): after a few misses,
+    // probe only once a minute so it self-heals if the volume comes back.
+    if (_projMtimeMisses >= 3 && _projMtimeTick % 60 !== 0) return;
     try {
       const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(currentProject.path)}`);
       const { mtime } = await res.json();
+      if (mtime == null) { _projMtimeMisses += 1; return; }
+      _projMtimeMisses = 0;
       if (_lastProjectMtime && mtime > _lastProjectMtime) {
         const isSelf = document.body.classList.contains('self-active');
         if (_projDocPath) {
@@ -5016,7 +5034,7 @@
   let termSessions = [];        // last known list from /api/term/sessions
   let termUserDetached = false; // distinguishes user-initiated close from dropped WS
   let termRefreshTimer = null;  // periodic poll of /api/term/sessions
-  let termReconnectTimer = null; // one-shot post-disconnect recovery
+  let termReconnectTimer = null; // capped-backoff auto-reconnect loop
   let _termWheelListenerAdded = false; // wheel listener added once to termBody
   let _termPasteListenerAdded = false; // image paste listener added once to termBody
   let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
@@ -5042,7 +5060,6 @@
   // Exponential backoff state per-session-name so dropped sessions don't
   // stack up one-shot timers faster than the server can accept them.
   const termReconnectAttempts = {};   // name -> consecutive failures
-  const TERM_MAX_RECONNECT_ATTEMPTS = 3;
   const TERM_RECONNECT_BASE_MS = 800;
   const TERM_RECONNECT_CAP_MS = 30000;
   const TERM_FAST_PARK_MS = 10 * 60 * 1000;
@@ -5648,11 +5665,13 @@
   }
 
   async function _termRefreshSessionsForProjectId(projectId) {
+    // Returns true when the sessions fetch succeeded (server reachable);
+    // callers use this to tell "session confirmed gone" apart from
+    // "couldn't ask".
     if (projectId === '__cerebro__' || projectId === '__self__' || projectId === '__logs__') {
-      await termRefreshSessionsByProjectId(projectId);
-    } else {
-      await termRefreshSessions(projectId);
+      return await termRefreshSessionsByProjectId(projectId);
     }
+    return await termRefreshSessions(projectId);
   }
 
   function _termClientLog(level, msg, extra = {}) {
@@ -5750,14 +5769,12 @@
       else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
       const prev = termCurrentSession;
-      if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(pid);
-      else await termRefreshSessions(pid);
-      // Attached session disappeared from tmux → recover.
-      if (prev && !termSessions.some(s => s.name === prev)) {
-        if (termWS) { try { termWS.close(); } catch {} termWS = null; }
-        termCurrentSession = null;
-        termSetStatus('err', 'session ended: ' + prev);
-        termShowRecovery();
+      const prevPid = termCurrentProjectId;
+      const ok = await _termRefreshSessionsForProjectId(pid);
+      // Attached session disappeared from tmux (confirmed by a successful
+      // fetch, not a blip) → restore it automatically.
+      if (prev && ok && prevPid === pid && !termSessions.some(s => s.name === prev)) {
+        _termSessionGone(prev, pid);
       }
     }, 8000);
   }
@@ -5823,11 +5840,16 @@
       el.className = 'term-empty';
       body.appendChild(el);
     }
+    // Rarely shown: disconnects auto-reconnect and confirmed-gone sessions
+    // auto-restore (_termSessionGone). This overlay is the crash-loop
+    // fallback, so "retry" is the primary action — creating a NEW session
+    // is deliberately the quiet secondary one (accidental clicks used to
+    // spawn unwanted fresh sessions).
     el.innerHTML = `
-      <p style="margin-bottom:12px">The tmux session ended. Claude is no longer running.</p>
-      <button onclick="termCreateNew('claude')" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;margin-right:8px">Start fresh Claude</button>
-      <button onclick="termCreateNew('terminal')" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;margin-right:8px">New terminal</button>
-      <button onclick="termReconnectOrRefresh()" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer">Reload sessions</button>`;
+      <p style="margin-bottom:12px">This session ended and couldn't be restored automatically.</p>
+      <button onclick="termReconnectOrRefresh()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;margin-right:8px">Try restoring again</button>
+      <button onclick="termCreateNew('claude')" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;margin-right:8px">Start fresh Claude</button>
+      <button onclick="termCreateNew('terminal')" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer">New terminal</button>`;
     el.style.display = '';
     termXterm = null;
     termFitAddon = null;
@@ -5840,11 +5862,11 @@
     // will make a fresh attempt instead of bouncing off _termMarkDead.
     termDeadSessions.clear();
     for (const k of Object.keys(termReconnectAttempts)) delete termReconnectAttempts[k];
-    if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(pid);
-    else await termRefreshSessions(pid);
+    for (const k of Object.keys(_termAutoRestoreAt)) delete _termAutoRestoreAt[k];
+    await _termRefreshSessionsForProjectId(pid);
     if (!_termIsScopeActive(pid)) return;
     if (termSessions.length > 0) termAttach(termSessions[0].name, pid);
-    else termShowRecovery();
+    else await _termRestoreSessionsForProject(pid);
   }
 
   function termToggleCollapse() {
@@ -6077,19 +6099,26 @@
     // the user may already be on a different tab. Cache the result but
     // don't touch globals or repaint — the active view's own refresh
     // will handle its own pills.
-    if (projectId !== _termActiveProjectId()) return;
-    termSessions = fresh;
-    // Any name that's no longer in the live list is genuinely gone —
-    // don't keep its dead/backoff bookkeeping around. If tmux later
-    // spawns a new session with the same name, we'll treat it fresh.
-    const live = new Set(termSessions.map(s => s.name));
-    for (const n of Array.from(termDeadSessions)) {
-      if (!live.has(n)) termDeadSessions.delete(n);
-    }
-    for (const n of Object.keys(termReconnectAttempts)) {
-      if (!live.has(n)) delete termReconnectAttempts[n];
+    if (projectId !== _termActiveProjectId()) return ok;
+    // On a failed fetch (server restarting, network blip) fall back to the
+    // last successful list for this project instead of wiping the pills —
+    // the tmux sessions are almost certainly still alive, and the reconnect
+    // loop needs their names to keep retrying.
+    termSessions = ok ? fresh : (_termSessionsCache.get(projectId) || []);
+    if (ok) {
+      // Any name that's no longer in the live list is genuinely gone —
+      // don't keep its dead/backoff bookkeeping around. If tmux later
+      // spawns a new session with the same name, we'll treat it fresh.
+      const live = new Set(termSessions.map(s => s.name));
+      for (const n of Array.from(termDeadSessions)) {
+        if (!live.has(n)) termDeadSessions.delete(n);
+      }
+      for (const n of Object.keys(termReconnectAttempts)) {
+        if (!live.has(n)) delete termReconnectAttempts[n];
+      }
     }
     termRenderSessionList();
+    return ok;
   }
 
   let _termDragLogical = null;    // logical_name of pill being dragged
@@ -6222,18 +6251,15 @@
         // name tmux has already reaped.
         if (termDeadSessions.has(name)) {
           _termClearDead(name);
+          delete _termAutoRestoreAt[name];  // explicit click resets the crash-loop guard
           const pid = _termActiveProjectId();
           (async () => {
+            let refreshOk = false;
             if (pid) {
-              try {
-                if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) {
-                  await termRefreshSessionsByProjectId(pid);
-                } else {
-                  await termRefreshSessions(pid);
-                }
-              } catch {}
+              try { refreshOk = !!(await _termRefreshSessionsForProjectId(pid)); } catch {}
             }
             if (termSessions.some(s => s.name === name)) termAttach(name, pid);
+            else if (refreshOk && pid) _termSessionGone(name, pid);
             else termShowRecovery();
           })();
           return;
@@ -6683,6 +6709,19 @@
       xt._webglAddon = null;
     }
   }
+  // The vendored 0.16 addon can throw from inside xterm's render loop when
+  // a queued frame races a resize that shrank the buffer (upstream xterm.js
+  // "Cannot read properties of undefined (reading 'loadCell')"). That
+  // exception escapes to window.onerror — no try/catch here sees it — so
+  // recover the same way onContextLoss does: drop to the DOM renderer for
+  // this terminal; the next attach retries WebGL.
+  window.addEventListener('error', (ev) => {
+    if (!termXterm || !termXterm._webglAddon) return;
+    const fromAddon = (ev.filename || '').includes('xterm-addon-webgl');
+    if (!fromAddon && !(ev.message || '').includes('loadCell')) return;
+    console.warn('[term] WebGL renderer crashed, using DOM renderer', ev.message);
+    _termDisableWebgl(termXterm);
+  });
 
   function termShowEmpty() {
     const body = document.getElementById('termBody');
@@ -6785,9 +6824,80 @@
     return Math.min(TERM_RECONNECT_CAP_MS, ms);
   }
 
+  // A *successful* sessions fetch confirmed tmux no longer has this
+  // session. Instead of parking on the manual recovery overlay, run the
+  // same restore flow a cold panel-open uses: respawn saved sessions
+  // (claude comes back via --resume) and reattach — no buttons to click.
+  // The overlay remains only as a crash-loop fallback: if the same
+  // session dies again right after an auto-restore, respawning forever
+  // would fight the user (or a broken binary), so we stop and ask.
+  const _termAutoRestoreAt = {};   // name -> ts of last auto-restore
+  const TERM_AUTO_RESTORE_MIN_GAP_MS = 20000;
+  async function _termSessionGone(name, projectId) {
+    if (!_termIsScopeActive(projectId)) return;
+    const now = Date.now();
+    if (now - (_termAutoRestoreAt[name] || 0) < TERM_AUTO_RESTORE_MIN_GAP_MS) {
+      _termMarkDead(name, 'session keeps ending: ' + name, projectId);
+      return;
+    }
+    _termAutoRestoreAt[name] = now;
+    _termClientLog('info', 'terminal session gone — auto-restoring', {
+      event_type: 'term.restore.auto',
+      target: String(projectId) + '::' + String(name),
+    });
+    // Drop the dead pane's client state so restore attaches fresh.
+    if (name === termCurrentSession && projectId === termCurrentProjectId) {
+      if (termWS) { try { termWS.close(); } catch {} termWS = null; }
+      termCurrentSession = null;
+      termCurrentProjectId = null;
+    }
+    _termEvictCache(name, projectId);
+    delete termReconnectAttempts[name];
+    termSetStatus('idle', 'session ended — restoring…');
+    await _termRestoreSessionsForProject(projectId);
+  }
+
+  // Endless capped-backoff reconnect after a WS drop. Waits the backoff,
+  // refreshes the session list, then either re-attaches (session still
+  // listed — including the "server unreachable, keep the last-known list"
+  // case) or hands off to _termSessionGone once a successful refresh
+  // confirms tmux no longer has the session. Deliberately no attempt cap:
+  // transient outages (lab server restart, laptop sleep) heal on their
+  // own, and the only terminal state is "confirmed gone".
+  function _termScheduleReconnect(name, projectId, myWS) {
+    const attempts = (termReconnectAttempts[name] || 0) + 1;
+    termReconnectAttempts[name] = attempts;
+    const delay = _termBackoffMs(attempts);
+    termSetStatus('err', 'disconnected — reconnecting in ' + Math.max(1, Math.round(delay / 1000)) + 's…');
+    if (termReconnectTimer) clearTimeout(termReconnectTimer);
+    termReconnectTimer = setTimeout(async () => {
+      termReconnectTimer = null;
+      if (termWS !== null && termWS !== myWS) return;
+      if (!_termIsScopeActive(projectId)) return;
+      if (termDeadSessions.has(name)) return;
+      let refreshOk = false;
+      try { refreshOk = !!(await _termRefreshSessionsForProjectId(projectId)); } catch {}
+      if (termDeadSessions.has(name)) return;
+      if (_termCanAttach(projectId, name)) {
+        termWS = null;
+        termCurrentSession = null;
+        termCurrentProjectId = null;
+        termAttach(name, projectId);
+      } else if (!_termIsScopeActive(projectId)) {
+        return;
+      } else if (refreshOk) {
+        _termSessionGone(name, projectId);
+      } else {
+        // Server unreachable and the name isn't even in the last-known
+        // list — keep the loop alive until the server answers.
+        _termScheduleReconnect(name, projectId, myWS);
+      }
+    }, delay);
+  }
+
   // Mark a session dead: stop reconnecting, clear timers, render the
-  // recovery overlay. Used both from the explicit "no-session" server
-  // signal and from the reconnect loop after MAX_ATTEMPTS failures.
+  // recovery overlay. Used as the crash-loop fallback (see
+  // _termSessionGone) and from termAttach on an already-dead name.
   function _termMarkDead(name, statusText, projectId = termCurrentProjectId || _termActiveProjectId()) {
     console.log('[term] MARK DEAD', name, 'project=', projectId, statusText);
     termDeadSessions.add(name);
@@ -7032,14 +7142,9 @@
             // path already uses below.
             const pid = _termActiveProjectId();
             (async () => {
+              let refreshOk = false;
               if (pid) {
-                try {
-                  if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) {
-                    await termRefreshSessionsByProjectId(pid);
-                  } else {
-                    await termRefreshSessions(pid);
-                  }
-                } catch {}
+                try { refreshOk = !!(await _termRefreshSessionsForProjectId(pid)); } catch {}
               }
               if (_termCanAttach(projectId, name)) {
                 // tmux still has it — the "no-session" was stale.
@@ -7048,7 +7153,11 @@
                 termCurrentSession = null;
                 termCurrentProjectId = null;
                 termAttach(name, projectId);
-              } else {
+              } else if (refreshOk && _termIsScopeActive(projectId)) {
+                // Confirmed gone — respawn saved sessions and reattach
+                // instead of asking the user what to do.
+                _termSessionGone(name, projectId);
+              } else if (_termIsScopeActive(projectId)) {
                 _termMarkDead(name, 'session not found', projectId);
               }
             })();
@@ -7063,41 +7172,7 @@
         if (isStale()) return;
         if (termUserDetached || termCurrentSession !== name || termCurrentProjectId !== projectId) return;
         if (termDeadSessions.has(name)) return;
-        const attempts = (termReconnectAttempts[name] || 0) + 1;
-        termReconnectAttempts[name] = attempts;
-        if (attempts > TERM_MAX_RECONNECT_ATTEMPTS) {
-          _termMarkDead(name, 'session unreachable (' + attempts + ' attempts) — reload to retry', projectId);
-          return;
-        }
-        const delay = _termBackoffMs(attempts);
-        termSetStatus('err',
-          'disconnected — reconnecting in ' + Math.round(delay / 1000) + 's ' +
-          '(attempt ' + attempts + '/' + TERM_MAX_RECONNECT_ATTEMPTS + ')');
-        if (termReconnectTimer) clearTimeout(termReconnectTimer);
-        termReconnectTimer = setTimeout(async () => {
-          termReconnectTimer = null;
-          if (termWS !== null && termWS !== myWS) return;
-          if (!_termIsScopeActive(projectId)) return;
-          if (termDeadSessions.has(name)) return;
-          const pid = _termActiveProjectId();
-          if (!pid) return;
-          try {
-            if (pid === CEREBRO_PROJECT_ID || pid === SELF_PROJECT_ID || pid === LOGS_PROJECT_ID) {
-              await termRefreshSessionsByProjectId(pid);
-            } else {
-              await termRefreshSessions(pid);
-            }
-          } catch {}
-          if (termDeadSessions.has(name)) return;
-          if (_termCanAttach(projectId, name)) {
-            termWS = null;
-            termCurrentSession = null;
-            termCurrentProjectId = null;
-            termAttach(name, projectId);
-          } else {
-            _termMarkDead(name, 'session ended: ' + name, projectId);
-          }
-        }, delay);
+        _termScheduleReconnect(name, projectId, myWS);
       };
       myWS.onerror = () => {
         if (isStale()) { detachListeners(); return; }
@@ -11966,17 +12041,21 @@
     } catch { fresh = []; ok = false; }
     if (ok) _termSessionsCache.set(pid, fresh);
     // Stale-response guard — see termRefreshSessions for why.
-    if (pid !== _termActiveProjectId()) return;
-    termSessions = fresh;
-    // Forget dead/backoff bookkeeping for sessions tmux no longer has.
-    const live = new Set(termSessions.map(s => s.name));
-    for (const n of Array.from(termDeadSessions)) {
-      if (!live.has(n)) termDeadSessions.delete(n);
-    }
-    for (const n of Object.keys(termReconnectAttempts)) {
-      if (!live.has(n)) delete termReconnectAttempts[n];
+    if (pid !== _termActiveProjectId()) return ok;
+    // Failed fetch → keep the last-known list (see termRefreshSessions).
+    termSessions = ok ? fresh : (_termSessionsCache.get(pid) || []);
+    if (ok) {
+      // Forget dead/backoff bookkeeping for sessions tmux no longer has.
+      const live = new Set(termSessions.map(s => s.name));
+      for (const n of Array.from(termDeadSessions)) {
+        if (!live.has(n)) termDeadSessions.delete(n);
+      }
+      for (const n of Object.keys(termReconnectAttempts)) {
+        if (!live.has(n)) delete termReconnectAttempts[n];
+      }
     }
     termRenderSessionList();
+    return ok;
   }
 
   // WS live refresh — re-render current view (home panel or project view)
