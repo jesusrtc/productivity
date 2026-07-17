@@ -1310,6 +1310,42 @@
   body.self-active .repo-tabs { display: none; }
   body.term-open .s-view { right: var(--term-width); }
   body.term-open.term-collapsed .s-view { right: 0; }
+
+  /* ─── Workspace view (active-workspace management surface) ───
+     Same shell as the self view: reuses .layout / #sidebar / #content,
+     with the overview rendered as .s-section cards in .s-workbench-grid.
+     All colors via CSS variables so both themes work unchanged. */
+  body.workspace-active .layout { display: flex; }
+  body.workspace-active .home-view { display: none; }
+  body.workspace-active .diff-tabs { display: none; }
+  body.workspace-active .repo-tabs { display: none; }
+  body.workspace-active .attrs-bar { display: none; }
+  .ws-overview { max-width: 1100px; }
+  .ws-ov-head { margin-bottom: 4px; }
+  .ws-ov-head h1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ws-ov-head .ws-badge { font-size: 10px; line-height: 18px; padding: 0 8px; border-radius: 9px; }
+  .ws-ov-path { color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin: 0 0 20px; word-break: break-all; }
+  .ws-card-body { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-primary); }
+  .ws-muted { color: var(--text-secondary); font-style: italic; }
+  .ws-cfg-status.ok { color: var(--green); font-weight: 600; }
+  .ws-cfg-status.err { color: var(--red); font-weight: 600; }
+  .ws-cfg-issue { border-left: 3px solid var(--border); padding: 2px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-word; }
+  .ws-cfg-issue.err { border-left-color: var(--red); color: var(--red); }
+  .ws-cfg-issue.warn { border-left-color: var(--yellow); color: var(--yellow); }
+  .ws-card-actions { margin-top: 4px; }
+  .ws-card-actions .refresh-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .ws-card-actions .refresh-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+  .ws-agent-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .ws-agent-name { font-weight: 600; flex-shrink: 0; }
+  .ws-agent-default { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
+  .ws-agent-auto { color: var(--text-secondary); font-size: 12px; margin-left: auto; text-align: right; }
+  .ws-agent-auto.on { color: var(--green); }
+  .ws-proj-list { list-style: none; margin: 0; padding: 0; }
+  .ws-proj-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 4px; }
+  .ws-proj-row:last-child { border-bottom: none; }
+  .ws-proj-row:hover { background: var(--bg-tertiary); }
+  .ws-proj-row .ws-proj-name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-proj-row .p-caret { margin-left: auto; color: var(--text-dim); }
   .s-inner { max-width: 1100px; margin: 0 auto; padding: 24px 28px 120px; }
   .s-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
   .s-head h1 { font-size: 22px; margin: 0; }
@@ -1837,7 +1873,7 @@
      _sidebarApplyForView) so hiding/resizing in one project never
      affects another. */
   .sidebar-toggle { position: fixed; top: 50%; left: var(--sidebar-width); transform: translateY(-50%); background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-left: none; border-radius: 0 6px 6px 0; padding: 10px 4px; font-size: 10px; writing-mode: vertical-rl; cursor: pointer; z-index: 61; display: none; }
-  body.project-active .sidebar-toggle, body.self-active .sidebar-toggle { display: block; }
+  body.project-active .sidebar-toggle, body.self-active .sidebar-toggle, body.workspace-active .sidebar-toggle { display: block; }
   body.sidebar-collapsed .sidebar, body.sidebar-collapsed .sidebar-resizer { display: none; }
   body.sidebar-collapsed .main { margin-left: 0; }
   body.sidebar-collapsed .sidebar-toggle { left: 0; }
@@ -1868,3 +1904,28 @@
   .doc-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
   .doc-modal-close:hover { color: var(--text-primary); }
   .doc-modal-body { flex: 1; overflow-y: auto; }
+
+/* ─── Focus mode ─────────────────────────────────────────────────────────
+   body.focus-mode hides the topbar + project attrs bar; the Overview strip
+   (repo-tabs) and content shift to the top. These rules sit at the end of
+   the file so they win every equal-specificity offset rule above. */
+  body.focus-mode .topbar,
+  body.focus-mode .attrs-bar { display: none; }
+  body.focus-mode .repo-tabs { top: 0; }
+  body.focus-mode .diff-tabs { top: 0; }
+  body.focus-mode.has-repo-tabs .diff-tabs { top: 36px; }
+  body.focus-mode .layout { padding-top: 40px; }
+  body.focus-mode .sidebar { top: 40px; }
+  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 36px; }
+  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 36px; }
+  body.focus-mode .term-panel { top: 40px; }
+  body.focus-mode.has-repo-tabs .term-panel { top: 76px; }
+  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 36px; }
+  body.focus-mode .home-view,
+  body.focus-mode .s-view,
+  body.focus-mode .k-view,
+  body.focus-mode .cs-view,
+  body.focus-mode .logs-view { top: 0; }
+  .repo-tab.focus-toggle { margin-left: auto; color: var(--text-secondary); }
+  .repo-tab.focus-toggle:hover { color: var(--text-primary); }
+  body.focus-mode .repo-tab.focus-toggle { color: var(--accent); }

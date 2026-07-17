@@ -529,6 +529,13 @@ def create_app() -> FastAPI:
                 "INITIAL_PROJECT_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
+        if view == "workspace":
+            return {
+                "INITIAL_VIEW": "workspace",
+                "INITIAL_BODY_CLASS": "workspace-active",
+                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_IS_REPO": False,
+            }
         if view == "cerebro":
             return {
                 "INITIAL_VIEW": "cerebro",

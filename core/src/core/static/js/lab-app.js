@@ -75,7 +75,13 @@
         body: JSON.stringify({id}),
       });
       if (!r.ok) throw new Error(await r.text());
-      location.href = '/';
+      // Switching workspace replaces the whole served index, so we always
+      // land via a full reload. If the user is on the Workspace view, keep
+      // them there: the reload re-runs initWorkspaceView against the newly
+      // active workspace, so the tab's content follows the selection.
+      location.href = document.body.classList.contains('workspace-active')
+        ? '/?view=workspace'
+        : '/';
     } catch (e) {
       if (sel) sel.disabled = false;
       _workspaceSwitching = false;
@@ -2471,6 +2477,32 @@
   // so renderRepoTabs can reflect snooze state without re-fetching.
   let _currentProjectHold = null;
 
+  // ─── Focus mode ─────────────────────────────────────────────────────────
+  // Hides the topbar (Home / workspace picker / project tabs / gear) and the
+  // project attrs bar so only the Overview strip and the content remain.
+  // Toggled by the button in the repo-tabs bar; Esc exits; persists across
+  // reloads via localStorage.
+  const FOCUS_MODE_KEY = 'labFocusMode';
+  function applyFocusMode(on) {
+    document.body.classList.toggle('focus-mode', !!on);
+    try { localStorage.setItem(FOCUS_MODE_KEY, on ? '1' : '0'); } catch {}
+    // Re-render the strip so the button label flips.
+    try { if (currentProject) renderRepoTabs(); } catch {}
+  }
+  function toggleFocusMode() {
+    applyFocusMode(!document.body.classList.contains('focus-mode'));
+  }
+  window.toggleFocusMode = toggleFocusMode;
+  try { if (localStorage.getItem(FOCUS_MODE_KEY) === '1') document.body.classList.add('focus-mode'); } catch {}
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !document.body.classList.contains('focus-mode')) return;
+    // Don't steal Esc from terminals, form fields, or open modals.
+    const t = e.target;
+    if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .term-panel')) return;
+    if (document.querySelector('.modal-overlay.active')) return;
+    applyFocusMode(false);
+  });
+
   function renderRepoTabs() {
     const container = document.getElementById('repoTabs');
     if (!currentProject || (!currentProject.is_project && currentProject.repos.length <= 1)) {
@@ -2519,6 +2551,11 @@
     // render the Snooze button for a project; when a hold is active also
     // (Snooze controls moved to the project attrs bar above; the repo-tabs
     // bar stays focused on repo navigation only.)
+
+    // Focus mode toggle — right-aligned; stays reachable while everything
+    // above this strip is hidden.
+    const focusOn = document.body.classList.contains('focus-mode');
+    html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? 'Show tabs and status bar again (Esc)' : 'Hide the tab strip and status bar'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
     container.innerHTML = html;
   }
@@ -5077,6 +5114,12 @@
   // constant is only for the single topbar tab entry.
   const CODE_SEARCH_PROJECT_ID = '__code_search__';
 
+  // Workspace fixed view: management surface for the ACTIVE workspace (the
+  // one selected in the top-left dropdown). Pseudo-project rooted at the
+  // workspace root; always pinned in the tab strip before productivity.
+  const WORKSPACE_PROJECT_ID = '__workspace__';
+  let _workspaceCurrent = null;  // last `current` row painted by initWorkspaceView
+
   // Logs fixed view: terminal-style reader for errors, backend, and frontend logs.
   const LOGS_PROJECT_ID = '__logs__';
   const LOGS_DEFAULT_FILE = 'errors.log';
@@ -5160,6 +5203,8 @@
     initCerebro(urlCerebroPath);
   } else if (urlView === 'productivity') {
     initSelf();
+  } else if (urlView === 'workspace') {
+    initWorkspaceView();
   } else if (urlView === 'code-search') {
     document.body.classList.add('code-search-active');
     const initialCodeSearchRepo = initialParams.get('repo');
@@ -5200,23 +5245,27 @@
       _projMtimeMisses = 0;
       if (_lastProjectMtime && mtime > _lastProjectMtime) {
         const isSelf = document.body.classList.contains('self-active');
+        const isWorkspaceView = document.body.classList.contains('workspace-active');
         if (_projDocPath) {
           // Refresh the doc AND the sidebar — files added/removed in
           // the project (e.g. a new HTML under tmp/) need to appear in
           // the sidebar without forcing the user to navigate away. The
-          // self view uses its own sidebar renderer (no project.json,
-          // no pinned/meta sections, no shared CLAUDE.md / .claude
-          // shortcuts); calling _refreshProjectSidebar here would stomp
-          // it with the project layout.
+          // self/workspace views use their own sidebar renderers (no
+          // project.json, no pinned/meta sections, no shared CLAUDE.md
+          // / .claude shortcuts); calling _refreshProjectSidebar here
+          // would stomp them with the project layout.
           openProjectDoc(_projDocPath, {preserveScroll: true});
           if (isSelf) selfPopulateSidebar();
+          else if (isWorkspaceView) workspacePopulateSidebar();
           else _refreshProjectSidebar({preserveScroll: true});
-        } else if (!isSelf) {
-          showProjectInfo({preserveScroll: true});
-        } else {
+        } else if (isSelf) {
           // Self view, no doc open → just refresh the sidebar so new
           // files appear without a full page reload.
           selfPopulateSidebar();
+        } else if (isWorkspaceView) {
+          workspacePopulateSidebar();
+        } else {
+          showProjectInfo({preserveScroll: true});
         }
       }
       _lastProjectMtime = mtime;
@@ -5475,6 +5524,15 @@
       seen.add(CEREBRO_PROJECT_ID);
       tabs.push({id: CEREBRO_PROJECT_ID, hot: false});
     }
+    // Workspace is a fixed pseudo-tab — always pinned in the strip, pushed
+    // just before productivity so the default order reads
+    // "workspace · productivity". Content always reflects the ACTIVE
+    // workspace (top-left dropdown); switching workspaces re-renders it.
+    const workspaceViewActive = document.body.classList.contains('workspace-active');
+    if (!seen.has(WORKSPACE_PROJECT_ID)) {
+      seen.add(WORKSPACE_PROJECT_ID);
+      tabs.push({id: WORKSPACE_PROJECT_ID, hot: false});
+    }
     const selfViewActive = document.body.classList.contains('self-active');
     if (!seen.has(SELF_PROJECT_ID)) {
       seen.add(SELF_PROJECT_ID);
@@ -5502,6 +5560,17 @@
     for (const t of tabs) {
       if (!used.has(t.id)) ordered.push(t);
     }
+    // The workspace tab defaults to the slot immediately BEFORE the
+    // productivity tab. Only until the user drags it somewhere: once its id
+    // is in the saved order, that position wins like any other tab.
+    if (!used.has(WORKSPACE_PROJECT_ID)) {
+      const wIdx = ordered.findIndex(t => t.id === WORKSPACE_PROJECT_ID);
+      const sIdx = ordered.findIndex(t => t.id === SELF_PROJECT_ID);
+      if (wIdx !== -1 && sIdx !== -1 && wIdx !== sIdx - 1) {
+        const [w] = ordered.splice(wIdx, 1);
+        ordered.splice(ordered.findIndex(t => t.id === SELF_PROJECT_ID), 0, w);
+      }
+    }
     // Logs is pinned in slot 1 whenever it is open, active or not.
     const logsIdx = ordered.findIndex(t => t.id === LOGS_PROJECT_ID);
     if (logsIdx > 0) ordered.unshift(ordered.splice(logsIdx, 1)[0]);
@@ -5512,23 +5581,27 @@
       const isCerebro = t.id === CEREBRO_PROJECT_ID;
       const isSelf = t.id === SELF_PROJECT_ID;
       const isCodeSearch = t.id === CODE_SEARCH_PROJECT_ID;
-      const isPseudo = isLogs || isCerebro || isSelf || isCodeSearch;
+      const isWorkspace = t.id === WORKSPACE_PROJECT_ID;
+      const isPseudo = isLogs || isCerebro || isSelf || isCodeSearch || isWorkspace;
       const active =
         (isLogs && logsViewActive) ||
         (isCerebro && cerebroViewActive) ||
         (isSelf && selfViewActive) ||
         (isCodeSearch && csViewActive) ||
+        (isWorkspace && workspaceViewActive) ||
         (!isPseudo && t.id === activeId) ? ' active' : '';
       const dotCls = t.hot ? '' : ' cold';
       const label = isLogs ? 'logs'
         : isCerebro ? 'cerebro'
         : isSelf ? 'productivity'
         : isCodeSearch ? 'code-search'
+        : isWorkspace ? 'workspace'
         : t.id;
       const icon = isLogs ? ''
         : isCerebro ? '🧠 '
         : isSelf ? '🛠️ '
         : isCodeSearch ? '🔍 '
+        : isWorkspace ? '🗂️ '
         : '';
       // Pseudo-projects (cerebro, self, code-search) are never
       // "attention"-worthy since they can't have a stuck Claude session.
@@ -5539,6 +5612,7 @@
         : isCerebro ? ' cerebro-tab'
         : isSelf ? ' self-tab'
         : isCodeSearch ? ' code-search-tab'
+        : isWorkspace ? ' workspace-tab'
         : '';
       const unseenCls = isLogs && document.body.classList.contains('logs-have-unseen-errors') ? ' has-unseen' : '';
       const closeTitle = isLogs
@@ -5562,6 +5636,11 @@
       const blockedIcon = isBlocked
         ? `<span class="blocked-icon" title="${projTabsEsc(tabBlocked.detail || '')}" aria-label="blocked">&#9888;</span>`
         : '';
+      // The workspace tab is permanently pinned — no X (there is nothing
+      // to close; the view always exists for the active workspace).
+      const xBtn = isWorkspace
+        ? ''
+        : `<button class="x" title="${closeTitle}" data-x="${projTabsEsc(t.id)}">&times;</button>`;
       return `
         <div class="proj-tab${active}${tabCls}${attn}${unseenCls}${blockedCls}" draggable="true" data-pid="${projTabsEsc(t.id)}" role="tab" title="${projTabsEsc(label)}${attnTitle}${blockedTitle}">
           <span class="dot${dotCls}" title="${t.hot ? 'live session(s)' : 'no session yet'}"></span>
@@ -5569,7 +5648,7 @@
           ${wsBadge}
           ${blockedIcon}
           <span class="attn-dot" aria-label="needs attention"></span>
-          <button class="x" title="${closeTitle}" data-x="${projTabsEsc(t.id)}">&times;</button>
+          ${xBtn}
         </div>`;
     }).join('');
 
@@ -5583,6 +5662,7 @@
         if (pid === CEREBRO_PROJECT_ID)     { goToCerebro(); return; }
         if (pid === SELF_PROJECT_ID)        { goToProductivity(); return; }
         if (pid === CODE_SEARCH_PROJECT_ID) { goToCodeSearch(); return; }
+        if (pid === WORKSPACE_PROJECT_ID)   { goToWorkspace(); return; }
         const proj = projTabsAll.find(p => p.name === pid);
         if (proj && proj.path) goToProject(proj.path);
       });
@@ -5670,6 +5750,7 @@
 
   async function projTabsClose(pid) {
     if (!pid) return;
+    if (pid === WORKSPACE_PROJECT_ID) return;  // permanently pinned, no X rendered
     const label =
       pid === CEREBRO_PROJECT_ID ? 'Cerebro'
       : pid === SELF_PROJECT_ID ? 'Productivity'
@@ -7575,7 +7656,7 @@
       description: 'Opening project dashboard...',
       repos: [],
     };
-    document.body.classList.remove('home-active', 'cerebro-active', 'self-active', 'code-search-active', 'logs-active', 'has-diff-tabs');
+    document.body.classList.remove('home-active', 'cerebro-active', 'self-active', 'workspace-active', 'code-search-active', 'logs-active', 'has-diff-tabs');
     document.body.classList.add('project-active');
     document.getElementById('diffTabs').style.display = 'none';
     paintProjectShell();
@@ -7601,7 +7682,7 @@
         }
       }
     });
-  } else if (urlView === 'cerebro' || urlView === 'productivity' || urlView === 'code-search' || urlView === 'logs') {
+  } else if (urlView === 'cerebro' || urlView === 'productivity' || urlView === 'workspace' || urlView === 'code-search' || urlView === 'logs') {
     // These views handle their own init above; skip Home.
   } else {
     // No project or repo in URL → show Home (dashboard / timeline / search).
@@ -7663,8 +7744,8 @@
     if (typeof termDetach === 'function') termDetach(true);
     if (typeof logsStopLive === 'function') logsStopLive();
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'home-active', 'project-active',
-      'code-search-active', 'logs-active', 'has-diff-tabs',
+      'cerebro-active', 'self-active', 'workspace-active', 'home-active',
+      'project-active', 'code-search-active', 'logs-active', 'has-diff-tabs',
     );
     currentProject = null;
     currentRepo = null;
@@ -8090,6 +8171,22 @@
     }
     projTabsSetPseudoOpen(SELF_PROJECT_ID, true);
     initSelf();
+  }
+
+  function goToWorkspace(opts = {}) {
+    _swapViewState();
+    if (!opts.replace) {
+      const url = new URL(window.location);
+      url.searchParams.delete('project');
+      url.searchParams.delete('repo');
+      url.searchParams.delete('path');
+      url.searchParams.delete('file');
+      url.searchParams.delete('tail');
+      url.searchParams.set('view', 'workspace');
+      history.pushState({nav: 'workspace'}, '', url.pathname + url.search + url.hash);
+    }
+    // No projTabsSetPseudoOpen: the workspace tab is permanently pinned.
+    initWorkspaceView();
   }
 
   function logsNormalizeFile(file) {
@@ -9182,6 +9279,8 @@
       goToCerebro(cerebroPath, {replace: true});
     } else if (view === 'productivity') {
       goToProductivity({replace: true});
+    } else if (view === 'workspace') {
+      goToWorkspace({replace: true});
     } else if (view === 'code-search') {
       goToCodeSearch({replace: true, repo: params.get('repo') || null});
     } else if (view === 'logs') {
@@ -11389,6 +11488,59 @@
     });
   }
 
+  // Shared file-tree row renderer for the self + workspace sidebars. One
+  // implementation (not a sixth render site): both views feed it a
+  // buildSidebarTree() node and differ only in tree scope (persisted
+  // expand state), top-level auto-open folders, and active path. Rows use
+  // the same fileIconHtml icons, symlink markers, notebook running/unseen
+  // dots, and data-filepath hooks the git decorations poller keys on.
+  const _AUTO_OPEN_SELF = new Set(['apps', 'docs', 'knowledge']);
+  const _AUTO_OPEN_WORKSPACE = new Set(['projects', 'content', 'docs']);
+
+  function renderSidebarFileTree(node, depth, parentPath, opts) {
+    const {scope, autoOpen, activePath} = opts;
+    let html = '';
+    treeFolderNames(node).forEach(folder => {
+      const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
+      const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
+      const d = treeFolderEntry(node, folder, fullPath);
+      const autoOpenHere = depth === 0 && autoOpen && autoOpen.has(folder);
+      const open = _treeIsOpen(scope, fullPath, autoOpenHere);
+      const arrowCls = open ? ' open' : '';
+      const childrenCls = open ? ' open' : '';
+      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+      html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
+      html += renderSidebarFileTree(node[folder], depth + 1, fullPath, opts);
+      html += '</div>';
+    });
+    treeFiles(node).forEach(f => {
+      const safePath = f.path.replace(/'/g, "\\'");
+      const fname = f.path.split('/').pop();
+      const icon = fileIconHtml(fname, f);
+      const activeCls = activePath === f.path ? ' active' : '';
+      // Notebook running / unseen dots — same logic as the project view's
+      // _refreshProjectSidebar so these views surface in-flight notebooks
+      // too. Running wins over unseen since "currently executing" is the
+      // more urgent state.
+      if (f.pending) _recentlyPending.set(f.path, Date.now());
+      const recent = _recentlyPending.get(f.path);
+      const stillFresh = recent && (Date.now() - recent) < _PENDING_GRACE_MS;
+      const isRunning = f.pending || stillFresh;
+      if (recent && !isRunning) _recentlyPending.delete(f.path);
+      const lastViewed = (fname.endsWith('.ipynb') && f.mtime) ? _nbGetLastViewed(f.path) : 0;
+      const hasUnseen = !isRunning && f.mtime && lastViewed && f.mtime > lastViewed + 0.5;
+      let dotHtml = '';
+      if (isRunning) {
+        const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
+        dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
+      } else if (hasUnseen) {
+        dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
+      }
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+    });
+    return html;
+  }
+
   // Populate #sidebar with a file tree rooted at SELF_REPO_PATH.
   // Mirrors the pattern used by showProjectInfo() for real projects.
   async function selfPopulateSidebar() {
@@ -11410,52 +11562,7 @@
 
       const tree = buildSidebarTree(files);
 
-      const AUTO_OPEN_SELF = new Set(['apps', 'docs', 'knowledge']);
-
-      function renderSelfTree(node, depth, parentPath) {
-        let html = '';
-        treeFolderNames(node).forEach(folder => {
-          const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
-          const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
-          const d = treeFolderEntry(node, folder, fullPath);
-          const autoOpen = depth === 0 && AUTO_OPEN_SELF.has(folder);
-          const open = _treeIsOpen('self', fullPath, autoOpen);
-          const arrowCls = open ? ' open' : '';
-          const childrenCls = open ? ' open' : '';
-          html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="self" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
-          html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-          html += renderSelfTree(node[folder], depth + 1, fullPath);
-          html += '</div>';
-        });
-        treeFiles(node).forEach(f => {
-          const safePath = f.path.replace(/'/g, "\\'");
-          const fname = f.path.split('/').pop();
-          const icon = fileIconHtml(fname, f);
-          const activeCls = activePath === f.path ? ' active' : '';
-          // Notebook running / unseen dots — same logic as the project view's
-          // _refreshProjectSidebar so the self view (Lab framework checkout)
-          // surfaces in-flight notebooks too. Running wins over unseen since
-          // "currently executing" is the more urgent state.
-          if (f.pending) _recentlyPending.set(f.path, Date.now());
-          const recent = _recentlyPending.get(f.path);
-          const stillFresh = recent && (Date.now() - recent) < _PENDING_GRACE_MS;
-          const isRunning = f.pending || stillFresh;
-          if (recent && !isRunning) _recentlyPending.delete(f.path);
-          const lastViewed = (fname.endsWith('.ipynb') && f.mtime) ? _nbGetLastViewed(f.path) : 0;
-          const hasUnseen = !isRunning && f.mtime && lastViewed && f.mtime > lastViewed + 0.5;
-          let dotHtml = '';
-          if (isRunning) {
-            const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
-            dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
-          } else if (hasUnseen) {
-            dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
-          }
-          html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
-        });
-        return html;
-      }
-
-      sbHtml += renderSelfTree(tree, 0, '');
+      sbHtml += renderSidebarFileTree(tree, 0, '', {scope: 'self', autoOpen: _AUTO_OPEN_SELF, activePath});
 
       // Meta section — mirrors the per-project sidebar so `.claude/`
       // (shared skills, agents, hooks, settings) is one click away from
@@ -11849,6 +11956,272 @@
     // Same live-status polling as real projects: pills pulse, attention flag fires.
     termStartPeriodicRefresh();
     termStartStatusPolling();
+  }
+
+  // ─── Workspace view (active-workspace management surface) ───
+  // Always-pinned pseudo-tab, mirrors initSelf(): synthetic currentProject
+  // rooted at the ACTIVE workspace root so openProjectDoc, the sidebar,
+  // git decorations, and the mtime/WS live refreshes all behave like a
+  // real project. Content always reflects the workspace selected in the
+  // top-left dropdown; switching workspaces re-runs this init.
+
+  async function initWorkspaceView() {
+    // On a full page load the server's INITIAL_BODY_CLASS doesn't know
+    // this view (main.py defaults unknown ?view= values to home-active),
+    // and the initial `?view=…` dispatch calls us directly — without
+    // _swapViewState. Strip the stale view classes ourselves so the home
+    // shell can't sit under (or fight) the workspace layout.
+    document.body.classList.remove(
+      'home-active', 'cerebro-active', 'self-active', 'project-active',
+      'code-search-active', 'logs-active',
+    );
+    document.body.classList.add('workspace-active');
+    document.title = 'Workspace';
+    // No terminal panel in this view for now — the server has no cwd
+    // mapping for a workspace pseudo-project (term.py would resolve
+    // `__workspace__` to projects/__workspace__, which doesn't exist).
+    // Hide any panel carried over from the previous view by dropping the
+    // body classes only: _swapViewState already soft-parked the active
+    // session, and the terminal poll loops self-clean on their next tick
+    // once `term-open` is gone. (Deliberately NOT termClose() here — this
+    // runs during the initial `?view=…` dispatch, before the terminal
+    // state block is evaluated, so touching its lets would hit the TDZ.)
+    document.body.classList.remove('term-open');
+    document.body.classList.remove('term-collapsed');
+    const dt = document.getElementById('diffTabs');
+    if (dt) dt.style.display = 'none';
+    document.body.classList.remove('has-diff-tabs');
+    // Re-render the tab strip so the workspace tab flips to `.active`
+    // immediately (same first-load caveat as initSelf: projTabsRefresh
+    // repaints with the full list once it returns).
+    if (typeof projTabsRender === 'function') projTabsRender();
+    _projDocPath = null;
+
+    // Scaffold synchronously; the fetch below fills in the real content.
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="s-inner ws-overview"><div class="loading">Loading workspace…</div></div>';
+
+    let data = null;
+    try {
+      const r = await fetch('/api/workspaces');
+      if (r.ok) data = await r.json();
+    } catch {}
+    // The user may have navigated away while the fetch was in flight.
+    if (!document.body.classList.contains('workspace-active')) return;
+    const current = (data && data.current) || null;
+    _workspaceCurrent = current;
+    if (!current || !current.path) {
+      if (content) content.innerHTML = '<div class="s-inner ws-overview"><div class="loading">Could not load the active workspace.</div></div>';
+      return;
+    }
+    if (data.active) currentWorkspaceId = data.active;
+    document.title = 'Workspace — ' + (current.name || current.id);
+    // Synthetic project rooted at the workspace root (same trick as the
+    // self view) so the doc pane, sidebar, and pollers treat it like a
+    // real project.
+    currentProject = {
+      name: WORKSPACE_PROJECT_ID,
+      path: current.path,
+      is_project: true,
+      repos: [],
+    };
+    _sidebarApplyForView();
+    workspacePaintOverview(current);
+    afterPageQuiet(() => {
+      workspacePopulateSidebar();
+      workspaceRefreshCards();
+    });
+  }
+
+  // Overview scaffold: header (name + id badge + active pill + path) and
+  // the three cards. Reuses the productivity workbench's .s-inner /
+  // .s-workbench-grid / .s-section card classes so it reads like the
+  // existing dashboards. workspaceRefreshCards() fills the card bodies.
+  function workspacePaintOverview(current) {
+    _projDocPath = null;
+    const content = document.getElementById('content');
+    if (!content) return;
+    content.innerHTML = `
+      <div class="s-inner ws-overview">
+        <div class="s-head ws-ov-head">
+          <h1>${selfEsc(current.name || current.id)}
+            <span class="ws-badge" title="workspace id">${selfEsc(current.id)}</span>
+            <span class="ws-active-pill">active</span></h1>
+        </div>
+        <div class="ws-ov-path" title="${escAttr(current.path)}">${selfEsc(current.path)}</div>
+        <div class="s-workbench-grid ws-ov-grid">
+          <div class="s-section" id="wsConfigCard">
+            <h2>Configuration</h2>
+            <div class="ws-card-body" id="wsConfigBody"><div class="ws-muted">Loading…</div></div>
+          </div>
+          <div class="s-section" id="wsAgentsCard">
+            <h2>Agents</h2>
+            <div class="ws-card-body" id="wsAgentsBody"><div class="ws-muted">Loading…</div></div>
+          </div>
+          <div class="s-section" id="wsProjectsCard">
+            <h2>Projects <span class="count" id="wsProjectsCount"></span></h2>
+            <ul class="ws-proj-list" id="wsProjectsList"><li class="s-empty">Loading…</li></ul>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // Return to the overview from a doc view (sidebar "Overview" link).
+  function workspaceShowOverview() {
+    _projDocPath = null;
+    document.querySelectorAll('#sidebar .sidebar-file').forEach(el => el.classList.remove('active'));
+    if (_workspaceCurrent && currentProject && currentProject.name === WORKSPACE_PROJECT_ID) {
+      workspacePaintOverview(_workspaceCurrent);
+      afterFirstPaint(() => workspaceRefreshCards());
+    } else {
+      initWorkspaceView();
+    }
+  }
+
+  async function workspaceRefreshCards() {
+    if (!document.body.classList.contains('workspace-active')) return;
+    await Promise.all([
+      workspaceRenderConfigCard(),
+      workspaceRenderAgentsCard(),
+      workspaceRenderProjectsCard(),
+    ]);
+  }
+
+  // "Configuration" card: workspace.json status from /api/workspace/config.
+  // The file is optional — absent is a normal, valid state.
+  async function workspaceRenderConfigCard() {
+    const body = document.getElementById('wsConfigBody');
+    if (!body) return;
+    let cfg = null;
+    try {
+      const r = await fetch('/api/workspace/config');
+      if (r.ok) cfg = await r.json();
+    } catch {}
+    if (!body.isConnected) return;  // view repainted/navigated meanwhile
+    if (!cfg) {
+      body.innerHTML = '<div class="ws-muted">Could not load workspace.json status.</div>';
+      return;
+    }
+    if (!cfg.present) {
+      body.innerHTML = '<div class="ws-muted">workspace.json not present (optional).</div>';
+      return;
+    }
+    const errors = cfg.errors || [];
+    const warnings = cfg.warnings || [];
+    const rows = [];
+    if (cfg.valid) {
+      rows.push(`<div class="ws-cfg-status ok">✓ workspace.json is valid${warnings.length ? ' (with warnings)' : ''}</div>`);
+    } else {
+      rows.push('<div class="ws-cfg-status err">✗ workspace.json has problems</div>');
+    }
+    for (const e of errors) rows.push(`<div class="ws-cfg-issue err">${selfEsc(e)}</div>`);
+    for (const w of warnings) rows.push(`<div class="ws-cfg-issue warn">${selfEsc(w)}</div>`);
+    rows.push('<div class="ws-card-actions"><button class="refresh-btn" onclick="openProjectDoc(\'workspace.json\')">Open workspace.json</button></div>');
+    body.innerHTML = rows.join('');
+  }
+
+  // "Agents" card: read-only display of the default agent and per-agent
+  // autopilot state from /api/settings. Editing happens in Settings.
+  async function workspaceRenderAgentsCard() {
+    const body = document.getElementById('wsAgentsBody');
+    if (!body) return;
+    let s = _settings;
+    try {
+      const r = await fetch('/api/settings');
+      if (r.ok) { s = await r.json(); _settings = s; }
+    } catch {}
+    if (!body.isConnected) return;
+    const autopilot = s.autopilot || {};
+    const flags = s.autopilotFlags || {};
+    const defaultAgent = s.defaultAgent || 'claude';
+    const rows = Object.keys(AGENT_LABELS).map(a => {
+      const on = !!autopilot[a];
+      const flag = on && flags[a] ? ` (${flags[a]})` : '';
+      return `<div class="ws-agent-row">
+        <span class="ws-agent-name">${selfEsc(AGENT_LABELS[a])}</span>
+        ${a === defaultAgent ? '<span class="ws-agent-default">default</span>' : ''}
+        <span class="ws-agent-auto${on ? ' on' : ''}">autopilot ${on ? 'on' : 'off'}${selfEsc(flag)}</span>
+      </div>`;
+    });
+    rows.push('<div class="ws-card-actions"><button class="refresh-btn" onclick="openSettings()">Edit in Settings</button></div>');
+    body.innerHTML = rows.join('');
+  }
+
+  // "Projects" card: the ACTIVE workspace's project ids from
+  // /api/workspaces/projects. Rows open the project the same way Home's
+  // active-workspace rows do (goToProjectById → in-page nav).
+  async function workspaceRenderProjectsCard() {
+    const list = document.getElementById('wsProjectsList');
+    const count = document.getElementById('wsProjectsCount');
+    if (!list) return;
+    let data = null;
+    try {
+      const r = await fetch('/api/workspaces/projects');
+      if (r.ok) data = await r.json();
+    } catch {}
+    if (!list.isConnected) return;
+    const ws = ((data && data.workspaces) || []).find(w => w.active) || null;
+    if (!ws) {
+      if (count) count.textContent = '';
+      list.innerHTML = '<li class="s-empty">Could not load projects.</li>';
+      return;
+    }
+    if (ws.unavailable) {
+      if (count) count.textContent = '';
+      list.innerHTML = `<li class="s-empty">${selfEsc(ws.detail || 'workspace volume unavailable')}</li>`;
+      return;
+    }
+    const ids = ws.projects || [];
+    if (count) count.textContent = ids.length ? String(ids.length) : '';
+    if (!ids.length) {
+      list.innerHTML = '<li class="s-empty">No projects yet.</li>';
+      return;
+    }
+    list.innerHTML = ids.map(pid => `
+      <li class="ws-proj-row" data-pid="${escAttr(pid)}" role="button" tabindex="0" title="Open ${escAttr(pid)}">
+        <span class="ws-proj-name">${selfEsc(pid)}</span>
+        <span class="p-caret">›</span>
+      </li>`).join('');
+    list.querySelectorAll('.ws-proj-row').forEach(row => {
+      row.addEventListener('click', () => goToProjectById(row.getAttribute('data-pid')));
+    });
+  }
+
+  // Populate #sidebar with the workspace root's real file tree. Same
+  // renderer as the self view (renderSidebarFileTree) — icons, git
+  // decorations, notebook dots, hidden-files toggle, symlink legend. No
+  // Meta section: the workspace tab shows the root exactly as on disk.
+  async function workspacePopulateSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar || !currentProject || currentProject.name !== WORKSPACE_PROJECT_ID) return;
+    const rootPath = currentProject.path;
+    try {
+      const res = await fetch(`/api/project-files?path=${encodeURIComponent(rootPath)}&include_dotfiles=${showProjectDotFiles}`);
+      const files = await res.json();
+      if (!document.body.classList.contains('workspace-active')) return;
+      if (!currentProject || currentProject.path !== rootPath) return;
+
+      const activePath = _projDocPath || null;
+      const overviewActive = !activePath ? ' active' : '';
+      let sbHtml = `<a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
+      sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="workspaceToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
+      sbHtml += symlinkLegendHtml();
+      sbHtml += '<div class="sidebar-title">Files</div>';
+      sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: 'workspace', autoOpen: _AUTO_OPEN_WORKSPACE, activePath});
+      sidebar.innerHTML = sbHtml;
+      // Fast first decoration pass (cached + rate-limited server-side);
+      // the shared 6s poll keeps it fresh afterwards.
+      _sidebarGitStatusRefresh();
+    } catch (e) {
+      sidebar.innerHTML = '<div class="sidebar-title">Workspace</div>';
+    }
+  }
+
+  // Toggle hidden-files visibility for the workspace sidebar. Mirrors
+  // selfToggleDotFiles().
+  function workspaceToggleDotFiles(checked) {
+    showProjectDotFiles = checked;
+    workspacePopulateSidebar();
   }
 
   async function initCerebro(initialPath) {
@@ -12327,6 +12700,10 @@
               selfRefreshWorkbench();
               selfPopulateSidebar();
             }
+          } else if (document.body.classList.contains('workspace-active')
+                     && !currentRepo && !_projDocEditing) {
+            if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
+            else workspacePopulateSidebar();
           } else if (currentProject && currentProject.is_project
                      && !currentRepo && !_projDocEditing) {
             if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});

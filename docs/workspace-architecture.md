@@ -162,7 +162,10 @@ Illustrative configuration:
 
 ## Workspace tab
 
-The Workspace tab is the management surface for one workspace.
+The Workspace tab is the management surface for one workspace. It is a fixed,
+always-visible tab (like the pinned Productivity tab), not something opened
+per workspace: its content always reflects the currently selected workspace,
+and switching workspaces re-renders it in place.
 
 1. The file panel shows the real workspace root tree as it exists on disk. It
    does not inject framework-parent files, synthetic shared rows, or unrelated
