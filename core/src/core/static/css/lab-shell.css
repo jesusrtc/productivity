@@ -1922,6 +1922,10 @@
   body.focus-mode .sidebar { top: 40px; }
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 36px; }
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 36px; }
+  /* Both bars visible (repo tabs at 0 + diff tabs at 36): content at 76.
+     Three body classes so this outranks project-active.has-repo-tabs. */
+  body.focus-mode.has-repo-tabs.has-diff-tabs .layout { padding-top: 76px; }
+  body.focus-mode.has-repo-tabs.has-diff-tabs .sidebar { top: 76px; }
   body.focus-mode .term-panel { top: 40px; }
   body.focus-mode.has-repo-tabs .term-panel { top: 76px; }
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 36px; }

@@ -2496,10 +2496,13 @@
   try { if (localStorage.getItem(FOCUS_MODE_KEY) === '1') document.body.classList.add('focus-mode'); } catch {}
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !document.body.classList.contains('focus-mode')) return;
-    // Don't steal Esc from terminals, form fields, or open modals.
+    // Don't steal Esc from terminals, form fields, or any layer that
+    // consumes Esc itself (settings/editor modals, the doc view modal,
+    // proxy fullscreen) — one press must close one thing.
     const t = e.target;
     if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .term-panel')) return;
-    if (document.querySelector('.modal-overlay.active')) return;
+    if (document.querySelector('.modal-overlay.active, .doc-modal-overlay.active, #csFileModalOverlay.on')) return;
+    if (document.body.classList.contains('proxy-fullscreen')) return;
     applyFocusMode(false);
   });
 
@@ -4918,7 +4921,7 @@
     _buildSeg('setAgentSeg',
       supportedAgentIds().map(a => ({ value: a, label: AGENT_LABELS[a] })),
       _setDraft.defaultAgent,
-      (a) => { _setDraft.defaultAgent = a; _renderSettingsGlobal(); });
+      (a) => { _setDraft.defaultAgent = a; _setAgentTouched = true; _renderSettingsGlobal(); });
     _renderAutopilotRow();
     const modelSel = document.getElementById('setModel');
     _fillModelSelect(modelSel, _setDraft.defaultAgent, _setDraft.model);
@@ -4929,8 +4932,17 @@
       (t) => { _setDraft.theme = t; applyTheme(t); _renderSettingsGlobal(); });
   }
 
+  // Dirty flags: the drafts CLAMP stored values that are workspace-disabled
+  // (for display), so saving must only write back fields the user actually
+  // touched — otherwise saving a theme tweak would silently rewrite the
+  // default agent or clear a project override.
+  let _setAgentTouched = false;
+  let _setProjTouched = false;
+
   async function openSettings() {
     const policy = await loadWorkspaceAgentPolicy();
+    _setAgentTouched = false;
+    _setProjTouched = false;
     _setDraft = {
       defaultAgent: policy.supported.includes(_settings.defaultAgent)
         ? _settings.defaultAgent
@@ -4970,11 +4982,13 @@
       pAgent.onchange = (e) => {
         _setProjDraft = _setProjDraft || { agent: '', model: '' };
         _setProjDraft.agent = e.target.value;
+        _setProjTouched = true;
         _fillModelSelect(pModel, e.target.value || _setDraft.defaultAgent, _setProjDraft.model);
       };
       pModel.onchange = (e) => {
         _setProjDraft = _setProjDraft || { agent: '', model: '' };
         _setProjDraft.model = e.target.value;
+        _setProjTouched = true;
       };
     } else {
       sec.style.display = 'none';
@@ -4994,22 +5008,27 @@
     err.classList.remove('on');
     btn.disabled = true;
     try {
+      const patch = {
+        model: _setDraft.model || null,
+        theme: _setDraft.theme,
+        autopilot: _setDraft.autopilot || {},
+      };
+      // Only write the default agent back when the user picked one — the
+      // draft may hold a display-only clamp of a workspace-disabled value.
+      if (_setAgentTouched || _setDraft.defaultAgent === _settings.defaultAgent) {
+        patch.defaultAgent = _setDraft.defaultAgent;
+      }
       const r = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          defaultAgent: _setDraft.defaultAgent,
-          model: _setDraft.model || null,
-          theme: _setDraft.theme,
-          autopilot: _setDraft.autopilot || {},
-        }),
+        body: JSON.stringify(patch),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'save failed');
       _settings = await r.json();
       applyTheme(_settings.theme);
 
       const pid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
-      if (_setProjDraft && pid) {
+      if (_setProjDraft && _setProjTouched && pid) {
         const pr = await fetch('/api/projects/' + encodeURIComponent(pid) + '/agent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6058,7 +6077,8 @@
           kind: s.kind || 'claude',
           agent: s.agent,
           name: s.name,
-          auto: true,
+          // No explicit `auto`: the workspace's per-agent autopilot
+          // setting decides (an explicit value here would override it).
         }),
       }).catch(() => null)));
       await _termRefreshSessionsForProjectId(projectId);
@@ -6777,7 +6797,8 @@
           kind,
           agent,  // null → server resolves project override / global default
           start_fresh: startFresh,
-          auto: true,  // only meaningful for claude; ignored for terminal
+          // No explicit `auto`: the workspace's per-agent autopilot
+          // setting decides (an explicit value here would override it).
         }),
       });
       if (!r.ok) {
@@ -12312,7 +12333,10 @@
     const body = document.getElementById('wsAgentsBody');
     if (!body) return;
     let s = _settings;
-    let policy = await loadWorkspaceAgentPolicy();
+    // force: the workspace agent may have edited workspace.json directly
+    // (that's the documented flow) — a cached policy would keep stale
+    // agents in every menu until a full reload.
+    let policy = await loadWorkspaceAgentPolicy({force: true});
     try {
       const r = await fetch('/api/settings');
       if (r.ok) { s = await r.json(); _settings = s; }

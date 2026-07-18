@@ -1446,3 +1446,32 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
     assert r.json()["auto"] is True
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == "copilot --autopilot"
+
+
+def test_copilot_explicit_auto_false_overrides_workspace(client, seed_project, isolated_prefix,
+                                                         monorepo: Path, tmp_path: Path,
+                                                         monkeypatch) -> None:
+    """Same auto contract as claude: an explicit request wins over the
+    workspace autopilot setting for codex/copilot too."""
+    import shutil as real_shutil
+
+    from core.routes import term as term_route
+    from lab import settings as lab_settings
+
+    seed_project("demo")
+    real_which = real_shutil.which
+    monkeypatch.setattr(
+        term_route.shutil, "which",
+        lambda cmd: "/fake/copilot" if cmd == "copilot" else real_which(cmd),
+    )
+    lab_settings.update(monorepo, {"autopilot": {"copilot": True}})
+
+    r = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "claude", "agent": "copilot",
+        "name": "copilot", "auto": False,
+    })
+
+    assert r.status_code == 200, r.text
+    assert r.json()["auto"] is False
+    state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    assert state["sessions"][r.json()["name"]]["cmd"] == "copilot"

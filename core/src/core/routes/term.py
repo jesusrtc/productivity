@@ -1853,8 +1853,15 @@ def create_session(body: NewSession, request: Request) -> dict:
         cmd_argv = parts
     elif kind == "claude":
         # codex / copilot — fresh session (resume is Claude-only for now).
+        # Same `auto` contract as claude: an explicit request wins,
+        # otherwise the workspace's per-agent autopilot setting decides.
         cmd_argv = _agent_argv(agent)
-        if lab_settings.resolve_autopilot(root, agent):
+        wants_auto = (
+            body.auto
+            if body.auto is not None
+            else lab_settings.resolve_autopilot(root, agent)
+        )
+        if wants_auto:
             cmd_argv = cmd_argv + list(lab_settings.AUTOPILOT_FLAGS.get(agent, ()))
             auto_applied = True
     else:
