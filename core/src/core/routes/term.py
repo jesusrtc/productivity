@@ -74,6 +74,7 @@ from pydantic import BaseModel
 from lab import settings as lab_settings
 
 from core import fsguard
+from core import workspace_config
 
 
 router = APIRouter()
@@ -393,11 +394,13 @@ def _tmux_child_env() -> dict[str, str]:
 #  * __cerebro__ — the personal knowledge-base view (cwd = content/)
 #  * __self__    — the Lab framework checkout itself   (cwd = repo root)
 #  * __logs__    — the embedded logs view              (cwd = logs/)
-# They behave like regular projects otherwise: they show up in the project-
-# tabs strip, can be closed (X), and reopened from the Home dashboard.
+#  * __workspace__ — the active workspace view         (cwd = workspace root)
+# They behave like regular projects for terminal lifecycle and durable session
+# state; each view decides independently whether its topbar tab is closable.
 CEREBRO_PROJECT_ID = "__cerebro__"
 SELF_PROJECT_ID = "__self__"
 LOGS_PROJECT_ID = "__logs__"
+WORKSPACE_PROJECT_ID = "__workspace__"
 # Per-repo pseudo project for the Code Search tab. The id is
 # ``__cs_<repo>__`` where ``<repo>`` is a directory name under
 # ``repositories/``. Used so each Code-Search repo has its own scoped
@@ -431,6 +434,8 @@ def _project_json(root: Path, project_id: str) -> Path:
         return root / "content" / ".self-project.json"
     if project_id == LOGS_PROJECT_ID:
         return root / "content" / ".logs-project.json"
+    if project_id == WORKSPACE_PROJECT_ID:
+        return root / "content" / ".workspace-project.json"
     return root / "projects" / project_id / "project.json"
 
 
@@ -440,10 +445,13 @@ def _project_cwd(root: Path, project_id: str) -> Path:
     - ``__cerebro__``     → content/
     - ``__self__``        → monorepo root (so claude sees apps/, docs/, etc.)
     - ``__logs__``        → logs/
+    - ``__workspace__``   → the active workspace root (Workspace tab terminal)
     - ``__cs_<repo>__``   → repositories/<repo> (Code Search per-repo terminal)
     """
     if project_id == CEREBRO_PROJECT_ID:
         return (root / "content").resolve()
+    if project_id == WORKSPACE_PROJECT_ID:
+        return root.resolve()
     if project_id == SELF_PROJECT_ID:
         from lab import paths
         return paths.find_framework_root().resolve()
@@ -509,11 +517,16 @@ def _load_project(root: Path, project_id: str) -> dict | None:
             except OSError:
                 pass  # best effort; fall through
     if not p.is_file():
-        # Pseudo-projects (Cerebro, Self, Logs) have no ``lab project new``
+        # Pseudo-projects have no ``lab project new``
         # ceremony — bootstrap an empty shell so session IDs get persisted
         # on first use. Real projects still return None; creating their
         # project.json is the CLI's job.
-        if project_id in (CEREBRO_PROJECT_ID, SELF_PROJECT_ID, LOGS_PROJECT_ID):
+        if project_id in (
+            CEREBRO_PROJECT_ID,
+            SELF_PROJECT_ID,
+            LOGS_PROJECT_ID,
+            WORKSPACE_PROJECT_ID,
+        ):
             return {}
         return None
     try:
@@ -629,7 +642,12 @@ def _infer_session_summary(name: str) -> str | None:
 # /api/term/projects-with-sessions and greys out every tab in the UI.
 
 def _known_project_ids(root: Path) -> list[str]:
-    ids = [CEREBRO_PROJECT_ID, SELF_PROJECT_ID, LOGS_PROJECT_ID]
+    ids = [
+        CEREBRO_PROJECT_ID,
+        SELF_PROJECT_ID,
+        LOGS_PROJECT_ID,
+        WORKSPACE_PROJECT_ID,
+    ]
     projects = root / "projects"
     if projects.is_dir():
         ids += [p.name for p in projects.iterdir() if p.is_dir()]
@@ -1678,12 +1696,24 @@ def create_session(body: NewSession, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
 
     # For agent sessions (kind=="claude"), resolve which CLI to launch:
-    # explicit body.agent → project override → global default.
+    # explicit body.agent → project override → global default. The result
+    # must be enabled for this workspace (workspace.json agents.supported):
+    # an explicit request for a disabled agent errors; a default that fell
+    # out of the enabled set silently clamps to the first enabled agent.
     agent: str | None = None
     if kind == "claude":
         agent = (body.agent or lab_settings.resolve_agent(root, body.project_id)).lower()
         if agent not in lab_settings.VALID_AGENTS:
             raise HTTPException(status_code=400, detail=f"unknown agent: {agent!r}")
+        supported = workspace_config.supported_agents(root)
+        if agent not in supported:
+            if body.agent:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"agent {agent!r} is not enabled for this workspace "
+                           "(Workspace tab → Agents)",
+                )
+            agent = supported[0]
 
     # Resolve cwd.
     if body.cwd:

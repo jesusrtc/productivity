@@ -4823,8 +4823,34 @@
     copilot: ['claude-sonnet-4-6', 'gpt-5', 'gpt-4.1'],
   };
   let _settings = { defaultAgent: 'claude', model: null, theme: 'dark' };
+  let _workspaceAgentPolicy = null; // {supported: string[], default: string}
   let _setDraft = null;      // {defaultAgent, model, theme} while the modal is open
   let _setProjDraft = null;  // {agent, model} override for the active project
+
+  async function loadWorkspaceAgentPolicy({force = false} = {}) {
+    if (_workspaceAgentPolicy && !force) return _workspaceAgentPolicy;
+    try {
+      const r = await fetch('/api/workspace/agents');
+      if (r.ok) {
+        const policy = await r.json();
+        const supported = Array.isArray(policy.supported)
+          ? policy.supported.filter(a => Object.prototype.hasOwnProperty.call(AGENT_LABELS, a))
+          : [];
+        if (supported.length) {
+          _workspaceAgentPolicy = {
+            supported,
+            default: supported.includes(policy.default) ? policy.default : supported[0],
+          };
+          return _workspaceAgentPolicy;
+        }
+      }
+    } catch {}
+    return {supported: Object.keys(AGENT_LABELS), default: _settings.defaultAgent || 'claude'};
+  }
+
+  function supportedAgentIds() {
+    return (_workspaceAgentPolicy && _workspaceAgentPolicy.supported) || Object.keys(AGENT_LABELS);
+  }
 
   function applyTheme(theme) {
     const light = theme === 'light';
@@ -4872,7 +4898,7 @@
     if (!c) return;
     const flags = _settings.autopilotFlags || {};
     c.innerHTML = '';
-    for (const a of Object.keys(AGENT_LABELS)) {
+    for (const a of supportedAgentIds()) {
       const label = document.createElement('label');
       label.className = 'autopilot-check';
       label.title = flags[a]
@@ -4890,7 +4916,7 @@
 
   function _renderSettingsGlobal() {
     _buildSeg('setAgentSeg',
-      Object.keys(AGENT_LABELS).map(a => ({ value: a, label: AGENT_LABELS[a] })),
+      supportedAgentIds().map(a => ({ value: a, label: AGENT_LABELS[a] })),
       _setDraft.defaultAgent,
       (a) => { _setDraft.defaultAgent = a; _renderSettingsGlobal(); });
     _renderAutopilotRow();
@@ -4904,8 +4930,11 @@
   }
 
   async function openSettings() {
+    const policy = await loadWorkspaceAgentPolicy();
     _setDraft = {
-      defaultAgent: _settings.defaultAgent || 'claude',
+      defaultAgent: policy.supported.includes(_settings.defaultAgent)
+        ? _settings.defaultAgent
+        : policy.default,
       model: _settings.model || null,
       theme: document.body.classList.contains('light-mode') ? 'light' : 'dark',
       autopilot: { ...(_settings.autopilot || {}) },
@@ -4915,19 +4944,25 @@
     // Per-project override (only when a real project tab is active).
     const sec = document.getElementById('setProjectSection');
     _setProjDraft = null;
-    const pid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
+    const currentPid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
+    const pid = currentPid && !currentPid.startsWith('__') ? currentPid : null;
     if (pid) {
       document.getElementById('setProjectName').textContent = pid;
       sec.style.display = 'flex';
       const pAgent = document.getElementById('setProjectAgent');
       const pModel = document.getElementById('setProjectModel');
+      pAgent.innerHTML = '<option value="">Inherit workspace default</option>'
+        + policy.supported.map(a => `<option value="${a}">${AGENT_LABELS[a]}</option>`).join('');
       pAgent.value = '';
       _fillModelSelect(pModel, _setDraft.defaultAgent, '');
       try {
         const r = await fetch('/api/projects/' + encodeURIComponent(pid));
         if (r.ok) {
           const proj = await r.json();
-          _setProjDraft = { agent: proj.agent || '', model: proj.model || '' };
+          _setProjDraft = {
+            agent: policy.supported.includes(proj.agent) ? proj.agent : '',
+            model: proj.model || '',
+          };
           pAgent.value = _setProjDraft.agent || '';
           _fillModelSelect(pModel, _setProjDraft.agent || _setDraft.defaultAgent, _setProjDraft.model);
         }
@@ -6188,6 +6223,7 @@
     if (document.body.classList.contains('logs-active')) return _TERM_VIS_KEY_PREFIX + 'logs';
     if (document.body.classList.contains('cerebro-active')) return _TERM_VIS_KEY_PREFIX + 'cerebro';
     if (document.body.classList.contains('self-active')) return _TERM_VIS_KEY_PREFIX + 'self';
+    if (document.body.classList.contains('workspace-active')) return _TERM_VIS_KEY_PREFIX + 'workspace';
     if (currentProject && currentProject.is_project) return _TERM_VIS_KEY_PREFIX + 'project:' + currentProject.name;
     return _TERM_VIS_KEY_PREFIX + 'unknown';
   }
@@ -6232,6 +6268,7 @@
     if (document.body.classList.contains('logs-active')) return 'logs';
     if (document.body.classList.contains('cerebro-active')) return 'cerebro';
     if (document.body.classList.contains('self-active')) return 'self';
+    if (document.body.classList.contains('workspace-active')) return 'workspace';
     if (currentProject && currentProject.is_project) {
       // Server (proxy) views get their own namespace so they can default
       // to a collapsed sidebar — the embedded app wants the full left +
@@ -6657,34 +6694,49 @@
     );
   }
 
-  function termToggleNewPicker(ev) {
+  async function termToggleNewPicker(ev) {
     if (ev) ev.stopPropagation();
     const el = document.getElementById('termNewPicker');
     if (!el) return;
-    el.classList.toggle('open');
-    // One-shot outside-click listener to dismiss.
-    if (el.classList.contains('open')) {
-      termRefreshAgentAvail(el);
-      const off = (e) => {
-        if (!el.contains(e.target) && e.target.id !== 'termNewBtn') {
-          el.classList.remove('open');
-          document.removeEventListener('click', off);
-        }
-      };
-      setTimeout(() => document.addEventListener('click', off), 0);
+    const opening = !el.classList.contains('open');
+    if (!opening) {
+      el.classList.remove('open');
+      return;
     }
+    // Resolve workspace policy before revealing the menu so a disabled agent
+    // never flashes as a clickable choice during the network round-trip.
+    await termRefreshAgentAvail(el);
+    el.classList.add('open');
+    // One-shot outside-click listener to dismiss.
+    const off = (e) => {
+      if (!el.contains(e.target) && e.target.id !== 'termNewBtn') {
+        el.classList.remove('open');
+        document.removeEventListener('click', off);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', off), 0);
   }
 
-  // Gray out agents whose CLI isn't installed (e.g. copilot). Cached after the
-  // first lookup; failures leave every option enabled (the spawn surfaces a
-  // clean error anyway).
+  // Workspace policy removes disabled agents from every + New menu. Enabled
+  // agents whose CLI is missing stay visible but disabled so the reason is
+  // clear. Both checks are enforced again by the create-session endpoint.
   let _agentAvail = null;
   async function termRefreshAgentAvail(picker) {
+    let policy;
     try {
-      if (!_agentAvail) _agentAvail = await (await fetch('/api/agents/available')).json();
+      const [avail, loadedPolicy] = await Promise.all([
+        _agentAvail
+          ? Promise.resolve(_agentAvail)
+          : fetch('/api/agents/available').then(r => r.json()),
+        loadWorkspaceAgentPolicy(),
+      ]);
+      _agentAvail = avail;
+      policy = loadedPolicy;
     } catch { return; }
+    const supported = new Set(policy.supported || []);
     picker.querySelectorAll('button[data-agent]').forEach(btn => {
       const a = btn.dataset.agent;
+      btn.hidden = !supported.has(a);
       const ok = _agentAvail[a] !== false;
       btn.disabled = !ok;
       btn.style.opacity = ok ? '' : '0.45';
@@ -11958,6 +12010,22 @@
     termStartStatusPolling();
   }
 
+  // Terminal panel for the Workspace pseudo-project: sessions start at the
+  // active workspace root and persist independently from every real project.
+  async function termOpenForWorkspace() {
+    if (!_termIsScopeActive(WORKSPACE_PROJECT_ID)) return;
+    document.body.classList.add('term-open');
+    _termApplyRememberedVisibility();
+    if (await _termTryWarmOpen(WORKSPACE_PROJECT_ID)) {
+      termStartPeriodicRefresh();
+      termStartStatusPolling();
+      return;
+    }
+    await _termRestoreSessionsForProject(WORKSPACE_PROJECT_ID);
+    termStartPeriodicRefresh();
+    termStartStatusPolling();
+  }
+
   // ─── Workspace view (active-workspace management surface) ───
   // Always-pinned pseudo-tab, mirrors initSelf(): synthetic currentProject
   // rooted at the ACTIVE workspace root so openProjectDoc, the sidebar,
@@ -11977,17 +12045,6 @@
     );
     document.body.classList.add('workspace-active');
     document.title = 'Workspace';
-    // No terminal panel in this view for now — the server has no cwd
-    // mapping for a workspace pseudo-project (term.py would resolve
-    // `__workspace__` to projects/__workspace__, which doesn't exist).
-    // Hide any panel carried over from the previous view by dropping the
-    // body classes only: _swapViewState already soft-parked the active
-    // session, and the terminal poll loops self-clean on their next tick
-    // once `term-open` is gone. (Deliberately NOT termClose() here — this
-    // runs during the initial `?view=…` dispatch, before the terminal
-    // state block is evaluated, so touching its lets would hit the TDZ.)
-    document.body.classList.remove('term-open');
-    document.body.classList.remove('term-collapsed');
     const dt = document.getElementById('diffTabs');
     if (dt) dt.style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
@@ -12030,6 +12087,7 @@
     afterPageQuiet(() => {
       workspacePopulateSidebar();
       workspaceRefreshCards();
+      if (!UI_CHECK) termOpenForWorkspace();
     });
   }
 
@@ -12247,12 +12305,14 @@
   }
   window.wsCreateConfig = wsCreateConfig;
 
-  // "Agents" card: read-only display of the default agent and per-agent
-  // autopilot state from /api/settings. Editing happens in Settings.
+  // "Agents" card: workspace.json controls which agent choices appear in
+  // every terminal/settings menu. Autopilot remains a launch setting edited
+  // in Settings; availability is toggled here at workspace scope.
   async function workspaceRenderAgentsCard() {
     const body = document.getElementById('wsAgentsBody');
     if (!body) return;
     let s = _settings;
+    let policy = await loadWorkspaceAgentPolicy();
     try {
       const r = await fetch('/api/settings');
       if (r.ok) { s = await r.json(); _settings = s; }
@@ -12260,19 +12320,55 @@
     if (!body.isConnected) return;
     const autopilot = s.autopilot || {};
     const flags = s.autopilotFlags || {};
-    const defaultAgent = s.defaultAgent || 'claude';
+    const enabled = new Set(policy.supported || []);
+    const defaultAgent = policy.default || s.defaultAgent || 'claude';
     const rows = Object.keys(AGENT_LABELS).map(a => {
       const on = !!autopilot[a];
+      const available = enabled.has(a);
       const flag = on && flags[a] ? ` (${flags[a]})` : '';
-      return `<div class="ws-agent-row">
+      const lastEnabled = available && enabled.size === 1;
+      return `<label class="ws-agent-row${available ? '' : ' off'}">
+        <input type="checkbox" ${available ? 'checked' : ''} ${lastEnabled ? 'disabled' : ''}
+               onchange="workspaceToggleAgent('${a}', this.checked, this)"
+               title="${lastEnabled ? 'At least one agent must remain enabled' : `Show ${escAttr(AGENT_LABELS[a])} in workspace menus`}">
         <span class="ws-agent-name">${selfEsc(AGENT_LABELS[a])}</span>
-        ${a === defaultAgent ? '<span class="ws-agent-default">default</span>' : ''}
+        ${available && a === defaultAgent ? '<span class="ws-agent-default">default</span>' : ''}
         <span class="ws-agent-auto${on ? ' on' : ''}">autopilot ${on ? 'on' : 'off'}${selfEsc(flag)}</span>
-      </div>`;
+      </label>`;
     });
-    rows.push('<div class="ws-card-actions"><button class="refresh-btn" onclick="openSettings()">Edit in Settings</button></div>');
+    rows.unshift('<div class="ws-agent-hint">Enabled agents appear in every <strong>+ New</strong> menu.</div>');
+    rows.push('<div class="ws-card-actions"><button class="refresh-btn" onclick="openSettings()">Launch settings</button></div>');
     body.innerHTML = rows.join('');
   }
+
+  async function workspaceToggleAgent(agent, checked, checkbox) {
+    const policy = await loadWorkspaceAgentPolicy();
+    const next = new Set(policy.supported || []);
+    if (checked) next.add(agent);
+    else next.delete(agent);
+    if (!next.size) {
+      if (checkbox) checkbox.checked = true;
+      return;
+    }
+    const card = document.getElementById('wsAgentsBody');
+    if (card) card.querySelectorAll('input,button').forEach(el => { el.disabled = true; });
+    try {
+      const r = await fetch('/api/workspace/agents', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({supported: Object.keys(AGENT_LABELS).filter(a => next.has(a))}),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'update failed');
+      _workspaceAgentPolicy = await r.json();
+      await Promise.all([workspaceRenderAgentsCard(), workspaceRenderConfigCard()]);
+    } catch (e) {
+      if (card && card.isConnected) {
+        card.innerHTML = `<div class="ws-cfg-issue err">${selfEsc(e.message || e)}</div>`;
+        setTimeout(() => workspaceRenderAgentsCard(), 1800);
+      }
+    }
+  }
+  window.workspaceToggleAgent = workspaceToggleAgent;
 
   // "Projects" card: the ACTIVE workspace's project ids from
   // /api/workspaces/projects. Rows open the project the same way Home's

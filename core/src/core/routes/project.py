@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from lab import paths, storage
 from lab.model import ModelError, Project, validate_id
 
-from core import fsguard
+from core import fsguard, workspace_config
 
 
 router = APIRouter()
@@ -214,6 +214,11 @@ def set_project_agent(project_id: str, body: AgentBody, request: Request) -> dic
     _validate_project_id(project_id)
     root: Path = request.app.state.index_cache.root
     root = _root_for_project(root, project_id)
+    if body.agent and body.agent not in workspace_config.supported_agents(root):
+        raise HTTPException(
+            status_code=400,
+            detail=f"agent {body.agent!r} is not enabled for this workspace",
+        )
     pjson = paths.project_file(root, project_id)
     if not pjson.is_file():
         raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")

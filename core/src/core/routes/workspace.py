@@ -22,6 +22,10 @@ class WorkspaceUseRequest(BaseModel):
     path: str | None = None
 
 
+class WorkspaceAgentsPatch(BaseModel):
+    supported: list[str]
+
+
 def _workspace_id_for(root: Path, rows: list[dict]) -> str:
     resolved = root.expanduser().resolve()
     for row in rows:
@@ -135,6 +139,25 @@ def get_workspace_config(request: Request) -> dict:
     return {"root": str(root), **result}
 
 
+def _workspace_agent_policy(root: Path) -> dict:
+    supported = workspace_config.supported_agents(root)
+    default = lab_settings.resolve_agent(root)
+    if default not in supported:
+        default = supported[0]
+    return {
+        "root": str(root),
+        "supported": supported,
+        "default": default,
+    }
+
+
+@router.get("/api/workspace/agents")
+def get_workspace_agents(request: Request) -> dict:
+    """Return the effective agent choices for the active workspace."""
+    root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    return fsguard.guarded(root, _workspace_agent_policy, root)
+
+
 def _write_starter_workspace_config(root: Path) -> None:
     """Write a minimal valid workspace.json reflecting the workspace's
     current identity and agent settings. Atomic; never overwrites."""
@@ -154,6 +177,36 @@ def _write_starter_workspace_config(root: Path) -> None:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _write_workspace_agents(root: Path, supported: list[str]) -> dict:
+    if not (root / "workspace.json").exists():
+        _write_starter_workspace_config(root)
+    workspace_config.update_supported_agents(
+        root,
+        supported,
+        lab_settings.resolve_agent(root),
+    )
+    return _workspace_agent_policy(root)
+
+
+@router.post("/api/workspace/agents")
+def update_workspace_agents(body: WorkspaceAgentsPatch, request: Request) -> dict:
+    """Replace the active workspace's enabled-agent set.
+
+    The rest of ``workspace.json`` is preserved. The last enabled agent cannot
+    be removed because every terminal menu needs a valid fallback.
+    """
+    root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    try:
+        return fsguard.guarded(
+            root,
+            _write_workspace_agents,
+            root,
+            body.supported,
+        )
+    except workspace_config.WorkspaceConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/api/workspace/config/init")

@@ -44,6 +44,87 @@ def test_terminal_close_button_is_wired_to_persistent_close_handler() -> None:
     assert "keep it closed after reload" in html
 
 
+def test_workspace_view_opens_its_own_terminal_scope() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    term_open = _js_between(
+        "async function termOpenForWorkspace()",
+        "// ─── Workspace view",
+    )
+    result = _run_node(
+        """
+const classes = new Set(['workspace-active']);
+const calls = [];
+const WORKSPACE_PROJECT_ID = '__workspace__';
+const document = {body: {classList: {
+  add(value) { classes.add(value); },
+  contains(value) { return classes.has(value); },
+}}};
+function _termIsScopeActive(pid) { return pid === WORKSPACE_PROJECT_ID; }
+function _termApplyRememberedVisibility() { calls.push('visibility'); }
+async function _termTryWarmOpen(pid) { calls.push('warm:' + pid); return false; }
+async function _termRestoreSessionsForProject(pid) { calls.push('restore:' + pid); }
+function termStartPeriodicRefresh() { calls.push('refresh'); }
+function termStartStatusPolling() { calls.push('status'); }
+""" + term_open + """
+(async () => {
+  await termOpenForWorkspace();
+  process.stdout.write(JSON.stringify({calls, termOpen: classes.has('term-open')}));
+})().catch((err) => { console.error(err && err.stack || err); process.exit(1); });
+"""
+    )
+
+    assert result["termOpen"] is True
+    assert result["calls"] == [
+        "visibility",
+        "warm:__workspace__",
+        "restore:__workspace__",
+        "refresh",
+        "status",
+    ]
+    assert "if (!UI_CHECK) termOpenForWorkspace();" in source
+
+
+def test_terminal_new_menu_hides_workspace_disabled_agents() -> None:
+    refresh_agent_avail = _js_between(
+        "let _agentAvail = null;",
+        "function termCreateNew(kind, agent)",
+    )
+    result = _run_node(
+        """
+const buttons = ['claude', 'codex', 'copilot'].map(agent => ({
+  dataset: {agent}, hidden: false, disabled: false, style: {}, textContent: agent,
+}));
+const picker = {querySelectorAll() { return buttons; }};
+async function loadWorkspaceAgentPolicy() {
+  return {supported: ['codex'], default: 'codex'};
+}
+async function fetch() {
+  return {json: async () => ({claude: true, codex: true, copilot: false})};
+}
+""" + refresh_agent_avail + """
+(async () => {
+  await termRefreshAgentAvail(picker);
+  process.stdout.write(JSON.stringify(buttons));
+})().catch((err) => { console.error(err && err.stack || err); process.exit(1); });
+"""
+    )
+
+    by_agent = {row["dataset"]["agent"]: row for row in result}
+    assert by_agent["claude"]["hidden"] is True
+    assert by_agent["copilot"]["hidden"] is True
+    assert by_agent["codex"]["hidden"] is False
+    assert by_agent["codex"]["disabled"] is False
+
+
+def test_workspace_agents_card_writes_workspace_policy() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert "workspaceToggleAgent('${a}', this.checked, this)" in source
+    assert "fetch('/api/workspace/agents', {" in source
+    assert "Enabled agents appear in every <strong>+ New</strong> menu." in source
+    assert "await termRefreshAgentAvail(el);" in source
+
+
 def test_productivity_view_uses_workbench_without_duplicate_hidden_ids() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     lab_app = LAB_APP.read_text(encoding="utf-8")

@@ -752,6 +752,63 @@ def test_logs_pseudo_project_uses_own_saved_state(monorepo: Path) -> None:
     ]
 
 
+def test_workspace_pseudo_project_runs_at_root_and_persists_own_sessions(
+    client, isolated_prefix, monorepo: Path,
+) -> None:
+    from core.routes import term as term_mod
+
+    r = client.post("/api/term/sessions", json={
+        "project_id": "__workspace__",
+        "kind": "terminal",
+    })
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == isolated_prefix + "__workspace__-bash"
+    assert body["cwd"] == str(monorepo.resolve())
+    assert term_mod._project_json(monorepo, term_mod.WORKSPACE_PROJECT_ID) == (
+        monorepo / "content" / ".workspace-project.json"
+    )
+    assert term_mod.WORKSPACE_PROJECT_ID in term_mod._known_project_ids(monorepo)
+    saved = json.loads(
+        (monorepo / "content" / ".workspace-project.json").read_text()
+    )
+    assert saved["sessions"] == [{"name": "bash", "kind": "terminal"}]
+
+
+def test_create_session_enforces_workspace_supported_agents(
+    client,
+    seed_project,
+    isolated_prefix,
+    monorepo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.routes import term as term_mod
+
+    seed_project("demo")
+    (monorepo / "workspace.json").write_text(json.dumps({
+        "version": 1,
+        "agents": {"supported": ["codex"], "default": "codex"},
+    }))
+    monkeypatch.setattr(term_mod, "_agent_argv", lambda agent: [agent])
+
+    disabled = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "claude",
+        "agent": "claude",
+    })
+    assert disabled.status_code == 400
+    assert "not enabled" in disabled.json()["detail"]
+
+    defaulted = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "claude",
+    })
+    assert defaulted.status_code == 200, defaulted.text
+    assert defaulted.json()["agent"] == "codex"
+    assert defaulted.json()["logical_name"] == "codex"
+
+
 def test_self_pseudo_project_uses_framework_root_for_terminal(monorepo: Path, tmp_path: Path,
                                                               monkeypatch: pytest.MonkeyPatch) -> None:
     from core.routes import term as term_mod

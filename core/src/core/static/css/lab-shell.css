@@ -1335,7 +1335,11 @@
   .ws-card-actions { margin-top: 4px; }
   .ws-card-actions .refresh-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
   .ws-card-actions .refresh-btn:hover { color: var(--text-primary); border-color: var(--accent); }
-  .ws-agent-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .ws-agent-hint { color: var(--text-secondary); font-size: 12px; margin-bottom: 2px; }
+  .ws-agent-row { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+  .ws-agent-row.off { opacity: 0.55; }
+  .ws-agent-row input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .ws-agent-row input:disabled { cursor: not-allowed; }
   .ws-agent-name { font-weight: 600; flex-shrink: 0; }
   .ws-agent-default { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
   .ws-agent-auto { color: var(--text-secondary); font-size: 12px; margin-left: auto; text-align: right; }

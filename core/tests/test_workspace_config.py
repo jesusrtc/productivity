@@ -3,10 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from core.workspace_config import (
+    WorkspaceConfigError,
     load_workspace_config,
+    supported_agents,
+    update_supported_agents,
     validate_workspace_config,
 )
+from lab.model import VALID_AGENTS
 
 
 def _valid_doc() -> dict:
@@ -136,6 +142,34 @@ def test_valid_file_round_trips(tmp_path: Path) -> None:
     assert result["config"]["id"] == "trust-safety"
 
 
+def test_supported_agents_defaults_to_every_known_agent(tmp_path: Path) -> None:
+    assert supported_agents(tmp_path) == list(VALID_AGENTS)
+
+
+def test_update_supported_agents_preserves_config_and_clamps_default(tmp_path: Path) -> None:
+    doc = _valid_doc()
+    (tmp_path / "workspace.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    result = update_supported_agents(tmp_path, ["codex"], "claude")
+
+    assert result["valid"] is True
+    saved = result["config"]
+    assert saved["agents"]["supported"] == ["codex"]
+    assert saved["agents"]["default"] == "codex"
+    assert saved["agents"]["projections"] == doc["agents"]["projections"]
+    assert saved["notebooks"] == doc["notebooks"]
+
+
+def test_update_supported_agents_rejects_empty_or_broken_config(tmp_path: Path) -> None:
+    with pytest.raises(WorkspaceConfigError, match="at least one"):
+        update_supported_agents(tmp_path, [], "claude")
+
+    (tmp_path / "workspace.json").write_text("{broken", encoding="utf-8")
+    with pytest.raises(WorkspaceConfigError, match="repaired"):
+        update_supported_agents(tmp_path, ["codex"], "claude")
+    assert (tmp_path / "workspace.json").read_text(encoding="utf-8") == "{broken"
+
+
 # ── HTTP surface ─────────────────────────────────────────────────────────────
 
 def test_workspaces_payload_reports_config_status(client, monorepo: Path) -> None:
@@ -199,3 +233,46 @@ def test_workspace_config_init_creates_starter(client, monorepo: Path) -> None:
     # Bootstrap only: a second call refuses to overwrite.
     r = client.post("/api/workspace/config/init")
     assert r.status_code == 409
+
+
+def test_workspace_agents_endpoint_updates_policy_and_rejects_last_removal(
+    client, monorepo: Path,
+) -> None:
+    r = client.post("/api/workspace/agents", json={"supported": ["codex"]})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["supported"] == ["codex"]
+    assert r.json()["default"] == "codex"
+    saved = json.loads((monorepo / "workspace.json").read_text(encoding="utf-8"))
+    assert saved["agents"]["supported"] == ["codex"]
+    assert saved["agents"]["default"] == "codex"
+
+    fetched = client.get("/api/workspace/agents")
+    assert fetched.status_code == 200
+    assert fetched.json()["supported"] == ["codex"]
+
+    rejected = client.post("/api/workspace/agents", json={"supported": []})
+    assert rejected.status_code == 400
+    assert "at least one" in rejected.json()["detail"]
+    assert json.loads((monorepo / "workspace.json").read_text())["agents"]["supported"] == ["codex"]
+
+
+def test_disabled_agent_is_rejected_by_settings_and_project_override(
+    client, monorepo: Path, seed_project,
+) -> None:
+    doc = _valid_doc()
+    doc["agents"]["supported"] = ["codex"]
+    doc["agents"]["default"] = "codex"
+    (monorepo / "workspace.json").write_text(json.dumps(doc), encoding="utf-8")
+    seed_project("demo")
+
+    settings = client.post("/api/settings", json={"defaultAgent": "claude"})
+    assert settings.status_code == 400
+    assert "not enabled" in settings.json()["detail"]
+
+    project = client.post("/api/projects/demo/agent", json={"agent": "claude"})
+    assert project.status_code == 400
+    assert "not enabled" in project.json()["detail"]
+
+    enabled = client.post("/api/projects/demo/agent", json={"agent": "codex"})
+    assert enabled.status_code == 200, enabled.text

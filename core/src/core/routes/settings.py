@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from lab import agentsync
 from lab import settings as lab_settings
 
+from core import workspace_config
+
 router = APIRouter()
 
 
@@ -68,6 +70,12 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
     patch = body.model_dump(exclude_unset=True)
     if not patch:
         return _with_flags(lab_settings.load(root))
+    requested_default = patch.get("defaultAgent")
+    if requested_default and requested_default not in workspace_config.supported_agents(root):
+        raise HTTPException(
+            status_code=400,
+            detail=f"agent {requested_default!r} is not enabled for this workspace",
+        )
     try:
         return _with_flags(lab_settings.update(root, patch))
     except lab_settings.SettingsError as exc:

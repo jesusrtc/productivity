@@ -175,6 +175,10 @@ and switching workspaces re-renders it in place.
    rules.
 3. A preview panel shows the effective project view and whether the on-disk
    state matches the configuration.
+4. The right-docked terminal is scoped to the workspace root and keeps its own
+   saved sessions under the ``__workspace__`` pseudo-project. The Agents card
+   controls which of Claude Code, Codex, and Copilot appear in terminal and
+   settings menus; at least one agent must remain enabled.
 
 Project sidebars show only local project files and enabled workspace
 projections. A projected entry displays its origin, for example:

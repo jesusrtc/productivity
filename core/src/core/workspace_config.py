@@ -8,8 +8,11 @@ the Workspace tab can show them. Nothing here mutates project trees.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
+
+from lab.model import VALID_AGENTS
 
 PROJECTION_MODES = {"symlink", "adapter", "copy"}
 
@@ -24,6 +27,10 @@ _KNOWN_TOP_LEVEL = {
     "repositories",
     "services",
 }
+
+
+class WorkspaceConfigError(ValueError):
+    """Raised when a focused workspace-config update cannot be applied."""
 
 
 def _is_str_list(value: Any) -> bool:
@@ -222,3 +229,67 @@ def summarize_workspace_config(root: Path) -> dict:
     out = load_workspace_config(root)
     out.pop("config", None)
     return out
+
+
+def supported_agents(root: Path) -> list[str]:
+    """Effective agent availability for a workspace.
+
+    ``workspace.json``'s ``agents.supported`` filtered to known agents;
+    every known agent when the file is absent, broken, or lists nothing
+    usable — availability must never dead-end the terminal UI."""
+    cfg = load_workspace_config(root)
+    doc = cfg.get("config")
+    agents = doc.get("agents") if isinstance(doc, dict) else None
+    sup = agents.get("supported") if isinstance(agents, dict) else None
+    if isinstance(sup, list):
+        filtered = [a for a in sup if isinstance(a, str) and a in VALID_AGENTS]
+        if filtered:
+            return filtered
+    return list(VALID_AGENTS)
+
+
+def update_supported_agents(
+    root: Path,
+    supported: list[str],
+    fallback_default: str,
+) -> dict:
+    """Persist the enabled agent set while preserving the rest of the file.
+
+    A missing file is initialized with the minimal version-1 document. Broken
+    JSON is never overwritten. At least one known agent must remain enabled,
+    and ``agents.default`` is clamped into the enabled set so the resulting
+    document stays valid.
+    """
+    normalized = [agent for agent in VALID_AGENTS if agent in supported]
+    unknown = [agent for agent in supported if agent not in VALID_AGENTS]
+    if unknown:
+        raise WorkspaceConfigError(
+            f"unknown agents: {', '.join(sorted(set(unknown)))}"
+        )
+    if not normalized:
+        raise WorkspaceConfigError("at least one agent must remain enabled")
+
+    loaded = load_workspace_config(root)
+    if loaded["present"] and loaded["config"] is None:
+        raise WorkspaceConfigError(
+            "workspace.json cannot be updated until its JSON is repaired"
+        )
+    doc = dict(loaded["config"] or {"version": 1})
+    current_agents = doc.get("agents")
+    if current_agents is not None and not isinstance(current_agents, dict):
+        raise WorkspaceConfigError(
+            "workspace.json agents must be an object before it can be updated"
+        )
+    agents = dict(current_agents or {})
+    agents["supported"] = normalized
+    if agents.get("default") not in normalized:
+        agents["default"] = (
+            fallback_default if fallback_default in normalized else normalized[0]
+        )
+    doc["agents"] = agents
+
+    path = root / "workspace.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return load_workspace_config(root)
