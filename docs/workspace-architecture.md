@@ -420,6 +420,13 @@ ownership.
 
 ## Migration sequence
 
+Status (2026-07-18): steps 1–2 are done; step 3 shipped in v1 — the fixed
+Workspace tab with the workspace tree, configuration/agents/projects cards,
+starter-file bootstrap, the agent setup prompt, per-workspace agent
+availability, and a workspace-rooted terminal — with the projection preview
+still to come. Step 4's prompt exists (agent-switch-prompt.md plus the
+in-card setup prompt); drift detection does not yet.
+
 1. Add `workspace.json` schema validation to the existing workspace registry
    without changing projects.
 2. Group Home projects by their containing registered workspace.

@@ -31,21 +31,34 @@ if [[ ! -x "$CHROME" ]]; then
   exit 2
 fi
 
-# Start the server if it isn't running. Use pgrep (not the pidfile — which
-# can lie if the user started from another shell or after a crash).
+# Start the server only when the resolved URL doesn't answer. Probing the
+# URL (not pgrep, not the pidfile) is the only detection that works for
+# every supervision mode: the launch agent runs a resolved Python whose
+# command line doesn't contain "core/.venv/bin/python", so process-name
+# matching misclassifies it as stopped and double-starts on the default
+# port (see .agents/memory/check-ui-launch-agent-process-detection.md).
 STARTED_BY_US=""
-if ! pgrep -f "core/.venv/bin/python -m core" >/dev/null 2>&1; then
+_lab_alive() {
+  curl -sS -m 3 -o /dev/null -w '%{http_code}' \
+    "$("$REPO_ROOT/scripts/lab-url.sh")/" 2>/dev/null | grep -q '^200$'
+}
+if ! _lab_alive; then
   make start-bg >/dev/null
   STARTED_BY_US=1
   # Give uvicorn a moment to finish lifespan startup. Re-resolve the URL
   # because the server only writes the workspace-local port file once it's listening.
   for _ in 1 2 3 4 5; do
-    PING_URL="$("$REPO_ROOT/scripts/lab-url.sh")/api/ping"
-    if curl -sS -o /dev/null -w '%{http_code}\n' "$PING_URL" 2>/dev/null | grep -q '^200$'; then
+    if _lab_alive; then
       break
     fi
     sleep 0.5
   done
+  # The port may differ from the pre-start resolution; recompute the target
+  # URL unless the caller passed an explicit override.
+  if [[ -z "${1:-}" ]]; then
+    LAB_URL="$("$REPO_ROOT/scripts/lab-url.sh")"
+    URL="$LAB_URL/?ui_check=1"
+  fi
 fi
 
 cleanup() {

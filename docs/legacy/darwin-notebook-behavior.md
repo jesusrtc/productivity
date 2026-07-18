@@ -238,7 +238,7 @@ picker, Run, Interrupt, and Restart controls become capability-driven.
 
 Today, notebook writes trigger the general workspace watcher, which broadcasts
 the coarse `index-updated` event. The active notebook is then fetched and
-rendered again while preserving scroll. A two-second project mtime poll is a
+rendered again while preserving scroll. A one-second project mtime poll is a
 fallback.
 
 The new file event layer replaces this with path-aware `file-changed` events
