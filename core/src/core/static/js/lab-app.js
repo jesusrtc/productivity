@@ -2477,6 +2477,72 @@
   // so renderRepoTabs can reflect snooze state without re-fetching.
   let _currentProjectHold = null;
 
+  // ─── Workspace projections for the project sidebar (migration step 5) ──
+  // When workspace.json declares agents.projections / project.mounts, the
+  // Meta section renders THOSE rows — each labeled with its true workspace
+  // origin — instead of the legacy hardcoded "(shared)" entries. Files open
+  // their workspace source inline; mounted directories jump to the
+  // Workspace tab where the real source tree lives. 30s TTL so an edit to
+  // workspace.json shows up without a reload.
+  let _wsProjCache = null;  // {projections, mounts, supported, ts}
+  async function loadWorkspaceProjections() {
+    const now = Date.now();
+    if (_wsProjCache && (now - _wsProjCache.ts) < 30000) return _wsProjCache;
+    let out = { projections: [], mounts: [], supported: null, ts: now };
+    try {
+      const r = await fetch('/api/workspace/config');
+      if (r.ok) {
+        const cfg = await r.json();
+        const doc = (cfg.valid && cfg.config) || {};
+        const agents = doc.agents || {};
+        const project = doc.project || {};
+        out = {
+          projections: Array.isArray(agents.projections) ? agents.projections : [],
+          mounts: Array.isArray(project.mounts) ? project.mounts : [],
+          supported: Array.isArray(agents.supported) ? agents.supported : null,
+          ts: now,
+        };
+      }
+    } catch {}
+    _wsProjCache = out;
+    return out;
+  }
+
+  function _wsProjectionMetaHtml(p) {
+    if (!p) return '';
+    const sup = p.supported;
+    const enabled = (e) => e && typeof e === 'object'
+      && (!e.when || !sup || sup.includes(e.when));
+    const projections = p.projections.filter(enabled)
+      .filter(e => typeof e.source === 'string' && e.source && typeof e.target === 'string' && e.target);
+    const mounts = p.mounts.filter(enabled)
+      .filter(e => typeof e.source === 'string' && e.source && typeof e.target === 'string' && e.target);
+    if (!projections.length && !mounts.length) return '';
+    let html = '';
+    // The canonical source files themselves, one row each (deduped) — the
+    // file agents actually read is one click away, same as before.
+    const sources = [...new Set(projections.map(e => e.source))];
+    for (const src of sources) {
+      const base = src.split('/').pop();
+      const safe = src.replace(/'/g, "\\'");
+      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr('workspace/' + src + ' — canonical source; projected into every project')}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="ws-origin">workspace</span></span></a>`;
+    }
+    for (const e of projections) {
+      const base = e.target.split('/').pop();
+      const safe = e.source.replace(/'/g, "\\'");
+      const title = `workspace/${e.source} → ${e.target}` +
+        (e.mode ? ` (${e.mode}${e.when ? ', ' + e.when + ' only' : ''})` : '');
+      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr(title)}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="ws-origin">&#8592; ${selfEsc(e.source)}</span></span></a>`;
+    }
+    for (const e of mounts) {
+      const title = `workspace/${e.source} → ${e.target}` +
+        (e.mode ? ` (${e.mode}${e.when ? ', ' + e.when + ' only' : ''})` : '') +
+        ' — opens the source tree in the Workspace tab';
+      html += `<div class="sidebar-folder sidebar-file-meta" onclick="goToWorkspace()" title="${escAttr(title)}" style="opacity:.7"><span class="folder-arrow">&#9654;</span>${selfEsc(e.target)}/<span class="ws-origin">&#8592; ${selfEsc(e.source)}</span></div>`;
+    }
+    return html;
+  }
+
   // ─── Focus mode ─────────────────────────────────────────────────────────
   // Hides the topbar (Home / workspace picker / project tabs / gear) and the
   // project attrs bar so only the Overview strip and the content remain.
@@ -4513,6 +4579,15 @@
       } else {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       }
+      // Workspace-declared projections take precedence (migration step 5):
+      // each row shows its true origin instead of the vague "(shared)".
+      // Workspaces without workspace.json projections keep the legacy rows.
+      const wsProjHtml = _wsProjectionMetaHtml(await loadWorkspaceProjections());
+      let sharedClaudeFid = null;
+      let sharedCodeFid = null;
+      if (wsProjHtml) {
+        sbHtml += wsProjHtml;
+      } else {
       // Shared projects/CLAUDE.md — auto-loaded for every project
       // via Claude Code's CLAUDE.md walk-up. Renders inline in the doc pane.
       sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('projects/CLAUDE.md')" title="projects/CLAUDE.md — shared boilerplate applied to every project under projects/" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('CLAUDE.md')}CLAUDE.md (shared)</span></a>`;
@@ -4524,7 +4599,7 @@
       // file opens inline via openSharedFile. Placeholder rendered first;
       // populated by the async fetch below so the rest of the sidebar
       // doesn't wait on it.
-      const sharedClaudeFid = 'sf-claude-' + Math.random().toString(36).substr(2, 6);
+      sharedClaudeFid = 'sf-claude-' + Math.random().toString(36).substr(2, 6);
       const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
       const _shClArrow = _shClOpen ? ' open' : '';
       const _shClChildren = _shClOpen ? ' open' : '';
@@ -4540,12 +4615,13 @@
       sbHtml += `<div class="sidebar-folder-children${_shAgChildren}" id="${sharedAgentsFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
       // `content/code/` — source for code-* skills. Same shared/async
       // pattern as `.claude/`.
-      const sharedCodeFid = 'sf-code-' + Math.random().toString(36).substr(2, 6);
+      sharedCodeFid = 'sf-code-' + Math.random().toString(36).substr(2, 6);
       const _shCdOpen = _treeIsOpen('shared-code', 'code', false);
       const _shCdArrow = _shCdOpen ? ' open' : '';
       const _shCdChildren = _shCdOpen ? ' open' : '';
       sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-code" data-tree-path="code" data-tree-target="${sharedCodeFid}" onclick="_treeToggleFolder(this)" title="content/code/ — source for code-* skills" style="opacity:.7"><span class="folder-arrow${_shCdArrow}">▶</span>code/ (shared)</div>`;
       sbHtml += `<div class="sidebar-folder-children${_shCdChildren}" id="${sharedCodeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
+      }
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
@@ -4553,8 +4629,8 @@
       // is known (cold load fetch or background reconcile).
       renderRepoTabs();
       // Populate both `.claude/` and `code/` placeholders from one
-      // /api/cerebro/tree fetch.
-      _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
+      // /api/cerebro/tree fetch (legacy rows only).
+      if (sharedClaudeFid) _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
       // Git decorations: the rebuild wiped the row classes — repaint from
       // cache synchronously, then fetch fresh in the background if stale.
       _sidebarGitStatusRefresh();

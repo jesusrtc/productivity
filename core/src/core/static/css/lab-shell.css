@@ -1937,3 +1937,6 @@
   .repo-tab.focus-toggle { margin-left: auto; color: var(--text-secondary); }
   .repo-tab.focus-toggle:hover { color: var(--text-primary); }
   body.focus-mode .repo-tab.focus-toggle { color: var(--accent); }
+
+  /* Origin label on projection-derived Meta rows ("CLAUDE.md ← AGENTS.md"). */
+  .sidebar-fname .ws-origin { color: var(--text-dim); font-size: 10px; margin-left: 6px; }

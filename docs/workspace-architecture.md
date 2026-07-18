@@ -425,7 +425,11 @@ Workspace tab with the workspace tree, configuration/agents/projects cards,
 starter-file bootstrap, the agent setup prompt, per-workspace agent
 availability, and a workspace-rooted terminal — with the projection preview
 still to come. Step 4's prompt exists (agent-switch-prompt.md plus the
-in-card setup prompt); drift detection does not yet.
+in-card setup prompt); drift detection does not yet. Step 5 shipped in v1
+for the project sidebar's Meta section: workspaces that declare
+`agents.projections` / `project.mounts` get origin-labeled rows
+("CLAUDE.md ← AGENTS.md") instead of the legacy "(shared)" entries, which
+remain the fallback for undeclared workspaces.
 
 1. Add `workspace.json` schema validation to the existing workspace registry
    without changing projects.
