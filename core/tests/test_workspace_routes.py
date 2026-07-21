@@ -65,6 +65,28 @@ def test_workspace_switch_replaces_active_index(client, monorepo: Path, tmp_path
     assert paths.port_file(other).exists()
 
 
+def test_workspace_switch_refreshes_workspace_root_in_cached_index_shell(
+    client, monorepo: Path, tmp_path: Path,
+) -> None:
+    _seed_workspace(monorepo, "alpha")
+    other = tmp_path / "other"
+    _seed_workspace(other, "beta")
+    paths.register_workspace(monorepo, name="Main", active=True)
+    paths.register_workspace(other, name="Other", active=False)
+
+    first = client.get("/")
+    assert first.status_code == 200
+    assert f'window.LAB_WORKSPACE_ROOT = "{monorepo.resolve()}"' in first.text
+
+    switched = client.post("/api/workspaces/use", json={"id": "other"})
+    assert switched.status_code == 200, switched.text
+
+    reloaded = client.get("/")
+    assert reloaded.status_code == 200
+    assert f'window.LAB_WORKSPACE_ROOT = "{other.resolve()}"' in reloaded.text
+    assert f'window.LAB_WORKSPACE_ROOT = "{monorepo.resolve()}"' not in reloaded.text
+
+
 # ─── /api/workspaces/projects ───────────────────────────────────────────────
 
 

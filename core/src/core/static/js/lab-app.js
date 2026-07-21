@@ -1605,6 +1605,50 @@
   // ─── Notebook rendering ───
   function isNotebook(filepath) { return filepath.endsWith('.ipynb'); }
 
+  function _normalizeAbsolutePath(path) {
+    const raw = String(path || '');
+    if (!raw.startsWith('/')) return null;
+    const parts = [];
+    raw.split('/').forEach((part) => {
+      if (!part || part === '.') return;
+      if (part === '..') {
+        if (parts.length) parts.pop();
+        return;
+      }
+      parts.push(part);
+    });
+    return '/' + parts.join('/');
+  }
+
+  // Notebook APIs deliberately accept only paths relative to the active
+  // workspace. Project paths, however, are absolute. Convert between the two
+  // using LAB_WORKSPACE_ROOT (not the separate framework/self-view root), and
+  // refuse to strip anything until containment has been checked.
+  function _workspaceRelativeNotebookPath(projectPath, filepath) {
+    const workspaceRoot = _normalizeAbsolutePath(WORKSPACE_ROOT);
+    const projectRoot = _normalizeAbsolutePath(projectPath);
+    const file = String(filepath || '');
+    if (!workspaceRoot) throw new Error('Active workspace root is unavailable');
+    if (!projectRoot || !file || file.startsWith('/')) {
+      throw new Error('Invalid notebook path');
+    }
+    if (file.split('/').some((part) => part === '..')) {
+      throw new Error('Notebook path traversal is not allowed');
+    }
+
+    const combined = _normalizeAbsolutePath(projectRoot + '/' + file);
+    const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
+    if (!combined || !combined.startsWith(rootPrefix)) {
+      throw new Error('Notebook is outside the active workspace');
+    }
+    const relative = combined.slice(rootPrefix.length);
+    if (!relative || relative.startsWith('/')
+        || relative.split('/').some((part) => part === '..')) {
+      throw new Error('Invalid workspace-relative notebook path');
+    }
+    return relative;
+  }
+
   function renderNotebookCell(cell, status) {
     const statusCls = status && status !== 'unchanged' ? ` nb-${status}` : '';
     const statusLabel = status && status !== 'unchanged'
@@ -2851,9 +2895,7 @@
     // .ipynb write triggers the watcher, every open viewer re-renders.
     if (filepath.toLowerCase().endsWith('.ipynb')) {
       try {
-        let relPath = currentProject.path + '/' + filepath;
-        const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
-        if (relPath.startsWith(rootPrefix)) relPath = relPath.slice(rootPrefix.length);
+        const relPath = _workspaceRelativeNotebookPath(currentProject.path, filepath);
 
         // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
         // receive its first cell" rather than an error.
@@ -5238,6 +5280,7 @@
   // Pseudo-project like Cerebro; no folder under knowledge/projects/.
   const SELF_PROJECT_ID = '__self__';
   const SELF_REPO_PATH = window.LAB_MONOREPO_ROOT || '';  // populated by index.html
+  const WORKSPACE_ROOT = window.LAB_WORKSPACE_ROOT || '';  // active workspace; may differ from framework root
 
   // Code Search fixed view: also a pseudo-project. The actual per-repo
   // terminal panel uses `__cs_<repo>__` ids (see _csProjectId); this
@@ -7785,7 +7828,11 @@
     if (!seg) return;
     const projectId = seg[1];
     const docPath = seg[2];
-    const rootPrefix = SELF_REPO_PATH.endsWith('/') ? SELF_REPO_PATH : SELF_REPO_PATH + '/';
+    if (projectId === '.' || projectId === '..'
+        || docPath.split('/').some((part) => part === '..')) return;
+    const workspaceRoot = _normalizeAbsolutePath(WORKSPACE_ROOT);
+    if (!workspaceRoot) return;
+    const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
     const absProject = rootPrefix + 'projects/' + projectId;
     setLastProjectDoc(absProject, docPath);
     _nbHashProject = absProject;

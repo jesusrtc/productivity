@@ -589,7 +589,8 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index_page(request: Request):
-        root: Path = request.app.state.index_cache.root
+        root = Path(request.app.state.index_cache.root).expanduser().resolve()
+        workspace_root = str(root)
         mtime = _index_cache["mtime"]
         now = time.monotonic()
         if now >= _index_cache["check_after"]:
@@ -600,6 +601,7 @@ def create_app() -> FastAPI:
                 mtime = None
         state = _index_initial_state(request)
         key = (
+            workspace_root,
             state["INITIAL_VIEW"],
             state["INITIAL_BODY_CLASS"],
             state["INITIAL_PROJECT_NAME"],
@@ -613,6 +615,7 @@ def create_app() -> FastAPI:
             asset_v = format(max(mtime) // 1_000_000, "x") if mtime else "0"
             html = templates.get_template("index.html").render(
                 MONOREPO_ROOT=str(lab_paths.find_framework_root()),
+                WORKSPACE_ROOT=workspace_root,
                 ASSET_V=asset_v,
                 **state,
             )

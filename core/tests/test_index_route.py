@@ -1,3 +1,17 @@
+def test_index_exposes_framework_and_active_workspace_roots_separately(
+    client, monorepo, monkeypatch,
+) -> None:
+    framework_root = monorepo.parent / "framework-checkout"
+    framework_root.mkdir()
+    monkeypatch.setenv("LAB_FRAMEWORK_ROOT", str(framework_root))
+
+    r = client.get("/")
+
+    assert r.status_code == 200
+    assert f'window.LAB_MONOREPO_ROOT = "{framework_root.resolve()}"' in r.text
+    assert f'window.LAB_WORKSPACE_ROOT = "{monorepo.resolve()}"' in r.text
+
+
 def test_get_index_empty(client) -> None:
     r = client.get("/api/index")
     assert r.status_code == 200
