@@ -12,6 +12,7 @@ NODE = shutil.which("node")
 ROOT = Path(__file__).resolve().parents[2]
 LAB_APP = ROOT / "core/src/core/static/js/lab-app.js"
 INDEX_HTML = ROOT / "core/src/core/templates/index.html"
+LAB_SHELL_CSS = ROOT / "core/src/core/static/css/lab-shell.css"
 
 
 def _run_node(script: str) -> dict:
@@ -42,6 +43,136 @@ def test_terminal_close_button_is_wired_to_persistent_close_handler() -> None:
     assert 'onclick="termKillCurrent()"' in html
     assert ">Close</button>" in html
     assert "keep it closed after reload" in html
+
+
+def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert '<div class="term-stage">' in html
+    assert 'id="termSessionList" role="tablist"' in html
+    assert 'aria-orientation="vertical"' in html
+    assert 'id="termActiveSession"' in html
+    assert 'onclick="termRenameCurrent()"' in html
+    assert 'onclick="termToggleSessionOrientation()"' in html
+    assert 'onclick="termToggleSessionDetail()"' in html
+    assert ".term-stage { display: flex; flex: 1;" in css
+    assert ".term-sessions { display: flex; flex-direction: column;" in css
+    assert "width: 62px" in css
+    assert "overflow-y: auto" in css
+    assert ".term-panel.term-sessions-horizontal .term-stage" in css
+    assert ".term-panel.term-sessions-full .term-sessions" in css
+    assert ".term-panel.term-sessions-horizontal.term-sessions-full" in css
+    assert 'class="sess-icon"' in source
+    assert 'class="sess-order"' in source
+    assert 'class="agent"' in source
+    assert 'class="sess-label' in source
+    assert 'class="k"' in source
+    assert "(e.clientY - rect.top) < rect.height / 2" in source
+    assert "(e.clientX - rect.left) < rect.width / 2" in source
+    assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
+
+
+def test_terminal_session_view_controls_persist_independently() -> None:
+    view_helpers = _js_between(
+        "function _termApplySessionView(refit = true)",
+        "// Same TDZ hoist for the files-sidebar",
+    )
+    result = _run_node(
+        """
+const classes = new Set();
+const stored = {};
+const panel = {classList: {toggle(value, on) {
+  if (on) classes.add(value); else classes.delete(value);
+}}};
+function makeButton() {
+  return {textContent: '', title: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; }};
+}
+const orientationBtn = makeButton();
+const detailBtn = makeButton();
+const sessionList = makeButton();
+const document = {getElementById(id) {
+  if (id === 'termPanel') return panel;
+  if (id === 'termSessionList') return sessionList;
+  if (id === 'termOrientationBtn') return orientationBtn;
+  if (id === 'termDetailBtn') return detailBtn;
+  return null;
+}};
+const localStorage = {setItem(key, value) { stored[key] = value; }};
+const _TERM_SESSION_ORIENTATION_KEY = 'orientation';
+const _TERM_SESSION_DETAIL_KEY = 'detail';
+let termSessionOrientation = 'vertical';
+let termSessionDetail = 'compact';
+function requestAnimationFrame() {}
+""" + view_helpers + """
+termToggleSessionOrientation();
+termToggleSessionDetail();
+process.stdout.write(JSON.stringify({
+  classes: Array.from(classes).sort(),
+  stored,
+  orientationText: orientationBtn.textContent,
+  orientationPressed: orientationBtn.attrs['aria-pressed'],
+  detailText: detailBtn.textContent,
+  detailPressed: detailBtn.attrs['aria-pressed'],
+  ariaOrientation: sessionList.attrs['aria-orientation'],
+}));
+"""
+    )
+
+    assert result["classes"] == ["term-sessions-full", "term-sessions-horizontal"]
+    assert result["stored"] == {"orientation": "horizontal", "detail": "full"}
+    assert result["orientationText"] == "↕"
+    assert result["orientationPressed"] == "true"
+    assert result["detailText"] == "◉"
+    assert result["detailPressed"] == "true"
+    assert result["ariaOrientation"] == "horizontal"
+
+
+def test_terminal_active_session_details_move_to_header() -> None:
+    header_helpers = _js_between(
+        "function _termSessionDisplay(s)",
+        "function termRenderSessionList()",
+    )
+    result = _run_node(
+        """
+const activeHeader = {
+  className: '', title: '', innerHTML: '',
+  removeAttribute(name) { if (name === 'title') this.title = ''; },
+};
+const renameClasses = new Set();
+const renameButton = {classList: {
+  add(value) { renameClasses.add(value); },
+  remove(value) { renameClasses.delete(value); },
+}};
+const document = {getElementById(id) {
+  if (id === 'termActiveSession') return activeHeader;
+  if (id === 'termRenameBtn') return renameButton;
+  return null;
+}};
+const termSessions = [{
+  name: 'lab-demo-codex-2-abc123', logical_name: 'codex-2',
+  kind: 'claude', agent: 'codex', summary: 'Reviewing changes',
+}];
+let termCurrentSession = termSessions[0].name;
+let termCurrentProjectId = 'demo';
+function _termActiveProjectId() { return 'demo'; }
+function termSessEsc(value) { return String(value); }
+function prompt() { return null; }
+""" + header_helpers + """
+_termRenderActiveSessionHeader();
+process.stdout.write(JSON.stringify({
+  className: activeHeader.className,
+  html: activeHeader.innerHTML,
+  renameVisible: renameClasses.has('on'),
+}));
+"""
+    )
+
+    assert result["className"] == "term-active-session on claude"
+    assert '<span class="name">codex-2</span>' in result["html"]
+    assert '<span class="agent">codex</span>' in result["html"]
+    assert result["renameVisible"] is True
 
 
 def test_workspace_view_opens_its_own_terminal_scope() -> None:

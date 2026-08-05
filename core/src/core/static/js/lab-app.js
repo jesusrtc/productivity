@@ -5329,6 +5329,70 @@
   // further down the script. Without this hoist the helpers hit a
   // TDZ on `_TERM_VIS_KEY_PREFIX`.
   const _TERM_VIS_KEY_PREFIX = 'labTermShown:';
+  const _TERM_SESSION_ORIENTATION_KEY = 'labTermSessionOrientation';
+  const _TERM_SESSION_DETAIL_KEY = 'labTermSessionDetail';
+  let termSessionOrientation = 'vertical';
+  let termSessionDetail = 'compact';
+  try {
+    if (localStorage.getItem(_TERM_SESSION_ORIENTATION_KEY) === 'horizontal') {
+      termSessionOrientation = 'horizontal';
+    }
+    if (localStorage.getItem(_TERM_SESSION_DETAIL_KEY) === 'full') {
+      termSessionDetail = 'full';
+    }
+  } catch {}
+
+  function _termApplySessionView(refit = true) {
+    const panel = document.getElementById('termPanel');
+    const sessionList = document.getElementById('termSessionList');
+    const orientationBtn = document.getElementById('termOrientationBtn');
+    const detailBtn = document.getElementById('termDetailBtn');
+    const horizontal = termSessionOrientation === 'horizontal';
+    const full = termSessionDetail === 'full';
+    if (panel) {
+      panel.classList.toggle('term-sessions-horizontal', horizontal);
+      panel.classList.toggle('term-sessions-full', full);
+    }
+    if (sessionList) sessionList.setAttribute('aria-orientation', horizontal ? 'horizontal' : 'vertical');
+    if (orientationBtn) {
+      const text = horizontal ? 'Use vertical session rail' : 'Use horizontal session tabs';
+      orientationBtn.textContent = horizontal ? '↕' : '↔';
+      orientationBtn.title = text;
+      orientationBtn.setAttribute('aria-label', text);
+      orientationBtn.setAttribute('aria-pressed', horizontal ? 'true' : 'false');
+    }
+    if (detailBtn) {
+      const text = full ? 'Use compact session icons' : 'Show full session names and agents';
+      detailBtn.textContent = full ? '◉' : 'Aa';
+      detailBtn.title = text;
+      detailBtn.setAttribute('aria-label', text);
+      detailBtn.setAttribute('aria-pressed', full ? 'true' : 'false');
+    }
+    if (!refit) return;
+    requestAnimationFrame(() => {
+      if (termXterm && termFitAddon) {
+        try { termFitAddon.fit(); } catch {}
+        termSendResize();
+      }
+    });
+  }
+
+  function termToggleSessionOrientation() {
+    termSessionOrientation = termSessionOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+    try { localStorage.setItem(_TERM_SESSION_ORIENTATION_KEY, termSessionOrientation); } catch {}
+    _termApplySessionView();
+  }
+
+  function termToggleSessionDetail() {
+    termSessionDetail = termSessionDetail === 'full' ? 'compact' : 'full';
+    try { localStorage.setItem(_TERM_SESSION_DETAIL_KEY, termSessionDetail); } catch {}
+    _termApplySessionView();
+  }
+
+  // Apply before the initial route dispatch so direct project/pseudo-project
+  // loads never flash the default switcher shape. Refit is intentionally off:
+  // terminal state is declared later and no xterm exists yet.
+  _termApplySessionView(false);
   // Same TDZ hoist for the files-sidebar per-view persistence: the apply
   // helper runs inside _termApplyRememberedVisibility during the same
   // initial `?view=…` dispatch.
@@ -6604,6 +6668,21 @@
     return (s && (s.label || s.logical_name || s.name)) || '';
   }
 
+  function _termSessionVisual(s) {
+    const kind = (s && s.kind || '').toLowerCase();
+    const agent = (s && s.agent || (kind === 'claude' ? 'claude' : '')).toLowerCase();
+    return {
+      kind,
+      agent,
+      badge: kind === 'claude' ? (agent || 'claude') : kind,
+      icon: kind !== 'claude' ? '💻'
+        : agent === 'codex' ? '🧠'
+        : agent === 'copilot' ? '🐙'
+        : '🤖',
+      isClaude: agent === 'claude',
+    };
+  }
+
   function _termSessionTitle(s, statusTitle) {
     const parts = [];
     const display = _termSessionDisplay(s);
@@ -6657,47 +6736,68 @@
     }
   }
 
+  function termRenameCurrent() {
+    if (termCurrentSession) termRenameSession(termCurrentSession);
+  }
+
+  function _termRenderActiveSessionHeader() {
+    const el = document.getElementById('termActiveSession');
+    const renameBtn = document.getElementById('termRenameBtn');
+    if (!el) return;
+    const session = (termSessions || []).find(s =>
+      s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId
+    );
+    if (!session) {
+      el.innerHTML = '';
+      el.removeAttribute('title');
+      el.className = 'term-active-session';
+      if (renameBtn) renameBtn.classList.remove('on');
+      return;
+    }
+    const display = _termSessionDisplay(session);
+    const visual = _termSessionVisual(session);
+    el.className = `term-active-session on ${visual.kind}`;
+    el.title = _termSessionTitle(session, '');
+    el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+    if (renameBtn) renameBtn.classList.add('on');
+  }
+
   function termRenderSessionList() {
     const el = document.getElementById('termSessionList');
     if (!el) return;
+    _termRenderActiveSessionHeader();
     if (!termSessions || termSessions.length === 0) {
-      el.innerHTML = '<span class="empty">no sessions — click + New</span>';
+      el.innerHTML = '';
       return;
     }
-    el.innerHTML = termSessions.map(s => {
+    el.innerHTML = termSessions.map((s, index) => {
       const display = _termSessionDisplay(s);
-      const kind = (s.kind || '').toLowerCase();
-      // Badge + icon reflect the actual agent (claude/codex/copilot), not the
-      // transport kind — codex sessions have kind==='claude' but must not read
-      // "CLAUDE". Terminal sessions show their kind ('terminal').
-      const agent = (s.agent || (kind === 'claude' ? 'claude' : '')).toLowerCase();
-      const isClaude = agent === 'claude';
-      const badge = kind === 'claude' ? (agent || 'claude') : kind;
-      const icon = kind !== 'claude' ? '💻'
-        : agent === 'codex' ? '🧠'
-        : agent === 'copilot' ? '🐙'
-        : '🤖';
+      // Compact/full visibility is CSS-controlled so switching detail never
+      // rebuilds or reconnects a terminal. The active header always carries
+      // the complete identity, even in compact mode.
+      const visual = _termSessionVisual(s);
       const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
       const logical = s.logical_name || '';
       const dead = termDeadSessions.has(s.name) ? ' dead' : '';
       // status: 'working' (pulsing yellow dot) or 'idle' (solid red dot) — only
       // the Claude agent has a UI we can classify. codex/copilot/terminal: none.
       const status = termStatus[s.name] || '';
-      const statusCls = (!dead && isClaude && (status === 'working' || status === 'idle'))
+      const statusCls = (!dead && visual.isClaude && (status === 'working' || status === 'idle'))
         ? ` ${status}` : '';
       const statusTitle = dead
         ? 'Session unreachable — click to retry'
-        : (isClaude
+        : (visual.isClaude
             ? (status === 'working' ? 'Claude is working…'
                : status === 'idle'   ? 'Claude idle — needs your input'
                : 'Claude — status unknown')
             : '');
-      const labelCls = s.label ? ' custom' : '';
-      return `<span class="sess ${kind}${active}${statusCls}${dead}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
+      const ariaLabel = `${display} · ${visual.badge}`;
+      return `<span class="sess ${visual.kind}${active}${statusCls}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
         <span class="stat"></span>
-        <span>${icon}</span>
-        <span class="sess-label${labelCls}">${termSessEsc(display)}</span>
-        <span class="k">${termSessEsc(badge)}</span>
+        <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
+        <span class="sess-order" aria-hidden="true">${index + 1}</span>
+        <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
+        <span class="k">${termSessEsc(visual.badge)}</span>
         <button type="button" class="rename" data-rename="${termSessEsc(s.name)}" title="Rename terminal tab" aria-label="Rename terminal tab">✎</button>
       </span>`;
     }).join('');
@@ -6714,6 +6814,11 @@
         e.preventDefault();
         e.stopPropagation();
         termRenameSession(node.getAttribute('data-name'));
+      });
+      node.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        node.click();
       });
       node.addEventListener('click', () => {
         const name = node.getAttribute('data-name');
@@ -6767,7 +6872,9 @@
         container.querySelectorAll('.sess.drop-before, .sess.drop-after')
           .forEach(p => p.classList.remove('drop-before', 'drop-after'));
         const rect = pill.getBoundingClientRect();
-        const before = (e.clientX - rect.left) < rect.width / 2;
+        const before = termSessionOrientation === 'horizontal'
+          ? (e.clientX - rect.left) < rect.width / 2
+          : (e.clientY - rect.top) < rect.height / 2;
         pill.classList.add(before ? 'drop-before' : 'drop-after');
       });
       pill.addEventListener('drop', async (e) => {
@@ -6778,7 +6885,9 @@
           .forEach(p => p.classList.remove('drop-before', 'drop-after'));
         if (!src || !dst || src === dst) return;
         const rect = pill.getBoundingClientRect();
-        const before = (e.clientX - rect.left) < rect.width / 2;
+        const before = termSessionOrientation === 'horizontal'
+          ? (e.clientX - rect.left) < rect.width / 2
+          : (e.clientY - rect.top) < rect.height / 2;
         await termReorderSessions(src, dst, before);
       });
     });
@@ -7775,6 +7884,7 @@
     if (state === 'live') el.classList.add('live');
     else if (state === 'err') el.classList.add('err');
     t.textContent = text;
+    _termRenderActiveSessionHeader();
   }
 
   // ─── Home view (dashboard / timeline / search) ───

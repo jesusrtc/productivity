@@ -1793,19 +1793,55 @@
   body.term-resizing { cursor: ew-resize !important; user-select: none; }
   body.term-resizing * { cursor: ew-resize !important; user-select: none !important; }
   .term-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .term-header .title { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .term-header .title { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .term-active-session { display: none; align-items: center; gap: 5px; min-width: 0; margin-right: auto; padding-left: 7px; border-left: 1px solid var(--border); font-family: ui-monospace, monospace; }
+  .term-active-session.on { display: flex; }
+  .term-active-session .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); font-size: 11px; white-space: nowrap; }
+  .term-active-session .agent { flex-shrink: 0; color: var(--green); font-size: 9px; letter-spacing: 0.5px; opacity: 0.8; text-transform: uppercase; }
+  .term-active-session.terminal .agent { color: var(--yellow); }
   .term-header select { flex: 1; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 12px; font-family: ui-monospace, monospace; }
-  .term-sessions { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding: 6px 10px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0; scrollbar-width: thin; }
+  .term-stage { display: flex; flex: 1; min-height: 0; min-width: 0; }
+  .term-console { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+  .term-sessions { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; gap: 4px; width: 62px; padding: 8px 6px; background: var(--bg-secondary); border-right: 1px solid var(--border); flex-shrink: 0; scrollbar-width: thin; }
   .term-sessions:empty { display: none; }
-  .term-sessions .sess { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; font-family: ui-monospace, monospace; cursor: pointer; white-space: nowrap; flex-shrink: 0; user-select: none; }
+  .term-sessions .sess { position: relative; display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; height: 36px; min-width: 0; box-sizing: border-box; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; font-family: ui-monospace, monospace; cursor: pointer; white-space: nowrap; flex-shrink: 0; user-select: none; }
   .term-sessions .sess.dragging { opacity: 0.45; cursor: grabbing; }
-  .term-sessions .sess.drop-before { box-shadow: -2px 0 0 var(--accent); }
-  .term-sessions .sess.drop-after { box-shadow: 2px 0 0 var(--accent); }
+  .term-sessions .sess.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+  .term-sessions .sess.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
   /* Status indicator on a claude pill — tiny dot + optional pulse. */
-  .term-sessions .sess .stat { width: 7px; height: 7px; border-radius: 50%; background: transparent; display: inline-block; flex-shrink: 0; }
+  .term-sessions .sess .stat { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: transparent; display: inline-block; box-shadow: 0 0 0 1px var(--bg-tertiary); }
+  .term-sessions .sess .sess-icon { font-size: 14px; line-height: 1; }
+  .term-sessions .sess .sess-order { color: var(--text-dim); font-size: 9px; line-height: 1; }
+  .term-sessions .sess .sess-label, .term-sessions .sess .k, .term-sessions .sess .rename { display: none; }
   .term-sessions .sess.working .stat { background: var(--yellow); animation: sess-pulse 1.1s ease-in-out infinite; }
   .term-sessions .sess.idle .stat { background: var(--red); }
   @keyframes sess-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
+
+  /* Full detail is independent of orientation. In a vertical rail the rows
+     expand; in a horizontal strip they keep the original compact pill shape. */
+  .term-panel.term-sessions-full .term-sessions { width: clamp(160px, 34%, 220px); padding: 8px; }
+  .term-panel.term-sessions-full .term-sessions .sess { justify-content: flex-start; height: auto; padding: 7px 8px; }
+  .term-panel.term-sessions-full .term-sessions .sess .stat { position: static; width: 7px; height: 7px; flex-shrink: 0; box-shadow: none; }
+  .term-panel.term-sessions-full .term-sessions .sess .sess-order { display: none; }
+  .term-panel.term-sessions-full .term-sessions .sess .sess-label { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-panel.term-sessions-full .term-sessions .sess .sess-label.custom { color: var(--text-primary); font-weight: 600; }
+  .term-panel.term-sessions-full .term-sessions .sess .k { display: inline; flex-shrink: 0; font-size: 9px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
+  .term-panel.term-sessions-full .term-sessions .sess.claude .k { color: var(--green); }
+  .term-panel.term-sessions-full .term-sessions .sess.terminal .k { color: var(--yellow); }
+  .term-panel.term-sessions-full .term-sessions .sess .rename { display: block; border: 0; background: transparent; color: var(--text-dim); padding: 0 0 0 2px; font: inherit; cursor: pointer; line-height: 1; opacity: 0; }
+  .term-panel.term-sessions-full .term-sessions .sess:hover .rename, .term-panel.term-sessions-full .term-sessions .sess.active .rename { opacity: 0.8; }
+  .term-panel.term-sessions-full .term-sessions .sess .rename:hover { color: var(--text-primary); opacity: 1; }
+
+  /* Horizontal orientation puts the same switcher above the console. Compact
+     mode stays icon-only; full mode restores the old scrollable tab pills. */
+  .term-panel.term-sessions-horizontal .term-stage { flex-direction: column; }
+  .term-panel.term-sessions-horizontal .term-sessions { flex-direction: row; overflow-x: auto; overflow-y: hidden; width: auto; padding: 6px 10px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .term-panel.term-sessions-horizontal .term-sessions .sess { width: 40px; flex-shrink: 0; }
+  .term-panel.term-sessions-horizontal .term-sessions .sess.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+  .term-panel.term-sessions-horizontal .term-sessions .sess.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+  .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions { width: auto; padding: 6px 10px; }
+  .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess { width: auto; max-width: 240px; padding: 3px 9px; }
+  .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
 
   /* Project-tab attention signal: tint the whole tab amber instead of
      pulsing a red dot. Amber reads as "ready for you" without implying
@@ -1827,14 +1863,6 @@
   .proj-tab .attn-dot { display: none; }
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
-  .term-sessions .sess .sess-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .term-sessions .sess .sess-label.custom { color: var(--text-primary); font-weight: 600; }
-  .term-sessions .sess .k { font-size: 9px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
-  .term-sessions .sess.claude .k { color: var(--green); }
-  .term-sessions .sess.terminal .k { color: var(--yellow); }
-  .term-sessions .sess .rename { border: 0; background: transparent; color: var(--text-dim); padding: 0 0 0 2px; font: inherit; cursor: pointer; line-height: 1; opacity: 0; }
-  .term-sessions .sess:hover .rename, .term-sessions .sess.active .rename { opacity: 0.8; }
-  .term-sessions .sess .rename:hover { color: var(--text-primary); opacity: 1; }
   /* Dead session: server told us the tmux session is gone, or the
      reconnect loop gave up. Grayed-out + strikethrough so it's clearly
      distinct from a transient disconnect (which keeps the normal look +
@@ -1845,6 +1873,10 @@
   .term-sessions .sess.dead .stat { background: transparent !important; animation: none !important; }
   .term-sessions .empty { color: var(--text-dim); font-size: 11px; padding: 2px 4px; font-style: italic; }
   .term-header button { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .term-header button.term-active-rename { display: none; flex-shrink: 0; border: 0; background: transparent; padding: 2px 3px; color: var(--text-dim); }
+  .term-header button.term-active-rename.on { display: block; }
+  .term-header button.term-view-btn { flex-shrink: 0; min-width: 28px; padding: 3px 6px; font-family: ui-monospace, monospace; }
+  .term-header button.term-view-btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: #388bfd18; }
   .term-header button:hover { color: var(--text-primary); background: var(--border); }
   .term-header button.danger:hover { color: var(--red); border-color: var(--red); }
   .term-new-wrap { position: relative; }

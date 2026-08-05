@@ -444,6 +444,10 @@
   <div class="term-resizer" id="termResizer" title="Drag to resize"></div>
   <div class="term-header">
     <span class="title">Terminal</span>
+    <span class="term-active-session" id="termActiveSession" aria-live="polite"></span>
+    <button id="termRenameBtn" class="term-active-rename" onclick="termRenameCurrent()" title="Rename the active terminal" aria-label="Rename the active terminal">&#x270E;</button>
+    <button id="termOrientationBtn" class="term-view-btn" onclick="termToggleSessionOrientation()" title="Use horizontal session tabs" aria-label="Use horizontal session tabs" aria-pressed="false">&#x2194;</button>
+    <button id="termDetailBtn" class="term-view-btn" onclick="termToggleSessionDetail()" title="Show full session names and agents" aria-label="Show full session names and agents" aria-pressed="false">Aa</button>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only `tmux attach` command for this session to the clipboard">&#x1F4CB;</button>
     <div class="term-new-wrap">
       <button id="termNewBtn" onclick="termToggleNewPicker(event)" title="New session in this project">+ New</button>
@@ -456,14 +460,17 @@
     </div>
     <button id="termKillBtn" class="danger" onclick="termKillCurrent()" title="Close the active terminal and keep it closed after reload">Close</button>
   </div>
-  <!-- Sessions list: one pill per live tmux session. Click to switch.
-       Replaces the old <select> since projects rarely have more than a
-       handful and the dropdown UX hid everything behind an extra click. -->
-  <div class="term-sessions" id="termSessionList"></div>
-  <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
-  <div class="term-body" id="termBody">
-    <div class="term-empty" id="termEmpty">
-      Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this project's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.
+  <div class="term-stage">
+    <!-- Session switcher. Header controls independently choose its orientation
+         (vertical/horizontal) and detail (compact icons/full labels). -->
+    <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminal sessions" aria-orientation="vertical"></div>
+    <div class="term-console">
+      <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
+      <div class="term-body" id="termBody">
+        <div class="term-empty" id="termEmpty">
+          Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this project's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.
+        </div>
+      </div>
     </div>
   </div>
 </div>
