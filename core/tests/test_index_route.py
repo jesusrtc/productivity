@@ -68,6 +68,9 @@ def test_frontend_declares_cross_workspace_navigation_surfaces() -> None:
     assert "function showScopedCodeSearch" in script
     assert "function selfShowAdmin" in script
     assert "function workspaceSaveAppearance" in script
+    assert "function projectSaveDisplayName" in script
+    assert "Name shown in tabs" in script
+    assert "_projectDisplayName(project)" in script
     assert "/api/workspaces/use" not in script
     server_bar = script[
         script.index("async function refreshAttrsBar"):

@@ -64,6 +64,36 @@ def _root_for_project(root: Path, project_id: str) -> Path:
     return root
 
 
+def _root_for_workspace(request: Request, workspace: str | None) -> Path:
+    """Resolve a registered workspace without changing the active workspace."""
+    active_root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    if not workspace:
+        return active_root
+    rows = paths.read_workspace_registry().get("workspaces") or []
+    # The catalog includes the active root even before it has been registered,
+    # using its directory name as the workspace id. Accept that exact identity.
+    active_id = active_root.name
+    for row in rows:
+        try:
+            if Path(str(row["path"])).expanduser().resolve() == active_root:
+                active_id = str(row["id"])
+                break
+        except (KeyError, OSError):
+            continue
+    if workspace == active_id:
+        return active_root
+    for row in rows:
+        if str(row.get("id")) != workspace:
+            continue
+        root = Path(str(row["path"])).expanduser().resolve()
+        if not root.is_dir():
+            raise HTTPException(status_code=404, detail=f"workspace path not found: {root}")
+        if not (root / "lab.toml").is_file() and not (root / "content").is_dir():
+            raise HTTPException(status_code=400, detail=f"{root} is not a Lab workspace")
+        return root
+    raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
+
+
 class NewProject(BaseModel):
     id: str
     workspace: str | None = None
@@ -95,14 +125,14 @@ _PROJECT_SETTABLE_FIELDS = {
 
 @router.post("/api/projects/{project_id}/field")
 def update_project_field(project_id: str, body: ProjectField,
-                         request: Request) -> dict:
+                         request: Request, workspace: str | None = None) -> dict:
     """Partial update of a single project.json field.
 
     Wraps ``lab project set <id> <field> <value>`` so the same validation
     path governs API and CLI writes. Passing ``value=null`` (or ``""``)
     clears the field for nullable fields (priority/due/loe/description).
     """
-    root: Path = request.app.state.index_cache.root
+    root = _root_for_workspace(request, workspace)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     if body.field not in _PROJECT_SETTABLE_FIELDS:
@@ -141,19 +171,7 @@ def set_project_tab(project_id: str, body: TabState,
 
 @router.post("/api/projects")
 def create_project(body: NewProject, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
-    if body.workspace:
-        for row in paths.read_workspace_registry().get("workspaces") or []:
-            if str(row.get("id")) != body.workspace:
-                continue
-            root = Path(str(row["path"])).expanduser().resolve()
-            if not root.is_dir():
-                raise HTTPException(status_code=404, detail=f"workspace path not found: {root}")
-            if not (root / "lab.toml").is_file() and not (root / "content").is_dir():
-                raise HTTPException(status_code=400, detail=f"{root} is not a Lab workspace")
-            break
-        else:
-            raise HTTPException(status_code=404, detail=f"workspace {body.workspace!r} not found")
+    root = _root_for_workspace(request, body.workspace)
     _validate_pid(body.id)
     args = ["project", "new", body.id]
     if body.description:

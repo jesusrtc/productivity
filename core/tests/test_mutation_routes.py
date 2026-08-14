@@ -69,6 +69,71 @@ def test_post_project_new_unknown_workspace_is_404(client) -> None:
     assert r.status_code == 404
 
 
+def test_project_name_is_a_display_alias_and_id_stays_stable(
+    client, monorepo, seed_project,
+) -> None:
+    seed_project("remotion-manim")
+
+    r = client.post(
+        "/api/projects/remotion-manim/field",
+        json={"field": "name", "value": "Video Studio"},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == "remotion-manim"
+    assert r.json()["name"] == "Video Studio"
+    assert (monorepo / "projects" / "remotion-manim").is_dir()
+
+    repos = client.get("/api/repos")
+    project = next(row for row in repos.json() if row["name"] == "remotion-manim")
+    assert project["display_name"] == "Video Studio"
+
+
+def test_project_name_update_accepts_unregistered_active_workspace_id(
+    client, monorepo, seed_project,
+) -> None:
+    seed_project("remotion-manim")
+
+    r = client.post(
+        f"/api/projects/remotion-manim/field?workspace={monorepo.name}",
+        json={"field": "name", "value": "Motion Lab"},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "Motion Lab"
+
+
+def test_project_name_update_targets_registered_workspace_without_switching(
+    client, monorepo, tmp_path,
+) -> None:
+    other = tmp_path / "other"
+    (other / "projects").mkdir(parents=True)
+    (other / "content").mkdir()
+    paths.write_workspace_registry({
+        "active": "main",
+        "workspaces": [
+            {"id": "main", "name": "main", "path": str(monorepo)},
+            {"id": "other", "name": "other", "path": str(other)},
+        ],
+    })
+    created = client.post(
+        "/api/projects",
+        json={"id": "remotion-manim", "workspace": "other"},
+    )
+    assert created.status_code == 200, created.text
+
+    r = client.post(
+        "/api/projects/remotion-manim/field?workspace=other",
+        json={"field": "name", "value": "Animations"},
+    )
+
+    assert r.status_code == 200, r.text
+    stored = json.loads((other / "projects" / "remotion-manim" / "project.json").read_text())
+    assert stored["id"] == "remotion-manim"
+    assert stored["name"] == "Animations"
+    assert paths.read_workspace_registry()["active"] == "main"
+
+
 def test_post_task_new(client, seed_project) -> None:
     seed_project("alpha")
     r = client.post("/api/tasks", json={

@@ -442,9 +442,16 @@ def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
                 if isinstance(r, str):
                     repos.append(r)
 
-        name = data.get("id") or data.get("name") or proj_dir.name
+        project_id = data.get("id") or proj_dir.name
+        display_name = data.get("name")
+        if not isinstance(display_name, str) or not display_name.strip():
+            display_name = project_id
         out.append({
-            "name": name,
+            # ``name`` remains the stable project id for backward-compatible
+            # API consumers. ``display_name`` is presentation-only and may
+            # change without renaming the project directory or terminal ids.
+            "name": project_id,
+            "display_name": display_name,
             "is_project": True,
             "path": str(proj_dir),
             "repos": repos,
@@ -464,7 +471,8 @@ def get_registered_repos(root: str | Path | None = None) -> list[dict]:
     monorepo projects are found or the monorepo layout is absent.
 
     Each entry:
-      {"name": str, "is_project": bool, "path": str, "repos": [str]}
+      {"name": str, "display_name": str, "is_project": bool,
+       "path": str, "repos": [str]}
     """
     monorepo_projects = _discover_monorepo_projects(root)
     if monorepo_projects:

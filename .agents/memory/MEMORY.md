@@ -20,3 +20,4 @@
 - [Lab navigation is cross-workspace](lab-navigation-cross-workspace.md) — Home is the permanent framework home; workspace/project tabs carry workspace identity and must not change the globally active workspace
 - [Terminal tmux names hide workspace identity](terminal-tmux-names-hide-workspace.md) — current names are `neurona-<project>-<tab>-<hash6>`; ownership stays in hash/runtime metadata and old names remain discoverable
 - [Terminal tab groups are browser-local](terminal-tab-groups-are-browser-local.md) — named/color/collapsed groups are locally persisted navigation chrome scoped to each terminal surface
+- [Project names are display aliases](project-names-are-display-aliases.md) — keep `project.json.id` and the directory stable; render/edit `project.json.name` as the human-facing tab label

@@ -41,6 +41,12 @@
     return p;
   }
 
+  // Project ids remain stable for paths, terminal sessions, and API calls.
+  // Only this helper should decide what human-facing label to render.
+  function _projectDisplayName(project) {
+    return String((project && (project.display_name || project.name)) || 'Project');
+  }
+
   let currentWorkspaceId = null;
   async function workspaceRefresh() {
     try {
@@ -165,7 +171,7 @@
       projectsList.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.path;
-        opt.textContent = (p.is_project ? '\u{1F4E6} ' : '') + p.name;
+        opt.textContent = (p.is_project ? '\u{1F4E6} ' : '') + _projectDisplayName(p);
         if (p.is_project) opt.style.color = '#58a6ff';
         if (p.name === (currentProject && currentProject.name)) opt.selected = true;
         sel.appendChild(opt);
@@ -183,7 +189,7 @@
 
     if (currentProject.is_project) projTabsSetOpen(currentProject.path, true);
 
-    document.title = currentProject.name;
+    document.title = _projectDisplayName(currentProject);
     // replaceState (not pushState): the caller (goToProject / popstate
     // handler / initial-load dispatch) has already settled the URL. A
     // pushState here would create a duplicate history entry, breaking
@@ -4697,7 +4703,7 @@
       <div style="padding:24px;max-width:900px">
         <div style="margin-bottom:28px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(currentProject.name || 'Project')}</h1>
+            <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(_projectDisplayName(currentProject))}</h1>
             ${currentProject.status ? `<span style="color:var(--accent);font-size:13px;font-weight:600;background:rgba(88,166,255,.12);padding:2px 10px;border-radius:12px">${esc(currentProject.status)}</span>` : ''}
           </div>
           <p style="color:var(--text-secondary);font-size:16px;line-height:1.6;margin:0">${esc(desc)}</p>
@@ -4716,6 +4722,54 @@
         </div>
       </div>`;
   }
+
+  function _setProjectDisplayName(projectPath, displayName) {
+    const update = project => {
+      if (project && project.path === projectPath) project.display_name = displayName;
+    };
+    (projectsList || []).forEach(update);
+    (projTabsAll || []).forEach(update);
+    (workspaceCatalog || []).forEach(workspace => {
+      (workspace.project_rows || []).forEach(update);
+    });
+    update(currentProject);
+  }
+
+  async function projectSaveDisplayName(event) {
+    if (event) event.preventDefault();
+    if (!currentProject || !currentProject.is_project) return false;
+    const input = document.getElementById('projectDisplayName');
+    const status = document.getElementById('projectDisplayNameStatus');
+    const projectId = currentProject.name;
+    const projectPath = currentProject.path;
+    const workspaceId = _projectWorkspaceId(currentProject);
+    const displayName = String(input && input.value || '').trim() || projectId;
+    if (status) status.textContent = 'Saving…';
+    try {
+      const suffix = workspaceId ? '?workspace=' + encodeURIComponent(workspaceId) : '';
+      const r = await fetch('/api/projects/' + encodeURIComponent(projectId) + '/field' + suffix, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: 'name', value: displayName}),
+      });
+      const updated = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(updated.detail || 'Could not save the project name');
+      const savedName = String(updated.name || projectId);
+      _setProjectDisplayName(projectPath, savedName);
+      if (input) input.value = savedName;
+      if (currentProject && currentProject.path === projectPath) {
+        const heading = document.querySelector('[data-project-display-title]');
+        if (heading) heading.textContent = savedName;
+        document.title = savedName;
+      }
+      projTabsRender();
+      if (status) status.textContent = 'Saved';
+    } catch (e) {
+      if (status) status.textContent = e.message || String(e);
+    }
+    return false;
+  }
+  window.projectSaveDisplayName = projectSaveDisplayName;
 
   async function showProjectInfo({preserveScroll = false, keepShell = false} = {}) {
     if (!currentProject || !currentProject.is_project) return;
@@ -4747,7 +4801,7 @@
       // Header with prominent TLDR.
       html += `<div style="margin-bottom:28px">`;
       html += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">`;
-      html += `<h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(info.name)}</h1>`;
+      html += `<h1 data-project-display-title style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(info.name || info.id)}</h1>`;
       html += `<span style="color:${statusColor};font-size:13px;font-weight:600;background:${statusColor}18;padding:2px 10px;border-radius:12px">${info.status}</span>`;
       html += `<button onclick="copyForGDocs(event)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">&#x1F4CB; Copy</button>`;
       html += `</div>`;
@@ -4758,6 +4812,15 @@
       html += `<span>Created: ${info.created}</span>`;
       html += `<span>Updated: ${info.updated}</span>`;
       html += `</div></div>`;
+
+      // The visible name is independent from the stable folder/project id.
+      // Saving goes through `lab project set`, never a direct project.json write.
+      html += `<form onsubmit="return projectSaveDisplayName(event)" style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--bg-secondary);margin:-12px 0 24px">`;
+      html += `<label style="display:flex;flex-direction:column;gap:4px;color:var(--text-secondary);font-size:11px;min-width:220px;flex:1">Name shown in tabs<input id="projectDisplayName" type="text" value="${escAttr(info.name || info.id)}" maxlength="80" placeholder="${escAttr(info.id)}" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 8px"></label>`;
+      html += `<button type="submit" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer">Save name</button>`;
+      html += `<span id="projectDisplayNameStatus" style="color:var(--text-dim);font-size:11px;min-width:42px"></span>`;
+      html += `<span style="width:100%;color:var(--text-dim);font-size:11px">Folder / project id stays <code>${esc(info.id)}</code>.</span>`;
+      html += `</form>`;
 
       // Alerts banner
       const unresolvedAlerts = alerts.filter(a => a.status !== 'resolved');
@@ -5758,7 +5821,7 @@
       return `
         <div class="proj-tab workspace-owned${active}${blocked}" style="--workspace-color:${color}" data-kind="project" data-key="${projTabsEsc(project.path)}" data-pid="${projTabsEsc(project.name)}" data-workspace="${projTabsEsc(project.workspace || '')}" role="tab" title="${projTabsEsc((ws && (ws.name || ws.id)) || '')} · ${projTabsEsc(project.path)}">
           <span class="workspace-mark"></span>
-          <span class="label">${projTabsEsc(project.name)}</span>
+          <span class="label">${projTabsEsc(_projectDisplayName(project))}</span>
           <button class="x" title="Close project tab and its terminal sessions" data-x="${projTabsEsc(project.path)}">&times;</button>
         </div>`;
     }).join('');
@@ -5919,7 +5982,7 @@
     picker.innerHTML = workspaceRows + candidates.map(project => `
       <div class="row" data-path="${projTabsEsc(project.path)}">
         <span class="workspace-mark" style="--workspace-color:${projTabsEsc(project.workspace_color || '#8b949e')}"></span>
-        <span>${projTabsEsc(project.name)}</span>
+        <span>${projTabsEsc(_projectDisplayName(project))}</span>
         <span class="meta">${projTabsEsc(project.workspace_name || project.workspace || '')}</span>
       </div>`).join('');
     picker.querySelectorAll('.row').forEach(row => {
@@ -10472,8 +10535,8 @@
       return;
     }
     list.innerHTML = projects.map(project => `
-      <li class="ws-proj-row" data-path="${escAttr(project.path)}" role="button" tabindex="0" title="Open ${escAttr(project.name)}">
-        <span class="ws-proj-name">${selfEsc(project.name)}</span>
+      <li class="ws-proj-row" data-path="${escAttr(project.path)}" role="button" tabindex="0" title="Open ${escAttr(_projectDisplayName(project))}">
+        <span class="ws-proj-name">${selfEsc(_projectDisplayName(project))}</span>
         <span class="p-caret">›</span>
       </li>`).join('');
     list.querySelectorAll('.ws-proj-row').forEach(row => {

@@ -357,6 +357,7 @@ def api_repos(request: Request):
             repos.append({"path": repo_path, "name": Path(repo_path).name, "branch": branch})
         result.append({
             "name": proj["name"],
+            "display_name": proj.get("display_name", proj["name"]),
             "is_project": proj["is_project"],
             "path": proj["path"],
             "repos": repos,
