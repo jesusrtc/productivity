@@ -103,7 +103,7 @@
 </script>
 
 <div class="topbar">
-  <!-- Persistent navigation: Productivity, then user-opened workspace and
+  <!-- Persistent navigation: Home, then user-opened workspace and
        project tabs. Each workspace owns its color cue; switching tabs never
        changes the server's active workspace or reloads the page. -->
   <div class="proj-tabs" id="projectTabs" role="tablist"></div>
@@ -245,6 +245,7 @@
     <span class="title">Terminal</span>
     <span class="term-active-session" id="termActiveSession" aria-live="polite"></span>
     <button id="termRenameBtn" class="term-active-rename" onclick="termRenameCurrent()" title="Rename the active terminal" aria-label="Rename the active terminal">&#x270E;</button>
+    <button id="termGroupBtn" class="term-active-group" onclick="termOpenActiveGroupMenu(event)" title="Group the active terminal tab" aria-label="Group the active terminal tab">&#x25A6;</button>
     <button id="termOrientationBtn" class="term-view-btn" onclick="termToggleSessionOrientation()" title="Use horizontal session tabs" aria-label="Use horizontal session tabs" aria-pressed="false">&#x2194;</button>
     <button id="termDetailBtn" class="term-view-btn" onclick="termToggleSessionDetail()" title="Show full session names and agents" aria-label="Show full session names and agents" aria-pressed="false">Aa</button>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only `tmux attach` command for this session to the clipboard">&#x1F4CB;</button>
@@ -258,6 +259,7 @@
       </div>
     </div>
     <button id="termKillBtn" class="danger" onclick="termKillCurrent()" title="Close the active terminal and keep it closed after reload">Close</button>
+    <div class="term-group-menu" id="termGroupMenu" role="menu" hidden></div>
   </div>
   <div class="term-stage">
     <!-- Session switcher. Header controls independently choose its orientation
@@ -373,7 +375,7 @@
      project.json back). The sidebar's "Servers" section and the
      /api/proxy/<project>/<name>/... endpoint read this same array. -->
 <div class="modal-overlay" id="proxiesModal" onclick="if(event.target===this)closeProxiesModal()">
-  <div class="form-modal" role="dialog" aria-labelledby="proxiesTitle" style="max-width:780px">
+  <div class="form-modal proxies-modal" role="dialog" aria-labelledby="proxiesTitle">
     <div class="fm-header">
       <span class="fm-title" id="proxiesTitle">&#x1F310; Servers — local dev-server proxies</span>
       <button class="fm-close" type="button" onclick="closeProxiesModal()" aria-label="Close">&times;</button>
@@ -382,19 +384,18 @@
       <div class="fm-body">
         <div class="fm-err" id="proxiesError"></div>
         <p style="color:var(--text-secondary);font-size:12px;margin:0 0 12px">
-          One row per proxied server. The lab UI exposes each at
+          Each server is exposed at
           <code>/api/proxy/&lt;project&gt;/&lt;name&gt;/&hellip;</code> and
-          renders it inline as an iframe (with HMR/WebSocket support).
-          <b>Name</b> is the identifier used in the sidebar.
-          <b>Host</b> defaults to <code>localhost</code>.
-          <b>Path</b> is the initial landing path inside the app.
+          rendered inline with HMR/WebSocket support. Configure optional
+          <code>make</code> commands to start/restart or stop it here.
+          Use <b>Edit</b> to change connection details or commands.
         </p>
         <div id="proxiesRows" class="proxies-rows"></div>
-        <button type="button" id="proxiesAddBtn" class="btn-cancel" onclick="addProxyRow()" style="margin-top:8px">+ Add server</button>
+        <button type="button" id="proxiesAddBtn" class="btn-cancel proxies-add" onclick="addProxyRow()">+ Add server</button>
       </div>
       <div class="fm-actions">
         <button type="button" class="btn-cancel" onclick="closeProxiesModal()">Cancel</button>
-        <button type="submit" class="btn-primary">Save</button>
+        <button type="submit" class="btn-primary" id="proxiesSaveBtn">Save changes</button>
       </div>
     </form>
   </div>

@@ -20,16 +20,13 @@ Session identity lives in TWO places:
   Re-created on session spawn, cleaned on session kill.
 
 Tmux session naming (see ``_tmux_name_for`` / ``_parse_tmux_name``):
-``neurona-<workspace>-<project>-<tab>-<hash6>``, where ``<workspace>`` is
-the stable id from the workspace registry (``~/.lab/workspaces.toml``) —
-NOT a hash of the workspace path — so a path change (USB remount, moved
-checkout) no longer orphans every live session. ``<hash6>`` is a
-deterministic 6-hex marker so the same workspace+project+tab always
-produces the same name. Two older schemes (``lab-<label>-<digest8>-
-<project>-<tab>`` and bare ``lab-<project>-<tab>``) are still recognized
-for discovery/adoption so sessions spawned by a previous server build
-aren't orphaned by this change. ``LAB_TMUX_PREFIX`` (tests / opt-out) keeps
-the plain ``<prefix><project>-<tab>`` shape exactly as before.
+``neurona-<project>-<tab>-<hash6>``. Workspace ownership is deliberately
+not exposed in the human-facing name; it remains in runtime metadata and
+is folded into the deterministic hash so same-named projects in different
+workspaces cannot collide. Older workspace-prefixed and ``lab-`` schemes
+are still recognized for discovery/adoption, so this change never requires
+killing or renaming a live session. ``LAB_TMUX_PREFIX`` (tests / opt-out)
+keeps the plain ``<prefix><project>-<tab>`` shape exactly as before.
 
 Killing a session (the "X on a tab" flow) removes it from tmux + the runtime
 file but **keeps** the project.json entry so a later re-open can
@@ -138,10 +135,9 @@ async def _ws_close_safe(ws: WebSocket, code: int = 1000) -> None:
 
 # ─── paths + env ────────────────────────────────────────────────────────────
 
-# Fixed literal marker for the current tmux naming scheme —
-# ``neurona-<workspace>-<project>-<tab>-<hash6>``. Being a constant (not
-# derived from the workspace path) it survives path changes, and doubles as
-# a quick "yes, this is a lab-owned session" grep target.
+# Fixed literal marker for Lab-owned tmux sessions. Current names use
+# ``neurona-<project>-<tab>-<hash6>``; the immediately preceding generation
+# inserted ``<workspace>-`` after this marker and remains discoverable.
 _SESSION_PREFIX = "neurona-"
 
 _WORKSPACE_LABEL_CACHE: dict[str, tuple[float, str]] = {}
@@ -229,8 +225,13 @@ def _resolve_workspace_label(root: Path | None) -> str:
     return sanitized
 
 
-def _new_scheme_prefix(root: Path | None) -> str:
-    """Prefix of every CURRENT-scheme session name for this workspace."""
+def _new_scheme_prefix(root: Path | None = None) -> str:
+    """Workspace-neutral prefix of every current-scheme session name."""
+    return _SESSION_PREFIX
+
+
+def _legacy_workspace_prefix(root: Path | None) -> str:
+    """Prefix used by the previous ``neurona-<workspace>-...`` scheme."""
     return f"{_SESSION_PREFIX}{_resolve_workspace_label(root)}-"
 
 
@@ -258,8 +259,8 @@ def _legacy_namespaced_prefix(root: Path | None) -> str:
 def _tmux_discovery_prefixes(root: Path | None) -> list[str]:
     """All prefixes under which a tmux session could belong to this workspace.
 
-    Includes the current fixed-``neurona-`` scheme plus the two schemes an
-    older server build used, so already-live sessions from before this
+    Includes the workspace-neutral current scheme plus all schemes an older
+    server build used, so already-live sessions from before this
     naming change are discovered/adopted instead of vanishing from the UI.
     With ``LAB_TMUX_PREFIX`` set (tests), there's only ever the one scheme.
     """
@@ -268,6 +269,7 @@ def _tmux_discovery_prefixes(root: Path | None) -> list[str]:
         return [env_prefix]
     return [
         _new_scheme_prefix(root),
+        _legacy_workspace_prefix(root),
         _legacy_namespaced_prefix(root),
         "lab-",
     ]
@@ -348,7 +350,11 @@ def _tmux_discovery_prefixes_all(workspaces: list[dict]) -> list[str]:
     prefixes: list[str] = []
     seen: set[str] = set()
     for ws in workspaces:
-        for p in (_new_scheme_prefix(ws["path"]), _legacy_namespaced_prefix(ws["path"])):
+        for p in (
+            _new_scheme_prefix(),
+            _legacy_workspace_prefix(ws["path"]),
+            _legacy_namespaced_prefix(ws["path"]),
+        ):
             if p not in seen:
                 seen.add(p)
                 prefixes.append(p)
@@ -361,21 +367,26 @@ def _resolve_session_workspace_root(
 ) -> Path:
     """Which workspace's root a live tmux session name actually belongs to.
 
-    The current + legacy-namespaced naming schemes both embed a
-    workspace-specific segment (the registry label, or a hash of that
-    workspace's old path) so they're unambiguous once tried against every
-    known workspace's root. The oldest bare ``lab-<project>-<tab>`` scheme
-    carries no workspace identity at all — those sessions fall back to the
-    active workspace, exactly as this code has always behaved
-    (single-workspace) before this change. ``LAB_TMUX_PREFIX`` test mode
-    also always resolves to the active root (there's only ever one naming
-    scheme in that mode, so no ambiguity to resolve).
+    Current names omit a visible workspace segment, so ownership is resolved
+    first from each workspace's runtime registry and then by verifying the
+    workspace-specific hash. Previous ``neurona-<workspace>-...`` and
+    namespaced ``lab-`` names remain directly attributable. The oldest bare
+    ``lab-<project>-<tab>`` form falls back to the active workspace.
     """
     if os.environ.get("LAB_TMUX_PREFIX"):
         return active_root
-    for ws in (workspaces if workspaces is not None else _known_workspaces(active_root)):
+    known = workspaces if workspaces is not None else _known_workspaces(active_root)
+    for ws in known:
+        try:
+            if name in _load_meta(ws["path"]):
+                return ws["path"]
+        except OSError:
+            continue
+    for ws in known:
         root = ws["path"]
-        if name.startswith(_new_scheme_prefix(root)) or name.startswith(_legacy_namespaced_prefix(root)):
+        if _parse_current_tmux_name(root, name) is not None:
+            return root
+        if name.startswith(_legacy_workspace_prefix(root)) or name.startswith(_legacy_namespaced_prefix(root)):
             return root
     return active_root
 
@@ -719,14 +730,49 @@ def _split_project_tab_hashed(root: Path, workspace: str, rest: str) -> tuple[st
     return _split_project_tab_hashed_from_ids(_known_project_ids(root), workspace, rest)
 
 
+def _split_current_project_tab_from_ids(
+    project_ids: list[str], workspace: str, rest: str,
+) -> tuple[str, str] | None:
+    """Strictly split a workspace-neutral current name.
+
+    The visible name no longer carries a workspace id, so the deterministic
+    suffix must verify for ``workspace``. A hash belonging to another root
+    is rejected instead of being misread as part of the logical tab name.
+    """
+    for pid in sorted(set(project_ids), key=len, reverse=True):
+        sane = _sanitize(pid)
+        if not (rest.startswith(sane + "-") and len(rest) > len(sane) + 1):
+            continue
+        middle = rest[len(sane) + 1:]
+        maybe_tab, sep, maybe_hash = middle.rpartition("-")
+        if not sep or not maybe_tab or not _HASH_HEX_RE.match(maybe_hash):
+            continue
+        if maybe_hash == _session_hash(workspace, sane, maybe_tab):
+            return pid, maybe_tab
+    return None
+
+
+def _parse_current_tmux_name(
+    root: Path, name: str, project_ids: list[str] | None = None,
+) -> tuple[str, str] | None:
+    if not name.startswith(_SESSION_PREFIX):
+        return None
+    return _split_current_project_tab_from_ids(
+        project_ids if project_ids is not None else _known_project_ids(root),
+        _resolve_workspace_label(root),
+        name[len(_SESSION_PREFIX):],
+    )
+
+
 def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
     """Split a live tmux session name back into ``(project_id, logical_name)``.
 
-    Recognizes three generations of naming, tried in order:
-      1. Current: ``neurona-<workspace>-<project>-<tab>-<hash6>``.
-      2. Namespaced legacy: ``lab-<label>-<digest8>-<project>-<tab>``.
-      3. Bare legacy: ``lab-<project>-<tab>``.
-    All three are tried so sessions spawned by an older server build (or by
+    Recognizes four generations of naming, tried in order:
+      1. Current: ``neurona-<project>-<tab>-<hash6>``.
+      2. Previous: ``neurona-<workspace>-<project>-<tab>-<hash6>``.
+      3. Namespaced legacy: ``lab-<label>-<digest8>-<project>-<tab>``.
+      4. Bare legacy: ``lab-<project>-<tab>``.
+    All are tried so sessions spawned by an older server build (or by
     an agent/CLI running outside the server, following the convention) are
     still discovered and adopted instead of showing up as orphaned.
 
@@ -740,10 +786,14 @@ def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
             return None
         return _split_project_tab(root, name[len(env_prefix):])
 
-    new_prefix = _new_scheme_prefix(root)
-    if name.startswith(new_prefix):
-        workspace = new_prefix[len(_SESSION_PREFIX):-1]  # strip "neurona-" + trailing "-"
-        parsed = _split_project_tab_hashed(root, workspace, name[len(new_prefix):])
+    parsed = _parse_current_tmux_name(root, name)
+    if parsed:
+        return parsed
+
+    workspace_prefix = _legacy_workspace_prefix(root)
+    if name.startswith(workspace_prefix):
+        workspace = _resolve_workspace_label(root)
+        parsed = _split_project_tab_hashed(root, workspace, name[len(workspace_prefix):])
         if parsed:
             return parsed
 
@@ -773,13 +823,17 @@ def _parse_tmux_name_with_project_ids(
             return None
         return _split_project_tab_from_ids(project_ids, name[len(env_prefix):])
 
-    new_prefix = _new_scheme_prefix(root)
-    if name.startswith(new_prefix):
-        workspace = new_prefix[len(_SESSION_PREFIX):-1]
+    parsed = _parse_current_tmux_name(root, name, project_ids)
+    if parsed:
+        return parsed
+
+    workspace_prefix = _legacy_workspace_prefix(root)
+    if name.startswith(workspace_prefix):
+        workspace = _resolve_workspace_label(root)
         parsed = _split_project_tab_hashed_from_ids(
             project_ids,
             workspace,
-            name[len(new_prefix):],
+            name[len(workspace_prefix):],
         )
         if parsed:
             return parsed
@@ -846,6 +900,14 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
             extra={"event_type": "term.registry.unknown"},
         )
         return meta
+    # The current ``neurona-`` prefix is shared by every workspace. Keep
+    # only sessions already owned by this registry or whose deterministic
+    # hash/name parses for this root; otherwise each workspace scan would
+    # adopt every other workspace's sessions into its own sessions.json.
+    live = [
+        row for row in live
+        if row.get("name") in meta or _parse_tmux_name(root, str(row.get("name") or "")) is not None
+    ]
     live_by_name = {s["name"]: s for s in live}
     changed = False
     for n in [n for n in meta if n not in live_by_name]:
@@ -1080,11 +1142,9 @@ _HASH_HEX_RE = re.compile(r"^[0-9a-f]{6}$")
 def _session_hash(workspace: str, project_sane: str, tab_sane: str) -> str:
     """Deterministic 6-hex marker appended to current-scheme session names.
 
-    Hashes the SANITIZED project id + tab (not the raw pre-sanitize
-    strings), since generation and parsing must agree byte-for-byte and the
-    parser only ever sees the sanitized forms once split out of a live tmux
-    name. The fixed ``neurona-`` literal is folded into the input too, so
-    the digest space stays scoped to this specific naming scheme.
+    Workspace ownership stays in this hash even though it is no longer a
+    visible name segment. Hashing sanitized values keeps generation and
+    parsing byte-for-byte consistent.
     """
     payload = f"{_SESSION_PREFIX}{workspace}/{project_sane}/{tab_sane}"
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:6]
@@ -1096,10 +1156,10 @@ def _tmux_name_for(project_id: str | None, logical_name: str,
 
     - ``LAB_TMUX_PREFIX`` set (tests / opt-out): ``<prefix><project>-<tab>``,
       exactly the pre-nomenclature format.
-    - Otherwise: ``neurona-<workspace>-<project>-<tab>-<hash6>``, where
-      ``<workspace>`` is the registry-stable workspace id (see
-      ``_resolve_workspace_label``) and ``<hash6>`` is deterministic — the
-      same workspace+project+tab always produces the same name.
+    - Otherwise: ``neurona-<project>-<tab>-<hash6>``. The workspace's stable
+      registry id is folded into ``<hash6>`` rather than exposed in the
+      visible name, so identical project/tab pairs in different workspaces
+      remain collision-free.
 
     When no project is given (rare — standalone terminals) we fall back to a
     UUID so the name is globally unique.
@@ -1108,12 +1168,23 @@ def _tmux_name_for(project_id: str | None, logical_name: str,
     if not project_id:
         if env_prefix:
             return env_prefix + uuid.uuid4().hex[:8]
-        return _new_scheme_prefix(root) + uuid.uuid4().hex[:8]
+        return _new_scheme_prefix() + uuid.uuid4().hex[:8]
     project_sane = _sanitize(project_id)
     tab_sane = _sanitize(logical_name)
     if env_prefix:
         return env_prefix + project_sane + "-" + tab_sane
     workspace = _resolve_workspace_label(root)
+    digest = _session_hash(workspace, project_sane, tab_sane)
+    return f"{_SESSION_PREFIX}{project_sane}-{tab_sane}-{digest}"
+
+
+def _legacy_workspace_tmux_name_for(
+    project_id: str, logical_name: str, root: Path | None,
+) -> str:
+    """Exact name emitted by the preceding workspace-visible generation."""
+    workspace = _resolve_workspace_label(root)
+    project_sane = _sanitize(project_id)
+    tab_sane = _sanitize(logical_name)
     digest = _session_hash(workspace, project_sane, tab_sane)
     return f"{_SESSION_PREFIX}{workspace}-{project_sane}-{tab_sane}-{digest}"
 
@@ -1192,7 +1263,10 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
     prefixes = _tmux_discovery_prefixes(root)
     listing = _tmux_list(prefixes)
     meta = _sync_meta(root, listing)
-    live = {s["name"]: s for s in (listing or [])}
+    # _sync_meta filters the workspace-neutral ``neurona-`` listing down to
+    # sessions attributable to this root. Runtime metadata is therefore the
+    # ownership boundary for the rows returned here.
+    live = {s["name"]: s for s in (listing or []) if s["name"] in meta}
 
     rows: list[dict] = []
     saved_by_logical = _project_session_by_name(root, project_id) if project_id else {}
@@ -1471,56 +1545,15 @@ def paste_image(body: PastedImage, request: Request) -> dict:
     }
 
 
-# ─── Status (working vs idle) ───────────────────────────────────────────────
-#
-# Claude Code's TUI prints an "esc to interrupt" hint on the working line
-# while a request is in flight. Its absence means the session is at its
-# prompt — either freshly idle or awaiting a [y/n]-style approval. We match
-# that string (and a couple of related hints) to classify each session.
-#
-# Results are cached briefly so the 3s-poll from the browser + the
-# per-request cost of spawning `tmux capture-pane` stay modest.
-
-# Multiple signals that Claude is mid-turn. Any one of them is enough;
-# we match against the last ~40 lines of tmux capture-pane output.
-#
-# Why not just "esc to interrupt"? The hint isn't always visible — on
-# narrow terminals it can wrap off-screen, and during subagent work
-# (Task tool running a research loop) Claude sometimes only paints the
-# subagent status line with its timer while the interrupt hint sits on
-# a line tmux may drop from a compact capture.
-_WORKING_HINTS_RE = re.compile(
-    r"("
-    # Explicit interrupt hints
-    r"esc to interrupt"
-    r"|ctrl[- ]?c to interrupt"
-    r"|ctrl[- ]?b to run in bg"
-    # Working indicator with elapsed-time timer: `…(1m 36s`, `…(36s`
-    # (unicode ellipsis or three ASCII dots). The space between `…` and
-    # the paren is optional.
-    r"|(?:…|\.\.\.)\s*\(\d+[smh]"
-    # "thought for 27s" — present on the working indicator line even if
-    # the interrupt hint wrapped away
-    r"|thought for \d+\s*[smh]"
-    # Token counters next to the timer: "↑ 138 tokens" / "↓ 1.1k tokens"
-    # — only printed while a turn is active
-    r"|[↑↓]\s*\d+(?:\.\d+)?\s*[kKmM]?\s*tokens"
-    r")",
-    re.IGNORECASE,
-)
-
-_STATUS_CACHE: dict[str, tuple[float, str]] = {}
-_STATUS_TTL_S = 8.0
+# ─── Session-derived summary + project-list caches ─────────────────────────
 _SUMMARY_CACHE: dict[str, tuple[float, str]] = {}
 _SUMMARY_TTL_S = 60.0
 _PROJECTS_CACHE_TTL_S = 8.0
-_PROJECTS_ATTENTION_CACHE: tuple[float, list[str]] | None = None
 _PROJECTS_WITH_SESSIONS_CACHE: tuple[float, list[str]] | None = None
 
 
 def _invalidate_project_term_caches() -> None:
-    global _PROJECTS_ATTENTION_CACHE, _PROJECTS_WITH_SESSIONS_CACHE
-    _PROJECTS_ATTENTION_CACHE = None
+    global _PROJECTS_WITH_SESSIONS_CACHE
     _PROJECTS_WITH_SESSIONS_CACHE = None
 
 
@@ -1531,131 +1564,6 @@ def _fresh_project_cache(cache: tuple[float, list[str]] | None) -> list[str] | N
     if time.monotonic() - ts >= _PROJECTS_CACHE_TTL_S:
         return None
     return list(value)
-
-
-def _classify_pane(name: str) -> str:
-    """Return 'working' | 'idle' | 'unknown' by scanning the pane's last lines."""
-    now = time.monotonic()
-    cached = _STATUS_CACHE.get(name)
-    if cached and (now - cached[0]) < _STATUS_TTL_S:
-        return cached[1]
-    if not _tmux_available():
-        return "unknown"
-    proc = subprocess.run(
-        ["tmux", "capture-pane", "-pt", name, "-S", "-40"],
-        capture_output=True, text=True, env=_tmux_child_env(),
-    )
-    if proc.returncode != 0:
-        status = "unknown"
-    elif _WORKING_HINTS_RE.search(proc.stdout):
-        status = "working"
-    else:
-        status = "idle"
-    _STATUS_CACHE[name] = (now, status)
-    return status
-
-
-@router.get("/api/term/sessions/status")
-def session_status(
-    request: Request, project_id: str | None = None, workspace: str | None = None,
-) -> list[dict]:
-    """Per-session live status. Claude sessions → ``working`` | ``idle``;
-    terminal sessions → ``n/a`` (they never "wait" on the user in a way we
-    can distinguish from interactive use).
-    """
-    active_root: Path = request.app.state.index_cache.root
-    root = _workspace_root_for(active_root, workspace)
-    prefixes = _tmux_discovery_prefixes(root)
-    live = _tmux_list(prefixes)
-    meta = _sync_meta(root, live)
-    out: list[dict] = []
-    for s in live or []:
-        info = meta.get(s["name"]) or {}
-        pid = info.get("project_id")
-        if project_id and pid != project_id:
-            continue
-        kind = (info.get("kind") or "claude").lower()
-        agent = (info.get("agent") or "claude").lower()
-        # Only the Claude agent has a UI we can classify; codex/copilot/terminal → n/a.
-        status = _classify_pane(s["name"]) if (kind == "claude" and agent == "claude") else "n/a"
-        out.append({
-            "name": s["name"],
-            "logical_name": info.get("logical_name"),
-            "project_id": pid,
-            "kind": kind,
-            "agent": info.get("agent"),
-            "status": status,
-        })
-    return out
-
-
-@router.get("/api/term/projects-attention")
-def projects_attention(request: Request) -> list[str]:
-    """Projects that need the user's attention.
-
-    Definition: the project has at least one live Claude session AND none
-    of its Claude sessions is currently ``working``. This is the
-    "everything's waiting for you" signal the UI uses to highlight the
-    project tab.
-
-    Held (snoozed) projects are excluded — if the user intentionally
-    parked the project, its idle Claude session is *expected* and
-    shouldn't pulse. Once the hold expires, the project rejoins the
-    attention set normally.
-    """
-    global _PROJECTS_ATTENTION_CACHE
-    cached = _fresh_project_cache(_PROJECTS_ATTENTION_CACHE)
-    if cached is not None:
-        return cached
-
-    active_root: Path = request.app.state.index_cache.root
-    root = active_root
-    prefixes = _tmux_discovery_prefixes(root)
-    listing = _tmux_list(prefixes)
-    meta = _sync_meta(root, listing)
-    live_names = {s["name"] for s in (listing or [])}
-    by_project: dict[str, list[str]] = {}
-    for name, info in meta.items():
-        if name not in live_names:
-            continue
-        # Only Claude-agent sessions drive the "waiting for you" signal — we
-        # can't classify codex/copilot panes, so they shouldn't pulse the tab.
-        if (info.get("kind") or "claude").lower() != "claude":
-            continue
-        if (info.get("agent") or "claude").lower() != "claude":
-            continue
-        pid = info.get("project_id")
-        if not pid:
-            continue
-        by_project.setdefault(pid, []).append(name)
-
-    # Read held project ids from the index cache. A hold "suppresses"
-    # attention while `until` is still in the future; once it passes, the
-    # project falls back into the normal attention flow (the UI also gets
-    # a "ready-for-review" signal from the Snoozed tab).
-    held_ids: set[str] = set()
-    try:
-        now_iso = datetime.now(tz=timezone.utc).astimezone().isoformat(timespec="seconds")
-        idx = request.app.state.index_cache.get()
-        for p in idx.get("projects", []):
-            h = p.get("hold")
-            if not h or not h.get("until"):
-                continue
-            if str(h["until"]) > now_iso:
-                held_ids.add(p["id"])
-    except Exception:
-        pass
-
-    attention: list[str] = []
-    for pid, names in by_project.items():
-        if pid in held_ids:
-            continue
-        statuses = [_classify_pane(n) for n in names]
-        # Attention: at least one claude, none of them working.
-        if statuses and not any(s == "working" for s in statuses):
-            attention.append(pid)
-    _PROJECTS_ATTENTION_CACHE = (time.monotonic(), list(attention))
-    return attention
 
 
 @router.get("/api/term/sessions/saved")

@@ -5171,7 +5171,6 @@
   // called below, or `let` TDZ throws "Cannot access X before initialization".
   let projTabsHot = [];           // [{project_id, workspace}] with live sessions
   let projTabsAll = [];           // projects from every registered workspace
-  let projTabsAttention = [];     // project ids where every claude is idle
   let projTabsRefreshTimer = null;
   let projTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
   let projTabsDragPid = null;    // pid currently being dragged
@@ -5299,6 +5298,8 @@
   const _TERM_VIS_KEY_PREFIX = 'labTermShown:';
   const _TERM_SESSION_ORIENTATION_KEY = 'labTermSessionOrientation';
   const _TERM_SESSION_DETAIL_KEY = 'labTermSessionDetail';
+  const _TERM_GROUPS_KEY = 'labTermGroups-v1';
+  const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149', '#db61a2', '#39c5cf', '#8b949e'];
   let termSessionOrientation = 'vertical';
   let termSessionDetail = 'compact';
   try {
@@ -5715,7 +5716,7 @@
 
     let html = `
       <div class="proj-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_PROJECT_ID}" role="tab" title="Framework home">
-        <span class="label">🛠️ Productivity</span>
+        <span class="label">&#x1F3E0; Home</span>
       </div>`;
     html += workspaceTabs.map(ws => {
       const active = activeWorkspaceId === ws.id ? ' active' : '';
@@ -5736,7 +5737,6 @@
         <div class="proj-tab workspace-owned${active}${blocked}" style="--workspace-color:${color}" data-kind="project" data-key="${projTabsEsc(project.path)}" data-pid="${projTabsEsc(project.name)}" data-workspace="${projTabsEsc(project.workspace || '')}" role="tab" title="${projTabsEsc((ws && (ws.name || ws.id)) || '')} · ${projTabsEsc(project.path)}">
           <span class="workspace-mark"></span>
           <span class="label">${projTabsEsc(project.name)}</span>
-          ${hot ? '<span class="dot" title="live session(s)"></span>' : ''}
           <button class="x" title="Close project tab and its terminal sessions" data-x="${projTabsEsc(project.path)}">&times;</button>
         </div>`;
     }).join('');
@@ -5969,7 +5969,6 @@
         termRefreshSessions(projectId);  // background reconcile, no await
       }
       termStartPeriodicRefresh();
-      termStartStatusPolling();
       return;
     }
 
@@ -5981,8 +5980,6 @@
     // Keep the dropdown + current attachment honest when sessions change out
     // from under us (manual `tmux kill-session`, server restart, etc.).
     termStartPeriodicRefresh();
-    // Live working/idle indicator on each pill.
-    termStartStatusPolling();
   }
 
   function _termHasOpenCachedPane(projectId, name) {
@@ -6137,41 +6134,6 @@
     }, 8000);
   }
 
-  // Poll /api/term/sessions/status periodically so session pills show live
-  // "working / waiting on you" state. Cheap server-side (cached), cheap
-  // client-side (tiny response). Stops when the panel closes.
-  function termStartStatusPolling() {
-    if (_termStatusTimer || UI_CHECK) return;
-    const tick = async () => {
-      if (!document.body.classList.contains('term-open')) {
-        termStopStatusPolling();
-        return;
-      }
-      let pid = null;
-      if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
-      else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
-      else if (currentProject && currentProject.is_project) pid = currentProject.name;
-      if (!pid) return;
-      const workspaceId = _termWorkspaceId();
-      try {
-        const r = await fetch('/api/term/sessions/status?project_id=' + encodeURIComponent(pid) + _workspaceQuery(workspaceId));
-        const rows = r.ok ? await r.json() : [];
-        if (pid !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
-        // Wipe old entries not in the new response so killed sessions don't
-        // linger with stale status.
-        for (const k of Object.keys(termStatus)) delete termStatus[k];
-        for (const row of rows) termStatus[row.name] = row.status;
-        termRenderSessionList();
-      } catch {}
-    };
-    afterPageQuiet(tick, 500);
-    _termStatusTimer = setInterval(tick, 8000);
-  }
-
-  function termStopStatusPolling() {
-    if (_termStatusTimer) { clearInterval(_termStatusTimer); _termStatusTimer = null; }
-  }
-
   function termStopPeriodicRefresh() {
     if (termRefreshTimer) { clearInterval(termRefreshTimer); termRefreshTimer = null; }
   }
@@ -6180,7 +6142,6 @@
     document.body.classList.remove('term-open');
     document.body.classList.remove('term-collapsed');
     termStopPeriodicRefresh();
-    termStopStatusPolling();
     // Soft-park the active session (preserves WS+xterm in cache) so that
     // toggling the panel back open doesn't trigger a fresh reconnect.
     termDetach(true);
@@ -6472,10 +6433,218 @@
 
   let _termDragLogical = null;    // logical_name of pill being dragged
   let _termReorderPending = false; // suspends periodic refresh right after a reorder
-  // Status map: session tmux-name -> "working" | "idle" | "n/a" | "unknown".
-  // Populated by termPollStatus; consumed by termRenderSessionList.
-  const termStatus = {};
-  let _termStatusTimer = null;
+  let _termGroupMenuOutside = null;
+
+  function _termGroupScopeKey() {
+    return _termSessionsKey(_termActiveProjectId(), _termWorkspaceId());
+  }
+
+  function _termNormalizeGroupState(raw) {
+    const groups = [];
+    const seen = new Set();
+    for (const candidate of (raw && Array.isArray(raw.groups) ? raw.groups : [])) {
+      const id = String(candidate && candidate.id || '').slice(0, 80);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const color = /^#[0-9a-f]{6}$/i.test(String(candidate.color || ''))
+        ? String(candidate.color) : _TERM_GROUP_COLORS[groups.length % _TERM_GROUP_COLORS.length];
+      groups.push({
+        id,
+        name: String(candidate.name || 'Group').trim().slice(0, 40) || 'Group',
+        color,
+        collapsed: !!candidate.collapsed,
+      });
+    }
+    const membership = {};
+    const validIds = new Set(groups.map(group => group.id));
+    if (raw && raw.membership && typeof raw.membership === 'object') {
+      Object.entries(raw.membership).forEach(([logical, groupId]) => {
+        if (logical && validIds.has(groupId)) membership[String(logical)] = groupId;
+      });
+    }
+    return {groups, membership};
+  }
+
+  function _termReadGroupState() {
+    try {
+      const all = JSON.parse(localStorage.getItem(_TERM_GROUPS_KEY) || '{}');
+      return _termNormalizeGroupState(all && all[_termGroupScopeKey()]);
+    } catch { return {groups: [], membership: {}}; }
+  }
+
+  function _termWriteGroupState(state) {
+    try {
+      let all = {};
+      try { all = JSON.parse(localStorage.getItem(_TERM_GROUPS_KEY) || '{}') || {}; } catch {}
+      all[_termGroupScopeKey()] = _termNormalizeGroupState(state);
+      localStorage.setItem(_TERM_GROUPS_KEY, JSON.stringify(all));
+    } catch {}
+  }
+
+  function _termSessionLogical(name) {
+    const session = _termSessionMeta(name);
+    return session && session.logical_name || '';
+  }
+
+  function _termGroupForLogical(logical, state = _termReadGroupState()) {
+    const id = logical && state.membership[logical];
+    return id ? state.groups.find(group => group.id === id) || null : null;
+  }
+
+  function termAssignSessionGroup(name, groupId) {
+    const logical = _termSessionLogical(name);
+    if (!logical) return;
+    const state = _termReadGroupState();
+    if (groupId && !state.groups.some(group => group.id === groupId)) return;
+    if (groupId) state.membership[logical] = groupId;
+    else delete state.membership[logical];
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termCreateGroupFor(name) {
+    const logical = _termSessionLogical(name);
+    if (!logical) return;
+    const state = _termReadGroupState();
+    const proposed = prompt('Name this terminal tab group', `Group ${state.groups.length + 1}`);
+    if (proposed === null || !proposed.trim()) return;
+    const id = `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    state.groups.push({
+      id,
+      name: proposed.trim().slice(0, 40),
+      color: _TERM_GROUP_COLORS[state.groups.length % _TERM_GROUP_COLORS.length],
+      collapsed: false,
+    });
+    state.membership[logical] = id;
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termToggleGroup(groupId) {
+    const state = _termReadGroupState();
+    const group = state.groups.find(item => item.id === groupId);
+    if (!group) return;
+    group.collapsed = !group.collapsed;
+    _termWriteGroupState(state);
+    termRenderSessionList();
+  }
+
+  function termRenameGroup(groupId) {
+    const state = _termReadGroupState();
+    const group = state.groups.find(item => item.id === groupId);
+    if (!group) return;
+    const next = prompt('Rename terminal tab group', group.name);
+    if (next === null || !next.trim()) return;
+    group.name = next.trim().slice(0, 40);
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termSetGroupColor(groupId, color) {
+    if (!/^#[0-9a-f]{6}$/i.test(String(color || ''))) return;
+    const state = _termReadGroupState();
+    const group = state.groups.find(item => item.id === groupId);
+    if (!group) return;
+    group.color = color;
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termDeleteGroup(groupId) {
+    const state = _termReadGroupState();
+    state.groups = state.groups.filter(group => group.id !== groupId);
+    Object.keys(state.membership).forEach(logical => {
+      if (state.membership[logical] === groupId) delete state.membership[logical];
+    });
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termCloseGroupMenu() {
+    const menu = document.getElementById('termGroupMenu');
+    if (menu) menu.hidden = true;
+    if (_termGroupMenuOutside) {
+      document.removeEventListener('pointerdown', _termGroupMenuOutside);
+      _termGroupMenuOutside = null;
+    }
+  }
+
+  function _termShowGroupMenu(anchor, html, onAction) {
+    const menu = document.getElementById('termGroupMenu');
+    if (!menu || !anchor) return;
+    termCloseGroupMenu();
+    menu.innerHTML = html;
+    menu.hidden = false;
+    menu.querySelectorAll('[data-action]').forEach(button => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onAction(button.getAttribute('data-action'), button);
+      });
+    });
+    const rect = anchor.getBoundingClientRect();
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - bounds.height - 8))}px`;
+    _termGroupMenuOutside = (event) => {
+      if (!menu.contains(event.target) && !event.target.closest('[data-term-group-trigger], #termGroupBtn')) {
+        termCloseGroupMenu();
+      }
+    };
+    setTimeout(() => {
+      if (_termGroupMenuOutside) document.addEventListener('pointerdown', _termGroupMenuOutside);
+    }, 0);
+  }
+
+  function termOpenGroupMenu(name, anchor) {
+    const logical = _termSessionLogical(name);
+    if (!logical) return;
+    const state = _termReadGroupState();
+    const currentId = state.membership[logical] || '';
+    const groupRows = state.groups.map(group => `
+      <button type="button" class="term-group-menu-row" data-action="assign:${termSessEsc(group.id)}">
+        <span class="term-group-swatch" style="--term-group-color:${termSessEsc(group.color)}"></span>
+        <span>${termSessEsc(group.name)}</span>${group.id === currentId ? '<span class="check">✓</span>' : ''}
+      </button>`).join('');
+    const remove = currentId
+      ? '<button type="button" class="term-group-menu-row" data-action="remove">Remove from group</button>' : '';
+    _termShowGroupMenu(anchor, `
+      <div class="term-group-menu-title">Move tab to group</div>
+      <button type="button" class="term-group-menu-row" data-action="new">+ New group</button>
+      ${groupRows}${remove}`, (action) => {
+        if (action === 'new') termCreateGroupFor(name);
+        else if (action === 'remove') termAssignSessionGroup(name, null);
+        else if (action.startsWith('assign:')) termAssignSessionGroup(name, action.slice(7));
+      });
+  }
+
+  function termOpenActiveGroupMenu(event) {
+    if (termCurrentSession) termOpenGroupMenu(termCurrentSession, event.currentTarget);
+  }
+
+  function termOpenGroupOptions(groupId, anchor) {
+    const state = _termReadGroupState();
+    const group = state.groups.find(item => item.id === groupId);
+    if (!group) return;
+    const colors = _TERM_GROUP_COLORS.map(color => `
+      <button type="button" class="term-group-color${color === group.color ? ' selected' : ''}" style="--term-group-color:${color}" data-action="color:${color}" aria-label="Use ${color}"></button>`).join('');
+    _termShowGroupMenu(anchor, `
+      <div class="term-group-menu-title">${termSessEsc(group.name)}</div>
+      <div class="term-group-colors">${colors}</div>
+      <button type="button" class="term-group-menu-row" data-action="rename">Rename group</button>
+      <button type="button" class="term-group-menu-row" data-action="toggle">${group.collapsed ? 'Expand' : 'Collapse'} group</button>
+      <button type="button" class="term-group-menu-row danger" data-action="delete">Ungroup tabs</button>`, (action) => {
+        if (action === 'rename') termRenameGroup(groupId);
+        else if (action === 'toggle') { termCloseGroupMenu(); termToggleGroup(groupId); }
+        else if (action === 'delete') termDeleteGroup(groupId);
+        else if (action.startsWith('color:')) termSetGroupColor(groupId, action.slice(6));
+      });
+  }
 
   function _termSessionDisplay(s) {
     return (s && (s.label || s.logical_name || s.name)) || '';
@@ -6559,6 +6728,7 @@
   function _termRenderActiveSessionHeader() {
     const el = document.getElementById('termActiveSession');
     const renameBtn = document.getElementById('termRenameBtn');
+    const groupBtn = document.getElementById('termGroupBtn');
     if (!el) return;
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId
@@ -6567,15 +6737,42 @@
       el.innerHTML = '';
       el.removeAttribute('title');
       el.className = 'term-active-session';
+      el.style.removeProperty('--term-group-color');
       if (renameBtn) renameBtn.classList.remove('on');
+      if (groupBtn) groupBtn.classList.remove('on');
       return;
     }
     const display = _termSessionDisplay(session);
     const visual = _termSessionVisual(session);
-    el.className = `term-active-session on ${visual.kind}`;
+    const group = _termGroupForLogical(session.logical_name || '');
+    el.className = `term-active-session on ${visual.kind}${group ? ' grouped' : ''}`;
+    if (group) el.style.setProperty('--term-group-color', group.color);
+    else el.style.removeProperty('--term-group-color');
     el.title = _termSessionTitle(session, '');
-    el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+    el.innerHTML = `${group ? '<span class="term-active-group-mark" aria-hidden="true"></span>' : ''}<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
     if (renameBtn) renameBtn.classList.add('on');
+    if (groupBtn) groupBtn.classList.add('on');
+  }
+
+  function _termSessionPillHtml(s, index) {
+    const display = _termSessionDisplay(s);
+    // Compact/full visibility is CSS-controlled so switching detail never
+    // rebuilds or reconnects a terminal. The active header always carries
+    // the complete identity, even in compact mode.
+    const visual = _termSessionVisual(s);
+    const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
+    const logical = s.logical_name || '';
+    const dead = termDeadSessions.has(s.name) ? ' dead' : '';
+    const statusTitle = dead ? 'Session unreachable — click to retry' : '';
+    const ariaLabel = `${display} · ${visual.badge}`;
+    return `<span class="sess ${visual.kind}${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
+      <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
+      <span class="sess-order" aria-hidden="true">${index + 1}</span>
+      <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
+      <span class="k">${termSessEsc(visual.badge)}</span>
+      <button type="button" class="group" data-term-group-trigger data-group-session="${termSessEsc(s.name)}" title="Move tab to group" aria-label="Move terminal tab to group">▦</button>
+      <button type="button" class="rename" data-rename="${termSessEsc(s.name)}" title="Rename terminal tab" aria-label="Rename terminal tab">✎</button>
+    </span>`;
   }
 
   function termRenderSessionList() {
@@ -6586,38 +6783,40 @@
       el.innerHTML = '';
       return;
     }
-    el.innerHTML = termSessions.map((s, index) => {
-      const display = _termSessionDisplay(s);
-      // Compact/full visibility is CSS-controlled so switching detail never
-      // rebuilds or reconnects a terminal. The active header always carries
-      // the complete identity, even in compact mode.
-      const visual = _termSessionVisual(s);
-      const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
-      const logical = s.logical_name || '';
-      const dead = termDeadSessions.has(s.name) ? ' dead' : '';
-      // status: 'working' (pulsing yellow dot) or 'idle' (solid red dot) — only
-      // the Claude agent has a UI we can classify. codex/copilot/terminal: none.
-      const status = termStatus[s.name] || '';
-      const statusCls = (!dead && visual.isClaude && (status === 'working' || status === 'idle'))
-        ? ` ${status}` : '';
-      const statusTitle = dead
-        ? 'Session unreachable — click to retry'
-        : (visual.isClaude
-            ? (status === 'working' ? 'Claude is working…'
-               : status === 'idle'   ? 'Claude idle — needs your input'
-               : 'Claude — status unknown')
-            : '');
-      const ariaLabel = `${display} · ${visual.badge}`;
-      return `<span class="sess ${visual.kind}${active}${statusCls}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
-        <span class="stat"></span>
-        <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
-        <span class="sess-order" aria-hidden="true">${index + 1}</span>
-        <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
-        <span class="k">${termSessEsc(visual.badge)}</span>
-        <button type="button" class="rename" data-rename="${termSessEsc(s.name)}" title="Rename terminal tab" aria-label="Rename terminal tab">✎</button>
-      </span>`;
+    const groupState = _termReadGroupState();
+    const byGroup = new Map(groupState.groups.map(group => [group.id, []]));
+    termSessions.forEach((session, index) => {
+      const groupId = groupState.membership[session.logical_name || ''];
+      if (groupId && byGroup.has(groupId)) byGroup.get(groupId).push({session, index});
+    });
+    const renderedGroups = new Set();
+    el.innerHTML = termSessions.map((session, index) => {
+      const groupId = groupState.membership[session.logical_name || ''];
+      const group = groupId && groupState.groups.find(item => item.id === groupId);
+      if (!group) return _termSessionPillHtml(session, index);
+      if (renderedGroups.has(group.id)) return '';
+      renderedGroups.add(group.id);
+      const rows = byGroup.get(group.id) || [];
+      const collapsed = group.collapsed ? ' collapsed' : '';
+      return `<div class="term-session-group${collapsed}" data-group-id="${termSessEsc(group.id)}" style="--term-group-color:${termSessEsc(group.color)}">
+        <div class="term-group-head" data-toggle-group="${termSessEsc(group.id)}" role="button" tabindex="0" aria-expanded="${group.collapsed ? 'false' : 'true'}" title="${group.collapsed ? 'Expand' : 'Collapse'} ${termSessEsc(group.name)}">
+          <span class="term-group-caret" aria-hidden="true">${group.collapsed ? '›' : '⌄'}</span>
+          <span class="term-group-name">${termSessEsc(group.name)}</span>
+          <span class="term-group-count">${rows.length}</span>
+          <button type="button" class="term-group-options" data-term-group-trigger data-group-options="${termSessEsc(group.id)}" title="Group options" aria-label="Options for ${termSessEsc(group.name)}">•••</button>
+        </div>
+        <div class="term-group-tabs">${rows.map(row => _termSessionPillHtml(row.session, row.index)).join('')}</div>
+      </div>`;
     }).join('');
     el.querySelectorAll('.sess').forEach(node => {
+      const groupBtn = node.querySelector('[data-group-session]');
+      if (groupBtn) {
+        groupBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          termOpenGroupMenu(groupBtn.getAttribute('data-group-session'), groupBtn);
+        });
+      }
       const renameBtn = node.querySelector('[data-rename]');
       if (renameBtn) {
         renameBtn.addEventListener('click', (e) => {
@@ -6630,6 +6829,10 @@
         e.preventDefault();
         e.stopPropagation();
         termRenameSession(node.getAttribute('data-name'));
+      });
+      node.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        termOpenGroupMenu(node.getAttribute('data-name'), node);
       });
       node.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -6662,6 +6865,30 @@
         }
       });
     });
+    el.querySelectorAll('[data-toggle-group]').forEach(header => {
+      const toggle = () => termToggleGroup(header.getAttribute('data-toggle-group'));
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('[data-group-options]')) return;
+        toggle();
+      });
+      header.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        toggle();
+      });
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const groupId = header.getAttribute('data-toggle-group');
+        if (groupId) termOpenGroupOptions(groupId, header);
+      });
+    });
+    el.querySelectorAll('[data-group-options]').forEach(button => {
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        termOpenGroupOptions(button.getAttribute('data-group-options'), button);
+      });
+    });
     termWireSessionDnD(el);
   }
 
@@ -6679,6 +6906,8 @@
         pill.classList.remove('dragging');
         container.querySelectorAll('.sess.drop-before, .sess.drop-after')
           .forEach(p => p.classList.remove('drop-before', 'drop-after'));
+        container.querySelectorAll('.term-group-head.drop-group')
+          .forEach(p => p.classList.remove('drop-group'));
         _termDragLogical = null;
       });
       pill.addEventListener('dragover', (e) => {
@@ -6705,6 +6934,24 @@
           ? (e.clientX - rect.left) < rect.width / 2
           : (e.clientY - rect.top) < rect.height / 2;
         await termReorderSessions(src, dst, before);
+      });
+    });
+    container.querySelectorAll('.term-group-head').forEach(header => {
+      header.addEventListener('dragover', (e) => {
+        if (!_termDragLogical) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        header.classList.add('drop-group');
+      });
+      header.addEventListener('dragleave', () => header.classList.remove('drop-group'));
+      header.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        header.classList.remove('drop-group');
+        if (!_termDragLogical) return;
+        const session = (termSessions || []).find(item => item.logical_name === _termDragLogical);
+        const groupId = header.closest('[data-group-id]')?.getAttribute('data-group-id');
+        if (session && groupId) termAssignSessionGroup(session.name, groupId);
       });
     });
   }
@@ -8795,34 +9042,47 @@
   }
 
   // ─── Proxies modal (manage project.json proxies[] from the UI) ───
-  // Opened from the attrs-bar "Servers" chip. Lists current proxies as
-  // editable rows, lets the user add/remove entries, and PUTs the
-  // updated project.json back via /api/project-info. On success it
-  // refreshes the attrs bar (chip count), reloads the sidebar (Servers
-  // section), and invalidates the sidebar payload cache so the next
-  // warm switch sees the new list.
+  // Opened from the attrs-bar "Servers" chip. Saved proxies render as
+  // management cards; fields only become editable after an explicit Edit.
+  // Optional make commands power Start / Restart and Stop controls through
+  // routes/proxy.py, while connection metadata still persists in project.json.
   let _proxiesEscHandler = null;
   let _proxiesRowSeq = 0;
+  let _proxiesProjectPath = null;
+  let _proxiesProjectId = null;
+  let _proxiesWorkspaceId = null;
 
-  function openProxiesModal() {
+  async function openProxiesModal() {
     if (!currentProject || !currentProject.is_project) return;
     const overlay = document.getElementById('proxiesModal');
     if (!overlay) return;
+    _proxiesProjectPath = currentProject.path;
+    _proxiesProjectId = currentProject.name;
+    _proxiesWorkspaceId = currentProject.workspace_id || null;
+    const projectPath = _proxiesProjectPath;
     const err = document.getElementById('proxiesError');
+    const addBtn = document.getElementById('proxiesAddBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
-    // Seed rows from the cached sidebar payload (already loaded for the
-    // Servers list). Falls back to a single empty row if there are no
-    // proxies yet.
+    if (addBtn) addBtn.disabled = true;
     const cached = _projectSidebarCache.get(currentProject.path);
     const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
     _renderProxiesRows(proxies);
     overlay.classList.add('active');
     _proxiesEscHandler = (ev) => { if (ev.key === 'Escape') closeProxiesModal(); };
     document.addEventListener('keydown', _proxiesEscHandler);
-    setTimeout(() => {
-      const first = document.querySelector('#proxiesRows input[data-field="name"]');
-      if (first) first.focus();
-    }, 30);
+    // Fetch project.json so command controls never rely on a stale sidebar
+    // cache populated before start_command / stop_command existed.
+    try {
+      const r = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
+      if (!r.ok) throw new Error(`GET project-info → ${r.status}`);
+      const info = await r.json();
+      if (projectPath !== _proxiesProjectPath || projectPath !== (currentProject && currentProject.path)) return;
+      _renderProxiesRows(Array.isArray(info.proxies) ? info.proxies : []);
+    } catch (e) {
+      if (err) { err.textContent = `Could not refresh servers: ${e.message || e}`; err.classList.add('on'); }
+    } finally {
+      if (projectPath === _proxiesProjectPath && addBtn) addBtn.disabled = false;
+    }
   }
 
   function closeProxiesModal() {
@@ -8837,41 +9097,78 @@
   function _renderProxiesRows(proxies) {
     const host = document.getElementById('proxiesRows');
     if (!host) return;
-    let html = `
-      <div class="proxies-row proxies-head">
-        <span>Name</span><span>Host</span><span>Port</span><span>Path</span><span>Label</span><span title="Iframe directly to host:port instead of via the lab proxy. Faster but the browser needs direct network access to the port (so it bypasses any SSH-tunnel setup where only the lab port is exposed).">Direct</span><span></span>
-      </div>`;
+    let html = '';
     if (!proxies || proxies.length === 0) {
-      html += `<div class="proxies-empty">No servers yet. Click <b>+ Add server</b> below to declare one.</div>`;
+      html = `<div class="proxies-empty">No servers configured yet. Add one to expose a local app and optionally manage it with make commands.</div>`;
     } else {
-      proxies.forEach(p => { html += _proxyRowHtml(p || {}); });
+      proxies.forEach(p => { html += _proxyRowHtml(p || {}, false); });
     }
     host.innerHTML = html;
   }
 
-  function _proxyRowHtml(p) {
+  function _proxyRowHtml(p, editing) {
     const id = 'pr-' + (++_proxiesRowSeq);
     const directChecked = (p.mode === 'direct') ? 'checked' : '';
+    const name = String(p.name || '');
+    const label = String(p.label || name || 'Unnamed server');
+    const host = String(p.host || 'localhost');
+    const port = String(p.port == null ? '' : p.port);
+    const path = String(p.path || '/');
+    const startCommand = String(p.start_command || '');
+    const stopCommand = String(p.stop_command || '');
+    const endpoint = `${host}${port ? ':' + port : ''}${path.startsWith('/') ? path : '/' + path}`;
+    const startDisabled = startCommand.trim() ? '' : 'disabled';
+    const stopDisabled = stopCommand.trim() ? '' : 'disabled';
     return `
-      <div class="proxies-row" data-row-id="${id}">
-        <input type="text" data-field="name"  value="${escapeHtml(String(p.name  || ''))}" placeholder="frontend" />
-        <input type="text" data-field="host"  value="${escapeHtml(String(p.host  || ''))}" placeholder="localhost" />
-        <input type="text" data-field="port"  value="${escapeHtml(String(p.port == null ? '' : p.port))}" placeholder="3000" inputmode="numeric" />
-        <input type="text" data-field="path"  value="${escapeHtml(String(p.path  || ''))}" placeholder="/" />
-        <input type="text" data-field="label" value="${escapeHtml(String(p.label || ''))}" placeholder="(optional)" />
-        <label class="proxies-direct" title="Iframe directly to host:port — skips the lab proxy."><input type="checkbox" data-field="direct" ${directChecked} /></label>
-        <button type="button" class="proxies-del" title="Remove this server" onclick="removeProxyRow('${id}')">&times;</button>
-      </div>`;
+      <article class="proxies-card${editing ? ' editing' : ''}" data-row-id="${id}"${editing ? ' data-dirty="1"' : ''}>
+        <div class="proxies-view">
+          <div class="proxies-identity">
+            <span class="proxies-server-icon" aria-hidden="true">&#x1F310;</span>
+            <span class="proxies-title-stack"><strong data-display="label">${escapeHtml(label)}</strong><code data-display="name">${escapeHtml(name)}</code></span>
+          </div>
+          <div class="proxies-endpoint">
+            <span class="proxies-endpoint-line" data-display="endpoint">${escapeHtml(endpoint)}</span>
+            <span class="proxies-mode" data-display="mode">${p.mode === 'direct' ? 'direct' : 'proxied'}</span>
+          </div>
+          <div class="proxies-command-list">
+            <div class="proxies-command-row${startCommand ? '' : ' missing'}" data-command-row="start"><span>Start</span><code data-display="start-command">${escapeHtml(startCommand || 'Not configured')}</code></div>
+            <div class="proxies-command-row${stopCommand ? '' : ' missing'}" data-command-row="stop"><span>Stop</span><code data-display="stop-command">${escapeHtml(stopCommand || 'Not configured')}</code></div>
+          </div>
+          <div class="proxies-actions">
+            <button type="button" class="proxies-start" data-proxy-action="start" ${startDisabled} onclick="proxyServerAction('${id}', 'start')">&#x25B6; Start / Restart</button>
+            <button type="button" class="proxies-stop" data-proxy-action="stop" ${stopDisabled} onclick="proxyServerAction('${id}', 'stop')">&#x25A0; Stop</button>
+            <button type="button" onclick="editProxyRow('${id}')">&#x270E; Edit</button>
+          </div>
+          <div class="proxies-action-status" aria-live="polite"></div>
+        </div>
+        <div class="proxies-editor">
+          <div class="proxies-editor-grid">
+            <label>Name <input type="text" data-field="name" value="${escapeHtml(name)}" placeholder="frontend" /></label>
+            <label>Label <input type="text" data-field="label" value="${escapeHtml(String(p.label || ''))}" placeholder="Optional display name" /></label>
+            <label>Host <input type="text" data-field="host" value="${escapeHtml(String(p.host || ''))}" placeholder="localhost" /></label>
+            <label>Port <input type="text" data-field="port" value="${escapeHtml(port)}" placeholder="3000" inputmode="numeric" /></label>
+            <label>Path <input type="text" data-field="path" value="${escapeHtml(String(p.path || ''))}" placeholder="/" /></label>
+          </div>
+          <div class="proxies-command-grid">
+            <label>Start / restart command <span class="hint">Optional · must begin with make</span><input type="text" data-field="start-command" value="${escapeHtml(startCommand)}" placeholder="make server-start" /></label>
+            <label>Stop command <span class="hint">Optional · must begin with make</span><input type="text" data-field="stop-command" value="${escapeHtml(stopCommand)}" placeholder="make server-stop" /></label>
+          </div>
+          <label class="proxies-direct" title="Iframe directly to host:port — skips the Lab proxy."><input type="checkbox" data-field="direct" ${directChecked} /> Open iframe directly at host:port</label>
+          <div class="proxies-editor-actions">
+            <button type="button" class="proxies-del" onclick="removeProxyRow('${id}')">Remove server</button>
+            <button type="button" onclick="finishProxyRowEdit('${id}')">Done editing</button>
+          </div>
+        </div>
+      </article>`;
   }
 
   function addProxyRow() {
     const host = document.getElementById('proxiesRows');
     if (!host) return;
-    // Clear the "no servers yet" placeholder on first add.
     const empty = host.querySelector('.proxies-empty');
     if (empty) empty.remove();
-    host.insertAdjacentHTML('beforeend', _proxyRowHtml({}));
-    const rows = host.querySelectorAll('.proxies-row[data-row-id]');
+    host.insertAdjacentHTML('beforeend', _proxyRowHtml({}, true));
+    const rows = host.querySelectorAll('.proxies-card[data-row-id]');
     const last = rows[rows.length - 1];
     if (last) {
       const nameInput = last.querySelector('input[data-field="name"]');
@@ -8879,53 +9176,153 @@
     }
   }
 
+  function editProxyRow(rowId) {
+    const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
+    if (!row) return;
+    row.classList.add('editing');
+    const nameInput = row.querySelector('input[data-field="name"]');
+    if (nameInput) nameInput.focus();
+  }
+
+  function _proxyRowValues(row) {
+    const value = (field) => (row.querySelector(`input[data-field="${field}"]`) || {}).value || '';
+    const directEl = row.querySelector('input[data-field="direct"]');
+    return {
+      name: value('name').trim(),
+      label: value('label').trim(),
+      host: value('host').trim(),
+      portRaw: value('port').trim(),
+      path: value('path').trim(),
+      startCommand: value('start-command').trim(),
+      stopCommand: value('stop-command').trim(),
+      direct: !!(directEl && directEl.checked),
+    };
+  }
+
+  function _proxyRowEntry(row, index) {
+    const v = _proxyRowValues(row);
+    const errors = [];
+    const entirelyEmpty = !v.name && !v.label && !v.host && !v.portRaw && !v.path
+      && !v.startCommand && !v.stopCommand && !v.direct;
+    if (entirelyEmpty) return {entry: null, errors};
+    if (!v.name) errors.push(`Server ${index + 1}: name is required.`);
+    else if (!/^[A-Za-z0-9_-]+$/.test(v.name)) errors.push(`Server ${index + 1}: name may only contain letters, digits, _ and -.`);
+    if (!v.portRaw) errors.push(`Server ${index + 1}: port is required.`);
+    const port = parseInt(v.portRaw, 10);
+    if (v.portRaw && (!Number.isInteger(port) || port <= 0 || port > 65535)) errors.push(`Server ${index + 1}: port must be between 1 and 65535.`);
+    if (v.startCommand && !/^make(?:\s|$)/.test(v.startCommand)) errors.push(`Server ${index + 1}: start command must begin with make.`);
+    if (v.stopCommand && !/^make(?:\s|$)/.test(v.stopCommand)) errors.push(`Server ${index + 1}: stop command must begin with make.`);
+    if (errors.length) return {entry: null, errors};
+    const entry = {name: v.name, port};
+    if (v.host) entry.host = v.host;
+    if (v.path) entry.path = v.path;
+    if (v.label) entry.label = v.label;
+    if (v.direct) entry.mode = 'direct';
+    if (v.startCommand) entry.start_command = v.startCommand;
+    if (v.stopCommand) entry.stop_command = v.stopCommand;
+    return {entry, errors};
+  }
+
+  function _syncProxyRowSummary(row) {
+    const v = _proxyRowValues(row);
+    const setText = (key, value) => {
+      const target = row.querySelector(`[data-display="${key}"]`);
+      if (target) target.textContent = value;
+    };
+    const host = v.host || 'localhost';
+    const path = v.path || '/';
+    setText('label', v.label || v.name || 'Unnamed server');
+    setText('name', v.name);
+    setText('endpoint', `${host}${v.portRaw ? ':' + v.portRaw : ''}${path.startsWith('/') ? path : '/' + path}`);
+    setText('mode', v.direct ? 'direct' : 'proxied');
+    setText('start-command', v.startCommand || 'Not configured');
+    setText('stop-command', v.stopCommand || 'Not configured');
+    const startRow = row.querySelector('[data-command-row="start"]');
+    const stopRow = row.querySelector('[data-command-row="stop"]');
+    if (startRow) startRow.classList.toggle('missing', !v.startCommand);
+    if (stopRow) stopRow.classList.toggle('missing', !v.stopCommand);
+    const dirty = row.dataset.dirty === '1';
+    const startBtn = row.querySelector('[data-proxy-action="start"]');
+    const stopBtn = row.querySelector('[data-proxy-action="stop"]');
+    if (startBtn) {
+      startBtn.disabled = dirty || !v.startCommand;
+      startBtn.title = dirty ? 'Save changes before starting this server' : (!v.startCommand ? 'Configure a start command in Edit' : 'Run the configured start/restart command');
+    }
+    if (stopBtn) {
+      stopBtn.disabled = dirty || !v.stopCommand;
+      stopBtn.title = dirty ? 'Save changes before stopping this server' : (!v.stopCommand ? 'Configure a stop command in Edit' : 'Run the configured stop command');
+    }
+  }
+
+  function finishProxyRowEdit(rowId) {
+    const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
+    if (!row) return;
+    const rows = Array.from(document.querySelectorAll('#proxiesRows .proxies-card[data-row-id]'));
+    const result = _proxyRowEntry(row, Math.max(0, rows.indexOf(row)));
+    const err = document.getElementById('proxiesError');
+    if (result.errors.length) {
+      if (err) { err.textContent = result.errors.join(' · '); err.classList.add('on'); }
+      return;
+    }
+    if (!result.entry) {
+      removeProxyRow(rowId);
+      if (err) { err.textContent = ''; err.classList.remove('on'); }
+      return;
+    }
+    row.dataset.dirty = '1';
+    _syncProxyRowSummary(row);
+    row.classList.remove('editing');
+    if (err) { err.textContent = ''; err.classList.remove('on'); }
+  }
+
   function removeProxyRow(rowId) {
-    const row = document.querySelector(`#proxiesRows .proxies-row[data-row-id="${rowId}"]`);
+    const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
     if (row) row.remove();
-    // Restore the "no servers yet" hint if we just emptied the list.
     const host = document.getElementById('proxiesRows');
-    if (host && !host.querySelector('.proxies-row[data-row-id]')) {
-      host.insertAdjacentHTML('beforeend', `<div class="proxies-empty">No servers yet. Click <b>+ Add server</b> below to declare one.</div>`);
+    if (host && !host.querySelector('.proxies-card[data-row-id]')) {
+      host.innerHTML = `<div class="proxies-empty">No servers configured yet. Add one to expose a local app and optionally manage it with make commands.</div>`;
     }
   }
 
   function _collectProxiesFromRows() {
-    const rows = document.querySelectorAll('#proxiesRows .proxies-row[data-row-id]');
+    const rows = document.querySelectorAll('#proxiesRows .proxies-card[data-row-id]');
     const out = [];
     const errors = [];
     const seenNames = new Set();
     rows.forEach((row, idx) => {
-      const v = (sel) => (row.querySelector(`input[data-field="${sel}"]`) || {}).value || '';
-      const name = v('name').trim();
-      const host = v('host').trim();
-      const portRaw = v('port').trim();
-      const path = v('path').trim();
-      const label = v('label').trim();
-      const directEl = row.querySelector('input[data-field="direct"]');
-      const direct = !!(directEl && directEl.checked);
-      // Skip wholly-empty rows silently.
-      if (!name && !host && !portRaw && !path && !label && !direct) return;
-      if (!name) { errors.push(`Row ${idx + 1}: name is required.`); return; }
-      if (!/^[A-Za-z0-9_-]+$/.test(name)) {
-        errors.push(`Row ${idx + 1}: name "${name}" — letters, digits, _, - only.`); return;
-      }
-      if (seenNames.has(name)) {
-        errors.push(`Duplicate name "${name}".`); return;
-      }
-      seenNames.add(name);
-      if (!portRaw) { errors.push(`Row ${idx + 1}: port is required.`); return; }
-      const port = parseInt(portRaw, 10);
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-        errors.push(`Row ${idx + 1}: port "${portRaw}" — must be 1..65535.`); return;
-      }
-      const entry = {name, port};
-      if (host) entry.host = host;
-      if (path) entry.path = path;
-      if (label) entry.label = label;
-      if (direct) entry.mode = 'direct';
-      out.push(entry);
+      const result = _proxyRowEntry(row, idx);
+      errors.push(...result.errors);
+      if (!result.entry) return;
+      if (seenNames.has(result.entry.name)) errors.push(`Duplicate name "${result.entry.name}".`);
+      else { seenNames.add(result.entry.name); out.push(result.entry); }
     });
     return {proxies: out, errors};
+  }
+
+  function _proxyWorkspaceQuery() {
+    return _proxiesWorkspaceId ? `?workspace=${encodeURIComponent(_proxiesWorkspaceId)}` : '';
+  }
+
+  async function proxyServerAction(rowId, action) {
+    const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
+    if (!row || !_proxiesProjectId) return;
+    const values = _proxyRowValues(row);
+    const status = row.querySelector('.proxies-action-status');
+    const buttons = Array.from(row.querySelectorAll('[data-proxy-action]'));
+    buttons.forEach(btn => { btn.disabled = true; btn.classList.add('busy'); });
+    if (status) { status.textContent = `${action === 'stop' ? 'Stopping' : 'Starting / restarting'} ${values.label || values.name}…`; status.className = 'proxies-action-status'; }
+    try {
+      const url = `/api/proxies/${encodeURIComponent(_proxiesProjectId)}/${encodeURIComponent(values.name)}/${action}${_proxyWorkspaceQuery()}`;
+      const r = await fetch(url, {method: 'POST'});
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.detail || `${action} failed (${r.status})`);
+      if (status) { status.textContent = `Server ${body.action || action}.`; status.className = 'proxies-action-status ok'; }
+    } catch (e) {
+      if (status) { status.textContent = e.message || String(e); status.className = 'proxies-action-status err'; }
+    } finally {
+      buttons.forEach(btn => btn.classList.remove('busy'));
+      _syncProxyRowSummary(row);
+    }
   }
 
   async function submitProxies(ev) {
@@ -8937,12 +9334,12 @@
       if (err) { err.textContent = errors.join(' · '); err.classList.add('on'); }
       return;
     }
-    if (!currentProject || !currentProject.is_project) { closeProxiesModal(); return; }
+    if (!_proxiesProjectPath) { closeProxiesModal(); return; }
     // Read current project.json, swap proxies, write back. We have to
     // PUT the full document via /api/project-info; the mutation route
     // (PATCH-style) doesn't know about arbitrary array fields.
     try {
-      const r = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+      const r = await fetch(`/api/project-info?path=${encodeURIComponent(_proxiesProjectPath)}`);
       if (!r.ok) throw new Error(`GET project-info → ${r.status}`);
       const info = await r.json();
       if (proxies.length === 0) {
@@ -8953,7 +9350,7 @@
       const put = await fetch('/api/project-info', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: currentProject.path, data: info}),
+        body: JSON.stringify({path: _proxiesProjectPath, data: info}),
       });
       if (!put.ok) {
         const detail = await put.json().catch(() => ({}));
@@ -8964,8 +9361,8 @@
       return;
     }
     // Invalidate caches that hold the stale proxies list, then refresh.
-    _projectSidebarCache.delete(currentProject.path);
-    _projectAttrsCache.delete(currentProject.path);
+    _projectSidebarCache.delete(_proxiesProjectPath);
+    _projectAttrsCache.delete(_proxiesProjectPath);
     closeProxiesModal();
     if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
     if (typeof _refreshProjectSidebar === 'function') _refreshProjectSidebar({preserveScroll: true});
@@ -8975,7 +9372,7 @@
 
   async function initSelf() {
     document.body.classList.add('self-active');
-    document.title = 'Productivity';
+    document.title = 'Home';
     // Set up a synthetic currentProject so openProjectDoc(), the sidebar, and
     // the terminal panel all work exactly like a real project tab.
     currentProject = {
@@ -9121,7 +9518,7 @@
       // expand state syncs across tabs.
       _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
     } catch(e) {
-      sidebar.innerHTML = '<div class="sidebar-title">Productivity</div>';
+      sidebar.innerHTML = '<div class="sidebar-title">Home</div>';
     }
   }
 
@@ -9519,13 +9916,10 @@
     _termApplyRememberedVisibility();
     if (await _termTryWarmOpen(SELF_PROJECT_ID)) {
       termStartPeriodicRefresh();
-      termStartStatusPolling();
       return;
     }
     await _termRestoreSessionsForProject(SELF_PROJECT_ID);
-    // Same live-status polling as real projects: pills pulse, attention flag fires.
     termStartPeriodicRefresh();
-    termStartStatusPolling();
   }
 
   // Terminal panel for the Workspace pseudo-project: sessions start at the
@@ -9536,12 +9930,10 @@
     _termApplyRememberedVisibility();
     if (await _termTryWarmOpen(WORKSPACE_PROJECT_ID)) {
       termStartPeriodicRefresh();
-      termStartStatusPolling();
       return;
     }
     await _termRestoreSessionsForProject(WORKSPACE_PROJECT_ID);
     termStartPeriodicRefresh();
-    termStartStatusPolling();
   }
 
   // ─── Workspace view (workspace-scoped management surface) ───
@@ -10410,14 +10802,10 @@
     _termApplyRememberedVisibility();
     if (await _termTryWarmOpen(CEREBRO_PROJECT_ID)) {
       termStartPeriodicRefresh();
-      termStartStatusPolling();
       return;
     }
     await _termRestoreSessionsForProject(CEREBRO_PROJECT_ID);
-    // Cerebro's terminal panel gets the same live-status polling as real
-    // projects — pills pulse + the cerebro tab flags attention if idle.
     termStartPeriodicRefresh();
-    termStartStatusPolling();
   }
 
   async function termRefreshSessionsByProjectId(pid) {

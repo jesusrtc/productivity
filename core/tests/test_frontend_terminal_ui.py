@@ -45,6 +45,13 @@ def test_terminal_close_button_is_wired_to_persistent_close_handler() -> None:
     assert "keep it closed after reload" in html
 
 
+def test_framework_top_tab_is_labeled_home() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert '<span class="label">&#x1F3E0; Home</span>' in source
+    assert 'document.title = \'Home\'' in source
+
+
 def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
@@ -72,6 +79,81 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert "(e.clientY - rect.top) < rect.height / 2" in source
     assert "(e.clientX - rect.left) < rect.width / 2" in source
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
+
+
+def test_terminal_tabs_support_named_colored_collapsible_groups() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert 'id="termGroupBtn"' in html
+    assert 'id="termGroupMenu"' in html
+    assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
+    assert "function termCreateGroupFor(name)" in source
+    assert "function termAssignSessionGroup(name, groupId)" in source
+    assert "function termToggleGroup(groupId)" in source
+    assert 'class="term-session-group${collapsed}"' in source
+    assert "container.querySelectorAll('.term-group-head')" in source
+    assert ".term-session-group.collapsed .term-group-tabs" in css
+    assert ".term-group-color.selected" in css
+
+
+def test_terminal_group_state_is_scoped_and_persisted_in_browser() -> None:
+    group_helpers = _js_between(
+        "function _termGroupScopeKey()",
+        "function _termSessionDisplay(s)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const document = {
+  getElementById() { return null; },
+  removeEventListener() {},
+  addEventListener() {},
+};
+const window = {innerWidth: 1200, innerHeight: 800};
+const _TERM_GROUPS_KEY = 'groups';
+const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7'];
+let _termGroupMenuOutside = null;
+let termSessions = [{name: 'tmux-one', logical_name: 'codex'}];
+let renderCount = 0;
+function _termSessionsKey(project, workspace) { return workspace + '::' + project; }
+function _termActiveProjectId() { return 'demo'; }
+function _termWorkspaceId() { return 'ssd'; }
+function _termSessionMeta(name) { return termSessions.find(item => item.name === name) || null; }
+function termRenderSessionList() { renderCount += 1; }
+function termSessEsc(value) { return String(value); }
+function prompt() { return 'Research'; }
+""" + group_helpers + """
+termCreateGroupFor('tmux-one');
+const state = _termReadGroupState();
+process.stdout.write(JSON.stringify({
+  keys: Object.keys(JSON.parse(stored.groups)),
+  groupName: state.groups[0].name,
+  membership: state.membership.codex,
+  renderCount,
+}));
+"""
+    )
+
+    assert result["keys"] == ["ssd::demo"]
+    assert result["groupName"] == "Research"
+    assert result["membership"].startswith("g-")
+    assert result["renderCount"] == 1
+
+
+def test_terminal_agent_activity_scraping_and_attention_ui_are_removed() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+
+    assert "/api/term/sessions/status" not in source
+    assert "/api/term/projects-attention" not in source
+    assert "termStartStatusPolling" not in source
+    assert ".term-sessions .sess .stat" not in css
 
 
 def test_terminal_session_view_controls_persist_independently() -> None:
@@ -138,6 +220,7 @@ def test_terminal_active_session_details_move_to_header() -> None:
         """
 const activeHeader = {
   className: '', title: '', innerHTML: '',
+  style: {setProperty() {}, removeProperty() {}},
   removeAttribute(name) { if (name === 'title') this.title = ''; },
 };
 const renameClasses = new Set();
@@ -145,9 +228,15 @@ const renameButton = {classList: {
   add(value) { renameClasses.add(value); },
   remove(value) { renameClasses.delete(value); },
 }};
+const groupClasses = new Set();
+const groupButton = {classList: {
+  add(value) { groupClasses.add(value); },
+  remove(value) { groupClasses.delete(value); },
+}};
 const document = {getElementById(id) {
   if (id === 'termActiveSession') return activeHeader;
   if (id === 'termRenameBtn') return renameButton;
+  if (id === 'termGroupBtn') return groupButton;
   return null;
 }};
 const termSessions = [{
@@ -157,6 +246,7 @@ const termSessions = [{
 let termCurrentSession = termSessions[0].name;
 let termCurrentProjectId = 'demo';
 function _termActiveProjectId() { return 'demo'; }
+function _termGroupForLogical() { return null; }
 function termSessEsc(value) { return String(value); }
 function prompt() { return null; }
 """ + header_helpers + """
@@ -165,6 +255,7 @@ process.stdout.write(JSON.stringify({
   className: activeHeader.className,
   html: activeHeader.innerHTML,
   renameVisible: renameClasses.has('on'),
+  groupVisible: groupClasses.has('on'),
 }));
 """
     )
@@ -173,6 +264,7 @@ process.stdout.write(JSON.stringify({
     assert '<span class="name">codex-2</span>' in result["html"]
     assert '<span class="agent">codex</span>' in result["html"]
     assert result["renameVisible"] is True
+    assert result["groupVisible"] is True
 
 
 def test_workspace_view_opens_its_own_terminal_scope() -> None:
@@ -195,7 +287,6 @@ function _termApplyRememberedVisibility() { calls.push('visibility'); }
 async function _termTryWarmOpen(pid) { calls.push('warm:' + pid); return false; }
 async function _termRestoreSessionsForProject(pid) { calls.push('restore:' + pid); }
 function termStartPeriodicRefresh() { calls.push('refresh'); }
-function termStartStatusPolling() { calls.push('status'); }
 """ + term_open + """
 (async () => {
   await termOpenForWorkspace();
@@ -210,7 +301,6 @@ function termStartStatusPolling() { calls.push('status'); }
         "warm:__workspace__",
         "restore:__workspace__",
         "refresh",
-        "status",
     ]
     assert "if (!UI_CHECK) termOpenForWorkspace();" in source
 
@@ -395,7 +485,6 @@ function termDetach() { detached = true; }
 function termShowEmpty() { emptyShown = true; }
 function termSetStatus(kind, text) { statuses.push({kind, text}); }
 function termStartPeriodicRefresh() {}
-function termStartStatusPolling() {}
 async function termRefreshSessions(projectId) {
   refreshed.push(projectId);
   termSessions = [];
@@ -485,7 +574,6 @@ function termDetach() { rendered.push('detach'); }
 function termShowEmpty() { rendered.push('empty'); }
 function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
 function termStartPeriodicRefresh() { rendered.push('periodic'); }
-function termStartStatusPolling() { rendered.push('status'); }
 async function termRefreshSessions(projectId) {
   refreshed.push(projectId);
   termSessions = [];
@@ -559,7 +647,6 @@ function termDetach() { rendered.push('detach'); }
 function termShowEmpty() { rendered.push('empty'); }
 function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
 function termStartPeriodicRefresh() { rendered.push('periodic'); }
-function termStartStatusPolling() { rendered.push('status'); }
 async function termRefreshSessions(projectId) {
   refreshed.push(projectId);
   refreshCount += 1;
@@ -604,7 +691,6 @@ console.info = () => {};
     } in result["fetchCalls"]
     assert result["attached"] == [{"name": "lab-demo-codex", "projectId": "demo"}]
     assert "periodic" in result["rendered"]
-    assert "status" in result["rendered"]
 
 
 def test_cached_terminal_pane_is_not_warm_after_fast_park_window() -> None:
@@ -791,7 +877,6 @@ function termDetach() { rendered.push('detach'); }
 function termShowEmpty() { rendered.push('empty'); }
 function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
 function termStartPeriodicRefresh() { rendered.push('periodic'); }
-function termStartStatusPolling() { rendered.push('status'); }
 async function termRefreshSessions(projectId) {
   termSessions = [{name: 'lab-alpha-claude', logical_name: 'claude', project_id: projectId}];
   activeProject = 'beta';

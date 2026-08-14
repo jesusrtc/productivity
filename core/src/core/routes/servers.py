@@ -328,6 +328,19 @@ def _session_name_for(root: Path, project_id: str) -> str:
     return term_routes._tmux_name_for(project_id, _SERVER_TAB_NAME, root)
 
 
+def _live_or_current_session_name(root: Path, project_id: str) -> str:
+    """Adopt a live server from the previous workspace-visible naming scheme."""
+    current = _session_name_for(root, project_id)
+    if term_routes._tmux_has_session(current):
+        return current
+    previous = term_routes._legacy_workspace_tmux_name_for(
+        project_id, _SERVER_TAB_NAME, root,
+    )
+    if term_routes._tmux_has_session(previous):
+        return previous
+    return current
+
+
 _HEALTH_TIMEOUT_S = 2.0
 
 
@@ -351,7 +364,7 @@ def _spawn_server_session(root: Path, project_id: str, project_dir: Path) -> str
     a hard tmux failure, HTTPException(500) if tmux isn't installed."""
     if not term_routes._tmux_available():
         raise HTTPException(status_code=500, detail="tmux not installed. Run: brew install tmux")
-    session_name = _session_name_for(root, project_id)
+    session_name = _live_or_current_session_name(root, project_id)
     if term_routes._tmux_has_session(session_name):
         return session_name
     proc = subprocess.run(
@@ -377,7 +390,7 @@ def _stop_server_session(root: Path, project_id: str, project_dir: Path, has_sto
     ``tmux kill-session``. Returns the session name. Raises
     HTTPException(504) if ``make server-stop`` times out; a nonzero exit
     code from ``server-stop`` itself is ignored (best effort)."""
-    session_name = _session_name_for(root, project_id)
+    session_name = _live_or_current_session_name(root, project_id)
     if has_stop:
         try:
             subprocess.run(
@@ -456,7 +469,7 @@ def _refresh_status(root: Path, project_id: str, row: dict) -> dict:
     cache (never performs a restart). Returns a copy of the updated entry.
     Used both by the supervisor tick and by GET /api/servers's bounded
     inline refresh for stale/missing rows."""
-    session_name = _session_name_for(root, project_id)
+    session_name = _live_or_current_session_name(root, project_id)
     session_info = term_routes._tmux_session_info(session_name)
     alive = session_info is not None
     health_url = row.get("health_url")
@@ -490,7 +503,7 @@ def _refresh_status(root: Path, project_id: str, row: dict) -> dict:
 
 
 def _row_for(root: Path, project_id: str, row: dict, entry: dict) -> dict:
-    session_name = _session_name_for(root, project_id)
+    session_name = _live_or_current_session_name(root, project_id)
     port = row.get("port")
     status = entry["state"]
     # Human-facing URL, non-null whenever the server is actually listening

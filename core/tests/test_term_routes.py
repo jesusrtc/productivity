@@ -152,7 +152,7 @@ def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 @pytest.fixture()
 def nomenclature_tmux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, monorepo: Path):
     """Fake tmux + a registered workspace, for exercising the CURRENT
-    (non-``LAB_TMUX_PREFIX``) ``neurona-<workspace>-<project>-<tab>-<hash6>``
+    (non-``LAB_TMUX_PREFIX``) ``neurona-<project>-<tab>-<hash6>``
     naming scheme end-to-end, instead of the plain legacy shape the other
     tests opt into via ``isolated_prefix``.
     """
@@ -412,159 +412,11 @@ def test_kill_project_sessions_purge_clears_saved(client, seed_project, isolated
     assert pjson["sessions"] == []
 
 
-def test_classify_pane_subagent_is_working(monkeypatch) -> None:
-    """Regression: Claude spawned a subagent (Task tool research loop) and the
-    `esc to interrupt` hint wrapped off the capture, but other signals —
-    `…(1m 36s`, `thought for 27s`, `↓ 343 tokens` — are still present.
-    The classifier must see the session as WORKING."""
-    import core.routes.term as term_mod
-    # Stub tmux + clear the TTL cache.
-    import subprocess as sp
-
-    pane_text = (
-        "⏺ Bash(rm /tmp/foo)\n"
-        "  └ Done\n"
-        "\n"
-        "* Researching inResponse cases vs incidents… (1m 36s · ↓ 343 tokens · thought for 27\n"
-        "   └ ✓ Draft initial problem statement doc\n"
-        "   ■ Research inResponse cases vs incidents\n"
-        "   □ Draft unification proposal section\n"
-        "\n"
-        "> \n"
-    )
-
-    class FakeRun:
-        returncode = 0
-        stderr = ""
-        stdout = pane_text
-
-    monkeypatch.setattr(sp, "run", lambda *a, **kw: FakeRun())
-    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
-    assert term_mod._classify_pane("lab-xxx-claude") == "working"
-
-
-def test_classify_pane_idle_prompt(monkeypatch) -> None:
-    """Opposite: a freshly-idle Claude showing just its prompt — no timer,
-    no token count, no interrupt hint — should classify IDLE."""
-    import core.routes.term as term_mod
-    import subprocess as sp
-
-    pane_text = (
-        "⏺ Done editing README.md\n"
-        "\n"
-        "> \n"
-    )
-
-    class FakeRun:
-        returncode = 0
-        stderr = ""
-        stdout = pane_text
-
-    monkeypatch.setattr(sp, "run", lambda *a, **kw: FakeRun())
-    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
-    assert term_mod._classify_pane("lab-xxx-claude") == "idle"
-
-
-def test_session_status_working_vs_idle(client, seed_project, isolated_prefix,
-                                          monkeypatch) -> None:
-    """`/api/term/sessions/status`: claude pane containing 'esc to interrupt'
-    is 'working'; otherwise 'idle'. Terminal sessions are 'n/a'."""
-    seed_project("demo")
-    # Start one claude + one terminal. Pane capture will be stubbed.
-    c = client.post("/api/term/sessions",
-                    json={"project_id": "demo", "kind": "claude"}).json()
-    t = client.post("/api/term/sessions",
-                    json={"project_id": "demo", "kind": "terminal"}).json()
-
-    # Stub tmux capture-pane: claude pane shows "esc to interrupt" → working.
-    import subprocess as sp
-    real_run = sp.run
-
-    def fake_run(cmd, *a, **kw):
-        if isinstance(cmd, list) and cmd[:2] == ["tmux", "capture-pane"]:
-            target_idx = cmd.index("-pt") + 1 if "-pt" in cmd else -1
-            target = cmd[target_idx] if target_idx > 0 else ""
-            class R:
-                returncode = 0
-                stderr = ""
-            if target.endswith("-claude"):
-                R.stdout = "⏺ Burrowing… (24s · esc to interrupt)\n"
-            else:
-                R.stdout = "$ \n"
-            return R()
-        return real_run(cmd, *a, **kw)
-    monkeypatch.setattr(sp, "run", fake_run)
-    # Stub cache too — it's time-based; wipe between calls.
-    import core.routes.term as term_mod
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
-
-    rows = client.get("/api/term/sessions/status?project_id=demo").json()
-    by_name = {r["name"]: r for r in rows}
-    assert by_name[c["name"]]["status"] == "working"
-    assert by_name[t["name"]]["status"] == "n/a"
-
-
-def test_projects_attention_needs_idle_claude(client, seed_project, isolated_prefix,
-                                                 monkeypatch) -> None:
-    """A project is in the attention list only when at least one claude is
-    live AND none of them is working."""
-    seed_project("demo")
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
-
-    import subprocess as sp
-    real_run = sp.run
-    pane_text = {"value": "esc to interrupt"}  # start working
-
-    def fake_run(cmd, *a, **kw):
-        if isinstance(cmd, list) and cmd[:2] == ["tmux", "capture-pane"]:
-            class R: returncode = 0; stderr = ""; stdout = pane_text["value"] + "\n"
-            return R()
-        return real_run(cmd, *a, **kw)
-    monkeypatch.setattr(sp, "run", fake_run)
-    import core.routes.term as term_mod
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
-    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
-
-    # Working → not in attention list.
-    assert client.get("/api/term/projects-attention").json() == []
-
-    # Idle → in attention list.
-    pane_text["value"] = "some prompt:"
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})  # bust the 1.5s cache
-    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
-    assert client.get("/api/term/projects-attention").json() == ["demo"]
-
-    # Held → excluded from attention even when Claude is idle. A snoozed
-    # project is *expected* to be idle; pulsing it would defeat the point.
-    import json as _json
-    from lab import paths as _paths
-    root = client.app.state.index_cache.root
-    pjson = _paths.project_file(root, "demo")
-    data = _json.loads(pjson.read_text())
-    data["hold"] = {"until": "2099-01-01T00:00:00+00:00"}
-    pjson.write_text(_json.dumps(data))
-    client.app.state.index_cache.rebuild()
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
-    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
-    assert client.get("/api/term/projects-attention").json() == []
-
-    # Hold in the past → attention returns (ready-for-review still pings).
-    data["hold"] = {"until": "2020-01-01T00:00:00+00:00"}
-    pjson.write_text(_json.dumps(data))
-    client.app.state.index_cache.rebuild()
-    monkeypatch.setattr(term_mod, "_STATUS_CACHE", {})
-    monkeypatch.setattr(term_mod, "_PROJECTS_ATTENTION_CACHE", None)
-    assert client.get("/api/term/projects-attention").json() == ["demo"]
-
-
-def test_session_status_n_a_for_non_claude(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    client.post("/api/term/sessions",
-                json={"project_id": "demo", "kind": "terminal"}).json()
-    rows = client.get("/api/term/sessions/status?project_id=demo").json()
-    assert [r["status"] for r in rows] == ["n/a"]
+def test_agent_activity_routes_are_removed(client) -> None:
+    """Lab no longer scrapes terminal panes or exposes attention state."""
+    paths = client.get("/openapi.json").json()["paths"]
+    assert "/api/term/sessions/status" not in paths
+    assert "/api/term/projects-attention" not in paths
 
 
 def test_session_order_reorder_saved_and_affect_live_list(client, seed_project,
@@ -904,8 +756,6 @@ def test_failed_tmux_listing_does_not_prune_registry(client, seed_project,
     monkeypatch.setattr(term_route, "_tmux_list", lambda prefix: None)
     assert client.get("/api/term/sessions").json() == []
     assert client.get("/api/term/projects-with-sessions").json() == []
-    assert client.get("/api/term/sessions/status").json() == []
-    assert client.get("/api/term/projects-attention").json() == []
 
     from lab import paths
     meta = json.loads(paths.sessions_file(monorepo).read_text())
@@ -972,7 +822,7 @@ def test_paste_image_rejects_unsupported_mime(client, seed_project) -> None:
     assert r.status_code == 400
 
 
-# ─── Naming scheme: neurona-<workspace>-<project>-<tab>-<hash6> ────────────
+# ─── Naming scheme: neurona-<project>-<tab>-<hash6> ────────────────────────
 #
 # These tests exercise the CURRENT naming scheme (not the legacy
 # LAB_TMUX_PREFIX-based one every test above opts into), covering: workspace
@@ -1038,7 +888,8 @@ def test_tmux_name_for_new_scheme_is_deterministic_and_hashed(nomenclature_tmux,
     import core.routes.term as term_mod
 
     name = term_mod._tmux_name_for("my-project", "codex-tab", monorepo)
-    assert name.startswith("neurona-ssd-my-project-codex-tab-")
+    assert name.startswith("neurona-my-project-codex-tab-")
+    assert not name.startswith("neurona-ssd-")
     suffix = name.rsplit("-", 1)[-1]
     assert _is_hex6(suffix)
     # Deterministic: same workspace+project+tab → same name, every time.
@@ -1058,7 +909,17 @@ def test_parse_tmux_name_new_scheme_with_hyphenated_project_and_tab(
     assert term_mod._parse_tmux_name(monorepo, name) == ("my-project", "review-pr-42")
 
 
-def test_parse_tmux_name_tolerates_missing_hash_suffix(
+def test_current_scheme_rejects_a_hash_from_another_workspace(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    """A shared visible prefix must not make another workspace's tab ours."""
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    assert term_mod._parse_tmux_name(monorepo, "neurona-demo-my-tab-abcdef") is None
+
+
+def test_parse_tmux_name_adopts_previous_workspace_scheme_without_hash_suffix(
     nomenclature_tmux, seed_project, monorepo: Path,
 ) -> None:
     """A session hand-created outside the server (CLI/agent following the
@@ -1071,7 +932,18 @@ def test_parse_tmux_name_tolerates_missing_hash_suffix(
     assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "mytab")
 
 
-def test_parse_tmux_name_does_not_strip_unverified_hash_looking_suffix(
+def test_parse_tmux_name_adopts_previous_workspace_scheme_with_hash(
+    nomenclature_tmux, seed_project, monorepo: Path,
+) -> None:
+    seed_project("demo")
+    import core.routes.term as term_mod
+
+    name = term_mod._legacy_workspace_tmux_name_for("demo", "mytab", monorepo)
+    assert name.startswith("neurona-ssd-demo-mytab-")
+    assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "mytab")
+
+
+def test_previous_scheme_does_not_strip_unverified_hash_looking_suffix(
     nomenclature_tmux, seed_project, monorepo: Path,
 ) -> None:
     """A tab name that just happens to end in 6 hex characters must not be
@@ -1120,7 +992,8 @@ def test_create_and_list_use_new_naming_scheme_and_expose_attach_command(
     seed_project("demo")
     created = client.post("/api/term/sessions",
                           json={"project_id": "demo", "kind": "terminal"}).json()
-    assert created["name"].startswith("neurona-ssd-demo-bash-")
+    assert created["name"].startswith("neurona-demo-bash-")
+    assert not created["name"].startswith("neurona-ssd-")
     assert created["attach_command"] == "tmux attach -t '{}'".format(created["name"])
 
     rows = client.get("/api/term/sessions?project_id=demo").json()
@@ -1275,6 +1148,19 @@ def _spawn_and_adopt(root: Path, project_id: str, tab: str) -> str:
     return name
 
 
+def test_workspace_neutral_names_keep_workspace_in_collision_hash(
+    monorepo: Path, second_workspace_tmux,
+) -> None:
+    import core.routes.term as term_mod
+
+    other_root = second_workspace_tmux
+    mine = term_mod._tmux_name_for("same-project", "codex", monorepo)
+    other = term_mod._tmux_name_for("same-project", "codex", other_root)
+    assert mine.startswith("neurona-same-project-codex-")
+    assert other.startswith("neurona-same-project-codex-")
+    assert mine != other
+
+
 def test_list_sessions_unscoped_spans_all_registered_workspaces(
     client, seed_project, second_workspace_tmux,
 ) -> None:
@@ -1304,7 +1190,8 @@ def test_create_and_list_sessions_can_target_non_active_workspace(
 
     assert created.status_code == 200, created.text
     assert created.json()["cwd"] == str((other_root / "projects" / "demo2").resolve())
-    assert created.json()["name"].startswith("neurona-other-demo2-bash-")
+    assert created.json()["name"].startswith("neurona-demo2-bash-")
+    assert not created.json()["name"].startswith("neurona-other-")
     rows = client.get("/api/term/sessions?project_id=demo2&workspace=other").json()
     assert [row["name"] for row in rows] == [created.json()["name"]]
     assert client.get("/api/term/sessions?project_id=demo2").json() == []
