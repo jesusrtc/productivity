@@ -71,6 +71,9 @@ def test_frontend_declares_cross_workspace_navigation_surfaces() -> None:
     assert "function projectSaveDisplayName" in script
     assert "Name shown in tabs" in script
     assert "_projectDisplayName(project)" in script
+    assert "currentProject.path === project.path && currentProject.display_name" in script
+    assert "_setProjectDisplayName(projectPath, projectDisplayName)" in script
+    assert "if (!currentProject || currentProject.path !== projectPath) return;" in script
     assert "/api/workspaces/use" not in script
     server_bar = script[
         script.index("async function refreshAttrsBar"):

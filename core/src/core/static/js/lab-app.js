@@ -44,7 +44,11 @@
   // Project ids remain stable for paths, terminal sessions, and API calls.
   // Only this helper should decide what human-facing label to render.
   function _projectDisplayName(project) {
-    return String((project && (project.display_name || project.name)) || 'Project');
+    // The detail request may be newer than an in-flight catalog poll. Keep
+    // the active tab aligned with the Overview heading in that short window.
+    const activeDisplayName = currentProject && project
+      && currentProject.path === project.path && currentProject.display_name;
+    return String(activeDisplayName || (project && (project.display_name || project.name)) || 'Project');
   }
 
   let currentWorkspaceId = null;
@@ -4773,6 +4777,7 @@
 
   async function showProjectInfo({preserveScroll = false, keepShell = false} = {}) {
     if (!currentProject || !currentProject.is_project) return;
+    const projectPath = currentProject.path;
     const content = document.getElementById('content');
     const prevContentScroll = preserveScroll ? content.scrollTop : 0;
     if (!preserveScroll && !keepShell) content.innerHTML = '<div class="loading">Loading project dashboard...</div>';
@@ -4780,11 +4785,11 @@
 
     try {
       const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await Promise.all([
-        fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`),
-        fetch(`/api/project-actions?path=${encodeURIComponent(currentProject.path)}`),
-        fetch(`/api/project-onepager?path=${encodeURIComponent(currentProject.path)}`),
-        fetch(`/api/project-artifacts?path=${encodeURIComponent(currentProject.path)}`),
-        fetch(`/api/project-alerts?path=${encodeURIComponent(currentProject.path)}`),
+        fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`),
+        fetch(`/api/project-actions?path=${encodeURIComponent(projectPath)}`),
+        fetch(`/api/project-onepager?path=${encodeURIComponent(projectPath)}`),
+        fetch(`/api/project-artifacts?path=${encodeURIComponent(projectPath)}`),
+        fetch(`/api/project-alerts?path=${encodeURIComponent(projectPath)}`),
       ]);
 
       const info = await infoRes.json();
@@ -4792,6 +4797,15 @@
       const onepager = await onepagerRes.json();
       const artifacts = await artifactsRes.json();
       const alerts = await alertsRes.json();
+      if (!currentProject || currentProject.path !== projectPath) return;
+
+      // project-info is the authoritative project.json read. Reconcile its
+      // display name into every tab cache so a stale catalog response cannot
+      // leave the active tab showing the folder id after Overview has updated.
+      const projectDisplayName = String(info.name || info.id || currentProject.name);
+      _setProjectDisplayName(projectPath, projectDisplayName);
+      document.title = projectDisplayName;
+      projTabsRender();
 
       // Status color
       const statusColor = info.status === 'active' ? '#3fb950' : info.status === 'paused' ? '#d29922' : '#8b949e';
