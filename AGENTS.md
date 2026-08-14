@@ -38,8 +38,8 @@ When you're in `projects/<id>/`, read that project's `CLAUDE.md` too. It's auto-
 
 When a project needs one or more local-server tabs/proxies, agents may create
 or edit `projects/<id>/servers.json`; do not add new proxy declarations to
-`project.json`. The format and Makefile auto-detection convention are documented
-in `docs/SERVERS.md`. Lifecycle commands in this file must be `make` commands.
+`project.json`. The format is documented in `docs/SERVERS.md`. Lifecycle
+commands in this file must be `make` commands.
 
 ## On sending an update
 

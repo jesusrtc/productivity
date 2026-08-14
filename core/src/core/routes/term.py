@@ -69,7 +69,7 @@ from pydantic import BaseModel
 
 from lab import settings as lab_settings
 
-from core import fsguard
+from core import auth, fsguard
 from core import workspace_config
 
 
@@ -330,6 +330,28 @@ def _workspace_root_for(active_root: Path, workspace: str | None) -> Path:
         if row["id"] == workspace:
             return row["path"]
     raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
+
+
+def _workspace_id_for_root(active_root: Path, root: Path) -> str:
+    resolved = root.expanduser().resolve()
+    for row in _known_workspaces(active_root):
+        if row["path"].expanduser().resolve() == resolved:
+            return str(row["id"])
+    return resolved.name
+
+
+def _require_root_access(connection: Request | WebSocket, active_root: Path, root: Path) -> dict:
+    return auth.require_workspace(connection, _workspace_id_for_root(active_root, root))
+
+
+def _require_project_access(
+    connection: Request | WebSocket, active_root: Path, root: Path, project_id: str | None,
+) -> dict:
+    user = _require_root_access(connection, active_root, root)
+    if project_id in {SELF_PROJECT_ID, CEREBRO_PROJECT_ID, LOGS_PROJECT_ID} or _cs_repo_name(project_id or ""):
+        if not auth.is_admin(user):
+            raise HTTPException(status_code=403, detail="admin access required")
+    return user
 
 
 def _tmux_discovery_prefixes_all(workspaces: list[dict]) -> list[str]:
@@ -1306,10 +1328,11 @@ def list_sessions(
     sessions (stored in project.json) are surfaced separately via
     ``/api/term/sessions/saved``.
     """
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
 
     if project_id:
         root = _workspace_root_for(active_root, workspace)
+        _require_project_access(request, active_root, root, project_id)
         rows = _sessions_for_root(root, project_id)
         # Order preference: if the project has a saved ``sessions[]`` array
         # (in project.json), use that order as the source of truth — this
@@ -1331,7 +1354,10 @@ def list_sessions(
         return rows
 
     rows = []
+    user = auth.require_user(request)
     for ws in _known_workspaces(active_root):
+        if not auth.can_access_workspace(user, str(ws["id"])):
+            continue
         try:
             ws_rows = fsguard.guarded(ws["path"], _sessions_for_root, ws["path"], None)
         except HTTPException as exc:
@@ -1417,8 +1443,9 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
     """Reorder the project's saved sessions[] so /api/term/sessions reflects
     the new pill order. Any saved session not listed is appended in its
     original relative order."""
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _workspace_root_for(active_root, body.workspace)
+    _require_project_access(request, active_root, root, body.project_id)
     data = _load_project(root, body.project_id)
     if data is None:
         raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
@@ -1445,8 +1472,9 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
 @router.patch("/api/term/sessions/metadata")
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     """Persist a user-facing label/summary for a saved logical session."""
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _workspace_root_for(active_root, body.workspace)
+    _require_project_access(request, active_root, root, body.project_id)
     data = _load_project(root, body.project_id)
     if data is None:
         raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
@@ -1512,8 +1540,9 @@ def paste_image(body: PastedImage, request: Request) -> dict:
     image handling as an explicit paste-time HTTP call avoids touching the
     latency-critical websocket byte path used by normal typing and text paste.
     """
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _workspace_root_for(active_root, body.workspace)
+    _require_project_access(request, active_root, root, body.project_id)
     if not body.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
     cwd = _project_cwd(root, body.project_id)
@@ -1571,8 +1600,9 @@ def list_saved_sessions(
     request: Request, project_id: str, workspace: str | None = None,
 ) -> list[dict]:
     """List sessions saved in the project's project.json (may or may not be live)."""
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _workspace_root_for(active_root, workspace)
+    _require_project_access(request, active_root, root, project_id)
     return _get_project_sessions(root, project_id)
 
 
@@ -1586,11 +1616,26 @@ def projects_with_sessions(request: Request) -> list[str]:
     single ``🔍 code-search`` pseudo-tab and the in-tab repo picker.
     """
     global _PROJECTS_WITH_SESSIONS_CACHE
+    user = auth.require_user(request)
+    if not auth.is_admin(user):
+        active_root = auth.request_root(request)
+        ids: list[str] = []
+        for ws in _known_workspaces(active_root):
+            if not auth.can_access_workspace(user, str(ws["id"])):
+                continue
+            listing = _tmux_list(_tmux_discovery_prefixes(ws["path"]))
+            meta = _sync_meta(ws["path"], listing)
+            for name in {item["name"] for item in (listing or [])}:
+                project_id = (meta.get(name) or {}).get("project_id")
+                if not project_id or project_id in ids or str(project_id).startswith("__"):
+                    continue
+                ids.append(project_id)
+        return ids
     cached = _fresh_project_cache(_PROJECTS_WITH_SESSIONS_CACHE)
     if cached is not None:
         return cached
 
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     prefixes = _tmux_discovery_prefixes(root)
     listing = _tmux_list(prefixes)
     meta = _sync_meta(root, listing)
@@ -1626,8 +1671,9 @@ def create_session(body: NewSession, request: Request) -> dict:
     if kind not in ("claude", "terminal"):
         raise HTTPException(status_code=400, detail=f"unknown kind: {kind}")
 
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _workspace_root_for(active_root, body.workspace)
+    _require_project_access(request, active_root, root, body.project_id)
 
     # For agent sessions (kind=="claude"), resolve which CLI to launch:
     # explicit body.agent → project override → global default. The result
@@ -1882,7 +1928,7 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
     to its owning workspace root so the runtime registry / servers
     desired-state hook below operate on the right workspace's files.
     """
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     workspaces = _known_workspaces(active_root)
     prefixes = _tmux_discovery_prefixes_all(workspaces)
     if not any(name.startswith(p) for p in prefixes):
@@ -1893,6 +1939,7 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
     info = meta.get(name) or {}
     project_id = info.get("project_id")
     logical_name = info.get("logical_name")
+    _require_project_access(request, active_root, root, project_id)
 
     if _tmux_available():
         subprocess.run(["tmux", "kill-session", "-t", name], capture_output=True, text=True,
@@ -1945,7 +1992,7 @@ def kill_project_sessions(
     dashboard needs this since the same project id can exist in more than
     one workspace).
     """
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     if workspace is not None:
         root = None
         for ws in _known_workspaces(active_root):
@@ -1956,6 +2003,7 @@ def kill_project_sessions(
             raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
     else:
         root = active_root
+    _require_project_access(request, active_root, root, project_id)
 
     prefixes = _tmux_discovery_prefixes(root)
     meta = _load_meta(root)
@@ -2056,7 +2104,20 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
       server -> client:  {"type":"data","data":"..."}        # PTY bytes (utf-8)
                          {"type":"exit"}                      # tmux attach exited
     """
-    root: Path = websocket.app.state.index_cache.root
+    user = auth.user_from_connection(websocket)
+    if user is None:
+        await websocket.close(code=4401)
+        return
+    active_root: Path = websocket.app.state.index_cache.root
+    workspaces = _known_workspaces(active_root)
+    root = _resolve_session_workspace_root(name, active_root, workspaces)
+    meta = _load_meta(root)
+    project_id = (meta.get(name) or {}).get("project_id")
+    try:
+        _require_project_access(websocket, active_root, root, project_id)
+    except HTTPException as exc:
+        await websocket.close(code=4403 if exc.status_code == 403 else 4404)
+        return
     prefixes = _tmux_discovery_prefixes(root)
     loop = asyncio.get_running_loop()
     path_info = f"/ws/term/{name}"

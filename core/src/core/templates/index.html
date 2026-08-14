@@ -117,7 +117,12 @@
     <option value="">Select repo...</option>
   </select>
   <span class="branch" id="branchLabel"></span>
-  <button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>
+  {% if IS_ADMIN %}<button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>{% endif %}
+  <div class="auth-user" title="Signed in as {{ USER.username }}">
+    <span class="auth-user-name">{{ USER.name }}</span>
+    <span class="auth-user-role">{{ USER.role }}</span>
+    <button type="button" onclick="labLogout()">Sign out</button>
+  </div>
 </div>
 
 <!-- Cerebro view: mdview-style sidebar + markdown pane. Active when ?view=cerebro. -->
@@ -247,7 +252,7 @@
     <button id="termOrientationBtn" class="term-view-btn" onclick="termToggleSessionOrientation()" title="Use horizontal session tabs" aria-label="Use horizontal session tabs" aria-pressed="false">&#x2194;</button>
     <button id="termDetailBtn" class="term-view-btn" onclick="termToggleSessionDetail()" title="Show full session names and agents" aria-label="Show full session names and agents" aria-pressed="false">Aa</button>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only `tmux attach` command for this session to the clipboard">&#x1F4CB;</button>
-    <button id="termCreateGroupBtn" onclick="termCreateGroup()" title="Create a group divider before the active tab">+ Group</button>
+    <button id="termCreateDividerBtn" onclick="termCreateDivider()" title="Create a colored divider before the active tab">+ Divider</button>
     <div class="term-new-wrap">
       <button id="termNewBtn" onclick="termToggleNewPicker(event)" title="New session in this project">+ New</button>
       <div class="term-new-picker" id="termNewPicker">
@@ -390,11 +395,11 @@
           <span>Config: <code id="proxiesConfigSource">loading…</code></span>
           <span class="proxies-config-spacer"></span>
           <button type="button" id="proxiesReloadBtn" onclick="reloadProxyConfig()">&#x21BB; Reload file</button>
-          <button type="button" id="proxiesDetectBtn" onclick="detectProxyConfig()">&#x2728; Detect Makefile</button>
+          <button type="button" id="proxiesCreateBtn" onclick="createProxyConfigTemplate()">+ Create servers.json</button>
         </div>
         <p class="proxies-config-help">
-          Lab automatically reads <code>servers.json</code> from the project root,
-          so an agent can create or edit it directly. Saving here creates that file.
+          Create the empty template, ask an agent to fill it, then reload this modal.
+          Lab reads <code>servers.json</code> automatically from the project root.
         </p>
         <div id="proxiesRows" class="proxies-rows"></div>
         <button type="button" id="proxiesAddBtn" class="btn-cancel proxies-add" onclick="addProxyRow()">+ Add server</button>
@@ -420,6 +425,8 @@
 <script>
   window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};
   window.LAB_WORKSPACE_ROOT = {{ WORKSPACE_ROOT | tojson }};
+  window.LAB_USER = {{ USER | tojson }};
+  window.LAB_IS_ADMIN = {{ IS_ADMIN | tojson }};
 </script>
 <script>
   (function () {

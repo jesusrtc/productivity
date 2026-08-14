@@ -19,6 +19,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from core import auth
+
 router = APIRouter()
 
 _log = logging.getLogger("core.client_errors")
@@ -97,7 +99,7 @@ def _log_dir(request: Request) -> Path:
     cache = getattr(request.app.state, "index_cache", None)
     if cache is not None:
         from lab import paths
-        return paths.logs_dir(Path(cache.root))
+        return paths.logs_dir(auth.request_root(request))
 
     from core import config
     from lab import paths

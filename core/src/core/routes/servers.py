@@ -54,7 +54,7 @@ from fastapi import APIRouter, HTTPException, Request
 from lab import paths, storage
 from lab.model import ModelError, validate_id
 
-from core import fsguard
+from core import auth, fsguard
 from core.routes import term as term_routes
 from core.routes import workspace as workspace_routes
 
@@ -682,12 +682,15 @@ def stop_supervisor() -> None:
 
 @router.get("/api/servers")
 def list_servers(request: Request) -> dict:
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
+    user = auth.require_user(request)
     stale_after = _supervisor_interval_s() * 2
     now_wall = time.time()
 
     out = []
     for workspace_id, root, row in _discover_all_server_rows(active_root):
+        if not auth.can_access_workspace(user, workspace_id):
+            continue
         project_id = row["project_id"]
         key = (_root_key(root), project_id)
         with _STATUS_LOCK:
@@ -701,8 +704,9 @@ def list_servers(request: Request) -> dict:
 
 @router.post("/api/servers/{workspace}/{project_id}/start")
 def start_server(workspace: str, project_id: str, request: Request) -> dict:
+    auth.require_workspace(request, workspace)
     _validate_project_id(project_id)
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _require_workspace_root(workspace, active_root)
     row = _find_server_project(root, project_id)
     if row is None:
@@ -720,8 +724,9 @@ def start_server(workspace: str, project_id: str, request: Request) -> dict:
 
 @router.post("/api/servers/{workspace}/{project_id}/stop")
 def stop_server(workspace: str, project_id: str, request: Request) -> dict:
+    auth.require_workspace(request, workspace)
     _validate_project_id(project_id)
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _require_workspace_root(workspace, active_root)
     row = _find_server_project(root, project_id)
     if row is None:
@@ -739,8 +744,9 @@ def stop_server(workspace: str, project_id: str, request: Request) -> dict:
 
 @router.post("/api/servers/{workspace}/{project_id}/restart")
 def restart_server(workspace: str, project_id: str, request: Request) -> dict:
+    auth.require_workspace(request, workspace)
     _validate_project_id(project_id)
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     root = _require_workspace_root(workspace, active_root)
     row = _find_server_project(root, project_id)
     if row is None:

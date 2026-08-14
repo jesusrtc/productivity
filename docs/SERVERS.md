@@ -35,11 +35,9 @@ and `mode` to `proxy`; `direct` is also supported. Start and stop commands are
 optional, but when present they must be `make` commands. Missing commands leave
 the corresponding modal controls disabled.
 
-The Servers modal reads this file every time it opens. Use **Reload file** if
-an agent edits it while the modal is already open. **Detect Makefile** can infer
-one server from the standard `SERVER_PORT`, `server-start`, and `server-stop`
-declarations below. Detection is a preview; click **Save changes** to create
-`servers.json`.
+The Servers modal reads this file every time it opens. **Create servers.json**
+writes a valid empty template (`{"servers": []}`) for an agent to fill. Use
+**Reload file** if the agent edits it while the modal is already open.
 
 For compatibility, Lab reads `project.json.proxies` only when `servers.json`
 does not exist. The first save from the modal creates `servers.json` and makes
@@ -138,8 +136,6 @@ another.
   metadata).
 - `PUT /api/server-config?project_id=<id>&workspace=<workspace>` — validate and
   write the project's canonical `servers.json`.
-- `GET /api/server-config/detect?project_id=<id>&workspace=<workspace>` —
-  preview Makefile detection.
 - `/api/workspace-proxy/{workspace}/{project_id}/{name}/…` — workspace-scoped
   HTTP mount used by embedded server tabs. The workspace stays in the path so
   relative assets keep the correct scope; legacy `/api/proxy/…` URLs remain

@@ -185,25 +185,21 @@ def test_invalid_servers_json_is_reported(client, seed_project) -> None:
     assert "port must be between" in response.json()["detail"]
 
 
-def test_detect_server_config_from_makefile(client, seed_project) -> None:
+def test_put_empty_server_config_creates_agent_template(client, seed_project) -> None:
     project = seed_project("demo")
-    (project / "Makefile").write_text(
-        "SERVER_PORT ?= 4173\n\nserver-start:\n\tnpm run dev\n\nserver-stop:\n\ttrue\n"
-    )
+
+    response = client.put("/api/server-config?project_id=demo", json={"servers": []})
+
+    assert response.status_code == 200, response.text
+    assert json.loads((project / "servers.json").read_text()) == {"servers": []}
+
+
+def test_makefile_detection_endpoint_is_not_exposed(client, seed_project) -> None:
+    seed_project("demo")
 
     response = client.get("/api/server-config/detect?project_id=demo")
 
-    assert response.status_code == 200, response.text
-    assert response.json()["servers"] == [{
-        "name": "app",
-        "label": "demo",
-        "host": "localhost",
-        "port": 4173,
-        "path": "/",
-        "mode": "proxy",
-        "start_command": "make server-start",
-        "stop_command": "make server-stop",
-    }]
+    assert response.status_code == 404
 
 
 def test_project_info_overlays_servers_json_for_sidebar(client, seed_project) -> None:

@@ -18,6 +18,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from core import auth
+
 router = APIRouter()
 
 _KEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -33,7 +35,7 @@ def _state_file(root: Path, key: str) -> Path:
 def appstate_get(key: str, request: Request) -> Response:
     if not _KEY_RE.match(key):
         raise HTTPException(status_code=400, detail="bad key")
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     f = _state_file(root, key)
     if not f.exists():
         return Response(content="{}", media_type="application/json")
@@ -51,7 +53,7 @@ async def appstate_put(key: str, request: Request) -> dict:
         json.loads(body or b"null")
     except Exception:
         raise HTTPException(status_code=400, detail="body must be valid JSON")
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     f = _state_file(root, key)
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_name(f.name + ".tmp")

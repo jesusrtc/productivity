@@ -39,6 +39,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from core import auth
 from core.diff_parser import parse_notebook
 
 
@@ -676,7 +677,7 @@ def session_for(path: str, request: Request) -> dict:
 
     Lets the UI show which kernel a notebook is using before the first run.
     """
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _safe_resolve(root, path)  # validate only
     return {"path": path, "session": _session_for(path)}
 
@@ -704,7 +705,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     still belongs in the notebook). The endpoint only 4xx/5xx's when the
     darwin CLI cannot run.
     """
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
     session = _session_for(body.path)
     if body.cell_index is not None and body.insert_at is not None:
@@ -828,7 +829,7 @@ async def session_restart(body: SessionRestartBody, request: Request) -> dict:
     ``/api/nb/exec`` call spin up a fresh one. Variables are wiped — same
     semantics as Jupyter's "Restart Kernel".
     """
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _safe_resolve(root, body.path)  # validate
     session = _session_for(body.path)
     try:
@@ -864,7 +865,7 @@ async def session_restart(body: SessionRestartBody, request: Request) -> dict:
 @router.post("/api/nb/cell/delete")
 def delete_cell(body: CellDeleteBody, request: Request) -> dict:
     """Remove the cell at ``body.cell_index`` from ``body.path``."""
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="notebook not found")

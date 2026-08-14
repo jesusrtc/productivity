@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,7 +13,7 @@ from pydantic import BaseModel
 from lab import paths
 from lab import settings as lab_settings
 
-from core import fsguard
+from core import auth, fsguard
 from core import workspace_config
 from core.diff_parser import get_registered_repos
 
@@ -32,6 +34,12 @@ class WorkspaceAgentsPatch(BaseModel):
 class WorkspaceAppearancePatch(BaseModel):
     name: str
     color: str
+
+
+class WorkspaceCreateRequest(BaseModel):
+    path: str
+    name: str | None = None
+    create: bool = False
 
 
 def _workspace_id_for(root: Path, rows: list[dict]) -> str:
@@ -70,8 +78,7 @@ def _workspace_row(root: Path, rows: list[dict]) -> dict:
 
 
 def _payload(request: Request) -> dict:
-    cache = request.app.state.index_cache
-    current_root = Path(cache.root).expanduser().resolve()
+    current_root = auth.request_root(request)
     data = paths.read_workspace_registry()
     rows = list(data.get("workspaces") or [])
     current = _workspace_row(current_root, rows)
@@ -94,19 +101,33 @@ def _payload(request: Request) -> dict:
         })
     if current["path"] not in seen:
         workspaces.insert(0, current)
+    user = auth.require_user(request)
+    if not auth.is_admin(user):
+        workspaces = [
+            row for row in workspaces
+            if auth.can_access_workspace(user, str(row.get("id") or ""))
+        ]
+        visible_active = current["id"] if any(row["id"] == current["id"] for row in workspaces) else None
+        if visible_active is None and workspaces:
+            visible_active = workspaces[0]["id"]
+        for row in workspaces:
+            row["active"] = row["id"] == visible_active
+        current = next((row for row in workspaces if row["id"] == visible_active), None)
     # Advisory workspace.json status for the ACTIVE workspace only. Other
     # registered roots may live on unplugged volumes; reading a file there
     # would hang the whole dashboard, so they are not touched here.
     try:
-        current["config"] = fsguard.guarded(
-            current_root,
-            workspace_config.summarize_workspace_config,
-            current_root,
-        )
+        config_root = Path(str(current["path"])).expanduser().resolve() if current else None
+        if config_root is not None:
+            current["config"] = fsguard.guarded(
+                config_root,
+                workspace_config.summarize_workspace_config,
+                config_root,
+            )
     except HTTPException:
         pass
     return {
-        "active": current["id"],
+        "active": current["id"] if current else None,
         "current": current,
         "workspaces": workspaces,
     }
@@ -132,7 +153,7 @@ def _validate_workspace(root: Path) -> None:
 
 
 def _workspace_root(request: Request, workspace: str | None = None) -> Path:
-    active_root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    active_root = auth.request_root(request)
     if not workspace:
         return active_root
     for row in _payload(request)["workspaces"]:
@@ -193,6 +214,36 @@ def _workspace_overview(root: Path, fallback_name: str, workspace_id: str) -> di
 @router.get("/api/workspaces")
 def list_workspaces(request: Request) -> dict:
     return _payload(request)
+
+
+@router.post("/api/workspaces")
+def add_workspace(body: WorkspaceCreateRequest, request: Request) -> dict:
+    """Register an existing workspace or create an empty one via ``lab init``."""
+    auth.require_admin(request)
+    root = Path(body.path).expanduser().resolve()
+    display_name = (body.name or root.name).strip() or root.name
+    previous_active = paths.active_workspace()
+    if body.create:
+        if (root / "lab.toml").exists():
+            raise HTTPException(status_code=409, detail="workspace already exists; add it as existing")
+        env = dict(os.environ)
+        env.pop("LAB_WORKSPACE", None)
+        env.pop("LAB_ROOT", None)
+        proc = subprocess.run(
+            [sys.executable, "-m", "lab", "init", str(root), "--name", display_name, "--no-example"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip().removeprefix("Error: ")
+            raise HTTPException(status_code=400, detail=detail or "could not create workspace")
+        if previous_active is not None:
+            paths.register_workspace(previous_active, active=True)
+    else:
+        _validate_workspace(root)
+    row = paths.register_workspace(root, name=display_name, active=False)
+    return {"workspace": row, **_payload(request)}
 
 
 @router.get("/api/workspace/config")
@@ -313,6 +364,7 @@ def update_workspace_appearance(
 
 @router.post("/api/workspaces/use")
 def use_workspace(body: WorkspaceUseRequest, request: Request) -> dict:
+    auth.require_admin(request)
     root = _resolve_requested_workspace(body)
     _validate_workspace(root)
     paths.register_workspace(root, name=root.name, active=True)

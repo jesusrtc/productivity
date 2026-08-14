@@ -7,6 +7,8 @@ import markdown as _md
 import yaml
 from fastapi import APIRouter, HTTPException, Request
 
+from core import auth
+
 
 router = APIRouter()
 
@@ -33,7 +35,7 @@ def _safe_resolve(root: Path, rel: str) -> Path:
 
 @router.get("/api/markdown")
 def render_markdown(path: str, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     target = _safe_resolve(root, path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="not found")

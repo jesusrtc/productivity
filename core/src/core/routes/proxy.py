@@ -70,7 +70,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.requests import ClientDisconnect
 
-from core import server_config
+from core import auth, server_config
 from core.routes import term as term_routes
 
 
@@ -375,8 +375,10 @@ class ServerConfigBody(BaseModel):
 
 
 def _workspace_root(request: Request | WebSocket, workspace: str | None) -> Path:
-    active_root: Path = request.app.state.index_cache.root
-    return term_routes._workspace_root_for(active_root, workspace)
+    active_root = auth.request_root(request)
+    root = term_routes._workspace_root_for(active_root, workspace)
+    auth.require_workspace(request, term_routes._workspace_id_for_root(active_root, root))
+    return root
 
 
 @router.get("/api/server-config")
@@ -414,25 +416,6 @@ def put_server_config(
         "ok": True,
         "servers": servers,
         "source": server_config.CONFIG_FILENAME,
-        "config_file": server_config.CONFIG_FILENAME,
-        "is_legacy": False,
-    }
-
-
-@router.get("/api/server-config/detect")
-def detect_server_config(
-    request: Request, project_id: str, workspace: str | None = None,
-) -> dict[str, Any]:
-    """Preview a server declaration inferred from the standard Makefile."""
-    root = _workspace_root(request, workspace)
-    project_dir = _existing_project_dir(root, project_id)
-    try:
-        servers = server_config.detect_makefile_server(project_dir, project_id)
-    except server_config.ServerConfigError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    return {
-        "servers": servers,
-        "source": "Makefile detection",
         "config_file": server_config.CONFIG_FILENAME,
         "is_legacy": False,
     }
@@ -608,7 +591,11 @@ async def proxy_ws(
     Drives HMR / live-reload for Vite, Next.js, Webpack dev server, etc.
     Closes both sides on either end disconnecting.
     """
-    root = _workspace_root(websocket, workspace)
+    try:
+        root = _workspace_root(websocket, workspace)
+    except HTTPException as exc:
+        await websocket.close(code=4401 if exc.status_code == 401 else 4403)
+        return
     cfg = _load_proxy_config(root, project_id, name, suppress_errors=True)
     path_info = (
         f"/ws/workspace-proxy/{workspace}/{project_id}/{name}/{path}"

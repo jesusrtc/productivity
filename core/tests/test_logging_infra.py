@@ -420,6 +420,8 @@ class TestBackendRequestLogging:
             raise RuntimeError("boom")
 
         with TestClient(app, raise_server_exceptions=False) as raw:
+            login = raw.post("/api/auth/login", json={"username": "jesus", "password": "jesus"})
+            assert login.status_code == 200, login.text
             r = raw.get("/boom")
         assert r.status_code == 500
 

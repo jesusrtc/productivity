@@ -16,6 +16,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from core import auth
+
 router = APIRouter()
 
 _PSEUDO_TAB_IDS = {"__logs__", "__self__"}
@@ -51,7 +53,7 @@ def _save(root: Path, data: dict) -> None:
 
 @router.get("/api/ui/tab-order")
 def get_tab_order(request: Request) -> list[str]:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     order = _load(root).get("tab_order", [])
     return order if isinstance(order, list) else []
 
@@ -64,7 +66,7 @@ class TabOrder(BaseModel):
 def set_tab_order(body: TabOrder, request: Request) -> dict:
     if not isinstance(body.order, list):
         raise HTTPException(status_code=400, detail="order must be a list")
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     data = _load(root)
     # Deduplicate while preserving first occurrence.
     seen: set[str] = set()
@@ -100,7 +102,7 @@ def _open_pseudo_tabs(data: dict, *, include_defaults: bool = False) -> list[str
 
 @router.get("/api/ui/pseudo-tabs")
 def get_pseudo_tabs(request: Request) -> list[str]:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     return _open_pseudo_tabs(_load(root), include_defaults=True)
 
 
@@ -113,7 +115,7 @@ class PseudoTabState(BaseModel):
 def set_pseudo_tab(body: PseudoTabState, request: Request) -> dict:
     if body.tab_id not in _pseudo_tab_ids():
         raise HTTPException(status_code=400, detail=f"unknown pseudo tab: {body.tab_id!r}")
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     data = _load(root)
     open_tabs = _open_pseudo_tabs(data)
     if body.open and body.tab_id not in open_tabs:
@@ -140,7 +142,7 @@ def _terminal_autospawn_disabled(data: dict) -> list[str]:
 
 
 def _workspace_root(request: Request, workspace: str | None) -> Path:
-    active_root: Path = request.app.state.index_cache.root
+    active_root = auth.request_root(request)
     if not workspace:
         return active_root
     from core.routes.term import _workspace_root_for

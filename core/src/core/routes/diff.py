@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from core import fsguard, server_config
+from core import auth, fsguard, server_config
 from core.diff_parser import (
     get_branch,
     get_commit_diff,
@@ -287,7 +287,7 @@ def api_git_status(repo: str, request: Request):
     a workspace). This endpoint must not disclose status for arbitrary
     directories on the machine.
     """
-    root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    root = auth.request_root(request)
     candidate = Path(repo) if repo.startswith("/") else root / repo
     try:
         resolved = candidate.expanduser().resolve()
@@ -345,7 +345,7 @@ def api_tree(repo: str):
 
 @router.get("/api/repos")
 def api_repos(request: Request):
-    projects = get_registered_repos(request.app.state.index_cache.root)
+    projects = get_registered_repos(auth.request_root(request))
     result = []
     for proj in projects:
         repos = []
@@ -507,7 +507,7 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
                 _with_symlink_fields(entry, child)
                 files.append(entry)
 
-    workspace_root: Path = request.app.state.index_cache.root
+    workspace_root = auth.request_root(request)
     fsguard.guarded(workspace_root, scan, project_path)
     return files
 
@@ -590,7 +590,7 @@ def api_project_mtime(path: str, request: Request):
                 # Broken symlink / disappeared mid-walk — skip.
                 continue
 
-    workspace_root: Path = request.app.state.index_cache.root
+    workspace_root = auth.request_root(request)
     fsguard.guarded(workspace_root, scan, project_path, 0)
     return {"mtime": latest}
 

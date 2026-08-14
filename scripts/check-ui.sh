@@ -40,7 +40,7 @@ fi
 STARTED_BY_US=""
 _lab_alive() {
   curl -sS -m 3 -o /dev/null -w '%{http_code}' \
-    "$("$REPO_ROOT/scripts/lab-url.sh")/" 2>/dev/null | grep -q '^200$'
+    "$("$REPO_ROOT/scripts/lab-url.sh")/" 2>/dev/null | grep -Eq '^[23][0-9][0-9]$'
 }
 if ! _lab_alive; then
   make start-bg >/dev/null
@@ -83,10 +83,19 @@ DOM_DUMP="$(mktemp -t lab-ui-dom)"
 
 CHROME_TIMEOUT="${CHROME_TIMEOUT:-10}"
 
-# macOS doesn't ship `timeout`. Run Chrome in the background, poll the dump
-# file for content (it's written the moment --dump-dom fires), and kill
-# Chrome as soon as we have the DOM — Chrome sometimes doesn't self-exit on
-# headless mode even after dumping.
+# Mint a short-lived-enough local admin session without putting a plaintext
+# password in this script. The application still validates the signed cookie
+# exactly as it does for an interactive browser.
+if [[ "${UI_UNAUTHENTICATED:-}" == "1" ]]; then
+  LAB_UI_AUTH_COOKIE=""
+else
+  LAB_UI_AUTH_COOKIE="$(core/.venv/bin/python -c 'import sys; from core import auth; user = auth.get_user(sys.argv[1]); assert user is not None; print(auth.issue_session(user))' "${UI_CHECK_USER:-jesus}")"
+fi
+export LAB_UI_AUTH_COOKIE
+
+# Start Chrome on a fresh profile, then use its DevTools socket to install the
+# HttpOnly session cookie before navigating. --dump-dom cannot set cookies,
+# so without this step it would only validate the login page.
 "$CHROME" \
   --headless \
   --disable-gpu \
@@ -94,23 +103,26 @@ CHROME_TIMEOUT="${CHROME_TIMEOUT:-10}"
   --no-first-run \
   --no-default-browser-check \
   --user-data-dir="$UDD" \
-  --virtual-time-budget=4000 \
+  --remote-debugging-port=0 \
   --hide-scrollbars \
-  --dump-dom \
-  "$URL" > "$DOM_DUMP" 2>/dev/null &
+  about:blank >/dev/null 2>&1 &
 CHROME_PID=$!
 
-# Wait up to CHROME_TIMEOUT seconds for the dump file to reach a minimum size
-# (Chrome writes the full DOM in one go; 2KB rules out "just headers").
+# Wait for Chrome to publish its ephemeral DevTools port.
 deadline=$(( $(date +%s) + CHROME_TIMEOUT ))
 while [[ $(date +%s) -lt $deadline ]]; do
-  if [[ -s "$DOM_DUMP" ]] && [[ $(wc -c < "$DOM_DUMP") -gt 2048 ]]; then
-    # DOM was flushed. Give Chrome ~300ms more to finish any trailing bytes.
-    sleep 0.3
+  if [[ -s "$UDD/DevToolsActivePort" ]]; then
     break
   fi
   sleep 0.2
 done
+
+if [[ ! -s "$UDD/DevToolsActivePort" ]]; then
+  echo "UI CHECK FAILED — Chrome did not open its DevTools port" >&2
+  exit 1
+fi
+
+node "$REPO_ROOT/scripts/chrome-dump-auth.mjs" "$UDD" "$URL" "$DOM_DUMP" "${UI_SCREENSHOT:-}"
 
 kill "$CHROME_PID" 2>/dev/null || true
 wait "$CHROME_PID" 2>/dev/null || true
@@ -141,7 +153,8 @@ else
   # Sanity: page has a body and content (not just "<html></html>").
   # Banner presence already told us JS ran far enough to bind listeners.
   BODY_SIZE=$(wc -c < "$DOM_DUMP")
-  if [[ "$BODY_SIZE" -lt 2048 ]]; then
+  MIN_BODY_SIZE="${UI_MIN_BODY_SIZE:-2048}"
+  if [[ "$BODY_SIZE" -lt "$MIN_BODY_SIZE" ]]; then
     echo "UI CHECK WARN — DOM is suspiciously small ($BODY_SIZE bytes); page may not have rendered"
     STATUS=1
   else

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from lab import agentsync
 from lab import settings as lab_settings
 
-from core import workspace_config
+from core import auth, workspace_config
 
 router = APIRouter()
 
@@ -48,7 +48,7 @@ def _with_flags(cfg: dict) -> dict:
 @router.get("/api/settings")
 def get_settings(request: Request) -> dict:
     """Return the merged global settings (defaults + saved overrides)."""
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     return _with_flags(lab_settings.load(root))
 
 
@@ -66,7 +66,7 @@ class SettingsPatch(BaseModel):
 @router.post("/api/settings")
 def update_settings(body: SettingsPatch, request: Request) -> dict:
     """Patch one or more settings (validated). Returns the full merged config."""
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     patch = body.model_dump(exclude_unset=True)
     if not patch:
         return _with_flags(lab_settings.load(root))
@@ -85,5 +85,5 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
 @router.post("/api/agents/sync")
 def agents_sync(request: Request, dry_run: bool = False) -> dict:
     """Run ``lab agents sync`` (AGENTS.md + memory + skill symlinks). Idempotent."""
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     return agentsync.sync_all(root, dry_run=dry_run)

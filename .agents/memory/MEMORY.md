@@ -19,5 +19,6 @@
 - [Headless UI check misses launch-agent server](check-ui-launch-agent-process-detection.md) — `scripts/check-ui.sh`'s relative Python `pgrep` pattern does not match the Homebrew-Python launch-agent command; it may try to start a duplicate server
 - [Lab navigation is cross-workspace](lab-navigation-cross-workspace.md) — Home is the permanent framework home; workspace/project tabs carry workspace identity and must not change the globally active workspace
 - [Terminal tmux names hide workspace identity](terminal-tmux-names-hide-workspace.md) — current names are `neurona-<project>-<tab>-<hash6>`; ownership stays in hash/runtime metadata and old names remain discoverable
-- [Terminal tab groups are browser-local](terminal-tab-groups-are-browser-local.md) — named/color/collapsed groups are locally persisted navigation chrome scoped to each terminal surface
+- [Terminal tab dividers are browser-local](terminal-tab-groups-are-browser-local.md) — draggable colored lines are locally persisted navigation chrome scoped to each terminal surface
 - [Project names are display aliases](project-names-are-display-aliases.md) — keep `project.json.id` and the directory stable; render/edit `project.json.name` as the human-facing tab label
+- [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles

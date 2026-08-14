@@ -10,11 +10,6 @@ from typing import Any
 
 CONFIG_FILENAME = "servers.json"
 _SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_MAKE_TARGET_RE = re.compile(r"^([A-Za-z0-9_.-]+)\s*:(?!=)", re.MULTILINE)
-_SERVER_PORT_RE = re.compile(
-    r"^\s*(?:export\s+)?SERVER_PORT\s*(?:\?=|:=|=)\s*(\d+)\s*(?:#.*)?$",
-    re.MULTILINE,
-)
 
 
 class ServerConfigError(ValueError):
@@ -130,34 +125,3 @@ def write_server_config(project_dir: Path, entries: Any) -> list[dict[str, Any]]
     temporary.write_text(json.dumps({"servers": servers}, indent=2) + "\n")
     temporary.replace(target)
     return servers
-
-
-def detect_makefile_server(project_dir: Path, project_id: str) -> list[dict[str, Any]]:
-    """Infer the conventional Lab server from a project's Makefile."""
-    candidates = (project_dir / "Makefile", project_dir / "makefile")
-    makefile = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if makefile is None:
-        raise ServerConfigError("No Makefile found in this project")
-    try:
-        source = makefile.read_text()
-    except OSError as exc:
-        raise ServerConfigError(f"Could not read Makefile: {exc}") from None
-
-    targets = set(_MAKE_TARGET_RE.findall(source))
-    if "server-start" not in targets:
-        raise ServerConfigError("Makefile has no server-start target")
-    port_match = _SERVER_PORT_RE.search(source)
-    if port_match is None:
-        raise ServerConfigError("Makefile has no numeric SERVER_PORT assignment")
-
-    entry: dict[str, Any] = {
-        "name": "app",
-        "label": project_id,
-        "host": "localhost",
-        "port": int(port_match.group(1)),
-        "path": "/",
-        "mode": "proxy",
-        "start_command": "make server-start",
-        "stop_command": "make server-stop" if "server-stop" in targets else "",
-    }
-    return normalize_servers([entry])

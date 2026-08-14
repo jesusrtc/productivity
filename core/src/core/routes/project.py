@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from lab import paths, storage
 from lab.model import ModelError, Project, validate_id
 
-from core import fsguard, workspace_config
+from core import auth, fsguard, workspace_config
 
 
 router = APIRouter()
@@ -70,7 +70,7 @@ def _root_for_project(root: Path, project_id: str) -> Path:
 @router.get("/api/projects")
 def list_projects(request: Request, status: str | None = None,
                   tag: str | None = None, label: str | None = None) -> list[dict]:
-    idx = request.app.state.index_cache.get()
+    idx = auth.request_index(request)
     rows = idx["projects"]
     if status:
         rows = [r for r in rows if r.get("status") == status]
@@ -84,7 +84,7 @@ def list_projects(request: Request, status: str | None = None,
 @router.get("/api/projects/{project_id}")
 def get_project(project_id: str, request: Request) -> dict:
     _validate_project_id(project_id)
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     if paths.is_pseudo_project(project_id):
         paths.ensure_self_files(root)
@@ -97,7 +97,7 @@ def get_project(project_id: str, request: Request) -> dict:
 @router.get("/api/projects/{project_id}/tasks")
 def get_project_tasks(project_id: str, request: Request) -> dict:
     _validate_project_id(project_id)
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     if paths.is_pseudo_project(project_id):
         paths.ensure_self_files(root)
@@ -110,7 +110,7 @@ def get_project_tasks(project_id: str, request: Request) -> dict:
 @router.get("/api/projects/{project_id}/docs")
 def list_project_docs(project_id: str, request: Request) -> list[dict]:
     _validate_project_id(project_id)
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     pdir = paths.project_dir(root, project_id)
     if not pdir.is_dir():
@@ -154,7 +154,7 @@ def set_project_hold(project_id: str, body: HoldBody, request: Request) -> dict:
             status_code=400,
             detail="exactly one of `until` or `duration` is required",
         )
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     pjson = paths.project_file(root, project_id)
     if not pjson.is_file():
@@ -185,7 +185,7 @@ def set_project_hold(project_id: str, body: HoldBody, request: Request) -> dict:
 def clear_project_hold(project_id: str, request: Request) -> dict:
     """Remove the project's hold (no-op if nothing is set)."""
     _validate_project_id(project_id)
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     pjson = paths.project_file(root, project_id)
     if not pjson.is_file():
@@ -212,7 +212,7 @@ def set_project_agent(project_id: str, body: AgentBody, request: Request) -> dic
     ``VALID_AGENTS`` via the Project model.
     """
     _validate_project_id(project_id)
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     if body.agent and body.agent not in workspace_config.supported_agents(root):
         raise HTTPException(
@@ -239,7 +239,7 @@ def get_project_file(project_id: str, path: str, request: Request):
     _validate_project_id(project_id)
     if path.startswith("/") or ".." in Path(path).parts:
         raise HTTPException(status_code=400, detail="invalid path")
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     root = _root_for_project(root, project_id)
     pdir = paths.project_dir(root, project_id)
     target = (pdir / path).resolve()

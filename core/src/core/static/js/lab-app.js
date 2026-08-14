@@ -1,4 +1,12 @@
   let currentRepo = null;
+  const LAB_USER = window.LAB_USER || {};
+  const LAB_IS_ADMIN = window.LAB_IS_ADMIN === true;
+
+  async function labLogout() {
+    try { await fetch('/api/auth/logout', {method: 'POST'}); } catch {}
+    location.replace('/login');
+  }
+  window.labLogout = labLogout;
   let currentDiffTab = 'uncommitted';
   let viewMode = 'split';
   let diffCache = { uncommitted: null, branch: null };
@@ -2603,17 +2611,17 @@
 
     if (isSelf) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
       for (const ws of (workspaceCatalog || [])) {
         html += `<button class="repo-tab workspace-context-tab" style="--workspace-color:${escAttr(ws.color || '#8b949e')}" onclick="goToWorkspace('${String(ws.id).replace(/'/g, "\\'")}')"><span class="workspace-mark"></span>${esc(ws.name || ws.id)}</button>`;
       }
-      html += `<button class="repo-tab${_contextSubView === 'admin' ? ' active' : ''}" onclick="selfShowAdmin()">&#x2699; Admin</button>`;
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab${_contextSubView === 'admin' ? ' active' : ''}" onclick="selfShowAdmin()">&#x2699; Admin</button>`;
     } else if (isWorkspace) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="workspaceShowOverview()" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
     } else if (currentProject.is_project) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
     }
 
     if (!isSelf && !isWorkspace) html += (currentProject.repos || []).map(r => {
@@ -5813,10 +5821,10 @@
       .filter(Boolean)
       .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
-    let html = `
+    let html = LAB_IS_ADMIN ? `
       <div class="proj-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_PROJECT_ID}" role="tab" title="Framework home">
         <span class="label">&#x1F3E0; Home</span>
-      </div>`;
+      </div>` : '';
     html += workspaceTabs.map(ws => {
       const active = activeWorkspaceId === ws.id ? ' active' : '';
       const color = projTabsEsc(ws.color || '#8b949e');
@@ -6547,12 +6555,7 @@
       seen.add(id);
       const color = /^#[0-9a-f]{6}$/i.test(String(candidate.color || ''))
         ? String(candidate.color) : _TERM_GROUP_COLORS[groups.length % _TERM_GROUP_COLORS.length];
-      groups.push({
-        id,
-        name: String(candidate.name || 'Group').trim().slice(0, 40) || 'Group',
-        color,
-        collapsed: !!candidate.collapsed,
-      });
+      groups.push({id, color});
     }
     const order = [];
     const seenTokens = new Set();
@@ -6638,28 +6641,13 @@
     return order;
   }
 
-  function _termGroupForLogical(logical, state = _termReadGroupState()) {
-    if (!logical) return null;
-    const groups = new Map(state.groups.map(group => [group.id, group]));
-    let current = null;
-    for (const token of _termReconcileGroupOrder(state)) {
-      if (token.startsWith('g:')) current = groups.get(token.slice(2)) || null;
-      else if (token === `s:${logical}`) return current;
-    }
-    return null;
-  }
-
-  function termCreateGroup(name = termCurrentSession) {
-    const logical = _termSessionLogical(name);
+  function termCreateDivider(sessionName = termCurrentSession) {
+    const logical = _termSessionLogical(sessionName);
     const state = _termReadGroupState();
-    const proposed = prompt('Name this terminal tab group', `Group ${state.groups.length + 1}`);
-    if (proposed === null || !proposed.trim()) return;
     const id = `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     state.groups.push({
       id,
-      name: proposed.trim().slice(0, 40),
       color: _TERM_GROUP_COLORS[state.groups.length % _TERM_GROUP_COLORS.length],
-      collapsed: false,
     });
     const order = _termReconcileGroupOrder(state).filter(token => token !== `g:${id}`);
     const activeToken = logical ? `s:${logical}` : '';
@@ -6672,32 +6660,7 @@
     termRenderSessionList();
   }
 
-  function termCreateGroupFor(name) {
-    termCreateGroup(name);
-  }
-
-  function termToggleGroup(groupId) {
-    const state = _termReadGroupState();
-    const group = state.groups.find(item => item.id === groupId);
-    if (!group) return;
-    group.collapsed = !group.collapsed;
-    _termWriteGroupState(state);
-    termRenderSessionList();
-  }
-
-  function termRenameGroup(groupId) {
-    const state = _termReadGroupState();
-    const group = state.groups.find(item => item.id === groupId);
-    if (!group) return;
-    const next = prompt('Rename terminal tab group', group.name);
-    if (next === null || !next.trim()) return;
-    group.name = next.trim().slice(0, 40);
-    _termWriteGroupState(state);
-    termCloseGroupMenu();
-    termRenderSessionList();
-  }
-
-  function termSetGroupColor(groupId, color) {
+  function termSetDividerColor(groupId, color) {
     if (!/^#[0-9a-f]{6}$/i.test(String(color || ''))) return;
     const state = _termReadGroupState();
     const group = state.groups.find(item => item.id === groupId);
@@ -6708,7 +6671,7 @@
     termRenderSessionList();
   }
 
-  function termDeleteGroup(groupId) {
+  function termDeleteDivider(groupId) {
     const state = _termReadGroupState();
     state.groups = state.groups.filter(group => group.id !== groupId);
     state.order = _termReconcileGroupOrder(state).filter(token => token !== `g:${groupId}`);
@@ -6754,22 +6717,18 @@
     }, 0);
   }
 
-  function termOpenGroupOptions(groupId, anchor) {
+  function termOpenDividerOptions(groupId, anchor) {
     const state = _termReadGroupState();
     const group = state.groups.find(item => item.id === groupId);
     if (!group) return;
     const colors = _TERM_GROUP_COLORS.map(color => `
       <button type="button" class="term-group-color${color === group.color ? ' selected' : ''}" style="--term-group-color:${color}" data-action="color:${color}" aria-label="Use ${color}"></button>`).join('');
     _termShowGroupMenu(anchor, `
-      <div class="term-group-menu-title">${termSessEsc(group.name)}</div>
+      <div class="term-group-menu-title">Divider color</div>
       <div class="term-group-colors">${colors}</div>
-      <button type="button" class="term-group-menu-row" data-action="rename">Rename group</button>
-      <button type="button" class="term-group-menu-row" data-action="toggle">${group.collapsed ? 'Expand' : 'Collapse'} group</button>
       <button type="button" class="term-group-menu-row danger" data-action="delete">Delete divider</button>`, (action) => {
-        if (action === 'rename') termRenameGroup(groupId);
-        else if (action === 'toggle') { termCloseGroupMenu(); termToggleGroup(groupId); }
-        else if (action === 'delete') termDeleteGroup(groupId);
-        else if (action.startsWith('color:')) termSetGroupColor(groupId, action.slice(6));
+        if (action === 'delete') termDeleteDivider(groupId);
+        else if (action.startsWith('color:')) termSetDividerColor(groupId, action.slice(6));
       });
   }
 
@@ -6862,20 +6821,16 @@
       el.innerHTML = '';
       el.removeAttribute('title');
       el.className = 'term-active-session';
-      el.style.removeProperty('--term-group-color');
       return;
     }
     const display = _termSessionDisplay(session);
     const visual = _termSessionVisual(session);
-    const group = _termGroupForLogical(session.logical_name || '');
-    el.className = `term-active-session on ${visual.kind}${group ? ' grouped' : ''}`;
-    if (group) el.style.setProperty('--term-group-color', group.color);
-    else el.style.removeProperty('--term-group-color');
+    el.className = `term-active-session on ${visual.kind}`;
     el.title = _termSessionTitle(session, '');
-    el.innerHTML = `${group ? '<span class="term-active-group-mark" aria-hidden="true"></span>' : ''}<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+    el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
   }
 
-  function _termSessionPillHtml(s, index, group = null) {
+  function _termSessionPillHtml(s, index) {
     const display = _termSessionDisplay(s);
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
@@ -6884,11 +6839,9 @@
     const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
-    const grouped = group ? ' grouped' : '';
-    const groupStyle = group ? ` style="--term-group-color:${termSessEsc(group.color)}"` : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
     const ariaLabel = `${display} · ${visual.badge}`;
-    return `<span class="sess ${visual.kind}${active}${dead}${grouped}"${groupStyle} role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
+    return `<span class="sess ${visual.kind}${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
@@ -6916,37 +6869,32 @@
     );
     const groupsById = new Map(groupState.groups.map(group => [group.id, group]));
     let html = '';
-    let currentGroup = null;
+    let currentDivider = null;
     let currentRows = [];
-    const flushGroup = () => {
-      if (!currentGroup) return;
-      const group = currentGroup;
+    const flushDivider = () => {
+      if (!currentDivider) return;
+      const divider = currentDivider;
       const rows = currentRows;
-      const collapsed = group.collapsed ? ' collapsed' : '';
-      html += `<div class="term-session-group${collapsed}" data-group-id="${termSessEsc(group.id)}" style="--term-group-color:${termSessEsc(group.color)}">
-        <div class="term-group-head" draggable="true" data-order-token="${termSessEsc(`g:${group.id}`)}" data-toggle-group="${termSessEsc(group.id)}" role="button" tabindex="0" aria-expanded="${group.collapsed ? 'false' : 'true'}" title="Drag to move divider · Double-click to rename · ${group.collapsed ? 'Expand' : 'Collapse'} ${termSessEsc(group.name)}">
-          <span class="term-group-caret" aria-hidden="true">${group.collapsed ? '›' : '⌄'}</span>
-          <span class="term-group-name">${termSessEsc(group.name)}</span>
-          <span class="term-group-count">${rows.length}</span>
-          <button type="button" class="term-group-options" data-term-group-trigger data-group-options="${termSessEsc(group.id)}" title="Group options" aria-label="Options for ${termSessEsc(group.name)}">•••</button>
+      html += `<div class="term-divider-section" data-divider-id="${termSessEsc(divider.id)}">
+        <div class="term-divider" draggable="true" data-order-token="${termSessEsc(`g:${divider.id}`)}" data-term-group-trigger data-divider-options="${termSessEsc(divider.id)}" role="button" tabindex="0" aria-label="Colored terminal tab divider" title="Click to change color · Drag to move divider" style="--term-divider-color:${termSessEsc(divider.color)}">
         </div>
-        <div class="term-group-tabs">${rows.map(row => _termSessionPillHtml(row.session, row.index, group)).join('')}</div>
+        <div class="term-divider-tabs">${rows.map(row => _termSessionPillHtml(row.session, row.index)).join('')}</div>
       </div>`;
-      currentGroup = null;
+      currentDivider = null;
       currentRows = [];
     };
     order.forEach(token => {
       if (token.startsWith('g:')) {
-        flushGroup();
-        currentGroup = groupsById.get(token.slice(2)) || null;
+        flushDivider();
+        currentDivider = groupsById.get(token.slice(2)) || null;
         return;
       }
       const row = sessionsByLogical.get(token.slice(2));
       if (!row) return;
-      if (currentGroup) currentRows.push(row);
+      if (currentDivider) currentRows.push(row);
       else html += _termSessionPillHtml(row.session, row.index);
     });
-    flushGroup();
+    flushDivider();
     el.innerHTML = html;
     el.querySelectorAll('.sess').forEach(node => {
       node.addEventListener('dblclick', (e) => {
@@ -6985,33 +6933,17 @@
         }
       });
     });
-    el.querySelectorAll('[data-toggle-group]').forEach(header => {
-      const toggle = () => termToggleGroup(header.getAttribute('data-toggle-group'));
-      header.addEventListener('click', (e) => {
-        if (e.target.closest('[data-group-options]')) return;
-        toggle();
-      });
-      header.addEventListener('keydown', (e) => {
+    el.querySelectorAll('[data-divider-options]').forEach(divider => {
+      const openOptions = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        termOpenDividerOptions(divider.getAttribute('data-divider-options'), divider);
+      };
+      divider.addEventListener('click', openOptions);
+      divider.addEventListener('contextmenu', openOptions);
+      divider.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
-        e.preventDefault();
-        toggle();
-      });
-      header.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        termRenameGroup(header.getAttribute('data-toggle-group'));
-      });
-      header.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        const groupId = header.getAttribute('data-toggle-group');
-        if (groupId) termOpenGroupOptions(groupId, header);
-      });
-    });
-    el.querySelectorAll('[data-group-options]').forEach(button => {
-      button.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        termOpenGroupOptions(button.getAttribute('data-group-options'), button);
+        openOptions(e);
       });
     });
     termWireSessionDnD(el);
@@ -8567,7 +8499,13 @@
     return html;
   }
 
-  function goToCerebro(initialPath = '', opts = {}) {
+  async function goToCerebro(initialPath = '', opts = {}) {
+    if (!LAB_IS_ADMIN) {
+      const data = await fetchWorkspaceCatalog();
+      const first = (data.workspaces || [])[0];
+      if (first) goToWorkspace(first.id, opts);
+      return;
+    }
     _swapViewState();
     if (!opts.replace) {
       const url = new URL(window.location);
@@ -8583,7 +8521,13 @@
     initCerebro(initialPath);
   }
 
-  function goToProductivity(opts = {}) {
+  async function goToProductivity(opts = {}) {
+    if (!LAB_IS_ADMIN) {
+      const data = await fetchWorkspaceCatalog();
+      const first = (data.workspaces || [])[0];
+      if (first) goToWorkspace(first.id, opts);
+      return;
+    }
     _swapViewState();
     _contextSubView = 'overview';
     if (!opts.replace) {
@@ -9168,6 +9112,7 @@
   let _proxiesProjectId = null;
   let _proxiesWorkspaceId = null;
   let _proxiesListDirty = false;
+  let _proxiesHasConfigFile = false;
 
   async function openProxiesModal() {
     if (!currentProject || !currentProject.is_project) return;
@@ -9180,9 +9125,12 @@
     const err = document.getElementById('proxiesError');
     const addBtn = document.getElementById('proxiesAddBtn');
     const saveBtn = document.getElementById('proxiesSaveBtn');
+    const createBtn = document.getElementById('proxiesCreateBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
     if (addBtn) addBtn.disabled = true;
     if (saveBtn) saveBtn.disabled = false;
+    _proxiesHasConfigFile = false;
+    if (createBtn) createBtn.disabled = true;
     const cached = _projectSidebarCache.get(currentProject.path);
     const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
     _renderProxiesRows(proxies);
@@ -9208,16 +9156,22 @@
     return _proxiesListDirty || !!document.querySelector('#proxiesRows .proxies-card[data-dirty="1"]');
   }
 
+  function _syncProxyCreateButton(busy = false) {
+    const button = document.getElementById('proxiesCreateBtn');
+    if (!button) return;
+    button.disabled = busy || _proxiesHasConfigFile;
+    button.textContent = _proxiesHasConfigFile ? 'servers.json exists' : '+ Create servers.json';
+  }
+
   async function reloadProxyConfig(initialLoad = false) {
     if (!_proxiesProjectId) return false;
     if (!initialLoad && _proxyRowsAreDirty() && !confirm('Discard unsaved server changes and reload servers.json?')) return false;
     const projectPath = _proxiesProjectPath;
     const err = document.getElementById('proxiesError');
     const reloadBtn = document.getElementById('proxiesReloadBtn');
-    const detectBtn = document.getElementById('proxiesDetectBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
     if (reloadBtn) reloadBtn.disabled = true;
-    if (detectBtn) detectBtn.disabled = true;
+    _syncProxyCreateButton(true);
     _setProxyConfigSource('loading…');
     try {
       const r = await fetch(_serverConfigUrl('/api/server-config'));
@@ -9225,9 +9179,10 @@
       if (!r.ok) throw new Error(body.detail || `GET server-config → ${r.status}`);
       if (projectPath !== _proxiesProjectPath || projectPath !== (currentProject && currentProject.path)) return false;
       _renderProxiesRows(Array.isArray(body.servers) ? body.servers : []);
-      if (body.source === 'servers.json') _setProxyConfigSource('servers.json · automatic');
-      else if (body.is_legacy) _setProxyConfigSource(`${body.source} · legacy; Save creates servers.json`);
-      else _setProxyConfigSource('No config yet · Save creates servers.json');
+      _proxiesHasConfigFile = body.source === 'servers.json';
+      if (_proxiesHasConfigFile) _setProxyConfigSource('servers.json · automatic');
+      else if (body.is_legacy) _setProxyConfigSource(`${body.source} · legacy; Create or Save writes servers.json`);
+      else _setProxyConfigSource('No servers.json yet · create the template');
       return true;
     } catch (e) {
       _setProxyConfigSource('Could not load config');
@@ -9236,33 +9191,47 @@
     } finally {
       if (projectPath === _proxiesProjectPath) {
         if (reloadBtn) reloadBtn.disabled = false;
-        if (detectBtn) detectBtn.disabled = false;
+        _syncProxyCreateButton(false);
       }
     }
   }
 
-  async function detectProxyConfig() {
+  async function createProxyConfigTemplate() {
     if (!_proxiesProjectId) return;
-    if (_proxyRowsAreDirty() && !confirm('Replace the unsaved server changes with the Makefile detection?')) return;
     const err = document.getElementById('proxiesError');
     const reloadBtn = document.getElementById('proxiesReloadBtn');
-    const detectBtn = document.getElementById('proxiesDetectBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
+    if (_proxyRowsAreDirty()) {
+      if (err) { err.textContent = 'Save or reload the current edits before creating servers.json.'; err.classList.add('on'); }
+      return;
+    }
+    const {proxies, errors} = _collectProxiesFromRows();
+    if (errors.length) {
+      if (err) { err.textContent = errors.join(' · '); err.classList.add('on'); }
+      return;
+    }
     if (reloadBtn) reloadBtn.disabled = true;
-    if (detectBtn) detectBtn.disabled = true;
-    _setProxyConfigSource('Detecting Makefile…');
+    _syncProxyCreateButton(true);
+    _setProxyConfigSource('Creating servers.json…');
     try {
-      const r = await fetch(_serverConfigUrl('/api/server-config/detect'));
+      const r = await fetch(_serverConfigUrl('/api/server-config'), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({servers: proxies}),
+      });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body.detail || `Makefile detection failed (${r.status})`);
-      _renderProxiesRows(Array.isArray(body.servers) ? body.servers : [], true);
-      _setProxyConfigSource('Detected from Makefile · Save to create servers.json');
+      if (!r.ok) throw new Error(body.detail || `Could not create servers.json (${r.status})`);
+      _proxiesHasConfigFile = true;
+      _renderProxiesRows(Array.isArray(body.servers) ? body.servers : []);
+      _setProxyConfigSource('servers.json · template ready for your agent');
+      _projectSidebarCache.delete(_proxiesProjectPath);
+      _projectAttrsCache.delete(_proxiesProjectPath);
     } catch (e) {
-      _setProxyConfigSource('Detection unavailable');
+      _setProxyConfigSource('Could not create servers.json');
       if (err) { err.textContent = e.message || String(e); err.classList.add('on'); }
     } finally {
       if (reloadBtn) reloadBtn.disabled = false;
-      if (detectBtn) detectBtn.disabled = false;
+      _syncProxyCreateButton(false);
     }
   }
 
@@ -9556,6 +9525,12 @@
   // ─── Productivity self-view (file tree sidebar + Lab framework workbench) ───
 
   async function initSelf() {
+    if (!LAB_IS_ADMIN) {
+      const data = await fetchWorkspaceCatalog();
+      const first = (data.workspaces || [])[0];
+      if (first) goToWorkspace(first.id, {replace: true});
+      return;
+    }
     document.body.classList.add('self-active');
     document.title = 'Home';
     // Set up a synthetic currentProject so openProjectDoc(), the sidebar, and
@@ -9781,6 +9756,7 @@
   function selfShowDashboard() { return selfShowWorkbench(); }
 
   function selfShowAdmin() {
+    if (!LAB_IS_ADMIN) return;
     _projDocPath = null;
     _contextSubView = 'admin';
     const url = new URL(window.location);
@@ -9795,6 +9771,27 @@
       <div class="s-inner self-admin">
         <div class="s-head"><h1>Admin</h1></div>
         <div class="s-workbench-grid">
+          <div class="s-section admin-access-section">
+            <h2>Users &amp; workspace access</h2>
+            <form class="admin-access-toolbar" onsubmit="return adminCreateUser(event)">
+              <label>User name<input id="adminNewUsername" autocomplete="off" required placeholder="username"></label>
+              <label>Display name<input id="adminNewName" autocomplete="off" placeholder="Name"></label>
+              <label>Role<select id="adminNewRole"><option value="user">User</option><option value="admin">Admin</option></select></label>
+              <label>Password<input id="adminNewPassword" type="password" autocomplete="new-password" required placeholder="Password"></label>
+              <button class="refresh-btn" type="submit">Add user</button>
+            </form>
+            <div class="admin-user-list" id="adminUsersList"><div class="ws-muted">Loading users…</div></div>
+          </div>
+          <div class="s-section admin-access-section">
+            <h2>Add workspace</h2>
+            <form class="admin-access-toolbar admin-workspace-form" onsubmit="return adminAddWorkspace(event)">
+              <label>Name<input id="adminWorkspaceName" placeholder="Team workspace"></label>
+              <label>Path<input id="adminWorkspacePath" required placeholder="/absolute/path/to/workspace"></label>
+              <label style="flex-direction:row;align-items:center;padding-bottom:7px"><input id="adminWorkspaceCreate" type="checkbox"> Create if missing</label>
+              <button class="refresh-btn" type="submit">Add workspace</button>
+            </form>
+            <div class="admin-user-status" id="adminWorkspaceStatus"></div>
+          </div>
           <div class="s-section" id="dashKpis"></div>
           <div class="s-section" id="dashServers"><h2>Servers</h2><div class="srv-empty">Loading servers…</div></div>
           <div class="s-section" id="dashTerms"><h2>Terminals</h2><div class="term-empty">Loading terminal sessions…</div></div>
@@ -9816,9 +9813,138 @@
     });
     if (!UI_CHECK) dashStartPolling();
     dashPollTick();
+    adminLoadAccess();
     adminRefreshLogs('errors.log');
   }
   window.selfShowAdmin = selfShowAdmin;
+
+  let _adminAccessWorkspaces = [];
+
+  function adminRenderUsers(users) {
+    const host = document.getElementById('adminUsersList');
+    if (!host) return;
+    if (!users.length) {
+      host.innerHTML = '<div class="ws-muted">No users.</div>';
+      return;
+    }
+    host.innerHTML = users.map(user => {
+      const permissions = _adminAccessWorkspaces.map(workspace => {
+        const checked = (user.workspaces || []).includes(workspace.id) ? ' checked' : '';
+        return `<label><input type="checkbox" data-workspace-permission="${escAttr(workspace.id)}"${checked}>${selfEsc(workspace.name || workspace.id)}</label>`;
+      }).join('') || '<span class="ws-muted">Add a workspace before assigning access.</span>';
+      return `<div class="admin-user-row" data-admin-user="${escAttr(user.username)}">
+        <div class="admin-user-head">
+          <div class="admin-user-identity"><strong>${selfEsc(user.name)}</strong><code>${selfEsc(user.username)}</code></div>
+          <label class="admin-user-field">Role<select data-user-role><option value="user"${user.role === 'user' ? ' selected' : ''}>User</option><option value="admin"${user.role === 'admin' ? ' selected' : ''}>Admin</option></select></label>
+          <label class="admin-user-field">New password<input data-user-password type="password" autocomplete="new-password" placeholder="Leave unchanged"></label>
+          <label class="admin-user-field" style="flex-direction:row;align-items:center;padding-bottom:7px"><input data-user-disabled type="checkbox"${user.disabled ? ' checked' : ''}> Disabled</label>
+          <button class="refresh-btn" type="button" onclick="adminSaveUser(this)">Save</button>
+        </div>
+        <div class="admin-permissions">${permissions}</div>
+        <div class="admin-user-status" data-user-status>${user.role === 'admin' ? 'Admins can access every workspace.' : ''}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function adminLoadAccess() {
+    const host = document.getElementById('adminUsersList');
+    try {
+      const [usersRes, workspacesRes] = await Promise.all([
+        fetch('/api/admin/users'),
+        fetchWorkspaceCatalog(),
+      ]);
+      if (!usersRes.ok) throw new Error((await usersRes.json().catch(() => ({}))).detail || 'Could not load users');
+      const usersBody = await usersRes.json();
+      _adminAccessWorkspaces = Array.isArray(workspacesRes.workspaces) ? workspacesRes.workspaces : [];
+      adminRenderUsers(usersBody.users || []);
+    } catch (e) {
+      if (host) host.innerHTML = `<div class="ws-muted">${selfEsc(e.message || e)}</div>`;
+    }
+  }
+  window.adminLoadAccess = adminLoadAccess;
+
+  async function adminSaveUser(button) {
+    const row = button && button.closest('[data-admin-user]');
+    if (!row) return;
+    const username = row.getAttribute('data-admin-user');
+    const status = row.querySelector('[data-user-status]');
+    const password = row.querySelector('[data-user-password]').value;
+    const payload = {
+      role: row.querySelector('[data-user-role]').value,
+      disabled: row.querySelector('[data-user-disabled]').checked,
+      workspaces: Array.from(row.querySelectorAll('[data-workspace-permission]:checked')).map(input => input.getAttribute('data-workspace-permission')),
+    };
+    if (password) payload.password = password;
+    button.disabled = true;
+    if (status) status.textContent = 'Saving…';
+    try {
+      const response = await fetch('/api/admin/users/' + encodeURIComponent(username), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Save failed');
+      if (status) status.textContent = 'Saved';
+      row.querySelector('[data-user-password]').value = '';
+    } catch (e) {
+      if (status) status.textContent = e.message || String(e);
+    } finally {
+      button.disabled = false;
+    }
+  }
+  window.adminSaveUser = adminSaveUser;
+
+  async function adminCreateUser(event) {
+    if (event) event.preventDefault();
+    const payload = {
+      username: document.getElementById('adminNewUsername').value.trim(),
+      name: document.getElementById('adminNewName').value.trim() || null,
+      role: document.getElementById('adminNewRole').value,
+      password: document.getElementById('adminNewPassword').value,
+      workspaces: [],
+    };
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Could not add user');
+      event.target.reset();
+      await adminLoadAccess();
+    } catch (e) {
+      const host = document.getElementById('adminUsersList');
+      if (host) host.insertAdjacentHTML('afterbegin', `<div class="admin-user-status">${selfEsc(e.message || e)}</div>`);
+    }
+    return false;
+  }
+  window.adminCreateUser = adminCreateUser;
+
+  async function adminAddWorkspace(event) {
+    if (event) event.preventDefault();
+    const status = document.getElementById('adminWorkspaceStatus');
+    const payload = {
+      name: document.getElementById('adminWorkspaceName').value.trim() || null,
+      path: document.getElementById('adminWorkspacePath').value.trim(),
+      create: document.getElementById('adminWorkspaceCreate').checked,
+    };
+    if (status) status.textContent = 'Adding…';
+    try {
+      const response = await fetch('/api/workspaces', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Could not add workspace');
+      workspaceCatalog = [];
+      _workspaceCatalogInFlight = null;
+      _reposInFlight = null;
+      event.target.reset();
+      if (status) status.textContent = 'Workspace added';
+      await adminLoadAccess();
+      await projTabsRefresh();
+    } catch (e) {
+      if (status) status.textContent = e.message || String(e);
+    }
+    return false;
+  }
+  window.adminAddWorkspace = adminAddWorkspace;
 
   async function adminRefreshLogs(file = 'errors.log') {
     const output = document.getElementById('adminLogOutput');

@@ -13,6 +13,8 @@ def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project
 
     app = create_app()
     with TestClient(app) as client:
+        login = client.post("/api/auth/login", json={"username": "jesus", "password": "jesus"})
+        assert login.status_code == 200, login.text
         # Index starts empty
         r = client.get("/api/index")
         assert r.json()["projects"] == []

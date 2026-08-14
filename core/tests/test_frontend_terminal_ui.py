@@ -90,32 +90,39 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
 
 
-def test_terminal_tabs_support_colored_group_dividers() -> None:
+def test_terminal_tabs_support_colored_dividers() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert 'id="termCreateGroupBtn"' in html
-    assert 'onclick="termCreateGroup()"' in html
+    assert 'id="termCreateDividerBtn"' in html
+    assert 'onclick="termCreateDivider()"' in html
+    assert 'id="termCreateGroupBtn"' not in html
     assert 'id="termGroupBtn"' not in html
     assert 'id="termRenameBtn"' not in html
     assert 'ondblclick="termRenameCurrent()"' in html
     assert 'id="termGroupMenu"' in html
     assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
-    assert "function termCreateGroup(name = termCurrentSession)" in source
+    assert "function termCreateDivider(sessionName = termCurrentSession)" in source
     assert "function _termReconcileGroupOrder(state)" in source
     assert "function termReorderItems(srcToken, dstToken, placeBefore)" in source
     assert "function termAssignSessionGroup" not in source
-    assert "function termToggleGroup(groupId)" in source
-    assert 'class="term-session-group${collapsed}"' in source
-    assert 'data-order-token="${termSessEsc(`g:${group.id}`)}"' in source
+    assert "function termToggleGroup" not in source
+    assert "function termRenameGroup" not in source
+    assert "function termOpenDividerOptions(groupId, anchor)" in source
+    assert 'class="term-divider-section"' in source
+    assert 'class="term-divider"' in source
+    assert 'data-divider-options="${termSessEsc(divider.id)}"' in source
+    assert 'data-order-token="${termSessEsc(`g:${divider.id}`)}"' in source
     assert 'data-order-token="${termSessEsc(`s:${logical}`)}"' in source
-    assert ".term-session-group.collapsed .term-group-tabs" in css
-    assert ".term-sessions .sess.grouped::before" in css
+    assert ".term-divider::before" in css
+    assert ".term-panel.term-sessions-horizontal .term-divider" in css
+    assert ".term-sessions .sess.grouped::before" not in css
+    assert ".term-group-caret" not in css
     assert ".term-group-color.selected" in css
 
 
-def test_terminal_group_state_is_scoped_and_persisted_in_browser() -> None:
+def test_terminal_divider_state_is_scoped_and_persisted_in_browser() -> None:
     group_helpers = _js_between(
         "function _termGroupScopeKey()",
         "function _termSessionDisplay(s)",
@@ -144,13 +151,12 @@ function _termWorkspaceId() { return 'ssd'; }
 function _termSessionMeta(name) { return termSessions.find(item => item.name === name) || null; }
 function termRenderSessionList() { renderCount += 1; }
 function termSessEsc(value) { return String(value); }
-function prompt() { return 'Research'; }
 """ + group_helpers + """
-termCreateGroupFor('tmux-one');
+termCreateDivider('tmux-one');
 const state = _termReadGroupState();
 process.stdout.write(JSON.stringify({
   keys: Object.keys(JSON.parse(stored.groups)),
-  groupName: state.groups[0].name,
+  color: state.groups[0].color,
   order: state.order,
   membership: state.membership,
   renderCount,
@@ -159,14 +165,14 @@ process.stdout.write(JSON.stringify({
     )
 
     assert result["keys"] == ["ssd::demo"]
-    assert result["groupName"] == "Research"
+    assert result["color"] == "#58a6ff"
     assert result["order"][0].startswith("g:")
     assert result["order"][1] == "s:codex"
     assert result["membership"] == {}
     assert result["renderCount"] == 1
 
 
-def test_terminal_group_membership_follows_divider_order() -> None:
+def test_terminal_divider_order_is_reconciled_with_live_sessions() -> None:
     group_helpers = _js_between(
         "function _termGroupScopeKey()",
         "function _termSessionDisplay(s)",
@@ -200,14 +206,14 @@ const state = {
   membership: {},
 };
 process.stdout.write(JSON.stringify({
-  one: _termGroupForLogical('one', state)?.id || null,
-  two: _termGroupForLogical('two', state)?.id || null,
-  three: _termGroupForLogical('three', state)?.id || null,
+  order: _termReconcileGroupOrder(state),
 }));
 """
     )
 
-    assert result == {"one": None, "two": "research", "three": "build"}
+    assert result == {
+        "order": ["s:one", "g:research", "s:two", "g:build", "s:three"]
+    }
 
 
 def test_terminal_agent_activity_scraping_and_attention_ui_are_removed() -> None:
@@ -298,7 +304,6 @@ const termSessions = [{
 let termCurrentSession = termSessions[0].name;
 let termCurrentProjectId = 'demo';
 function _termActiveProjectId() { return 'demo'; }
-function _termGroupForLogical() { return null; }
 function termSessEsc(value) { return String(value); }
 function prompt() { return null; }
 """ + header_helpers + """

@@ -123,6 +123,8 @@ def client(monorepo: Path):
     from core.main import create_app
     app = create_app()
     with TestClient(app) as c:
+        login = c.post("/api/auth/login", json={"username": "jesus", "password": "jesus"})
+        assert login.status_code == 200, login.text
         yield MaterializedClient(c)
 
 

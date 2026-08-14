@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 from lab import paths, storage
 from lab.model import ModelError, validate_id
 
+from core import auth
+
 
 router = APIRouter()
 
@@ -66,7 +68,7 @@ def _root_for_project(root: Path, project_id: str) -> Path:
 
 def _root_for_workspace(request: Request, workspace: str | None) -> Path:
     """Resolve a registered workspace without changing the active workspace."""
-    active_root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    active_root = auth.request_root(request)
     if not workspace:
         return active_root
     rows = paths.read_workspace_registry().get("workspaces") or []
@@ -157,7 +159,7 @@ def set_project_tab(project_id: str, body: TabState,
     tmux session. Pure UI state — written directly via storage rather than
     through ``lab project set`` (which is the canonical-fields path).
     """
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     pjson = paths.project_file(root, project_id)
@@ -201,7 +203,7 @@ class NewTask(BaseModel):
 
 @router.post("/api/tasks")
 def create_task(body: NewTask, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(body.project_id)
     root = _root_for_project(root, body.project_id)
     args = ["task", "new", body.title, "--project", body.project_id, "--priority", body.priority]
@@ -230,7 +232,7 @@ class StatusChange(BaseModel):
 @router.post("/api/tasks/{project_id}/{task_id}/status")
 def set_task_status(project_id: str, task_id: int, body: StatusChange,
                     request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     if body.status == "done":
@@ -257,7 +259,7 @@ class FieldUpdate(BaseModel):
 @router.post("/api/tasks/{project_id}/{task_id}/update")
 def update_task_field(project_id: str, task_id: int, body: FieldUpdate,
                       request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     args = ["task", "set", str(task_id), body.field, body.value, "--project", project_id]
@@ -274,7 +276,7 @@ class NewPR(BaseModel):
 
 @router.post("/api/projects/{project_id}/prs")
 def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     args = [
@@ -287,7 +289,7 @@ def add_pr(project_id: str, body: NewPR, request: Request) -> dict:
 
 @router.delete("/api/projects/{project_id}/prs/{idx}")
 def rm_pr(project_id: str, idx: int, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     _run_lab(["pr", "rm", str(idx), "--project", project_id], root=root)
@@ -303,7 +305,7 @@ class NewArtifact(BaseModel):
 
 @router.post("/api/projects/{project_id}/artifacts")
 def add_artifact(project_id: str, body: NewArtifact, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     args = [
@@ -316,7 +318,7 @@ def add_artifact(project_id: str, body: NewArtifact, request: Request) -> dict:
 
 @router.delete("/api/projects/{project_id}/artifacts/{idx}")
 def rm_artifact(project_id: str, idx: int, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+    root = auth.request_root(request)
     _validate_pid(project_id)
     root = _root_for_project(root, project_id)
     _run_lab(["artifact", "rm", str(idx), "--project", project_id], root=root)

@@ -4,6 +4,8 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Query, Request
 
+from core import auth
+
 
 router = APIRouter()
 
@@ -14,7 +16,7 @@ def list_tasks(request: Request,
                priority: str | None = None,
                tag: str | None = None,
                label: str | None = None) -> list[dict]:
-    idx = request.app.state.index_cache.get()
+    idx = auth.request_index(request)
     rows = idx["tasks"]
     if status == "open":
         rows = [r for r in rows if r.get("status") != "done"]
@@ -33,7 +35,7 @@ def list_tasks(request: Request,
 @router.get("/api/tasks/due")
 def list_tasks_due(request: Request, days: int = Query(..., ge=1)) -> list[dict]:
     horizon = date.today() + timedelta(days=days)
-    idx = request.app.state.index_cache.get()
+    idx = auth.request_index(request)
     out: list[dict] = []
     for r in idx["tasks"]:
         due = r.get("due")

@@ -4,6 +4,8 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from core import auth
+
 
 router = APIRouter()
 log = logging.getLogger("core.ws")
@@ -11,6 +13,9 @@ log = logging.getLogger("core.ws")
 
 @router.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket) -> None:
+    if auth.user_from_connection(websocket) is None:
+        await websocket.close(code=4401)
+        return
     broadcaster = websocket.app.state.ws_broadcaster
     await websocket.accept()
     log.info(

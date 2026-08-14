@@ -18,8 +18,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from core import config
+from core import auth, config
 from lab import paths as lab_paths
+from core.routes import auth as auth_route
 from core.routes import appstate as appstate_route
 from core.routes import cerebro as cerebro_route
 from core.routes import code_search as code_search_route
@@ -472,10 +473,16 @@ def create_app() -> FastAPI:
     # root page, or no Referer) are unaffected.
     app.middleware("http")(_proxy_referer_rewrite)
 
+    # Authentication is intentionally lightweight because Lab only listens on
+    # localhost, but authorization is server-side: non-admin requests are
+    # constrained to their assigned workspace roots before route code runs.
+    app.middleware("http")(auth.http_auth_middleware)
+
     @app.get("/api/ping")
     async def ping() -> dict[str, str]:
         return {"status": "ok"}
 
+    app.include_router(auth_route.router)
     app.include_router(appstate_route.router)
     app.include_router(index_route.router)
     app.include_router(project_route.router)
@@ -589,8 +596,21 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index_page(request: Request):
-        root = Path(request.app.state.index_cache.root).expanduser().resolve()
-        workspace_root = str(root)
+        user = auth.require_user(request)
+        admin = auth.is_admin(user)
+        root = auth.request_root(request)
+        shell_root = root
+        if not admin:
+            requested_workspace = request.query_params.get("workspace")
+            resource = request.query_params.get("project") or request.query_params.get("repo")
+            if resource:
+                requested_workspace = auth.workspace_id_for_path(resource)
+            requested_workspace = requested_workspace or auth.first_allowed_workspace(user)
+            allowed_root = auth.workspace_root_for_id(requested_workspace) if requested_workspace else None
+            if allowed_root is not None:
+                shell_root = allowed_root
+        workspace_root = str(shell_root)
+        framework_root = str(lab_paths.find_framework_root()) if admin else ""
         mtime = _index_cache["mtime"]
         now = time.monotonic()
         if now >= _index_cache["check_after"]:
@@ -602,6 +622,9 @@ def create_app() -> FastAPI:
         state = _index_initial_state(request)
         key = (
             workspace_root,
+            framework_root,
+            user["username"],
+            user["role"],
             state["INITIAL_VIEW"],
             state["INITIAL_BODY_CLASS"],
             state["INITIAL_PROJECT_NAME"],
@@ -614,8 +637,10 @@ def create_app() -> FastAPI:
         if key not in bytes_by_key:
             asset_v = format(max(mtime) // 1_000_000, "x") if mtime else "0"
             html = templates.get_template("index.html").render(
-                MONOREPO_ROOT=str(lab_paths.find_framework_root()),
+                MONOREPO_ROOT=framework_root,
                 WORKSPACE_ROOT=workspace_root,
+                USER=auth.public_user(user),
+                IS_ADMIN=admin,
                 ASSET_V=asset_v,
                 **state,
             )
@@ -636,7 +661,7 @@ def create_app() -> FastAPI:
         The source of truth remains ``?project=<abs path>`` (gdiff's existing
         muscle memory); /p/<id> is sugar for project-id navigation.
         """
-        root: Path = request.app.state.index_cache.root
+        root = auth.request_root(request)
         project_dir = (root / "projects" / project_id).resolve()
         if not project_dir.is_dir():
             raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
@@ -653,7 +678,7 @@ def create_app() -> FastAPI:
         from core.routes.markdown import _RENDERER, _FRONTMATTER_RE, _safe_resolve
         import yaml
 
-        root: Path = request.app.state.index_cache.root
+        root = auth.request_root(request)
         target = _safe_resolve(root, path)
         if not target.is_file():
             raise HTTPException(status_code=404, detail="not found")
