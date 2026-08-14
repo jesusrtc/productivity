@@ -7,89 +7,48 @@
   let projectsList = [];
   let currentProject = null;
   let currentRepoInProject = null;
+  let workspaceCatalog = [];
+  let _workspaceCatalogInFlight = null;
 
   const urlRepo = new URLSearchParams(location.search).get('repo');
 
-  // Single-flight cache for `/api/repos`. On initial load the endpoint was
-  // being hit THREE times in parallel (loadRepos + projTabsRefresh's
-  // Promise.all + the urlProject/urlRepo branch) — each fires a blocking
-  // `git rev-parse` subprocess per registered repo, and since the handler
-  // is `async def` doing sync I/O the calls serialized on the event loop
-  // (~260ms wasted on every reload). All three callers now go through
-  // `fetchRepos()` which shares the in-flight promise; once it settles we
-  // null the slot so subsequent timer-driven fires (every 5s) still refresh.
+  // Global catalog: every registered workspace and its projects.  It is the
+  // key to keeping tabs from several workspaces alive at once; selecting a
+  // workspace no longer mutates the backend's process-wide root.
   let _reposInFlight = null;
+  function fetchWorkspaceCatalog() {
+    if (_workspaceCatalogInFlight) return _workspaceCatalogInFlight;
+    const p = fetch('/api/workspaces/projects')
+      .then(r => r.ok ? r.json() : {workspaces: []})
+      .then(data => {
+        workspaceCatalog = Array.isArray(data.workspaces) ? data.workspaces : [];
+        currentWorkspaceId = data.active || currentWorkspaceId;
+        return data;
+      })
+      .catch(() => ({workspaces: workspaceCatalog || []}));
+    _workspaceCatalogInFlight = p;
+    p.finally(() => { if (_workspaceCatalogInFlight === p) _workspaceCatalogInFlight = null; });
+    return p;
+  }
+
   function fetchRepos() {
     if (_reposInFlight) return _reposInFlight;
-    const p = fetch('/api/repos')
-      .then(r => r.ok ? r.json() : [])
+    const p = fetchWorkspaceCatalog()
+      .then(data => (data.workspaces || []).flatMap(ws => ws.project_rows || []))
       .catch(() => []);
     _reposInFlight = p;
     p.finally(() => { if (_reposInFlight === p) _reposInFlight = null; });
     return p;
   }
 
-  let _workspaceSwitching = false;
-  // The id of the workspace the server is currently serving. Only one
-  // workspace is ever active at a time, so every real project tab / active
-  // dashboard row belongs to this same id — it's read by the project-tab
-  // badge and by the dashboard row badge below.
   let currentWorkspaceId = null;
   async function workspaceRefresh() {
     try {
-      const r = await fetch('/api/workspaces');
-      if (!r.ok) return;
-      const data = await r.json();
-      currentWorkspaceId = data.active || null;
-      const rows = Array.isArray(data.workspaces) ? data.workspaces : [];
-      const sel = document.getElementById('workspaceSelect');
-      if (!sel) return;
-      sel.innerHTML = '';
-      rows.forEach(row => {
-        const opt = document.createElement('option');
-        opt.value = row.id;
-        opt.textContent = row.name || row.id;
-        opt.title = row.path || '';
-        opt.disabled = row.exists === false;
-        opt.selected = row.active === true || row.id === data.active;
-        sel.appendChild(opt);
-      });
-      if (!rows.length) {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'No workspaces';
-        sel.appendChild(opt);
-      }
+      const data = await fetchWorkspaceCatalog();
+      currentWorkspaceId = data.active || currentWorkspaceId;
+      if (typeof renderRepoTabs === 'function' && currentProject) renderRepoTabs();
     } catch {}
   }
-
-  async function workspaceUse(id) {
-    if (!id || _workspaceSwitching) return;
-    const sel = document.getElementById('workspaceSelect');
-    _workspaceSwitching = true;
-    if (sel) sel.disabled = true;
-    try {
-      const r = await fetch('/api/workspaces/use', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id}),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      // Switching workspace replaces the whole served index, so we always
-      // land via a full reload. If the user is on the Workspace view, keep
-      // them there: the reload re-runs initWorkspaceView against the newly
-      // active workspace, so the tab's content follows the selection.
-      location.href = document.body.classList.contains('workspace-active')
-        ? '/?view=workspace'
-        : '/';
-    } catch (e) {
-      if (sel) sel.disabled = false;
-      _workspaceSwitching = false;
-      console.error('workspace switch failed', e);
-      workspaceRefresh();
-    }
-  }
-  window.workspaceUse = workspaceUse;
 
   function afterFirstPaint(fn) {
     const run = () => {
@@ -205,7 +164,7 @@
       sel.innerHTML = '<option value="">Select project...</option>';
       projectsList.forEach(p => {
         const opt = document.createElement('option');
-        opt.value = p.name;
+        opt.value = p.path;
         opt.textContent = (p.is_project ? '\u{1F4E6} ' : '') + p.name;
         if (p.is_project) opt.style.color = '#58a6ff';
         if (p.name === (currentProject && currentProject.name)) opt.selected = true;
@@ -214,12 +173,15 @@
     } catch (err) {}
   }
 
-  async function selectRepo(name) {
-    if (!name) return;
-    currentProject = projectsList.find(p => p.name === name);
+  async function selectRepo(projectKey) {
+    if (!projectKey) return;
+    currentProject = projectsList.find(p => p.path === projectKey)
+      || projectsList.find(p => p.name === projectKey);
     if (!currentProject) return;
 
-    if (currentProject.is_project) projTabsSetOpen(currentProject.name, true);
+    _contextSubView = 'overview';
+
+    if (currentProject.is_project) projTabsSetOpen(currentProject.path, true);
 
     document.title = currentProject.name;
     // replaceState (not pushState): the caller (goToProject / popstate
@@ -2531,10 +2493,12 @@
   let _wsProjCache = null;  // {projections, mounts, supported, ts}
   async function loadWorkspaceProjections() {
     const now = Date.now();
-    if (_wsProjCache && (now - _wsProjCache.ts) < 30000) return _wsProjCache;
-    let out = { projections: [], mounts: [], supported: null, ts: now };
+    const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
+    if (_wsProjCache && _wsProjCache.workspace === workspaceId && (now - _wsProjCache.ts) < 30000) return _wsProjCache;
+    let out = { projections: [], mounts: [], supported: null, workspace: workspaceId, ts: now };
     try {
-      const r = await fetch('/api/workspace/config');
+      const suffix = workspaceId ? '?workspace=' + encodeURIComponent(workspaceId) : '';
+      const r = await fetch('/api/workspace/config' + suffix);
       if (r.ok) {
         const cfg = await r.json();
         const doc = (cfg.valid && cfg.config) || {};
@@ -2544,6 +2508,7 @@
           projections: Array.isArray(agents.projections) ? agents.projections : [],
           mounts: Array.isArray(project.mounts) ? project.mounts : [],
           supported: Array.isArray(agents.supported) ? agents.supported : null,
+          workspace: workspaceId,
           ts: now,
         };
       }
@@ -2618,7 +2583,7 @@
 
   function renderRepoTabs() {
     const container = document.getElementById('repoTabs');
-    if (!currentProject || (!currentProject.is_project && currentProject.repos.length <= 1)) {
+    if (!currentProject) {
       container.style.display = 'none';
       document.body.classList.remove('has-repo-tabs');
       return;
@@ -2628,17 +2593,28 @@
     document.body.classList.add('has-repo-tabs');
 
     let html = '';
-
-    // A server (proxy) view counts as its own tab — while one is open the
-    // Overview tab must not also read as active.
+    const isSelf = document.body.classList.contains('self-active');
+    const isWorkspace = document.body.classList.contains('workspace-active');
     const proxyOpen = typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/');
+    const overviewActive = _contextSubView === 'overview' && !_projDocPath && !currentRepo && !proxyOpen;
+    const codeSearchActive = _contextSubView === 'code-search';
 
-    if (currentProject.is_project) {
-      const dashActive = (!currentRepo && !proxyOpen) ? ' active' : '';
-      html += `<button class="repo-tab${dashActive}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
+    if (isSelf) {
+      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
+      html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+      for (const ws of (workspaceCatalog || [])) {
+        html += `<button class="repo-tab workspace-context-tab" style="--workspace-color:${escAttr(ws.color || '#8b949e')}" onclick="goToWorkspace('${String(ws.id).replace(/'/g, "\\'")}')"><span class="workspace-mark"></span>${esc(ws.name || ws.id)}</button>`;
+      }
+      html += `<button class="repo-tab${_contextSubView === 'admin' ? ' active' : ''}" onclick="selfShowAdmin()">&#x2699; Admin</button>`;
+    } else if (isWorkspace) {
+      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="workspaceShowOverview()" style="font-weight:600">&#x1F4CB; Overview</button>`;
+      html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+    } else if (currentProject.is_project) {
+      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
+      html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
     }
 
-    html += currentProject.repos.map(r => {
+    if (!isSelf && !isWorkspace) html += (currentProject.repos || []).map(r => {
       const active = r.path === currentRepo ? ' active' : '';
       return `<button class="repo-tab${active}" onclick="selectProjectRepo('${r.path}')">${r.name} <span style="color:#484f58;font-size:10px">${r.branch}</span></button>`;
     }).join('');
@@ -2647,7 +2623,7 @@
     // the same inline iframe view as the sidebar Servers entry. The list
     // comes from the sidebar payload cache; on a cold load it's empty until
     // _refreshProjectSidebar fetches project-info and re-calls us.
-    if (currentProject.is_project) {
+    if (!isSelf && !isWorkspace && currentProject.is_project) {
       const cached = _projectSidebarCache.get(currentProject.path);
       const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
       proxies.forEach(p => {
@@ -2660,18 +2636,38 @@
       });
     }
 
-    // Snooze controls — right-aligned on the same bar as Overview. Always
-    // render the Snooze button for a project; when a hold is active also
-    // (Snooze controls moved to the project attrs bar above; the repo-tabs
-    // bar stays focused on repo navigation only.)
-
-    // Focus mode toggle — right-aligned; stays reachable while everything
-    // above this strip is hidden.
     const focusOn = document.body.classList.contains('focus-mode');
     html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? 'Show tabs and status bar again (Esc)' : 'Hide the tab strip and status bar'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
     container.innerHTML = html;
   }
+
+  function showScopedCodeSearch() {
+    if (!currentProject || !currentProject.path) return;
+    _contextSubView = 'code-search';
+    if (document.body.classList.contains('self-active')) {
+      const url = new URL(window.location);
+      url.searchParams.set('view', 'productivity');
+      url.searchParams.set('subview', 'code-search');
+      history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    }
+    currentRepo = null;
+    _projDocPath = null;
+    renderRepoTabs();
+    const kind = document.body.classList.contains('self-active')
+      ? 'framework'
+      : document.body.classList.contains('workspace-active') ? 'workspace' : 'project';
+    const content = document.getElementById('content');
+    if (!content) return;
+    content.innerHTML = `
+      <div class="context-placeholder">
+        <div class="eyebrow">${esc(kind)} search</div>
+        <h1>Code Search is in development</h1>
+        <p>This tab will use AI to find and explain code only inside the path selected by the current tab.</p>
+        <span class="context-path">${esc(currentProject.path)}</span>
+      </div>`;
+  }
+  window.showScopedCodeSearch = showScopedCodeSearch;
 
   let _projDocPath = null;
   let _projDocContent = null;
@@ -3101,6 +3097,8 @@
       const name = filepath.slice('__proxy__/'.length);
       return openProjectProxy(name);
     }
+    _contextSubView = 'document';
+    renderRepoTabs();
     _projDocPath = filepath;
     _projDocEditing = false;
     setLastProjectDoc(currentProject.path, filepath);
@@ -4195,6 +4193,7 @@
   }
 
   function showProjectDashboard() {
+    _contextSubView = 'overview';
     currentRepo = null;
     currentRepoInProject = null;
     // Clear the doc path BEFORE rendering tabs — the Overview tab's active
@@ -4213,6 +4212,7 @@
   }
 
   function selectProjectRepo(repoPath) {
+    _contextSubView = 'repository';
     currentRepoInProject = currentProject.repos.find(r => r.path === repoPath);
     currentRepo = repoPath;
     // The diff view replaces any open doc/server view — clear the doc path
@@ -4949,9 +4949,11 @@
   let _setProjDraft = null;  // {agent, model} override for the active project
 
   async function loadWorkspaceAgentPolicy({force = false} = {}) {
-    if (_workspaceAgentPolicy && !force) return _workspaceAgentPolicy;
+    const workspaceId = _termWorkspaceId();
+    if (_workspaceAgentPolicy && _workspaceAgentPolicy.workspace === workspaceId && !force) return _workspaceAgentPolicy;
     try {
-      const r = await fetch('/api/workspace/agents');
+      const suffix = workspaceId ? '?workspace=' + encodeURIComponent(workspaceId) : '';
+      const r = await fetch('/api/workspace/agents' + suffix);
       if (r.ok) {
         const policy = await r.json();
         const supported = Array.isArray(policy.supported)
@@ -4959,6 +4961,7 @@
           : [];
         if (supported.length) {
           _workspaceAgentPolicy = {
+            workspace: workspaceId,
             supported,
             default: supported.includes(policy.default) ? policy.default : supported[0],
           };
@@ -5198,13 +5201,56 @@
 
   // Project tab-strip state. MUST be declared before projTabsRefresh() is
   // called below, or `let` TDZ throws "Cannot access X before initialization".
-  let projTabsHot = [];           // project ids with >=1 live tmux session
-  let projTabsAll = [];           // registered-project list (from /api/repos)
+  let projTabsHot = [];           // [{project_id, workspace}] with live sessions
+  let projTabsAll = [];           // projects from every registered workspace
   let projTabsAttention = [];     // project ids where every claude is idle
   let projTabsRefreshTimer = null;
   let projTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
   let projTabsPseudoOpen = [];   // open pseudo-tabs from /api/ui/pseudo-tabs
   let projTabsDragPid = null;    // pid currently being dragged
+  let _contextSubView = 'overview';
+  const OPEN_WORKSPACES_KEY = 'labOpenWorkspaces-v1';
+
+  function _openWorkspaceIds() {
+    try {
+      const value = JSON.parse(localStorage.getItem(OPEN_WORKSPACES_KEY) || '[]');
+      return Array.isArray(value) ? value.filter(v => typeof v === 'string') : [];
+    } catch { return []; }
+  }
+
+  function _setWorkspaceTabOpen(workspaceId, open) {
+    const ids = new Set(_openWorkspaceIds());
+    if (open) ids.add(workspaceId); else ids.delete(workspaceId);
+    try { localStorage.setItem(OPEN_WORKSPACES_KEY, JSON.stringify(Array.from(ids))); } catch {}
+  }
+
+  function _workspaceById(workspaceId) {
+    return (workspaceCatalog || []).find(ws => ws && ws.id === workspaceId) || null;
+  }
+
+  function _workspaceForProject(project) {
+    if (!project) return null;
+    return _workspaceById(project.workspace) || {
+      id: project.workspace || '',
+      name: project.workspace_name || project.workspace || '',
+      color: project.workspace_color || '#8b949e',
+      path: project.workspace_path || '',
+    };
+  }
+
+  function _termWorkspaceId() {
+    if (document.body.classList.contains('self-active')) return null;
+    if (currentProject && currentProject.workspace_id) return currentProject.workspace_id;
+    return null;
+  }
+
+  function _workspaceQuery(workspaceId = _termWorkspaceId()) {
+    return workspaceId ? '&workspace=' + encodeURIComponent(workspaceId) : '';
+  }
+
+  function _termSessionsKey(projectId, workspaceId = _termWorkspaceId()) {
+    return String(workspaceId || 'framework') + '::' + String(projectId || '');
+  }
 
   // Which tab (if any) looks blocked because a recent fetch for it hit
   // fsguard's 503 (stalled workspace volume). error-report.js can't know
@@ -5225,28 +5271,31 @@
     if (typeof projTabsRender === 'function') projTabsRender();
   });
 
-  // Project tabs the user has opened. Source of truth is `tab_open` in
-  // each project's project.json (exposed by /api/repos). Pseudo-tabs such
-  // as Logs store their open flag in workspace-local .lab/state/ui-state.json.
+  // Project tabs the user has opened. The durable bit still lives in each
+  // project's own project.json, while workspace-home tabs live in browser
+  // state because they are navigation chrome rather than workspace data.
   function projTabsOpenIds() {
-    return (projTabsAll || []).filter(p => p && p.tab_open).map(p => p.name);
+    return (projTabsAll || []).filter(p => p && p.tab_open).map(p => p.path);
   }
   function projTabsPseudoOpenIds() {
     return (projTabsPseudoOpen || []).filter(id =>
       id === LOGS_PROJECT_ID || id === SELF_PROJECT_ID
     );
   }
-  async function projTabsSetOpen(pid, open) {
-    if (!pid) return;
+  async function projTabsSetOpen(projectPath, open) {
+    if (!projectPath) return;
     try {
-      await fetch('/api/projects/' + encodeURIComponent(pid) + '/tab', {
-        method: 'POST',
+      const infoRes = await fetch('/api/project-info?path=' + encodeURIComponent(projectPath));
+      if (!infoRes.ok) throw new Error('project not found');
+      const info = await infoRes.json();
+      info.tab_open = !!open;
+      await fetch('/api/project-info', {
+        method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({open: !!open}),
+        body: JSON.stringify({path: projectPath, data: info}),
       });
     } catch (e) { /* best-effort; next refresh will pick up the truth */ }
-    // Reflect locally so the strip updates without waiting for /api/repos.
-    const p = (projTabsAll || []).find(x => x && x.name === pid);
+    const p = (projTabsAll || []).find(x => x && x.path === projectPath);
     if (p) p.tab_open = !!open;
   }
   async function projTabsSetPseudoOpen(pid, open) {
@@ -5287,9 +5336,8 @@
   // constant is only for the single topbar tab entry.
   const CODE_SEARCH_PROJECT_ID = '__code_search__';
 
-  // Workspace fixed view: management surface for the ACTIVE workspace (the
-  // one selected in the top-left dropdown). Pseudo-project rooted at the
-  // workspace root; always pinned in the tab strip before productivity.
+  // Workspace view: one management surface per registered workspace. The
+  // selected workspace id travels in the URL and requests; no global switch.
   const WORKSPACE_PROJECT_ID = '__workspace__';
   let _workspaceCurrent = null;  // last `current` row painted by initWorkspaceView
 
@@ -5440,17 +5488,18 @@
     initCerebro(urlCerebroPath);
   } else if (urlView === 'productivity') {
     initSelf();
+    if (initialParams.get('subview') === 'admin') selfShowAdmin();
+    else if (initialParams.get('subview') === 'code-search') showScopedCodeSearch();
   } else if (urlView === 'workspace') {
-    initWorkspaceView();
+    initWorkspaceView(initialParams.get('workspace') || currentWorkspaceId);
   } else if (urlView === 'code-search') {
-    document.body.classList.add('code-search-active');
-    const initialCodeSearchRepo = initialParams.get('repo');
-    setTimeout(() => initCodeSearch(initialCodeSearchRepo), 0);
+    // Retired standalone route: keep old bookmarks useful by landing on the
+    // framework-scoped Code Search subtab.
+    initSelf();
+    showScopedCodeSearch();
   } else if (urlView === 'logs') {
-    initLogs({
-      file: initialParams.get('file'),
-      tail: initialParams.get('tail'),
-    });
+    initSelf();
+    selfShowAdmin();
   }
 
   // Auto-refresh project view when any file in the project folder changes (mtime check)
@@ -5583,10 +5632,10 @@
     if (currentProject && currentProject.is_project) return currentProject.name;
     return null;
   }
-  async function termAutoSpawnEnabled(projectId) {
+  async function termAutoSpawnEnabled(projectId, workspaceId = _termWorkspaceId()) {
     if (!projectId) return true;
     try {
-      const r = await fetch('/api/ui/term-autospawn?project_id=' + encodeURIComponent(projectId));
+      const r = await fetch('/api/ui/term-autospawn?project_id=' + encodeURIComponent(projectId) + _workspaceQuery(workspaceId));
       if (!r.ok) return true;
       const body = await r.json();
       return body.enabled !== false;
@@ -5594,13 +5643,13 @@
       return true;
     }
   }
-  async function termSetAutoSpawnEnabled(projectId, enabled) {
+  async function termSetAutoSpawnEnabled(projectId, enabled, workspaceId = _termWorkspaceId()) {
     if (!projectId) return;
     try {
       await fetch('/api/ui/term-autospawn', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, enabled: !!enabled}),
+        body: JSON.stringify({project_id: projectId, enabled: !!enabled, workspace: workspaceId}),
       });
     } catch {}
   }
@@ -5705,31 +5754,15 @@
 
   async function projTabsRefresh() {
     try {
-      // Use fetchRepos() so the shared in-flight promise covers the
-      // initial-load case (loadRepos + urlProject branch hit it too).
-      // Wrap it so Promise.all gets four comparable values.
-      const [hotRes, all, orderRes, attnRes, pseudoRes] = await Promise.all([
-        fetch('/api/term/projects-with-sessions'),
+      const [sessionsRes, all] = await Promise.all([
+        fetch('/api/term/sessions'),
         fetchRepos(),
-        fetch('/api/ui/tab-order'),
-        fetch('/api/term/projects-attention'),
-        fetch('/api/ui/pseudo-tabs'),
       ]);
-      const hotRaw = hotRes.ok ? await hotRes.json() : [];
-      // Filter out the Code Search per-repo pseudo-project ids
-      // (`__cs_<repo>__`). They spawn real tmux sessions when the
-      // user opens a repo in the Code Search tab, which puts them in
-      // /api/term/projects-with-sessions — but they shouldn't show up
-      // as standalone tabs. The single `🔍 code-search` pseudo-tab in
-      // projTabsRender already covers them.
-      projTabsHot = (Array.isArray(hotRaw) ? hotRaw : []).filter(id => !id.startsWith('__cs_'));
+      const sessionRows = sessionsRes.ok ? await sessionsRes.json() : [];
+      projTabsHot = (Array.isArray(sessionRows) ? sessionRows : [])
+        .filter(row => row && row.project_id && !String(row.project_id).startsWith('__'))
+        .map(row => ({project_id: row.project_id, workspace: row.workspace || ''}));
       projTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_project);
-      projTabsOrder = orderRes.ok ? await orderRes.json() : [];
-      if (!Array.isArray(projTabsOrder)) projTabsOrder = [];
-      projTabsAttention = attnRes.ok ? await attnRes.json() : [];
-      if (!Array.isArray(projTabsAttention)) projTabsAttention = [];
-      projTabsPseudoOpen = pseudoRes.ok ? await pseudoRes.json() : [];
-      if (!Array.isArray(projTabsPseudoOpen)) projTabsPseudoOpen = [];
     } catch { /* leave stale state; next tick will retry */ }
     projTabsRender();
   }
@@ -5737,181 +5770,88 @@
   function projTabsRender() {
     const el = document.getElementById('projectTabs');
     if (!el) return;
-    // Candidate tabs = hot sessions ∪ {currentProject} ∪ active pseudo-view
-    //                  ∪ persisted open tabs.
-    const seen = new Set();
-    const tabs = [];
-    const logsViewActive = document.body.classList.contains('logs-active');
-    const pseudoOpen = new Set(projTabsPseudoOpenIds());
-    if (logsViewActive || pseudoOpen.has(LOGS_PROJECT_ID)) {
-      seen.add(LOGS_PROJECT_ID);
-      tabs.push({id: LOGS_PROJECT_ID, hot: false});
-    }
-    for (const id of projTabsHot) { if (!seen.has(id)) { seen.add(id); tabs.push({id, hot: true}); } }
-    const activeId = (currentProject && currentProject.is_project) ? currentProject.name : null;
-    if (activeId && !seen.has(activeId)) { seen.add(activeId); tabs.push({id: activeId, hot: false}); }
-    // Sticky open tabs: projects with `tab_open: true` in project.json. They
-    // persist across in-page navigations (Home click) and full reloads until
-    // the user clicks the X on the tab (which writes tab_open: false).
-    for (const id of projTabsOpenIds()) {
-      if (!seen.has(id)) { seen.add(id); tabs.push({id, hot: false}); }
-    }
-    const cerebroViewActive = document.body.classList.contains('cerebro-active');
-    if (cerebroViewActive && !seen.has(CEREBRO_PROJECT_ID)) {
-      seen.add(CEREBRO_PROJECT_ID);
-      tabs.push({id: CEREBRO_PROJECT_ID, hot: false});
-    }
-    // Workspace is a fixed pseudo-tab — always pinned in the strip, pushed
-    // just before productivity so the default order reads
-    // "workspace · productivity". Content always reflects the ACTIVE
-    // workspace (top-left dropdown); switching workspaces re-renders it.
-    const workspaceViewActive = document.body.classList.contains('workspace-active');
-    if (!seen.has(WORKSPACE_PROJECT_ID)) {
-      seen.add(WORKSPACE_PROJECT_ID);
-      tabs.push({id: WORKSPACE_PROJECT_ID, hot: false});
-    }
-    const selfViewActive = document.body.classList.contains('self-active');
-    if (!seen.has(SELF_PROJECT_ID)) {
-      seen.add(SELF_PROJECT_ID);
-      tabs.push({id: SELF_PROJECT_ID, hot: false});
-    }
-    // Code Search is a fixed pseudo-tab — always pinned in the strip
-    // (same UX as the productivity / cerebro pseudo-projects, which
-    // are pinned via tab_open in their hidden project.json shells).
-    // No gate: the user wants it one click away regardless of whether
-    // a repo was previously opened or the view is currently active.
-    const csViewActive = document.body.classList.contains('code-search-active');
-    if (!seen.has(CODE_SEARCH_PROJECT_ID)) {
-      seen.add(CODE_SEARCH_PROJECT_ID);
-      tabs.push({id: CODE_SEARCH_PROJECT_ID, hot: false});
-    }
+    const selfActive = document.body.classList.contains('self-active');
+    const workspaceActive = document.body.classList.contains('workspace-active');
+    const activeProjectPath = document.body.classList.contains('project-active') && currentProject
+      ? currentProject.path : null;
+    const activeWorkspaceId = workspaceActive && _workspaceCurrent
+      ? _workspaceCurrent.id : null;
 
-    // Apply the user's saved order. Anything in `projTabsOrder` that's
-    // still a candidate keeps its relative position; leftovers append.
-    const byId = Object.fromEntries(tabs.map(t => [t.id, t]));
-    const ordered = [];
-    const used = new Set();
-    for (const id of projTabsOrder) {
-      if (byId[id]) { ordered.push(byId[id]); used.add(id); }
-    }
-    for (const t of tabs) {
-      if (!used.has(t.id)) ordered.push(t);
-    }
-    // The workspace tab defaults to the slot immediately BEFORE the
-    // productivity tab. Only until the user drags it somewhere: once its id
-    // is in the saved order, that position wins like any other tab.
-    if (!used.has(WORKSPACE_PROJECT_ID)) {
-      const wIdx = ordered.findIndex(t => t.id === WORKSPACE_PROJECT_ID);
-      const sIdx = ordered.findIndex(t => t.id === SELF_PROJECT_ID);
-      if (wIdx !== -1 && sIdx !== -1 && wIdx !== sIdx - 1) {
-        const [w] = ordered.splice(wIdx, 1);
-        ordered.splice(ordered.findIndex(t => t.id === SELF_PROJECT_ID), 0, w);
-      }
-    }
-    // Logs is pinned in slot 1 whenever it is open, active or not.
-    const logsIdx = ordered.findIndex(t => t.id === LOGS_PROJECT_ID);
-    if (logsIdx > 0) ordered.unshift(ordered.splice(logsIdx, 1)[0]);
+    const workspaceIds = new Set(_openWorkspaceIds());
+    if (activeWorkspaceId) workspaceIds.add(activeWorkspaceId);
+    if (currentProject && currentProject.workspace_id) workspaceIds.add(currentProject.workspace_id);
 
-    const attnSet = new Set(projTabsAttention || []);
-    el.innerHTML = ordered.map(t => {
-      const isLogs = t.id === LOGS_PROJECT_ID;
-      const isCerebro = t.id === CEREBRO_PROJECT_ID;
-      const isSelf = t.id === SELF_PROJECT_ID;
-      const isCodeSearch = t.id === CODE_SEARCH_PROJECT_ID;
-      const isWorkspace = t.id === WORKSPACE_PROJECT_ID;
-      const isPseudo = isLogs || isCerebro || isSelf || isCodeSearch || isWorkspace;
-      const active =
-        (isLogs && logsViewActive) ||
-        (isCerebro && cerebroViewActive) ||
-        (isSelf && selfViewActive) ||
-        (isCodeSearch && csViewActive) ||
-        (isWorkspace && workspaceViewActive) ||
-        (!isPseudo && t.id === activeId) ? ' active' : '';
-      const dotCls = t.hot ? '' : ' cold';
-      const label = isLogs ? 'logs'
-        : isCerebro ? 'cerebro'
-        : isSelf ? 'productivity'
-        : isCodeSearch ? 'code-search'
-        : isWorkspace ? 'workspace'
-        : t.id;
-      const icon = isLogs ? ''
-        : isCerebro ? '🧠 '
-        : isSelf ? '🛠️ '
-        : isCodeSearch ? '🔍 '
-        : isWorkspace ? '🗂️ '
-        : '';
-      // Pseudo-projects (cerebro, self, code-search) are never
-      // "attention"-worthy since they can't have a stuck Claude session.
-      const needsAttn = !isPseudo && attnSet.has(t.id);
-      const attn = needsAttn ? ' attention' : '';
-      const attnTitle = needsAttn ? ' · needs your attention (all Claude idle)' : '';
-      const tabCls = isLogs ? ' logs-tab'
-        : isCerebro ? ' cerebro-tab'
-        : isSelf ? ' self-tab'
-        : isCodeSearch ? ' code-search-tab'
-        : isWorkspace ? ' workspace-tab'
-        : '';
-      const unseenCls = isLogs && document.body.classList.contains('logs-have-unseen-errors') ? ' has-unseen' : '';
-      const closeTitle = isLogs
-        ? 'Close Logs (kills its terminal sessions)'
-        : isCerebro
-        ? 'Close Cerebro (tab disappears; reopen from Home)'
-        : (isSelf
-            ? 'Close Productivity (tab disappears; reopen from Home)'
-            : (isCodeSearch
-                ? 'Close Code Search (tab disappears; reopen from Home)'
-                : 'Close this project (kills its tmux sessions)'));
-      // Real project tabs all belong to the one workspace the server is
-      // currently serving — badge them with its id so it's obvious at a
-      // glance which volume a tab's data is coming from.
-      const wsBadge = (!isPseudo && currentWorkspaceId)
-        ? `<span class="ws-badge" title="workspace: ${projTabsEsc(currentWorkspaceId)}">${projTabsEsc(currentWorkspaceId)}</span>`
-        : '';
-      const isBlocked = !isPseudo && tabBlocked.pid === t.id;
-      const blockedCls = isBlocked ? ' blocked' : '';
-      const blockedTitle = isBlocked ? ' · blocked: ' + tabBlocked.detail : '';
-      const blockedIcon = isBlocked
-        ? `<span class="blocked-icon" title="${projTabsEsc(tabBlocked.detail || '')}" aria-label="blocked">&#9888;</span>`
-        : '';
-      // The workspace tab is permanently pinned — no X (there is nothing
-      // to close; the view always exists for the active workspace).
-      const xBtn = isWorkspace
-        ? ''
-        : `<button class="x" title="${closeTitle}" data-x="${projTabsEsc(t.id)}">&times;</button>`;
+    const projectTabs = [];
+    const seenPaths = new Set();
+    const addProject = (project, hot = false) => {
+      if (!project || !project.path || seenPaths.has(project.path)) return;
+      seenPaths.add(project.path);
+      projectTabs.push({project, hot});
+    };
+    for (const hot of projTabsHot || []) {
+      addProject((projTabsAll || []).find(project =>
+        project.name === hot.project_id && (!hot.workspace || project.workspace === hot.workspace)
+      ), true);
+    }
+    if (activeProjectPath) addProject((projTabsAll || []).find(project => project.path === activeProjectPath));
+    for (const path of projTabsOpenIds()) addProject((projTabsAll || []).find(project => project.path === path));
+
+    const workspaceTabs = Array.from(workspaceIds)
+      .map(_workspaceById)
+      .filter(Boolean)
+      .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+
+    let html = `
+      <div class="proj-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_PROJECT_ID}" role="tab" title="Framework home">
+        <span class="label">🛠️ Productivity</span>
+      </div>`;
+    html += workspaceTabs.map(ws => {
+      const active = activeWorkspaceId === ws.id ? ' active' : '';
+      const color = projTabsEsc(ws.color || '#8b949e');
       return `
-        <div class="proj-tab${active}${tabCls}${attn}${unseenCls}${blockedCls}" draggable="true" data-pid="${projTabsEsc(t.id)}" role="tab" title="${projTabsEsc(label)}${attnTitle}${blockedTitle}">
-          <span class="dot${dotCls}" title="${t.hot ? 'live session(s)' : 'no session yet'}"></span>
-          <span class="label">${icon}${projTabsEsc(label)}</span>
-          ${wsBadge}
-          ${blockedIcon}
-          <span class="attn-dot" aria-label="needs attention"></span>
-          ${xBtn}
+        <div class="proj-tab workspace-tab workspace-owned${active}" style="--workspace-color:${color}" data-kind="workspace" data-key="${projTabsEsc(ws.id)}" role="tab" title="Workspace · ${projTabsEsc(ws.path || '')}">
+          <span class="workspace-mark"></span>
+          <span class="label">${projTabsEsc(ws.name || ws.id)}</span>
+          <button class="x" title="Close workspace tab" data-x="${projTabsEsc(ws.id)}">&times;</button>
         </div>`;
     }).join('');
+    html += projectTabs.map(({project, hot}) => {
+      const ws = _workspaceForProject(project);
+      const active = activeProjectPath === project.path ? ' active' : '';
+      const color = projTabsEsc((ws && ws.color) || '#8b949e');
+      const blocked = tabBlocked.pid === project.name ? ' blocked' : '';
+      return `
+        <div class="proj-tab workspace-owned${active}${blocked}" style="--workspace-color:${color}" data-kind="project" data-key="${projTabsEsc(project.path)}" data-pid="${projTabsEsc(project.name)}" data-workspace="${projTabsEsc(project.workspace || '')}" role="tab" title="${projTabsEsc((ws && (ws.name || ws.id)) || '')} · ${projTabsEsc(project.path)}">
+          <span class="workspace-mark"></span>
+          <span class="label">${projTabsEsc(project.name)}</span>
+          ${hot ? '<span class="dot" title="live session(s)"></span>' : ''}
+          <button class="x" title="Close project tab and its terminal sessions" data-x="${projTabsEsc(project.path)}">&times;</button>
+        </div>`;
+    }).join('');
+    el.innerHTML = html;
 
-    // Click handlers. In-page nav (history.pushState + view swap) — no
-    // full reload, no JS-scope reset, _termCache survives across switches.
     el.querySelectorAll('.proj-tab').forEach(node => {
-      const pid = node.getAttribute('data-pid');
       node.addEventListener('click', (e) => {
         if (e.target.closest('.x')) return;  // X handled separately
-        if (pid === LOGS_PROJECT_ID)        { goToLogs(); return; }
-        if (pid === CEREBRO_PROJECT_ID)     { goToCerebro(); return; }
-        if (pid === SELF_PROJECT_ID)        { goToProductivity(); return; }
-        if (pid === CODE_SEARCH_PROJECT_ID) { goToCodeSearch(); return; }
-        if (pid === WORKSPACE_PROJECT_ID)   { goToWorkspace(); return; }
-        const proj = projTabsAll.find(p => p.name === pid);
-        if (proj && proj.path) goToProject(proj.path);
+        const kind = node.getAttribute('data-kind');
+        const key = node.getAttribute('data-key');
+        if (kind === 'productivity') { goToProductivity(); return; }
+        if (kind === 'workspace') { goToWorkspace(key); return; }
+        if (kind === 'project' && key) goToProject(key);
       });
     });
     el.querySelectorAll('.proj-tab .x').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        projTabsClose(btn.getAttribute('data-x'));
+        const tab = btn.closest('.proj-tab');
+        projTabsClose({
+          key: btn.getAttribute('data-x'),
+          kind: tab && tab.getAttribute('data-kind'),
+          projectId: tab && tab.getAttribute('data-pid'),
+          workspace: tab && tab.getAttribute('data-workspace'),
+        });
       });
     });
-    // Drag-and-drop reorder handlers.
-    projTabsWireDnD(el);
   }
 
   function projTabsWireDnD(container) {
@@ -5985,39 +5925,25 @@
     );
   }
 
-  async function projTabsClose(pid) {
-    if (!pid) return;
-    if (pid === WORKSPACE_PROJECT_ID) return;  // permanently pinned, no X rendered
-    const label =
-      pid === CEREBRO_PROJECT_ID ? 'Cerebro'
-      : pid === SELF_PROJECT_ID ? 'Productivity'
-      : pid === LOGS_PROJECT_ID ? 'Logs'
-      : pid;
-    if (!confirm(`Close "${label}"? This kills all its tmux sessions (Claude conversations stay saved and will resume on reopen).`)) return;
+  async function projTabsClose({key, kind, projectId, workspace}) {
+    if (!key || kind === 'productivity') return;
+    if (kind === 'workspace') {
+      _setWorkspaceTabOpen(key, false);
+      const wasActive = document.body.classList.contains('workspace-active')
+        && _workspaceCurrent && _workspaceCurrent.id === key;
+      if (wasActive) goToProductivity(); else projTabsRender();
+      return;
+    }
+    if (kind !== 'project' || !projectId) return;
+    if (!confirm(`Close "${projectId}"? This also closes its terminal sessions; saved agent conversations can resume when reopened.`)) return;
     try {
-      await fetch('/api/term/sessions/project/' + encodeURIComponent(pid), {method: 'DELETE'});
+      const suffix = workspace ? '?workspace=' + encodeURIComponent(workspace) : '';
+      await fetch('/api/term/sessions/project/' + encodeURIComponent(projectId) + suffix, {method: 'DELETE'});
     } catch (e) { /* best effort */ }
-    // Persist tab-closed in project.json so it doesn't reappear on next
-    // Home/refresh. Pseudo-projects don't have a project.json — skip them.
-    if (pid === LOGS_PROJECT_ID || pid === SELF_PROJECT_ID) {
-      await projTabsSetPseudoOpen(pid, false);
-    } else if (pid !== CEREBRO_PROJECT_ID && pid !== SELF_PROJECT_ID) {
-      await projTabsSetOpen(pid, false);
-    }
+    await projTabsSetOpen(key, false);
+    const wasActive = currentProject && currentProject.path === key;
     await projTabsRefresh();
-    // If we just closed the active project or a pseudo-project view, go home.
-    const activeId = (currentProject && currentProject.is_project) ? currentProject.name : null;
-    const logsViewActive = document.body.classList.contains('logs-active');
-    const cerebroViewActive = document.body.classList.contains('cerebro-active');
-    const selfViewActive = document.body.classList.contains('self-active');
-    if (
-      activeId === pid
-      || (pid === LOGS_PROJECT_ID && logsViewActive)
-      || (pid === CEREBRO_PROJECT_ID && cerebroViewActive)
-      || (pid === SELF_PROJECT_ID && selfViewActive)
-    ) {
-      goHome();
-    }
+    if (wasActive) goToProductivity();
   }
 
   function projTabsTogglePicker(ev) {
@@ -6041,52 +5967,32 @@
   function projTabsRenderPicker() {
     const picker = document.getElementById('projTabsPicker');
     if (!picker) return;
-    const inTabs = new Set(projTabsHot);
-    for (const id of projTabsPseudoOpenIds()) inTabs.add(id);
-    const activeId = (currentProject && currentProject.is_project) ? currentProject.name : null;
-    if (activeId) inTabs.add(activeId);
-    if (document.body.classList.contains('logs-active')) inTabs.add(LOGS_PROJECT_ID);
-    if (document.body.classList.contains('cerebro-active')) inTabs.add(CEREBRO_PROJECT_ID);
-    inTabs.add(SELF_PROJECT_ID);
-    const candidates = projTabsAll.filter(p => !inTabs.has(p.name));
-    // Pseudo-projects sit at the top of the picker
-    // unless they're already a tab.
-    const logsRow = inTabs.has(LOGS_PROJECT_ID) ? '' : `
-      <div class="row" data-logs="1">
-        <span>logs</span>
-        <span class="meta">errors · backend · frontend</span>
-      </div>`;
-    const selfRow = inTabs.has(SELF_PROJECT_ID) ? '' : `
-      <div class="row" data-self="1">
-        <span>🛠️ productivity</span>
-        <span class="meta">this repo</span>
-      </div>`;
-    const cerebroRow = inTabs.has(CEREBRO_PROJECT_ID) ? '' : `
-      <div class="row" data-cerebro="1">
-        <span>🧠 cerebro</span>
-        <span class="meta">knowledge base</span>
-      </div>`;
-    const codeSearchRow = inTabs.has(CODE_SEARCH_PROJECT_ID) ? '' : `
-      <div class="row" data-code-search="1">
-        <span>🔍 code-search</span>
-        <span class="meta">repositories/</span>
-      </div>`;
-    if (!logsRow && !selfRow && !cerebroRow && !codeSearchRow && candidates.length === 0) {
+    const openWorkspaces = new Set(_openWorkspaceIds());
+    const openProjects = new Set(projTabsOpenIds());
+    const workspaceRows = (workspaceCatalog || [])
+      .filter(ws => !openWorkspaces.has(ws.id))
+      .map(ws => `
+        <div class="row" data-workspace="${projTabsEsc(ws.id)}">
+          <span class="workspace-mark" style="--workspace-color:${projTabsEsc(ws.color || '#8b949e')}"></span>
+          <span>${projTabsEsc(ws.name || ws.id)}</span>
+          <span class="meta">workspace</span>
+        </div>`).join('');
+    const candidates = (projTabsAll || []).filter(project => !openProjects.has(project.path));
+    if (!workspaceRows && candidates.length === 0) {
       picker.innerHTML = '<div class="empty">Everything is already open.</div>';
       return;
     }
-    picker.innerHTML = logsRow + selfRow + cerebroRow + codeSearchRow + candidates.map(p => `
-      <div class="row" data-path="${projTabsEsc(p.path)}">
-        <span>${projTabsEsc(p.name)}</span>
-        <span class="meta">${(p.repos || []).length} repo(s)</span>
+    picker.innerHTML = workspaceRows + candidates.map(project => `
+      <div class="row" data-path="${projTabsEsc(project.path)}">
+        <span class="workspace-mark" style="--workspace-color:${projTabsEsc(project.workspace_color || '#8b949e')}"></span>
+        <span>${projTabsEsc(project.name)}</span>
+        <span class="meta">${projTabsEsc(project.workspace_name || project.workspace || '')}</span>
       </div>`).join('');
     picker.querySelectorAll('.row').forEach(row => {
       row.addEventListener('click', () => {
         picker.classList.remove('open');
-        if (row.getAttribute('data-logs') === '1')        { goToLogs(); return; }
-        if (row.getAttribute('data-self') === '1')        { goToProductivity(); return; }
-        if (row.getAttribute('data-cerebro') === '1')     { goToCerebro(); return; }
-        if (row.getAttribute('data-code-search') === '1') { goToCodeSearch(); return; }
+        const workspaceId = row.getAttribute('data-workspace');
+        if (workspaceId) { goToWorkspace(workspaceId); return; }
         const path = row.getAttribute('data-path');
         if (path) goToProject(path);
       });
@@ -6125,9 +6031,11 @@
     // and the periodic poller; if a Claude died meanwhile its pill
     // shows up `dead` (click to retry). Avoids the multi-second
     // "resuming N session(s)…" wait that fired on every tab click.
-    const isWarmSwitch = _termSessionsCache.has(projectId);
+    const sessionCacheKey = typeof _termSessionsKey === 'function'
+      ? _termSessionsKey(projectId) : projectId;
+    const isWarmSwitch = _termSessionsCache.has(sessionCacheKey);
     if (isWarmSwitch) {
-      termSessions = _termSessionsCache.get(projectId) || [];
+      termSessions = _termSessionsCache.get(sessionCacheKey) || [];
       termRenderSessionList();
       if (termSessions.length > 0) {
         const pick = _termPickRestoreName(projectId);
@@ -6172,8 +6080,10 @@
   }
 
   async function _termTryWarmOpen(projectId) {
-    if (!_termSessionsCache.has(projectId)) return false;
-    termSessions = _termSessionsCache.get(projectId) || [];
+    const sessionCacheKey = typeof _termSessionsKey === 'function'
+      ? _termSessionsKey(projectId) : projectId;
+    if (!_termSessionsCache.has(sessionCacheKey)) return false;
+    termSessions = _termSessionsCache.get(sessionCacheKey) || [];
     termRenderSessionList();
     if (termSessions.length > 0) {
       const pick = _termPickRestoreName(projectId);
@@ -6225,12 +6135,14 @@
   }
 
   async function _termRestoreSessionsForProject(projectId) {
+    const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
+    const workspaceQuery = typeof _workspaceQuery === 'function' ? _workspaceQuery(workspaceId) : '';
     await _termRefreshSessionsForProjectId(projectId);
     if (!_termIsScopeActive(projectId)) return;
 
     let saved = [];
     try {
-      const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(projectId));
+      const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(projectId) + workspaceQuery);
       if (r.ok) saved = await r.json();
     } catch (e) {
       _termClientLog('warning', 'terminal saved-session fetch failed', {
@@ -6243,7 +6155,7 @@
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
-    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId);
+    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId, workspaceId);
     if (!_termIsScopeActive(projectId)) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
@@ -6257,6 +6169,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           project_id: projectId,
+          workspace: workspaceId,
           kind: s.kind || 'claude',
           agent: s.agent,
           name: s.name,
@@ -6329,9 +6242,11 @@
       else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
       else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
+      const workspaceId = _termWorkspaceId();
       try {
-        const r = await fetch('/api/term/sessions/status?project_id=' + encodeURIComponent(pid));
+        const r = await fetch('/api/term/sessions/status?project_id=' + encodeURIComponent(pid) + _workspaceQuery(workspaceId));
         const rows = r.ok ? await r.json() : [];
+        if (pid !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
         // Wipe old entries not in the new response so killed sessions don't
         // linger with stale status.
         for (const k of Object.keys(termStatus)) delete termStatus[k];
@@ -6622,25 +6537,27 @@
   async function termRefreshSessions(projectId) {
     projectId = projectId || (currentProject && currentProject.is_project ? currentProject.name : null);
     if (!projectId) return;
+    const workspaceId = _termWorkspaceId();
+    const sessionCacheKey = _termSessionsKey(projectId, workspaceId);
     let fresh = [];
     let ok = false;
     try {
-      const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(projectId));
+      const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(projectId) + _workspaceQuery(workspaceId));
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
-    if (ok) _termSessionsCache.set(projectId, fresh);
+    if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard. termOpenForProject's warm-switch path fires
     // this refresh without awaiting, so by the time the response lands
     // the user may already be on a different tab. Cache the result but
     // don't touch globals or repaint — the active view's own refresh
     // will handle its own pills.
-    if (projectId !== _termActiveProjectId()) return ok;
+    if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return ok;
     // On a failed fetch (server restarting, network blip) fall back to the
     // last successful list for this project instead of wiping the pills —
     // the tmux sessions are almost certainly still alive, and the reconnect
     // loop needs their names to keep retrying.
-    termSessions = ok ? fresh : (_termSessionsCache.get(projectId) || []);
+    termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
     if (ok) {
       // Any name that's no longer in the live list is genuinely gone —
       // don't keep its dead/backoff bookkeeping around. If tmux later
@@ -6698,6 +6615,7 @@
     const session = _termSessionMeta(name);
     if (!session) return;
     const projectId = _termActiveProjectId();
+    const workspaceId = _termWorkspaceId();
     const logical = session.logical_name || '';
     if (!projectId || !logical) return;
     const current = session.label || logical;
@@ -6710,17 +6628,19 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           project_id: projectId,
+          workspace: workspaceId,
           name: logical,
           label: next || null,
         }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || r.statusText || 'rename failed');
+      if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
       const updated = body.session || {};
       termSessions = (termSessions || []).map(s =>
         s.name === name ? {...s, label: updated.label || null, summary: updated.summary || s.summary} : s
       );
-      _termSessionsCache.set(projectId, termSessions);
+      _termSessionsCache.set(_termSessionsKey(projectId, workspaceId), termSessions);
       termRenderSessionList();
       _termClientLog('info', 'terminal tab renamed', {
         event_type: 'term.session.rename',
@@ -6929,7 +6849,7 @@
       await fetch('/api/term/sessions/order', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, order: current}),
+        body: JSON.stringify({project_id: projectId, workspace: _termWorkspaceId(), order: current}),
       });
     } catch (e) { /* best-effort; local order already reflects */ }
     // Small grace so filesystem writes + watcher ignore-list settle.
@@ -7014,6 +6934,7 @@
       projectId = currentProject.name;
     }
     if (!projectId) return;
+    const workspaceId = _termWorkspaceId();
 
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
@@ -7022,6 +6943,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           project_id: projectId,
+          workspace: workspaceId,
           kind,
           agent,  // null → server resolves project override / global default
           start_fresh: startFresh,
@@ -7036,7 +6958,8 @@
         return;
       }
       const created = await r.json();
-      await termSetAutoSpawnEnabled(projectId, true);
+      await termSetAutoSpawnEnabled(projectId, true, workspaceId);
+      if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
       // Brand-new session — clear any stale dead/backoff state for this
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
@@ -7051,7 +6974,7 @@
       if (!_termIsScopeActive(projectId)) return;
       if (!termSessions.some(s => s && s.name === created.name)) {
         termSessions = [{...created, project_id: created.project_id || projectId}, ...termSessions];
-        _termSessionsCache.set(projectId, termSessions);
+        _termSessionsCache.set(_termSessionsKey(projectId, workspaceId), termSessions);
         termRenderSessionList();
       }
       termAttach(created.name, projectId);
@@ -7064,11 +6987,14 @@
   async function termKillCurrent() {
     if (!termCurrentSession) return;
     const projectId = _termActiveProjectId();
+    const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
     if (!confirm('Close terminal session ' + termCurrentSession + '? It will stay closed after reload.')) return;
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true', {method: 'DELETE'}); } catch {}
-    await termSetAutoSpawnEnabled(projectId, false);
+    await termSetAutoSpawnEnabled(projectId, false, workspaceId);
+    if (projectId !== _termActiveProjectId()
+        || (typeof _termWorkspaceId === 'function' && workspaceId !== _termWorkspaceId())) return;
     if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
     else if (projectId) await termRefreshSessions(projectId);
     if (!_termIsScopeActive(projectId)) return;
@@ -7180,6 +7106,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           project_id: projectId,
+          workspace: _termWorkspaceId(),
           session_name: termCurrentSession,
           name: file.name || 'clipboard-image',
           mime: file.type || 'image/png',
@@ -7973,7 +7900,7 @@
       projectsList = projects;
       const proj = projects.find(p => p.path === _effectiveProject);
       if (proj) {
-        selectRepo(proj.name);
+        selectRepo(proj.path);
       }
     });
   } else if (urlRepo) {
@@ -7981,7 +7908,7 @@
       projectsList = projects;
       const proj = projects.find(p => p.repos.some(r => r.path === urlRepo));
       if (proj) {
-        selectRepo(proj.name);
+        selectRepo(proj.path);
         if (proj.repos.length > 1) {
           const targetRepo = proj.repos.find(r => r.path === urlRepo);
           if (targetRepo) selectProjectRepo(targetRepo.path);
@@ -7991,8 +7918,8 @@
   } else if (urlView === 'cerebro' || urlView === 'productivity' || urlView === 'workspace' || urlView === 'code-search' || urlView === 'logs') {
     // These views handle their own init above; skip Home.
   } else {
-    // No project or repo in URL → show Home (dashboard / timeline / search).
-    initHome();
+    // No explicit target means the framework-owned Productivity home.
+    initSelf();
   }
 
   function initHome() {
@@ -8012,20 +7939,7 @@
   // every tab that didn't have a live tmux session.
   function goHome(ev) {
     if (ev) ev.preventDefault();
-    _swapViewState();
-    document.title = 'Productivity';
-    document.body.classList.add('home-active');
-    // Update URL without a reload; preserve the sub-tab hash if present.
-    const url = new URL(window.location);
-    url.searchParams.delete('project');
-    url.searchParams.delete('repo');
-    url.searchParams.delete('view');
-    url.searchParams.delete('path');
-    url.searchParams.delete('file');
-    url.searchParams.delete('tail');
-    history.pushState({nav: 'home'}, '', url.pathname + url.search + url.hash);
-    initHome();
-    projTabsRender();
+    goToProductivity();
   }
 
   // ─── In-page navigation (project tabs + dashboard cards) ────────────────
@@ -8074,11 +7988,13 @@
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
+      url.searchParams.delete('workspace');
+      url.searchParams.delete('subview');
       history.pushState({nav: 'project', path}, '', url.pathname + url.search + url.hash);
     }
     const dispatch = () => {
       const proj = (projectsList || []).find(p => p.path === path);
-      if (proj) selectRepo(proj.name);
+      if (proj) selectRepo(proj.path);
     };
     if (projectsList && projectsList.length) {
       dispatch();
@@ -8465,6 +8381,7 @@
 
   function goToProductivity(opts = {}) {
     _swapViewState();
+    _contextSubView = 'overview';
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.delete('project');
@@ -8472,15 +8389,31 @@
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
+      url.searchParams.delete('workspace');
       url.searchParams.set('view', 'productivity');
+      if (opts.subview) url.searchParams.set('subview', opts.subview);
+      else url.searchParams.delete('subview');
       history.pushState({nav: 'productivity'}, '', url.pathname + url.search + url.hash);
     }
-    projTabsSetPseudoOpen(SELF_PROJECT_ID, true);
     initSelf();
+    if (opts.subview === 'admin') selfShowAdmin();
+    else if (opts.subview === 'code-search') showScopedCodeSearch();
   }
 
-  function goToWorkspace(opts = {}) {
+  function goToWorkspace(workspaceId, opts = {}) {
+    // Backwards compatibility for the old goToWorkspace({replace:true}) form.
+    if (workspaceId && typeof workspaceId === 'object') {
+      opts = workspaceId;
+      workspaceId = null;
+    }
+    workspaceId = workspaceId
+      || (currentProject && currentProject.workspace_id)
+      || (_workspaceCurrent && _workspaceCurrent.id)
+      || currentWorkspaceId;
+    if (!workspaceId) return;
     _swapViewState();
+    _contextSubView = 'overview';
+    _setWorkspaceTabOpen(workspaceId, true);
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.delete('project');
@@ -8488,11 +8421,12 @@
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
+      url.searchParams.delete('subview');
       url.searchParams.set('view', 'workspace');
-      history.pushState({nav: 'workspace'}, '', url.pathname + url.search + url.hash);
+      url.searchParams.set('workspace', workspaceId);
+      history.pushState({nav: 'workspace', workspace: workspaceId}, '', url.pathname + url.search + url.hash);
     }
-    // No projTabsSetPseudoOpen: the workspace tab is permanently pinned.
-    initWorkspaceView();
+    initWorkspaceView(workspaceId);
   }
 
   function logsNormalizeFile(file) {
@@ -8523,15 +8457,7 @@
   }
 
   function goToLogs(opts = {}) {
-    const params = new URLSearchParams(location.search);
-    const file = logsNormalizeFile(opts.file || params.get('file') || logsState.file);
-    const tail = logsNormalizeTail(opts.tail || params.get('tail') || logsState.tail);
-    _swapViewState();
-    projTabsSetPseudoOpen(LOGS_PROJECT_ID, true);
-    logsState.file = file;
-    logsState.tail = tail;
-    if (!opts.replace) logsUpdateUrl(true);
-    initLogs({file, tail});
+    goToProductivity({replace: !!opts.replace, subview: 'admin'});
   }
 
   function initLogs(opts = {}) {
@@ -8782,20 +8708,7 @@
   }
 
   function goToCodeSearch(opts = {}) {
-    _swapViewState();
-    const initialRepo = (opts && opts.repo) || _csRecallLastRepo() || null;
-    if (!opts.replace) {
-      const url = new URL(window.location);
-      url.searchParams.delete('project');
-      url.searchParams.delete('repo');
-      url.searchParams.delete('path');
-      url.searchParams.delete('file');
-      url.searchParams.delete('tail');
-      url.searchParams.set('view', 'code-search');
-      if (initialRepo) url.searchParams.set('repo', initialRepo);
-      history.pushState({nav: 'code-search', repo: initialRepo}, '', url.pathname + url.search + url.hash);
-    }
-    initCodeSearch(initialRepo);
+    goToProductivity({replace: !!opts.replace, subview: 'code-search'});
   }
 
   // Persist the last-visited code-search repo so re-entering the tab
@@ -9584,11 +9497,12 @@
     } else if (view === 'cerebro') {
       goToCerebro(cerebroPath, {replace: true});
     } else if (view === 'productivity') {
-      goToProductivity({replace: true});
+      goToProductivity({replace: true, subview: params.get('subview') || null});
     } else if (view === 'workspace') {
-      goToWorkspace({replace: true});
+      goToWorkspace(params.get('workspace') || currentWorkspaceId, {replace: true});
     } else if (view === 'code-search') {
-      goToCodeSearch({replace: true, repo: params.get('repo') || null});
+      goToProductivity({replace: true});
+      showScopedCodeSearch();
     } else if (view === 'logs') {
       goToLogs({
         replace: true,
@@ -9600,13 +9514,10 @@
       fetchRepos().then(projects => {
         projectsList = projects;
         const proj = projects.find(p => p.repos.some(r => r.path === repo));
-        if (proj) selectRepo(proj.name);
+        if (proj) selectRepo(proj.path);
       });
     } else {
-      _swapViewState();
-      document.body.classList.add('home-active');
-      initHome();
-      projTabsRender();
+      goToProductivity({replace: true});
     }
   });
 
@@ -10497,19 +10408,11 @@
   // the entire served index.
   async function openProjectInWorkspace(pid, ws) {
     if (!pid || !ws || !ws.id) return;
-    if (ws.id === currentWorkspaceId) { goToProjectById(pid); return; }
-    try {
-      const r = await fetch('/api/workspaces/use', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id: ws.id}),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      const wsPath = (ws.path || '').replace(/\/+$/, '');
-      location.href = '/?project=' + encodeURIComponent(wsPath + '/projects/' + pid);
-    } catch (e) {
-      console.error('failed to open project in workspace', ws.id, e);
-    }
+    const project = (projectsList || []).find(p => p.workspace === ws.id && p.name === pid);
+    const path = project && project.path
+      ? project.path
+      : (ws.path || '').replace(/\/+$/, '') + '/projects/' + pid;
+    goToProject(path);
   }
 
   // Keep the "Snoozed" tab badge in sync with current project data. Counts
@@ -10904,10 +10807,9 @@
     if (field === 'description') return openDescModal(p);
   }
 
-  // ─── Project attributes bar (below top tabs, above diff tabs) ───
-  // Fetches the current project's metadata and renders editable chips
-  // (status · priority · due · LOE · snooze · description ✎) + a missing
-  // warning. Called on project-open and after every successful field save.
+  // ─── Project server bar (below top tabs, above diff tabs) ───
+  // Deliberately narrow: project planning metadata belongs in project files,
+  // so this chrome only exposes the local-server configuration.
 
   async function refreshAttrsBar() {
     const bar = document.getElementById('projectAttrsBar');
@@ -10918,23 +10820,24 @@
       return;
     }
     const pid = currentProject.name;
+    const projectPath = currentProject.path;
 
     // Warm switch: paint synchronously from the last-known project
     // record so the bar (status / P:N / Due / LOE / description /
     // Snooze) shows instantly. Background reconcile re-paints only on
     // change. Cache miss falls through to the foreground fetch below.
-    const cached = _projectAttrsCache.get(pid);
+    const cached = _projectAttrsCache.get(projectPath);
     if (cached) {
       _renderAttrsBarFromRecord(bar, pid, cached);
       Promise.resolve().then(async () => {
         try {
-          const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
+          const r = await fetch('/api/project-info?path=' + encodeURIComponent(projectPath));
           if (!r.ok) return;
           const fresh = await r.json();
-          const prev = _projectAttrsCache.get(pid);
-          _projectAttrsCache.set(pid, fresh);
+          const prev = _projectAttrsCache.get(projectPath);
+          _projectAttrsCache.set(projectPath, fresh);
           if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
-          if (!currentProject || currentProject.name !== pid) return;
+          if (!currentProject || currentProject.path !== projectPath) return;
           _renderAttrsBarFromRecord(bar, pid, fresh);
         } catch {}
       });
@@ -10943,11 +10846,11 @@
 
     let p = null;
     try {
-      const r = await fetch(`/api/projects/${encodeURIComponent(pid)}`);
+      const r = await fetch('/api/project-info?path=' + encodeURIComponent(projectPath));
       if (r.ok) p = await r.json();
     } catch {}
     if (!p) { bar.innerHTML = ''; return; }
-    _projectAttrsCache.set(pid, p);
+    _projectAttrsCache.set(projectPath, p);
     _renderAttrsBarFromRecord(bar, pid, p);
   }
 
@@ -10956,62 +10859,19 @@
   // mutation. Reads only what's on the project record `p` plus the
   // global `holdState` / `projectMissingFields` helpers.
   function _renderAttrsBarFromRecord(bar, pid, p) {
-    const info = holdState(p.hold);
-    const statusCls = p.status || 'active';
-    const dueText = p.due ? fmtDate(p.due) : 'set due';
-    const dueCls = p.due ? '' : 'empty';
-    const loeText = (p.loe == null || p.loe === '') ? 'set LOE' : `${p.loe}d`;
-    const loeCls = (p.loe == null || p.loe === '') ? 'empty' : '';
-    const priText = p.priority || 'set priority';
-    const priCls = p.priority ? '' : 'empty';
-    const descShort = (p.description || '').trim();
-    const descPreview = descShort ? (descShort.length > 50 ? descShort.slice(0, 50) + '…' : descShort) : 'set description';
-    const descCls = descShort ? '' : 'empty';
-    const holdHtml = info.state === 'held'
-      ? `<span class="ab-hold">&#x1F4A4; snoozed · ${escapeHtml(fmtRelative(info.ms))}</span>`
-      : info.state === 'ready'
-        ? `<span class="ab-hold ready">&#x23F0; ready for review</span>`
-        : '';
-    const missing = projectMissingFields(p);
-    const missingChip = missing.length
-      ? `<span class="ab-chip missing" data-edit="${escapeHtml(missing[0])}" title="click to set ${escapeHtml(missing[0])}">⚠ missing: ${missing.join(', ')}</span>`
-      : '';
-
     const proxyCount = Array.isArray(p.proxies) ? p.proxies.length : 0;
     const proxiesLabel = proxyCount ? `${proxyCount} server${proxyCount === 1 ? '' : 's'}` : 'add server';
     const proxiesCls = proxyCount ? '' : 'empty';
 
     bar.innerHTML = `
-      <span class="ab-label">${escapeHtml(p.id)}</span>
-      <span class="ab-chip status ${statusCls}" data-edit="status" title="status: click to change"><span class="v">${escapeHtml(p.status || 'active')}</span></span>
-      <span class="ab-chip" data-edit="priority" title="priority: click to change">P: <span class="v ${priCls}">${escapeHtml(priText)}</span></span>
-      <span class="ab-chip" data-edit="due" title="due date: click to change">Due: <span class="v ${dueCls}">${escapeHtml(dueText)}</span></span>
-      <span class="ab-chip" data-edit="loe" title="level of effort (days): click to change">LOE: <span class="v ${loeCls}">${escapeHtml(loeText)}</span></span>
-      <span class="ab-chip" data-edit="description" title="edit description">&#x270E; <span class="v ${descCls}">${escapeHtml(descPreview)}</span></span>
-      <span class="ab-chip" data-act="proxies" title="manage proxied local servers for this project">&#x1F310; <span class="v ${proxiesCls}">${escapeHtml(proxiesLabel)}</span></span>
-      ${info.state === 'none'
-        ? `<span class="ab-chip" data-act="snooze" title="snooze this project">&#x1F4A4; Snooze</span>`
-        : `<span class="ab-chip" data-act="snooze" title="reschedule">Reschedule</span>
-           <span class="ab-chip" data-act="unhold" title="clear snooze">Clear hold</span>`}
-      ${holdHtml}
       <span class="ab-spacer"></span>
-      ${missingChip}
+      <span class="ab-chip" data-act="proxies" title="manage proxied local servers for this project">&#x1F310; <span class="v ${proxiesCls}">${escapeHtml(proxiesLabel)}</span></span>
     `;
-
-    bar.querySelectorAll('[data-edit]').forEach(chip => {
-      chip.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const field = chip.getAttribute('data-edit');
-        editProjectField(chip, p, field, () => refreshAttrsBar());
-      });
-    });
     bar.querySelectorAll('[data-act]').forEach(chip => {
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
         const act = chip.getAttribute('data-act');
-        if (act === 'snooze') openSnoozeModal(pid);
-        else if (act === 'unhold') clearProjectHold(pid);
-        else if (act === 'proxies') openProxiesModal();
+        if (act === 'proxies') openProxiesModal();
       });
     });
   }
@@ -11187,7 +11047,7 @@
     }
     // Invalidate caches that hold the stale proxies list, then refresh.
     _projectSidebarCache.delete(currentProject.path);
-    _projectAttrsCache.delete(currentProject.name);
+    _projectAttrsCache.delete(currentProject.path);
     closeProxiesModal();
     if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
     if (typeof _refreshProjectSidebar === 'function') _refreshProjectSidebar({preserveScroll: true});
@@ -11409,7 +11269,7 @@
   // Populate the "Workspace" select with every registered workspace,
   // defaulting to the one currently active. Stores each option's resolved
   // root path in a data attribute so submitNewProject can build the
-  // `?project=` deep link after switching + creating in a non-active one.
+  // cross-workspace `?project=` deep link without changing global state.
   async function _npPopulateWorkspaces() {
     const sel = document.getElementById('npWorkspace');
     if (!sel) return;
@@ -11559,34 +11419,22 @@
       return;
     }
 
-    // The create endpoint always writes into whichever workspace the
-    // server is currently serving — there's no per-request workspace
-    // param — so creating in a non-active one means switching first.
     const wsSel = document.getElementById('npWorkspace');
     const wsOpt = wsSel && wsSel.selectedOptions && wsSel.selectedOptions[0];
     const targetWsId = wsOpt ? wsOpt.value : '';
     const targetWsPath = wsOpt ? (wsOpt.dataset.path || '') : '';
-    const switchingWorkspace = !!targetWsId && targetWsId !== currentWorkspaceId;
+    const creatingElsewhere = !!targetWsId && targetWsId !== currentWorkspaceId;
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Creating…';
     try {
-      if (switchingWorkspace) {
-        const swRes = await fetch('/api/workspaces/use', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({id: targetWsId}),
-        });
-        if (!swRes.ok) {
-          const j = await swRes.json().catch(() => ({}));
-          throw new Error(j.detail || swRes.statusText);
-        }
-        currentWorkspaceId = targetWsId;
-      }
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ id, description, priority, due, tags, labels }),
+        body: JSON.stringify({
+          id, workspace: targetWsId || null,
+          description, priority, due, tags, labels,
+        }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -11594,12 +11442,10 @@
       }
       const p = await res.json();
       closeNewProjectModal();
-      if (switchingWorkspace) {
-        // Workspace just changed under us — the whole served index/tab
-        // state is different now, so land via a full reload instead of
-        // in-page nav (same as opening an other-workspace dashboard row).
+      if (creatingElsewhere) {
         const wsPath = targetWsPath.replace(/\/+$/, '');
-        location.href = '/?project=' + encodeURIComponent(wsPath + '/projects/' + p.id);
+        projectsList = await fetchRepos();
+        goToProject(wsPath + '/projects/' + p.id);
         return;
       }
       // Refresh repos so the just-created project's path is in projectsList,
@@ -11772,6 +11618,7 @@
       path: SELF_REPO_PATH,
       is_project: true,
       repos: [],
+      workspace_id: null,
     };
     document.getElementById('diffTabs').style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
@@ -11783,6 +11630,7 @@
     // with the full tab list as soon as it returns. Mirrors what
     // initCerebro and selectRepo already do.
     if (typeof projTabsRender === 'function') projTabsRender();
+    renderRepoTabs();
 
     // Paint the workbench scaffold synchronously. The refresh fills in
     // tasks, changed areas, and recent commits after first paint.
@@ -11861,7 +11709,7 @@
       // applied imperatively after rebuild and the selection flickers.
       const activePath = _projDocPath || null;
       const workbenchActive = !activePath ? ' active' : '';
-      let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Workbench</span></a>`;
+      let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
       sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="selfToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
       sbHtml += symlinkLegendHtml();
       sbHtml += '<div class="sidebar-title">Files</div>';
@@ -11916,6 +11764,8 @@
   // functions look for element IDs inside here.
   function selfPaintWorkbench() {
     _projDocPath = null;
+    _contextSubView = 'overview';
+    renderRepoTabs();
     const content = document.getElementById('content');
     content.innerHTML = `
       <div class="s-inner self-workbench">
@@ -11936,15 +11786,6 @@
           <div class="s-metric"><span>Last commit</span><strong>...</strong></div>
         </div>
         <div class="s-workbench-grid">
-          <div class="s-section" id="dashKpis"></div>
-          <div class="s-section" id="dashServers">
-            <h2>Servers <span class="count">…</span></h2>
-            <div class="srv-empty">Loading servers…</div>
-          </div>
-          <div class="s-section" id="dashTerms">
-            <h2>Terminals <span class="count">…</span></h2>
-            <div class="term-empty">Loading terminal sessions…</div>
-          </div>
           <div class="s-section" id="selfAttentionSection">
             <h2>Attention</h2>
             <ul class="s-attention" id="selfAttentionList"><li class="s-empty">Loading...</li></ul>
@@ -11973,22 +11814,17 @@
           </div>
         </div>
       </div>`;
-    // Servers / Terminals cards share their ids + render/poll machinery
-    // with the home dashboard (only the ACTIVE view's copy is ever
-    // resolved — see dashSectionEl). Scope the queries to #content: a
-    // hidden stale copy can linger in #homePanel after an in-page switch.
-    // dashStartPolling clears any previous interval, and dashPollTick
-    // self-cleans when the container leaves the active view, so
-    // home ↔ productivity navigation never stacks intervals.
-    content.querySelector('#dashServers').addEventListener('click', dashServersOnClick);
-    content.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
-    if (!UI_CHECK) dashStartPolling();
-    dashPollTick();
   }
 
   // Return to the workbench from a doc view.
   function selfShowWorkbench() {
     _projDocPath = null;
+    _contextSubView = 'overview';
+    const url = new URL(window.location);
+    url.searchParams.set('view', 'productivity');
+    url.searchParams.delete('subview');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    renderRepoTabs();
     document.querySelectorAll('#sidebar .sidebar-file').forEach(el => el.classList.remove('active'));
     selfPaintWorkbench();
     afterFirstPaint(() => selfRefreshWorkbench());
@@ -11996,6 +11832,69 @@
 
   // Compatibility for older inline handlers or cached pages.
   function selfShowDashboard() { return selfShowWorkbench(); }
+
+  function selfShowAdmin() {
+    _projDocPath = null;
+    _contextSubView = 'admin';
+    const url = new URL(window.location);
+    url.searchParams.set('view', 'productivity');
+    url.searchParams.set('subview', 'admin');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    currentRepo = null;
+    renderRepoTabs();
+    const content = document.getElementById('content');
+    if (!content) return;
+    content.innerHTML = `
+      <div class="s-inner self-admin">
+        <div class="s-head"><h1>Admin</h1></div>
+        <div class="s-workbench-grid">
+          <div class="s-section" id="dashKpis"></div>
+          <div class="s-section" id="dashServers"><h2>Servers</h2><div class="srv-empty">Loading servers…</div></div>
+          <div class="s-section" id="dashTerms"><h2>Terminals</h2><div class="term-empty">Loading terminal sessions…</div></div>
+          <div class="s-section admin-logs-section">
+            <h2>Logs <span class="count" id="adminLogCount"></span></h2>
+            <div class="admin-log-toolbar">
+              <button class="refresh-btn" data-log="errors.log">Errors</button>
+              <button class="refresh-btn" data-log="backend.log">Backend</button>
+              <button class="refresh-btn" data-log="frontend.log">Frontend</button>
+            </div>
+            <pre class="admin-log-output" id="adminLogOutput">Loading consolidated logs…</pre>
+          </div>
+        </div>
+      </div>`;
+    content.querySelector('#dashServers').addEventListener('click', dashServersOnClick);
+    content.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
+    content.querySelectorAll('[data-log]').forEach(btn => {
+      btn.addEventListener('click', () => adminRefreshLogs(btn.getAttribute('data-log')));
+    });
+    if (!UI_CHECK) dashStartPolling();
+    dashPollTick();
+    adminRefreshLogs('errors.log');
+  }
+  window.selfShowAdmin = selfShowAdmin;
+
+  async function adminRefreshLogs(file = 'errors.log') {
+    const output = document.getElementById('adminLogOutput');
+    const count = document.getElementById('adminLogCount');
+    if (!output) return;
+    output.textContent = 'Loading…';
+    try {
+      const r = await fetch('/api/log/tail/all?file=' + encodeURIComponent(file) + '&tail=300');
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'load failed');
+      const data = await r.json();
+      const entries = data.entries || [];
+      if (count) count.textContent = entries.length ? String(entries.length) : '';
+      output.textContent = entries.length ? entries.map(row => {
+        const stamp = row.ts || row.timestamp || '';
+        const level = String(row.level || '').toUpperCase();
+        const message = row.msg || row.message || row.raw || JSON.stringify(row);
+        return `[${row.workspace || 'workspace'}] ${stamp} ${level} ${message}`.trim();
+      }).join('\n') : 'No log entries.';
+    } catch (e) {
+      output.textContent = 'Could not load logs: ' + (e.message || e);
+    }
+  }
+  window.adminRefreshLogs = adminRefreshLogs;
 
   // Toggle hidden-files visibility for the productivity sidebar.
   // Mirrors toggleProjectDotFiles() but re-renders via selfPopulateSidebar()
@@ -12280,14 +12179,12 @@
     termStartStatusPolling();
   }
 
-  // ─── Workspace view (active-workspace management surface) ───
-  // Always-pinned pseudo-tab, mirrors initSelf(): synthetic currentProject
-  // rooted at the ACTIVE workspace root so openProjectDoc, the sidebar,
-  // git decorations, and the mtime/WS live refreshes all behave like a
-  // real project. Content always reflects the workspace selected in the
-  // top-left dropdown; switching workspaces re-runs this init.
+  // ─── Workspace view (workspace-scoped management surface) ───
+  // Mirrors initSelf(): synthetic currentProject rooted at the selected
+  // registered workspace so its files/config/projects can stay open beside
+  // tabs from every other workspace.
 
-  async function initWorkspaceView() {
+  async function initWorkspaceView(workspaceId) {
     // On a full page load the server's INITIAL_BODY_CLASS doesn't know
     // this view (main.py defaults unknown ?view= values to home-active),
     // and the initial `?view=…` dispatch calls us directly — without
@@ -12305,27 +12202,24 @@
     // Re-render the tab strip so the workspace tab flips to `.active`
     // immediately (same first-load caveat as initSelf: projTabsRefresh
     // repaints with the full list once it returns).
-    if (typeof projTabsRender === 'function') projTabsRender();
     _projDocPath = null;
 
     // Scaffold synchronously; the fetch below fills in the real content.
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="s-inner ws-overview"><div class="loading">Loading workspace…</div></div>';
 
-    let data = null;
-    try {
-      const r = await fetch('/api/workspaces');
-      if (r.ok) data = await r.json();
-    } catch {}
+    const data = await fetchWorkspaceCatalog();
     // The user may have navigated away while the fetch was in flight.
     if (!document.body.classList.contains('workspace-active')) return;
-    const current = (data && data.current) || null;
+    const current = ((data && data.workspaces) || []).find(w => w.id === workspaceId)
+      || ((data && data.workspaces) || []).find(w => w.active)
+      || null;
     _workspaceCurrent = current;
     if (!current || !current.path) {
       if (content) content.innerHTML = '<div class="s-inner ws-overview"><div class="loading">Could not load the active workspace.</div></div>';
       return;
     }
-    if (data.active) currentWorkspaceId = data.active;
+    _setWorkspaceTabOpen(current.id, true);
     document.title = 'Workspace — ' + (current.name || current.id);
     // Synthetic project rooted at the workspace root (same trick as the
     // self view) so the doc pane, sidebar, and pollers treat it like a
@@ -12335,7 +12229,12 @@
       path: current.path,
       is_project: true,
       repos: [],
+      workspace_id: current.id,
+      workspace_name: current.name || current.id,
+      workspace_color: current.color || '#8b949e',
     };
+    if (typeof projTabsRender === 'function') projTabsRender();
+    renderRepoTabs();
     _sidebarApplyForView();
     workspacePaintOverview(current);
     afterPageQuiet(() => {
@@ -12351,17 +12250,33 @@
   // existing dashboards. workspaceRefreshCards() fills the card bodies.
   function workspacePaintOverview(current) {
     _projDocPath = null;
+    _contextSubView = 'overview';
+    renderRepoTabs();
     const content = document.getElementById('content');
     if (!content) return;
     content.innerHTML = `
       <div class="s-inner ws-overview">
         <div class="s-head ws-ov-head">
           <h1>${selfEsc(current.name || current.id)}
-            <span class="ws-badge" title="workspace id">${selfEsc(current.id)}</span>
-            <span class="ws-active-pill">active</span></h1>
+            <span class="ws-badge" title="workspace id">${selfEsc(current.id)}</span></h1>
         </div>
         <div class="ws-ov-path" title="${escAttr(current.path)}">${selfEsc(current.path)}</div>
         <div class="s-workbench-grid ws-ov-grid">
+          <div class="s-section" id="wsAppearanceCard">
+            <h2>Appearance</h2>
+            <form class="ws-appearance-form" onsubmit="return workspaceSaveAppearance(event)">
+              <label>Name or alias
+                <input id="wsAppearanceName" type="text" value="${escAttr(current.name || current.id)}" maxlength="80" required>
+              </label>
+              <label>Tab color
+                <span class="ws-color-row">
+                  <input id="wsAppearanceColor" type="color" value="${escAttr(current.color || '#8b949e')}" oninput="this.nextElementSibling.textContent=this.value">
+                  <span class="ws-color-value">${selfEsc(current.color || '#8b949e')}</span>
+                </span>
+              </label>
+              <div class="ws-card-actions"><button class="refresh-btn" type="submit">Save appearance</button><span class="ws-appearance-status" id="wsAppearanceStatus"></span></div>
+            </form>
+          </div>
           <div class="s-section" id="wsConfigCard">
             <h2>Configuration</h2>
             <div class="ws-card-body" id="wsConfigBody"><div class="ws-muted">Loading…</div></div>
@@ -12381,14 +12296,52 @@
   // Return to the overview from a doc view (sidebar "Overview" link).
   function workspaceShowOverview() {
     _projDocPath = null;
+    _contextSubView = 'overview';
+    renderRepoTabs();
     document.querySelectorAll('#sidebar .sidebar-file').forEach(el => el.classList.remove('active'));
     if (_workspaceCurrent && currentProject && currentProject.name === WORKSPACE_PROJECT_ID) {
       workspacePaintOverview(_workspaceCurrent);
       afterFirstPaint(() => workspaceRefreshCards());
     } else {
-      initWorkspaceView();
+      initWorkspaceView(_workspaceCurrent && _workspaceCurrent.id);
     }
   }
+
+  async function workspaceSaveAppearance(event) {
+    if (event) event.preventDefault();
+    if (!_workspaceCurrent) return false;
+    const nameEl = document.getElementById('wsAppearanceName');
+    const colorEl = document.getElementById('wsAppearanceColor');
+    const status = document.getElementById('wsAppearanceStatus');
+    const name = (nameEl && nameEl.value || '').trim();
+    const color = colorEl && colorEl.value;
+    if (status) status.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/workspaces/' + encodeURIComponent(_workspaceCurrent.id) + '/appearance', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, color}),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'save failed');
+      const updated = await r.json();
+      _workspaceCurrent.name = updated.name;
+      _workspaceCurrent.color = updated.color;
+      const catalogRow = _workspaceById(_workspaceCurrent.id);
+      if (catalogRow) Object.assign(catalogRow, updated);
+      if (currentProject) {
+        currentProject.workspace_name = updated.name;
+        currentProject.workspace_color = updated.color;
+      }
+      workspacePaintOverview(_workspaceCurrent);
+      projTabsRender();
+      const savedStatus = document.getElementById('wsAppearanceStatus');
+      if (savedStatus) savedStatus.textContent = 'Saved';
+    } catch (e) {
+      if (status) status.textContent = e.message || String(e);
+    }
+    return false;
+  }
+  window.workspaceSaveAppearance = workspaceSaveAppearance;
 
   async function workspaceRefreshCards() {
     if (!document.body.classList.contains('workspace-active')) return;
@@ -12411,7 +12364,7 @@
     if (!body) return;
     let cfg = null;
     try {
-      const r = await fetch('/api/workspace/config');
+      const r = await fetch('/api/workspace/config?workspace=' + encodeURIComponent(_workspaceCurrent.id));
       if (r.ok) cfg = await r.json();
     } catch {}
     if (!body.isConnected) return;  // view repainted/navigated meanwhile
@@ -12447,6 +12400,8 @@
   function _wsSetupPromptText() {
     const cfg = _wsCfgLast || {};
     const root = cfg.root || (_workspaceCurrent && _workspaceCurrent.path) || '(workspace root)';
+    const configUrl = location.origin + '/api/workspace/config?workspace=' +
+      encodeURIComponent((_workspaceCurrent && _workspaceCurrent.id) || '');
     const issues = [];
     for (const e of (cfg.errors || [])) issues.push('- ERROR: ' + e);
     for (const w of (cfg.warnings || [])) issues.push('- warning: ' + w);
@@ -12528,7 +12483,7 @@
       '3. Projections declare intent. If you also apply them, use relative symlinks',
       '   and never overwrite a real file — only replace links that already point',
       '   into workspace sources, or files whose first line marks them generated.',
-      '4. Verify when done: ' + location.origin + '/api/workspace/config must show',
+      '4. Verify when done: ' + configUrl + ' must show',
       '   "valid": true with an empty "errors" list. The Workspace tab\'s',
       '   Configuration card shows the same.',
     ].join('\n');
@@ -12542,7 +12497,7 @@
   async function wsCreateConfig(btn) {
     if (btn) btn.disabled = true;
     try {
-      const r = await fetch('/api/workspace/config/init', { method: 'POST' });
+      const r = await fetch('/api/workspace/config/init?workspace=' + encodeURIComponent(_workspaceCurrent.id), { method: 'POST' });
       if (!r.ok) {
         const detail = (await r.json().catch(() => ({}))).detail || 'create failed';
         if (btn) { btn.textContent = String(detail); btn.disabled = false; }
@@ -12613,10 +12568,13 @@
       const r = await fetch('/api/workspace/agents', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({supported: Object.keys(AGENT_LABELS).filter(a => next.has(a))}),
+        body: JSON.stringify({
+          workspace: _workspaceCurrent && _workspaceCurrent.id,
+          supported: Object.keys(AGENT_LABELS).filter(a => next.has(a)),
+        }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'update failed');
-      _workspaceAgentPolicy = await r.json();
+      _workspaceAgentPolicy = Object.assign({workspace: _workspaceCurrent && _workspaceCurrent.id}, await r.json());
       await Promise.all([workspaceRenderAgentsCard(), workspaceRenderConfigCard()]);
     } catch (e) {
       if (card && card.isConnected) {
@@ -12634,13 +12592,8 @@
     const list = document.getElementById('wsProjectsList');
     const count = document.getElementById('wsProjectsCount');
     if (!list) return;
-    let data = null;
-    try {
-      const r = await fetch('/api/workspaces/projects');
-      if (r.ok) data = await r.json();
-    } catch {}
     if (!list.isConnected) return;
-    const ws = ((data && data.workspaces) || []).find(w => w.active) || null;
+    const ws = _workspaceCurrent;
     if (!ws) {
       if (count) count.textContent = '';
       list.innerHTML = '<li class="s-empty">Could not load projects.</li>';
@@ -12651,19 +12604,19 @@
       list.innerHTML = `<li class="s-empty">${selfEsc(ws.detail || 'workspace volume unavailable')}</li>`;
       return;
     }
-    const ids = ws.projects || [];
-    if (count) count.textContent = ids.length ? String(ids.length) : '';
-    if (!ids.length) {
+    const projects = ws.project_rows || [];
+    if (count) count.textContent = projects.length ? String(projects.length) : '';
+    if (!projects.length) {
       list.innerHTML = '<li class="s-empty">No projects yet.</li>';
       return;
     }
-    list.innerHTML = ids.map(pid => `
-      <li class="ws-proj-row" data-pid="${escAttr(pid)}" role="button" tabindex="0" title="Open ${escAttr(pid)}">
-        <span class="ws-proj-name">${selfEsc(pid)}</span>
+    list.innerHTML = projects.map(project => `
+      <li class="ws-proj-row" data-path="${escAttr(project.path)}" role="button" tabindex="0" title="Open ${escAttr(project.name)}">
+        <span class="ws-proj-name">${selfEsc(project.name)}</span>
         <span class="p-caret">›</span>
       </li>`).join('');
     list.querySelectorAll('.ws-proj-row').forEach(row => {
-      row.addEventListener('click', () => goToProjectById(row.getAttribute('data-pid')));
+      row.addEventListener('click', () => goToProject(row.getAttribute('data-path')));
     });
   }
 
@@ -13125,16 +13078,18 @@
     // Fetches the live session list and re-renders the pill row.
     let fresh = [];
     let ok = false;
+    const workspaceId = _termWorkspaceId();
+    const sessionCacheKey = _termSessionsKey(pid, workspaceId);
     try {
-      const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(pid));
+      const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(pid) + _workspaceQuery(workspaceId));
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
-    if (ok) _termSessionsCache.set(pid, fresh);
+    if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard — see termRefreshSessions for why.
-    if (pid !== _termActiveProjectId()) return ok;
+    if (pid !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return ok;
     // Failed fetch → keep the last-known list (see termRefreshSessions).
-    termSessions = ok ? fresh : (_termSessionsCache.get(pid) || []);
+    termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
     if (ok) {
       // Forget dead/backoff bookkeeping for sessions tmux no longer has.
       const live = new Set(termSessions.map(s => s.name));

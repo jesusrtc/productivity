@@ -1,6 +1,8 @@
 import json
 from types import SimpleNamespace
 
+from lab import paths
+
 
 def _request(root):
     return SimpleNamespace(
@@ -38,6 +40,33 @@ def test_post_project_new_rejects_duplicate(client, seed_project) -> None:
 def test_post_project_new_rejects_bad_id(client) -> None:
     r = client.post("/api/projects", json={"id": "Bad ID!"})
     assert r.status_code == 400
+
+
+def test_post_project_new_targets_registered_workspace_without_switching(
+    client, monorepo, tmp_path,
+) -> None:
+    other = tmp_path / "other"
+    (other / "projects").mkdir(parents=True)
+    (other / "content").mkdir()
+    paths.write_workspace_registry({
+        "active": "main",
+        "workspaces": [
+            {"id": "main", "name": "main", "path": str(monorepo)},
+            {"id": "other", "name": "other", "path": str(other)},
+        ],
+    })
+
+    r = client.post("/api/projects", json={"id": "elsewhere", "workspace": "other"})
+
+    assert r.status_code == 200, r.text
+    assert (other / "projects" / "elsewhere" / "project.json").is_file()
+    assert not (monorepo / "projects" / "elsewhere").exists()
+    assert paths.read_workspace_registry()["active"] == "main"
+
+
+def test_post_project_new_unknown_workspace_is_404(client) -> None:
+    r = client.post("/api/projects", json={"id": "alpha", "workspace": "missing"})
+    assert r.status_code == 404
 
 
 def test_post_task_new(client, seed_project) -> None:

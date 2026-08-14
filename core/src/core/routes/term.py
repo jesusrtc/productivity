@@ -35,14 +35,13 @@ Killing a session (the "X on a tab" flow) removes it from tmux + the runtime
 file but **keeps** the project.json entry so a later re-open can
 ``claude --resume <claude_session_id>`` and pick up the conversation.
 
-Most endpoints here are scoped to the ACTIVE workspace only — that's what
-"the project I have open" means. Two exceptions span every REGISTERED
-workspace (``~/.lab/workspaces.toml``), for the cross-workspace terminals
-dashboard: ``GET /api/term/sessions`` with no ``project_id`` (each row
-tagged ``workspace``), and ``DELETE /api/term/sessions/{name}`` (a session
-named for any workspace is accepted and killed against its own workspace's
-files). ``DELETE /api/term/sessions/project/{id}`` stays active-workspace
-by default but takes an optional ``?workspace=`` to target another one. See
+Project-scoped endpoints default to the ACTIVE workspace for backward
+compatibility and accept an optional ``workspace`` id so several workspaces
+can stay open at once. Two operations span every REGISTERED workspace
+(``~/.lab/workspaces.toml``): ``GET /api/term/sessions`` with no
+``project_id`` (each row tagged ``workspace``), and
+``DELETE /api/term/sessions/{name}`` (a session named for any workspace is
+accepted and killed against its owning workspace's files). See
 ``_known_workspaces``.
 """
 from __future__ import annotations
@@ -319,6 +318,16 @@ def _known_workspaces(active_root: Path | None) -> list[dict]:
         if str(resolved) not in seen:
             rows.insert(0, {"id": resolved.name, "path": resolved})
     return rows
+
+
+def _workspace_root_for(active_root: Path, workspace: str | None) -> Path:
+    """Resolve an optional registered workspace id without changing global state."""
+    if not workspace:
+        return active_root
+    for row in _known_workspaces(active_root):
+        if row["id"] == workspace:
+            return row["path"]
+    raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
 
 
 def _tmux_discovery_prefixes_all(workspaces: list[dict]) -> list[str]:
@@ -1142,6 +1151,7 @@ def _pick_unique_logical_name(preferred: str, taken_logical_names: set[str]) -> 
 
 class NewSession(BaseModel):
     project_id: str | None = None
+    workspace: str | None = None
     cwd: str | None = None
     # "claude" spawns `claude` with --permission-mode auto + --session-id
     # (generated UUID on first launch, saved to project.json, reused via
@@ -1205,17 +1215,18 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
 
 
 @router.get("/api/term/sessions")
-def list_sessions(request: Request, project_id: str | None = None) -> list[dict]:
+def list_sessions(
+    request: Request, project_id: str | None = None, workspace: str | None = None,
+) -> list[dict]:
     """List live tmux sessions for a project (or all projects/workspaces).
 
-    Scoped to ``project_id``: only the ACTIVE workspace's sessions — this
-    is what the open project's tab strip means ("this project, in the
-    workspace I'm looking at"), unchanged from before multi-workspace
-    support. Unscoped: every REGISTERED workspace's sessions, each tagged
-    with ``workspace`` (registry id) — this is what the cross-workspace
-    terminals dashboard needs. A workspace whose path is missing/stalled
-    is skipped for that cycle (fsguard 503, or an OSError from an
-    unmounted/unreadable volume) rather than failing the whole request.
+    Scoped to ``project_id``: sessions in the requested ``workspace`` (or
+    the active workspace when omitted). Unscoped: every REGISTERED
+    workspace's sessions, each tagged with ``workspace`` (registry id) —
+    this is what the cross-workspace terminals dashboard needs. A workspace
+    whose path is missing/stalled is skipped for that cycle (fsguard 503,
+    or an OSError from an unmounted/unreadable volume) rather than failing
+    the whole request.
 
     Only returns sessions that are currently alive in tmux. Saved-but-dead
     sessions (stored in project.json) are surfaced separately via
@@ -1224,13 +1235,14 @@ def list_sessions(request: Request, project_id: str | None = None) -> list[dict]
     active_root: Path = request.app.state.index_cache.root
 
     if project_id:
-        rows = _sessions_for_root(active_root, project_id)
+        root = _workspace_root_for(active_root, workspace)
+        rows = _sessions_for_root(root, project_id)
         # Order preference: if the project has a saved ``sessions[]`` array
         # (in project.json), use that order as the source of truth — this
         # is what powers the "drag pills to reorder" UX. Sessions with no
         # saved entry (edge case: spawned out-of-band) get appended in
         # tmux-creation order.
-        saved = _get_project_sessions(active_root, project_id)
+        saved = _get_project_sessions(root, project_id)
         order: dict[str, int] = {
             s["name"]: i for i, s in enumerate(saved)
             if isinstance(s, dict) and "name" in s
@@ -1267,11 +1279,13 @@ def list_sessions(request: Request, project_id: str | None = None) -> list[dict]
 
 class SessionOrder(BaseModel):
     project_id: str
+    workspace: str | None = None
     order: list[str]  # logical_names in the desired order
 
 
 class SessionMetadata(BaseModel):
     project_id: str
+    workspace: str | None = None
     # Saved logical session name, not the tmux name. Display labels must not
     # rename tmux sessions because that would break attach/resume semantics.
     name: str
@@ -1281,6 +1295,7 @@ class SessionMetadata(BaseModel):
 
 class PastedImage(BaseModel):
     project_id: str
+    workspace: str | None = None
     data: str
     mime: str | None = None
     name: str | None = None
@@ -1328,7 +1343,8 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
     """Reorder the project's saved sessions[] so /api/term/sessions reflects
     the new pill order. Any saved session not listed is appended in its
     original relative order."""
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = _workspace_root_for(active_root, body.workspace)
     data = _load_project(root, body.project_id)
     if data is None:
         raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
@@ -1355,7 +1371,8 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
 @router.patch("/api/term/sessions/metadata")
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     """Persist a user-facing label/summary for a saved logical session."""
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = _workspace_root_for(active_root, body.workspace)
     data = _load_project(root, body.project_id)
     if data is None:
         raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
@@ -1421,7 +1438,8 @@ def paste_image(body: PastedImage, request: Request) -> dict:
     image handling as an explicit paste-time HTTP call avoids touching the
     latency-critical websocket byte path used by normal typing and text paste.
     """
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = _workspace_root_for(active_root, body.workspace)
     if not body.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
     cwd = _project_cwd(root, body.project_id)
@@ -1538,12 +1556,15 @@ def _classify_pane(name: str) -> str:
 
 
 @router.get("/api/term/sessions/status")
-def session_status(request: Request, project_id: str | None = None) -> list[dict]:
+def session_status(
+    request: Request, project_id: str | None = None, workspace: str | None = None,
+) -> list[dict]:
     """Per-session live status. Claude sessions → ``working`` | ``idle``;
     terminal sessions → ``n/a`` (they never "wait" on the user in a way we
     can distinguish from interactive use).
     """
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = _workspace_root_for(active_root, workspace)
     prefixes = _tmux_discovery_prefixes(root)
     live = _tmux_list(prefixes)
     meta = _sync_meta(root, live)
@@ -1587,7 +1608,8 @@ def projects_attention(request: Request) -> list[str]:
     if cached is not None:
         return cached
 
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = active_root
     prefixes = _tmux_discovery_prefixes(root)
     listing = _tmux_list(prefixes)
     meta = _sync_meta(root, listing)
@@ -1637,9 +1659,12 @@ def projects_attention(request: Request) -> list[str]:
 
 
 @router.get("/api/term/sessions/saved")
-def list_saved_sessions(request: Request, project_id: str) -> list[dict]:
+def list_saved_sessions(
+    request: Request, project_id: str, workspace: str | None = None,
+) -> list[dict]:
     """List sessions saved in the project's project.json (may or may not be live)."""
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = _workspace_root_for(active_root, workspace)
     return _get_project_sessions(root, project_id)
 
 
@@ -1693,7 +1718,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     if kind not in ("claude", "terminal"):
         raise HTTPException(status_code=400, detail=f"unknown kind: {kind}")
 
-    root: Path = request.app.state.index_cache.root
+    active_root: Path = request.app.state.index_cache.root
+    root = _workspace_root_for(active_root, body.workspace)
 
     # For agent sessions (kind=="claude"), resolve which CLI to launch:
     # explicit body.agent → project override → global default. The result

@@ -105,6 +105,18 @@ def _log_dir(request: Request) -> Path:
     return paths.logs_dir(config.monorepo_root())
 
 
+def _workspace_log_dirs(request: Request) -> list[tuple[str, Path]]:
+    """Every registered workspace log directory, without changing workspace."""
+    from core.routes.term import _known_workspaces
+    from lab import paths
+
+    active_root = Path(request.app.state.index_cache.root)
+    return [
+        (row["id"], paths.logs_dir(row["path"]))
+        for row in _known_workspaces(active_root)
+    ]
+
+
 def _is_allowed_log_name(name: str) -> bool:
     return Path(name).name == name and name in _LOG_FILES
 
@@ -280,6 +292,37 @@ def log_tail(
         "line_count": len(lines),
         "state": _error_log_state(log_dir),
         "entries": [_parse_log_line(line) for line in lines],
+    }
+
+
+@router.get("/api/log/tail/all")
+def log_tail_all(
+    request: Request,
+    file: str = _DEFAULT_LOG_FILE,
+    tail: int = Query(default=_DEFAULT_TAIL, ge=1, le=_MAX_TAIL),
+) -> dict:
+    """Merge a log tail from every registered workspace into one timeline."""
+    if not _is_allowed_log_name(file):
+        raise HTTPException(status_code=400, detail="unsupported log file")
+
+    entries: list[dict] = []
+    for workspace, log_dir in _workspace_log_dirs(request):
+        path = log_dir / file
+        try:
+            lines = _tail_text_lines(path, tail)
+        except OSError:
+            continue
+        for line in lines:
+            entry = _parse_log_line(line)
+            entry["workspace"] = workspace
+            entries.append(entry)
+    entries.sort(key=lambda row: str(row.get("ts") or ""))
+    entries = entries[-tail:]
+    return {
+        "file": file,
+        "tail": tail,
+        "line_count": len(entries),
+        "entries": entries,
     }
 
 

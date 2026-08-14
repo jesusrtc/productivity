@@ -139,9 +139,19 @@ def _terminal_autospawn_disabled(data: dict) -> list[str]:
     return out
 
 
+def _workspace_root(request: Request, workspace: str | None) -> Path:
+    active_root: Path = request.app.state.index_cache.root
+    if not workspace:
+        return active_root
+    from core.routes.term import _workspace_root_for
+    return _workspace_root_for(active_root, workspace)
+
+
 @router.get("/api/ui/term-autospawn")
-def get_term_autospawn(project_id: str, request: Request) -> dict:
-    root: Path = request.app.state.index_cache.root
+def get_term_autospawn(
+    project_id: str, request: Request, workspace: str | None = None,
+) -> dict:
+    root = _workspace_root(request, workspace)
     disabled = set(_terminal_autospawn_disabled(_load(root)))
     return {"project_id": project_id, "enabled": project_id not in disabled}
 
@@ -149,13 +159,14 @@ def get_term_autospawn(project_id: str, request: Request) -> dict:
 class TermAutoSpawnState(BaseModel):
     project_id: str
     enabled: bool
+    workspace: str | None = None
 
 
 @router.post("/api/ui/term-autospawn")
 def set_term_autospawn(body: TermAutoSpawnState, request: Request) -> dict:
     if not body.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
-    root: Path = request.app.state.index_cache.root
+    root = _workspace_root(request, body.workspace)
     data = _load(root)
     disabled = set(_terminal_autospawn_disabled(data))
     if body.enabled:

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from lab.model import VALID_AGENTS
 
 PROJECTION_MODES = {"symlink", "adapter", "copy"}
+WORKSPACE_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 _KNOWN_TOP_LEVEL = {
     "version",
@@ -176,6 +178,11 @@ def validate_workspace_config(cfg: Any) -> tuple[list[str], list[str]]:
                 display["showProjectionOrigin"], bool
             ):
                 errors.append("display.showProjectionOrigin: must be a boolean")
+            color = display.get("color")
+            if color is not None and (
+                not isinstance(color, str) or not WORKSPACE_COLOR_RE.fullmatch(color)
+            ):
+                errors.append("display.color: must be a six-digit hex color such as #58a6ff")
 
     for key in ("repositories", "services"):
         if key in cfg and not isinstance(cfg[key], list):
@@ -287,6 +294,47 @@ def update_supported_agents(
             fallback_default if fallback_default in normalized else normalized[0]
         )
     doc["agents"] = agents
+
+    path = root / "workspace.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return load_workspace_config(root)
+
+
+def update_appearance(root: Path, name: str, color: str) -> dict:
+    """Persist the workspace's human label and restrained UI accent.
+
+    The registry id remains the stable routing/session identity.  Appearance
+    belongs in ``workspace.json`` so it travels with the workspace itself.
+    Broken JSON is never overwritten.
+    """
+    clean_name = name.strip()
+    if not clean_name:
+        raise WorkspaceConfigError("workspace name / alias is required")
+    if len(clean_name) > 80:
+        raise WorkspaceConfigError("workspace name / alias must be 80 characters or fewer")
+    clean_color = color.strip().lower()
+    if not WORKSPACE_COLOR_RE.fullmatch(clean_color):
+        raise WorkspaceConfigError(
+            "workspace color must be a six-digit hex color such as #58a6ff"
+        )
+
+    loaded = load_workspace_config(root)
+    if loaded["present"] and loaded["config"] is None:
+        raise WorkspaceConfigError(
+            "workspace.json cannot be updated until its JSON is repaired"
+        )
+    doc = dict(loaded["config"] or {"version": 1})
+    current_display = doc.get("display")
+    if current_display is not None and not isinstance(current_display, dict):
+        raise WorkspaceConfigError(
+            "workspace.json display must be an object before it can be updated"
+        )
+    display = dict(current_display or {})
+    display["color"] = clean_color
+    doc["name"] = clean_name
+    doc["display"] = display
 
     path = root / "workspace.json"
     tmp = path.with_suffix(".json.tmp")

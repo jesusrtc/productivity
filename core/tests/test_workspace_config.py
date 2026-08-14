@@ -9,6 +9,7 @@ from core.workspace_config import (
     WorkspaceConfigError,
     load_workspace_config,
     supported_agents,
+    update_appearance,
     update_supported_agents,
     validate_workspace_config,
 )
@@ -168,6 +169,29 @@ def test_update_supported_agents_rejects_empty_or_broken_config(tmp_path: Path) 
     with pytest.raises(WorkspaceConfigError, match="repaired"):
         update_supported_agents(tmp_path, ["codex"], "claude")
     assert (tmp_path / "workspace.json").read_text(encoding="utf-8") == "{broken"
+
+
+def test_update_appearance_preserves_config(tmp_path: Path) -> None:
+    doc = _valid_doc()
+    (tmp_path / "workspace.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    result = update_appearance(tmp_path, "Safety Lab", "#A371F7")
+
+    assert result["valid"] is True
+    saved = result["config"]
+    assert saved["name"] == "Safety Lab"
+    assert saved["display"]["color"] == "#a371f7"
+    assert saved["agents"] == doc["agents"]
+
+
+def test_workspace_color_must_be_hex(tmp_path: Path) -> None:
+    with pytest.raises(WorkspaceConfigError, match="hex color"):
+        update_appearance(tmp_path, "Safety", "purple")
+
+    doc = _valid_doc()
+    doc["display"]["color"] = "purple"
+    errors, _ = validate_workspace_config(doc)
+    assert any("display.color" in error for error in errors)
 
 
 # ── HTTP surface ─────────────────────────────────────────────────────────────

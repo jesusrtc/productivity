@@ -489,6 +489,31 @@ class TestLogTailApi:
         assert r.status_code == 200
         assert r.json()["entries"] == [{"raw": "not json"}]
 
+    def test_consolidated_tail_merges_and_labels_workspaces(
+        self, client, tmp_path: Path, monkeypatch,
+    ):
+        from core.routes import log as log_route
+
+        first = tmp_path / "first-logs"
+        second = tmp_path / "second-logs"
+        first.mkdir()
+        second.mkdir()
+        (first / "errors.log").write_text(json.dumps({"ts": "2026-01-01T00:00:02Z", "msg": "two"}) + "\n")
+        (second / "errors.log").write_text(json.dumps({"ts": "2026-01-01T00:00:01Z", "msg": "one"}) + "\n")
+        monkeypatch.setattr(
+            log_route,
+            "_workspace_log_dirs",
+            lambda _request: [("alpha", first), ("beta", second)],
+        )
+
+        r = client.get("/api/log/tail/all?file=errors.log&tail=10")
+
+        assert r.status_code == 200
+        assert [(row["workspace"], row["msg"]) for row in r.json()["entries"]] == [
+            ("beta", "one"),
+            ("alpha", "two"),
+        ]
+
     def test_log_tail_rejects_path_traversal(self, client):
         r = client.get("/api/log/tail?file=../project.json&tail=10")
         assert r.status_code == 400

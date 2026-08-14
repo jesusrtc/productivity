@@ -106,8 +106,55 @@ def test_workspace_projects_lists_ids_per_workspace(client, monorepo: Path, tmp_
     rows = {w["id"]: w for w in body["workspaces"]}
     assert rows["main"]["unavailable"] is False
     assert rows["main"]["projects"] == ["alpha"]
+    assert rows["main"]["project_rows"][0]["path"] == str(monorepo / "projects" / "alpha")
+    assert rows["main"]["project_rows"][0]["workspace"] == "main"
+    assert rows["main"]["color"].startswith("#")
     assert rows["other"]["unavailable"] is False
     assert sorted(rows["other"]["projects"]) == ["beta", "gamma"]
+
+
+def test_workspace_appearance_is_workspace_scoped(
+    client, monorepo: Path, tmp_path: Path,
+) -> None:
+    _seed_workspace(monorepo, "alpha")
+    other = tmp_path / "other"
+    _seed_workspace(other, "beta")
+    paths.register_workspace(monorepo, name="Main", active=True)
+    paths.register_workspace(other, name="Other", active=False)
+
+    updated = client.patch(
+        "/api/workspaces/other/appearance",
+        json={"name": "Research", "color": "#a371f7"},
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "Research"
+    listing = client.get("/api/workspaces/projects").json()
+    rows = {w["id"]: w for w in listing["workspaces"]}
+    assert rows["other"]["name"] == "Research"
+    assert rows["other"]["color"] == "#a371f7"
+    assert rows["main"]["name"] == "Main"
+    assert client.app.state.index_cache.root == monorepo.resolve()
+
+
+def test_workspace_config_can_target_non_active_workspace(
+    client, monorepo: Path, tmp_path: Path,
+) -> None:
+    _seed_workspace(monorepo, "alpha")
+    other = tmp_path / "other"
+    _seed_workspace(other, "beta")
+    paths.register_workspace(monorepo, name="Main", active=True)
+    paths.register_workspace(other, name="Other", active=False)
+    (other / "workspace.json").write_text(json.dumps({
+        "version": 1,
+        "name": "Other Config",
+    }), encoding="utf-8")
+
+    fetched = client.get("/api/workspace/config?workspace=other")
+
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["root"] == str(other.resolve())
+    assert fetched.json()["config"]["name"] == "Other Config"
 
 
 def test_workspace_projects_marks_stalled_workspace_unavailable_without_failing_others(

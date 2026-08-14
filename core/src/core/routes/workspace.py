@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,6 +13,7 @@ from lab import settings as lab_settings
 
 from core import fsguard
 from core import workspace_config
+from core.diff_parser import get_registered_repos
 
 
 router = APIRouter()
@@ -24,6 +26,12 @@ class WorkspaceUseRequest(BaseModel):
 
 class WorkspaceAgentsPatch(BaseModel):
     supported: list[str]
+    workspace: str | None = None
+
+
+class WorkspaceAppearancePatch(BaseModel):
+    name: str
+    color: str
 
 
 def _workspace_id_for(root: Path, rows: list[dict]) -> str:
@@ -123,18 +131,76 @@ def _validate_workspace(root: Path) -> None:
         raise HTTPException(status_code=400, detail=f"{root} is not a Lab workspace")
 
 
+def _workspace_root(request: Request, workspace: str | None = None) -> Path:
+    active_root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    if not workspace:
+        return active_root
+    for row in _payload(request)["workspaces"]:
+        if row["id"] == workspace:
+            root = Path(str(row["path"])).expanduser().resolve()
+            _validate_workspace(root)
+            return root
+    raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
+
+
+_WORKSPACE_COLORS = (
+    "#58a6ff", "#a371f7", "#3fb950", "#d29922",
+    "#f78166", "#db61a2", "#39c5cf", "#8b949e",
+)
+
+
+def _default_workspace_color(workspace_id: str) -> str:
+    digest = hashlib.sha1(workspace_id.encode("utf-8")).digest()
+    return _WORKSPACE_COLORS[int.from_bytes(digest, "big") % len(_WORKSPACE_COLORS)]
+
+
+def _workspace_overview(root: Path, fallback_name: str, workspace_id: str) -> dict:
+    projects = _scan_project_ids(root)
+    loaded = workspace_config.load_workspace_config(root)
+    doc = loaded.get("config") if isinstance(loaded.get("config"), dict) else {}
+    display = doc.get("display") if isinstance(doc.get("display"), dict) else {}
+    name = doc.get("name") if isinstance(doc.get("name"), str) and doc.get("name").strip() else fallback_name
+    color = display.get("color") if isinstance(display.get("color"), str) else _default_workspace_color(workspace_id)
+
+    project_rows: list[dict] = []
+    for project in get_registered_repos(root):
+        repos = [
+            {"path": repo, "name": Path(repo).name, "branch": ""}
+            for repo in (project.get("repos") or [])
+        ]
+        project_rows.append({
+            **project,
+            "repos": repos,
+            "workspace": workspace_id,
+            "workspace_name": name,
+            "workspace_color": color,
+            "workspace_path": str(root),
+        })
+    return {
+        "projects": projects,
+        "project_rows": project_rows,
+        "name": name,
+        "color": color,
+        "config": {
+            "present": loaded["present"],
+            "valid": loaded["valid"],
+            "errors": loaded["errors"],
+            "warnings": loaded["warnings"],
+        },
+    }
+
+
 @router.get("/api/workspaces")
 def list_workspaces(request: Request) -> dict:
     return _payload(request)
 
 
 @router.get("/api/workspace/config")
-def get_workspace_config(request: Request) -> dict:
+def get_workspace_config(request: Request, workspace: str | None = None) -> dict:
     """Full workspace.json load result (parsed document + validation) for the
     active workspace. The file is optional; ``present: false`` is a normal,
     valid answer."""
-    cache = request.app.state.index_cache
-    root = Path(cache.root).expanduser().resolve()
+    root = _workspace_root(request, workspace)
     result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
     return {"root": str(root), **result}
 
@@ -152,9 +218,9 @@ def _workspace_agent_policy(root: Path) -> dict:
 
 
 @router.get("/api/workspace/agents")
-def get_workspace_agents(request: Request) -> dict:
+def get_workspace_agents(request: Request, workspace: str | None = None) -> dict:
     """Return the effective agent choices for the active workspace."""
-    root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    root = _workspace_root(request, workspace)
     return fsguard.guarded(root, _workspace_agent_policy, root)
 
 
@@ -197,7 +263,7 @@ def update_workspace_agents(body: WorkspaceAgentsPatch, request: Request) -> dic
     The rest of ``workspace.json`` is preserved. The last enabled agent cannot
     be removed because every terminal menu needs a valid fallback.
     """
-    root = Path(request.app.state.index_cache.root).expanduser().resolve()
+    root = _workspace_root(request, body.workspace)
     try:
         return fsguard.guarded(
             root,
@@ -210,19 +276,39 @@ def update_workspace_agents(body: WorkspaceAgentsPatch, request: Request) -> dic
 
 
 @router.post("/api/workspace/config/init")
-def init_workspace_config(request: Request) -> dict:
+def init_workspace_config(request: Request, workspace: str | None = None) -> dict:
     """Create a starter workspace.json at the active workspace root.
 
     Bootstrap only: 409 when the file already exists — edits and the real
     configuration work belong to the user's agent (the Workspace tab's
     setup prompt explains the structure to it)."""
-    cache = request.app.state.index_cache
-    root = Path(cache.root).expanduser().resolve()
+    root = _workspace_root(request, workspace)
     if (root / "workspace.json").exists():
         raise HTTPException(status_code=409, detail="workspace.json already exists")
     fsguard.guarded(root, _write_starter_workspace_config, root)
     result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
     return {"root": str(root), **result}
+
+
+@router.patch("/api/workspaces/{workspace_id}/appearance")
+def update_workspace_appearance(
+    workspace_id: str, body: WorkspaceAppearancePatch, request: Request,
+) -> dict:
+    root = _workspace_root(request, workspace_id)
+    try:
+        result = fsguard.guarded(
+            root, workspace_config.update_appearance, root, body.name, body.color,
+        )
+    except workspace_config.WorkspaceConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    doc = result.get("config") or {}
+    display = doc.get("display") if isinstance(doc.get("display"), dict) else {}
+    return {
+        "id": workspace_id,
+        "name": doc.get("name") or workspace_id,
+        "color": display.get("color") or _default_workspace_color(workspace_id),
+        "path": str(root),
+    }
 
 
 @router.post("/api/workspaces/use")
@@ -265,12 +351,17 @@ def list_workspace_projects(request: Request) -> dict:
         entry = dict(row)
         root = Path(str(row["path"]))
         try:
-            entry["projects"] = fsguard.guarded(root, _scan_project_ids, root)
+            overview = fsguard.guarded(
+                root, _workspace_overview, root, entry["name"], entry["id"],
+            )
+            entry.update(overview)
             entry["unavailable"] = False
         except HTTPException as exc:
             if exc.status_code != 503:
                 raise
             entry["projects"] = []
+            entry["project_rows"] = []
+            entry["color"] = _default_workspace_color(entry["id"])
             entry["unavailable"] = True
             entry["detail"] = exc.detail
         workspaces.append(entry)

@@ -29,6 +29,29 @@ def test_productivity_view_renders_without_mode_flag(client) -> None:
     assert "window.LAB_MONOREPO_ROOT" in r.text
 
 
+def test_productivity_is_default_and_workspace_selector_is_retired(client) -> None:
+    r = client.get("/")
+
+    assert r.status_code == 200
+    assert '<body class="self-active">' in r.text
+    assert 'id="workspaceSelect"' not in r.text
+    assert 'id="homeLink"' not in r.text
+
+
+def test_frontend_declares_cross_workspace_navigation_surfaces() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "core/src/core/static/js/lab-app.js").read_text()
+
+    assert "function fetchWorkspaceCatalog" in script
+    assert "function goToWorkspace(workspaceId" in script
+    assert "function showScopedCodeSearch" in script
+    assert "function selfShowAdmin" in script
+    assert "function workspaceSaveAppearance" in script
+    assert "/api/workspaces/use" not in script[script.index("async function openProjectInWorkspace"):script.index("function updateSnoozedBadge")]
+
+
 def test_get_index_reflects_seeded_projects(client, seed_project) -> None:
     seed_project("alpha")
     seed_project("beta")

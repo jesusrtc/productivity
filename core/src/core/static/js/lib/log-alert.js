@@ -1,6 +1,6 @@
 (function () {
   const STATE_URL = "/api/log/error-state";
-  const LOG_URL = "/?view=logs&file=errors.log&tail=500";
+  const LOG_URL = "/?view=productivity&subview=admin";
   const STORAGE_KEY = "lab.errorLog.seenCursor";
   const POLL_MS = 15000;
 

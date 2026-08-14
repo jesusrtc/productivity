@@ -16,13 +16,16 @@ router = APIRouter()
 
 
 def _run_lab(args: list[str], *, root: Path) -> None:
-    """Invoke the lab CLI with LAB_ROOT set. Raise HTTPException on non-zero.
+    """Invoke the lab CLI against ``root``. Raise HTTPException on non-zero.
 
     Uses ``sys.executable -m lab`` so the backend always runs the lab module
     from its own venv (which installs ``lab`` as a dependency), immune to
     PATH ordering issues (e.g. a stale ``lab`` shim earlier on PATH).
     """
-    env = {**os.environ, "LAB_ROOT": str(root)}
+    # LAB_WORKSPACE has precedence over LAB_ROOT in the CLI. Set both so a
+    # server launched with LAB_WORKSPACE can still target another registered
+    # workspace for a single request without mutating global state.
+    env = {**os.environ, "LAB_ROOT": str(root), "LAB_WORKSPACE": str(root)}
     proc = subprocess.run(
         [sys.executable, "-m", "lab", *args],
         env=env,
@@ -63,6 +66,7 @@ def _root_for_project(root: Path, project_id: str) -> Path:
 
 class NewProject(BaseModel):
     id: str
+    workspace: str | None = None
     description: str = ""
     priority: str | None = None
     due: str | None = None
@@ -138,6 +142,18 @@ def set_project_tab(project_id: str, body: TabState,
 @router.post("/api/projects")
 def create_project(body: NewProject, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
+    if body.workspace:
+        for row in paths.read_workspace_registry().get("workspaces") or []:
+            if str(row.get("id")) != body.workspace:
+                continue
+            root = Path(str(row["path"])).expanduser().resolve()
+            if not root.is_dir():
+                raise HTTPException(status_code=404, detail=f"workspace path not found: {root}")
+            if not (root / "lab.toml").is_file() and not (root / "content").is_dir():
+                raise HTTPException(status_code=400, detail=f"{root} is not a Lab workspace")
+            break
+        else:
+            raise HTTPException(status_code=404, detail=f"workspace {body.workspace!r} not found")
     _validate_pid(body.id)
     args = ["project", "new", body.id]
     if body.description:

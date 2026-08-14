@@ -26,8 +26,6 @@
   html.loading .no-repo { display: none; }
   a { color: var(--accent); }
   .topbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; z-index: 100; border-bottom: 1px solid var(--border); gap: 12px; }
-  .workspace-select { max-width: 180px; min-width: 130px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
-  .home-link { color: var(--text-primary); text-decoration: none; font-weight: 600; }
   .home-view, .s-view, .k-view, .cs-view, .logs-view { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; background: var(--bg-primary); overflow: auto; }
   body.home-active .home-view { display: block; }
   body.self-active .layout { display: flex; }
@@ -116,13 +114,9 @@
 </script>
 
 <div class="topbar">
-  <a href="/" class="home-link" id="homeLink" onclick="goHome(event)">Home</a>
-  <select id="workspaceSelect" class="workspace-select" onchange="workspaceUse(this.value)" title="Workspace" aria-label="Workspace">
-    <option value="">Workspace...</option>
-  </select>
-  <!-- Chrome-style tab strip. Tabs = projects with ≥1 live tmux session,
-       plus the currently-viewed project (even if it has no sessions yet).
-       X on a tab kills every tmux session for that project, freeing memory. -->
+  <!-- Persistent navigation: Productivity, then user-opened workspace and
+       project tabs. Each workspace owns its color cue; switching tabs never
+       changes the server's active workspace or reloads the page. -->
   <div class="proj-tabs" id="projectTabs" role="tablist"></div>
   <div class="proj-tabs-plus-wrap">
     <button class="proj-tabs-plus" id="projTabsPlusBtn" onclick="projTabsTogglePicker(event)" title="Open another project">+</button>
@@ -337,9 +331,8 @@
 
 <div class="repo-tabs" id="repoTabs" style="display:none"></div>
 
-<!-- Project attributes bar: editable chips for status/priority/due/LOE/description,
-     plus snooze controls. Populated by refreshAttrsBar() when a real project
-     is active. Hidden on Home, Cerebro, and Productivity views via CSS. -->
+<!-- Project server bar. Project planning metadata belongs in project files;
+     this strip only exposes the local server controls that need to stay close. -->
 <div class="attrs-bar" id="projectAttrsBar"></div>
 
 <div class="diff-tabs" id="diffTabs" {% if INITIAL_VIEW != 'repo' %}style="display:none"{% endif %}>

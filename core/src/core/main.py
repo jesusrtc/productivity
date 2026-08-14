@@ -545,15 +545,15 @@ def create_app() -> FastAPI:
             }
         if view == "code-search":
             return {
-                "INITIAL_VIEW": "code-search",
-                "INITIAL_BODY_CLASS": "code-search-active",
+                "INITIAL_VIEW": "productivity",
+                "INITIAL_BODY_CLASS": "self-active",
                 "INITIAL_PROJECT_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
         if view == "logs":
             return {
-                "INITIAL_VIEW": "logs",
-                "INITIAL_BODY_CLASS": "logs-active",
+                "INITIAL_VIEW": "productivity",
+                "INITIAL_BODY_CLASS": "self-active",
                 "INITIAL_PROJECT_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
@@ -567,8 +567,8 @@ def create_app() -> FastAPI:
                 "INITIAL_IS_REPO": bool(repo),
             }
         return {
-            "INITIAL_VIEW": "home",
-            "INITIAL_BODY_CLASS": "home-active",
+            "INITIAL_VIEW": "productivity",
+            "INITIAL_BODY_CLASS": "self-active",
             "INITIAL_PROJECT_NAME": "",
             "INITIAL_IS_REPO": False,
         }

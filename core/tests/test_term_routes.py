@@ -1291,6 +1291,25 @@ def test_list_sessions_unscoped_spans_all_registered_workspaces(
     assert by_name[other_name]["workspace"] == "other"
 
 
+def test_create_and_list_sessions_can_target_non_active_workspace(
+    client, second_workspace_tmux,
+) -> None:
+    other_root = second_workspace_tmux
+
+    created = client.post("/api/term/sessions", json={
+        "project_id": "demo2",
+        "workspace": "other",
+        "kind": "terminal",
+    })
+
+    assert created.status_code == 200, created.text
+    assert created.json()["cwd"] == str((other_root / "projects" / "demo2").resolve())
+    assert created.json()["name"].startswith("neurona-other-demo2-bash-")
+    rows = client.get("/api/term/sessions?project_id=demo2&workspace=other").json()
+    assert [row["name"] for row in rows] == [created.json()["name"]]
+    assert client.get("/api/term/sessions?project_id=demo2").json() == []
+
+
 def test_kill_session_resolves_non_active_workspace(
     client, seed_project, second_workspace_tmux,
 ) -> None:
