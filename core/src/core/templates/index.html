@@ -243,12 +243,11 @@
   <div class="term-resizer" id="termResizer" title="Drag to resize"></div>
   <div class="term-header">
     <span class="title">Terminal</span>
-    <span class="term-active-session" id="termActiveSession" aria-live="polite"></span>
-    <button id="termRenameBtn" class="term-active-rename" onclick="termRenameCurrent()" title="Rename the active terminal" aria-label="Rename the active terminal">&#x270E;</button>
-    <button id="termGroupBtn" class="term-active-group" onclick="termOpenActiveGroupMenu(event)" title="Group the active terminal tab" aria-label="Group the active terminal tab">&#x25A6;</button>
+    <span class="term-active-session" id="termActiveSession" aria-live="polite" ondblclick="termRenameCurrent()"></span>
     <button id="termOrientationBtn" class="term-view-btn" onclick="termToggleSessionOrientation()" title="Use horizontal session tabs" aria-label="Use horizontal session tabs" aria-pressed="false">&#x2194;</button>
     <button id="termDetailBtn" class="term-view-btn" onclick="termToggleSessionDetail()" title="Show full session names and agents" aria-label="Show full session names and agents" aria-pressed="false">Aa</button>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only `tmux attach` command for this session to the clipboard">&#x1F4CB;</button>
+    <button id="termCreateGroupBtn" onclick="termCreateGroup()" title="Create a group divider before the active tab">+ Group</button>
     <div class="term-new-wrap">
       <button id="termNewBtn" onclick="termToggleNewPicker(event)" title="New session in this project">+ New</button>
       <div class="term-new-picker" id="termNewPicker">
@@ -369,11 +368,8 @@
 <!-- Diff-comment composer popover. Opened from the "+" button on a diff line. -->
 <div class="cmt-popover" id="cmtPopover" onclick="event.stopPropagation()"></div>
 
-<!-- Proxies modal — manage the `proxies[]` array in project.json from the
-     UI so the user can add/edit local-dev-server proxies without hand-
-     editing JSON. Submits via PUT /api/project-info (writes the whole
-     project.json back). The sidebar's "Servers" section and the
-     /api/proxy/<project>/<name>/... endpoint read this same array. -->
+<!-- Proxies modal — reads and writes a project's standalone servers.json.
+     Legacy project.json proxies remain readable until the first save. -->
 <div class="modal-overlay" id="proxiesModal" onclick="if(event.target===this)closeProxiesModal()">
   <div class="form-modal proxies-modal" role="dialog" aria-labelledby="proxiesTitle">
     <div class="fm-header">
@@ -389,6 +385,16 @@
           rendered inline with HMR/WebSocket support. Configure optional
           <code>make</code> commands to start/restart or stop it here.
           Use <b>Edit</b> to change connection details or commands.
+        </p>
+        <div class="proxies-configbar">
+          <span>Config: <code id="proxiesConfigSource">loading…</code></span>
+          <span class="proxies-config-spacer"></span>
+          <button type="button" id="proxiesReloadBtn" onclick="reloadProxyConfig()">&#x21BB; Reload file</button>
+          <button type="button" id="proxiesDetectBtn" onclick="detectProxyConfig()">&#x2728; Detect Makefile</button>
+        </div>
+        <p class="proxies-config-help">
+          Lab automatically reads <code>servers.json</code> from the project root,
+          so an agent can create or edit it directly. Saving here creates that file.
         </p>
         <div id="proxiesRows" class="proxies-rows"></div>
         <button type="button" id="proxiesAddBtn" class="btn-cancel proxies-add" onclick="addProxyRow()">+ Add server</button>

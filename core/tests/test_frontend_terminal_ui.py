@@ -52,6 +52,15 @@ def test_framework_top_tab_is_labeled_home() -> None:
     assert 'document.title = \'Home\'' in source
 
 
+def test_project_server_iframe_carries_its_workspace_in_the_mount_path() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert "function _proxyMountPath(projectId, name, workspaceId = null)" in source
+    assert "/api/workspace-proxy/${encodeURIComponent(workspaceId)}" in source
+    assert "_projectWorkspaceId(currentProject)" in source
+    assert "if (project.workspace) return project.workspace;" in source
+
+
 def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
@@ -61,7 +70,7 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert 'id="termSessionList" role="tablist"' in html
     assert 'aria-orientation="vertical"' in html
     assert 'id="termActiveSession"' in html
-    assert 'onclick="termRenameCurrent()"' in html
+    assert 'ondblclick="termRenameCurrent()"' in html
     assert 'onclick="termToggleSessionOrientation()"' in html
     assert 'onclick="termToggleSessionDetail()"' in html
     assert ".term-stage { display: flex; flex: 1;" in css
@@ -81,20 +90,28 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
 
 
-def test_terminal_tabs_support_named_colored_collapsible_groups() -> None:
+def test_terminal_tabs_support_colored_group_dividers() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert 'id="termGroupBtn"' in html
+    assert 'id="termCreateGroupBtn"' in html
+    assert 'onclick="termCreateGroup()"' in html
+    assert 'id="termGroupBtn"' not in html
+    assert 'id="termRenameBtn"' not in html
+    assert 'ondblclick="termRenameCurrent()"' in html
     assert 'id="termGroupMenu"' in html
     assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
-    assert "function termCreateGroupFor(name)" in source
-    assert "function termAssignSessionGroup(name, groupId)" in source
+    assert "function termCreateGroup(name = termCurrentSession)" in source
+    assert "function _termReconcileGroupOrder(state)" in source
+    assert "function termReorderItems(srcToken, dstToken, placeBefore)" in source
+    assert "function termAssignSessionGroup" not in source
     assert "function termToggleGroup(groupId)" in source
     assert 'class="term-session-group${collapsed}"' in source
-    assert "container.querySelectorAll('.term-group-head')" in source
+    assert 'data-order-token="${termSessEsc(`g:${group.id}`)}"' in source
+    assert 'data-order-token="${termSessEsc(`s:${logical}`)}"' in source
     assert ".term-session-group.collapsed .term-group-tabs" in css
+    assert ".term-sessions .sess.grouped::before" in css
     assert ".term-group-color.selected" in css
 
 
@@ -134,7 +151,8 @@ const state = _termReadGroupState();
 process.stdout.write(JSON.stringify({
   keys: Object.keys(JSON.parse(stored.groups)),
   groupName: state.groups[0].name,
-  membership: state.membership.codex,
+  order: state.order,
+  membership: state.membership,
   renderCount,
 }));
 """
@@ -142,8 +160,54 @@ process.stdout.write(JSON.stringify({
 
     assert result["keys"] == ["ssd::demo"]
     assert result["groupName"] == "Research"
-    assert result["membership"].startswith("g-")
+    assert result["order"][0].startswith("g:")
+    assert result["order"][1] == "s:codex"
+    assert result["membership"] == {}
     assert result["renderCount"] == 1
+
+
+def test_terminal_group_membership_follows_divider_order() -> None:
+    group_helpers = _js_between(
+        "function _termGroupScopeKey()",
+        "function _termSessionDisplay(s)",
+    )
+    result = _run_node(
+        """
+const localStorage = {getItem() { return null; }, setItem() {}};
+const document = {getElementById() { return null; }, removeEventListener() {}, addEventListener() {}};
+const window = {innerWidth: 1200, innerHeight: 800};
+const _TERM_GROUPS_KEY = 'groups';
+const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7'];
+let _termGroupMenuOutside = null;
+let termSessions = [
+  {name: 'tmux-one', logical_name: 'one'},
+  {name: 'tmux-two', logical_name: 'two'},
+  {name: 'tmux-three', logical_name: 'three'},
+];
+function _termSessionsKey(project, workspace) { return workspace + '::' + project; }
+function _termActiveProjectId() { return 'demo'; }
+function _termWorkspaceId() { return 'ssd'; }
+function _termSessionMeta(name) { return termSessions.find(item => item.name === name) || null; }
+function termRenderSessionList() {}
+function termSessEsc(value) { return String(value); }
+""" + group_helpers + """
+const state = {
+  groups: [
+    {id: 'research', name: 'Research', color: '#58a6ff', collapsed: false},
+    {id: 'build', name: 'Build', color: '#a371f7', collapsed: false},
+  ],
+  order: ['s:one', 'g:research', 's:two', 'g:build', 's:three'],
+  membership: {},
+};
+process.stdout.write(JSON.stringify({
+  one: _termGroupForLogical('one', state)?.id || null,
+  two: _termGroupForLogical('two', state)?.id || null,
+  three: _termGroupForLogical('three', state)?.id || null,
+}));
+"""
+    )
+
+    assert result == {"one": None, "two": "research", "three": "build"}
 
 
 def test_terminal_agent_activity_scraping_and_attention_ui_are_removed() -> None:
@@ -223,20 +287,8 @@ const activeHeader = {
   style: {setProperty() {}, removeProperty() {}},
   removeAttribute(name) { if (name === 'title') this.title = ''; },
 };
-const renameClasses = new Set();
-const renameButton = {classList: {
-  add(value) { renameClasses.add(value); },
-  remove(value) { renameClasses.delete(value); },
-}};
-const groupClasses = new Set();
-const groupButton = {classList: {
-  add(value) { groupClasses.add(value); },
-  remove(value) { groupClasses.delete(value); },
-}};
 const document = {getElementById(id) {
   if (id === 'termActiveSession') return activeHeader;
-  if (id === 'termRenameBtn') return renameButton;
-  if (id === 'termGroupBtn') return groupButton;
   return null;
 }};
 const termSessions = [{
@@ -254,8 +306,6 @@ _termRenderActiveSessionHeader();
 process.stdout.write(JSON.stringify({
   className: activeHeader.className,
   html: activeHeader.innerHTML,
-  renameVisible: renameClasses.has('on'),
-  groupVisible: groupClasses.has('on'),
 }));
 """
     )
@@ -263,8 +313,6 @@ process.stdout.write(JSON.stringify({
     assert result["className"] == "term-active-session on claude"
     assert '<span class="name">codex-2</span>' in result["html"]
     assert '<span class="agent">codex</span>' in result["html"]
-    assert result["renameVisible"] is True
-    assert result["groupVisible"] is True
 
 
 def test_workspace_view_opens_its_own_terminal_scope() -> None:

@@ -3179,8 +3179,9 @@
 
   // ─── Project proxies (per-project reverse-proxy to a local dev server) ───
   // Backed by /api/proxy/<project>/<name>/<path> + /ws/proxy/... in
-  // routes/proxy.py. Declared in project.json:
-  //   "proxies": [{"name": "frontend", "host": "localhost", "port": 3000, "path": "/"}]
+  // routes/proxy.py. Declared in servers.json (legacy project.json proxies
+  // remain readable when the standalone file does not exist):
+  //   {"servers": [{"name": "frontend", "host": "localhost", "port": 3000, "path": "/"}]}
   // The frontend treats each proxy as a pseudo-file so all the sidebar
   // active-highlighting, "last opened" persistence, and warm-switch
   // caching work without special-casing. The synthetic doc path is
@@ -3193,7 +3194,10 @@
     return cached.proxies.find(p => p && p.name === name) || null;
   }
 
-  function _proxyMountPath(projectId, name) {
+  function _proxyMountPath(projectId, name, workspaceId = null) {
+    if (workspaceId) {
+      return `/api/workspace-proxy/${encodeURIComponent(workspaceId)}/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}/`;
+    }
     return `/api/proxy/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}/`;
   }
 
@@ -3223,7 +3227,7 @@
     if (p && p.mode === 'direct') return _proxyDirectUrl(p);
     const path = (p && p.path) ? String(p.path) : '/';
     const initial = path.replace(/^\/+/, '');
-    return _proxyMountPath(projectId, name) + initial;
+    return _proxyMountPath(projectId, name, _projectWorkspaceId(currentProject)) + initial;
   }
 
   // Inline iframe + controls bar. The controls let the user reload the
@@ -4462,7 +4466,7 @@
       // "Meta" files are demoted to a bottom section so the sidebar reads as
       // a working list of docs first, plumbing second. Still visible; just
       // out of the way of daily navigation.
-      const META_FILES = new Set(['project.json', 'tasks.json', 'comments.json', 'CLAUDE.md']);
+      const META_FILES = new Set(['project.json', 'servers.json', 'tasks.json', 'comments.json', 'CLAUDE.md']);
       // Folders that should open automatically — docs is where 95% of the
       // reading lives, so showing it collapsed by default hides everything.
       const AUTO_OPEN_FOLDERS = new Set(['docs', 'notebooks', 'links']);
@@ -4488,8 +4492,8 @@
         sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
 
-      // Servers — proxied local dev servers declared in project.json
-      // under ``proxies: [{name, host?, port, path?}]``. Each entry opens
+      // Servers — proxied local dev servers declared in servers.json (or
+      // legacy project.json proxies). Each entry opens
       // an inline iframe through /api/proxy/<id>/<name>/<path>, with the
       // terminal panel still visible alongside so the user can iterate
       // (start/stop the server, tail logs, etc.) without leaving the
@@ -4595,7 +4599,7 @@
         sbHtml += '</div>';
       }
 
-      // Plumbing — project.json, tasks.json, CLAUDE.md, plus a deep-link
+      // Plumbing — project.json, servers.json, tasks.json, CLAUDE.md, plus a deep-link
       // to the shared `.claude/` that lives at the content root (one
       // level up from every project). Bottom of the list, muted styling,
       // still one click away.
@@ -5194,11 +5198,29 @@
     return (workspaceCatalog || []).find(ws => ws && ws.id === workspaceId) || null;
   }
 
+  function _projectWorkspaceId(project) {
+    if (!project) return null;
+    if (project.workspace_id) return project.workspace_id;
+    if (project.workspace) return project.workspace;
+    const known = [...(projectsList || []), ...(projTabsAll || [])]
+      .find(candidate => candidate && candidate.path === project.path);
+    if (known && (known.workspace_id || known.workspace)) {
+      return known.workspace_id || known.workspace;
+    }
+    const normalizedPath = String(project.path || '').replace(/\/+$/, '');
+    const owner = (workspaceCatalog || []).find(ws => {
+      const root = String(ws && ws.path || '').replace(/\/+$/, '');
+      return root && (normalizedPath === root || normalizedPath.startsWith(root + '/'));
+    });
+    return owner ? owner.id : null;
+  }
+
   function _workspaceForProject(project) {
     if (!project) return null;
-    return _workspaceById(project.workspace) || {
-      id: project.workspace || '',
-      name: project.workspace_name || project.workspace || '',
+    const workspaceId = _projectWorkspaceId(project);
+    return _workspaceById(workspaceId) || {
+      id: workspaceId || '',
+      name: project.workspace_name || workspaceId || '',
       color: project.workspace_color || '#8b949e',
       path: project.workspace_path || '',
     };
@@ -5206,8 +5228,7 @@
 
   function _termWorkspaceId() {
     if (document.body.classList.contains('self-active')) return null;
-    if (currentProject && currentProject.workspace_id) return currentProject.workspace_id;
-    return null;
+    return _projectWorkspaceId(currentProject);
   }
 
   function _workspaceQuery(workspaceId = _termWorkspaceId()) {
@@ -5692,7 +5713,8 @@
 
     const workspaceIds = new Set(_openWorkspaceIds());
     if (activeWorkspaceId) workspaceIds.add(activeWorkspaceId);
-    if (currentProject && currentProject.workspace_id) workspaceIds.add(currentProject.workspace_id);
+    const currentProjectWorkspace = _projectWorkspaceId(currentProject);
+    if (currentProjectWorkspace) workspaceIds.add(currentProjectWorkspace);
 
     const projectTabs = [];
     const seenPaths = new Set();
@@ -6455,6 +6477,16 @@
         collapsed: !!candidate.collapsed,
       });
     }
+    const order = [];
+    const seenTokens = new Set();
+    for (const candidate of (raw && Array.isArray(raw.order) ? raw.order : [])) {
+      const token = String(candidate || '').slice(0, 160);
+      if (!/^[sg]:.+/.test(token) || seenTokens.has(token)) continue;
+      seenTokens.add(token);
+      order.push(token);
+    }
+    // Keep the old membership map only long enough to migrate the previous
+    // container model into divider order on the next render.
     const membership = {};
     const validIds = new Set(groups.map(group => group.id));
     if (raw && raw.membership && typeof raw.membership === 'object') {
@@ -6462,14 +6494,14 @@
         if (logical && validIds.has(groupId)) membership[String(logical)] = groupId;
       });
     }
-    return {groups, membership};
+    return {groups, order, membership};
   }
 
   function _termReadGroupState() {
     try {
       const all = JSON.parse(localStorage.getItem(_TERM_GROUPS_KEY) || '{}');
       return _termNormalizeGroupState(all && all[_termGroupScopeKey()]);
-    } catch { return {groups: [], membership: {}}; }
+    } catch { return {groups: [], order: [], membership: {}}; }
   }
 
   function _termWriteGroupState(state) {
@@ -6486,26 +6518,62 @@
     return session && session.logical_name || '';
   }
 
+  function _termReconcileGroupOrder(state) {
+    const sessions = (termSessions || []).filter(session => session.logical_name);
+    const validSessions = new Set(sessions.map(session => session.logical_name));
+    const validGroups = new Set(state.groups.map(group => group.id));
+    const order = [];
+    const seen = new Set();
+    const add = (token) => {
+      if (seen.has(token)) return;
+      const kind = token.slice(0, 2);
+      const id = token.slice(2);
+      if ((kind === 's:' && validSessions.has(id)) || (kind === 'g:' && validGroups.has(id))) {
+        seen.add(token);
+        order.push(token);
+      }
+    };
+
+    if (state.order.length) {
+      state.order.forEach(add);
+    } else if (Object.keys(state.membership || {}).length) {
+      // One-time migration: preserve the visible grouping from the old
+      // explicit-membership UI, then let divider position own membership.
+      const emittedGroups = new Set();
+      sessions.forEach(session => {
+        const logical = session.logical_name;
+        const groupId = state.membership[logical];
+        if (!groupId || !validGroups.has(groupId)) {
+          add(`s:${logical}`);
+          return;
+        }
+        if (emittedGroups.has(groupId)) return;
+        emittedGroups.add(groupId);
+        add(`g:${groupId}`);
+        sessions
+          .filter(item => state.membership[item.logical_name] === groupId)
+          .forEach(item => add(`s:${item.logical_name}`));
+      });
+    }
+
+    sessions.forEach(session => add(`s:${session.logical_name}`));
+    state.groups.forEach(group => add(`g:${group.id}`));
+    return order;
+  }
+
   function _termGroupForLogical(logical, state = _termReadGroupState()) {
-    const id = logical && state.membership[logical];
-    return id ? state.groups.find(group => group.id === id) || null : null;
+    if (!logical) return null;
+    const groups = new Map(state.groups.map(group => [group.id, group]));
+    let current = null;
+    for (const token of _termReconcileGroupOrder(state)) {
+      if (token.startsWith('g:')) current = groups.get(token.slice(2)) || null;
+      else if (token === `s:${logical}`) return current;
+    }
+    return null;
   }
 
-  function termAssignSessionGroup(name, groupId) {
+  function termCreateGroup(name = termCurrentSession) {
     const logical = _termSessionLogical(name);
-    if (!logical) return;
-    const state = _termReadGroupState();
-    if (groupId && !state.groups.some(group => group.id === groupId)) return;
-    if (groupId) state.membership[logical] = groupId;
-    else delete state.membership[logical];
-    _termWriteGroupState(state);
-    termCloseGroupMenu();
-    termRenderSessionList();
-  }
-
-  function termCreateGroupFor(name) {
-    const logical = _termSessionLogical(name);
-    if (!logical) return;
     const state = _termReadGroupState();
     const proposed = prompt('Name this terminal tab group', `Group ${state.groups.length + 1}`);
     if (proposed === null || !proposed.trim()) return;
@@ -6516,10 +6584,19 @@
       color: _TERM_GROUP_COLORS[state.groups.length % _TERM_GROUP_COLORS.length],
       collapsed: false,
     });
-    state.membership[logical] = id;
+    const order = _termReconcileGroupOrder(state).filter(token => token !== `g:${id}`);
+    const activeToken = logical ? `s:${logical}` : '';
+    const activeIndex = activeToken ? order.indexOf(activeToken) : -1;
+    order.splice(activeIndex >= 0 ? activeIndex : order.length, 0, `g:${id}`);
+    state.order = order;
+    state.membership = {};
     _termWriteGroupState(state);
     termCloseGroupMenu();
     termRenderSessionList();
+  }
+
+  function termCreateGroupFor(name) {
+    termCreateGroup(name);
   }
 
   function termToggleGroup(groupId) {
@@ -6557,9 +6634,8 @@
   function termDeleteGroup(groupId) {
     const state = _termReadGroupState();
     state.groups = state.groups.filter(group => group.id !== groupId);
-    Object.keys(state.membership).forEach(logical => {
-      if (state.membership[logical] === groupId) delete state.membership[logical];
-    });
+    state.order = _termReconcileGroupOrder(state).filter(token => token !== `g:${groupId}`);
+    state.membership = {};
     _termWriteGroupState(state);
     termCloseGroupMenu();
     termRenderSessionList();
@@ -6592,39 +6668,13 @@
     menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - bounds.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - bounds.height - 8))}px`;
     _termGroupMenuOutside = (event) => {
-      if (!menu.contains(event.target) && !event.target.closest('[data-term-group-trigger], #termGroupBtn')) {
+      if (!menu.contains(event.target) && !event.target.closest('[data-term-group-trigger]')) {
         termCloseGroupMenu();
       }
     };
     setTimeout(() => {
       if (_termGroupMenuOutside) document.addEventListener('pointerdown', _termGroupMenuOutside);
     }, 0);
-  }
-
-  function termOpenGroupMenu(name, anchor) {
-    const logical = _termSessionLogical(name);
-    if (!logical) return;
-    const state = _termReadGroupState();
-    const currentId = state.membership[logical] || '';
-    const groupRows = state.groups.map(group => `
-      <button type="button" class="term-group-menu-row" data-action="assign:${termSessEsc(group.id)}">
-        <span class="term-group-swatch" style="--term-group-color:${termSessEsc(group.color)}"></span>
-        <span>${termSessEsc(group.name)}</span>${group.id === currentId ? '<span class="check">✓</span>' : ''}
-      </button>`).join('');
-    const remove = currentId
-      ? '<button type="button" class="term-group-menu-row" data-action="remove">Remove from group</button>' : '';
-    _termShowGroupMenu(anchor, `
-      <div class="term-group-menu-title">Move tab to group</div>
-      <button type="button" class="term-group-menu-row" data-action="new">+ New group</button>
-      ${groupRows}${remove}`, (action) => {
-        if (action === 'new') termCreateGroupFor(name);
-        else if (action === 'remove') termAssignSessionGroup(name, null);
-        else if (action.startsWith('assign:')) termAssignSessionGroup(name, action.slice(7));
-      });
-  }
-
-  function termOpenActiveGroupMenu(event) {
-    if (termCurrentSession) termOpenGroupMenu(termCurrentSession, event.currentTarget);
   }
 
   function termOpenGroupOptions(groupId, anchor) {
@@ -6638,7 +6688,7 @@
       <div class="term-group-colors">${colors}</div>
       <button type="button" class="term-group-menu-row" data-action="rename">Rename group</button>
       <button type="button" class="term-group-menu-row" data-action="toggle">${group.collapsed ? 'Expand' : 'Collapse'} group</button>
-      <button type="button" class="term-group-menu-row danger" data-action="delete">Ungroup tabs</button>`, (action) => {
+      <button type="button" class="term-group-menu-row danger" data-action="delete">Delete divider</button>`, (action) => {
         if (action === 'rename') termRenameGroup(groupId);
         else if (action === 'toggle') { termCloseGroupMenu(); termToggleGroup(groupId); }
         else if (action === 'delete') termDeleteGroup(groupId);
@@ -6672,7 +6722,7 @@
     if (s && s.summary) parts.push(s.summary);
     if (s && s.name) parts.push(s.name);
     if (statusTitle) parts.push(statusTitle);
-    parts.push('Double-click or use the pencil to rename');
+    parts.push('Double-click to rename');
     return parts.join('\n');
   }
 
@@ -6727,8 +6777,6 @@
 
   function _termRenderActiveSessionHeader() {
     const el = document.getElementById('termActiveSession');
-    const renameBtn = document.getElementById('termRenameBtn');
-    const groupBtn = document.getElementById('termGroupBtn');
     if (!el) return;
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId
@@ -6738,8 +6786,6 @@
       el.removeAttribute('title');
       el.className = 'term-active-session';
       el.style.removeProperty('--term-group-color');
-      if (renameBtn) renameBtn.classList.remove('on');
-      if (groupBtn) groupBtn.classList.remove('on');
       return;
     }
     const display = _termSessionDisplay(session);
@@ -6750,11 +6796,9 @@
     else el.style.removeProperty('--term-group-color');
     el.title = _termSessionTitle(session, '');
     el.innerHTML = `${group ? '<span class="term-active-group-mark" aria-hidden="true"></span>' : ''}<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
-    if (renameBtn) renameBtn.classList.add('on');
-    if (groupBtn) groupBtn.classList.add('on');
   }
 
-  function _termSessionPillHtml(s, index) {
+  function _termSessionPillHtml(s, index, group = null) {
     const display = _termSessionDisplay(s);
     // Compact/full visibility is CSS-controlled so switching detail never
     // rebuilds or reconnects a terminal. The active header always carries
@@ -6763,15 +6807,15 @@
     const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
+    const grouped = group ? ' grouped' : '';
+    const groupStyle = group ? ` style="--term-group-color:${termSessEsc(group.color)}"` : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
     const ariaLabel = `${display} · ${visual.badge}`;
-    return `<span class="sess ${visual.kind}${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
+    return `<span class="sess ${visual.kind}${active}${dead}${grouped}"${groupStyle} role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
       <span class="k">${termSessEsc(visual.badge)}</span>
-      <button type="button" class="group" data-term-group-trigger data-group-session="${termSessEsc(s.name)}" title="Move tab to group" aria-label="Move terminal tab to group">▦</button>
-      <button type="button" class="rename" data-rename="${termSessEsc(s.name)}" title="Rename terminal tab" aria-label="Rename terminal tab">✎</button>
     </span>`;
   }
 
@@ -6784,55 +6828,54 @@
       return;
     }
     const groupState = _termReadGroupState();
-    const byGroup = new Map(groupState.groups.map(group => [group.id, []]));
-    termSessions.forEach((session, index) => {
-      const groupId = groupState.membership[session.logical_name || ''];
-      if (groupId && byGroup.has(groupId)) byGroup.get(groupId).push({session, index});
-    });
-    const renderedGroups = new Set();
-    el.innerHTML = termSessions.map((session, index) => {
-      const groupId = groupState.membership[session.logical_name || ''];
-      const group = groupId && groupState.groups.find(item => item.id === groupId);
-      if (!group) return _termSessionPillHtml(session, index);
-      if (renderedGroups.has(group.id)) return '';
-      renderedGroups.add(group.id);
-      const rows = byGroup.get(group.id) || [];
+    const order = _termReconcileGroupOrder(groupState);
+    if (JSON.stringify(order) !== JSON.stringify(groupState.order)) {
+      groupState.order = order;
+      groupState.membership = {};
+      _termWriteGroupState(groupState);
+    }
+    const sessionsByLogical = new Map(
+      termSessions.map((session, index) => [session.logical_name, {session, index}])
+    );
+    const groupsById = new Map(groupState.groups.map(group => [group.id, group]));
+    let html = '';
+    let currentGroup = null;
+    let currentRows = [];
+    const flushGroup = () => {
+      if (!currentGroup) return;
+      const group = currentGroup;
+      const rows = currentRows;
       const collapsed = group.collapsed ? ' collapsed' : '';
-      return `<div class="term-session-group${collapsed}" data-group-id="${termSessEsc(group.id)}" style="--term-group-color:${termSessEsc(group.color)}">
-        <div class="term-group-head" data-toggle-group="${termSessEsc(group.id)}" role="button" tabindex="0" aria-expanded="${group.collapsed ? 'false' : 'true'}" title="${group.collapsed ? 'Expand' : 'Collapse'} ${termSessEsc(group.name)}">
+      html += `<div class="term-session-group${collapsed}" data-group-id="${termSessEsc(group.id)}" style="--term-group-color:${termSessEsc(group.color)}">
+        <div class="term-group-head" draggable="true" data-order-token="${termSessEsc(`g:${group.id}`)}" data-toggle-group="${termSessEsc(group.id)}" role="button" tabindex="0" aria-expanded="${group.collapsed ? 'false' : 'true'}" title="Drag to move divider · Double-click to rename · ${group.collapsed ? 'Expand' : 'Collapse'} ${termSessEsc(group.name)}">
           <span class="term-group-caret" aria-hidden="true">${group.collapsed ? '›' : '⌄'}</span>
           <span class="term-group-name">${termSessEsc(group.name)}</span>
           <span class="term-group-count">${rows.length}</span>
           <button type="button" class="term-group-options" data-term-group-trigger data-group-options="${termSessEsc(group.id)}" title="Group options" aria-label="Options for ${termSessEsc(group.name)}">•••</button>
         </div>
-        <div class="term-group-tabs">${rows.map(row => _termSessionPillHtml(row.session, row.index)).join('')}</div>
+        <div class="term-group-tabs">${rows.map(row => _termSessionPillHtml(row.session, row.index, group)).join('')}</div>
       </div>`;
-    }).join('');
+      currentGroup = null;
+      currentRows = [];
+    };
+    order.forEach(token => {
+      if (token.startsWith('g:')) {
+        flushGroup();
+        currentGroup = groupsById.get(token.slice(2)) || null;
+        return;
+      }
+      const row = sessionsByLogical.get(token.slice(2));
+      if (!row) return;
+      if (currentGroup) currentRows.push(row);
+      else html += _termSessionPillHtml(row.session, row.index);
+    });
+    flushGroup();
+    el.innerHTML = html;
     el.querySelectorAll('.sess').forEach(node => {
-      const groupBtn = node.querySelector('[data-group-session]');
-      if (groupBtn) {
-        groupBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          termOpenGroupMenu(groupBtn.getAttribute('data-group-session'), groupBtn);
-        });
-      }
-      const renameBtn = node.querySelector('[data-rename]');
-      if (renameBtn) {
-        renameBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          termRenameSession(renameBtn.getAttribute('data-rename'));
-        });
-      }
       node.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();
         termRenameSession(node.getAttribute('data-name'));
-      });
-      node.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        termOpenGroupMenu(node.getAttribute('data-name'), node);
       });
       node.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -6876,6 +6919,11 @@
         e.preventDefault();
         toggle();
       });
+      header.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        termRenameGroup(header.getAttribute('data-toggle-group'));
+      });
       header.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const groupId = header.getAttribute('data-toggle-group');
@@ -6893,89 +6941,76 @@
   }
 
   function termWireSessionDnD(container) {
-    container.querySelectorAll('.sess').forEach(pill => {
-      pill.addEventListener('dragstart', (e) => {
-        _termDragLogical = pill.getAttribute('data-logical');
-        pill.classList.add('dragging');
+    container.querySelectorAll('[data-order-token]').forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        _termDragLogical = item.getAttribute('data-order-token');
+        item.classList.add('dragging');
         if (e.dataTransfer) {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', _termDragLogical || '');
         }
       });
-      pill.addEventListener('dragend', () => {
-        pill.classList.remove('dragging');
-        container.querySelectorAll('.sess.drop-before, .sess.drop-after')
-          .forEach(p => p.classList.remove('drop-before', 'drop-after'));
-        container.querySelectorAll('.term-group-head.drop-group')
-          .forEach(p => p.classList.remove('drop-group'));
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        container.querySelectorAll('[data-order-token].drop-before, [data-order-token].drop-after')
+          .forEach(node => node.classList.remove('drop-before', 'drop-after'));
         _termDragLogical = null;
       });
-      pill.addEventListener('dragover', (e) => {
-        if (!_termDragLogical) return;
+      item.addEventListener('dragover', (e) => {
+        const destination = item.getAttribute('data-order-token');
+        if (!_termDragLogical || _termDragLogical === destination) return;
         e.preventDefault();
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        container.querySelectorAll('.sess.drop-before, .sess.drop-after')
-          .forEach(p => p.classList.remove('drop-before', 'drop-after'));
-        const rect = pill.getBoundingClientRect();
+        container.querySelectorAll('[data-order-token].drop-before, [data-order-token].drop-after')
+          .forEach(node => node.classList.remove('drop-before', 'drop-after'));
+        const rect = item.getBoundingClientRect();
         const before = termSessionOrientation === 'horizontal'
           ? (e.clientX - rect.left) < rect.width / 2
           : (e.clientY - rect.top) < rect.height / 2;
-        pill.classList.add(before ? 'drop-before' : 'drop-after');
+        item.classList.add(before ? 'drop-before' : 'drop-after');
       });
-      pill.addEventListener('drop', async (e) => {
+      item.addEventListener('drop', async (e) => {
         e.preventDefault();
         const src = _termDragLogical;
-        const dst = pill.getAttribute('data-logical');
-        container.querySelectorAll('.sess.drop-before, .sess.drop-after')
-          .forEach(p => p.classList.remove('drop-before', 'drop-after'));
+        const dst = item.getAttribute('data-order-token');
+        container.querySelectorAll('[data-order-token].drop-before, [data-order-token].drop-after')
+          .forEach(node => node.classList.remove('drop-before', 'drop-after'));
         if (!src || !dst || src === dst) return;
-        const rect = pill.getBoundingClientRect();
+        const rect = item.getBoundingClientRect();
         const before = termSessionOrientation === 'horizontal'
           ? (e.clientX - rect.left) < rect.width / 2
           : (e.clientY - rect.top) < rect.height / 2;
-        await termReorderSessions(src, dst, before);
-      });
-    });
-    container.querySelectorAll('.term-group-head').forEach(header => {
-      header.addEventListener('dragover', (e) => {
-        if (!_termDragLogical) return;
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        header.classList.add('drop-group');
-      });
-      header.addEventListener('dragleave', () => header.classList.remove('drop-group'));
-      header.addEventListener('drop', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        header.classList.remove('drop-group');
-        if (!_termDragLogical) return;
-        const session = (termSessions || []).find(item => item.logical_name === _termDragLogical);
-        const groupId = header.closest('[data-group-id]')?.getAttribute('data-group-id');
-        if (session && groupId) termAssignSessionGroup(session.name, groupId);
+        await termReorderItems(src, dst, before);
       });
     });
   }
 
-  async function termReorderSessions(srcLogical, dstLogical, placeBefore) {
-    // Compute new order from current DOM (authoritative — keeps us in
-    // sync with the most recent render).
-    const current = Array.from(document.querySelectorAll('#termSessionList .sess'))
-      .map(n => n.getAttribute('data-logical'))
-      .filter(Boolean);
-    const si = current.indexOf(srcLogical);
+  async function termReorderItems(srcToken, dstToken, placeBefore) {
+    const groupState = _termReadGroupState();
+    const current = _termReconcileGroupOrder(groupState);
+    const si = current.indexOf(srcToken);
     if (si === -1) return;
     current.splice(si, 1);
-    let di = current.indexOf(dstLogical);
+    let di = current.indexOf(dstToken);
     if (di === -1) di = current.length;
     if (!placeBefore) di += 1;
-    current.splice(di, 0, srcLogical);
+    current.splice(di, 0, srcToken);
+    groupState.order = current;
+    groupState.membership = {};
+    _termWriteGroupState(groupState);
 
     // Reorder termSessions to match so the next render picks it up.
     const byLogical = Object.fromEntries(
       (termSessions || []).map(s => [s.logical_name, s])
     );
-    termSessions = current.map(n => byLogical[n]).filter(Boolean);
+    const sessionOrder = current
+      .filter(token => token.startsWith('s:'))
+      .map(token => token.slice(2));
+    termSessions = sessionOrder.map(logical => byLogical[logical]).filter(Boolean);
     termRenderSessionList();
+
+    // Divider moves are browser-local and do not need a server write.
+    if (srcToken.startsWith('g:')) return;
 
     // Persist server-side. Same project-id resolution used elsewhere.
     let projectId = null;
@@ -6991,11 +7026,15 @@
       await fetch('/api/term/sessions/order', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, workspace: _termWorkspaceId(), order: current}),
+        body: JSON.stringify({project_id: projectId, workspace: _termWorkspaceId(), order: sessionOrder}),
       });
     } catch (e) { /* best-effort; local order already reflects */ }
     // Small grace so filesystem writes + watcher ignore-list settle.
     setTimeout(() => { _termReorderPending = false; }, 250);
+  }
+
+  function termReorderSessions(srcLogical, dstLogical, placeBefore) {
+    return termReorderItems(`s:${srcLogical}`, `s:${dstLogical}`, placeBefore);
   }
 
   function termSessEsc(s) {
@@ -8495,7 +8534,7 @@
       workspaceId = null;
     }
     workspaceId = workspaceId
-      || (currentProject && currentProject.workspace_id)
+      || _projectWorkspaceId(currentProject)
       || (_workspaceCurrent && _workspaceCurrent.id)
       || currentWorkspaceId;
     if (!workspaceId) return;
@@ -9041,16 +9080,17 @@
     });
   }
 
-  // ─── Proxies modal (manage project.json proxies[] from the UI) ───
+  // ─── Proxies modal (manage project-root servers.json from the UI) ───
   // Opened from the attrs-bar "Servers" chip. Saved proxies render as
   // management cards; fields only become editable after an explicit Edit.
   // Optional make commands power Start / Restart and Stop controls through
-  // routes/proxy.py, while connection metadata still persists in project.json.
+  // routes/proxy.py. Saving migrates legacy project.json proxies to servers.json.
   let _proxiesEscHandler = null;
   let _proxiesRowSeq = 0;
   let _proxiesProjectPath = null;
   let _proxiesProjectId = null;
   let _proxiesWorkspaceId = null;
+  let _proxiesListDirty = false;
 
   async function openProxiesModal() {
     if (!currentProject || !currentProject.is_project) return;
@@ -9058,30 +9098,94 @@
     if (!overlay) return;
     _proxiesProjectPath = currentProject.path;
     _proxiesProjectId = currentProject.name;
-    _proxiesWorkspaceId = currentProject.workspace_id || null;
+    _proxiesWorkspaceId = _projectWorkspaceId(currentProject);
     const projectPath = _proxiesProjectPath;
     const err = document.getElementById('proxiesError');
     const addBtn = document.getElementById('proxiesAddBtn');
+    const saveBtn = document.getElementById('proxiesSaveBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
     if (addBtn) addBtn.disabled = true;
+    if (saveBtn) saveBtn.disabled = false;
     const cached = _projectSidebarCache.get(currentProject.path);
     const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
     _renderProxiesRows(proxies);
     overlay.classList.add('active');
     _proxiesEscHandler = (ev) => { if (ev.key === 'Escape') closeProxiesModal(); };
     document.addEventListener('keydown', _proxiesEscHandler);
-    // Fetch project.json so command controls never rely on a stale sidebar
-    // cache populated before start_command / stop_command existed.
+    await reloadProxyConfig(true);
+    if (projectPath === _proxiesProjectPath && addBtn) addBtn.disabled = false;
+  }
+
+  function _serverConfigUrl(endpoint) {
+    const params = new URLSearchParams({project_id: _proxiesProjectId || ''});
+    if (_proxiesWorkspaceId) params.set('workspace', _proxiesWorkspaceId);
+    return `${endpoint}?${params.toString()}`;
+  }
+
+  function _setProxyConfigSource(text) {
+    const source = document.getElementById('proxiesConfigSource');
+    if (source) source.textContent = text;
+  }
+
+  function _proxyRowsAreDirty() {
+    return _proxiesListDirty || !!document.querySelector('#proxiesRows .proxies-card[data-dirty="1"]');
+  }
+
+  async function reloadProxyConfig(initialLoad = false) {
+    if (!_proxiesProjectId) return false;
+    if (!initialLoad && _proxyRowsAreDirty() && !confirm('Discard unsaved server changes and reload servers.json?')) return false;
+    const projectPath = _proxiesProjectPath;
+    const err = document.getElementById('proxiesError');
+    const reloadBtn = document.getElementById('proxiesReloadBtn');
+    const detectBtn = document.getElementById('proxiesDetectBtn');
+    if (err) { err.textContent = ''; err.classList.remove('on'); }
+    if (reloadBtn) reloadBtn.disabled = true;
+    if (detectBtn) detectBtn.disabled = true;
+    _setProxyConfigSource('loading…');
     try {
-      const r = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
-      if (!r.ok) throw new Error(`GET project-info → ${r.status}`);
-      const info = await r.json();
-      if (projectPath !== _proxiesProjectPath || projectPath !== (currentProject && currentProject.path)) return;
-      _renderProxiesRows(Array.isArray(info.proxies) ? info.proxies : []);
+      const r = await fetch(_serverConfigUrl('/api/server-config'));
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.detail || `GET server-config → ${r.status}`);
+      if (projectPath !== _proxiesProjectPath || projectPath !== (currentProject && currentProject.path)) return false;
+      _renderProxiesRows(Array.isArray(body.servers) ? body.servers : []);
+      if (body.source === 'servers.json') _setProxyConfigSource('servers.json · automatic');
+      else if (body.is_legacy) _setProxyConfigSource(`${body.source} · legacy; Save creates servers.json`);
+      else _setProxyConfigSource('No config yet · Save creates servers.json');
+      return true;
     } catch (e) {
+      _setProxyConfigSource('Could not load config');
       if (err) { err.textContent = `Could not refresh servers: ${e.message || e}`; err.classList.add('on'); }
+      return false;
     } finally {
-      if (projectPath === _proxiesProjectPath && addBtn) addBtn.disabled = false;
+      if (projectPath === _proxiesProjectPath) {
+        if (reloadBtn) reloadBtn.disabled = false;
+        if (detectBtn) detectBtn.disabled = false;
+      }
+    }
+  }
+
+  async function detectProxyConfig() {
+    if (!_proxiesProjectId) return;
+    if (_proxyRowsAreDirty() && !confirm('Replace the unsaved server changes with the Makefile detection?')) return;
+    const err = document.getElementById('proxiesError');
+    const reloadBtn = document.getElementById('proxiesReloadBtn');
+    const detectBtn = document.getElementById('proxiesDetectBtn');
+    if (err) { err.textContent = ''; err.classList.remove('on'); }
+    if (reloadBtn) reloadBtn.disabled = true;
+    if (detectBtn) detectBtn.disabled = true;
+    _setProxyConfigSource('Detecting Makefile…');
+    try {
+      const r = await fetch(_serverConfigUrl('/api/server-config/detect'));
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.detail || `Makefile detection failed (${r.status})`);
+      _renderProxiesRows(Array.isArray(body.servers) ? body.servers : [], true);
+      _setProxyConfigSource('Detected from Makefile · Save to create servers.json');
+    } catch (e) {
+      _setProxyConfigSource('Detection unavailable');
+      if (err) { err.textContent = e.message || String(e); err.classList.add('on'); }
+    } finally {
+      if (reloadBtn) reloadBtn.disabled = false;
+      if (detectBtn) detectBtn.disabled = false;
     }
   }
 
@@ -9094,7 +9198,7 @@
     }
   }
 
-  function _renderProxiesRows(proxies) {
+  function _renderProxiesRows(proxies, dirty = false) {
     const host = document.getElementById('proxiesRows');
     if (!host) return;
     let html = '';
@@ -9104,6 +9208,13 @@
       proxies.forEach(p => { html += _proxyRowHtml(p || {}, false); });
     }
     host.innerHTML = html;
+    _proxiesListDirty = dirty;
+    if (dirty) {
+      host.querySelectorAll('.proxies-card[data-row-id]').forEach(row => {
+        row.dataset.dirty = '1';
+        _syncProxyRowSummary(row);
+      });
+    }
   }
 
   function _proxyRowHtml(p, editing) {
@@ -9165,6 +9276,7 @@
   function addProxyRow() {
     const host = document.getElementById('proxiesRows');
     if (!host) return;
+    _proxiesListDirty = true;
     const empty = host.querySelector('.proxies-empty');
     if (empty) empty.remove();
     host.insertAdjacentHTML('beforeend', _proxyRowHtml({}, true));
@@ -9179,6 +9291,9 @@
   function editProxyRow(rowId) {
     const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
     if (!row) return;
+    _proxiesListDirty = true;
+    row.dataset.dirty = '1';
+    _syncProxyRowSummary(row);
     row.classList.add('editing');
     const nameInput = row.querySelector('input[data-field="name"]');
     if (nameInput) nameInput.focus();
@@ -9270,6 +9385,7 @@
       return;
     }
     row.dataset.dirty = '1';
+    _proxiesListDirty = true;
     _syncProxyRowSummary(row);
     row.classList.remove('editing');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
@@ -9277,7 +9393,7 @@
 
   function removeProxyRow(rowId) {
     const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
-    if (row) row.remove();
+    if (row) { row.remove(); _proxiesListDirty = true; }
     const host = document.getElementById('proxiesRows');
     if (host && !host.querySelector('.proxies-card[data-row-id]')) {
       host.innerHTML = `<div class="proxies-empty">No servers configured yet. Add one to expose a local app and optionally manage it with make commands.</div>`;
@@ -9328,6 +9444,7 @@
   async function submitProxies(ev) {
     ev.preventDefault();
     const err = document.getElementById('proxiesError');
+    const saveBtn = document.getElementById('proxiesSaveBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
     const {proxies, errors} = _collectProxiesFromRows();
     if (errors.length) {
@@ -9335,29 +9452,20 @@
       return;
     }
     if (!_proxiesProjectPath) { closeProxiesModal(); return; }
-    // Read current project.json, swap proxies, write back. We have to
-    // PUT the full document via /api/project-info; the mutation route
-    // (PATCH-style) doesn't know about arbitrary array fields.
+    if (saveBtn) saveBtn.disabled = true;
     try {
-      const r = await fetch(`/api/project-info?path=${encodeURIComponent(_proxiesProjectPath)}`);
-      if (!r.ok) throw new Error(`GET project-info → ${r.status}`);
-      const info = await r.json();
-      if (proxies.length === 0) {
-        delete info.proxies;
-      } else {
-        info.proxies = proxies;
-      }
-      const put = await fetch('/api/project-info', {
+      const put = await fetch(_serverConfigUrl('/api/server-config'), {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: _proxiesProjectPath, data: info}),
+        body: JSON.stringify({servers: proxies}),
       });
       if (!put.ok) {
         const detail = await put.json().catch(() => ({}));
-        throw new Error(detail.detail || `PUT project-info → ${put.status}`);
+        throw new Error(detail.detail || `PUT server-config → ${put.status}`);
       }
     } catch (e) {
       if (err) { err.textContent = `Save failed: ${e.message || e}`; err.classList.add('on'); }
+      if (saveBtn) saveBtn.disabled = false;
       return;
     }
     // Invalidate caches that hold the stale proxies list, then refresh.

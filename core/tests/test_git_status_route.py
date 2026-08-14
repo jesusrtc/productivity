@@ -95,6 +95,28 @@ def test_git_status_allows_registered_repo_outside_workspace(
     assert r.json() == {"files": {}, "ignored": []}
 
 
+def test_git_status_allows_project_in_another_registered_workspace(
+    client, monorepo: Path, tmp_path: Path,
+) -> None:
+    from lab import paths as lab_paths
+
+    other = tmp_path / "other-workspace"
+    project = other / "projects" / "demo"
+    project.mkdir(parents=True)
+    lab_paths.write_workspace_registry({
+        "active": "fixture",
+        "workspaces": [
+            {"id": "fixture", "name": "Fixture", "path": str(monorepo)},
+            {"id": "other", "name": "Other", "path": str(other)},
+        ],
+    })
+
+    r = client.get("/api/git-status", params={"repo": str(project)})
+
+    assert r.status_code == 200, r.text
+    assert r.json() == {"files": {}, "ignored": []}
+
+
 def test_git_status_allows_framework_root(client, monorepo: Path) -> None:
     """The Productivity self-view is rooted at the framework checkout, which
     lives outside the active workspace."""

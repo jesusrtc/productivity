@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from core import fsguard
+from core import fsguard, server_config
 from core.diff_parser import (
     get_branch,
     get_commit_diff,
@@ -71,9 +71,21 @@ def _read_project_info(project_path: Path) -> dict | None:
         candidate = project_path / name
         if candidate.is_file():
             try:
-                return json.loads(candidate.read_text())
+                info = json.loads(candidate.read_text())
             except (json.JSONDecodeError, ValueError):
                 return None
+            config_path = project_path / server_config.CONFIG_FILENAME
+            if config_path.is_file() and isinstance(info, dict):
+                info = dict(info)
+                try:
+                    servers, source = server_config.read_server_config(project_path)
+                    info["proxies"] = servers
+                    info["server_config_source"] = source
+                except server_config.ServerConfigError as exc:
+                    info["proxies"] = []
+                    info["server_config_source"] = server_config.CONFIG_FILENAME
+                    info["server_config_error"] = str(exc)
+            return info
     return None
 
 
@@ -223,11 +235,21 @@ def _inside(path: Path, root: Path) -> bool:
 
 def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
     """Containment for /api/git-status: the active workspace is always in
-    bounds; anything else must come from the app's own registry of pinned
-    tabs/views and their repos (which legitimately live outside the
-    workspace, e.g. the framework checkout itself)."""
+    bounds; registered workspaces and the app's own pinned tabs/views are
+    also valid because all of them can remain open simultaneously."""
     if _inside(resolved, active_root):
         return True
+    try:
+        from lab import paths as lab_paths
+
+        for workspace in lab_paths.read_workspace_registry().get("workspaces", []):
+            workspace_path = workspace.get("path") if isinstance(workspace, dict) else None
+            if workspace_path and _inside(
+                resolved, Path(str(workspace_path)).expanduser().resolve(),
+            ):
+                return True
+    except Exception:
+        pass
     # The Productivity self-view is rooted at the framework checkout —
     # the same path main.py injects into the template as MONOREPO_ROOT.
     try:
@@ -260,10 +282,10 @@ def api_git_status(repo: str, request: Request):
 
     ``repo`` may be absolute (the sidebar passes the project's absolute
     path) or workspace-relative. The resolved directory must sit inside
-    the active workspace or inside a location the app itself registers
-    (pinned tabs/views and their repos can live outside the workspace) —
-    this endpoint must not disclose status for arbitrary directories on
-    the machine.
+    the active workspace, another registered workspace, or a location the
+    app itself registers (pinned tabs/views and their repos can live outside
+    a workspace). This endpoint must not disclose status for arbitrary
+    directories on the machine.
     """
     root = Path(request.app.state.index_cache.root).expanduser().resolve()
     candidate = Path(repo) if repo.startswith("/") else root / repo

@@ -1,16 +1,25 @@
 """Per-project reverse-proxy for local dev servers.
 
-A project can declare one or more `proxies` in its `project.json`:
+A project can declare one or more servers in its root `servers.json`:
 
-    "proxies": [
-      {"name": "frontend", "host": "localhost", "port": 3000, "path": "/"},
+    {"servers": [
+      {
+        "name": "frontend", "host": "localhost", "port": 3000, "path": "/",
+        "start_command": "make server-start", "stop_command": "make server-stop"
+      },
       {"name": "api",      "port": 8000,        "path": "/docs"}
-    ]
+    ]}
+
+Legacy `project.json.proxies` declarations remain readable when there is no
+`servers.json`; saving from the Servers modal creates the standalone file.
 
 …and the lab server exposes each at:
 
-    HTTP : /api/proxy/<project_id>/<name>/<path>
-    WS   : /ws/proxy/<project_id>/<name>/<path>
+    HTTP : /api/workspace-proxy/<workspace>/<project_id>/<name>/<path>
+    WS   : /ws/workspace-proxy/<workspace>/<project_id>/<name>/<path>
+
+The older unscoped ``/api/proxy`` and ``/ws/proxy`` mounts remain available
+for bookmarks created before Lab supported simultaneous cross-workspace tabs.
 
 so the frontend can mount the dev server inside an iframe alongside the
 project's terminal + notebooks, without the browser needing direct access
@@ -19,7 +28,8 @@ needs to reach.
 
 Notes & limitations:
 
-* Only ports explicitly declared in `project.json` are reachable — there
+* Only ports explicitly declared in `servers.json` (or legacy
+  `project.json.proxies`) are reachable — there
   is no open-ended `/proxy/foo/<arbitrary-host-and-port>` path. This is
   also why apps that hardcode absolute paths (e.g. `/static/foo.js`) need
   to be configured to run under a base path, OR rely on the
@@ -34,6 +44,10 @@ Notes & limitations:
   don't collide on the lab origin.
 * WebSocket upgrade is forwarded bidirectionally so HMR / live-reload
   works (Vite, Next.js dev server, etc.).
+* Optional ``start_command`` / ``stop_command`` values must be ``make``
+  commands. They run from the project directory through explicit control
+  endpoints; the start command is hosted in tmux so foreground dev servers
+  remain alive after the request returns.
 * If the target port isn't listening, the HTTP endpoint returns a
   502-styled placeholder page ("dev server not running") instead of an
   opaque connection error.
@@ -41,17 +55,23 @@ Notes & limitations:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
+import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import websockets
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+from pydantic import BaseModel
 from starlette.requests import ClientDisconnect
+
+from core import server_config
+from core.routes import term as term_routes
 
 
 router = APIRouter()
@@ -132,64 +152,165 @@ def _project_dir(root: Path, project_id: str) -> Path:
     return root / "projects" / project_id
 
 
-def _load_proxy_config(root: Path, project_id: str, name: str) -> dict[str, Any] | None:
-    """Look up the named proxy entry in the project's `project.json`.
+def _existing_project_dir(root: Path, project_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id) or project_id in {".", ".."}:
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    project_dir = _project_dir(root, project_id)
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    return project_dir
+
+
+def _read_server_config(root: Path, project_id: str) -> tuple[list[dict[str, Any]], str]:
+    project_dir = _existing_project_dir(root, project_id)
+    try:
+        return server_config.read_server_config(project_dir)
+    except server_config.ServerConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+def _load_proxy_config(
+    root: Path,
+    project_id: str,
+    name: str,
+    *,
+    suppress_errors: bool = False,
+) -> dict[str, Any] | None:
+    """Look up the named server in `servers.json` or legacy project metadata.
 
     Returns a dict with `host` (default ``localhost``), `port`, and
     `path` (default ``/``) — or None when the project doesn't exist or
     has no proxy by that name.
     """
-    pj = _project_dir(root, project_id) / "project.json"
-    if not pj.exists():
-        return None
     try:
-        data = json.loads(pj.read_text())
-    except Exception:
-        return None
-    proxies = data.get("proxies", []) or []
+        proxies, _source = _read_server_config(root, project_id)
+    except HTTPException:
+        if suppress_errors:
+            return None
+        raise
     for entry in proxies:
-        if not isinstance(entry, dict):
-            continue
         if entry.get("name") != name:
             continue
-        try:
-            port = int(entry.get("port", 0))
-        except (TypeError, ValueError):
-            port = 0
-        return {
-            "name": name,
-            "host": str(entry.get("host") or "localhost"),
-            "port": port,
-            "path": str(entry.get("path") or "/"),
-        }
+        return entry
     return None
 
 
 def _list_proxies(root: Path, project_id: str) -> list[dict[str, Any]]:
     """Return all configured proxies for a project (or empty list)."""
-    pj = _project_dir(root, project_id) / "project.json"
-    if not pj.exists():
-        return []
     try:
-        data = json.loads(pj.read_text())
-    except Exception:
-        return []
-    out: list[dict[str, Any]] = []
-    for entry in data.get("proxies", []) or []:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            port = int(entry.get("port", 0))
-        except (TypeError, ValueError):
-            port = 0
-        out.append({
-            "name": str(entry.get("name") or ""),
-            "host": str(entry.get("host") or "localhost"),
-            "port": port,
-            "path": str(entry.get("path") or "/"),
-            "label": entry.get("label") or entry.get("name") or "",
-        })
-    return out
+        proxies, _source = _read_server_config(root, project_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return []
+        raise
+    return proxies
+
+
+def _parse_make_command(raw: str, field: str) -> list[str]:
+    """Parse one configured control command without enabling shell syntax."""
+    command = (raw or "").strip()
+    if not command:
+        raise HTTPException(status_code=409, detail=f"proxy has no {field} configured")
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid {field}: {exc}") from None
+    if not argv or argv[0] != "make":
+        raise HTTPException(status_code=400, detail=f"{field} must be a make command")
+    return argv
+
+
+def _proxy_control_session_name(root: Path, project_id: str, name: str) -> str:
+    return term_routes._tmux_name_for(project_id, f"server-{name}", root)
+
+
+def _run_make_command(argv: list[str], project_dir: Path) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            argv,
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            timeout=20,
+            env=term_routes._tmux_child_env(),
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail=f"{' '.join(argv)} timed out after 20s") from None
+
+
+def _command_failure(proc: subprocess.CompletedProcess[str], fallback: str) -> str:
+    return (proc.stderr or proc.stdout or fallback).strip()[:1000]
+
+
+def _kill_proxy_control_session(session_name: str) -> None:
+    if not term_routes._tmux_available():
+        return
+    subprocess.run(
+        ["tmux", "kill-session", "-t", session_name],
+        capture_output=True,
+        text=True,
+        env=term_routes._tmux_child_env(),
+    )
+
+
+def _start_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    start_argv = _parse_make_command(cfg.get("start_command", ""), "start command")
+    if not term_routes._tmux_available():
+        raise HTTPException(status_code=500, detail="tmux not installed. Run: brew install tmux")
+    project_dir = _project_dir(root, project_id)
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+
+    session_name = _proxy_control_session_name(root, project_id, cfg["name"])
+    was_running = term_routes._tmux_has_session(session_name)
+    if was_running:
+        stop_raw = str(cfg.get("stop_command") or "").strip()
+        if stop_raw:
+            stop_proc = _run_make_command(_parse_make_command(stop_raw, "stop command"), project_dir)
+            if stop_proc.returncode != 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=_command_failure(stop_proc, "stop command failed before restart"),
+                )
+        _kill_proxy_control_session(session_name)
+
+    command = shlex.join(start_argv)
+    proc = subprocess.run(
+        [
+            "tmux", "new-session", "-d", "-s", session_name,
+            "-c", str(project_dir), command,
+        ],
+        capture_output=True,
+        text=True,
+        env=term_routes._tmux_child_env(),
+    )
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=409,
+            detail=_command_failure(proc, "tmux could not start the server command"),
+        )
+    return {
+        "ok": True,
+        "action": "restarted" if was_running else "started",
+        "session_name": session_name,
+    }
+
+
+def _stop_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    project_dir = _project_dir(root, project_id)
+    if not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+
+    stop_argv = _parse_make_command(cfg.get("stop_command", ""), "stop command")
+    session_name = _proxy_control_session_name(root, project_id, cfg["name"])
+    proc = _run_make_command(stop_argv, project_dir)
+    _kill_proxy_control_session(session_name)
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=409,
+            detail=_command_failure(proc, "stop command failed"),
+        )
+    return {"ok": True, "action": "stopped", "session_name": session_name}
 
 
 # Inject this between `<head>` and the rest of the document so relative
@@ -249,22 +370,135 @@ def _rewrite_cookie(cookie: str, name_prefix: str, mount_path: str) -> str:
     return "; ".join(out)
 
 
+class ServerConfigBody(BaseModel):
+    servers: list[dict[str, Any]]
+
+
+def _workspace_root(request: Request | WebSocket, workspace: str | None) -> Path:
+    active_root: Path = request.app.state.index_cache.root
+    return term_routes._workspace_root_for(active_root, workspace)
+
+
+@router.get("/api/server-config")
+def get_server_config(
+    request: Request, project_id: str, workspace: str | None = None,
+) -> dict[str, Any]:
+    """Return the effective configuration and the file it came from."""
+    root = _workspace_root(request, workspace)
+    servers, source = _read_server_config(root, project_id)
+    return {
+        "servers": servers,
+        "source": source,
+        "config_file": server_config.CONFIG_FILENAME,
+        "is_legacy": source in {"project.json", ".project.json"},
+    }
+
+
+@router.put("/api/server-config")
+def put_server_config(
+    body: ServerConfigBody,
+    request: Request,
+    project_id: str,
+    workspace: str | None = None,
+) -> dict[str, Any]:
+    """Write the canonical ``servers.json`` for a project."""
+    root = _workspace_root(request, workspace)
+    project_dir = _existing_project_dir(root, project_id)
+    try:
+        servers = server_config.write_server_config(project_dir, body.servers)
+    except server_config.ServerConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not write servers.json: {exc}") from None
+    return {
+        "ok": True,
+        "servers": servers,
+        "source": server_config.CONFIG_FILENAME,
+        "config_file": server_config.CONFIG_FILENAME,
+        "is_legacy": False,
+    }
+
+
+@router.get("/api/server-config/detect")
+def detect_server_config(
+    request: Request, project_id: str, workspace: str | None = None,
+) -> dict[str, Any]:
+    """Preview a server declaration inferred from the standard Makefile."""
+    root = _workspace_root(request, workspace)
+    project_dir = _existing_project_dir(root, project_id)
+    try:
+        servers = server_config.detect_makefile_server(project_dir, project_id)
+    except server_config.ServerConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return {
+        "servers": servers,
+        "source": "Makefile detection",
+        "config_file": server_config.CONFIG_FILENAME,
+        "is_legacy": False,
+    }
+
+
 @router.get("/api/proxies")
-def list_proxies(request: Request, project_id: str) -> list[dict[str, Any]]:
-    """List the proxies declared in a project's project.json.
+def list_proxies(
+    request: Request, project_id: str, workspace: str | None = None,
+) -> list[dict[str, Any]]:
+    """List the effective servers declared for a project.
 
     Drives the sidebar 'Servers' section in the frontend.
     """
-    root: Path = request.app.state.index_cache.root
+    root = _workspace_root(request, workspace)
     return _list_proxies(root, project_id)
 
 
+@router.post("/api/proxies/{project_id}/{name}/{action}")
+def control_proxy_server(
+    project_id: str,
+    name: str,
+    action: str,
+    request: Request,
+    workspace: str | None = None,
+) -> dict[str, Any]:
+    """Run a configured make command from the owning project directory."""
+    if action not in {"start", "restart", "stop"}:
+        raise HTTPException(status_code=404, detail=f"unknown proxy action {action!r}")
+    root = _workspace_root(request, workspace)
+    cfg = _load_proxy_config(root, project_id, name)
+    if cfg is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"proxy {name!r} not declared in project {project_id!r}",
+        )
+    if action == "stop":
+        return _stop_proxy_server(root, project_id, cfg)
+    return _start_proxy_server(root, project_id, cfg)
+
+
+def _proxy_mount_path(workspace: str | None, project_id: str, name: str) -> str:
+    if workspace:
+        return "/api/workspace-proxy/{}/{}/{}/".format(
+            quote(workspace, safe=""), quote(project_id, safe=""), quote(name, safe=""),
+        )
+    return "/api/proxy/{}/{}/".format(
+        quote(project_id, safe=""), quote(name, safe=""),
+    )
+
+
+@router.api_route(
+    "/api/workspace-proxy/{workspace}/{project_id}/{name}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
 @router.api_route(
     "/api/proxy/{project_id}/{name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
-async def proxy_http(project_id: str, name: str, path: str, request: Request):
-    root: Path = request.app.state.index_cache.root
+async def proxy_http(
+    project_id: str,
+    name: str,
+    path: str,
+    request: Request,
+    workspace: str | None = None,
+):
+    root = _workspace_root(request, workspace)
     cfg = _load_proxy_config(root, project_id, name)
     if cfg is None:
         raise HTTPException(
@@ -330,7 +564,7 @@ async def proxy_http(project_id: str, name: str, path: str, request: Request):
 
     # Inject <base href> into HTML so relative links and asset paths
     # land back at our mount point instead of the lab origin root.
-    mount = f"/api/proxy/{project_id}/{name}/"
+    mount = _proxy_mount_path(workspace, project_id, name)
     content = upstream_resp.content
     media = upstream_resp.headers.get("content-type", "")
     if media.lower().startswith("text/html"):
@@ -343,7 +577,9 @@ async def proxy_http(project_id: str, name: str, path: str, request: Request):
     # Re-attach Set-Cookie with a per-proxy name prefix + Path scoped to
     # the mount, so cookies from two proxied apps with the same name
     # don't clobber each other on the lab origin.
-    cookie_prefix = f"lp_{project_id}_{name}__"
+    cookie_workspace = re.sub(r"[^A-Za-z0-9_-]", "_", workspace) if workspace else ""
+    cookie_scope = f"{cookie_workspace}_" if cookie_workspace else ""
+    cookie_prefix = f"lp_{cookie_scope}{project_id}_{name}__"
     raw_cookies = upstream_resp.headers.get_list("set-cookie") \
         if hasattr(upstream_resp.headers, "get_list") else []
     if not raw_cookies and "set-cookie" in upstream_resp.headers:
@@ -358,16 +594,26 @@ async def proxy_http(project_id: str, name: str, path: str, request: Request):
     return resp
 
 
+@router.websocket("/ws/workspace-proxy/{workspace}/{project_id}/{name}/{path:path}")
 @router.websocket("/ws/proxy/{project_id}/{name}/{path:path}")
-async def proxy_ws(websocket: WebSocket, project_id: str, name: str, path: str):
+async def proxy_ws(
+    websocket: WebSocket,
+    project_id: str,
+    name: str,
+    path: str,
+    workspace: str | None = None,
+):
     """Bidirectional WebSocket proxy.
 
     Drives HMR / live-reload for Vite, Next.js, Webpack dev server, etc.
     Closes both sides on either end disconnecting.
     """
-    root: Path = websocket.app.state.index_cache.root
-    cfg = _load_proxy_config(root, project_id, name)
-    path_info = f"/ws/proxy/{project_id}/{name}/{path}"
+    root = _workspace_root(websocket, workspace)
+    cfg = _load_proxy_config(root, project_id, name, suppress_errors=True)
+    path_info = (
+        f"/ws/workspace-proxy/{workspace}/{project_id}/{name}/{path}"
+        if workspace else f"/ws/proxy/{project_id}/{name}/{path}"
+    )
     if cfg is None or cfg["port"] <= 0:
         log.warning(
             "WS proxy %s not configured",

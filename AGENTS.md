@@ -34,6 +34,13 @@ The kernel session is pinned to the file path (same `path` → same Darwin kerne
 
 When you're in `projects/<id>/`, read that project's `CLAUDE.md` too. It's auto-generated and contains the project's objective and tool references.
 
+## On project server tabs
+
+When a project needs one or more local-server tabs/proxies, agents may create
+or edit `projects/<id>/servers.json`; do not add new proxy declarations to
+`project.json`. The format and Makefile auto-detection convention are documented
+in `docs/SERVERS.md`. Lifecycle commands in this file must be `make` commands.
+
 ## On sending an update
 
 When the user (typically inside a `projects/<id>/`) asks to "send an update", "send a summary", or similar, write a markdown summary of what's been done to `content/updates/<yyyy-mm-dd>-summary.md` using today's date. One flat folder — no `linkedin/`, `personal/`, or other subdirectory split. If a file for today already exists, append a new section to it rather than overwriting. The folder is a user-curated knowledge artifact; we write the file, the user populates and consumes it.
