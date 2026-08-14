@@ -38,6 +38,25 @@ def test_productivity_is_default_and_workspace_selector_is_retired(client) -> No
     assert 'id="homeLink"' not in r.text
 
 
+def test_retired_home_and_standalone_views_are_not_shipped(client) -> None:
+    r = client.get("/")
+
+    assert r.status_code == 200
+    for retired_id in (
+        "homeView",
+        "codeSearchView",
+        "logsView",
+        "newProjectModal",
+        "fieldPopover",
+        "descModal",
+        "snoozeModal",
+    ):
+        assert f'id="{retired_id}"' not in r.text
+    assert ">Pinned<" not in r.text
+    assert ">Snoozed<" not in r.text
+    assert ">Timeline<" not in r.text
+
+
 def test_frontend_declares_cross_workspace_navigation_surfaces() -> None:
     from pathlib import Path
 
@@ -49,7 +68,14 @@ def test_frontend_declares_cross_workspace_navigation_surfaces() -> None:
     assert "function showScopedCodeSearch" in script
     assert "function selfShowAdmin" in script
     assert "function workspaceSaveAppearance" in script
-    assert "/api/workspaces/use" not in script[script.index("async function openProjectInWorkspace"):script.index("function updateSnoozedBadge")]
+    assert "/api/workspaces/use" not in script
+    server_bar = script[
+        script.index("async function refreshAttrsBar"):
+        script.index("// ─── Proxies modal")
+    ]
+    assert 'data-act="proxies"' in server_bar
+    for retired_field in ("priority", "due", "loe", "description", "snooze", "hold"):
+        assert retired_field not in server_bar.lower()
 
 
 def test_get_index_reflects_seeded_projects(client, seed_project) -> None:

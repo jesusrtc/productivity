@@ -646,9 +646,9 @@ def create_app() -> FastAPI:
     async def view_markdown(request: Request, path: str):
         """Render a markdown file under `content/` as a standalone HTML page.
 
-        Used by the Home view's Search tab so clicking a doc result shows the
-        rendered page instead of the raw `/api/markdown` JSON. Reuses the same
-        renderer + path-safety checks as `/api/markdown`.
+        Used by direct document links that need rendered output instead of the
+        raw `/api/markdown` JSON. Reuses the same renderer + path-safety checks
+        as `/api/markdown`.
         """
         from core.routes.markdown import _RENDERER, _FRONTMATTER_RE, _safe_resolve
         import yaml

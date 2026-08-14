@@ -26,29 +26,18 @@
   html.loading .no-repo { display: none; }
   a { color: var(--accent); }
   .topbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; z-index: 100; border-bottom: 1px solid var(--border); gap: 12px; }
-  .home-view, .s-view, .k-view, .cs-view, .logs-view { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; background: var(--bg-primary); overflow: auto; }
-  body.home-active .home-view { display: block; }
+  .k-view { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; background: var(--bg-primary); overflow: auto; }
   body.self-active .layout { display: flex; }
-  body.self-active .home-view, body.self-active .diff-tabs, body.self-active .repo-tabs { display: none; }
+  body.self-active .diff-tabs, body.self-active .repo-tabs { display: none; }
   body.cerebro-active .k-view { display: flex; }
-  body.code-search-active .cs-view { display: grid; grid-template-columns: 220px 1fr 320px; }
-  body.logs-active .logs-view { display: grid; grid-template-columns: 180px minmax(0, 1fr); }
-  body.cerebro-active .layout, body.cerebro-active .home-view, body.cerebro-active .diff-tabs,
-  body.code-search-active .layout, body.code-search-active .home-view, body.code-search-active .diff-tabs,
-  body.logs-active .layout, body.logs-active .home-view, body.logs-active .diff-tabs { display: none; }
+  body.cerebro-active .layout, body.cerebro-active .diff-tabs { display: none; }
   .layout { display: flex; padding-top: 88px; min-height: 100vh; }
   body.project-active .layout { padding-top: 128px; }
   .sidebar { position: fixed; top: 88px; bottom: 0; left: 0; width: 280px; overflow: auto; background: var(--bg-secondary); border-right: 1px solid var(--border); }
   body.project-active .sidebar { top: 128px; }
   .main { margin-left: 280px; flex: 1; min-width: 0; }
-  .home-tabs { display: flex; gap: 6px; padding: 16px 20px 0; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
-  .home-tab { background: transparent; color: var(--text-secondary); border: 0; border-bottom: 2px solid transparent; padding: 8px 10px; cursor: pointer; }
-  .home-tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
-  .home-panel { padding: 18px 20px 40px; }
   .btn-primary { background: var(--accent); color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; }
-  .p-list, .s-section, .logs-terminal, .k-pane, .cs-ws { border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 6px; }
-  .p-section-head, .logs-toolbar { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
-  .p-row { display: grid; grid-template-columns: 28px 44px minmax(180px,1fr) 80px 72px 80px 120px; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(48,54,61,.55); }
+  .s-section, .k-pane { border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 6px; }
   .s-inner { padding: 24px; max-width: 960px; margin: 0 auto; }
   .s-head { display: flex; align-items: center; justify-content: space-between; }
   .s-section { padding: 14px 16px; margin: 14px 0; }
@@ -145,189 +134,6 @@
     <div class="k-empty">Select a file on the left. Markdown files render in place; other files show metadata only.</div>
   </div>
 </div>
-
-<!-- Code Search view: repo picker + filename/code search + file preview + git
-     history rail. Active when ?view=code-search. Each repo gets its own
-     scoped terminal panel via the __cs_<repo>__ pseudo project id. -->
-<div class="cs-view" id="codeSearchView">
-  <aside class="cs-rail-left">
-    <div class="rail-head">
-      <span class="label">Repositories</span>
-    </div>
-    <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
-      <input id="csRepoFilter" type="text" placeholder="filter repos…" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-size:12px;color:var(--text-primary);font-family:ui-monospace,monospace;width:100%;box-sizing:border-box" />
-    </div>
-    <div class="repo-list" id="csRepoList"></div>
-  </aside>
-
-  <main class="cs-ws">
-    <div class="ws-header" id="csHeader">
-      <span class="title" id="csTitle">— pick a repo —</span>
-      <span class="clone" id="csClone"></span>
-      <span class="badges" id="csBadges"></span>
-    </div>
-
-    <div class="search-bar">
-      <div class="search-modes" id="csModes">
-        <button data-mode="filenames" class="active">Filenames</button>
-        <button data-mode="code">Code (rg)</button>
-      </div>
-      <input id="csSearchInput" class="search-input" type="text" placeholder='search this repo (Enter to run)…' />
-      <span class="search-hint" id="csSearchHint">pick a repo</span>
-    </div>
-
-    <div class="ws-body">
-      <section class="results-pane">
-        <div class="pane-head" id="csResultsLabel">Results</div>
-        <div id="csResultsList"></div>
-      </section>
-      <section class="preview-pane">
-        <div class="preview-head">
-          <span id="csPreviewPath">no file open</span>
-          <span class="empty-act" id="csPreviewHint">click a result to preview · double-click for full modal</span>
-        </div>
-        <div class="file-body" id="csFileBody">
-          <div class="preview-empty">Click a result on the left to preview the file. Double-click for the full-screen modal with all matches highlighted.</div>
-          <div class="range-pop" id="csRangePop">
-            <span class="lines" id="csRangeLines">lines —</span>
-            <button onclick="csShowRangeHistory()">git log -L ↗</button>
-          </div>
-        </div>
-      </section>
-    </div>
-  </main>
-
-  <aside class="cs-rail-right">
-    <div class="rail-head">
-      <span class="label">Git history</span>
-      <span class="scope" id="csGitScope">—</span>
-    </div>
-    <div class="git-list" id="csGitList">
-      <div class="git-empty">Pick a repo to see commits.</div>
-    </div>
-  </aside>
-</div>
-
-<!-- Logs view: terminal-style log reader. Active when ?view=logs. -->
-<div class="logs-view" id="logsView">
-  <aside class="logs-sidebar">
-    <div class="logs-sidebar-head">
-      <div class="logs-sidebar-title">Logs</div>
-      <div class="logs-sidebar-subtitle">tail reader</div>
-    </div>
-    <div class="logs-source-list" id="logsSourceList">
-      <button class="logs-source active" data-file="errors.log" type="button">
-        <span>Errors</span><span class="source-key">errors</span>
-      </button>
-      <button class="logs-source" data-file="backend.log" type="button">
-        <span>Backend</span><span class="source-key">backend</span>
-      </button>
-      <button class="logs-source" data-file="frontend.log" type="button">
-        <span>Frontend</span><span class="source-key">frontend</span>
-      </button>
-    </div>
-  </aside>
-  <main class="logs-main">
-    <div class="logs-toolbar">
-      <span class="logs-active-name" id="logsActiveName">Errors</span>
-      <span class="logs-command" id="logsCommand">$ tail -n 500 logs/errors.log</span>
-      <label class="logs-tail-label" for="logsTailInput">
-        Tail
-        <input id="logsTailInput" type="text" inputmode="numeric" value="500" autocomplete="off" />
-      </label>
-      <button class="logs-refresh" id="logsRefreshBtn" type="button" onclick="logsRefresh()">Refresh</button>
-      <span class="logs-status" id="logsStatus">{% if INITIAL_VIEW == 'logs' %}queued{% endif %}</span>
-    </div>
-    <div class="logs-terminal" id="logsTerminal">{% if INITIAL_VIEW == 'logs' %}<div class="logs-terminal-head"><span class="prompt">$</span> tail -n 500 logs/errors.log</div><div class="logs-empty">Fetching log tail...</div>{% endif %}</div>
-  </main>
-</div>
-
-<!-- Code Search file modal — opened on result click. Shows the file's
-     full content with syntax highlighting plus a left rail listing
-     every match within that file (jump-to-line on click). Replaces
-     the previous inline preview pane. -->
-<div class="cs-file-modal-overlay" id="csFileModalOverlay" onclick="if(event.target===this)csCloseFileModal()">
-  <div class="cs-file-modal">
-    <div class="cs-file-modal-head">
-      <span class="path" id="csFileModalPath">—</span>
-      <span class="lang-badge" id="csFileModalLang">—</span>
-      <span class="match-count" id="csFileModalMatches"></span>
-      <span style="flex:1"></span>
-      <button class="copy" id="csFileModalCopy" title="Copy path">&#x1F4CB; copy path</button>
-      <button class="hist" id="csFileModalHist" title="Show this file's git history">⤴ history</button>
-      <button class="close" onclick="csCloseFileModal()">Close</button>
-    </div>
-    <div class="cs-file-modal-body">
-      <aside class="match-rail">
-        <div class="match-head" id="csMatchRailHead">Matches in this file</div>
-        <div class="match-list" id="csMatchRailList"></div>
-      </aside>
-      <main class="code-pane">
-        <div class="code-scroll" id="csCodeScroll">
-          <pre class="code-pre"><code id="csCodeBlock"></code></pre>
-        </div>
-      </main>
-    </div>
-  </div>
-</div>
-
-<!-- Commit drawer for the Code Search view. Sits outside the cs-view
-     so it can overlay the whole workspace; visibility toggled by JS. -->
-<div class="cs-drawer-overlay" id="csDrawerOverlay" onclick="if(event.target===this)csCloseDrawer()">
-  <div class="cs-drawer">
-    <div class="cs-drawer-head">
-      <span class="sha" id="csDrawerSha">—</span>
-      <span class="subj" id="csDrawerSubj">—</span>
-      <button class="close" onclick="csCloseDrawer()">Close</button>
-    </div>
-    <div class="cs-drawer-meta" id="csDrawerMeta">—</div>
-    <div class="cs-drawer-body" id="csDrawerBody"></div>
-  </div>
-</div>
-
-<!-- Home view: dashboard + timeline + search. Active when no ?project= or ?repo=. -->
-<div class="home-view" id="homeView">
-  <div class="home-tabs">
-    <button class="home-tab active" id="homeTabDashboard" onclick="setHomeTab('dashboard')">Dashboard</button>
-    <button class="home-tab" id="homeTabSnoozed" onclick="setHomeTab('snoozed')">Snoozed <span id="snoozedBadge" class="snoozed-badge" style="display:none"></span></button>
-    <button class="home-tab" id="homeTabTimeline" onclick="setHomeTab('timeline')">Timeline</button>
-    <button class="home-tab" id="homeTabSearch" onclick="setHomeTab('search')">Search</button>
-  </div>
-  <div class="home-panel" id="homePanel">
-    <div class="filter-row">
-      <button class="btn-primary" disabled>+ New project</button>
-    </div>
-    <div class="p-list">
-      <div class="p-section">
-        <div class="p-section-head">Pinned</div>
-        <div class="p-row">
-          <span></span><span></span>
-          <span class="p-name" style="color:var(--text-dim)">Loading dashboard...</span>
-          <span></span><span></span><span></span><span></span>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-<script>
-  (function () {
-    var hash = (location.hash || '').replace(/^#/, '');
-    if (hash !== 'snoozed' && hash !== 'timeline' && hash !== 'search') return;
-    var panel = document.getElementById('homePanel');
-    if (!panel) return;
-    ['dashboard', 'snoozed', 'timeline', 'search'].forEach(function (name) {
-      var btn = document.getElementById('homeTab' + name.charAt(0).toUpperCase() + name.slice(1));
-      if (btn) btn.classList.toggle('active', name === hash);
-    });
-    if (hash === 'search') {
-      panel.innerHTML = '<h2>Search</h2><input type="text" class="search-input" placeholder="Search projects, tasks, and docs..." disabled><p class="search-status">Loading search...</p><div id="searchResults"></div>';
-    } else if (hash === 'snoozed') {
-      panel.innerHTML = '<div class="snooze-section"><h3>Ready for review <span class="count">...</span></h3><p class="snooze-empty">Loading snoozed projects...</p></div>';
-    } else {
-      panel.innerHTML = '<h2>Timeline</h2><div class="bucket"><h3>Open work</h3><p style="color:var(--text-dim)">Loading timeline...</p></div>';
-    }
-  })();
-</script>
 
 <div class="repo-tabs" id="repoTabs" style="display:none"></div>
 
@@ -496,81 +302,6 @@
   </div>
 </div>
 
-<!-- New project modal — replaces the chained chrome prompt() calls with
-     a single form: ID + description + priority + native calendar +
-     tags/labels. Submit hits POST /api/projects and navigates on success. -->
-<div class="modal-overlay" id="newProjectModal" onclick="if(event.target===this)closeNewProjectModal()">
-  <div class="form-modal" role="dialog" aria-labelledby="npTitle">
-    <div class="fm-header">
-      <span class="fm-title" id="npTitle">New project</span>
-      <button class="fm-close" type="button" onclick="closeNewProjectModal()" aria-label="Close">&times;</button>
-    </div>
-    <form id="newProjectForm" onsubmit="submitNewProject(event)">
-      <div class="fm-body">
-        <div class="fm-err" id="npError"></div>
-        <label>Project ID <span class="req">*</span>
-          <input type="text" id="npId" required pattern="[a-z0-9][a-z0-9-]*"
-                 placeholder="e.g. davi-vision" autocomplete="off" />
-          <span class="hint">lowercase letters, digits, hyphens. Must start with letter or digit.</span>
-        </label>
-        <label>Workspace
-          <select id="npWorkspace"></select>
-          <span class="hint">Where the project is created. Picking a workspace other than the active one switches to it first.</span>
-        </label>
-        <label>Description
-          <textarea id="npDesc" rows="3" placeholder="One-liner about the project (you can edit this later)"></textarea>
-        </label>
-        <label>Priority
-          <select id="npPriority">
-            <option value="">—</option>
-            <option value="P0">P0 — critical</option>
-            <option value="P1">P1 — high</option>
-            <option value="P2" selected>P2 — normal</option>
-            <option value="P3">P3 — low</option>
-          </select>
-        </label>
-        <!-- Inline calendar — always visible, no native OS picker. Click
-             a day to pick; quick-picks below for common offsets. -->
-        <label>Due date
-          <div class="cal" id="npCal">
-            <div class="cal-head">
-              <button type="button" class="cal-nav" id="npCalPrev" aria-label="Previous month">‹</button>
-              <span class="cal-label" id="npCalLabel"></span>
-              <button type="button" class="cal-nav" id="npCalNext" aria-label="Next month">›</button>
-            </div>
-            <div class="cal-dow">
-              <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
-            </div>
-            <div class="cal-grid" id="npCalGrid"></div>
-            <div class="cal-quick">
-              <button type="button" data-offset="0">Today</button>
-              <button type="button" data-offset="3">+3d</button>
-              <button type="button" data-offset="7">+1w</button>
-              <button type="button" data-offset="14">+2w</button>
-              <button type="button" data-offset="30">+1mo</button>
-              <button type="button" data-clear="1">Clear</button>
-            </div>
-            <input type="hidden" id="npDue" />
-            <div class="cal-selected" id="npCalSelected">no date</div>
-          </div>
-        </label>
-        <div class="row-2">
-          <label>Tags
-            <input type="text" id="npTags" placeholder="comma-separated" />
-          </label>
-          <label>Labels (MP slugs)
-            <input type="text" id="npLabels" placeholder="comma-separated" />
-          </label>
-        </div>
-      </div>
-      <div class="fm-actions">
-        <button type="button" class="btn-cancel" onclick="closeNewProjectModal()">Cancel</button>
-        <button type="submit" class="btn-primary" id="npSubmit">Create</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <!-- Settings modal — global default agent / model / theme, plus a per-project
      agent override when a project tab is active. Opened by the ⚙ button in the
      topbar (replaced the old Dark/Light pill). Reads GET /api/settings; writes
@@ -633,13 +364,9 @@
   </div>
 </div>
 
-<!-- Shared field-edit popover. Content is rewritten by openFieldPopover(...) based on the field being edited. Absolute-positioned next to the anchor chip. -->
-<div class="field-popover" id="fieldPopover" onclick="event.stopPropagation()"></div>
-
 <!-- Diff-comment composer popover. Opened from the "+" button on a diff line. -->
 <div class="cmt-popover" id="cmtPopover" onclick="event.stopPropagation()"></div>
 
-<!-- Description edit modal. Larger than the inline popovers because descriptions span multiple lines. -->
 <!-- Proxies modal — manage the `proxies[]` array in project.json from the
      UI so the user can add/edit local-dev-server proxies without hand-
      editing JSON. Submits via PUT /api/project-info (writes the whole
@@ -668,81 +395,6 @@
       <div class="fm-actions">
         <button type="button" class="btn-cancel" onclick="closeProxiesModal()">Cancel</button>
         <button type="submit" class="btn-primary">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="modal-overlay" id="descModal" onclick="if(event.target===this)closeDescModal()">
-  <div class="form-modal" role="dialog" aria-labelledby="descTitle">
-    <div class="fm-header">
-      <span class="fm-title" id="descTitle">Edit description</span>
-      <button class="fm-close" type="button" onclick="closeDescModal()" aria-label="Close">&times;</button>
-    </div>
-    <form id="descForm" onsubmit="submitDesc(event)">
-      <div class="fm-body">
-        <div class="fm-err" id="descError"></div>
-        <label>Project
-          <input type="text" id="descProjectId" readonly style="opacity:0.7" />
-        </label>
-        <label>Description
-          <textarea id="descText" rows="8" placeholder="What is this project? What's the outcome?"></textarea>
-        </label>
-      </div>
-      <div class="fm-actions">
-        <button type="button" class="btn-cancel" onclick="closeDescModal()">Cancel</button>
-        <button type="submit" class="btn-primary">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Snooze (hold) modal — opened from dashboard cards or the Snoozed tab.
-     Collects a duration, optional reason + URL to re-check, and POSTs to
-     /api/projects/<id>/hold. "Soft" snooze: project stays visible but gets
-     sorted into the Snoozed tab until the timer expires, then resurfaces
-     with the reason + URL so the user knows who to ping. -->
-<div class="modal-overlay" id="snoozeModal" onclick="if(event.target===this)closeSnoozeModal()">
-  <div class="form-modal" role="dialog" aria-labelledby="snTitle">
-    <div class="fm-header">
-      <span class="fm-title" id="snTitle">Snooze project</span>
-      <button class="fm-close" type="button" onclick="closeSnoozeModal()" aria-label="Close">&times;</button>
-    </div>
-    <form id="snoozeForm" onsubmit="submitSnooze(event)">
-      <div class="fm-body">
-        <div class="fm-err" id="snError"></div>
-        <label>Project
-          <input type="text" id="snProjectId" readonly style="opacity:0.7" />
-        </label>
-        <label>Snooze for
-          <div class="sn-quick" id="snQuick">
-            <button type="button" data-dur="30m">30m</button>
-            <button type="button" data-dur="1h">1h</button>
-            <button type="button" data-dur="2h">2h</button>
-            <button type="button" data-dur="4h">4h</button>
-            <button type="button" data-dur="1d">1d</button>
-            <button type="button" data-dur="2d" class="selected">2d</button>
-            <button type="button" data-dur="3d">3d</button>
-            <button type="button" data-dur="1w">1w</button>
-            <button type="button" data-dur="2w">2w</button>
-          </div>
-          <input type="hidden" id="snDuration" value="2d" />
-          <span class="hint" id="snResurface" style="margin-top:4px"></span>
-        </label>
-        <label>Or pick an exact date
-          <input type="date" id="snUntilDate" />
-          <span class="hint">Overrides the quick-pick if set. Resurfaces at end of that day.</span>
-        </label>
-        <label>Reason (what are you waiting on?)
-          <input type="text" id="snReason" placeholder="e.g. PR review from @alice" autocomplete="off" />
-        </label>
-        <label>URL to check (optional)
-          <input type="text" id="snUrl" placeholder="https://... (PR, doc, Slack thread, ...)" autocomplete="off" />
-        </label>
-      </div>
-      <div class="fm-actions">
-        <button type="button" class="btn-cancel" onclick="closeSnoozeModal()">Cancel</button>
-        <button type="submit" class="btn-primary" id="snSubmit">Snooze</button>
       </div>
     </form>
   </div>

@@ -194,9 +194,6 @@
     url.searchParams.delete('repo');
     history.replaceState(null, '', url);
 
-    // Reset cached hold for the new project so the repo-tabs bar doesn't
-    // flash stale state while showProjectInfo re-fetches it.
-    _currentProjectHold = null;
     renderRepoTabs();
 
     if (currentProject.is_project) {
@@ -2478,11 +2475,6 @@
   document.getElementById('diffPopover').addEventListener('mouseenter', () => clearTimeout(popoverTimeout));
   document.getElementById('diffPopover').addEventListener('mouseleave', () => hideDiffPopover());
 
-  // Cached hold metadata for the currently-open project. Populated by
-  // showProjectInfo/showProjectDashboard whenever project-info is fetched,
-  // so renderRepoTabs can reflect snooze state without re-fetching.
-  let _currentProjectHold = null;
-
   // ─── Workspace projections for the project sidebar (migration step 5) ──
   // When workspace.json declares agents.projections / project.mounts, the
   // Meta section renders THOSE rows — each labeled with its true workspace
@@ -2576,7 +2568,7 @@
     // proxy fullscreen) — one press must close one thing.
     const t = e.target;
     if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .term-panel')) return;
-    if (document.querySelector('.modal-overlay.active, .doc-modal-overlay.active, #csFileModalOverlay.on')) return;
+    if (document.querySelector('.modal-overlay.active, .doc-modal-overlay.active')) return;
     if (document.body.classList.contains('proxy-fullscreen')) return;
     applyFocusMode(false);
   });
@@ -2692,8 +2684,7 @@
   // `_refreshProjectSidebar` reconciles against the server in the
   // background after a warm paint and writes through to this map.
   const _projectSidebarCache = new Map();
-  // Same idea for the project attrs bar (the row with status / P:N /
-  // Due / LOE / description / Snooze controls). Keyed by project id.
+  // Same idea for the project server bar. Keyed by absolute project path.
   const _projectAttrsCache = new Map();
 
   // Per-project memory of the last file the user had open. Survives
@@ -4744,20 +4735,12 @@
       const artifacts = await artifactsRes.json();
       const alerts = await alertsRes.json();
 
-      // Repo tabs (top bar) needs hold state to render the right-hand
-      // Snooze/Reschedule/Clear cluster. Cache and re-render.
-      _currentProjectHold = info.hold || null;
-      renderRepoTabs();
-
       // Status color
       const statusColor = info.status === 'active' ? '#3fb950' : info.status === 'paused' ? '#d29922' : '#8b949e';
 
       let html = '<div style="padding:24px;max-width:900px">';
 
-      // Header with prominent TLDR. The Snooze controls live on the
-      // top repo-tabs bar (see renderRepoTabs); keep this header focused
-      // on identity + description.
-      const snoozeInfo = holdState(info.hold);
+      // Header with prominent TLDR.
       html += `<div style="margin-bottom:28px">`;
       html += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">`;
       html += `<h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(info.name)}</h1>`;
@@ -4766,21 +4749,6 @@
       html += `</div>`;
       if (info.description) {
         html += `<p style="color:var(--text-primary);font-size:20px;line-height:1.7;margin-bottom:16px">${esc(info.description)}</p>`;
-      }
-      // Hold banner — surfaces reason + URL + resurface time inline with the
-      // header, so it's the first thing you see when reopening a snoozed
-      // project. Styled yellow when the timer has passed (ready-for-review).
-      if (info.hold && snoozeInfo.state !== 'none') {
-        const color = snoozeInfo.state === 'ready' ? '#d29922' : 'var(--accent)';
-        const icon = snoozeInfo.state === 'ready' ? '&#x23F0;' : '&#x1F4A4;';
-        const when = snoozeInfo.state === 'ready'
-          ? `ready for review (timer hit ${fmtRelative(snoozeInfo.ms)} ago)`
-          : `resurfaces in ${fmtRelative(snoozeInfo.ms)}`;
-        const reason = info.hold.reason ? ` · ${esc(info.hold.reason)}` : '';
-        const url = info.hold.url
-          ? ` · <a href="${esc(info.hold.url)}" target="_blank" style="color:${color}">&#x1F517; ${esc(info.hold.url)}</a>`
-          : '';
-        html += `<div style="border:1px solid ${color};background:${color}18;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:${color}">${icon} ${when}${reason}${url}</div>`;
       }
       html += `<div style="display:flex;gap:16px;font-size:13px;color:var(--text-dim)">`;
       html += `<span>Created: ${info.created}</span>`;
@@ -5206,7 +5174,6 @@
   let projTabsAttention = [];     // project ids where every claude is idle
   let projTabsRefreshTimer = null;
   let projTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
-  let projTabsPseudoOpen = [];   // open pseudo-tabs from /api/ui/pseudo-tabs
   let projTabsDragPid = null;    // pid currently being dragged
   let _contextSubView = 'overview';
   const OPEN_WORKSPACES_KEY = 'labOpenWorkspaces-v1';
@@ -5277,11 +5244,6 @@
   function projTabsOpenIds() {
     return (projTabsAll || []).filter(p => p && p.tab_open).map(p => p.path);
   }
-  function projTabsPseudoOpenIds() {
-    return (projTabsPseudoOpen || []).filter(id =>
-      id === LOGS_PROJECT_ID || id === SELF_PROJECT_ID
-    );
-  }
   async function projTabsSetOpen(projectPath, open) {
     if (!projectPath) return;
     try {
@@ -5298,22 +5260,6 @@
     const p = (projTabsAll || []).find(x => x && x.path === projectPath);
     if (p) p.tab_open = !!open;
   }
-  async function projTabsSetPseudoOpen(pid, open) {
-    if (!(pid === LOGS_PROJECT_ID || pid === SELF_PROJECT_ID)) return;
-    const ids = new Set(projTabsPseudoOpenIds());
-    if (open) ids.add(pid);
-    else ids.delete(pid);
-    projTabsPseudoOpen = Array.from(ids);
-    if (typeof projTabsRender === 'function') projTabsRender();
-    try {
-      await fetch('/api/ui/pseudo-tabs', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({tab_id: pid, open: !!open}),
-      });
-    } catch (e) { /* best-effort; next refresh will pick up the truth */ }
-  }
-
   // Knowledge-view state. Same hoisting rule — initCerebro uses these.
   const CEREBRO_PROJECT_ID = '__cerebro__';
   let cerebroTreeData = [];
@@ -5331,36 +5277,10 @@
   const SELF_REPO_PATH = window.LAB_MONOREPO_ROOT || '';  // populated by index.html
   const WORKSPACE_ROOT = window.LAB_WORKSPACE_ROOT || '';  // active workspace; may differ from framework root
 
-  // Code Search fixed view: also a pseudo-project. The actual per-repo
-  // terminal panel uses `__cs_<repo>__` ids (see _csProjectId); this
-  // constant is only for the single topbar tab entry.
-  const CODE_SEARCH_PROJECT_ID = '__code_search__';
-
   // Workspace view: one management surface per registered workspace. The
   // selected workspace id travels in the URL and requests; no global switch.
   const WORKSPACE_PROJECT_ID = '__workspace__';
   let _workspaceCurrent = null;  // last `current` row painted by initWorkspaceView
-
-  // Logs fixed view: terminal-style reader for errors, backend, and frontend logs.
-  const LOGS_PROJECT_ID = '__logs__';
-  const LOGS_DEFAULT_FILE = 'errors.log';
-  const LOGS_DEFAULT_TAIL = 500;
-  const LOGS_MAX_TAIL = 5000;
-  const LOGS_POLL_MS = 2000;
-  const LOGS_LABELS = {
-    'errors.log': {label: 'Errors', key: 'errors'},
-    'backend.log': {label: 'Backend', key: 'backend'},
-    'frontend.log': {label: 'Frontend', key: 'frontend'},
-  };
-  let logsState = {
-    file: LOGS_DEFAULT_FILE,
-    tail: LOGS_DEFAULT_TAIL,
-    files: Object.keys(LOGS_LABELS),
-    wired: false,
-    live: true,
-  };
-  let logsLiveTimer = null;
-  let logsRefreshInFlight = false;
 
   // Per-project session pill cache (warm-switch fast path). Declared up
   // here — alongside the other pseudo-project consts — instead of with
@@ -5447,13 +5367,9 @@
   const _SIDEBAR_VIS_KEY_PREFIX = 'labSidebarShown:';
   const _SIDEBAR_PCT_KEY_PREFIX = 'labSidebarPct:';
 
-  // Dashboard "Servers" / "Terminals" sections (see renderDashboard and
-  // dashServersRefresh/dashTermsRefresh further down). Independent poll loop,
-  // independent re-render targets (#dashServers / #dashTerms) so they never
-  // clobber the rest of the dashboard (expanded project rows, etc). Hoisted
-  // up here — same TDZ rule as the consts above — because initSelf paints the
-  // workbench (and starts this poll loop) synchronously during the initial
-  // `?view=…` dispatch below.
+  // Productivity Admin's Servers / Terminals sections. Independent poll loop
+  // and independent render targets keep those cards isolated from the rest of
+  // the framework workbench.
   let _dashPollTimer = null;
   let _dashServersRows = [];
   let _dashServersAvailable = true;   // false once GET /api/servers 404s (not deployed yet)
@@ -5466,7 +5382,7 @@
   // Registered once at init (not per-paint, since document persists across
   // in-page navigation) — resumes the Servers/Terminals poll the instant the
   // tab regains focus rather than waiting out the rest of the 5s interval.
-  // dashPollTick itself is a no-op when the dashboard isn't the active view.
+  // dashPollTick itself is a no-op when Admin isn't the active view.
   if (!UI_CHECK) {
     document.addEventListener('visibilitychange', () => { if (!document.hidden) dashPollTick(); });
   }
@@ -5623,12 +5539,8 @@
   // Stored as a single JSON map {projectId: logicalName}.
   const TERM_LAST_KEY = 'labTermLastSession';
   function _termActiveProjectId() {
-    if (document.body.classList.contains('logs-active')) return LOGS_PROJECT_ID;
     if (document.body.classList.contains('cerebro-active')) return CEREBRO_PROJECT_ID;
     if (document.body.classList.contains('self-active')) return SELF_PROJECT_ID;
-    if (document.body.classList.contains('code-search-active') && _csState && _csState.repo) {
-      return _csProjectId(_csState.repo);
-    }
     if (currentProject && currentProject.is_project) return currentProject.name;
     return null;
   }
@@ -6207,11 +6119,10 @@
       // Skip a tick if a reorder is still writing — otherwise the GET can
       // beat the POST and stomp the user's fresh drop.
       if (_termReorderPending) return;
-      // Active pseudo-views win over a stale currentProject from the previous
-      // tab. Otherwise, use the loaded real project id.
+      // Framework views win over a stale currentProject from the previous
+      // tab. Otherwise, use the loaded project or workspace id.
       let pid = null;
-      if (document.body.classList.contains('logs-active')) pid = LOGS_PROJECT_ID;
-      else if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
+      if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
       else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
       else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
@@ -6237,8 +6148,7 @@
         return;
       }
       let pid = null;
-      if (document.body.classList.contains('logs-active')) pid = LOGS_PROJECT_ID;
-      else if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
+      if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
       else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
       else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
@@ -6329,16 +6239,10 @@
 
   // Per-view persistence of "is the terminal panel collapsed?" so the
   // user's last toggle sticks across tab switches and reloads. The key
-  // is namespaced by the active view (a real project id, the cerebro/
-  // self pseudo id, or "__code_search__" for the code-search tab).
-  // Default-visibility differs per view: code-search starts collapsed
-  // (it has its own three-pane layout that wants the width); every-
-  // thing else starts expanded.
+  // is namespaced by the active project, workspace, or framework view.
   // (`_TERM_VIS_KEY_PREFIX` is declared higher up to avoid a TDZ when
   // these helpers run during the initial `?view=…` URL dispatch.)
   function _termVisibilityKey() {
-    if (document.body.classList.contains('code-search-active')) return _TERM_VIS_KEY_PREFIX + 'code-search';
-    if (document.body.classList.contains('logs-active')) return _TERM_VIS_KEY_PREFIX + 'logs';
     if (document.body.classList.contains('cerebro-active')) return _TERM_VIS_KEY_PREFIX + 'cerebro';
     if (document.body.classList.contains('self-active')) return _TERM_VIS_KEY_PREFIX + 'self';
     if (document.body.classList.contains('workspace-active')) return _TERM_VIS_KEY_PREFIX + 'workspace';
@@ -6357,15 +6261,9 @@
     return defaultShown;
   }
   // Apply the remembered (or default) visibility for the current view.
-  // Called from termOpenForProject/Self/Cerebro and initCodeSearch so
-  // every view enters with the user's last preference for that view.
-  // Default is "shown" except for code-search, which has its own
-  // 3-pane layout that wants the width — terminal is hidden until
-  // the user clicks the toggle.
   function _termApplyRememberedVisibility() {
     const key = _termVisibilityKey();
-    const defaultShown = !key.endsWith(':code-search');
-    const shown = _termRecallVisibility(key, defaultShown);
+    const shown = _termRecallVisibility(key, true);
     document.body.classList.toggle('term-collapsed', !shown);
     // The files sidebar piggy-backs on the same per-view entry point: every
     // view init (project / self / cerebro) lands here, so this is the one
@@ -6382,8 +6280,6 @@
   // (The two key-prefix consts are hoisted next to _TERM_VIS_KEY_PREFIX —
   // same initial-dispatch TDZ rule.)
   function _sidebarViewSuffix() {
-    if (document.body.classList.contains('code-search-active')) return 'code-search';
-    if (document.body.classList.contains('logs-active')) return 'logs';
     if (document.body.classList.contains('cerebro-active')) return 'cerebro';
     if (document.body.classList.contains('self-active')) return 'self';
     if (document.body.classList.contains('workspace-active')) return 'workspace';
@@ -6836,8 +6732,7 @@
 
     // Persist server-side. Same project-id resolution used elsewhere.
     let projectId = null;
-    if (document.body.classList.contains('logs-active')) projectId = LOGS_PROJECT_ID;
-    else if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
+    if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
     else if (document.body.classList.contains('self-active')) projectId = SELF_PROJECT_ID;
     else if (currentProject && currentProject.is_project) projectId = currentProject.name;
     if (!projectId) return;
@@ -6920,13 +6815,10 @@
   }
 
   async function termSpawnSession(kind, { startFresh = false, agent = null } = {}) {
-    // Resolve the project id the new session belongs to. Active pseudo-views
-    // can coexist with a stale currentProject from the previous tab, so check
-    // them first.
+    // Resolve the project id the new session belongs to. Framework views can
+    // coexist with a stale currentProject from the previous tab, so check them first.
     let projectId = null;
-    if (document.body.classList.contains('logs-active')) {
-      projectId = LOGS_PROJECT_ID;
-    } else if (document.body.classList.contains('cerebro-active')) {
+    if (document.body.classList.contains('cerebro-active')) {
       projectId = CEREBRO_PROJECT_ID;
     } else if (document.body.classList.contains('self-active')) {
       projectId = SELF_PROJECT_ID;
@@ -6964,9 +6856,8 @@
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
       _termClearDead(created.name);
-      // termRefreshSessions reads `currentProject` directly when no id is
-      // passed; pseudo-projects use the project-id-aware helper.
-      if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === LOGS_PROJECT_ID) {
+      // Framework pseudo-projects use the project-id-aware helper.
+      if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID) {
         await termRefreshSessionsByProjectId(projectId);
       } else {
         await termRefreshSessions(projectId);
@@ -6995,7 +6886,7 @@
     await termSetAutoSpawnEnabled(projectId, false, workspaceId);
     if (projectId !== _termActiveProjectId()
         || (typeof _termWorkspaceId === 'function' && workspaceId !== _termWorkspaceId())) return;
-    if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === LOGS_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
+    if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
     else if (projectId) await termRefreshSessions(projectId);
     if (!_termIsScopeActive(projectId)) return;
     if (termSessions.length > 0) termAttach(termSessions[0].name, projectId);
@@ -7814,41 +7705,6 @@
     _termRenderActiveSessionHeader();
   }
 
-  // ─── Home view (dashboard / timeline / search) ───
-  // Absorbed the old lab-backend SPA views. Uses the same /api/index,
-  // /api/tasks/due, /api/search the old SPA used. Inline, no framework.
-  // State declarations MUST come before the init dispatch below — initHome()
-  // reads these `let`s and would hit a TDZ error if they were declared later.
-
-  let homeTab = 'dashboard';
-  let homeDashboardFilter = 'active';
-  let homeTimelineMode = 'list';
-  let homeSearchQuery = '';
-  let homeSearchResults = null;
-  let _homeRendering = false;
-
-  // Code Search can be initialized by the direct ?view=code-search dispatch
-  // below, so its state must be ready before that dispatch runs.
-  const _CS_LAST_KEY = 'labCsLastRepo';
-  const _csCache = {
-    repos: null,
-    stats: new Map(),
-    search: new Map(),
-    file: new Map(),
-    log: new Map(),
-  };
-  const _csState = {
-    repo: null,
-    filter: '',
-    mode: 'filenames',
-    query: '',
-    openFile: null,
-    fileLines: null,
-    selectedRange: null,
-    rangeScope: false,
-    hitLine: null,
-  };
-
   // Deep-link support: #/nb?path=projects/<id>/<rest>.ipynb
   // The fragment-style URL points at a notebook directly. We resolve the
   // owning project, plant the doc in last-opened state so the existing
@@ -7889,7 +7745,7 @@
       description: 'Opening project dashboard...',
       repos: [],
     };
-    document.body.classList.remove('home-active', 'cerebro-active', 'self-active', 'workspace-active', 'code-search-active', 'logs-active', 'has-diff-tabs');
+    document.body.classList.remove('cerebro-active', 'self-active', 'workspace-active', 'has-diff-tabs');
     document.body.classList.add('project-active');
     document.getElementById('diffTabs').style.display = 'none';
     paintProjectShell();
@@ -7916,27 +7772,13 @@
       }
     });
   } else if (urlView === 'cerebro' || urlView === 'productivity' || urlView === 'workspace' || urlView === 'code-search' || urlView === 'logs') {
-    // These views handle their own init above; skip Home.
+    // These views handle their own initialization above.
   } else {
     // No explicit target means the framework-owned Productivity home.
     initSelf();
   }
 
-  function initHome() {
-    document.body.classList.add('home-active');
-    // Remember sub-tab from URL hash (#dashboard / #snoozed / #timeline / #search)
-    const h = (location.hash || '').replace(/^#/, '');
-    if (h === 'snoozed' || h === 'timeline' || h === 'search') homeTab = h;
-    setHomeTab(homeTab);
-    // WS subscription is wired once at script bottom (subscribeLiveWS),
-    // so both home and project views get live refresh without duplicate
-    // sockets.
-  }
-
-  // Click handler for the Home link. Switches to the home view in-page so
-  // any project tabs the user has opened stay in the strip. The previous
-  // implementation used `<a href="/">` which did a full reload and dropped
-  // every tab that didn't have a live tmux session.
+  // Compatibility handler for cached markup that still calls goHome().
   function goHome(ev) {
     if (ev) ev.preventDefault();
     goToProductivity();
@@ -7962,10 +7804,9 @@
   // assert its own.
   function _swapViewState() {
     if (typeof termDetach === 'function') termDetach(true);
-    if (typeof logsStopLive === 'function') logsStopLive();
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'workspace-active', 'home-active',
-      'project-active', 'code-search-active', 'logs-active', 'has-diff-tabs',
+      'cerebro-active', 'self-active', 'workspace-active',
+      'project-active', 'has-diff-tabs',
     );
     currentProject = null;
     currentRepo = null;
@@ -8429,1059 +8270,16 @@
     initWorkspaceView(workspaceId);
   }
 
-  function logsNormalizeFile(file) {
-    return Object.prototype.hasOwnProperty.call(LOGS_LABELS, file) ? file : LOGS_DEFAULT_FILE;
-  }
-
-  function logsNormalizeTail(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return LOGS_DEFAULT_TAIL;
-    return Math.min(Math.floor(n), LOGS_MAX_TAIL);
-  }
-
-  function logsInfo(file) {
-    return LOGS_LABELS[file] || {label: file || 'Log', key: 'log'};
-  }
-
-  function logsUpdateUrl(push) {
-    const url = new URL(window.location);
-    url.hash = '';
-    url.searchParams.delete('project');
-    url.searchParams.delete('repo');
-    url.searchParams.delete('path');
-    url.searchParams.set('view', 'logs');
-    url.searchParams.set('file', logsState.file);
-    url.searchParams.set('tail', String(logsState.tail));
-    const method = push ? 'pushState' : 'replaceState';
-    history[method]({nav: 'logs', file: logsState.file, tail: logsState.tail}, '', url.pathname + url.search);
-  }
-
+  // Compatibility entry points for old bookmarks and cached inline handlers.
+  // The standalone surfaces are retired; both now land in Productivity.
   function goToLogs(opts = {}) {
     goToProductivity({replace: !!opts.replace, subview: 'admin'});
   }
-
-  function initLogs(opts = {}) {
-    logsState.file = logsNormalizeFile(opts.file || logsState.file);
-    logsState.tail = logsNormalizeTail(opts.tail || logsState.tail);
-    document.body.classList.add('logs-active');
-    document.title = 'Logs';
-    logsWireHandlers();
-    logsRenderSources();
-    logsRenderControls();
-    logsPaintShell();
-    if (typeof projTabsRender === 'function') projTabsRender();
-    logsStopLive();
-    afterPageQuiet(() => {
-      logsLoadFiles()
-        .then(() => logsRefresh({forceTail: true, forceScroll: true}))
-        .catch(() => logsRefresh({forceTail: true, forceScroll: true}))
-        .finally(logsStartLive);
-      if (!UI_CHECK) termOpenForLogs();
-    });
-  }
-
-  function logsWireHandlers() {
-    const view = document.getElementById('logsView');
-    if (!view || view._wired) return;
-    view._wired = true;
-    const sourceList = document.getElementById('logsSourceList');
-    if (sourceList) {
-      sourceList.addEventListener('click', (e) => {
-        const btn = e.target.closest('.logs-source');
-        if (!btn) return;
-        logsSelectFile(btn.getAttribute('data-file'));
-      });
-    }
-    const tailInput = document.getElementById('logsTailInput');
-    if (tailInput) {
-      tailInput.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter') return;
-        e.preventDefault();
-        logsRefresh({forceTail: true, forceScroll: true});
-      });
-      tailInput.addEventListener('blur', () => {
-        tailInput.value = String(logsNormalizeTail(tailInput.value));
-        logsState.tail = logsNormalizeTail(tailInput.value);
-        logsRenderControls();
-        logsUpdateUrl(false);
-      });
-    }
-  }
-
-  function logsStartLive() {
-    logsStopLive();
-    logsState.live = true;
-    logsRenderControls();
-    logsLiveTimer = setInterval(() => {
-      if (!document.body.classList.contains('logs-active')) {
-        logsStopLive();
-        return;
-      }
-      logsRefresh({auto: true});
-    }, LOGS_POLL_MS);
-  }
-
-  function logsStopLive() {
-    if (logsLiveTimer) clearInterval(logsLiveTimer);
-    logsLiveTimer = null;
-  }
-
-  async function logsLoadFiles() {
-    try {
-      const r = await fetch('/api/log/files', {cache: 'no-store'});
-      if (!r.ok) throw new Error(String(r.status));
-      const data = await r.json();
-      const available = new Set((data.files || []).map(f => f && f.name).filter(Boolean));
-      logsState.files = Object.keys(LOGS_LABELS).filter(name => available.size === 0 || available.has(name));
-      if (!logsState.files.length) logsState.files = Object.keys(LOGS_LABELS);
-      if (!logsState.files.includes(logsState.file)) logsState.file = LOGS_DEFAULT_FILE;
-      logsRenderSources();
-      logsRenderControls();
-    } catch {
-      logsState.files = Object.keys(LOGS_LABELS);
-      logsRenderSources();
-    }
-  }
-
-  function logsRenderSources() {
-    const list = document.getElementById('logsSourceList');
-    if (!list) return;
-    const files = logsState.files && logsState.files.length ? logsState.files : Object.keys(LOGS_LABELS);
-    list.innerHTML = files.map(file => {
-      const info = logsInfo(file);
-      const active = file === logsState.file ? ' active' : '';
-      const unseen = file === LOGS_DEFAULT_FILE && document.body.classList.contains('logs-have-unseen-errors') ? ' has-unseen' : '';
-      return `
-        <button class="logs-source${active}${unseen}" data-file="${escapeHtml(file)}" type="button">
-          <span>${escapeHtml(info.label)}</span><span class="source-key">${escapeHtml(info.key)}</span>
-        </button>`;
-    }).join('');
-  }
-
-  function logsRenderControls() {
-    const info = logsInfo(logsState.file);
-    const active = document.getElementById('logsActiveName');
-    const command = document.getElementById('logsCommand');
-    const tail = document.getElementById('logsTailInput');
-    const status = document.getElementById('logsStatus');
-    if (active) active.textContent = info.label;
-    if (command) command.textContent = `$ tail -n ${logsState.tail} logs/${logsState.file}`;
-    if (tail && document.activeElement !== tail) tail.value = String(logsState.tail);
-    if (status && !status.dataset.lines) status.textContent = logsState.live ? 'live' : '';
-    document.querySelectorAll('.logs-source').forEach(btn => {
-      const file = btn.getAttribute('data-file');
-      btn.classList.toggle('active', file === logsState.file);
-      btn.classList.toggle('has-unseen', file === LOGS_DEFAULT_FILE && document.body.classList.contains('logs-have-unseen-errors'));
-    });
-  }
-
-  function logsPaintShell() {
-    const terminal = document.getElementById('logsTerminal');
-    const status = document.getElementById('logsStatus');
-    if (status) status.textContent = 'queued';
-    if (!terminal) return;
-    const head = `<div class="logs-terminal-head"><span class="prompt">$</span> tail -n ${escapeHtml(logsState.tail)} logs/${escapeHtml(logsState.file)}</div>`;
-    terminal.innerHTML = head + '<div class="logs-empty">Fetching log tail...</div>';
-  }
-
-  function logsSelectFile(file) {
-    const next = logsNormalizeFile(file);
-    if (next === logsState.file) {
-      logsRefresh({forceTail: true, forceScroll: true});
-      return;
-    }
-    logsState.file = next;
-    logsRenderControls();
-    logsUpdateUrl(true);
-    logsRefresh({forceTail: true, forceScroll: true});
-  }
-
-  function logsFmtTs(ts) {
-    if (!ts) return '';
-    try {
-      return new Date(ts).toLocaleTimeString([], {hour12: false});
-    } catch {
-      return String(ts);
-    }
-  }
-
-  function logsMeta(entry) {
-    const bits = [];
-    if (entry.method || entry.status_code) bits.push([entry.method, entry.status_code].filter(Boolean).join(' '));
-    if (entry.duration_ms != null) bits.push(`${entry.duration_ms}ms`);
-    if (entry.action) bits.push(entry.action);
-    if (entry.event_type) bits.push(entry.event_type);
-    return bits.join(' ');
-  }
-
-  function logsEntryHtml(entry, index) {
-    const level = String(entry.level || (entry.raw ? 'raw' : 'log')).toUpperCase();
-    const cls = level.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    const source = entry.source || entry.logger || logsInfo(logsState.file).label;
-    const path = entry.path || entry.href || entry.source_url || entry.target || logsMeta(entry) || '';
-    const msg = entry.msg || entry.message || entry.raw || '';
-    const detail = entry.exc && entry.exc !== msg ? entry.exc : '';
-    return `
-      <div class="logs-entry level-${escapeHtml(cls)}">
-        <span class="time">${escapeHtml(logsFmtTs(entry.ts) || String(index + 1))}</span>
-        <span class="level">${escapeHtml(level)}</span>
-        <span class="source" title="${escapeHtml(source)}">${escapeHtml(source)}</span>
-        <span class="path" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
-        <span class="message">${escapeHtml(msg)}</span>
-        ${detail ? `<pre class="logs-stack">${escapeHtml(detail)}</pre>` : ''}
-      </div>`;
-  }
-
-  function logsAtBottom(el) {
-    return !el || (el.scrollTop + el.clientHeight >= el.scrollHeight - 24);
-  }
-
-  function logsRenderEntries(data, opts = {}) {
-    const terminal = document.getElementById('logsTerminal');
-    if (!terminal) return;
-    const shouldStick = opts.forceScroll || logsAtBottom(terminal);
-    const priorTop = terminal.scrollTop;
-    const entries = data.entries || [];
-    const head = `<div class="logs-terminal-head"><span class="prompt">$</span> tail -n ${escapeHtml(logsState.tail)} logs/${escapeHtml(logsState.file)}</div>`;
-    if (!entries.length) {
-      terminal.innerHTML = head + '<div class="logs-empty">No log lines found.</div>';
-      return;
-    }
-    terminal.innerHTML = head + entries.map(logsEntryHtml).join('');
-    terminal.scrollTop = shouldStick ? terminal.scrollHeight : priorTop;
-  }
-
-  async function logsRefresh(opts = {}) {
-    if (logsRefreshInFlight) return;
-    logsRefreshInFlight = true;
-    const tailInput = document.getElementById('logsTailInput');
-    if (opts.forceTail || document.activeElement !== tailInput) {
-      logsState.tail = logsNormalizeTail((tailInput || {}).value || logsState.tail);
-    }
-    logsState.file = logsNormalizeFile(logsState.file);
-    logsRenderControls();
-    if (!opts.auto) logsUpdateUrl(false);
-    const status = document.getElementById('logsStatus');
-    const button = document.getElementById('logsRefreshBtn');
-    if (status) {
-      status.dataset.lines = '';
-      status.textContent = opts.auto ? 'live' : 'refreshing';
-    }
-    if (button && !opts.auto) button.disabled = true;
-    try {
-      const qs = new URLSearchParams({file: logsState.file, tail: String(logsState.tail)});
-      const r = await fetch('/api/log/tail?' + qs.toString(), {cache: 'no-store'});
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        throw new Error(body.detail || r.statusText || String(r.status));
-      }
-      const data = await r.json();
-      logsState.file = logsNormalizeFile(data.file || logsState.file);
-      logsRenderControls();
-      logsRenderEntries(data, opts);
-      if (logsState.file === LOGS_DEFAULT_FILE && window.labLogAlertMarkSeen) {
-        window.labLogAlertMarkSeen(data.state);
-      }
-      if (status) {
-        status.dataset.lines = String(data.line_count || 0);
-        status.textContent = logsState.live ? `live · ${data.line_count || 0} lines` : `${data.line_count || 0} lines`;
-      }
-    } catch (e) {
-      const terminal = document.getElementById('logsTerminal');
-      if (!opts.auto && terminal) terminal.innerHTML = `<div class="logs-error">Failed to load logs: ${escapeHtml(e.message || e)}</div>`;
-      if (status) status.textContent = 'failed';
-    } finally {
-      logsRefreshInFlight = false;
-      if (button) button.disabled = false;
-    }
-  }
-
-  window.goToLogs = goToLogs;
-  window.logsRefresh = logsRefresh;
-
-  // ─── Code Search tab ─────────────────────────────────────────────
-  // Per-repo pseudo project ids drive the terminal panel and the
-  // warm-switch cache. Backend treats `__cs_<repo>__` as cwd=
-  // repositories/<repo> (see term.py:_project_cwd).
-  function _csProjectId(repoName) {
-    return repoName ? ('__cs_' + repoName + '__') : null;
-  }
-
   function goToCodeSearch(opts = {}) {
     goToProductivity({replace: !!opts.replace, subview: 'code-search'});
   }
-
-  // Persist the last-visited code-search repo so re-entering the tab
-  // restores it (open question #4 answered: auto-pick).
-  function _csRememberLastRepo(repo) {
-    try { if (repo) localStorage.setItem(_CS_LAST_KEY, repo); } catch {}
-  }
-  function _csRecallLastRepo() {
-    try { return localStorage.getItem(_CS_LAST_KEY) || null; } catch { return null; }
-  }
-
-  async function initCodeSearch(initialRepo) {
-    document.body.classList.add('code-search-active');
-    document.title = 'Code search';
-    if (typeof projTabsRender === 'function') projTabsRender();
-
-    // Wire input handlers once. The view's HTML is static template
-    // markup, so attaching listeners on every init would double-fire
-    // them on the second visit; guard with a flag on the root.
-    const view = document.getElementById('codeSearchView');
-    if (view && !view._wired) {
-      view._wired = true;
-      _csWireHandlers();
-    }
-
-    // Paint repos from cache instantly, then reconcile in the
-    // background. First-visit hit is one network round-trip; warm
-    // switches are zero.
-    if (_csCache.repos) {
-      _csRenderRepoList(_csCache.repos);
-    } else {
-      const el = document.getElementById('csRepoList');
-      if (el) el.innerHTML = '<div style="padding:14px 12px;color:var(--text-dim);font-size:12px">Loading repos...</div>';
-    }
-    afterFirstPaint(() => {
-      _csFetchRepos().then(() => {
-        if (!document.body.classList.contains('code-search-active')) return;
-        _csRenderRepoList(_csCache.repos);
-        // Once we have the live list, pick the requested repo (or the
-        // remembered one, or the first).
-        const picked = initialRepo
-          || (_csCache.repos && _csCache.repos.find(r => r.name === _csRecallLastRepo()) && _csRecallLastRepo())
-          || (_csCache.repos && _csCache.repos[0] && _csCache.repos[0].name);
-        if (picked) _csSelectRepo(picked);
-      }).catch((e) => {
-        const el = document.getElementById('csRepoList');
-        if (el) el.innerHTML = `<div style="padding:14px 12px;color:var(--red);font-size:12px">Failed to load repos: ${csEsc(e.message || e)}</div>`;
-      });
-    });
-
-    // Open the terminal panel scoped to the selected repo (or none
-    // if no repo yet — we'll re-open on selection).
-    if (!UI_CHECK && initialRepo) {
-      const pid = _csProjectId(initialRepo);
-      if (pid && typeof termOpenForProject === 'function') {
-        // Hack: set currentProject to a synthetic value so
-        // termOpenForProject's stale-response guards line up.
-        currentProject = {name: pid, path: '', is_project: true, repos: []};
-        afterPageQuiet(() => termOpenForProject(pid));
-      }
-    }
-  }
-
-  // ── Code Search helpers ──────────────────────────────────────────
-  function csEsc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-
-  async function _csFetchRepos() {
-    const r = await fetch('/api/code-search/repos');
-    if (!r.ok) throw new Error(`/api/code-search/repos → ${r.status}`);
-    _csCache.repos = await r.json();
-  }
-
-  async function _csFetchStats(repo) {
-    if (_csCache.stats.has(repo)) return _csCache.stats.get(repo);
-    try {
-      const r = await fetch(`/api/code-search/repos/${encodeURIComponent(repo)}/stats`);
-      if (!r.ok) throw new Error(`stats ${r.status}`);
-      const data = await r.json();
-      _csCache.stats.set(repo, data);
-      return data;
-    } catch { return null; }
-  }
-
-  function _csRenderRepoList(repos) {
-    const el = document.getElementById('csRepoList');
-    if (!el) return;
-    const filter = (_csState.filter || '').toLowerCase();
-    const list = (repos || []).filter(r => !filter || r.name.toLowerCase().includes(filter));
-    if (!list.length) {
-      el.innerHTML = '<div style="padding:14px 12px;color:var(--text-dim);font-size:12px;font-style:italic">no repos match</div>';
-      return;
-    }
-    el.innerHTML = list.map(r => {
-      const last = r.last || {};
-      const active = r.name === _csState.repo ? ' active' : '';
-      const meta = last.when ? `${csEsc(last.when)} · ${csEsc(last.who || '')}` : 'no commits';
-      return `<div class="repo-item${active}" data-repo="${csEsc(r.name)}" title="${csEsc(r.name)} · ${csEsc(last.subj || '')}">
-        <div class="repo-name">${csEsc(r.name)}</div>
-        <div class="repo-meta">${meta}</div>
-      </div>`;
-    }).join('');
-  }
-
-  function _csSelectRepo(repo) {
-    if (!repo) return;
-    _csState.repo = repo;
-    _csState.openFile = null;
-    _csState.fileLines = null;
-    _csState.selectedRange = null;
-    _csState.rangeScope = false;
-    _csState.hitLine = null;
-    _csRememberLastRepo(repo);
-    // URL: keep repo in the query string so reload restores.
-    try {
-      const url = new URL(window.location);
-      url.searchParams.set('view', 'code-search');
-      url.searchParams.set('repo', repo);
-      url.searchParams.delete('path');
-      history.replaceState(null, '', url);
-    } catch {}
-    _csRenderRepoList(_csCache.repos);
-    _csRenderHeader();
-    _csRenderResults({mode: _csState.mode, results: [], truncated: false});
-    _csRenderPreview();
-    _csRenderGitRail();
-    // Kick off background stats fetch (badges).
-    _csFetchStats(repo).then(() => _csRenderHeader());
-    // Auto-load whole-repo log so the git rail isn't empty.
-    _csLoadLog().then(() => _csRenderGitRail());
-    // If query was already typed, re-run it for the new repo.
-    if (_csState.query) _csRunSearch();
-    // Re-scope the terminal panel to this repo.
-    if (!UI_CHECK) {
-      const pid = _csProjectId(repo);
-      currentProject = {name: pid, path: '', is_project: true, repos: []};
-      if (typeof termOpenForProject === 'function') termOpenForProject(pid);
-    }
-  }
-
-  function _csRenderHeader() {
-    const repo = _csState.repo;
-    if (!repo) {
-      document.getElementById('csTitle').textContent = '— pick a repo —';
-      document.getElementById('csClone').textContent = '';
-      document.getElementById('csBadges').innerHTML = '';
-      document.getElementById('csSearchHint').textContent = 'pick a repo';
-      return;
-    }
-    const r = (_csCache.repos || []).find(x => x.name === repo) || {};
-    const stats = _csCache.stats.get(repo) || {};
-    document.getElementById('csTitle').textContent = repo;
-    document.getElementById('csClone').textContent = stats.clone || '';
-    const last = r.last || {};
-    const badges = [];
-    if (r.branch) badges.push(`<span class="h-badge">branch <span class="v">${csEsc(r.branch)}</span></span>`);
-    if (typeof stats.commits === 'number') badges.push(`<span class="h-badge">${stats.commits.toLocaleString()} <span class="v">commits</span></span>`);
-    if (typeof stats.contribs === 'number') badges.push(`<span class="h-badge">${stats.contribs} <span class="v">contributors</span></span>`);
-    if (typeof stats.files === 'number') badges.push(`<span class="h-badge">${stats.files} <span class="v">files</span></span>`);
-    if (last.when) badges.push(`<span class="h-badge">last <span class="v">${csEsc(last.when)}</span></span>`);
-    document.getElementById('csBadges').innerHTML = badges.join('');
-    document.getElementById('csSearchHint').textContent = _csState.query ? 'press Enter to search' : 'type a query, then Enter';
-  }
-
-  async function _csRunSearch() {
-    const repo = _csState.repo;
-    const q = (_csState.query || '').trim();
-    const mode = _csState.mode;
-    if (!repo) return;
-    if (!q) { _csRenderResults({mode, results: [], truncated: false}); return; }
-    const cacheKey = `${repo}|${mode}|${q}`;
-    if (_csCache.search.has(cacheKey)) {
-      _csRenderResults(_csCache.search.get(cacheKey));
-      return;
-    }
-    document.getElementById('csSearchHint').textContent = 'searching…';
-    try {
-      const r = await fetch(`/api/code-search/repos/${encodeURIComponent(repo)}/search?mode=${mode}&q=${encodeURIComponent(q)}&limit=200`);
-      if (!r.ok) throw new Error(`search ${r.status}`);
-      const data = await r.json();
-      _csCache.search.set(cacheKey, data);
-      _csRenderResults(data);
-    } catch (e) {
-      _csRenderResults({mode, results: [], truncated: false, error: e.message || String(e)});
-    }
-  }
-
-  function _csRenderResults(data) {
-    const list = document.getElementById('csResultsList');
-    const label = document.getElementById('csResultsLabel');
-    const hint = document.getElementById('csSearchHint');
-    if (!list || !label) return;
-    const mode = data.mode || _csState.mode;
-    const results = data.results || [];
-    if (data.error) {
-      list.innerHTML = `<div class="res-empty" style="color:var(--red)">${csEsc(data.error)}</div>`;
-      label.textContent = 'Error';
-      hint.textContent = '';
-      return;
-    }
-    if (!results.length) {
-      list.innerHTML = `<div class="res-empty">${_csState.query ? 'no matches' : 'type a query and press Enter'}</div>`;
-      label.textContent = mode === 'filenames' ? 'Filenames' : 'Code';
-      hint.textContent = _csState.query ? `0 results${data.truncated ? ' (truncated)' : ''}` : 'pick a query';
-      return;
-    }
-    if (mode === 'filenames') {
-      list.innerHTML = results.map(f => `
-        <div class="res-item" data-path="${csEsc(f.path)}">
-          <div class="path">${csEsc(f.path)}</div>
-          <div class="meta">${f.size != null ? `${f.size.toLocaleString()} bytes` : ''}</div>
-        </div>
-      `).join('');
-      label.textContent = `Filenames — ${results.length} match${results.length === 1 ? '' : 'es'}`;
-    } else {
-      list.innerHTML = results.map(c => `
-        <div class="res-item" data-path="${csEsc(c.path)}" data-line="${c.line}">
-          <div><span class="path">${csEsc(c.path)}</span><span class="line">:${c.line}</span></div>
-          <div class="snippet">${csEsc(c.snippet || '')}</div>
-        </div>
-      `).join('');
-      label.textContent = `Code — ${results.length} hit${results.length === 1 ? '' : 's'}`;
-    }
-    hint.textContent = data.truncated ? `${results.length} (truncated)` : `${results.length} results`;
-  }
-
-  // Map extensions → highlight.js language id. Anything not listed
-  // falls back to plaintext (no colors, still wraps + line-numbered).
-  // Extra packs loaded above include scala, groovy, protobuf so those
-  // entries are real here, not no-ops.
-  const _CS_LANG_BY_EXT = {
-    py: 'python', pyi: 'python', ipynb: 'json',
-    scala: 'scala', sc: 'scala',
-    java: 'java', kt: 'kotlin', kts: 'kotlin',
-    js: 'javascript', mjs: 'javascript', cjs: 'javascript',
-    ts: 'typescript', tsx: 'typescript', jsx: 'javascript',
-    json: 'json', json5: 'json',
-    yml: 'yaml', yaml: 'yaml',
-    md: 'markdown', markdown: 'markdown',
-    sh: 'bash', bash: 'bash', zsh: 'bash',
-    gradle: 'groovy', groovy: 'groovy',
-    sql: 'sql', html: 'xml', htm: 'xml', xml: 'xml',
-    css: 'css', scss: 'scss',
-    toml: 'ini', ini: 'ini', cfg: 'ini',
-    avsc: 'json',
-    proto: 'protobuf',
-    go: 'go', rs: 'rust', rb: 'ruby', php: 'php',
-    c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp',
-    dockerfile: 'dockerfile', make: 'makefile', mk: 'makefile',
-    drl: 'java',  // Drools .drl files look enough like Java to highlight usefully
-    acl: 'json',  // ACL files are JSON-shaped in the LinkedIn repos
-  };
-
-  function _csLangForPath(path) {
-    if (!path) return 'plaintext';
-    const base = path.split('/').pop() || '';
-    if (base.toLowerCase() === 'dockerfile') return 'dockerfile';
-    if (base.toLowerCase() === 'makefile') return 'makefile';
-    const m = /\.([A-Za-z0-9]+)$/.exec(base);
-    if (!m) return 'plaintext';
-    return _CS_LANG_BY_EXT[m[1].toLowerCase()] || 'plaintext';
-  }
-
-  // Either the path's natural language, or — for notebooks — python,
-  // since we transform ipynb JSON into Python-shaped source before
-  // displaying it.
-  function _csEffectiveLang(path) {
-    if (path && path.toLowerCase().endsWith('.ipynb')) return 'python';
-    return _csLangForPath(path);
-  }
-
-  // Transform a Jupyter notebook's JSON into a readable flat source
-  // string with per-cell separators. The result reads like one big
-  // Python file: markdown / raw cells become `# …` comment blocks,
-  // so the python highlighter renders them as dim comments, while
-  // code cells render with full syntax highlighting. The user sees
-  // code instead of raw ipynb JSON. Returns null on parse failure
-  // so the caller falls back to the original content.
-  function _csTransformIpynb(content) {
-    let nb;
-    try { nb = JSON.parse(content); } catch { return null; }
-    if (!nb || !Array.isArray(nb.cells)) return null;
-    const out = [];
-    nb.cells.forEach((cell, i) => {
-      const kind = String(cell.cell_type || 'raw');
-      let src = cell.source;
-      if (Array.isArray(src)) src = src.join('');
-      src = String(src == null ? '' : src);
-      out.push(`# ─── cell ${i + 1} · ${kind} ───────────────────────────────────────`);
-      if (kind === 'markdown' || kind === 'raw') {
-        src.split('\n').forEach(line => out.push('# ' + line));
-      } else {
-        out.push(src);
-      }
-      out.push('');
-    });
-    return out.join('\n');
-  }
-
-  // Build per-line highlighted rows from a file's source. The whole
-  // file is highlighted as one block so multi-line tokens (strings,
-  // doc-comments) resolve correctly, then we split the resulting HTML
-  // by `\n` and wrap each line in a row with line number + match /
-  // current-line classes. Browsers auto-close unbalanced spans at
-  // row boundaries, which is visually equivalent for color purposes.
-  // Returns the row-HTML join (one string); caller injects.
-  function _csHighlightRowsHtml(lines, path, opts) {
-    opts = opts || {};
-    const lang = _csEffectiveLang(path);
-    const raw = lines.join('\n');
-    let rows;
-    try {
-      const out = (window.hljs && window.hljs.getLanguage && window.hljs.getLanguage(lang))
-        ? window.hljs.highlight(raw, {language: lang, ignoreIllegals: true}).value
-        : csEsc(raw);
-      rows = out.split('\n');
-    } catch (e) {
-      rows = csEsc(raw).split('\n');
-    }
-    const hits = new Set(opts.hits || []);
-    const current = opts.current || null;
-    const rowClass = opts.rowClass || 'file-line';
-    const lnClass = opts.lnClass || 'ln';
-    const srcClass = opts.srcClass || 'src';
-    return rows.map((html, i) => {
-      const ln = i + 1;
-      const cls = rowClass
-        + (hits.has(ln) ? ' hit' : '')
-        + (ln === current ? ' sel' : '');
-      return `<div class="${cls}" data-line="${ln}"><span class="${lnClass}">${ln}</span><span class="${srcClass}">${html || '&nbsp;'}</span></div>`;
-    }).join('');
-  }
-
-  // Single-click action: inline preview in the workspace's right pane.
-  // Fast, scoped, terminal stays visible. Double-click → full modal
-  // (_csOpenFileModal below) for the rich syntax-highlighted view.
-  async function _csOpenFilePreview(path, line) {
-    if (!_csState.repo || !path) return;
-    _csState.openFile = path;
-    _csState.selectedRange = null;
-    _csState.rangeScope = false;
-    // ipynb match lines refer to the raw JSON; the rendered view is
-    // re-flowed, so the original line number isn't meaningful. Drop
-    // the jump-to-line cue for notebooks — the user can still see the
-    // hits highlighted via the match-rail rendering in the modal.
-    const isIpynb = path.toLowerCase().endsWith('.ipynb');
-    _csState.hitLine = (line && !isIpynb) ? line : null;
-    document.getElementById('csRangePop')?.classList.remove('on');
-    document.getElementById('csPreviewPath').textContent = path;
-    document.getElementById('csPreviewHint').textContent = 'loading…';
-    const cacheKey = `${_csState.repo}|${path}`;
-    let data;
-    if (_csCache.file.has(cacheKey)) {
-      data = _csCache.file.get(cacheKey);
-    } else {
-      try {
-        const r = await fetch(`/api/code-search/repos/${encodeURIComponent(_csState.repo)}/file?path=${encodeURIComponent(path)}`);
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.detail || `file ${r.status}`);
-        }
-        data = await r.json();
-        _csCache.file.set(cacheKey, data);
-      } catch (err) {
-        const body = document.getElementById('csFileBody');
-        if (body) {
-          Array.from(body.children).forEach(el => { if (el.id !== 'csRangePop') el.remove(); });
-          body.insertBefore(Object.assign(document.createElement('div'), {
-            className: 'preview-empty',
-            textContent: `Error loading file: ${err.message || err}`,
-          }), document.getElementById('csRangePop'));
-        }
-        return;
-      }
-    }
-    let content = data.content || '';
-    if (isIpynb) {
-      const transformed = _csTransformIpynb(content);
-      if (transformed != null) content = transformed;
-    }
-    await ensureHighlight().catch(() => {});
-    _csState.fileLines = content.split('\n');
-    _csRenderPreview();
-    _csState.rangeScope = false;
-    _csLoadLog().then(() => _csRenderGitRail());
-  }
-
-  function _csRenderPreview() {
-    const body = document.getElementById('csFileBody');
-    const pop = document.getElementById('csRangePop');
-    if (!body) return;
-    Array.from(body.children).forEach(el => { if (el.id !== 'csRangePop') el.remove(); });
-    const lines = _csState.fileLines;
-    if (!_csState.openFile || !lines) {
-      const empty = document.createElement('div');
-      empty.className = 'preview-empty';
-      empty.textContent = _csState.repo
-        ? 'Click a result on the left to preview · double-click for the full modal'
-        : 'Pick a repo on the far left.';
-      body.insertBefore(empty, pop);
-      document.getElementById('csPreviewPath').textContent = 'no file open';
-      document.getElementById('csPreviewHint').textContent = _csState.repo ? 'click a result to preview · double-click for full modal' : '';
-      return;
-    }
-    const path = _csState.openFile;
-    const isIpynb = path.toLowerCase().endsWith('.ipynb');
-    document.getElementById('csPreviewPath').textContent = path;
-    document.getElementById('csPreviewHint').textContent =
-      `${lines.length} lines · ${_csEffectiveLang(path)}${isIpynb ? ' · notebook rendered as code' : ''} · double-click for modal`;
-    // ipynb match line numbers refer to the JSON, not the rendered
-    // view — skip hit highlighting in that case.
-    const matches = isIpynb ? [] : _csMatchesForFile(path);
-    const html = _csHighlightRowsHtml(lines, path, {
-      hits: matches.map(m => m.line),
-      current: _csState.hitLine,
-      rowClass: 'file-line',
-      lnClass: 'ln',
-      srcClass: 'src',
-    });
-    // Drop the new rows in front of the persistent range-pop element.
-    pop.insertAdjacentHTML('beforebegin', html);
-    if (_csState.hitLine) {
-      requestAnimationFrame(() => {
-        const row = body.querySelector(`.file-line[data-line="${_csState.hitLine}"]`);
-        if (row) row.scrollIntoView({block: 'center'});
-      });
-    }
-  }
-
-  async function csShowRangeHistory() {
-    if (!_csState.selectedRange || !_csState.openFile) return;
-    _csState.rangeScope = true;
-    document.getElementById('csGitList').innerHTML = '<div class="git-empty">loading git log -L…</div>';
-    await _csLoadLog();
-    _csRenderGitRail();
-  }
-  window.csShowRangeHistory = csShowRangeHistory;
-
-  // Double-click action: open the rich modal for `path`, jumping to
-  // `line` if provided. The match rail lists every search hit in this
-  // same file (pulled from the cached code-search results so we don't
-  // re-query the backend).
-  async function _csOpenFileModal(path, line) {
-    if (!_csState.repo || !path) return;
-    _csState.openFile = path;
-    _csState.selectedRange = null;
-    _csState.rangeScope = false;
-    const isIpynb = path.toLowerCase().endsWith('.ipynb');
-    _csState.hitLine = (line && !isIpynb) ? line : null;
-
-    const overlay = document.getElementById('csFileModalOverlay');
-    overlay.classList.add('on');
-    document.getElementById('csFileModalPath').textContent = path;
-    document.getElementById('csFileModalLang').textContent = _csEffectiveLang(path) + (isIpynb ? ' (notebook)' : '');
-    document.getElementById('csFileModalMatches').textContent = 'loading…';
-    document.getElementById('csCodeBlock').innerHTML = '<div style="padding:18px;color:var(--text-dim)">loading file…</div>';
-    document.getElementById('csMatchRailList').innerHTML = '';
-
-    const cacheKey = `${_csState.repo}|${path}`;
-    let data;
-    if (_csCache.file.has(cacheKey)) {
-      data = _csCache.file.get(cacheKey);
-    } else {
-      try {
-        const r = await fetch(`/api/code-search/repos/${encodeURIComponent(_csState.repo)}/file?path=${encodeURIComponent(path)}`);
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.detail || `file ${r.status}`);
-        }
-        data = await r.json();
-        _csCache.file.set(cacheKey, data);
-      } catch (err) {
-        document.getElementById('csCodeBlock').innerHTML = `<div style="padding:18px;color:var(--red)">Error loading file: ${csEsc(err.message || err)}</div>`;
-        document.getElementById('csFileModalMatches').textContent = 'error';
-        return;
-      }
-    }
-    let content = data.content || '';
-    if (isIpynb) {
-      const transformed = _csTransformIpynb(content);
-      if (transformed != null) content = transformed;
-    }
-    await ensureHighlight().catch(() => {});
-    _csState.fileLines = content.split('\n');
-
-    // For non-ipynb files, surface the cached search hits in the
-    // match rail. For ipynb the hit line numbers refer to the raw
-    // JSON, not the rendered view; show a placeholder explaining
-    // that and skip the per-line highlighting.
-    const rawMatches = _csMatchesForFile(path);
-    const matchesInFile = isIpynb ? [] : rawMatches;
-    document.getElementById('csFileModalMatches').textContent = isIpynb
-      ? `${_csState.fileLines.length} lines · notebook rendered as code${rawMatches.length ? ` · ${rawMatches.length} raw JSON hit${rawMatches.length === 1 ? '' : 's'} (Cmd-F to find)` : ''}`
-      : (matchesInFile.length
-          ? `${matchesInFile.length} match${matchesInFile.length === 1 ? '' : 'es'} for "${csEsc(_csState.query)}"`
-          : `${_csState.fileLines.length} lines · no hits in this file for "${csEsc(_csState.query)}"`);
-    _csRenderMatchRail(matchesInFile, line);
-    _csRenderCodeWithHighlight(_csState.fileLines, path, matchesInFile, _csState.hitLine);
-
-    _csState.rangeScope = false;
-    _csLoadLog().then(() => _csRenderGitRail());
-  }
-
-  function _csMatchesForFile(path) {
-    // Pull every code-mode hit for this file from the cached search.
-    // Falls back to a single synthesized hit so the rail still shows
-    // the "jumped-to" line when the user opened from a filename hit.
-    const q = (_csState.query || '').trim();
-    const blob = _csCache.search.get(`${_csState.repo}|code|${q}`);
-    const hits = (blob && blob.results || []).filter(r => r.path === path);
-    return hits;
-  }
-
-  function _csRenderMatchRail(matches, currentLine) {
-    const host = document.getElementById('csMatchRailList');
-    const head = document.getElementById('csMatchRailHead');
-    if (!host) return;
-    if (!matches.length) {
-      head.textContent = 'No matches in this file';
-      host.innerHTML = '<div class="match-empty">Open from a filename — no code hits to jump to. The whole file is below.</div>';
-      return;
-    }
-    head.textContent = `${matches.length} match${matches.length === 1 ? '' : 'es'}`;
-    host.innerHTML = matches.map(m => `
-      <div class="match-item${m.line === currentLine ? ' active' : ''}" data-line="${m.line}">
-        <span class="ln">L${m.line}</span>
-        <div class="snippet">${csEsc(m.snippet || '')}</div>
-      </div>
-    `).join('');
-    host.querySelectorAll('.match-item').forEach(el => {
-      el.addEventListener('click', () => {
-        const ln = parseInt(el.dataset.line, 10);
-        host.querySelectorAll('.match-item').forEach(x => x.classList.toggle('active', x === el));
-        _csJumpToLine(ln);
-      });
-    });
-  }
-
-  // Modal-side renderer: same one-block highlight then per-line wrap
-  // pipeline as the inline preview (_csHighlightRowsHtml), with the
-  // modal's `code-line` / `csln` / `csrc` class names.
-  function _csRenderCodeWithHighlight(lines, path, matches, jumpLine) {
-    const codeBlock = document.getElementById('csCodeBlock');
-    codeBlock.className = 'language-' + _csEffectiveLang(path) + ' hljs';
-    codeBlock.innerHTML = _csHighlightRowsHtml(lines, path, {
-      hits: (matches || []).map(m => m.line),
-      current: jumpLine,
-      rowClass: 'code-line',
-      lnClass: 'csln',
-      srcClass: 'csrc',
-    });
-    if (jumpLine) {
-      requestAnimationFrame(() => {
-        const row = codeBlock.querySelector(`.code-line[data-line="${jumpLine}"]`);
-        if (row) row.scrollIntoView({block: 'center'});
-      });
-    }
-  }
-
-  function _csJumpToLine(ln) {
-    const block = document.getElementById('csCodeBlock');
-    if (!block) return;
-    block.querySelectorAll('.code-line.current').forEach(el => el.classList.remove('current'));
-    const row = block.querySelector(`.code-line[data-line="${ln}"]`);
-    if (row) {
-      row.classList.add('current');
-      row.scrollIntoView({block: 'center', behavior: 'smooth'});
-    }
-    _csState.hitLine = ln;
-  }
-
-  function csCloseFileModal() {
-    document.getElementById('csFileModalOverlay')?.classList.remove('on');
-  }
-  window.csCloseFileModal = csCloseFileModal;
-
-  async function _csLoadLog() {
-    const repo = _csState.repo;
-    if (!repo) return;
-    const path = _csState.openFile;
-    const range = (_csState.rangeScope && _csState.selectedRange) ? _csState.selectedRange : null;
-    const key = `${repo}|${path || ''}|${range ? range.join(',') : ''}`;
-    if (_csCache.log.has(key)) return _csCache.log.get(key);
-    let url = `/api/code-search/repos/${encodeURIComponent(repo)}/log?limit=80`;
-    if (path) url += `&path=${encodeURIComponent(path)}`;
-    if (range) url += `&start=${range[0]}&end=${range[1]}`;
-    try {
-      const r = await fetch(url);
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.detail || `log ${r.status}`);
-      }
-      const data = await r.json();
-      _csCache.log.set(key, data);
-      return data;
-    } catch (e) {
-      return [{_error: e.message || String(e)}];
-    }
-  }
-
-  function _csRenderGitRail() {
-    const list = document.getElementById('csGitList');
-    const scope = document.getElementById('csGitScope');
-    if (!list || !scope) return;
-    if (!_csState.repo) {
-      scope.textContent = '—';
-      list.innerHTML = '<div class="git-empty">Pick a repo to see commits.</div>';
-      return;
-    }
-    const path = _csState.openFile;
-    const range = (_csState.rangeScope && _csState.selectedRange) ? _csState.selectedRange : null;
-    if (range) scope.textContent = `lines ${range[0]}–${range[1]}`;
-    else if (path) scope.textContent = path.split('/').pop();
-    else scope.textContent = 'whole repo';
-    const key = `${_csState.repo}|${path || ''}|${range ? range.join(',') : ''}`;
-    const cached = _csCache.log.get(key);
-    if (!cached) {
-      list.innerHTML = '<div class="git-empty">loading…</div>';
-      return;
-    }
-    if (cached[0] && cached[0]._error) {
-      list.innerHTML = `<div class="git-empty" style="color:var(--red)">${csEsc(cached[0]._error)}</div>`;
-      return;
-    }
-    if (!cached.length) {
-      list.innerHTML = '<div class="git-empty">No history for this scope.</div>';
-      return;
-    }
-    list.innerHTML = cached.map(c => `
-      <div class="git-item${range ? ' range' : ''}" data-sha="${csEsc(c.sha)}">
-        <div class="sha">${csEsc(c.sha)}</div>
-        <div class="subj">${csEsc(c.subj || '')}</div>
-        <div class="who">${csEsc(c.who || '')} · ${csEsc(c.when || '')}</div>
-      </div>
-    `).join('');
-  }
-
-  async function _csOpenCommit(sha) {
-    if (!_csState.repo || !sha) return;
-    let url = `/api/code-search/repos/${encodeURIComponent(_csState.repo)}/commit/${encodeURIComponent(sha)}`;
-    if (_csState.openFile) url += `?path=${encodeURIComponent(_csState.openFile)}`;
-    const overlay = document.getElementById('csDrawerOverlay');
-    overlay.classList.add('on');
-    document.getElementById('csDrawerSha').textContent = sha;
-    document.getElementById('csDrawerSubj').textContent = 'loading…';
-    document.getElementById('csDrawerMeta').textContent = '';
-    document.getElementById('csDrawerBody').textContent = '';
-    try {
-      const r = await fetch(url);
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.detail || `commit ${r.status}`);
-      }
-      const c = await r.json();
-      document.getElementById('csDrawerSha').textContent = c.sha || sha;
-      document.getElementById('csDrawerSubj').textContent = c.subj || '';
-      const meta = `<b>${csEsc(c.who || '')}</b>${c.email ? ` &lt;${csEsc(c.email)}&gt;` : ''} · ${csEsc(c.when_iso || '')} (${csEsc(c.when || '')})` + (c.body ? `<br><span style="color:var(--text-primary)">${csEsc(c.body)}</span>` : '');
-      document.getElementById('csDrawerMeta').innerHTML = meta;
-      document.getElementById('csDrawerBody').innerHTML = (c.diff || '').split('\n').map(l => {
-        let cls = '';
-        if (l.startsWith('+') && !l.startsWith('+++')) cls = 'add';
-        else if (l.startsWith('-') && !l.startsWith('---')) cls = 'del';
-        else if (l.startsWith('@@')) cls = 'hunk';
-        else if (l.startsWith('diff ') || l.startsWith('index ') || l.startsWith('---') || l.startsWith('+++')) cls = 'meta';
-        return `<span class="dline ${cls}">${csEsc(l) || '&nbsp;'}</span>`;
-      }).join('');
-    } catch (e) {
-      document.getElementById('csDrawerSubj').textContent = `Error: ${e.message || e}`;
-    }
-  }
-
-  function csCloseDrawer() {
-    document.getElementById('csDrawerOverlay')?.classList.remove('on');
-  }
-  window.csCloseDrawer = csCloseDrawer;
-
-  function _csWireHandlers() {
-    document.getElementById('csRepoFilter').addEventListener('input', (e) => {
-      _csState.filter = e.target.value;
-      _csRenderRepoList(_csCache.repos);
-    });
-    document.getElementById('csRepoList').addEventListener('click', (e) => {
-      const it = e.target.closest('.repo-item');
-      if (!it) return;
-      _csSelectRepo(it.dataset.repo);
-    });
-    document.getElementById('csModes').addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-mode]');
-      if (!btn) return;
-      _csState.mode = btn.dataset.mode;
-      document.querySelectorAll('#csModes button').forEach(b => b.classList.toggle('active', b === btn));
-      _csRunSearch();
-    });
-    const input = document.getElementById('csSearchInput');
-    input.addEventListener('input', (e) => { _csState.query = e.target.value; });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); _csRunSearch(); }
-    });
-    document.getElementById('csResultsList').addEventListener('click', (e) => {
-      const it = e.target.closest('.res-item');
-      if (!it) return;
-      document.querySelectorAll('#csResultsList .res-item').forEach(el => el.classList.toggle('active', el === it));
-      const ln = it.dataset.line ? parseInt(it.dataset.line, 10) : null;
-      _csOpenFilePreview(it.dataset.path, ln);
-    });
-    document.getElementById('csResultsList').addEventListener('dblclick', (e) => {
-      const it = e.target.closest('.res-item');
-      if (!it) return;
-      const ln = it.dataset.line ? parseInt(it.dataset.line, 10) : null;
-      _csOpenFileModal(it.dataset.path, ln);
-    });
-    // Line-range selection on the inline preview body — drag across
-    // line numbers to pop the "git log -L" affordance. Mirrors the
-    // POC pattern.
-    let _csSel = null;
-    const fileBody = document.getElementById('csFileBody');
-    fileBody.addEventListener('mousedown', (e) => {
-      const row = e.target.closest('.file-line');
-      if (!row) return;
-      _csSel = {a: parseInt(row.dataset.line, 10), b: parseInt(row.dataset.line, 10)};
-    });
-    fileBody.addEventListener('mousemove', (e) => {
-      if (!_csSel) return;
-      const row = e.target.closest('.file-line');
-      if (!row) return;
-      _csSel.b = parseInt(row.dataset.line, 10);
-      const lo = Math.min(_csSel.a, _csSel.b), hi = Math.max(_csSel.a, _csSel.b);
-      fileBody.querySelectorAll('.file-line').forEach(r => {
-        const ln = parseInt(r.dataset.line, 10);
-        r.classList.toggle('sel', ln >= lo && ln <= hi);
-      });
-    });
-    document.addEventListener('mouseup', () => {
-      if (!_csSel) return;
-      const lo = Math.min(_csSel.a, _csSel.b), hi = Math.max(_csSel.a, _csSel.b);
-      const pop = document.getElementById('csRangePop');
-      if (hi > lo) {
-        _csState.selectedRange = [lo, hi];
-        document.getElementById('csRangeLines').textContent = `lines ${lo}–${hi}`;
-        if (pop) {
-          pop.classList.add('on');
-          const first = fileBody.querySelector(`.file-line[data-line="${lo}"]`);
-          if (first) pop.style.top = (first.offsetTop + 4) + 'px';
-        }
-      } else {
-        _csState.selectedRange = null;
-        if (pop) pop.classList.remove('on');
-        fileBody.querySelectorAll('.file-line.sel').forEach(r => r.classList.remove('sel'));
-      }
-      _csSel = null;
-    });
-    document.getElementById('csGitList').addEventListener('click', (e) => {
-      const it = e.target.closest('.git-item');
-      if (!it) return;
-      _csOpenCommit(it.dataset.sha);
-    });
-    // File modal controls.
-    document.getElementById('csFileModalCopy').addEventListener('click', () => {
-      const path = document.getElementById('csFileModalPath').textContent || '';
-      try { navigator.clipboard.writeText(path); } catch {}
-    });
-    document.getElementById('csFileModalHist').addEventListener('click', () => {
-      // Already updates the right rail when the file opens — this just
-      // closes the modal so the user can see it.
-      csCloseFileModal();
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
-      const overlay = document.getElementById('csFileModalOverlay');
-      if (overlay && overlay.classList.contains('on')) csCloseFileModal();
-    });
-  }
+  window.goToLogs = goToLogs;
+  window.goToCodeSearch = goToCodeSearch;
 
   // Browser back/forward → re-run the same dispatch the initial-load
   // chain runs, but with `{replace: true}` so we don't push duplicate
@@ -9501,14 +8299,9 @@
     } else if (view === 'workspace') {
       goToWorkspace(params.get('workspace') || currentWorkspaceId, {replace: true});
     } else if (view === 'code-search') {
-      goToProductivity({replace: true});
-      showScopedCodeSearch();
+      goToCodeSearch({replace: true});
     } else if (view === 'logs') {
-      goToLogs({
-        replace: true,
-        file: params.get('file') || LOGS_DEFAULT_FILE,
-        tail: params.get('tail') || LOGS_DEFAULT_TAIL,
-      });
+      goToLogs({replace: true});
     } else if (repo) {
       _swapViewState();
       fetchRepos().then(projects => {
@@ -9521,284 +8314,7 @@
     }
   });
 
-  function setHomeTab(tab) {
-    homeTab = tab;
-    location.hash = '#' + tab;
-    for (const name of ['dashboard', 'snoozed', 'timeline', 'search']) {
-      const btn = document.getElementById('homeTab' + name[0].toUpperCase() + name.slice(1));
-      if (btn) btn.classList.toggle('active', name === tab);
-    }
-    renderHomePanel();
-  }
-
-  async function renderHomePanel() {
-    const el = document.getElementById('homePanel');
-    const tab = homeTab;
-    if (tab !== 'search') paintHomeShell(el, tab);
-    if (tab === 'search') {
-      renderSearch(el);
-      return;
-    }
-    const fill = async () => {
-      if (_homeRendering || homeTab !== tab) return;
-      _homeRendering = true;
-      try {
-        if (tab === 'dashboard') await renderDashboard(el);
-        else if (tab === 'snoozed') await renderSnoozed(el);
-        else if (tab === 'timeline') await renderTimeline(el);
-      } finally {
-        _homeRendering = false;
-      }
-    };
-    if (document.readyState !== 'complete' || performance.now() < 2000) {
-      afterPageQuiet(fill);
-    } else {
-      await fill();
-    }
-  }
-
-  function priorityClass(p) { return p ? 'p-' + p.toLowerCase() : ''; }
-  function fmtDate(iso) { return iso ? iso.slice(0, 10) : '—'; }
   function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-  function paintHomeShell(el, tab) {
-    if (!el) return;
-    if (tab === 'dashboard') {
-      el.innerHTML = `
-        <div class="filter-row">
-          <button class="btn-primary" disabled>+ New project</button>
-        </div>
-        <div class="p-list">
-          <div class="p-section">
-            <div class="p-section-head">Pinned</div>
-            <div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim)">Loading dashboard...</span><span></span><span></span><span></span><span></span></div>
-          </div>
-        </div>`;
-    } else if (tab === 'snoozed') {
-      el.innerHTML = `
-        <div class="snooze-section">
-          <h3>Ready for review <span class="count">...</span></h3>
-          <p class="snooze-empty">Loading snoozed projects...</p>
-        </div>`;
-    } else if (tab === 'timeline') {
-      el.innerHTML = `
-        <h2>Timeline</h2>
-        <div class="bucket">
-          <h3>Open work</h3>
-          <p style="color:var(--text-dim)">Loading timeline...</p>
-        </div>`;
-    }
-  }
-
-  async function renderDashboard(el) {
-    const [idx, dueRaw, wsData] = await Promise.all([
-      fetch('/api/index').then(r => r.json()),
-      fetch('/api/tasks/due?days=7').then(r => r.json()),
-      // Best-effort: a failure here (network hiccup, old server) must not
-      // take down the rest of the dashboard — it only costs the "other
-      // workspaces" sections below.
-      fetch('/api/workspaces/projects').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]);
-    const allProjects = idx.projects || [];
-    const dueSoon = dueRaw.filter(t => t.status !== 'done');
-    if (wsData && wsData.active) currentWorkspaceId = wsData.active;
-    // Every OTHER registered workspace (not the one being served right
-    // now) — rendered as its own minimal section below so projects on a
-    // volume that isn't currently active (e.g. the SSD, when `local` is
-    // active) are still visible, not just the active workspace's.
-    const otherWorkspaces = ((wsData && wsData.workspaces) || [])
-      .filter(w => w.id !== (wsData && wsData.active));
-    // The workspace being served right now — its projects (the flat index)
-    // render grouped under its own header below. Falls back to `current`
-    // (always present in the payload) and, when /api/workspaces/projects
-    // failed entirely, to null — which keeps the old ungrouped layout.
-    const activeWs = ((wsData && wsData.workspaces) || []).find(w => w.active)
-      || (wsData && wsData.current) || null;
-
-    const dueStrip = dueSoon.length === 0 ? '' : `
-      <div class="due-strip">
-        ${dueSoon.slice(0, 30).map(t => `
-          <span class="due-chip" data-pid="${escapeHtml(t.project_id)}" title="${escapeHtml(t.project_id)}  #${t.task_id}">
-            <span class="chip ${priorityClass(t.priority)}">${escapeHtml(t.priority || '')}</span>
-            <span>${escapeHtml(t.title)}</span>
-            <span class="due-date">${fmtDate(t.due)}</span>
-          </span>
-        `).join('')}
-      </div>`;
-
-    // Pinned pseudo-projects: always one click away.
-    const pseudoRows = [
-      pseudoRowHtml({
-        id: LOGS_PROJECT_ID, icon: '$', label: 'logs',
-        desc: 'Terminal-style view of errors, backend, and frontend logs.',
-        href: '/?view=logs',
-      }),
-      pseudoRowHtml({
-        id: SELF_PROJECT_ID, icon: '🛠️', label: 'productivity',
-        desc: 'This monorepo itself — commits on main, uncommitted changes, and repo-level tasks. Excludes repositories/.',
-        href: '/?view=productivity',
-      }),
-      pseudoRowHtml({
-        id: CEREBRO_PROJECT_ID, icon: '🧠', label: 'cerebro',
-        desc: 'Personal knowledge base — wikis, logs, meetings, roadmaps, and every project\'s docs.',
-        href: '/?view=cerebro',
-      }),
-      pseudoRowHtml({
-        id: CODE_SEARCH_PROJECT_ID, icon: '🔍', label: 'code-search',
-        desc: 'Search filenames and code across every repo under repositories/. Click a result for an inline preview, double-click for the syntax-highlighted modal.',
-        href: '/?view=code-search',
-      }),
-    ].join('');
-
-    // Split real projects into "Active" (status=active, not held) and "Rest"
-    // (everything else, including held/paused/done/archived). Sort each
-    // group: priority asc, then id asc.
-    const priKey = p => ({P0:0,P1:1,P2:2,P3:3}[p.priority] ?? 9);
-    const sortProjects = (arr) => arr.slice().sort((a, b) => {
-      const dp = priKey(a) - priKey(b);
-      if (dp !== 0) return dp;
-      return (a.id || '').localeCompare(b.id || '');
-    });
-    const active = [];
-    const rest = [];
-    for (const p of allProjects) {
-      const st = holdState(p.hold).state;
-      if (p.status === 'active' && st !== 'held') active.push(p);
-      else rest.push(p);
-    }
-    const activeRows = sortProjects(active).map(p => projectRowHtml(p)).join('');
-    const restRows = sortProjects(rest).map(p => projectRowHtml(p)).join('');
-
-    const activeSection = `
-      <div class="p-section">
-        <div class="p-section-head">Active <span class="count">${active.length}</span></div>
-        ${activeRows || '<div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">No active projects.</span><span></span><span></span><span></span><span></span></div>'}
-      </div>`;
-    const restSection = rest.length === 0 ? '' : `
-      <div class="p-section">
-        <div class="p-section-head">Paused / Done / Archived / Snoozed <span class="count">${rest.length}</span></div>
-        ${restRows}
-      </div>`;
-    const otherWorkspaceSections = otherWorkspaces.map(otherWorkspaceSectionHtml).join('');
-
-    // Group the active workspace's projects (Active + Paused/Done/...)
-    // under a workspace header, mirroring the per-workspace sections that
-    // follow. Rows, sub-sections, and click behavior inside are unchanged.
-    const activeWsGroup = activeWs
-      ? `<div class="ws-group ws-group-current" data-ws="${escapeHtml(activeWs.id)}">
-          ${wsGroupHeadHtml(activeWs, {isActive: true, count: allProjects.length})}
-          ${activeSection}
-          ${restSection}
-        </div>`
-      : activeSection + restSection;
-
-    el.innerHTML = `
-      <div class="filter-row">
-        <button class="btn-primary" id="dashNewBtn">+ New project</button>
-      </div>
-      ${dueStrip}
-      <div class="p-list">
-        <div class="p-section" id="dashKpis"></div>
-        <div class="p-section" id="dashServers">
-          <div class="p-section-head">Servers <span class="count">…</span></div>
-          <div class="srv-empty">Loading servers…</div>
-        </div>
-        <div class="p-section" id="dashTerms">
-          <div class="p-section-head">Terminals <span class="count">…</span></div>
-          <div class="term-empty">Loading terminal sessions…</div>
-        </div>
-        <div class="p-section">
-          <div class="p-section-head">Pinned</div>
-          ${pseudoRows}
-        </div>
-        ${activeWsGroup}
-        ${otherWorkspaceSections}
-      </div>
-    `;
-
-    el.querySelector('#dashNewBtn').addEventListener('click', onHomeNewProject);
-    el.querySelector('#dashServers').addEventListener('click', dashServersOnClick);
-    el.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
-    // Independent poll loop for the two sections above — see dashStartPolling.
-    // Stopped/restarted here (not just at first mount) so navigating back to
-    // the dashboard never stacks a second interval. Under UI_CHECK persistent
-    // timers stay off (check-ui.sh contract); the one-shot tick still fills
-    // the sections for the smoke test.
-    if (!UI_CHECK) dashStartPolling();
-    dashPollTick();
-    el.querySelectorAll('.due-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const pid = chip.getAttribute('data-pid');
-        if (pid) goToProjectById(pid);
-      });
-    });
-
-    // Build a pid → project lookup once so edit handlers don't have to
-    // re-query the index on every chip click.
-    const projByPid = Object.fromEntries(allProjects.map(p => [p.id, p]));
-
-    // Row interactions: click anywhere on a row to toggle expand, UNLESS the
-    // target was an editable chip/button (those open their own popover).
-    el.querySelectorAll('.p-row').forEach(row => {
-      row.addEventListener('click', (e) => {
-        if (e.target.closest('[data-edit]')) return;      // chip clicks → popover
-        if (e.target.closest('[data-act]')) return;       // detail buttons handle themselves
-        if (e.target.closest('.p-detail')) return;        // bubbled from detail
-        if (row.classList.contains('ws-other')) {
-          // Project from a non-active workspace: switch to it, then open.
-          const pid = row.getAttribute('data-pid');
-          const wsId = row.getAttribute('data-ws');
-          const ws = otherWorkspaces.find(w => w.id === wsId);
-          if (pid && ws) openProjectInWorkspace(pid, ws);
-          return;
-        }
-        const href = row.getAttribute('data-href');
-        if (href) {
-          // Pseudo-rows (productivity, cerebro, code-search). Route
-          // in-page so the dashboard → pseudo-project click doesn't
-          // full-reload.
-          if (href === '/?view=logs') goToLogs();
-          else if (href === '/?view=productivity') goToProductivity();
-          else if (href === '/?view=cerebro') goToCerebro();
-          else if (href === '/?view=code-search') goToCodeSearch();
-          else window.location.href = href;  // unknown — full reload
-          return;
-        }
-        row.classList.toggle('expanded');
-      });
-    });
-
-    // Chip click-to-edit (priority, due, LOE, description).
-    el.querySelectorAll('[data-edit]').forEach(chip => {
-      chip.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Find the owning row → project id → project record.
-        const row = chip.closest('.p-row') || chip.closest('.p-detail')?.previousElementSibling;
-        const pid = row?.getAttribute('data-pid');
-        const proj = pid && projByPid[pid];
-        if (!proj) return;
-        const field = chip.getAttribute('data-edit');
-        editProjectField(chip, proj, field, () => {
-          // After save: re-render the whole dashboard (cheapest + keeps
-          // the other derived fields — due-soon strip, sort order — in
-          // sync with the project's new state).
-          renderDashboard(el);
-        });
-      });
-    });
-
-    el.querySelectorAll('.p-detail [data-act]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const pid = btn.getAttribute('data-pid');
-        const act = btn.getAttribute('data-act');
-        if (act === 'open' && pid) goToProjectById(pid);
-        else if (act === 'snooze' && pid) openSnoozeModal(pid);
-        else if (act === 'unhold' && pid) clearProjectHold(pid);
-      });
-    });
-    updateSnoozedBadge(allProjects);
-  }
 
   // ─── Dashboard: Servers section ─────────────────────────────────────────
   // GET /api/servers → {"servers": [{project_id, workspace, path, port,
@@ -9807,39 +8323,21 @@
   // health_url}]}. Rows come from every registered workspace, sorted
   // (workspace, project_id) — a project id can repeat across workspaces, so
   // every lookup/action below is keyed on the (workspace, project_id) pair,
-  // never project_id alone. Renders into #dashServers only — never touches
-  // the rest of renderDashboard's output. If the endpoint 404s (backend not
-  // deployed yet in this environment) the section hides itself; polling
-  // keeps retrying quietly so it appears without a reload once the backend
-  // ships. Start/stop/restart post to
+  // never project_id alone. Start/stop/restart post to
   // /api/servers/{workspace}/{project_id}/{start|stop|restart}.
 
-  // All three dashboard sections (#dashKpis, #dashServers, #dashTerms)
-  // render in two hosts: the home dashboard (`.p-section`s inside `.p-list`
-  // → `.p-section-head` header) and the productivity workbench (`.s-section`
-  // cards in `.s-workbench-grid` → `<h2>` header, matching the
-  // Attention/Open-tasks cards around them). Same ids, same render/poll
-  // code — only the header markup differs (see dashSectionHeadHtml).
-  //
-  // The ids are shared, but in-page view swaps (_swapViewState) hide the
-  // previous view WITHOUT clearing its DOM — so after home → productivity
-  // a stale hidden #dashServers can still sit in #homePanel (which comes
-  // before #content in document order and would win getElementById). Always
-  // resolve the container through the ACTIVE view's host instead.
+  // All three Admin sections (#dashKpis, #dashServers, #dashTerms) render
+  // inside the active Productivity content host.
   function dashSectionEl(id) {
     const host = document.body.classList.contains('self-active')
       ? document.getElementById('content')
-      : document.body.classList.contains('home-active')
-        ? document.getElementById('homePanel')
-        : null;
+      : null;
     return host ? host.querySelector('#' + id) : null;
   }
 
   function dashSectionHeadHtml(el, label, count) {
     const countHtml = count == null ? '' : `<span class="count">${count}</span>`;
-    return el.classList.contains('s-section')
-      ? `<h2>${label} ${countHtml}</h2>`
-      : `<div class="p-section-head">${label} ${countHtml}</div>`;
+    return `<h2>${label} ${countHtml}</h2>`;
   }
 
   // ─── Dashboard: KPI strip ────────────────────────────────────────────────
@@ -10229,584 +8727,6 @@
     _dashPollTimer = setInterval(dashPollTick, 5000);
   }
 
-  function pseudoRowHtml({id, icon, label, desc, href}) {
-    return `
-      <div class="p-row pseudo" data-pid="${escapeHtml(id)}" data-href="${escapeHtml(href)}" role="button" tabindex="0" title="${escapeHtml(desc)}">
-        <span class="p-status pseudo"></span>
-        <span class="p-pri none">—</span>
-        <span class="p-name"><span class="icon">${icon}</span>${escapeHtml(label)}</span>
-        <span class="p-repos"></span>
-        <span class="p-tasks empty">pinned</span>
-        <span class="p-prs"></span>
-        <span class="p-loe empty">—</span>
-        <span class="p-due empty">—</span>
-        <span></span>
-        <span class="p-caret">›</span>
-      </div>`;
-  }
-
-  function projectRowHtml(p) {
-    const counts = p.task_counts || {};
-    const openCount = (counts.todo || 0) + (counts.in_progress || 0) + (counts.blocked || 0);
-    const hasBlocked = (counts.blocked || 0) > 0;
-    const info = holdState(p.hold);
-    const statusCls = info.state === 'held' ? 'held'
-                   : info.state === 'ready' ? 'ready'
-                   : (p.status || 'active');
-    const statusTitle = info.state === 'held' ? `snoozed until ${fmtDate((p.hold||{}).until) || '?'}`
-                   : info.state === 'ready' ? 'snooze expired — ready for review'
-                   : (p.status || 'active');
-    const priHtml = p.priority
-      ? `<span class="chip editable ${priorityClass(p.priority)}" data-edit="priority" title="click to change">${escapeHtml(p.priority)}</span>`
-      : `<span class="p-pri none editable" data-edit="priority" title="set priority">—</span>`;
-    const labels = p.labels || [];
-    const repoChips = labels.slice(0, 3)
-      .map(l => `<span class="repo-chip">@${escapeHtml(l)}</span>`).join('');
-    const repoMore = labels.length > 3 ? `<span class="repo-more">+${labels.length - 3}</span>` : '';
-    const tasksCls = openCount === 0 ? 'empty' : (hasBlocked ? 'has-blocked' : '');
-    const tasksText = openCount === 0 ? '—'
-                   : (hasBlocked ? `${openCount} open · ${counts.blocked} blocked` : `${openCount} open`);
-    const prCounts = p.pr_counts || {};
-    const prOpen = prCounts.open || 0;
-    const prMerged = prCounts.merged || 0;
-    const prChip = (prOpen || prMerged)
-      ? `<span class="p-prs" title="${prOpen} open · ${prMerged} merged PRs">${prOpen ? `<span class="pr-pill pr-open">${prOpen} open</span>` : ''}${prMerged ? `<span class="pr-pill pr-merged">${prMerged}✓</span>` : ''}</span>`
-      : '<span class="p-prs"></span>';
-    const dueCls = p.due && Date.parse(p.due) < Date.now() ? 'overdue' : (p.due ? '' : 'empty');
-    const dueText = p.due ? 'due ' + fmtDate(p.due) : '—';
-    const loeCls = (p.loe == null || p.loe === '') ? 'empty' : '';
-    const loeText = (p.loe == null || p.loe === '') ? '—' : `${p.loe}d`;
-
-    const missing = projectMissingFields(p);
-    const rowExtraCls = missing.length ? ' missing-required' : '';
-    const missingChip = missing.length
-      ? `<span class="chip missing" data-edit="${escapeHtml(missing[0])}" title="click to set ${escapeHtml(missing[0])}">⚠ missing: ${missing.join(', ')}</span>`
-      : '<span></span>';
-
-    const desc = (p.description || '').trim();
-    const tags = (p.tags || []).map(t => `<span class="chip">${escapeHtml(t)}</span>`).join('');
-    const labelChips = (p.labels || []).map(l => `<span class="chip">@${escapeHtml(l)}</span>`).join('');
-    const holdBadge = holdBadgeHtml(p.hold, info);
-    const editBtns = `
-      <button type="button" class="mini-btn" data-edit="priority" title="Edit priority">P: ${escapeHtml(p.priority || '—')}</button>
-      <button type="button" class="mini-btn" data-edit="due" title="Edit due date">Due: ${p.due ? escapeHtml(fmtDate(p.due)) : '—'}</button>
-      <button type="button" class="mini-btn" data-edit="loe" title="Edit LOE (days)">LOE: ${(p.loe == null || p.loe === '') ? '—' : escapeHtml(String(p.loe)) + 'd'}</button>
-      <button type="button" class="mini-btn" data-edit="description" title="Edit description">&#x270E; Description</button>`;
-    const actions = `
-      <div class="p-actions">
-        <button type="button" class="mini-btn primary" data-act="open" data-pid="${escapeHtml(p.id)}">Open →</button>
-        ${editBtns}
-        ${info.state === 'none' ? `<button type="button" class="mini-btn" data-act="snooze" data-pid="${escapeHtml(p.id)}">&#x1F4A4; Snooze</button>` : ''}
-        ${info.state !== 'none' ? `<button type="button" class="mini-btn" data-act="snooze" data-pid="${escapeHtml(p.id)}">Reschedule</button>` : ''}
-        ${info.state !== 'none' ? `<button type="button" class="mini-btn danger" data-act="unhold" data-pid="${escapeHtml(p.id)}">Clear hold</button>` : ''}
-      </div>`;
-    const prsHtml = prSectionHtml(p);
-    const detail = `
-      <div class="p-detail">
-        <p class="p-desc${desc ? '' : ' empty'}">${desc ? escapeHtml(desc) : 'No description.'}</p>
-        ${holdBadge}
-        ${(tags || labelChips) ? `<div class="p-chips">${tags}${labelChips}</div>` : ''}
-        <div class="counts">
-          <span class="todo">todo ${counts.todo || 0}</span> ·
-          <span class="in_progress">in_progress ${counts.in_progress || 0}</span> ·
-          <span class="blocked">blocked ${counts.blocked || 0}</span> ·
-          <span class="done">done ${counts.done || 0}</span>
-        </div>
-        ${prsHtml}
-        ${actions}
-      </div>`;
-
-    // Every real project on the dashboard belongs to the workspace the
-    // server is currently serving — badge it so it reads the same as the
-    // "other workspace" sections below, even though here it's constant.
-    const wsBadge = currentWorkspaceId
-      ? `<span class="ws-badge" title="workspace: ${escapeHtml(currentWorkspaceId)}">${escapeHtml(currentWorkspaceId)}</span>`
-      : '';
-
-    return `
-      <div class="p-row${rowExtraCls}" data-pid="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(statusTitle)}">
-        <span class="p-status ${statusCls}" title="${escapeHtml(statusTitle)}"></span>
-        ${priHtml}
-        <span class="p-name">${escapeHtml(p.id)}${wsBadge}</span>
-        <span class="p-repos">${repoChips}${repoMore}</span>
-        <span class="p-tasks ${tasksCls}">${tasksText}</span>
-        ${prChip}
-        <span class="p-loe editable ${loeCls}" data-edit="loe" title="click to edit LOE">${loeText}</span>
-        <span class="p-due editable ${dueCls}" data-edit="due" title="click to edit due date">${dueText}</span>
-        ${missingChip}
-        <span class="p-caret">›</span>
-      </div>
-      ${detail}`;
-  }
-
-  // ─── Other-workspace dashboard rows ─────────────────────────────────────
-  // The server only ever serves ONE workspace's full project metadata
-  // (task counts, priority, due dates, ...). For every OTHER registered
-  // workspace all we have is a directory listing of project ids (from
-  // /api/workspaces/projects), so these rows are intentionally minimal —
-  // just the id and a badge — with a click that switches workspace then
-  // opens the project.
-  function otherWorkspaceRowHtml(pid, wsId) {
-    return `
-      <div class="p-row ws-other" data-pid="${escapeHtml(pid)}" data-ws="${escapeHtml(wsId)}" role="button" tabindex="0" title="Open ${escapeHtml(pid)} (switches to workspace ${escapeHtml(wsId)})">
-        <span class="p-status"></span>
-        <span class="p-pri none">—</span>
-        <span class="p-name">${escapeHtml(pid)}<span class="ws-badge" title="workspace: ${escapeHtml(wsId)}">${escapeHtml(wsId)}</span></span>
-        <span class="p-repos"></span>
-        <span class="p-tasks empty">—</span>
-        <span class="p-prs"></span>
-        <span class="p-loe empty">—</span>
-        <span class="p-due empty">—</span>
-        <span></span>
-        <span class="p-caret">›</span>
-      </div>`;
-  }
-
-  // Workspace group header for the Home dashboard: workspace name, id
-  // badge, project count, and the workspace path as a right-aligned muted
-  // subtitle. The active (currently served) workspace gets an accent
-  // highlight + "active" pill. Shared by the active group and every
-  // other-workspace section so all of Home reads as one grouped list.
-  function wsGroupHeadHtml(w, {isActive = false, count = null} = {}) {
-    const label = escapeHtml(w.name || w.id);
-    const badge = `<span class="ws-badge" title="workspace: ${escapeHtml(w.id)}">${escapeHtml(w.id)}</span>`;
-    const pill = isActive ? '<span class="ws-active-pill">active</span>' : '';
-    const cnt = count == null ? '' : `<span class="count">${count}</span>`;
-    const path = w.path ? `<span class="ws-group-path" title="${escapeHtml(w.path)}">${escapeHtml(w.path)}</span>` : '';
-    return `<div class="p-section-head ws-group-head${isActive ? ' ws-group-head-active' : ''}">${label} ${badge} ${pill} ${cnt} ${path}</div>`;
-  }
-
-  // One dashboard section per NON-active registered workspace. `unavailable`
-  // comes straight from /api/workspaces/projects — set when that
-  // workspace's own directory scan hit fsguard's 503 (stalled volume) — and
-  // greys the section out with the same message fsguard would show
-  // elsewhere, rather than silently dropping it from the dashboard.
-  function otherWorkspaceSectionHtml(w) {
-    if (w.unavailable) {
-      const msg = w.detail || `resource is not available for workspace ${w.id}`;
-      return `
-        <div class="p-section ws-section ws-group ws-unavailable" data-ws="${escapeHtml(w.id)}">
-          ${wsGroupHeadHtml(w)}
-          <div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">${escapeHtml(msg)}</span><span></span><span></span><span></span><span></span></div>
-        </div>`;
-    }
-    const projects = w.projects || [];
-    const rows = projects.map(pid => otherWorkspaceRowHtml(pid, w.id)).join('');
-    return `
-      <div class="p-section ws-section ws-group" data-ws="${escapeHtml(w.id)}">
-        ${wsGroupHeadHtml(w, {count: projects.length})}
-        ${rows || '<div class="p-row"><span></span><span></span><span class="p-name" style="color:var(--text-dim);font-style:italic">No projects.</span><span></span><span></span><span></span><span></span></div>'}
-      </div>`;
-  }
-
-  // Open a project that belongs to `ws` (a row from /api/workspaces/projects
-  // or /api/workspaces — needs `.id` and `.path`). If it's not the active
-  // workspace, switch first (the server only ever serves one workspace's
-  // project.json/tasks.json at a time, so there's no way to read the
-  // target project's data without switching to it), then land straight on
-  // it — full reload is unavoidable here since switching workspace replaces
-  // the entire served index.
-  async function openProjectInWorkspace(pid, ws) {
-    if (!pid || !ws || !ws.id) return;
-    const project = (projectsList || []).find(p => p.workspace === ws.id && p.name === pid);
-    const path = project && project.path
-      ? project.path
-      : (ws.path || '').replace(/\/+$/, '') + '/projects/' + pid;
-    goToProject(path);
-  }
-
-  // Keep the "Snoozed" tab badge in sync with current project data. Counts
-  // expired holds (ready-for-review) and falls back to total holds if none
-  // are ready yet.
-  function updateSnoozedBadge(projects) {
-    const badge = document.getElementById('snoozedBadge');
-    if (!badge) return;
-    let ready = 0, held = 0;
-    (projects || []).forEach(p => {
-      const s = holdState(p.hold).state;
-      if (s === 'ready') ready++;
-      else if (s === 'held') held++;
-    });
-    if (ready > 0) {
-      badge.textContent = ready;
-      badge.classList.add('ready');
-      badge.style.display = '';
-    } else if (held > 0) {
-      badge.textContent = held;
-      badge.classList.remove('ready');
-      badge.style.display = '';
-    } else {
-      badge.style.display = 'none';
-    }
-  }
-
-  async function renderSnoozed(el) {
-    const idx = await fetch('/api/index').then(r => r.json());
-    const all = idx.projects || [];
-    const ready = [];
-    const held = [];
-    all.forEach(p => {
-      const s = holdState(p.hold);
-      if (s.state === 'ready') ready.push({ p, info: s });
-      else if (s.state === 'held') held.push({ p, info: s });
-    });
-    // Soonest first — ready-to-review items first (longest past), then
-    // held items sorted by how soon they resurface.
-    ready.sort((a, b) => a.info.ms - b.info.ms);          // most-negative (longest past) first
-    held.sort((a, b) => a.info.ms - b.info.ms);           // soonest resurface first
-
-    const readyCards = ready.map(({p, info}) => snoozedCardHtml(p, info)).join('');
-    const heldCards = held.map(({p, info}) => snoozedCardHtml(p, info)).join('');
-
-    el.innerHTML = `
-      <div class="snooze-section">
-        <h3>&#x23F0; Ready for review <span class="count">${ready.length}</span></h3>
-        ${ready.length === 0 ? '<p class="snooze-empty">Nothing is ready to re-check yet. Snoozed projects will show here when their timer expires.</p>' : `<div class="project-grid">${readyCards}</div>`}
-      </div>
-      <div class="snooze-section">
-        <h3>&#x1F4A4; Snoozed <span class="count">${held.length}</span></h3>
-        ${held.length === 0 ? '<p class="snooze-empty">No active snoozes. Open any project card on the Dashboard and click "Snooze" to park it.</p>' : `<div class="project-grid">${heldCards}</div>`}
-      </div>
-    `;
-    el.querySelectorAll('.card[data-pid]').forEach(card => {
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('a')) return;
-        if (e.target.closest('.mini-btn')) return;
-        const pid = card.getAttribute('data-pid');
-        if (pid) goToProjectById(pid);
-      });
-    });
-    el.querySelectorAll('.mini-btn[data-act]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const pid = btn.getAttribute('data-pid');
-        const act = btn.getAttribute('data-act');
-        if (act === 'snooze') openSnoozeModal(pid);
-        else if (act === 'unhold') clearProjectHold(pid);
-      });
-    });
-    updateSnoozedBadge(all);
-  }
-
-  // Card variant for the Snoozed tab — reuses projectCardHtml so the layout
-  // stays consistent, but we rely on the shared hold badge + action buttons
-  // already rendered by projectCardHtml.
-  function snoozedCardHtml(p, _info) {
-    return projectCardHtml(p);
-  }
-
-  function projectCardHtml(p) {
-    const counts = p.task_counts || {};
-    const priorityChip = p.priority ? `<span class="chip ${priorityClass(p.priority)}">${escapeHtml(p.priority)}</span>` : '';
-    const dueChip = p.due ? `<span class="chip">due ${fmtDate(p.due)}</span>` : '';
-    const tags = (p.tags || []).map(t => `<span class="chip">${escapeHtml(t)}</span>`).join('');
-    const labels = (p.labels || []).map(t => `<span class="chip">@${escapeHtml(t)}</span>`).join('');
-    const desc = p.description ? `<p class="desc">${escapeHtml(p.description)}</p>` : '';
-    const holdInfo = holdState(p.hold);
-    const cardCls = holdInfo.state === 'held' ? ' held' : holdInfo.state === 'ready' ? ' ready-review' : '';
-    const holdBadge = holdBadgeHtml(p.hold, holdInfo);
-    const prs = prSectionHtml(p);
-    const actions = `
-      <div class="card-actions">
-        ${holdInfo.state === 'none' ? `<button type="button" class="mini-btn" data-act="snooze" data-pid="${escapeHtml(p.id)}">&#x1F4A4; Snooze</button>` : ''}
-        ${holdInfo.state !== 'none' ? `<button type="button" class="mini-btn primary" data-act="snooze" data-pid="${escapeHtml(p.id)}">Reschedule</button>` : ''}
-        ${holdInfo.state !== 'none' ? `<button type="button" class="mini-btn danger" data-act="unhold" data-pid="${escapeHtml(p.id)}">Clear hold</button>` : ''}
-      </div>`;
-    return `
-      <div class="card${cardCls}" data-pid="${escapeHtml(p.id)}" tabindex="0" role="button">
-        <h3>${escapeHtml(p.id)}</h3>
-        ${desc}
-        <div>${priorityChip}${dueChip}${tags}${labels}</div>
-        ${holdBadge}
-        <div class="counts" style="margin-top:8px">
-          <span class="todo">todo ${counts.todo || 0}</span>
-          <span class="in_progress">in_progress ${counts.in_progress || 0}</span>
-          <span class="blocked">blocked ${counts.blocked || 0}</span>
-          <span class="done">done ${counts.done || 0}</span>
-        </div>
-        ${prs}
-        ${actions}
-      </div>`;
-  }
-
-  // Render the PR section for a project (used by both the dashboard row's
-  // expanded detail and the snoozed-tab card). Returns an empty string if
-  // the project has no PRs registered. Sorts open first, then closed, then
-  // merged; truncates to a few visible items with a "+N more" footer.
-  function prSectionHtml(p) {
-    const prs = p.prs || [];
-    if (prs.length === 0) return '';
-    const counts = p.pr_counts || {};
-    const statRank = (s) => {
-      const v = (s || '').toLowerCase();
-      if (v === 'open') return 0;
-      if (v === 'closed') return 1;
-      if (v === 'merged') return 2;
-      return 3;
-    };
-    const statCls = (s) => {
-      const v = (s || '').toLowerCase();
-      if (v === 'open') return 'pr-open';
-      if (v === 'merged') return 'pr-merged';
-      if (v === 'closed') return 'pr-closed';
-      return 'pr-other';
-    };
-    const ordered = prs.slice().sort((a, b) => statRank(a.status) - statRank(b.status));
-    const visible = ordered.slice(0, 5);
-    const hidden = ordered.length - visible.length;
-    const items = visible.map(pr => {
-      const cls = statCls(pr.status);
-      const status = `<span class="pr-status ${cls}">${escapeHtml(pr.status || '?')}</span>`;
-      const title = escapeHtml(pr.title || pr.url || '(no title)');
-      const tip = escapeHtml(pr.title || pr.url || '');
-      const body = pr.url
-        ? `<a class="pr-title" href="${escapeHtml(pr.url)}" target="_blank" rel="noopener" title="${tip}" onclick="event.stopPropagation()">${title}</a>`
-        : `<span class="pr-title" title="${tip}">${title}</span>`;
-      return `<li class="pr-item">${status}${body}</li>`;
-    }).join('');
-    const moreItem = hidden > 0 ? `<li class="pr-more">+${hidden} more</li>` : '';
-    const stats = [];
-    if (counts.open)   stats.push(`<span class="pr-stat pr-open">${counts.open} open</span>`);
-    if (counts.merged) stats.push(`<span class="pr-stat pr-merged">${counts.merged} merged</span>`);
-    if (counts.closed) stats.push(`<span class="pr-stat pr-closed">${counts.closed} closed</span>`);
-    return `
-      <div class="pr-section">
-        <div class="pr-header">
-          <span class="pr-label">PRs (${prs.length})</span>
-          ${stats.join('')}
-        </div>
-        <ul class="pr-list">${items}${moreItem}</ul>
-      </div>`;
-  }
-
-  // Hold helpers: classify a project's `hold` field and format badges.
-  // `state`:
-  //   'none'  — no hold set
-  //   'held'  — hold.until still in the future
-  //   'ready' — hold.until has passed; project is waiting for review
-  function holdState(hold) {
-    if (!hold || !hold.until) return { state: 'none', ms: 0 };
-    const until = Date.parse(hold.until);
-    if (Number.isNaN(until)) return { state: 'none', ms: 0 };
-    const now = Date.now();
-    return { state: until <= now ? 'ready' : 'held', ms: until - now, until };
-  }
-
-  function fmtRelative(ms) {
-    const absMs = Math.abs(ms);
-    const mins = Math.round(absMs / 60000);
-    if (mins < 60) return mins + 'm';
-    const hrs = Math.round(mins / 60);
-    if (hrs < 48) return hrs + 'h';
-    const days = Math.round(hrs / 24);
-    if (days < 14) return days + 'd';
-    return Math.round(days / 7) + 'w';
-  }
-
-  function holdBadgeHtml(hold, info) {
-    if (!hold || info.state === 'none') return '';
-    const reason = hold.reason ? `<span class="hold-reason">${escapeHtml(hold.reason)}</span>` : '';
-    const url = hold.url ? `<a href="${escapeHtml(hold.url)}" target="_blank" onclick="event.stopPropagation()">&#x1F517; link</a>` : '';
-    const when = info.state === 'ready'
-      ? `<span class="hold-time">ready ${fmtRelative(info.ms)} ago</span>`
-      : `<span class="hold-time">in ${fmtRelative(info.ms)}</span>`;
-    const icon = info.state === 'ready' ? '&#x23F0;' : '&#x1F4A4;';
-    return `<div class="hold-badge ${info.state === 'ready' ? 'ready' : ''}">${icon} ${when}${reason ? ' · ' + reason : ''}${url ? ' · ' + url : ''}</div>`;
-  }
-
-  // ─── Inline field edit (priority / due / LOE / description) ───
-  // Shared by the dashboard rows, the attributes bar on the project view,
-  // and anywhere else we show editable project metadata. Writes go through
-  // /api/projects/<id>/field which wraps `lab project set`. Callers pass a
-  // `onSaved` hook so the local UI can refresh without a full page reload.
-
-  // Required fields that trigger the "⚠ missing" warning when null.
-  const PROJECT_REQUIRED_FIELDS = ['priority', 'due', 'loe'];
-
-  function projectMissingFields(p) {
-    const missing = [];
-    for (const f of PROJECT_REQUIRED_FIELDS) {
-      const v = p[f];
-      if (v === null || v === undefined || v === '') missing.push(f);
-    }
-    return missing;
-  }
-
-  function positionFieldPopover(anchor) {
-    const pop = document.getElementById('fieldPopover');
-    if (!pop || !anchor) return;
-    const rect = anchor.getBoundingClientRect();
-    // Open below the anchor; flip up if it would overflow the viewport.
-    const desiredTop = rect.bottom + window.scrollY + 4;
-    const desiredLeft = rect.left + window.scrollX;
-    pop.style.top = `${desiredTop}px`;
-    pop.style.left = `${desiredLeft}px`;
-    // After content renders we can also correct right-overflow.
-    requestAnimationFrame(() => {
-      const pr = pop.getBoundingClientRect();
-      const vw = window.innerWidth;
-      if (pr.right > vw - 8) {
-        pop.style.left = `${Math.max(8, vw - pr.width - 8) + window.scrollX}px`;
-      }
-    });
-  }
-
-  let _fieldPopoverCloser = null;
-  function openFieldPopover(anchor, title, innerHtml, onBind) {
-    closeFieldPopover();
-    const pop = document.getElementById('fieldPopover');
-    if (!pop) return;
-    pop.innerHTML = `<div class="fp-title">${escapeHtml(title)}</div>${innerHtml}<div class="fp-err" data-err></div>`;
-    pop.classList.add('open');
-    positionFieldPopover(anchor);
-    if (onBind) onBind(pop);
-    // Close on outside click (next tick so the opening click doesn't close it).
-    _fieldPopoverCloser = (e) => {
-      if (!pop.contains(e.target)) closeFieldPopover();
-    };
-    setTimeout(() => document.addEventListener('click', _fieldPopoverCloser), 0);
-  }
-
-  function closeFieldPopover() {
-    const pop = document.getElementById('fieldPopover');
-    if (!pop) return;
-    pop.classList.remove('open');
-    pop.innerHTML = '';
-    if (_fieldPopoverCloser) {
-      document.removeEventListener('click', _fieldPopoverCloser);
-      _fieldPopoverCloser = null;
-    }
-  }
-
-  async function saveProjectField(pid, field, value, errEl) {
-    try {
-      const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/field`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({field, value}),
-      });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        const msg = body.detail || r.statusText;
-        if (errEl) errEl.textContent = msg; else alert(`Failed to save ${field}: ${msg}`);
-        return null;
-      }
-      return await r.json();
-    } catch (e) {
-      const msg = e && e.message || String(e);
-      if (errEl) errEl.textContent = msg; else alert(`Failed to save ${field}: ${msg}`);
-      return null;
-    }
-  }
-
-  function openPriorityPopover(anchor, pid, current, onSaved) {
-    const opts = ['P0','P1','P2','P3'];
-    const buttons = opts.map(p => {
-      const sel = current === p ? ' selected' : '';
-      return `<button type="button" class="fp-opt${sel}" data-val="${p}">${p}</button>`;
-    }).join('');
-    const inner = `
-      <div class="fp-opts">${buttons}</div>
-      <div class="fp-row"><button type="button" class="secondary" data-val="">Clear</button></div>`;
-    openFieldPopover(anchor, 'Priority', inner, (pop) => {
-      pop.querySelectorAll('[data-val]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const val = btn.getAttribute('data-val');
-          const err = pop.querySelector('[data-err]');
-          const updated = await saveProjectField(pid, 'priority', val, err);
-          if (updated) { closeFieldPopover(); if (onSaved) onSaved(updated); }
-        });
-      });
-    });
-  }
-
-  function openDuePopover(anchor, pid, current, onSaved) {
-    const val = current || '';
-    const inner = `
-      <input type="date" id="fpDue" value="${escapeHtml(val)}" />
-      <div class="fp-row">
-        <button type="button" class="secondary" data-act="clear">Clear</button>
-        <button type="button" data-act="save">Save</button>
-      </div>`;
-    openFieldPopover(anchor, 'Due date', inner, (pop) => {
-      const input = pop.querySelector('#fpDue');
-      input.focus();
-      const err = pop.querySelector('[data-err]');
-      pop.querySelector('[data-act="save"]').addEventListener('click', async () => {
-        const v = input.value || '';
-        if (!v) { err.textContent = 'pick a date or click Clear'; return; }
-        const updated = await saveProjectField(pid, 'due', v, err);
-        if (updated) { closeFieldPopover(); if (onSaved) onSaved(updated); }
-      });
-      pop.querySelector('[data-act="clear"]').addEventListener('click', async () => {
-        const updated = await saveProjectField(pid, 'due', '', err);
-        if (updated) { closeFieldPopover(); if (onSaved) onSaved(updated); }
-      });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') pop.querySelector('[data-act="save"]').click();
-        if (e.key === 'Escape') closeFieldPopover();
-      });
-    });
-  }
-
-  function openLoePopover(anchor, pid, current, onSaved) {
-    const val = (current == null) ? '' : String(current);
-    const inner = `
-      <input type="number" id="fpLoe" min="0" step="0.5" value="${escapeHtml(val)}" placeholder="e.g. 3" />
-      <div class="fp-title" style="margin: 4px 2px 0; font-size: 10px; text-transform: none; letter-spacing: 0;">Level of effort (days)</div>
-      <div class="fp-row">
-        <button type="button" class="secondary" data-act="clear">Clear</button>
-        <button type="button" data-act="save">Save</button>
-      </div>`;
-    openFieldPopover(anchor, 'LOE', inner, (pop) => {
-      const input = pop.querySelector('#fpLoe');
-      input.focus();
-      input.select();
-      const err = pop.querySelector('[data-err]');
-      pop.querySelector('[data-act="save"]').addEventListener('click', async () => {
-        const v = input.value;
-        if (v === '') { err.textContent = 'enter a number or click Clear'; return; }
-        const updated = await saveProjectField(pid, 'loe', v, err);
-        if (updated) { closeFieldPopover(); if (onSaved) onSaved(updated); }
-      });
-      pop.querySelector('[data-act="clear"]').addEventListener('click', async () => {
-        const updated = await saveProjectField(pid, 'loe', '', err);
-        if (updated) { closeFieldPopover(); if (onSaved) onSaved(updated); }
-      });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') pop.querySelector('[data-act="save"]').click();
-        if (e.key === 'Escape') closeFieldPopover();
-      });
-    });
-  }
-
-  function openStatusPopover(anchor, pid, current, onSaved) {
-    const opts = ['active','paused','done','archived'];
-    const buttons = opts.map(s => {
-      const sel = current === s ? ' selected' : '';
-      return `<button type="button" class="fp-opt${sel}" data-val="${s}">${s}</button>`;
-    }).join('');
-    openFieldPopover(anchor, 'Status', `<div class="fp-opts">${buttons}</div>`, (pop) => {
-      pop.querySelectorAll('[data-val]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const err = pop.querySelector('[data-err]');
-          const updated = await saveProjectField(pid, 'status', btn.getAttribute('data-val'), err);
-          if (updated) { closeFieldPopover(); if (onSaved) onSaved(updated); }
-        });
-      });
-    });
-  }
-
-  // Routing entry point: pick the right popover for a field. `anchor` is the
-  // DOM node we attach to; `p` is the project (read from /api/index).
-  function editProjectField(anchor, p, field, onSaved) {
-    if (field === 'priority') return openPriorityPopover(anchor, p.id, p.priority, onSaved);
-    if (field === 'due')      return openDuePopover(anchor, p.id, p.due, onSaved);
-    if (field === 'loe')      return openLoePopover(anchor, p.id, p.loe, onSaved);
-    if (field === 'status')   return openStatusPopover(anchor, p.id, p.status, onSaved);
-    if (field === 'description') return openDescModal(p);
-  }
-
   // ─── Project server bar (below top tabs, above diff tabs) ───
   // Deliberately narrow: project planning metadata belongs in project files,
   // so this chrome only exposes the local-server configuration.
@@ -10822,10 +8742,9 @@
     const pid = currentProject.name;
     const projectPath = currentProject.path;
 
-    // Warm switch: paint synchronously from the last-known project
-    // record so the bar (status / P:N / Due / LOE / description /
-    // Snooze) shows instantly. Background reconcile re-paints only on
-    // change. Cache miss falls through to the foreground fetch below.
+    // Warm switch: paint synchronously from the last-known project record.
+    // Background reconcile re-paints only on change. Cache miss falls
+    // through to the foreground fetch below.
     const cached = _projectAttrsCache.get(projectPath);
     if (cached) {
       _renderAttrsBarFromRecord(bar, pid, cached);
@@ -10856,8 +8775,7 @@
 
   // Extracted from refreshAttrsBar so both the cold and warm-switch
   // paths share one render. Pure DOM write — no network, no state
-  // mutation. Reads only what's on the project record `p` plus the
-  // global `holdState` / `projectMissingFields` helpers.
+  // mutation. Reads only the server declarations on project record `p`.
   function _renderAttrsBarFromRecord(bar, pid, p) {
     const proxyCount = Array.isArray(p.proxies) ? p.proxies.length : 0;
     const proxiesLabel = proxyCount ? `${proxyCount} server${proxyCount === 1 ? '' : 's'}` : 'add server';
@@ -11052,559 +8970,6 @@
     if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
     if (typeof _refreshProjectSidebar === 'function') _refreshProjectSidebar({preserveScroll: true});
   }
-
-  // ─── Description modal (larger than a popover — multiline) ───
-  let _descSaved = null;
-  function openDescModal(p) {
-    _descSaved = null;
-    const modal = document.getElementById('descModal');
-    document.getElementById('descProjectId').value = p.id;
-    document.getElementById('descText').value = p.description || '';
-    document.getElementById('descError').textContent = '';
-    modal.classList.add('active');
-    setTimeout(() => document.getElementById('descText').focus(), 30);
-  }
-
-  function closeDescModal() {
-    document.getElementById('descModal').classList.remove('active');
-  }
-
-  async function submitDesc(ev) {
-    ev.preventDefault();
-    const pid = document.getElementById('descProjectId').value;
-    const text = document.getElementById('descText').value;
-    const err = document.getElementById('descError');
-    err.textContent = '';
-    const updated = await saveProjectField(pid, 'description', text, err);
-    if (!updated) return;
-    closeDescModal();
-    // Refresh whichever view is visible.
-    const home = document.getElementById('homeView');
-    if (home && home.offsetParent !== null) {
-      const panel = document.getElementById('homePanel');
-      if (panel) renderDashboard(panel);
-    }
-    if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
-  }
-
-  // ─── Snooze (hold) modal ───
-  // Opened by the "Snooze" button on any project card. Collects duration +
-  // reason + optional URL, POSTs to /api/projects/<id>/hold, and reruns the
-  // home panel so the card moves to the Snoozed tab.
-
-  let _snoozeEscHandler = null;
-
-  function openSnoozeModal(projectId, prefill) {
-    const overlay = document.getElementById('snoozeModal');
-    if (!overlay) return;
-    const idEl = document.getElementById('snProjectId');
-    if (idEl) idEl.value = projectId;
-    // Reset form
-    document.getElementById('snReason').value = (prefill && prefill.reason) || '';
-    document.getElementById('snUrl').value = (prefill && prefill.url) || '';
-    document.getElementById('snUntilDate').value = '';
-    // If caller didn't pass prefill, fetch the project's current hold so
-    // reschedules keep the existing reason + URL (user almost never wants to
-    // retype them).
-    if (!prefill && projectId) {
-      fetch('/api/projects/' + encodeURIComponent(projectId))
-        .then(r => r.ok ? r.json() : null)
-        .then(p => {
-          if (!p || !p.hold) return;
-          if (p.hold.reason) document.getElementById('snReason').value = p.hold.reason;
-          if (p.hold.url) document.getElementById('snUrl').value = p.hold.url;
-        })
-        .catch(() => {});
-    }
-    const err = document.getElementById('snError');
-    if (err) { err.textContent = ''; err.classList.remove('on'); }
-    // Default quick-pick = 2d; wire once.
-    _snoozeSetDuration('2d');
-    const quick = document.getElementById('snQuick');
-    if (quick && !quick._wired) {
-      quick.querySelectorAll('button[data-dur]').forEach(btn => {
-        btn.addEventListener('click', () => _snoozeSetDuration(btn.getAttribute('data-dur')));
-      });
-      quick._wired = true;
-    }
-    const dateInput = document.getElementById('snUntilDate');
-    if (dateInput && !dateInput._wired) {
-      dateInput.addEventListener('input', () => {
-        if (dateInput.value) {
-          // Clear quick-pick highlight to make the override explicit.
-          document.getElementById('snQuick').querySelectorAll('button').forEach(b => b.classList.remove('selected'));
-          _snoozeUpdateResurfaceLabel();
-        }
-      });
-      dateInput._wired = true;
-    }
-    overlay.classList.add('active');
-    setTimeout(() => document.getElementById('snReason')?.focus(), 30);
-    _snoozeEscHandler = (e) => { if (e.key === 'Escape') closeSnoozeModal(); };
-    document.addEventListener('keydown', _snoozeEscHandler);
-  }
-
-  function closeSnoozeModal() {
-    const overlay = document.getElementById('snoozeModal');
-    if (overlay) overlay.classList.remove('active');
-    if (_snoozeEscHandler) {
-      document.removeEventListener('keydown', _snoozeEscHandler);
-      _snoozeEscHandler = null;
-    }
-  }
-
-  function _snoozeSetDuration(dur) {
-    const hidden = document.getElementById('snDuration');
-    if (hidden) hidden.value = dur;
-    const dateInput = document.getElementById('snUntilDate');
-    if (dateInput) dateInput.value = '';
-    const quick = document.getElementById('snQuick');
-    if (quick) {
-      quick.querySelectorAll('button').forEach(b => {
-        b.classList.toggle('selected', b.getAttribute('data-dur') === dur);
-      });
-    }
-    _snoozeUpdateResurfaceLabel();
-  }
-
-  function _snoozeUpdateResurfaceLabel() {
-    const label = document.getElementById('snResurface');
-    if (!label) return;
-    const dateVal = document.getElementById('snUntilDate')?.value;
-    let when;
-    if (dateVal) {
-      // End-of-day that date, local tz — matches the server's normalization.
-      const d = new Date(dateVal + 'T23:59:00');
-      when = d;
-    } else {
-      const dur = document.getElementById('snDuration')?.value || '2d';
-      const m = dur.match(/^(\d+)([mhdw])$/);
-      if (!m) { label.textContent = ''; return; }
-      const qty = parseInt(m[1], 10);
-      const unit = m[2];
-      const secs = ({m: 60, h: 3600, d: 86400, w: 604800}[unit]) * qty;
-      when = new Date(Date.now() + secs * 1000);
-    }
-    label.textContent = 'Resurfaces ' + when.toLocaleString(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric',
-      hour: 'numeric', minute: '2-digit',
-    });
-  }
-
-  async function submitSnooze(ev) {
-    ev.preventDefault();
-    const pid = document.getElementById('snProjectId').value.trim();
-    const reason = document.getElementById('snReason').value.trim();
-    const url = document.getElementById('snUrl').value.trim();
-    const dateVal = document.getElementById('snUntilDate').value;
-    const dur = document.getElementById('snDuration').value;
-    const err = document.getElementById('snError');
-    const body = { reason, url };
-    if (dateVal) body.until = dateVal;
-    else body.duration = dur;
-    try {
-      const r = await fetch('/api/projects/' + encodeURIComponent(pid) + '/hold', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        err.textContent = j.detail || ('Error ' + r.status);
-        err.classList.add('on');
-        return;
-      }
-      closeSnoozeModal();
-      // Refresh whichever home panel we're on so the card moves, and the
-      // project attrs bar (if we're inside a project) so the snooze chip
-      // reflects the new state.
-      renderHomePanel();
-      if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
-    } catch (e) {
-      err.textContent = e.message;
-      err.classList.add('on');
-    }
-  }
-
-  async function clearProjectHold(pid) {
-    if (!pid) return;
-    try {
-      const r = await fetch('/api/projects/' + encodeURIComponent(pid) + '/hold', {method: 'DELETE'});
-      if (!r.ok) return;
-      renderHomePanel();
-      if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
-    } catch {}
-  }
-
-  // Open the "New project" modal from the dashboard button. Kept separate
-  // from submitNewProject/closeNewProjectModal so other callers (e.g. a
-  // future "+ project" tab) can reuse.
-  function onHomeNewProject() { openNewProjectModal(); }
-
-  function openNewProjectModal() {
-    const overlay = document.getElementById('newProjectModal');
-    if (!overlay) return;
-    // Reset the form every open so stale fields from a cancelled attempt
-    // don't resurface.
-    ['npId','npDesc','npDue','npTags','npLabels'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
-    const pri = document.getElementById('npPriority');
-    if (pri) pri.value = 'P2';
-    const err = document.getElementById('npError');
-    if (err) { err.textContent = ''; err.classList.remove('on'); }
-    // Reset the submit button too: a successful create leaves it disabled
-    // saying "Creating…" (only the failure path restored it), so every
-    // subsequent open showed a permanently-loading button.
-    const submit = document.getElementById('npSubmit');
-    if (submit) { submit.disabled = false; submit.textContent = 'Create'; }
-    overlay.classList.add('active');
-    setTimeout(() => { document.getElementById('npId')?.focus(); }, 30);
-    document.addEventListener('keydown', _newProjectEscHandler);
-    _calInit();
-    _npPopulateWorkspaces();
-  }
-
-  // Populate the "Workspace" select with every registered workspace,
-  // defaulting to the one currently active. Stores each option's resolved
-  // root path in a data attribute so submitNewProject can build the
-  // cross-workspace `?project=` deep link without changing global state.
-  async function _npPopulateWorkspaces() {
-    const sel = document.getElementById('npWorkspace');
-    if (!sel) return;
-    try {
-      const r = await fetch('/api/workspaces');
-      if (!r.ok) return;
-      const data = await r.json();
-      const rows = Array.isArray(data.workspaces) ? data.workspaces : [];
-      sel.innerHTML = '';
-      rows.forEach(row => {
-        const opt = document.createElement('option');
-        opt.value = row.id;
-        opt.textContent = row.name || row.id;
-        opt.dataset.path = row.path || '';
-        opt.disabled = row.exists === false;
-        opt.selected = row.active === true || row.id === data.active;
-        sel.appendChild(opt);
-      });
-    } catch {}
-  }
-
-  // ─── Due-date calendar (inline, no native popup) ───
-  let _calViewYear = new Date().getFullYear();
-  let _calViewMonth = new Date().getMonth();  // 0-11
-  let _calSelectedIso = '';  // "YYYY-MM-DD" or ''
-
-  function _calInit() {
-    const now = new Date();
-    _calViewYear = now.getFullYear();
-    _calViewMonth = now.getMonth();
-    _calSelectedIso = '';
-    _calRender();
-    // Wire nav + quick-pick buttons once (guard with a marker so we don't
-    // stack duplicate listeners on every re-open).
-    const cal = document.getElementById('npCal');
-    if (cal && !cal._wired) {
-      document.getElementById('npCalPrev').addEventListener('click', () => _calShift(-1));
-      document.getElementById('npCalNext').addEventListener('click', () => _calShift(1));
-      cal.querySelectorAll('.cal-quick button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (btn.dataset.clear) { _calSetDate(''); return; }
-          const n = parseInt(btn.dataset.offset || '0', 10);
-          const d = new Date();
-          d.setDate(d.getDate() + n);
-          _calSetDate(_calIso(d));
-          // Jump the view to whatever month the quick-pick landed in.
-          _calViewYear = d.getFullYear();
-          _calViewMonth = d.getMonth();
-          _calRender();
-        });
-      });
-      cal._wired = true;
-    }
-  }
-
-  function _calShift(delta) {
-    _calViewMonth += delta;
-    while (_calViewMonth < 0) { _calViewMonth += 12; _calViewYear--; }
-    while (_calViewMonth > 11) { _calViewMonth -= 12; _calViewYear++; }
-    _calRender();
-  }
-
-  function _calIso(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-
-  function _calSetDate(iso) {
-    _calSelectedIso = iso || '';
-    const hidden = document.getElementById('npDue');
-    if (hidden) hidden.value = _calSelectedIso;
-    const sel = document.getElementById('npCalSelected');
-    if (sel) {
-      if (_calSelectedIso) {
-        sel.textContent = 'selected: ' + _calSelectedIso;
-        sel.classList.add('set');
-      } else {
-        sel.textContent = 'no date';
-        sel.classList.remove('set');
-      }
-    }
-    _calRender();
-  }
-
-  function _calRender() {
-    const label = document.getElementById('npCalLabel');
-    const grid = document.getElementById('npCalGrid');
-    if (!label || !grid) return;
-    const months = ['January','February','March','April','May','June',
-                    'July','August','September','October','November','December'];
-    label.textContent = `${months[_calViewMonth]} ${_calViewYear}`;
-
-    const firstOfMonth = new Date(_calViewYear, _calViewMonth, 1);
-    const startDow = firstOfMonth.getDay();             // 0=Sun
-    const daysInMonth = new Date(_calViewYear, _calViewMonth + 1, 0).getDate();
-    const todayIso = _calIso(new Date());
-
-    // Render 6 rows × 7 cols = 42 cells starting from the Sunday before
-    // (or on) the 1st of the month.
-    const start = new Date(_calViewYear, _calViewMonth, 1 - startDow);
-    const cells = [];
-    for (let i = 0; i < 42; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      const iso = _calIso(d);
-      const outOfMonth = d.getMonth() !== _calViewMonth;
-      const classes = ['cal-day'];
-      if (outOfMonth) classes.push('out');
-      if (iso === todayIso) classes.push('today');
-      if (iso === _calSelectedIso) classes.push('selected');
-      cells.push(`<button type="button" class="${classes.join(' ')}" data-iso="${iso}">${d.getDate()}</button>`);
-    }
-    grid.innerHTML = cells.join('');
-    grid.querySelectorAll('.cal-day').forEach(btn => {
-      btn.addEventListener('click', () => _calSetDate(btn.dataset.iso));
-    });
-  }
-
-  function closeNewProjectModal() {
-    const overlay = document.getElementById('newProjectModal');
-    if (overlay) overlay.classList.remove('active');
-    document.removeEventListener('keydown', _newProjectEscHandler);
-  }
-
-  function _newProjectEscHandler(e) {
-    if (e.key === 'Escape') closeNewProjectModal();
-  }
-
-  async function submitNewProject(event) {
-    event.preventDefault();
-    const id = (document.getElementById('npId').value || '').trim();
-    const description = (document.getElementById('npDesc').value || '').trim();
-    const priority = document.getElementById('npPriority').value || null;
-    const due = document.getElementById('npDue').value || null;  // <input type="date"> → YYYY-MM-DD
-    const tags = (document.getElementById('npTags').value || '')
-                   .split(',').map(s => s.trim()).filter(Boolean);
-    const labels = (document.getElementById('npLabels').value || '')
-                   .split(',').map(s => s.trim()).filter(Boolean);
-    const errEl = document.getElementById('npError');
-    const submitBtn = document.getElementById('npSubmit');
-
-    if (!id) {
-      errEl.textContent = 'Project ID is required.';
-      errEl.classList.add('on');
-      return;
-    }
-
-    const wsSel = document.getElementById('npWorkspace');
-    const wsOpt = wsSel && wsSel.selectedOptions && wsSel.selectedOptions[0];
-    const targetWsId = wsOpt ? wsOpt.value : '';
-    const targetWsPath = wsOpt ? (wsOpt.dataset.path || '') : '';
-    const creatingElsewhere = !!targetWsId && targetWsId !== currentWorkspaceId;
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Creating…';
-    try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          id, workspace: targetWsId || null,
-          description, priority, due, tags, labels,
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.detail || res.statusText);
-      }
-      const p = await res.json();
-      closeNewProjectModal();
-      if (creatingElsewhere) {
-        const wsPath = targetWsPath.replace(/\/+$/, '');
-        projectsList = await fetchRepos();
-        goToProject(wsPath + '/projects/' + p.id);
-        return;
-      }
-      // Refresh repos so the just-created project's path is in projectsList,
-      // then in-page nav. goToProjectById falls back to /p/<id> if missing.
-      try { projectsList = await fetchRepos(); } catch {}
-      goToProjectById(p.id);
-    } catch (e) {
-      errEl.textContent = 'Failed: ' + e.message;
-      errEl.classList.add('on');
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Create';
-    }
-  }
-
-  async function renderTimeline(el) {
-    const idx = await fetch('/api/index').then(r => r.json());
-    el.innerHTML = `
-      <h2>Timeline</h2>
-      <div class="view-toggle" style="margin-bottom:12px">
-        <button class="pill ${homeTimelineMode === 'list' ? 'active' : ''}" id="tlList">List</button>
-        <button class="pill ${homeTimelineMode === 'gantt' ? 'active' : ''}" id="tlGantt">Gantt</button>
-      </div>
-      <div id="tlBody"></div>
-    `;
-    el.querySelector('#tlList').addEventListener('click', () => { homeTimelineMode = 'list'; renderTimeline(el); });
-    el.querySelector('#tlGantt').addEventListener('click', () => { homeTimelineMode = 'gantt'; renderTimeline(el); });
-    el.querySelector('#tlBody').innerHTML = homeTimelineMode === 'list' ? timelineListHtml(idx) : timelineGanttHtml(idx);
-  }
-
-  function timelineListHtml(idx) {
-    const tasks = (idx.tasks || []).filter(t => t.status !== 'done').slice();
-    tasks.sort((a, b) => {
-      if (a.due && b.due) return a.due.localeCompare(b.due);
-      if (a.due) return -1;
-      if (b.due) return 1;
-      return 0;
-    });
-    const today = new Date().toISOString().slice(0, 10);
-    const inDays = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-    const buckets = { 'Overdue': [], 'Today / this week': [], 'Next week': [], 'This month': [], 'Later': [], 'No due date': [] };
-    const thisWeek = inDays(7), nextWeek = inDays(14), thisMonth = inDays(30);
-    for (const t of tasks) {
-      if (!t.due) { buckets['No due date'].push(t); continue; }
-      if (t.due < today) { buckets['Overdue'].push(t); continue; }
-      if (t.due <= thisWeek) { buckets['Today / this week'].push(t); continue; }
-      if (t.due <= nextWeek) { buckets['Next week'].push(t); continue; }
-      if (t.due <= thisMonth) { buckets['This month'].push(t); continue; }
-      buckets['Later'].push(t);
-    }
-    return Object.entries(buckets)
-      .filter(([, rows]) => rows.length > 0)
-      .map(([name, rows]) => `
-        <div class="bucket">
-          <h3>${escapeHtml(name)} (${rows.length})</h3>
-          <table>
-            <thead><tr><th>Due</th><th>P</th><th>Project</th><th>Title</th></tr></thead>
-            <tbody>
-              ${rows.map(t => `
-                <tr>
-                  <td>${fmtDate(t.due)}</td>
-                  <td><span class="chip ${priorityClass(t.priority)}">${escapeHtml(t.priority || '')}</span></td>
-                  <td><a href="/p/${encodeURIComponent(t.project_id)}">${escapeHtml(t.project_id)}</a></td>
-                  <td>${escapeHtml(t.title)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>`).join('') || '<p>No open tasks.</p>';
-  }
-
-  function timelineGanttHtml(idx) {
-    const projects = (idx.projects || []).filter(p => p.status === 'active');
-    if (!projects.length) return '<p>No active projects.</p>';
-    const today = new Date();
-    const minD = projects.reduce((m, p) => {
-      const d = p.created ? new Date(p.created) : today;
-      return d < m ? d : m;
-    }, today);
-    const maxD = projects.reduce((m, p) => {
-      const candidate = p.due ? new Date(p.due) : (p.earliest_task_due ? new Date(p.earliest_task_due) : today);
-      return candidate > m ? candidate : m;
-    }, new Date(today.getTime() + 14 * 86400000));
-    const spanMs = Math.max(maxD - minD, 86400000);
-    const pct = (d) => ((new Date(d) - minD) / spanMs) * 100;
-    const rows = projects.map(p => {
-      const startD = p.created || today.toISOString().slice(0, 10);
-      const endD = p.due || p.earliest_task_due || new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
-      const left = Math.max(0, pct(startD));
-      const width = Math.max(1, pct(endD) - left);
-      const cls = priorityClass(p.priority) + (p.status === 'archived' ? ' archived' : '');
-      return `
-        <div class="gantt-row">
-          <div class="gantt-label"><a href="/p/${encodeURIComponent(p.id)}">${escapeHtml(p.id)}</a></div>
-          <div class="gantt-lane">
-            <div class="gantt-bar ${cls}" style="left:${left}%; width:${width}%" title="${startD} → ${endD}"></div>
-          </div>
-        </div>`;
-    }).join('');
-    return `<div class="gantt">${rows}<p style="color:var(--text-secondary); font-size:12px; margin-top:10px">${fmtDate(minD.toISOString())} → ${fmtDate(maxD.toISOString())}</p></div>`;
-  }
-
-  function renderSearch(el) {
-    // Use cached query + results so switching tabs doesn't lose state.
-    el.innerHTML = `
-      <h2>Search</h2>
-      <input type="text" class="search-input" id="searchInput"
-             placeholder="Search projects, tasks, and docs…"
-             value="${escapeHtml(homeSearchQuery)}" />
-      <p class="search-status" id="searchStatus">${homeSearchQuery ? '' : 'Type a query and press Enter.'}</p>
-      <div id="searchResults"></div>
-    `;
-    const input = el.querySelector('#searchInput');
-    input.focus();
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') runHomeSearch(input.value);
-    });
-    if (homeSearchResults) renderHomeSearchResults(homeSearchResults);
-  }
-
-  async function runHomeSearch(q) {
-    homeSearchQuery = q;
-    if (!q) return;
-    const status = document.getElementById('searchStatus');
-    if (status) status.textContent = 'searching…';
-    try {
-      const r = await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json());
-      homeSearchResults = r;
-      renderHomeSearchResults(r);
-    } catch (e) {
-      if (status) status.textContent = 'Error: ' + e.message;
-    }
-  }
-
-  function renderHomeSearchResults(r) {
-    const results = document.getElementById('searchResults');
-    const status = document.getElementById('searchStatus');
-    if (!results) return;
-    const total = (r.projects?.length || 0) + (r.tasks?.length || 0) + (r.docs?.length || 0);
-    if (status) status.textContent = `${total} result${total === 1 ? '' : 's'} for "${r.query}"`;
-    const sections = [];
-    if (r.projects?.length) {
-      sections.push(`<section class="search-section"><h3>Projects (${r.projects.length})</h3><ul>${
-        r.projects.map(p => `<li><a href="/p/${encodeURIComponent(p.id)}">${escapeHtml(p.id)}</a><span class="meta">[${escapeHtml(p.status)}]</span>${p.description ? `<span class="meta">${escapeHtml(p.description.slice(0, 80))}</span>` : ''}</li>`).join('')
-      }</ul></section>`);
-    }
-    if (r.tasks?.length) {
-      sections.push(`<section class="search-section"><h3>Tasks (${r.tasks.length})</h3><ul>${
-        r.tasks.map(t => `<li><a href="/p/${encodeURIComponent(t.project_id)}">${escapeHtml(t.project_id)}#${t.task_id}</a><span class="meta">[${escapeHtml(t.status)}] ${escapeHtml(t.priority || '')}</span><span class="meta">${escapeHtml(t.title)}</span></li>`).join('')
-      }</ul></section>`);
-    }
-    if (r.docs?.length) {
-      sections.push(`<section class="search-section"><h3>Docs (${r.docs.length})</h3><ul>${
-        r.docs.map(d => `<li><a href="/view?path=${encodeURIComponent(d.path)}">${escapeHtml(d.path)}</a><div class="snippet">${escapeHtml(d.snippet || '')}</div></li>`).join('')
-      }</ul></section>`);
-    }
-    results.innerHTML = sections.length ? sections.join('') : '<p>No matches.</p>';
-  }
-
-  // ─── Cerebro view (mdview-style sidebar + markdown pane) ───
 
   // ─── Productivity self-view (file tree sidebar + Lab framework workbench) ───
 
@@ -12185,14 +9550,10 @@
   // tabs from every other workspace.
 
   async function initWorkspaceView(workspaceId) {
-    // On a full page load the server's INITIAL_BODY_CLASS doesn't know
-    // this view (main.py defaults unknown ?view= values to home-active),
-    // and the initial `?view=…` dispatch calls us directly — without
-    // _swapViewState. Strip the stale view classes ourselves so the home
-    // shell can't sit under (or fight) the workspace layout.
+    // The initial `?view=…` dispatch calls us directly without
+    // _swapViewState, so strip mutually exclusive view classes here.
     document.body.classList.remove(
-      'home-active', 'cerebro-active', 'self-active', 'project-active',
-      'code-search-active', 'logs-active',
+      'cerebro-active', 'self-active', 'project-active',
     );
     document.body.classList.add('workspace-active');
     document.title = 'Workspace';
@@ -13041,21 +10402,6 @@
     });
   }
 
-  // Terminal panel for the Logs pseudo-project: sessions rooted at logs/.
-  async function termOpenForLogs() {
-    if (!_termIsScopeActive(LOGS_PROJECT_ID)) return;
-    document.body.classList.add('term-open');
-    _termApplyRememberedVisibility();
-    if (await _termTryWarmOpen(LOGS_PROJECT_ID)) {
-      termStartPeriodicRefresh();
-      termStartStatusPolling();
-      return;
-    }
-    await _termRestoreSessionsForProject(LOGS_PROJECT_ID);
-    termStartPeriodicRefresh();
-    termStartStatusPolling();
-  }
-
   // Terminal panel for the Knowledge pseudo-project: claude session rooted at knowledge/.
   async function termOpenForCerebro() {
     // Mirror termOpenForProject, but wired to the __cerebro__ pseudo-project.
@@ -13126,9 +10472,7 @@
           if (event.type !== 'index-updated') return;
           if (event.ts && event.ts === lastTs) return;
           lastTs = event.ts;
-          if (document.body.classList.contains('home-active')) {
-            renderHomePanel();
-          } else if (document.body.classList.contains('self-active')
+          if (document.body.classList.contains('self-active')
                      && !currentRepo && !_projDocEditing) {
             if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
             else {

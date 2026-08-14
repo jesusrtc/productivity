@@ -333,6 +333,8 @@ def test_consolidated_logs_live_in_productivity_admin() -> None:
     assert "function goToLogs" in lab_app
     assert "subview: 'admin'" in lab_app
     assert "window.goToLogs = goToLogs" in lab_app
+    assert 'id="logsView"' not in index_html
+    assert "function initLogs" not in lab_app
 
 
 def test_log_alert_script_tracks_unseen_error_cursor() -> None:
