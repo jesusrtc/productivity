@@ -2565,20 +2565,121 @@
   // ─── Focus mode ─────────────────────────────────────────────────────────
   // Hides the topbar (Home / workspace picker / project tabs / gear) and the
   // project attrs bar so only the Overview strip and the content remain.
-  // Toggled by the button in the repo-tabs bar; Esc exits; persists across
-  // reloads via localStorage.
+  // Entering from the button also requests browser fullscreen and keeps the
+  // display awake. Esc exits; the layout preference persists across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
+  let _focusWakeLock = null;
+  let _focusWakeLockRequest = null;
+  let _focusOwnsFullscreen = false;
+
+  async function _acquireFocusWakeLock() {
+    if (!document.body.classList.contains('focus-mode')
+        || document.visibilityState !== 'visible'
+        || typeof navigator === 'undefined'
+        || !navigator.wakeLock
+        || typeof navigator.wakeLock.request !== 'function') return null;
+    if (_focusWakeLock && !_focusWakeLock.released) return _focusWakeLock;
+    if (_focusWakeLockRequest) return _focusWakeLockRequest;
+
+    const request = navigator.wakeLock.request('screen').then(lock => {
+      // Focus may have been closed while the browser was granting the lock.
+      if (!document.body.classList.contains('focus-mode')
+          || document.visibilityState !== 'visible') {
+        try {
+          const released = lock.release();
+          if (released && typeof released.catch === 'function') released.catch(() => {});
+        } catch {}
+        return null;
+      }
+      _focusWakeLock = lock;
+      lock.addEventListener('release', () => {
+        if (_focusWakeLock === lock) _focusWakeLock = null;
+      }, {once: true});
+      return lock;
+    }).catch(() => null);
+    _focusWakeLockRequest = request;
+    try { return await request; }
+    finally {
+      if (_focusWakeLockRequest === request) _focusWakeLockRequest = null;
+    }
+  }
+
+  function _releaseFocusWakeLock() {
+    const lock = _focusWakeLock;
+    _focusWakeLock = null;
+    if (!lock || lock.released) return;
+    try {
+      const released = lock.release();
+      if (released && typeof released.catch === 'function') released.catch(() => {});
+    } catch {}
+  }
+
+  function _enterFocusFullscreen() {
+    if (document.fullscreenElement
+        || !document.documentElement
+        || typeof document.documentElement.requestFullscreen !== 'function') return;
+    _focusOwnsFullscreen = true;
+    try {
+      const entered = document.documentElement.requestFullscreen();
+      if (entered && typeof entered.catch === 'function') {
+        entered.catch(() => { _focusOwnsFullscreen = false; });
+      }
+    } catch { _focusOwnsFullscreen = false; }
+  }
+
+  function _exitFocusFullscreen() {
+    if (!_focusOwnsFullscreen || !document.fullscreenElement
+        || typeof document.exitFullscreen !== 'function') {
+      _focusOwnsFullscreen = false;
+      return;
+    }
+    _focusOwnsFullscreen = false;
+    try {
+      const exited = document.exitFullscreen();
+      if (exited && typeof exited.catch === 'function') exited.catch(() => {});
+    } catch {}
+  }
+
   function applyFocusMode(on) {
     document.body.classList.toggle('focus-mode', !!on);
     try { localStorage.setItem(FOCUS_MODE_KEY, on ? '1' : '0'); } catch {}
+    if (on) void _acquireFocusWakeLock();
+    else {
+      _releaseFocusWakeLock();
+      _exitFocusFullscreen();
+    }
     // Re-render the strip so the button label flips.
     try { if (currentProject) renderRepoTabs(); } catch {}
   }
   function toggleFocusMode() {
-    applyFocusMode(!document.body.classList.contains('focus-mode'));
+    const on = !document.body.classList.contains('focus-mode');
+    applyFocusMode(on);
+    // Fullscreen requires a user gesture, so only request it from the toggle
+    // click/shortcut rather than when restoring Focus mode after a reload.
+    if (on) _enterFocusFullscreen();
   }
   window.toggleFocusMode = toggleFocusMode;
-  try { if (localStorage.getItem(FOCUS_MODE_KEY) === '1') document.body.classList.add('focus-mode'); } catch {}
+  try {
+    if (localStorage.getItem(FOCUS_MODE_KEY) === '1') {
+      document.body.classList.add('focus-mode');
+      void _acquireFocusWakeLock();
+    }
+  } catch {}
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible'
+        && document.body.classList.contains('focus-mode')) {
+      void _acquireFocusWakeLock();
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    // Browser Esc exits fullscreen first. Keep Focus mode, persistence, and
+    // the wake lock in sync with that visible exit.
+    if (_focusOwnsFullscreen && !document.fullscreenElement
+        && document.body.classList.contains('focus-mode')) {
+      _focusOwnsFullscreen = false;
+      applyFocusMode(false);
+    }
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !document.body.classList.contains('focus-mode')) return;
     // Don't steal Esc from terminals, form fields, or any layer that
@@ -2647,7 +2748,7 @@
     }
 
     const focusOn = document.body.classList.contains('focus-mode');
-    html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? 'Show tabs and status bar again (Esc)' : 'Hide the tab strip and status bar'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
+    html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? 'Exit fullscreen focus and allow display sleep again (Esc)' : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
     container.innerHTML = html;
   }

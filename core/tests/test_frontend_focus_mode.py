@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+NODE = shutil.which("node")
+ROOT = Path(__file__).resolve().parents[2]
+LAB_APP = ROOT / "core/src/core/static/js/lab-app.js"
+
+
+def _run_node(script: str) -> dict:
+    if NODE is None:
+        pytest.skip("node is required for frontend focus mode tests")
+    proc = subprocess.run(
+        [NODE, "-e", script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"node failed\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+    return json.loads(proc.stdout)
+
+
+def _focus_mode_source() -> str:
+    source = LAB_APP.read_text(encoding="utf-8")
+    start = source.index("const FOCUS_MODE_KEY")
+    end = source.index("function renderRepoTabs()", start)
+    return source[start:end]
+
+
+def _harness(test_body: str, *, wake_lock: bool = True) -> str:
+    wake_lock_source = """
+const navigator = {wakeLock: {request(type) {
+  wakeRequests.push(type);
+  const listeners = {};
+  const lock = {
+    released: false,
+    addEventListener(type, fn) { listeners[type] = fn; },
+    release() {
+      if (this.released) return Promise.resolve();
+      this.released = true;
+      lockReleases += 1;
+      if (listeners.release) listeners.release();
+      return Promise.resolve();
+    },
+  };
+  locks.push(lock);
+  return Promise.resolve(lock);
+}}};
+""" if wake_lock else "const navigator = {};"
+    return """
+const classes = new Set();
+const stored = {};
+const events = {};
+const wakeRequests = [];
+const locks = [];
+let lockReleases = 0;
+let fullscreenRequests = 0;
+let fullscreenExits = 0;
+let renderCount = 0;
+const classList = {
+  contains(name) { return classes.has(name); },
+  add(name) { classes.add(name); },
+  toggle(name, force) {
+    if (force === true) classes.add(name);
+    else if (force === false) classes.delete(name);
+    else if (classes.has(name)) classes.delete(name);
+    else classes.add(name);
+    return classes.has(name);
+  },
+};
+const document = {
+  body: {classList},
+  visibilityState: 'visible',
+  fullscreenElement: null,
+  documentElement: {
+    requestFullscreen() {
+      fullscreenRequests += 1;
+      document.fullscreenElement = this;
+      return Promise.resolve();
+    },
+  },
+  exitFullscreen() {
+    fullscreenExits += 1;
+    document.fullscreenElement = null;
+    return Promise.resolve();
+  },
+  addEventListener(type, fn) { events[type] = fn; },
+  querySelector() { return null; },
+};
+const localStorage = {
+  getItem(key) { return stored[key] || null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const window = {};
+let currentProject = null;
+function renderRepoTabs() { renderCount += 1; }
+""" + wake_lock_source + _focus_mode_source() + """
+(async () => {
+""" + test_body + """
+})().catch(err => {
+  process.stderr.write(String(err && err.stack || err));
+  process.exitCode = 1;
+});
+"""
+
+
+def test_focus_mode_enters_fullscreen_and_keeps_display_awake() -> None:
+    result = _run_node(_harness("""
+toggleFocusMode();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  focus: classes.has('focus-mode'),
+  stored: stored.labFocusMode,
+  wakeRequests,
+  fullscreenRequests,
+}));
+"""))
+
+    assert result == {
+        "focus": True,
+        "stored": "1",
+        "wakeRequests": ["screen"],
+        "fullscreenRequests": 1,
+    }
+
+
+def test_exiting_browser_fullscreen_exits_focus_and_releases_wake_lock() -> None:
+    result = _run_node(_harness("""
+toggleFocusMode();
+await Promise.resolve();
+await Promise.resolve();
+document.fullscreenElement = null;
+events.fullscreenchange();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  focus: classes.has('focus-mode'),
+  stored: stored.labFocusMode,
+  lockReleases,
+}));
+"""))
+
+    assert result == {"focus": False, "stored": "0", "lockReleases": 1}
+
+
+def test_focus_mode_reacquires_wake_lock_when_app_becomes_visible() -> None:
+    result = _run_node(_harness("""
+toggleFocusMode();
+await Promise.resolve();
+await Promise.resolve();
+document.visibilityState = 'hidden';
+await locks[0].release();
+document.visibilityState = 'visible';
+events.visibilitychange();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({wakeRequests, lockReleases}));
+"""))
+
+    assert result == {"wakeRequests": ["screen", "screen"], "lockReleases": 1}
+
+
+def test_focus_mode_degrades_gracefully_without_browser_apis() -> None:
+    result = _run_node(_harness("""
+delete document.documentElement.requestFullscreen;
+toggleFocusMode();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  focus: classes.has('focus-mode'),
+  stored: stored.labFocusMode,
+  wakeRequests,
+  fullscreenRequests,
+}));
+""", wake_lock=False))
+
+    assert result == {
+        "focus": True,
+        "stored": "1",
+        "wakeRequests": [],
+        "fullscreenRequests": 0,
+    }

@@ -22,3 +22,4 @@
 - [Terminal tab dividers are browser-local](terminal-tab-groups-are-browser-local.md) — draggable colored lines are locally persisted navigation chrome scoped to each terminal surface
 - [Project names are display aliases](project-names-are-display-aliases.md) — keep `project.json.id` and the directory stable; render/edit `project.json.name` as the human-facing tab label
 - [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles
+- [Focus mode is presentation mode](focus-mode-is-presentation-mode.md) — entering Focus mode requests browser fullscreen and a screen wake lock; exiting releases both
