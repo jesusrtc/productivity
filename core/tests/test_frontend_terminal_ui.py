@@ -124,7 +124,9 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     assert "_termMarkRecent(prevProjectId, prev);" in source
     assert "_termMarkRecent(projectId, name);" in source
     assert ".term-sessions .sess.recent:not(.active)" in css
-    assert ".term-sessions .sess.recent:not(.active)::after" in css
+    assert ".term-sessions .sess.recent:not(.active)::after" not in css
+    assert ".term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0" in css
+    assert ".term-panel.term-sessions-horizontal .term-sessions .sess.recent:not(.active)" not in css
     assert "var(--term-recent-color, var(--green))" in css
     assert ".term-recent-btn-swatch" in css
 

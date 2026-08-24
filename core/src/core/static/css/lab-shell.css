@@ -1441,9 +1441,7 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
-  .term-sessions .sess.recent:not(.active) { color: var(--text-primary); background: color-mix(in srgb, var(--term-recent-color, var(--green)) 8%, var(--bg-tertiary)); border-color: color-mix(in srgb, var(--term-recent-color, var(--green)) 48%, var(--border)); box-shadow: inset 3px 0 0 var(--term-recent-color, var(--green)); }
-  .term-sessions .sess.recent:not(.active)::after { content: ''; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; background: var(--term-recent-color, var(--green)); border-radius: 50%; box-shadow: 0 0 6px color-mix(in srgb, var(--term-recent-color, var(--green)) 65%, transparent); }
-  .term-panel.term-sessions-horizontal .term-sessions .sess.recent:not(.active) { box-shadow: inset 0 3px 0 var(--term-recent-color, var(--green)); }
+  .term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0 var(--term-recent-color, var(--green)); }
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
   /* Dead session: server told us the tmux session is gone, or the
      reconnect loop gave up. Grayed-out + strikethrough so it's clearly
