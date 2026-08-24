@@ -52,6 +52,18 @@ def test_framework_top_tab_is_labeled_home() -> None:
     assert 'document.title = \'Home\'' in source
 
 
+def test_sidebar_tree_indentation_has_no_depth_cap() -> None:
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+
+    assert (
+        ".sidebar-folder-children { display: none; position: relative; "
+        "padding-left: 16px; }"
+    ) in css
+    assert ".sidebar-folder-children.open::before" in css
+    assert ".sidebar-folder-children .sidebar-folder-children .sidebar-file" not in css
+    assert ".sidebar-folder-children .sidebar-folder-children.open::before" not in css
+
+
 def test_project_server_iframe_carries_its_workspace_in_the_mount_path() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
 

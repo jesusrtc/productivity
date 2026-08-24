@@ -155,18 +155,12 @@
   .sidebar-folder:hover { color: var(--text-primary); background: var(--tree-hover); }
   .sidebar-folder .folder-arrow { font-size: 9px; width: 14px; text-align: center; flex-shrink: 0; transition: transform 0.1s; opacity: 0.85; }
   .sidebar-folder .folder-arrow.open { transform: rotate(90deg); }
-  .sidebar-folder-children { display: none; position: relative; }
+  /* Each recursive children container contributes one indentation step, so
+     arbitrarily deep trees keep moving right instead of stopping at level 3. */
+  .sidebar-folder-children { display: none; position: relative; padding-left: 16px; }
   .sidebar-folder-children.open { display: block; }
-  .sidebar-folder-children .sidebar-file { padding-left: 32px; }
-  .sidebar-folder-children .sidebar-folder { padding-left: 32px; }
-  .sidebar-folder-children .sidebar-folder-children .sidebar-file { padding-left: 48px; }
-  .sidebar-folder-children .sidebar-folder-children .sidebar-folder { padding-left: 48px; }
-  .sidebar-folder-children .sidebar-folder-children .sidebar-folder-children .sidebar-file,
-  .sidebar-folder-children .sidebar-folder-children .sidebar-folder-children .sidebar-folder { padding-left: 64px; }
   /* Indent guides — one vertical hairline per nesting level, VS Code-style. */
   .sidebar-folder-children.open::before { content: ""; position: absolute; left: 22px; top: 0; bottom: 0; width: 1px; background: var(--tree-indent-guide); pointer-events: none; }
-  .sidebar-folder-children .sidebar-folder-children.open::before { left: 38px; }
-  .sidebar-folder-children .sidebar-folder-children .sidebar-folder-children.open::before { left: 54px; }
 
   /* File-type icons (shared fileIconHtml() map — glyphs + a few inline
      SVGs, colored with theme accent variables). */
