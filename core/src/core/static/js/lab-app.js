@@ -5506,9 +5506,13 @@
   const _TERM_SESSION_ORIENTATION_KEY = 'labTermSessionOrientation';
   const _TERM_SESSION_DETAIL_KEY = 'labTermSessionDetail';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
+  const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
+  const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1';
   const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149', '#db61a2', '#39c5cf', '#8b949e'];
   let termSessionOrientation = 'vertical';
   let termSessionDetail = 'compact';
+  let termRecentMinutes = 60;
+  let termRecentActivity = {};
   try {
     if (localStorage.getItem(_TERM_SESSION_ORIENTATION_KEY) === 'horizontal') {
       termSessionOrientation = 'horizontal';
@@ -5516,7 +5520,101 @@
     if (localStorage.getItem(_TERM_SESSION_DETAIL_KEY) === 'full') {
       termSessionDetail = 'full';
     }
+    const storedRecentMinutes = Number(localStorage.getItem(_TERM_RECENT_MINUTES_KEY));
+    if (Number.isFinite(storedRecentMinutes) && storedRecentMinutes >= 1) {
+      termRecentMinutes = Math.min(1440, Math.round(storedRecentMinutes));
+    }
+    const storedRecentActivity = JSON.parse(localStorage.getItem(_TERM_RECENT_ACTIVITY_KEY) || '{}');
+    if (storedRecentActivity && typeof storedRecentActivity === 'object' && !Array.isArray(storedRecentActivity)) {
+      termRecentActivity = storedRecentActivity;
+    }
   } catch {}
+
+  function _termNormalizeRecentMinutes(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 60;
+    return Math.max(1, Math.min(1440, Math.round(parsed)));
+  }
+
+  function _termRecentScopeKey(projectId = _termActiveProjectId(), workspaceId = _termWorkspaceId()) {
+    return _termSessionsKey(projectId, workspaceId);
+  }
+
+  function _termMarkRecent(projectId, sessionName, workspaceId = _termWorkspaceId(), usedAt = Date.now()) {
+    if (!projectId || !sessionName) return;
+    const session = (termSessions || []).find(item => item && item.name === sessionName);
+    const logical = session && session.logical_name;
+    if (!logical) return;
+    const scope = _termRecentScopeKey(projectId, workspaceId);
+    const scoped = termRecentActivity[scope] && typeof termRecentActivity[scope] === 'object'
+      ? termRecentActivity[scope] : {};
+    scoped[logical] = Number(usedAt) || Date.now();
+    termRecentActivity[scope] = scoped;
+    try { localStorage.setItem(_TERM_RECENT_ACTIVITY_KEY, JSON.stringify(termRecentActivity)); } catch {}
+  }
+
+  function _termSessionRecentMeta(session, now = Date.now()) {
+    if (!(session && session.logical_name)) return null;
+    const scoped = termRecentActivity[_termRecentScopeKey()];
+    const usedAt = Number(scoped && scoped[session.logical_name]);
+    if (!Number.isFinite(usedAt) || usedAt <= 0) return null;
+    const ageMs = Math.max(0, Number(now) - usedAt);
+    if (ageMs > termRecentMinutes * 60 * 1000) return null;
+    const ageMinutes = Math.floor(ageMs / 60000);
+    return {
+      usedAt,
+      label: ageMinutes < 1 ? 'used just now' : `used ${ageMinutes}m ago`,
+    };
+  }
+
+  function _termApplyRecentSettings() {
+    const btn = document.getElementById('termRecentSettingsBtn');
+    const input = document.getElementById('termRecentMinutes');
+    if (btn) {
+      btn.innerHTML = `&#x25F7; ${termRecentMinutes}m`;
+      btn.title = `Recent terminal highlight: ${termRecentMinutes} minutes`;
+    }
+    if (input && String(input.value) !== String(termRecentMinutes)) input.value = String(termRecentMinutes);
+  }
+
+  function termSetRecentMinutes(value) {
+    termRecentMinutes = _termNormalizeRecentMinutes(value);
+    try { localStorage.setItem(_TERM_RECENT_MINUTES_KEY, String(termRecentMinutes)); } catch {}
+    _termApplyRecentSettings();
+    termRenderSessionList();
+  }
+
+  let _termRecentSettingsOutside = null;
+  function termCloseRecentSettings() {
+    const el = document.getElementById('termRecentSettings');
+    if (el) el.classList.remove('open');
+    if (_termRecentSettingsOutside) {
+      document.removeEventListener('click', _termRecentSettingsOutside);
+      _termRecentSettingsOutside = null;
+    }
+  }
+
+  function termToggleRecentSettings(ev) {
+    if (ev) ev.stopPropagation();
+    const el = document.getElementById('termRecentSettings');
+    if (!el) return;
+    const opening = !el.classList.contains('open');
+    termCloseRecentSettings();
+    if (!opening) return;
+    document.getElementById('termNewPicker')?.classList.remove('open');
+    _termApplyRecentSettings();
+    el.classList.add('open');
+    _termRecentSettingsOutside = (event) => {
+      if (!el.contains(event.target) && event.target.id !== 'termRecentSettingsBtn') {
+        termCloseRecentSettings();
+      }
+    };
+    setTimeout(() => {
+      if (_termRecentSettingsOutside) document.addEventListener('click', _termRecentSettingsOutside);
+      const input = document.getElementById('termRecentMinutes');
+      if (input) { input.focus(); input.select(); }
+    }, 0);
+  }
 
   function _termApplySessionView(refit = true) {
     const panel = document.getElementById('termPanel');
@@ -5574,6 +5672,7 @@
   // initial `?view=…` dispatch.
   const _SIDEBAR_VIS_KEY_PREFIX = 'labSidebarShown:';
   const _SIDEBAR_PCT_KEY_PREFIX = 'labSidebarPct:';
+  _termApplyRecentSettings();
 
   // Productivity Admin's Servers / Terminals sections. Independent poll loop
   // and independent render targets keep those cards isolated from the rest of
@@ -6938,11 +7037,14 @@
     // the complete identity, even in compact mode.
     const visual = _termSessionVisual(s);
     const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
+    const recentMeta = _termSessionRecentMeta(s);
+    const recent = recentMeta ? ' recent' : '';
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
+    const recentTitle = recentMeta ? `Recently active — ${recentMeta.label} · window ${termRecentMinutes}m` : '';
     const ariaLabel = `${display} · ${visual.badge}`;
-    return `<span class="sess ${visual.kind}${active}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, statusTitle))}">
+    return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, [statusTitle, recentTitle].filter(Boolean).join(' · ')))}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
@@ -7162,6 +7264,7 @@
       el.classList.remove('open');
       return;
     }
+    termCloseRecentSettings();
     // Resolve workspace policy before revealing the menu so a disabled agent
     // never flashes as a clickable choice during the network round-trip.
     await termRefreshAgentAvail(el);
@@ -7561,11 +7664,15 @@
   // soft=false (default): full close — evict cache entry, close WS.
   function termDetach(soft = false) {
     console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
+    const prev = termCurrentSession;
+    const prevProjectId = termCurrentProjectId;
+    // Record activity at the moment a tab is left. This matters when a tab
+    // stayed selected longer than the recent window: its attach timestamp may
+    // be old, but the user was actively looking at it until right now.
+    if (typeof _termMarkRecent === 'function') _termMarkRecent(prevProjectId, prev);
     termAttachRequestSeq += 1;  // cancel any attach still waiting on assets/layout
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
-    const prev = termCurrentSession;
-    const prevProjectId = termCurrentProjectId;
     if (soft) {
       // Park: hide the session's container div, stash refs in cache. Never evict.
       // We deliberately leave the WS listeners attached so server output
@@ -7778,6 +7885,10 @@
     console.log('[term] termAttach', name, 'project=', projectId, 'currentSession=', termCurrentSession, 'currentProject=', termCurrentProjectId, 'cacheHas=', _termCache.has(_termCacheKey(projectId, name)));
     if (!name || !projectId) return;
     if (!_termCanAttach(projectId, name)) return;
+    // A selection counts as recent immediately. termDetach records the
+    // previous tab again when the user leaves it, keeping the timestamp true
+    // to the end of a long viewing session.
+    if (typeof _termMarkRecent === 'function') _termMarkRecent(projectId, name);
     const attachRequestSeq = ++termAttachRequestSeq;
     if (name === termCurrentSession && projectId === termCurrentProjectId && termWS && termWS.readyState === WebSocket.OPEN) {
       console.log('[term] early return — same session already open');

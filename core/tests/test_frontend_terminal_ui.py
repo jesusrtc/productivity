@@ -102,6 +102,75 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
 
 
+def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert 'id="termRecentSettingsBtn"' in html
+    assert 'onclick="termToggleRecentSettings(event)"' in html
+    assert 'id="termRecentMinutes"' in html
+    assert 'onchange="termSetRecentMinutes(this.value)"' in html
+    assert "const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes'" in source
+    assert "const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1'" in source
+    assert "function _termMarkRecent(projectId, sessionName" in source
+    assert "function _termSessionRecentMeta(session, now = Date.now())" in source
+    assert "const recent = recentMeta ? ' recent' : '';" in source
+    assert "_termMarkRecent(prevProjectId, prev);" in source
+    assert "_termMarkRecent(projectId, name);" in source
+    assert ".term-sessions .sess.recent:not(.active)" in css
+    assert ".term-sessions .sess.recent:not(.active)::after" in css
+
+
+def test_terminal_recent_activity_is_scoped_persisted_and_expires() -> None:
+    recent_helpers = _js_between(
+        "function _termNormalizeRecentMinutes(value)",
+        "function _termApplyRecentSettings()",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  setItem(key, value) { stored[key] = value; },
+};
+const _TERM_RECENT_ACTIVITY_KEY = 'recent';
+let termRecentMinutes = 60;
+let termRecentActivity = {};
+let workspace = 'ssd';
+let termSessions = [{name: 'tmux-codex', logical_name: 'codex'}];
+function _termSessionsKey(project, workspaceId) { return workspaceId + '::' + project; }
+function _termActiveProjectId() { return 'demo'; }
+function _termWorkspaceId() { return workspace; }
+""" + recent_helpers + """
+const now = 10_000_000;
+_termMarkRecent('demo', 'tmux-codex', 'ssd', now - 50 * 60 * 1000);
+const recentAt60 = _termSessionRecentMeta(termSessions[0], now);
+termRecentMinutes = 30;
+const recentAt30 = _termSessionRecentMeta(termSessions[0], now);
+workspace = 'other';
+const otherWorkspace = _termSessionRecentMeta(termSessions[0], now);
+process.stdout.write(JSON.stringify({
+  recentAt60,
+  recentAt30,
+  otherWorkspace,
+  stored: JSON.parse(stored.recent),
+  normalized: [
+    _termNormalizeRecentMinutes(0),
+    _termNormalizeRecentMinutes(61.7),
+    _termNormalizeRecentMinutes(2000),
+    _termNormalizeRecentMinutes('invalid'),
+  ],
+}));
+"""
+    )
+
+    assert result["recentAt60"]["label"] == "used 50m ago"
+    assert result["recentAt30"] is None
+    assert result["otherWorkspace"] is None
+    assert result["stored"] == {"ssd::demo": {"codex": 7_000_000}}
+    assert result["normalized"] == [1, 62, 1440, 60]
+
+
 def test_terminal_tabs_support_colored_dividers() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")

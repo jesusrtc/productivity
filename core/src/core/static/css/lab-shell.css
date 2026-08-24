@@ -1441,6 +1441,9 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
+  .term-sessions .sess.recent:not(.active) { color: var(--text-primary); background: color-mix(in srgb, var(--green) 8%, var(--bg-tertiary)); border-color: color-mix(in srgb, var(--green) 48%, var(--border)); box-shadow: inset 3px 0 0 var(--green); }
+  .term-sessions .sess.recent:not(.active)::after { content: ''; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; background: var(--green); border-radius: 50%; box-shadow: 0 0 6px color-mix(in srgb, var(--green) 65%, transparent); }
+  .term-panel.term-sessions-horizontal .term-sessions .sess.recent:not(.active) { box-shadow: inset 0 3px 0 var(--green); }
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
   /* Dead session: server told us the tmux session is gone, or the
      reconnect loop gave up. Grayed-out + strikethrough so it's clearly
@@ -1455,6 +1458,15 @@
   .term-header button.term-view-btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: #388bfd18; }
   .term-header button:hover { color: var(--text-primary); background: var(--border); }
   .term-header button.danger:hover { color: var(--red); border-color: var(--red); }
+  .term-recent-wrap { position: relative; }
+  .term-header button.term-recent-btn { min-width: 50px; padding: 3px 6px; font-family: ui-monospace, monospace; white-space: nowrap; }
+  .term-recent-picker { display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 71; width: 232px; padding: 10px; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); font: 11px ui-monospace, monospace; }
+  .term-recent-picker.open { display: block; }
+  .term-recent-picker label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .term-recent-input { display: flex; align-items: center; gap: 5px; flex-shrink: 0; color: var(--text-secondary); }
+  .term-recent-picker input { width: 54px; box-sizing: border-box; padding: 4px 5px; color: var(--text-primary); background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; font: inherit; }
+  .term-recent-picker input:focus { border-color: var(--accent); outline: 1px solid var(--accent); }
+  .term-recent-picker p { margin: 8px 0 0; color: var(--text-dim); line-height: 1.4; }
   .term-new-wrap { position: relative; }
   .term-new-picker { display: none; position: absolute; top: calc(100% + 4px); right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.5); z-index: 70; min-width: 140px; padding: 4px; }
   .term-new-picker.open { display: flex; flex-direction: column; gap: 2px; }

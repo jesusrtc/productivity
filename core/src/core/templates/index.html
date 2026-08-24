@@ -253,6 +253,16 @@
     <button id="termDetailBtn" class="term-view-btn" onclick="termToggleSessionDetail()" title="Show full session names and agents" aria-label="Show full session names and agents" aria-pressed="false">Aa</button>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only `tmux attach` command for this session to the clipboard">&#x1F4CB;</button>
     <button id="termCreateDividerBtn" onclick="termCreateDivider()" title="Create a colored divider before the active tab">+ Divider</button>
+    <div class="term-recent-wrap">
+      <button id="termRecentSettingsBtn" class="term-recent-btn" onclick="termToggleRecentSettings(event)" title="Recent terminal highlight: 60 minutes" aria-label="Configure recent terminal highlight">&#x25F7; 60m</button>
+      <div class="term-recent-picker" id="termRecentSettings" role="dialog" aria-label="Recent terminal highlight settings">
+        <label for="termRecentMinutes">
+          <span>Highlight recently active tabs</span>
+          <span class="term-recent-input"><input id="termRecentMinutes" type="number" min="1" max="1440" step="1" value="60" onchange="termSetRecentMinutes(this.value)" aria-label="Recent terminal activity window in minutes"> min</span>
+        </label>
+        <p>Inactive tabs used within this window keep a green marker.</p>
+      </div>
+    </div>
     <div class="term-new-wrap">
       <button id="termNewBtn" onclick="termToggleNewPicker(event)" title="New session in this project">+ New</button>
       <div class="term-new-picker" id="termNewPicker">

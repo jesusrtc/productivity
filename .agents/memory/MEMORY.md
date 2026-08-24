@@ -24,3 +24,4 @@
 - [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles
 - [Focus mode is presentation mode](focus-mode-is-presentation-mode.md) — entering Focus mode requests browser fullscreen and a screen wake lock; exiting releases both
 - [Sidebar tree indentation must recurse](sidebar-tree-indentation-recurses.md) — indent nested `.sidebar-folder-children` containers; never hard-code selectors for a finite number of depths
+- [Terminal recent activity is selection-local](terminal-recent-tab-activity.md) — mark tabs when selected or left, persist per workspace/project in browser storage, and reserve green for inactive recent tabs
