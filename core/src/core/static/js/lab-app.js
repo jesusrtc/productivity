@@ -5507,11 +5507,14 @@
   const _TERM_SESSION_DETAIL_KEY = 'labTermSessionDetail';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
   const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
+  const _TERM_RECENT_COLOR_KEY = 'labTermRecentColor';
   const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1';
+  const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
   const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149', '#db61a2', '#39c5cf', '#8b949e'];
   let termSessionOrientation = 'vertical';
   let termSessionDetail = 'compact';
   let termRecentMinutes = 60;
+  let termRecentColor = '#3fb950';
   let termRecentActivity = {};
   try {
     if (localStorage.getItem(_TERM_SESSION_ORIENTATION_KEY) === 'horizontal') {
@@ -5520,10 +5523,9 @@
     if (localStorage.getItem(_TERM_SESSION_DETAIL_KEY) === 'full') {
       termSessionDetail = 'full';
     }
-    const storedRecentMinutes = Number(localStorage.getItem(_TERM_RECENT_MINUTES_KEY));
-    if (Number.isFinite(storedRecentMinutes) && storedRecentMinutes >= 1) {
-      termRecentMinutes = Math.min(1440, Math.round(storedRecentMinutes));
-    }
+    const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
+    if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
+    termRecentColor = _termNormalizeRecentColor(localStorage.getItem(_TERM_RECENT_COLOR_KEY));
     const storedRecentActivity = JSON.parse(localStorage.getItem(_TERM_RECENT_ACTIVITY_KEY) || '{}');
     if (storedRecentActivity && typeof storedRecentActivity === 'object' && !Array.isArray(storedRecentActivity)) {
       termRecentActivity = storedRecentActivity;
@@ -5533,7 +5535,18 @@
   function _termNormalizeRecentMinutes(value) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return 60;
-    return Math.max(1, Math.min(1440, Math.round(parsed)));
+    return _TERM_RECENT_MINUTE_OPTIONS.reduce((nearest, option) =>
+      Math.abs(option - parsed) < Math.abs(nearest - parsed) ? option : nearest
+    , 60);
+  }
+
+  function _termNormalizeRecentColor(value) {
+    const color = String(value || '').trim().toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(color) ? color : '#3fb950';
+  }
+
+  function _termRecentWindowLabel(minutes = termRecentMinutes) {
+    return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
   }
 
   function _termRecentScopeKey(projectId = _termActiveProjectId(), workspaceId = _termWorkspaceId()) {
@@ -5569,17 +5582,30 @@
 
   function _termApplyRecentSettings() {
     const btn = document.getElementById('termRecentSettingsBtn');
-    const input = document.getElementById('termRecentMinutes');
-    if (btn) {
-      btn.innerHTML = `&#x25F7; ${termRecentMinutes}m`;
-      btn.title = `Recent terminal highlight: ${termRecentMinutes} minutes`;
-    }
-    if (input && String(input.value) !== String(termRecentMinutes)) input.value = String(termRecentMinutes);
+    const label = document.getElementById('termRecentButtonLabel');
+    const select = document.getElementById('termRecentMinutes');
+    const colorInput = document.getElementById('termRecentColor');
+    const colorValue = document.getElementById('termRecentColorValue');
+    const panel = document.getElementById('termPanel');
+    const windowLabel = _termRecentWindowLabel();
+    if (btn) btn.title = `Recent terminal highlight: ${windowLabel}`;
+    if (label) label.textContent = windowLabel;
+    if (select && String(select.value) !== String(termRecentMinutes)) select.value = String(termRecentMinutes);
+    if (colorInput && colorInput.value.toLowerCase() !== termRecentColor) colorInput.value = termRecentColor;
+    if (colorValue) colorValue.textContent = termRecentColor;
+    if (panel && panel.style) panel.style.setProperty('--term-recent-color', termRecentColor);
   }
 
   function termSetRecentMinutes(value) {
     termRecentMinutes = _termNormalizeRecentMinutes(value);
     try { localStorage.setItem(_TERM_RECENT_MINUTES_KEY, String(termRecentMinutes)); } catch {}
+    _termApplyRecentSettings();
+    termRenderSessionList();
+  }
+
+  function termSetRecentColor(value) {
+    termRecentColor = _termNormalizeRecentColor(value);
+    try { localStorage.setItem(_TERM_RECENT_COLOR_KEY, termRecentColor); } catch {}
     _termApplyRecentSettings();
     termRenderSessionList();
   }
@@ -5611,8 +5637,8 @@
     };
     setTimeout(() => {
       if (_termRecentSettingsOutside) document.addEventListener('click', _termRecentSettingsOutside);
-      const input = document.getElementById('termRecentMinutes');
-      if (input) { input.focus(); input.select(); }
+      const select = document.getElementById('termRecentMinutes');
+      if (select) select.focus();
     }, 0);
   }
 
@@ -7042,7 +7068,7 @@
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
-    const recentTitle = recentMeta ? `Recently active — ${recentMeta.label} · window ${termRecentMinutes}m` : '';
+    const recentTitle = recentMeta ? `Recently active — ${recentMeta.label} · window ${_termRecentWindowLabel()}` : '';
     const ariaLabel = `${display} · ${visual.badge}`;
     return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, [statusTitle, recentTitle].filter(Boolean).join(' · ')))}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>

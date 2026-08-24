@@ -109,9 +109,14 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
 
     assert 'id="termRecentSettingsBtn"' in html
     assert 'onclick="termToggleRecentSettings(event)"' in html
-    assert 'id="termRecentMinutes"' in html
+    assert '<select id="termRecentMinutes"' in html
     assert 'onchange="termSetRecentMinutes(this.value)"' in html
+    assert '<option value="15">15 minutes</option>' in html
+    assert '<option value="180">3 hours</option>' in html
+    assert 'id="termRecentColor" type="color"' in html
+    assert 'oninput="termSetRecentColor(this.value)"' in html
     assert "const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes'" in source
+    assert "const _TERM_RECENT_COLOR_KEY = 'labTermRecentColor'" in source
     assert "const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1'" in source
     assert "function _termMarkRecent(projectId, sessionName" in source
     assert "function _termSessionRecentMeta(session, now = Date.now())" in source
@@ -120,12 +125,14 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     assert "_termMarkRecent(projectId, name);" in source
     assert ".term-sessions .sess.recent:not(.active)" in css
     assert ".term-sessions .sess.recent:not(.active)::after" in css
+    assert "var(--term-recent-color, var(--green))" in css
+    assert ".term-recent-btn-swatch" in css
 
 
 def test_terminal_recent_activity_is_scoped_persisted_and_expires() -> None:
     recent_helpers = _js_between(
         "function _termNormalizeRecentMinutes(value)",
-        "function _termApplyRecentSettings()",
+        "let _termRecentSettingsOutside",
     )
     result = _run_node(
         """
@@ -134,13 +141,39 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const _TERM_RECENT_ACTIVITY_KEY = 'recent';
+const _TERM_RECENT_MINUTES_KEY = 'minutes';
+const _TERM_RECENT_COLOR_KEY = 'color';
+const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
 let termRecentMinutes = 60;
+let termRecentColor = '#3fb950';
 let termRecentActivity = {};
 let workspace = 'ssd';
 let termSessions = [{name: 'tmux-codex', logical_name: 'codex'}];
+let renderCount = 0;
+function makeElement(value = '') {
+  return {
+    value,
+    textContent: '',
+    title: '',
+    style: {
+      values: {},
+      setProperty(key, next) { this.values[key] = next; },
+    },
+  };
+}
+const elements = {
+  termRecentSettingsBtn: makeElement(),
+  termRecentButtonLabel: makeElement(),
+  termRecentMinutes: makeElement('60'),
+  termRecentColor: makeElement('#3fb950'),
+  termRecentColorValue: makeElement(),
+  termPanel: makeElement(),
+};
+const document = {getElementById(id) { return elements[id] || null; }};
 function _termSessionsKey(project, workspaceId) { return workspaceId + '::' + project; }
 function _termActiveProjectId() { return 'demo'; }
 function _termWorkspaceId() { return workspace; }
+function termRenderSessionList() { renderCount += 1; }
 """ + recent_helpers + """
 const now = 10_000_000;
 _termMarkRecent('demo', 'tmux-codex', 'ssd', now - 50 * 60 * 1000);
@@ -149,6 +182,8 @@ termRecentMinutes = 30;
 const recentAt30 = _termSessionRecentMeta(termSessions[0], now);
 workspace = 'other';
 const otherWorkspace = _termSessionRecentMeta(termSessions[0], now);
+termSetRecentMinutes(180);
+termSetRecentColor('#A371F7');
 process.stdout.write(JSON.stringify({
   recentAt60,
   recentAt30,
@@ -160,6 +195,20 @@ process.stdout.write(JSON.stringify({
     _termNormalizeRecentMinutes(2000),
     _termNormalizeRecentMinutes('invalid'),
   ],
+  normalizedColors: [
+    _termNormalizeRecentColor('#ABCDEF'),
+    _termNormalizeRecentColor('invalid'),
+  ],
+  settings: {
+    storedMinutes: stored.minutes,
+    storedColor: stored.color,
+    buttonLabel: elements.termRecentButtonLabel.textContent,
+    selectedMinutes: elements.termRecentMinutes.value,
+    colorInput: elements.termRecentColor.value,
+    colorText: elements.termRecentColorValue.textContent,
+    panelColor: elements.termPanel.style.values['--term-recent-color'],
+    renderCount,
+  },
 }));
 """
     )
@@ -168,7 +217,18 @@ process.stdout.write(JSON.stringify({
     assert result["recentAt30"] is None
     assert result["otherWorkspace"] is None
     assert result["stored"] == {"ssd::demo": {"codex": 7_000_000}}
-    assert result["normalized"] == [1, 62, 1440, 60]
+    assert result["normalized"] == [15, 60, 1440, 60]
+    assert result["normalizedColors"] == ["#abcdef", "#3fb950"]
+    assert result["settings"] == {
+        "storedMinutes": "180",
+        "storedColor": "#a371f7",
+        "buttonLabel": "3h",
+        "selectedMinutes": "180",
+        "colorInput": "#a371f7",
+        "colorText": "#a371f7",
+        "panelColor": "#a371f7",
+        "renderCount": 2,
+    }
 
 
 def test_terminal_tabs_support_colored_dividers() -> None:

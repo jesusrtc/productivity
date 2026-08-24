@@ -254,13 +254,25 @@
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only `tmux attach` command for this session to the clipboard">&#x1F4CB;</button>
     <button id="termCreateDividerBtn" onclick="termCreateDivider()" title="Create a colored divider before the active tab">+ Divider</button>
     <div class="term-recent-wrap">
-      <button id="termRecentSettingsBtn" class="term-recent-btn" onclick="termToggleRecentSettings(event)" title="Recent terminal highlight: 60 minutes" aria-label="Configure recent terminal highlight">&#x25F7; 60m</button>
+      <button id="termRecentSettingsBtn" class="term-recent-btn" onclick="termToggleRecentSettings(event)" title="Recent terminal highlight: 1 hour" aria-label="Configure recent terminal highlight"><span aria-hidden="true">&#x25F7;</span> <span id="termRecentButtonLabel">1h</span><span class="term-recent-btn-swatch" aria-hidden="true"></span></button>
       <div class="term-recent-picker" id="termRecentSettings" role="dialog" aria-label="Recent terminal highlight settings">
         <label for="termRecentMinutes">
-          <span>Highlight recently active tabs</span>
-          <span class="term-recent-input"><input id="termRecentMinutes" type="number" min="1" max="1440" step="1" value="60" onchange="termSetRecentMinutes(this.value)" aria-label="Recent terminal activity window in minutes"> min</span>
+          <span>Recent window</span>
+          <select id="termRecentMinutes" onchange="termSetRecentMinutes(this.value)" aria-label="Recent terminal activity window">
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60" selected>1 hour</option>
+            <option value="180">3 hours</option>
+            <option value="360">6 hours</option>
+            <option value="720">12 hours</option>
+            <option value="1440">24 hours</option>
+          </select>
         </label>
-        <p>Inactive tabs used within this window keep a green marker.</p>
+        <label for="termRecentColor">
+          <span>Marker color</span>
+          <span class="term-recent-color-control"><input id="termRecentColor" type="color" value="#3fb950" oninput="termSetRecentColor(this.value)" aria-label="Recent terminal marker color"><code id="termRecentColorValue">#3fb950</code></span>
+        </label>
+        <p>Inactive tabs used within this window keep the selected color.</p>
       </div>
     </div>
     <div class="term-new-wrap">
