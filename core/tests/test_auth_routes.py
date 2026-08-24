@@ -17,6 +17,18 @@ def _login(client, username: str, password: str):
     return client.post("/api/auth/login", json={"username": username, "password": password})
 
 
+def _create_user(
+    client, username: str, password: str, *, workspaces: list[str] | None = None,
+):
+    return client.post("/api/admin/users", json={
+        "username": username,
+        "name": username.title(),
+        "role": "user",
+        "password": password,
+        "workspaces": workspaces or [],
+    })
+
+
 def test_login_is_required_and_seed_passwords_are_sha256(client) -> None:
     client.post("/api/auth/logout")
 
@@ -28,11 +40,35 @@ def test_login_is_required_and_seed_passwords_are_sha256(client) -> None:
     assert api.status_code == 401
     store = json.loads(auth.auth_file().read_text(encoding="utf-8"))
     users = {row["username"]: row for row in store["users"]}
-    assert users["jesus"]["role"] == "admin"
-    assert users["cesar"]["role"] == "user"
-    assert users["miriam"]["role"] == "user"
-    assert users["jesus"]["password_sha256"] == auth.password_sha256("jesus")
-    assert "password" not in users["jesus"]
+    assert list(users) == ["admin"]
+    assert users["admin"]["role"] == "admin"
+    assert users["admin"]["password_sha256"] == auth.password_sha256("admin")
+    assert "password" not in users["admin"]
+    assert _login(client, "jesus", "jesus").status_code == 401
+
+
+def test_version_one_store_is_replaced_by_the_builtin_admin(client) -> None:
+    auth.auth_file().write_text(json.dumps({
+        "version": 1,
+        "secret": "legacy-secret",
+        "users": [
+            {"username": "jesus", "name": "Jesus", "role": "admin", "password_sha256": "old", "workspaces": [], "disabled": False},
+            {"username": "cesar", "name": "Cesar", "role": "user", "password_sha256": "old", "workspaces": [], "disabled": False},
+        ],
+    }), encoding="utf-8")
+
+    store = auth.load_store()
+
+    assert store["version"] == auth.STORE_VERSION
+    assert [row["username"] for row in store["users"]] == ["admin"]
+    assert auth.authenticate("admin", "admin") is not None
+
+
+def test_builtin_admin_is_fixed(client) -> None:
+    response = client.patch("/api/admin/users/admin", json={"password": "changed"})
+
+    assert response.status_code == 400
+    assert auth.authenticate("admin", "admin") is not None
 
 
 def test_admin_assigns_one_workspace_and_user_cannot_see_the_other(
@@ -44,7 +80,7 @@ def test_admin_assigns_one_workspace_and_user_cannot_see_the_other(
     paths.register_workspace(monorepo, name="Main", active=True)
     paths.register_workspace(other, name="Other", active=False)
 
-    assigned = client.patch("/api/admin/users/cesar", json={"workspaces": ["main"]})
+    assigned = _create_user(client, "cesar", "cesar", workspaces=["main"])
     assert assigned.status_code == 200, assigned.text
     client.post("/api/auth/logout")
     assert _login(client, "Cesar", "cesar").status_code == 200
@@ -77,8 +113,8 @@ def test_project_routes_use_the_workspace_selected_by_the_page(
     )
     paths.register_workspace(monorepo, name="Main", active=True)
     paths.register_workspace(other, name="Other", active=False)
-    assert client.patch(
-        "/api/admin/users/cesar", json={"workspaces": ["main", "other"]},
+    assert _create_user(
+        client, "cesar", "cesar", workspaces=["main", "other"],
     ).status_code == 200
     client.post("/api/auth/logout")
     assert _login(client, "cesar", "cesar").status_code == 200
@@ -100,7 +136,7 @@ def test_user_terminal_access_is_workspace_scoped_and_home_is_admin_only(
     _workspace(other, "beta")
     paths.register_workspace(monorepo, name="Main", active=True)
     paths.register_workspace(other, name="Other", active=False)
-    assert client.patch("/api/admin/users/miriam", json={"workspaces": ["main"]}).status_code == 200
+    assert _create_user(client, "miriam", "miriam", workspaces=["main"]).status_code == 200
     client.post("/api/auth/logout")
     assert _login(client, "miriam", "miriam").status_code == 200
 
@@ -129,6 +165,7 @@ def test_admin_can_register_workspace_and_grant_it_to_user(
         "create": False,
     })
     workspace_id = added.json()["workspace"]["id"]
+    assert _create_user(client, "miriam", "miriam").status_code == 200
     granted = client.patch("/api/admin/users/miriam", json={"workspaces": [workspace_id]})
 
     assert added.status_code == 200, added.text
@@ -152,9 +189,10 @@ def test_admin_can_create_a_new_empty_workspace(client, tmp_path: Path) -> None:
 
 
 def test_admin_can_change_password_and_old_session_is_invalidated(client) -> None:
+    assert _create_user(client, "cesar", "cesar").status_code == 200
     assert _login(client, "cesar", "cesar").status_code == 200
     old_cookie = client.cookies.get(auth.SESSION_COOKIE)
-    client.post("/api/auth/login", json={"username": "jesus", "password": "jesus"})
+    client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
 
     changed = client.patch("/api/admin/users/cesar", json={"password": "new-pass"})
 

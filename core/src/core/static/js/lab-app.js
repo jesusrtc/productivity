@@ -10066,20 +10066,22 @@
       return;
     }
     host.innerHTML = users.map(user => {
+      const builtIn = user.built_in === true;
       const permissions = _adminAccessWorkspaces.map(workspace => {
         const checked = (user.workspaces || []).includes(workspace.id) ? ' checked' : '';
-        return `<label><input type="checkbox" data-workspace-permission="${escAttr(workspace.id)}"${checked}>${selfEsc(workspace.name || workspace.id)}</label>`;
+        const disabled = user.role === 'admin' || builtIn ? ' disabled' : '';
+        return `<label><input type="checkbox" data-workspace-permission="${escAttr(workspace.id)}"${checked}${disabled}>${selfEsc(workspace.name || workspace.id)}</label>`;
       }).join('') || '<span class="ws-muted">Add a workspace before assigning access.</span>';
       return `<div class="admin-user-row" data-admin-user="${escAttr(user.username)}">
         <div class="admin-user-head">
-          <div class="admin-user-identity"><strong>${selfEsc(user.name)}</strong><code>${selfEsc(user.username)}</code></div>
-          <label class="admin-user-field">Role<select data-user-role><option value="user"${user.role === 'user' ? ' selected' : ''}>User</option><option value="admin"${user.role === 'admin' ? ' selected' : ''}>Admin</option></select></label>
-          <label class="admin-user-field">New password<input data-user-password type="password" autocomplete="new-password" placeholder="Leave unchanged"></label>
-          <label class="admin-user-field" style="flex-direction:row;align-items:center;padding-bottom:7px"><input data-user-disabled type="checkbox"${user.disabled ? ' checked' : ''}> Disabled</label>
-          <button class="refresh-btn" type="button" onclick="adminSaveUser(this)">Save</button>
+          <div class="admin-user-identity"><strong>${selfEsc(user.name)}</strong><code>${selfEsc(user.username)}${builtIn ? ' · built-in' : ''}</code></div>
+          <label class="admin-user-field">Role<select data-user-role${builtIn ? ' disabled' : ''}><option value="user"${user.role === 'user' ? ' selected' : ''}>User</option><option value="admin"${user.role === 'admin' ? ' selected' : ''}>Admin</option></select></label>
+          <label class="admin-user-field">New password<input data-user-password type="password" autocomplete="new-password" placeholder="${builtIn ? 'Fixed local password' : 'Leave unchanged'}"${builtIn ? ' disabled' : ''}></label>
+          <label class="admin-user-field" style="flex-direction:row;align-items:center;padding-bottom:7px"><input data-user-disabled type="checkbox"${user.disabled ? ' checked' : ''}${builtIn ? ' disabled' : ''}> Disabled</label>
+          ${builtIn ? '<span class="admin-built-in-badge">Fixed admin</span>' : '<button class="refresh-btn" type="button" onclick="adminSaveUser(this)">Save</button>'}
         </div>
         <div class="admin-permissions">${permissions}</div>
-        <div class="admin-user-status" data-user-status>${user.role === 'admin' ? 'Admins can access every workspace.' : ''}</div>
+        <div class="admin-user-status" data-user-status>${builtIn ? 'Built-in local administrator. Username and password are fixed.' : (user.role === 'admin' ? 'Admins can access every workspace.' : '')}</div>
       </div>`;
     }).join('');
   }

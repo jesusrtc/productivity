@@ -24,13 +24,13 @@ from lab import paths
 SESSION_COOKIE = "lab_session"
 SESSION_MAX_AGE = 30 * 24 * 60 * 60
 HOME_WORKSPACE = "__home__"
+STORE_VERSION = 2
+BUILTIN_ADMIN_USERNAME = "admin"
 
 _LOCK = threading.RLock()
 _USERNAME_RE = re.compile(r"^[a-z0-9._-]{1,40}$")
 _SEED_USERS = (
-    ("jesus", "Jesus", "admin", "jesus"),
-    ("cesar", "Cesar", "user", "cesar"),
-    ("miriam", "Miriam", "user", "miriam"),
+    (BUILTIN_ADMIN_USERNAME, "Admin", "admin", "admin"),
 )
 
 
@@ -64,7 +64,7 @@ def _seed_row(username: str, name: str, role: str, password: str) -> dict[str, A
 
 def _default_store() -> dict[str, Any]:
     return {
-        "version": 1,
+        "version": STORE_VERSION,
         "secret": secrets.token_hex(32),
         "users": [_seed_row(*seed) for seed in _SEED_USERS],
     }
@@ -87,6 +87,14 @@ def _normalize_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if not isinstance(data.get("secret"), str) or not data["secret"]:
         data["secret"] = secrets.token_hex(32)
         changed = True
+    # Version 2 intentionally replaces the old jesus/cesar/miriam bootstrap
+    # with one fixed local administrator. Additional accounts are created by
+    # that administrator from the Admin tab after migration.
+    if data.get("version") != STORE_VERSION:
+        data["users"] = [_seed_row(*seed) for seed in _SEED_USERS]
+        data["version"] = STORE_VERSION
+        changed = True
+
     raw_users = data.get("users")
     if not isinstance(raw_users, list):
         raw_users = []
@@ -130,10 +138,15 @@ def _normalize_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
             normalized.append(_seed_row(username, name, role, password))
             seen.add(username)
             changed = True
+    builtin = _seed_row(*_SEED_USERS[0])
+    for index, row in enumerate(normalized):
+        if row.get("username") == BUILTIN_ADMIN_USERNAME and row != builtin:
+            normalized[index] = builtin
+            changed = True
     if normalized != raw_users:
         data["users"] = normalized
         changed = True
-    data["version"] = 1
+    data["version"] = STORE_VERSION
     return data, changed
 
 
@@ -177,6 +190,7 @@ def public_user(row: dict[str, Any]) -> dict[str, Any]:
         "role": row.get("role") or "user",
         "workspaces": list(row.get("workspaces") or []),
         "disabled": bool(row.get("disabled", False)),
+        "built_in": row.get("username") == BUILTIN_ADMIN_USERNAME,
     }
 
 

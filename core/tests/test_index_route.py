@@ -67,6 +67,9 @@ def test_frontend_declares_cross_workspace_navigation_surfaces() -> None:
     assert "function goToWorkspace(workspaceId" in script
     assert "function showScopedCodeSearch" in script
     assert "function selfShowAdmin" in script
+    assert "user.built_in === true" in script
+    assert "Fixed admin" in script
+    assert "fetch('/api/admin/users')" in script
     assert "function workspaceSaveAppearance" in script
     assert "function projectSaveDisplayName" in script
     assert "Name shown in tabs" in script

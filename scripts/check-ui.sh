@@ -89,7 +89,7 @@ CHROME_TIMEOUT="${CHROME_TIMEOUT:-10}"
 if [[ "${UI_UNAUTHENTICATED:-}" == "1" ]]; then
   LAB_UI_AUTH_COOKIE=""
 else
-  LAB_UI_AUTH_COOKIE="$(core/.venv/bin/python -c 'import sys; from core import auth; user = auth.get_user(sys.argv[1]); assert user is not None; print(auth.issue_session(user))' "${UI_CHECK_USER:-jesus}")"
+  LAB_UI_AUTH_COOKIE="$(core/.venv/bin/python -c 'import sys; from core import auth; user = auth.get_user(sys.argv[1]); assert user is not None; print(auth.issue_session(user))' "${UI_CHECK_USER:-admin}")"
 fi
 export LAB_UI_AUTH_COOKIE
 

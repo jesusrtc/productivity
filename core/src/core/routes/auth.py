@@ -146,6 +146,8 @@ def update_user(username: str, body: UserPatch, request: Request) -> dict:
         row = next((item for item in store.get("users") or [] if item.get("username") == wanted), None)
         if row is None:
             raise HTTPException(status_code=404, detail="user not found")
+        if wanted == auth.BUILTIN_ADMIN_USERNAME:
+            raise HTTPException(status_code=400, detail="the built-in admin account is fixed")
         would_remove_admin = (
             row.get("role") == "admin"
             and not row.get("disabled")

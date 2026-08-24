@@ -7,16 +7,19 @@ state is global across registered workspaces and is stored in
 
 ## First-run accounts
 
-| User | Initial password | Role |
+| User | Password | Role |
 | --- | --- | --- |
-| `jesus` | `jesus` | Admin |
-| `cesar` | `cesar` | User |
-| `miriam` | `miriam` | User |
+| `admin` | `admin` | Built-in Admin |
 
-Change the initial passwords from **Home → Admin** after the first login. Lab
-stores only the SHA-256 digest requested for this local-only protection; it does
-not store plaintext passwords. Changing a password or disabling a user
+The built-in account is fixed so a local installation cannot lose its bootstrap
+administrator. Lab stores its SHA-256 digest rather than plaintext. Additional
+accounts, passwords, roles, disabled state, and workspace grants are managed
+from **Home → Admin**. Changing an added user's password or disabling the user
 invalidates that user's existing sessions.
+
+Upgrading from the original version removes the seeded `jesus`, `cesar`, and
+`miriam` accounts. The administrator can recreate any needed users explicitly
+with their intended workspace permissions.
 
 ## Roles and access
 
