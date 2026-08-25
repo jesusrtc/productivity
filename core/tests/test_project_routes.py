@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 
@@ -261,6 +262,52 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
     assert parsed["additions"] == 1
     assert parsed["deletions"] == 1
 
+    source.write_text("working tree\n")
+    working_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert working_history.status_code == 200
+    working = working_history.json()["commits"][0]
+    assert working["sha"] == "WORKTREE"
+    assert working["message"] == "Uncommitted changes"
+    assert working["states"] == ["unstaged"]
+
+    working_diff = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir), "file": "docs/note.txt", "sha": "WORKTREE",
+    })
+    assert working_diff.status_code == 200
+    working_parsed = working_diff.json()["files"][0]
+    assert working_parsed["additions"] == 1
+    assert working_parsed["deletions"] == 1
+
+    subprocess.run(
+        ["git", "add", str(source.relative_to(monorepo))],
+        cwd=monorepo, check=True,
+    )
+    staged_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert staged_history.json()["commits"][0]["states"] == ["staged"]
+
+    source.write_text("working over staged\n")
+    mixed_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert mixed_history.json()["commits"][0]["states"] == ["staged", "unstaged"]
+
+    untracked = pdir / "docs" / "new.txt"
+    untracked.write_text("brand new\n")
+    untracked_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/new.txt",
+    })
+    assert untracked_history.status_code == 200
+    assert untracked_history.json()["commits"][0]["states"] == ["untracked"]
+    untracked_diff = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir), "file": "docs/new.txt", "sha": "WORKTREE",
+    })
+    assert untracked_diff.status_code == 200
+    assert untracked_diff.json()["files"][0]["additions"] == 1
+
     patch = pdir / "docs" / "change.diff"
     patch.write_text(subprocess.run(
         ["git", "show", "--format=", "--no-color", commits[0]["sha"]],
@@ -272,6 +319,57 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
     assert rendered.status_code == 200
     assert rendered.json()["files"][0]["filename"].endswith("docs/note.txt")
     assert rendered.json()["files"][0]["additions"] == 1
+
+
+def test_project_git_history_uses_nearest_nested_repository(
+    client, seed_project, monorepo,
+) -> None:
+    pdir = seed_project("explorer-nested-git")
+    subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Outer Test"], cwd=monorepo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "outer@example.test"],
+        cwd=monorepo, check=True,
+    )
+
+    nested = pdir / "docs" / "nested-repo"
+    nested.mkdir()
+    source = nested / "inside.txt"
+    source.write_text("nested before\n")
+    subprocess.run(["git", "init"], cwd=nested, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Nested Test"], cwd=nested, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "nested@example.test"],
+        cwd=nested, check=True,
+    )
+    subprocess.run(["git", "add", "inside.txt"], cwd=nested, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "nested initial"],
+        cwd=nested, check=True, capture_output=True,
+    )
+    source.write_text("nested after\n")
+
+    history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/nested-repo/inside.txt",
+    })
+    assert history.status_code == 200
+    body = history.json()
+    assert Path(body["repo"]) == nested
+    assert body["repo_file"] == "inside.txt"
+    assert [item["message"] for item in body["commits"]] == [
+        "Uncommitted changes", "nested initial",
+    ]
+
+    working_diff = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "docs/nested-repo/inside.txt",
+        "sha": "WORKTREE",
+    })
+    assert working_diff.status_code == 200
+    parsed = working_diff.json()["files"][0]
+    assert parsed["filename"] == "inside.txt"
+    assert parsed["additions"] == 1
+    assert parsed["deletions"] == 1
 
 
 def test_set_project_hold_with_duration(client, seed_project) -> None:

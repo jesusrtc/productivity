@@ -108,3 +108,18 @@ def test_saved_diff_files_use_structured_diff_renderer_everywhere() -> None:
     assert "renderStoredDiffDocument(filepath, data, container)" in project_open
     assert "lower.endsWith('.diff')" in source
     assert "lower.endsWith('.patch')" in source
+
+
+def test_git_history_includes_working_tree_as_latest_entry() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    history = _between(
+        "async function openExplorerHistory(ctx)",
+        "function closeExplorerHistory()",
+    )
+
+    assert "commit.kind !== 'working-tree'" in history
+    assert "uncommitted changes included" in history
+    assert "WORKTREE" in history
+    assert "not committed" in history
+    assert "No uncommitted changes remain for this path." in history
+    assert "history-diff" in history

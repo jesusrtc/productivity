@@ -635,6 +635,7 @@ def update_project_file(body: ProjectFileBody):
 
 _ENTRY_NAME_RE = re.compile(r"^[^/\\\x00]+$")
 _ENTRY_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
+_ENTRY_WORKTREE_SHA = "WORKTREE"
 _ENTRY_DIFF_MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -756,9 +757,13 @@ def delete_project_entry(body: ProjectEntryDeleteBody, request: Request):
 
 
 def _entry_git_context(root: Path, target: Path) -> tuple[Path, str]:
+    # Discover Git from the selected entry, not the explorer root. A project can
+    # contain another repository, and Git must choose the nearest enclosing
+    # worktree exactly as it would when invoked beside the selected file.
+    git_cwd = target if target.is_dir() else target.parent
     try:
         proc = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            ["git", "-C", str(git_cwd), "rev-parse", "--show-toplevel"],
             capture_output=True, text=True, timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -771,6 +776,99 @@ def _entry_git_context(root: Path, target: Path) -> tuple[Path, str]:
     except ValueError:
         raise HTTPException(status_code=400, detail="File is outside the Git repository")
     return repo_root, repo_rel
+
+
+def _entry_untracked_files(repo_root: Path, repo_rel: str) -> list[str]:
+    try:
+        proc = subprocess.run(
+            [
+                "git", "-C", str(repo_root), "ls-files", "--others",
+                "--exclude-standard", "-z", "--", repo_rel,
+            ],
+            capture_output=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git status timed out")
+    if proc.returncode != 0:
+        detail = proc.stderr.decode(errors="replace").strip()
+        raise HTTPException(status_code=400, detail=detail or "Could not read Git status")
+    return [item.decode(errors="replace") for item in proc.stdout.split(b"\0") if item]
+
+
+def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]]:
+    """Return the final HEAD-to-working-tree patch, including untracked files."""
+    untracked = _entry_untracked_files(repo_root, repo_rel)
+    files_from_empty = untracked
+    try:
+        has_head = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        ).returncode == 0
+        if has_head:
+            tracked = subprocess.run(
+                [
+                    "git", "-C", str(repo_root), "diff", "HEAD", "--no-color",
+                    "--find-renames", "--", repo_rel,
+                ],
+                capture_output=True, text=True, timeout=20,
+            )
+            if tracked.returncode != 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=tracked.stderr.strip() or "Could not read uncommitted changes",
+                )
+            patches = [tracked.stdout]
+        else:
+            # In an unborn repository every indexed file is also uncommitted.
+            indexed = subprocess.run(
+                ["git", "-C", str(repo_root), "ls-files", "-z", "--", repo_rel],
+                capture_output=True, timeout=10,
+            )
+            if indexed.returncode != 0:
+                detail = indexed.stderr.decode(errors="replace").strip()
+                raise HTTPException(status_code=400, detail=detail or "Could not read Git index")
+            tracked_files = [
+                item.decode(errors="replace")
+                for item in indexed.stdout.split(b"\0") if item
+            ]
+            patches = []
+            files_from_empty = list(dict.fromkeys(tracked_files + untracked))
+
+        for untracked_file in files_from_empty:
+            created = subprocess.run(
+                [
+                    "git", "-C", str(repo_root), "diff", "--no-index",
+                    "--no-color", "--", "/dev/null", untracked_file,
+                ],
+                capture_output=True, text=True, timeout=20,
+            )
+            # git diff --no-index returns 1 when differences were found.
+            if created.returncode not in {0, 1}:
+                raise HTTPException(
+                    status_code=400,
+                    detail=created.stderr.strip() or "Could not read untracked file diff",
+                )
+            patches.append(created.stdout)
+
+        states = []
+        staged = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--cached", "--quiet", "--", repo_rel],
+            timeout=10,
+        )
+        unstaged = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--quiet", "--", repo_rel],
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git diff timed out")
+
+    if staged.returncode == 1:
+        states.append("staged")
+    if unstaged.returncode == 1:
+        states.append("unstaged")
+    if untracked:
+        states.append("untracked")
+    return "".join(patches), states
 
 
 @router.get("/api/project-entry/history")
@@ -812,6 +910,19 @@ def project_entry_history(
             "relative_date": relative_date,
             "message": message,
         })
+    working_patch, working_states = _entry_worktree_diff(repo_root, repo_rel)
+    if working_patch:
+        commits.insert(0, {
+            "sha": _ENTRY_WORKTREE_SHA,
+            "short_sha": "uncommitted",
+            "author": "Working tree",
+            "email": "",
+            "date": "",
+            "relative_date": "now",
+            "message": "Uncommitted changes",
+            "kind": "working-tree",
+            "states": working_states,
+        })
     return {
         "file": file,
         "repo": str(repo_root),
@@ -822,11 +933,20 @@ def project_entry_history(
 
 @router.get("/api/project-entry/history-diff")
 def project_entry_history_diff(path: str, file: str, sha: str, request: Request):
-    if not _ENTRY_SHA_RE.fullmatch(sha):
+    if sha != _ENTRY_WORKTREE_SHA and not _ENTRY_SHA_RE.fullmatch(sha):
         raise HTTPException(status_code=400, detail="Invalid commit")
     root = _entry_root(path, request)
     target = _entry_target(root, file)
     repo_root, repo_rel = _entry_git_context(root, target)
+    if sha == _ENTRY_WORKTREE_SHA:
+        patch, states = _entry_worktree_diff(repo_root, repo_rel)
+        return {
+            "file": file,
+            "sha": sha,
+            "kind": "working-tree",
+            "states": states,
+            "files": parse_unified_diff(patch),
+        }
     try:
         proc = subprocess.run(
             [

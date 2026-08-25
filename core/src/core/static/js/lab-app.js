@@ -1324,11 +1324,19 @@
         list.innerHTML = '<div class="explorer-history-empty">No commits found for this path.</div>';
         return;
       }
-      list.innerHTML = `<div class="explorer-history-summary">${commits.length} commit${commits.length === 1 ? '' : 's'} · newest first</div>` + commits.map(commit => {
-        const title = `${commit.author} · ${commit.date}`;
-        return `<button class="explorer-history-commit" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
+      const committedCount = commits.filter(commit => commit.kind !== 'working-tree').length;
+      const hasWorkingTree = commits.some(commit => commit.kind === 'working-tree');
+      const summary = `${committedCount} commit${committedCount === 1 ? '' : 's'} · newest first${hasWorkingTree ? ' · uncommitted changes included' : ''}`;
+      list.innerHTML = `<div class="explorer-history-summary">${summary}</div>` + commits.map(commit => {
+        const workingTree = commit.kind === 'working-tree';
+        const states = (commit.states || []).join(' + ') || 'uncommitted';
+        const title = workingTree ? `Working tree · ${states}` : `${commit.author} · ${commit.date}`;
+        const meta = workingTree
+          ? `<code>WORKTREE</code><span>${esc(states)}</span><span>·</span><span>not committed</span>`
+          : `<code>${esc(commit.short_sha)}</code><span>${esc(commit.author)}</span><span>·</span><span>${esc(commit.relative_date)}</span>`;
+        return `<button class="explorer-history-commit${workingTree ? ' working-tree' : ''}" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
           <span class="eh-message">${esc(commit.message)}</span>
-          <span class="eh-meta"><code>${esc(commit.short_sha)}</code><span>${esc(commit.author)}</span><span>·</span><span>${esc(commit.relative_date)}</span></span>
+          <span class="eh-meta">${meta}</span>
         </button>`;
       }).join('');
       list.querySelectorAll('.explorer-history-commit').forEach(button => {
@@ -1349,17 +1357,25 @@
     if (!state || !diff || !sha) return;
     const requestId = ++_explorerHistoryRequest;
     document.querySelectorAll('#explorerHistoryList .explorer-history-commit').forEach(el => el.classList.toggle('active', el === button));
-    diff.innerHTML = '<div class="explorer-history-empty">Loading commit diff…</div>';
+    const selected = state.commits.find(item => item.sha === sha) || {};
+    const isWorkingTree = selected.kind === 'working-tree';
+    diff.innerHTML = `<div class="explorer-history-empty">Loading ${isWorkingTree ? 'uncommitted changes' : 'commit diff'}…</div>`;
     try {
       const ctx = state.ctx;
       const response = await fetch(`/api/project-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
       if (!response.ok) throw new Error(await _explorerResponseError(response));
       const data = await response.json();
       if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
-      const commit = state.commits.find(item => item.sha === sha) || {};
-      const head = `<div class="explorer-history-head"><strong>${esc(commit.message || sha)}</strong><span>${esc(commit.author || '')} · ${esc(commit.date || '')} · ${esc(sha.slice(0, 12))}</span></div>`;
+      const commit = selected;
+      const details = isWorkingTree
+        ? `Working tree · ${esc((data.states || commit.states || []).join(' + ') || 'uncommitted')} · not committed`
+        : `${esc(commit.author || '')} · ${esc(commit.date || '')} · ${esc(sha.slice(0, 12))}`;
+      const head = `<div class="explorer-history-head${isWorkingTree ? ' working-tree' : ''}"><strong>${esc(commit.message || sha)}</strong><span>${details}</span></div>`;
       if (!data.files || !data.files.length) {
-        diff.innerHTML = head + '<div class="explorer-history-empty">No patch for this path in this commit.</div>';
+        const emptyMessage = isWorkingTree
+          ? 'No uncommitted changes remain for this path.'
+          : 'No patch for this path in this commit.';
+        diff.innerHTML = head + `<div class="explorer-history-empty">${emptyMessage}</div>`;
         return;
       }
       diff.innerHTML = head + data.files.map(file => `
