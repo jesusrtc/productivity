@@ -590,3 +590,23 @@ def _parse_unified_diff(raw: str) -> list[dict]:
         files.append(current_file)
 
     return files
+
+
+def parse_unified_diff(raw: str) -> list[dict]:
+    """Parse unified-diff text and attach GitHub-style per-file stats.
+
+    ``_parse_unified_diff`` is also used by the live git-diff helpers above.
+    This public wrapper is for stored ``.diff``/``.patch`` documents and
+    other callers that already have the raw patch text in memory.
+    """
+    files = _parse_unified_diff(raw)
+    for file in files:
+        file["additions"] = sum(
+            1 for hunk in file["hunks"] for line in hunk["lines"]
+            if line["type"] == "add"
+        )
+        file["deletions"] = sum(
+            1 for hunk in file["hunks"] for line in hunk["lines"]
+            if line["type"] == "delete"
+        )
+    return files

@@ -307,6 +307,57 @@
 <!-- Diff popover -->
 <div class="diff-popover" id="diffPopover"></div>
 
+<!-- Explorer secondary-click menu. Populated and positioned by lab-app.js. -->
+<div class="explorer-context-menu" id="explorerContextMenu" role="menu" aria-hidden="true"></div>
+<div class="explorer-toast" id="explorerToast" role="status" aria-live="polite"></div>
+
+<!-- Explorer create / rename dialog. -->
+<div class="modal-overlay" id="explorerEntryModal" onclick="if(event.target===this)closeExplorerEntryDialog()">
+  <form class="form-modal explorer-entry-dialog" onsubmit="submitExplorerEntryDialog(event)" role="dialog" aria-labelledby="explorerEntryTitle">
+    <div class="fm-header">
+      <span class="fm-title" id="explorerEntryTitle">Rename</span>
+      <button class="fm-close" type="button" onclick="closeExplorerEntryDialog()" aria-label="Close">&times;</button>
+    </div>
+    <div class="fm-body">
+      <label id="explorerEntryLabel">Name
+        <input id="explorerEntryName" type="text" autocomplete="off" spellcheck="false" required />
+      </label>
+      <div class="fm-err" id="explorerEntryError"></div>
+    </div>
+    <div class="fm-actions">
+      <button type="button" class="btn-cancel" onclick="closeExplorerEntryDialog()">Cancel</button>
+      <button type="submit" class="btn-primary" id="explorerEntrySubmit">Rename</button>
+    </div>
+  </form>
+</div>
+
+<!-- Explorer recursive-delete confirmation. -->
+<div class="modal-overlay" id="explorerDeleteModal" onclick="if(event.target===this)closeExplorerDeleteDialog()">
+  <div class="confirm-dialog explorer-delete-dialog" role="dialog" aria-labelledby="explorerDeleteTitle">
+    <h2 id="explorerDeleteTitle">Delete file?</h2>
+    <p id="explorerDeleteMessage"></p>
+    <div class="fm-err" id="explorerDeleteError"></div>
+    <div class="btn-row">
+      <button class="btn-cancel" type="button" onclick="closeExplorerDeleteDialog()">Cancel</button>
+      <button class="btn-danger" id="explorerDeleteSubmit" type="button" onclick="confirmExplorerDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Git history for the selected explorer file/folder. -->
+<div class="doc-modal-overlay" id="explorerHistoryModal" onclick="if(event.target===this)closeExplorerHistory()">
+  <div class="explorer-history-box" role="dialog" aria-labelledby="explorerHistoryTitle">
+    <div class="doc-modal-header">
+      <span class="doc-modal-title" id="explorerHistoryTitle">File history</span>
+      <button class="doc-modal-close" type="button" onclick="closeExplorerHistory()" aria-label="Close">&times;</button>
+    </div>
+    <div class="explorer-history-body">
+      <aside class="explorer-history-list" id="explorerHistoryList"></aside>
+      <main class="explorer-history-diff" id="explorerHistoryDiff"></main>
+    </div>
+  </div>
+</div>
+
 <!-- Editor Modal -->
 <div class="modal-overlay" id="editorModal">
   <div class="modal">

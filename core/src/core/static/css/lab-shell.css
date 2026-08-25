@@ -130,6 +130,10 @@
   .sidebar-file { display: flex; align-items: center; min-height: 22px; padding: 1px 8px 1px 16px; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text-secondary); cursor: pointer; text-decoration: none; border-left: 2px solid transparent; gap: 4px; }
   .sidebar-file:hover { color: var(--text-primary); background: var(--tree-hover); }
   .sidebar-file.active { color: var(--text-primary); border-left-color: #f78166; background: var(--bg-secondary); }
+  .sidebar-file.explorer-context-target,
+  .sidebar-folder.explorer-context-target,
+  .tree-file.explorer-context-target,
+  .tree-dir.explorer-context-target { color: var(--text-primary); background: var(--tree-hover); outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
   .sidebar-fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-actions { display: none; gap: 2px; flex-shrink: 0; }
   .sidebar-file:hover .sidebar-actions { display: flex; }
@@ -308,6 +312,59 @@
   .split-table tr.hunk-sep td { background: #161b22; color: #484f58; padding: 6px 10px; font-style: italic; }
 
   .empty-diff { padding: 24px; text-align: center; color: #8b949e; font-style: italic; }
+
+  /* Explorer secondary-click menu + filesystem dialogs */
+  .explorer-context-menu { display: none; position: fixed; z-index: 520; min-width: 232px; max-width: min(310px, calc(100vw - 16px)); padding: 6px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+  .explorer-context-menu.open { display: block; }
+  .explorer-context-menu .ecm-label { padding: 5px 9px 7px; color: var(--text-dim); font: 11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .explorer-context-menu button { width: 100%; min-height: 30px; padding: 5px 9px; display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 7px; border: 0; border-radius: 5px; background: transparent; color: var(--text-primary); font: 13px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align: left; cursor: default; }
+  .explorer-context-menu button:hover,
+  .explorer-context-menu button:focus-visible { background: var(--tree-hover); outline: none; }
+  .explorer-context-menu button.danger { color: var(--red); }
+  .explorer-context-menu .ecm-icon { width: 20px; color: var(--text-secondary); text-align: center; font-size: 14px; }
+  .explorer-context-menu .ecm-shortcut { color: var(--text-dim); font-size: 11px; }
+  .explorer-context-menu .ecm-sep { height: 1px; margin: 5px 3px; background: var(--border); }
+  .explorer-toast { position: fixed; left: 50%; bottom: 28px; z-index: 560; max-width: min(520px, calc(100vw - 24px)); padding: 8px 13px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-tertiary); color: var(--text-primary); box-shadow: 0 8px 28px rgba(0,0,0,.45); font-size: 12px; opacity: 0; pointer-events: none; transform: translate(-50%, 8px); transition: opacity .15s, transform .15s; }
+  .explorer-toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .explorer-toast.error { border-color: var(--red); color: var(--red); }
+  .explorer-entry-dialog input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font: 13px ui-monospace,SFMono-Regular,Menlo,monospace; outline: none; }
+  .explorer-entry-dialog input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .explorer-delete-dialog h2 { margin: 0 0 10px; font-size: 16px; }
+  .explorer-delete-dialog .fm-err { margin-bottom: 10px; }
+
+  /* File/folder Git history modal */
+  .explorer-history-box { width: 94vw; max-width: 1500px; height: 90vh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); box-shadow: 0 14px 48px rgba(0,0,0,.6); }
+  .explorer-history-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 320px minmax(0,1fr); }
+  .explorer-history-list { overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg-secondary); }
+  .explorer-history-summary { padding: 11px 13px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-size: 11px; }
+  .explorer-history-commit { width: 100%; padding: 11px 13px; display: block; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+  .explorer-history-commit:hover { background: var(--tree-hover); }
+  .explorer-history-commit.active { background: var(--bg-tertiary); box-shadow: inset 3px 0 var(--accent); }
+  .explorer-history-commit .eh-message { display: block; margin-bottom: 5px; font-size: 13px; line-height: 1.35; }
+  .explorer-history-commit .eh-meta { display: flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 11px; }
+  .explorer-history-commit code { color: var(--accent); font-size: 10px; }
+  .explorer-history-diff { min-width: 0; overflow: auto; padding: 16px; }
+  .explorer-history-empty { display: grid; min-height: 220px; place-items: center; padding: 24px; color: var(--text-dim); text-align: center; }
+  .explorer-history-head { margin: 0 0 14px; padding: 2px 2px 12px; border-bottom: 1px solid var(--border); }
+  .explorer-history-head strong { display: block; margin-bottom: 5px; font-size: 14px; }
+  .explorer-history-head span { color: var(--text-secondary); font-size: 11px; }
+  .explorer-history-diff .file-diff { background: var(--bg-primary); }
+
+  /* Stored .diff/.patch document viewer */
+  .stored-diff-document { padding: 20px; }
+  .stored-diff-toolbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 10px; margin: -20px -20px 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg-primary) 94%, transparent); backdrop-filter: blur(8px); }
+  .stored-diff-path { flex: 1; min-width: 0; overflow: hidden; color: var(--text-secondary); font: 12px ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .stored-diff-totals { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+  .stored-diff-toggle { display: flex; gap: 3px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); }
+  .stored-diff-toggle button { padding: 3px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; }
+  .stored-diff-toggle button.active { background: var(--bg-tertiary); color: var(--text-primary); }
+  .stored-diff-document .file-header { cursor: default; }
+
+  @media (max-width: 760px) {
+    .explorer-history-body { grid-template-columns: 1fr; grid-template-rows: minmax(150px, 34vh) minmax(0,1fr); }
+    .explorer-history-list { border-right: 0; border-bottom: 1px solid var(--border); }
+    .stored-diff-toolbar { flex-wrap: wrap; }
+  }
 
   /* Word-level highlight */
   .wdel { background: #b62324; color: #ffdcd7 !important; border-radius: 2px; }

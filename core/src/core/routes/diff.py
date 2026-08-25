@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -26,6 +28,7 @@ from core.diff_parser import (
     get_file_tree,
     get_notebook_diff,
     get_registered_repos,
+    parse_unified_diff,
     parse_notebook,
 )
 
@@ -626,6 +629,236 @@ def update_project_file(body: ProjectFileBody):
         file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(body.content)
     return {"ok": True}
+
+
+# ─── Project/workspace explorer operations ─────────────────────────────
+
+_ENTRY_NAME_RE = re.compile(r"^[^/\\\x00]+$")
+_ENTRY_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
+_ENTRY_DIFF_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _entry_root(path: str, request: Request) -> Path:
+    """Resolve an explorer root and keep it inside the authorized workspace.
+
+    The auth middleware scopes ``request_root`` from the absolute ``path`` in
+    the query/body, including cross-workspace tabs and the admin-only framework
+    overview. This explicit containment check prevents an absolute-path API
+    call from turning the explorer operations into a general filesystem API.
+    """
+    root = Path(path).expanduser().resolve()
+    scoped_root = auth.request_root(request).expanduser().resolve()
+    if root != scoped_root and scoped_root not in root.parents:
+        raise HTTPException(status_code=403, detail="Path is outside the workspace")
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="Explorer root not found")
+    return root
+
+
+def _entry_target(root: Path, entry: str, *, allow_missing: bool = False) -> Path:
+    """Resolve a relative explorer path without following its final symlink."""
+    rel = Path(entry)
+    if not entry or rel.is_absolute() or ".." in rel.parts or "" in rel.parts:
+        raise HTTPException(status_code=400, detail="Invalid explorer path")
+    target = root.joinpath(*rel.parts)
+    # Resolve the parent so a symlinked directory cannot escape the root.
+    parent = target.parent.resolve()
+    if parent != root and root not in parent.parents:
+        raise HTTPException(status_code=400, detail="Path escapes the explorer root")
+    if not allow_missing and not (target.exists() or target.is_symlink()):
+        raise HTTPException(status_code=404, detail="File or folder not found")
+    return target
+
+
+def _validate_entry_name(name: str) -> str:
+    clean = name.strip()
+    if clean in {"", ".", ".."} or not _ENTRY_NAME_RE.fullmatch(clean):
+        raise HTTPException(status_code=400, detail="Name cannot contain a path separator")
+    return clean
+
+
+class ProjectEntryCreateBody(BaseModel):
+    path: str
+    parent: str = ""
+    name: str
+    kind: str = "file"
+
+
+class ProjectEntryRenameBody(BaseModel):
+    path: str
+    entry: str
+    new_name: str
+
+
+class ProjectEntryDeleteBody(BaseModel):
+    path: str
+    entry: str
+
+
+@router.post("/api/project-entry")
+def create_project_entry(body: ProjectEntryCreateBody, request: Request):
+    root = _entry_root(body.path, request)
+    name = _validate_entry_name(body.name)
+    if body.kind not in {"file", "folder"}:
+        raise HTTPException(status_code=400, detail="Kind must be file or folder")
+    if body.parent:
+        parent = _entry_target(root, body.parent)
+        if not parent.is_dir():
+            raise HTTPException(status_code=400, detail="Parent is not a folder")
+    else:
+        parent = root
+    target = parent / name
+    if target.exists() or target.is_symlink():
+        raise HTTPException(status_code=409, detail="A file or folder with that name already exists")
+
+    def _create() -> None:
+        if body.kind == "folder":
+            target.mkdir()
+        else:
+            target.touch(exist_ok=False)
+
+    fsguard.guarded(root, _create)
+    return {"ok": True, "entry": str(target.relative_to(root)), "kind": body.kind}
+
+
+@router.patch("/api/project-entry")
+def rename_project_entry(body: ProjectEntryRenameBody, request: Request):
+    root = _entry_root(body.path, request)
+    target = _entry_target(root, body.entry)
+    new_name = _validate_entry_name(body.new_name)
+    destination = target.with_name(new_name)
+    if destination.exists() or destination.is_symlink():
+        raise HTTPException(status_code=409, detail="A file or folder with that name already exists")
+    fsguard.guarded(root, target.rename, destination)
+    return {
+        "ok": True,
+        "entry": str(target.relative_to(root)),
+        "renamed_to": str(destination.relative_to(root)),
+    }
+
+
+@router.delete("/api/project-entry")
+def delete_project_entry(body: ProjectEntryDeleteBody, request: Request):
+    root = _entry_root(body.path, request)
+    target = _entry_target(root, body.entry)
+
+    def _delete() -> None:
+        # A directory symlink must delete the link itself, never its target.
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        else:
+            raise HTTPException(status_code=404, detail="File or folder not found")
+
+    fsguard.guarded(root, _delete)
+    return {"ok": True, "entry": body.entry}
+
+
+def _entry_git_context(root: Path, target: Path) -> tuple[Path, str]:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise HTTPException(status_code=404, detail="This location is not in a Git repository")
+    if proc.returncode != 0:
+        raise HTTPException(status_code=404, detail="This location is not in a Git repository")
+    repo_root = Path(proc.stdout.strip()).resolve()
+    try:
+        repo_rel = str(target.relative_to(repo_root))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="File is outside the Git repository")
+    return repo_root, repo_rel
+
+
+@router.get("/api/project-entry/history")
+def project_entry_history(
+    path: str,
+    file: str,
+    request: Request,
+    limit: int = 50,
+):
+    root = _entry_root(path, request)
+    target = _entry_target(root, file)
+    repo_root, repo_rel = _entry_git_context(root, target)
+    limit = max(1, min(limit, 200))
+    args = [
+        "git", "-C", str(repo_root), "log", f"--max-count={limit}",
+        "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%s%x1e",
+    ]
+    if target.is_file() or target.is_symlink():
+        args.append("--follow")
+    args.extend(["--", repo_rel])
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git history timed out")
+    if proc.returncode != 0:
+        raise HTTPException(status_code=400, detail=proc.stderr.strip() or "Could not read Git history")
+    commits = []
+    for record in proc.stdout.split("\x1e"):
+        parts = record.strip().split("\x1f", 6)
+        if len(parts) != 7:
+            continue
+        sha, short_sha, author, email, date_iso, relative_date, message = parts
+        commits.append({
+            "sha": sha,
+            "short_sha": short_sha,
+            "author": author,
+            "email": email,
+            "date": date_iso,
+            "relative_date": relative_date,
+            "message": message,
+        })
+    return {
+        "file": file,
+        "repo": str(repo_root),
+        "repo_file": repo_rel,
+        "commits": commits,
+    }
+
+
+@router.get("/api/project-entry/history-diff")
+def project_entry_history_diff(path: str, file: str, sha: str, request: Request):
+    if not _ENTRY_SHA_RE.fullmatch(sha):
+        raise HTTPException(status_code=400, detail="Invalid commit")
+    root = _entry_root(path, request)
+    target = _entry_target(root, file)
+    repo_root, repo_rel = _entry_git_context(root, target)
+    try:
+        proc = subprocess.run(
+            [
+                "git", "-C", str(repo_root), "show", "--format=", "--no-color",
+                "--find-renames", sha, "--", repo_rel,
+            ],
+            capture_output=True, text=True, timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git diff timed out")
+    if proc.returncode != 0:
+        raise HTTPException(status_code=404, detail=proc.stderr.strip() or "Commit not found")
+    return {"file": file, "sha": sha, "files": parse_unified_diff(proc.stdout)}
+
+
+@router.get("/api/project-diff-file")
+def project_diff_file(path: str, file: str, request: Request):
+    root = _entry_root(path, request)
+    target = _entry_target(root, file)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Diff file not found")
+    try:
+        size = target.stat().st_size
+    except OSError:
+        size = 0
+    if size > _ENTRY_DIFF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Diff file is too large to render")
+    try:
+        raw = fsguard.guarded(root, target.read_text, errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"file": file, "files": parse_unified_diff(raw), "raw": raw}
 
 
 @router.get("/api/project-comments")

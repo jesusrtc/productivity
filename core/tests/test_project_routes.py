@@ -1,4 +1,5 @@
 import json
+import subprocess
 from types import SimpleNamespace
 
 
@@ -179,6 +180,98 @@ def test_project_files_marks_symlinks(client, seed_project) -> None:
     assert files[".claude/skills"]["type"] == "dir"
     assert files[".claude/skills"]["is_symlink"] is True
     assert files[".claude/skills"]["symlink_target"] == "../real-docs"
+
+
+def test_project_entry_create_rename_and_delete(client, seed_project) -> None:
+    pdir = seed_project("explorer")
+
+    created = client.post("/api/project-entry", json={
+        "path": str(pdir), "parent": "docs", "name": "draft.md", "kind": "file",
+    })
+    assert created.status_code == 200
+    assert (pdir / "docs" / "draft.md").is_file()
+
+    folder = client.post("/api/project-entry", json={
+        "path": str(pdir), "parent": "docs", "name": "research", "kind": "folder",
+    })
+    assert folder.status_code == 200
+    assert (pdir / "docs" / "research").is_dir()
+
+    renamed = client.patch("/api/project-entry", json={
+        "path": str(pdir), "entry": "docs/draft.md", "new_name": "notes.md",
+    })
+    assert renamed.status_code == 200
+    assert renamed.json()["renamed_to"] == "docs/notes.md"
+    assert not (pdir / "docs" / "draft.md").exists()
+    assert (pdir / "docs" / "notes.md").is_file()
+
+    deleted = client.request("DELETE", "/api/project-entry", json={
+        "path": str(pdir), "entry": "docs/research",
+    })
+    assert deleted.status_code == 200
+    assert not (pdir / "docs" / "research").exists()
+
+
+def test_project_entry_rejects_traversal_and_collisions(client, seed_project) -> None:
+    pdir = seed_project("explorer-safe")
+    (pdir / "docs" / "kept.md").write_text("safe")
+
+    traversal = client.request("DELETE", "/api/project-entry", json={
+        "path": str(pdir), "entry": "../project.json",
+    })
+    assert traversal.status_code == 400
+
+    bad_name = client.patch("/api/project-entry", json={
+        "path": str(pdir), "entry": "docs/kept.md", "new_name": "../gone.md",
+    })
+    assert bad_name.status_code == 400
+
+    collision = client.post("/api/project-entry", json={
+        "path": str(pdir), "parent": "docs", "name": "kept.md", "kind": "file",
+    })
+    assert collision.status_code == 409
+    assert (pdir / "docs" / "kept.md").read_text() == "safe"
+
+
+def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> None:
+    pdir = seed_project("explorer-git")
+    source = pdir / "docs" / "note.txt"
+    source.write_text("before\n")
+    subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "add", "."], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "add note"], cwd=monorepo, check=True, capture_output=True)
+    source.write_text("after\n")
+    subprocess.run(["git", "add", str(source.relative_to(monorepo))], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "update note"], cwd=monorepo, check=True, capture_output=True)
+
+    history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert history.status_code == 200
+    commits = history.json()["commits"]
+    assert [commit["message"] for commit in commits[:2]] == ["update note", "add note"]
+
+    commit_diff = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir), "file": "docs/note.txt", "sha": commits[0]["sha"],
+    })
+    assert commit_diff.status_code == 200
+    parsed = commit_diff.json()["files"][0]
+    assert parsed["additions"] == 1
+    assert parsed["deletions"] == 1
+
+    patch = pdir / "docs" / "change.diff"
+    patch.write_text(subprocess.run(
+        ["git", "show", "--format=", "--no-color", commits[0]["sha"]],
+        cwd=monorepo, check=True, capture_output=True, text=True,
+    ).stdout)
+    rendered = client.get("/api/project-diff-file", params={
+        "path": str(pdir), "file": "docs/change.diff",
+    })
+    assert rendered.status_code == 200
+    assert rendered.json()["files"][0]["filename"].endswith("docs/note.txt")
+    assert rendered.json()["files"][0]["additions"] == 1
 
 
 def test_set_project_hold_with_duration(client, seed_project) -> None:

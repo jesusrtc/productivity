@@ -446,6 +446,59 @@
     renderDiffComments(content);
   }
 
+  // Render a saved .diff/.patch document with the same tables used by the
+  // live Git changes view. The toggle is local to the document so opening a
+  // patch never changes the user's preferred mode for repository diffs.
+  function renderStoredDiffDocument(filepath, data, container) {
+    const files = Array.isArray(data.files) ? data.files : [];
+    if (!files.length) {
+      const raw = data.raw || '';
+      container.innerHTML = `<div class="stored-diff-document">
+        <div class="stored-diff-toolbar"><span class="stored-diff-path">${esc(filepath)}</span><span class="stored-diff-totals">No parseable file changes</span></div>
+        <pre style="padding:16px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:auto;white-space:pre-wrap">${esc(raw)}</pre>
+      </div>`;
+      return;
+    }
+    let mode = localStorage.getItem('labStoredDiffView') === 'split' ? 'split' : 'unified';
+    const totalAdds = files.reduce((sum, file) => sum + (file.additions || 0), 0);
+    const totalDels = files.reduce((sum, file) => sum + (file.deletions || 0), 0);
+    container.innerHTML = `<div class="stored-diff-document">
+      <div class="stored-diff-toolbar">
+        <span class="stored-diff-path" title="${escAttr(filepath)}">${esc(filepath)}</span>
+        <span class="stored-diff-totals">${files.length} file${files.length === 1 ? '' : 's'} · <span style="color:var(--green)">+${totalAdds}</span> <span style="color:var(--red)">−${totalDels}</span></span>
+        <span class="stored-diff-toggle" role="group" aria-label="Diff layout">
+          <button type="button" data-stored-mode="unified">Unified</button>
+          <button type="button" data-stored-mode="split">Split</button>
+        </span>
+      </div>
+      <div class="stored-diff-body"></div>
+    </div>`;
+    const paint = () => {
+      const body = container.querySelector('.stored-diff-body');
+      if (!body) return;
+      container.querySelectorAll('[data-stored-mode]').forEach(button => {
+        button.classList.toggle('active', button.getAttribute('data-stored-mode') === mode);
+      });
+      body.innerHTML = files.map(file => `
+        <div class="file-diff">
+          <div class="file-header">
+            <span class="badge badge-${file.status}">${esc(file.status)}</span>
+            <span class="filename">${esc(file.filename)}</span>
+            <span class="file-stats"><span class="adds">+${file.additions || 0}</span> <span class="dels">-${file.deletions || 0}</span></span>
+          </div>
+          <div class="file-body">${mode === 'split' ? renderSplit(file) : renderUnified(file)}</div>
+        </div>`).join('');
+    };
+    container.querySelectorAll('[data-stored-mode]').forEach(button => {
+      button.addEventListener('click', () => {
+        mode = button.getAttribute('data-stored-mode');
+        try { localStorage.setItem('labStoredDiffView', mode); } catch {}
+        paint();
+      });
+    });
+    paint();
+  }
+
   // ─── Diff code comments (text-anchored, like doc comments) ───
   // Store shape (shared with doc comments in comments.json):
   //   {file, text, comment, kind:'code', repo, created,
@@ -931,6 +984,442 @@
   function treeFiles(node) {
     return (node && node.__files__) || [];
   }
+
+  // ─── Explorer secondary-click menu ────────────────────────────────────
+  // One delegated menu serves the project, workspace, framework, and repo
+  // trees. Rows opt in with data-entry-kind/path; virtual rows (servers,
+  // external links, Overview) deliberately do not expose filesystem actions.
+  let _explorerContext = null;
+  let _explorerEntryState = null;
+  let _explorerDeleteState = null;
+  let _explorerHistoryState = null;
+  let _explorerHistoryRequest = 0;
+  let _explorerToastTimer = null;
+
+  function _explorerContextFromRow(row) {
+    if (!row) return null;
+    const kind = row.getAttribute('data-entry-kind');
+    const path = row.getAttribute('data-entry-path');
+    if (!kind || !path) return null;
+    const isRepoTree = row.classList.contains('tree-file') || row.classList.contains('tree-dir');
+    const root = row.getAttribute('data-entry-root')
+      || (isRepoTree ? currentRepo : (currentProject && currentProject.path));
+    if (!root) return null;
+    return {kind, path, root, row, surface: isRepoTree ? 'repo' : 'project'};
+  }
+
+  function closeExplorerContextMenu() {
+    const menu = document.getElementById('explorerContextMenu');
+    if (menu) {
+      menu.classList.remove('open');
+      menu.setAttribute('aria-hidden', 'true');
+      menu.innerHTML = '';
+    }
+    document.querySelectorAll('.explorer-context-target').forEach(el => el.classList.remove('explorer-context-target'));
+    _explorerContext = null;
+  }
+  window.closeExplorerContextMenu = closeExplorerContextMenu;
+
+  function _explorerMenuButton(action, icon, label, shortcut, danger) {
+    return `<button type="button" role="menuitem" data-explorer-action="${action}"${danger ? ' class="danger"' : ''}>
+      <span class="ecm-icon" aria-hidden="true">${icon}</span><span>${label}</span><span class="ecm-shortcut">${shortcut || ''}</span>
+    </button>`;
+  }
+
+  function openExplorerContextMenu(event, row) {
+    const ctx = _explorerContextFromRow(row);
+    if (!ctx) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeExplorerContextMenu();
+    _explorerContext = ctx;
+    row.classList.add('explorer-context-target');
+    const menu = document.getElementById('explorerContextMenu');
+    if (!menu) return;
+    const folderOpen = ctx.kind === 'folder' && (
+      row.querySelector('.folder-arrow.open')
+      || (row.nextElementSibling
+          && row.nextElementSibling.classList.contains('tree-dir-children')
+          && !row.nextElementSibling.classList.contains('collapsed'))
+    );
+    const firstLabel = ctx.kind === 'folder' ? (folderOpen ? 'Collapse' : 'Expand') : 'Open';
+    const firstIcon = ctx.kind === 'folder' ? (folderOpen ? '▾' : '▸') : '↗';
+    menu.innerHTML = `
+      <div class="ecm-label" title="${escAttr(ctx.path)}">${esc(ctx.path)}</div>
+      ${_explorerMenuButton('open', firstIcon, firstLabel, ctx.kind === 'file' ? 'Enter' : '')}
+      ${_explorerMenuButton('history', '⑂', 'View Git history', '')}
+      ${_explorerMenuButton('copy-path', '⧉', 'Copy relative path', '')}
+      <div class="ecm-sep" role="separator"></div>
+      ${_explorerMenuButton('new-file', '+', 'New file here', '')}
+      ${_explorerMenuButton('new-folder', '▢', 'New folder here', '')}
+      <div class="ecm-sep" role="separator"></div>
+      ${_explorerMenuButton('rename', '✎', 'Rename', '')}
+      ${_explorerMenuButton('delete', '⌫', `Delete ${ctx.kind}`, '', true)}`;
+    menu.classList.add('open');
+    menu.setAttribute('aria-hidden', 'false');
+    menu.style.left = Math.max(8, event.clientX) + 'px';
+    menu.style.top = Math.max(8, event.clientY) + 'px';
+    // Measure after display and clamp both edges to the viewport.
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 8) menu.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+    if (rect.bottom > window.innerHeight - 8) menu.style.top = Math.max(8, window.innerHeight - rect.height - 8) + 'px';
+    const first = menu.querySelector('button');
+    if (first) first.focus({preventScroll: true});
+  }
+
+  function _explorerParentForCreate(ctx) {
+    if (ctx.kind === 'folder') return ctx.path;
+    const slash = ctx.path.lastIndexOf('/');
+    return slash >= 0 ? ctx.path.slice(0, slash) : '';
+  }
+
+  async function _explorerMenuAction(action) {
+    const ctx = _explorerContext;
+    if (!ctx) return;
+    if (action === 'open') {
+      const row = ctx.row;
+      closeExplorerContextMenu();
+      if (row && row.isConnected) row.click();
+      return;
+    }
+    if (action === 'copy-path') {
+      const copied = await _copyToClipboard(ctx.path, null);
+      closeExplorerContextMenu();
+      explorerToast(copied ? `Copied ${ctx.path}` : 'Could not copy path', !copied);
+      return;
+    }
+    closeExplorerContextMenu();
+    if (action === 'history') return openExplorerHistory(ctx);
+    if (action === 'rename') return openExplorerEntryDialog('rename', ctx);
+    if (action === 'new-file') return openExplorerEntryDialog('create-file', ctx);
+    if (action === 'new-folder') return openExplorerEntryDialog('create-folder', ctx);
+    if (action === 'delete') return openExplorerDeleteDialog(ctx);
+  }
+
+  function explorerToast(message, error = false) {
+    const toast = document.getElementById('explorerToast');
+    if (!toast) return;
+    if (_explorerToastTimer) clearTimeout(_explorerToastTimer);
+    toast.textContent = message;
+    toast.classList.toggle('error', !!error);
+    toast.classList.add('show');
+    _explorerToastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  function openExplorerEntryDialog(action, ctx) {
+    const modal = document.getElementById('explorerEntryModal');
+    const input = document.getElementById('explorerEntryName');
+    const error = document.getElementById('explorerEntryError');
+    if (!modal || !input || !ctx) return;
+    const isRename = action === 'rename';
+    const kind = action === 'create-folder' ? 'folder' : 'file';
+    const parent = isRename ? '' : _explorerParentForCreate(ctx);
+    _explorerEntryState = {action, ctx, kind, parent};
+    document.getElementById('explorerEntryTitle').textContent = isRename
+      ? `Rename ${ctx.kind}` : `New ${kind}`;
+    document.getElementById('explorerEntryLabel').firstChild.textContent = isRename
+      ? 'New name ' : `Name in ${parent || 'workspace root'} `;
+    document.getElementById('explorerEntrySubmit').textContent = isRename ? 'Rename' : 'Create';
+    input.value = isRename ? ctx.path.split('/').pop() : '';
+    input.placeholder = kind === 'folder' ? 'folder-name' : 'filename.ext';
+    error.textContent = '';
+    modal.classList.add('active');
+    requestAnimationFrame(() => {
+      input.focus();
+      if (isRename) {
+        const dot = input.value.lastIndexOf('.');
+        input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+      }
+    });
+  }
+  window.openExplorerEntryDialog = openExplorerEntryDialog;
+
+  function closeExplorerEntryDialog() {
+    const modal = document.getElementById('explorerEntryModal');
+    if (modal) modal.classList.remove('active');
+    _explorerEntryState = null;
+  }
+  window.closeExplorerEntryDialog = closeExplorerEntryDialog;
+
+  async function _explorerResponseError(response, fallback) {
+    const payload = await response.json().catch(() => ({}));
+    return payload.detail || fallback || `Request failed (${response.status})`;
+  }
+
+  async function submitExplorerEntryDialog(event) {
+    event.preventDefault();
+    const state = _explorerEntryState;
+    if (!state) return false;
+    const input = document.getElementById('explorerEntryName');
+    const error = document.getElementById('explorerEntryError');
+    const submit = document.getElementById('explorerEntrySubmit');
+    const name = (input.value || '').trim();
+    if (!name) return false;
+    submit.disabled = true;
+    error.textContent = '';
+    try {
+      const isRename = state.action === 'rename';
+      const response = await fetch('/api/project-entry', {
+        method: isRename ? 'PATCH' : 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(isRename ? {
+          path: state.ctx.root,
+          entry: state.ctx.path,
+          new_name: name,
+        } : {
+          path: state.ctx.root,
+          parent: state.parent,
+          name,
+          kind: state.kind,
+        }),
+      });
+      if (!response.ok) throw new Error(await _explorerResponseError(response));
+      const result = await response.json();
+      const savedState = state;
+      closeExplorerEntryDialog();
+      await _explorerAfterMutation(savedState, result);
+      explorerToast(isRename ? `Renamed to ${result.renamed_to}` : `Created ${result.entry}`);
+    } catch (e) {
+      error.textContent = e.message || String(e);
+    } finally {
+      submit.disabled = false;
+    }
+    return false;
+  }
+  window.submitExplorerEntryDialog = submitExplorerEntryDialog;
+
+  function openExplorerDeleteDialog(ctx) {
+    const modal = document.getElementById('explorerDeleteModal');
+    if (!modal || !ctx) return;
+    _explorerDeleteState = ctx;
+    document.getElementById('explorerDeleteTitle').textContent = `Delete ${ctx.kind}?`;
+    document.getElementById('explorerDeleteMessage').innerHTML = ctx.kind === 'folder'
+      ? `Delete <code>${esc(ctx.path)}</code> and everything inside it? This cannot be undone.`
+      : `Delete <code>${esc(ctx.path)}</code>? This cannot be undone.`;
+    document.getElementById('explorerDeleteError').textContent = '';
+    document.getElementById('explorerDeleteSubmit').disabled = false;
+    modal.classList.add('active');
+    requestAnimationFrame(() => document.getElementById('explorerDeleteSubmit').focus());
+  }
+  window.openExplorerDeleteDialog = openExplorerDeleteDialog;
+
+  function closeExplorerDeleteDialog() {
+    const modal = document.getElementById('explorerDeleteModal');
+    if (modal) modal.classList.remove('active');
+    _explorerDeleteState = null;
+  }
+  window.closeExplorerDeleteDialog = closeExplorerDeleteDialog;
+
+  async function confirmExplorerDelete() {
+    const ctx = _explorerDeleteState;
+    if (!ctx) return;
+    const button = document.getElementById('explorerDeleteSubmit');
+    const error = document.getElementById('explorerDeleteError');
+    button.disabled = true;
+    error.textContent = '';
+    try {
+      const response = await fetch('/api/project-entry', {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: ctx.root, entry: ctx.path}),
+      });
+      if (!response.ok) throw new Error(await _explorerResponseError(response));
+      closeExplorerDeleteDialog();
+      await _explorerAfterMutation({action: 'delete', ctx, kind: ctx.kind}, {entry: ctx.path});
+      explorerToast(`Deleted ${ctx.path}`);
+    } catch (e) {
+      error.textContent = e.message || String(e);
+      button.disabled = false;
+    }
+  }
+  window.confirmExplorerDelete = confirmExplorerDelete;
+
+  function _explorerPathAffected(activePath, targetPath, kind) {
+    return !!activePath && (
+      activePath === targetPath
+      || (kind === 'folder' && activePath.startsWith(targetPath + '/'))
+    );
+  }
+
+  function _explorerRenamedActivePath(activePath, oldPath, newPath, kind) {
+    if (!_explorerPathAffected(activePath, oldPath, kind)) return activePath;
+    return activePath === oldPath ? newPath : newPath + activePath.slice(oldPath.length);
+  }
+
+  function _explorerClearDocCache(root, path, kind) {
+    if (typeof _projDocCache === 'undefined') return;
+    const prefix = root + '|';
+    for (const key of _projDocCache.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      const cachedPath = key.slice(prefix.length);
+      if (_explorerPathAffected(cachedPath, path, kind)) _projDocCache.delete(key);
+    }
+  }
+
+  async function _explorerAfterMutation(state, result) {
+    const {action, ctx} = state;
+    const kind = state.kind || ctx.kind;
+    const oldPath = ctx.path;
+    const newPath = action === 'rename' ? result.renamed_to : result.entry;
+    _explorerClearDocCache(ctx.root, oldPath, ctx.kind);
+    if (typeof _projectSidebarCache !== 'undefined') _projectSidebarCache.delete(ctx.root);
+
+    if (ctx.surface === 'repo' && currentRepo === ctx.root) {
+      const previous = projectOpenFile;
+      const wasAffected = _explorerPathAffected(previous, oldPath, ctx.kind);
+      let reopen = previous;
+      if (action === 'rename' && wasAffected) reopen = _explorerRenamedActivePath(previous, oldPath, newPath, ctx.kind);
+      if (action === 'delete' && wasAffected) reopen = null;
+      if (action.startsWith('create') && kind === 'file') reopen = newPath;
+      await loadProjectView();
+      if (reopen) await openProjectFile(reopen);
+      else if (action === 'delete' && wasAffected) {
+        projectOpenFile = null;
+        document.getElementById('content').innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
+      }
+      return;
+    }
+
+    if (!currentProject || currentProject.path !== ctx.root) return;
+    const previous = _projDocPath;
+    const wasAffected = _explorerPathAffected(previous, oldPath, ctx.kind);
+    let reopen = previous;
+    if (action === 'rename' && wasAffected) reopen = _explorerRenamedActivePath(previous, oldPath, newPath, ctx.kind);
+    if (action === 'delete' && wasAffected) reopen = null;
+    if (action.startsWith('create') && kind === 'file') reopen = newPath;
+
+    if (document.body.classList.contains('self-active')) await selfPopulateSidebar();
+    else if (document.body.classList.contains('workspace-active')) await workspacePopulateSidebar();
+    else await _refreshProjectSidebar();
+
+    if (reopen && reopen !== previous) await openProjectDoc(reopen);
+    else if (action === 'delete' && wasAffected) {
+      setLastProjectDoc(ctx.root, null);
+      if (document.body.classList.contains('self-active')) selfShowWorkbench();
+      else if (document.body.classList.contains('workspace-active')) workspaceShowOverview();
+      else showProjectDashboard();
+    }
+  }
+
+  async function openExplorerHistory(ctx) {
+    if (!ctx) return;
+    const modal = document.getElementById('explorerHistoryModal');
+    const list = document.getElementById('explorerHistoryList');
+    const diff = document.getElementById('explorerHistoryDiff');
+    if (!modal || !list || !diff) return;
+    _explorerHistoryState = {ctx, commits: []};
+    const requestId = ++_explorerHistoryRequest;
+    document.getElementById('explorerHistoryTitle').textContent = `History · ${ctx.path}`;
+    list.innerHTML = '<div class="explorer-history-empty">Loading history…</div>';
+    diff.innerHTML = '<div class="explorer-history-empty">Select a commit to view this path’s changes.</div>';
+    modal.classList.add('active');
+    try {
+      const response = await fetch(`/api/project-entry/history?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&limit=100`);
+      if (!response.ok) throw new Error(await _explorerResponseError(response));
+      const data = await response.json();
+      if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
+      const commits = data.commits || [];
+      _explorerHistoryState.commits = commits;
+      if (!commits.length) {
+        list.innerHTML = '<div class="explorer-history-empty">No commits found for this path.</div>';
+        return;
+      }
+      list.innerHTML = `<div class="explorer-history-summary">${commits.length} commit${commits.length === 1 ? '' : 's'} · newest first</div>` + commits.map(commit => {
+        const title = `${commit.author} · ${commit.date}`;
+        return `<button class="explorer-history-commit" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
+          <span class="eh-message">${esc(commit.message)}</span>
+          <span class="eh-meta"><code>${esc(commit.short_sha)}</code><span>${esc(commit.author)}</span><span>·</span><span>${esc(commit.relative_date)}</span></span>
+        </button>`;
+      }).join('');
+      list.querySelectorAll('.explorer-history-commit').forEach(button => {
+        button.addEventListener('click', () => explorerHistorySelect(button.getAttribute('data-sha'), button));
+      });
+      const first = list.querySelector('.explorer-history-commit');
+      if (first) explorerHistorySelect(first.getAttribute('data-sha'), first);
+    } catch (e) {
+      if (requestId !== _explorerHistoryRequest) return;
+      list.innerHTML = `<div class="explorer-history-empty">${esc(e.message || e)}</div>`;
+    }
+  }
+  window.openExplorerHistory = openExplorerHistory;
+
+  async function explorerHistorySelect(sha, button) {
+    const state = _explorerHistoryState;
+    const diff = document.getElementById('explorerHistoryDiff');
+    if (!state || !diff || !sha) return;
+    const requestId = ++_explorerHistoryRequest;
+    document.querySelectorAll('#explorerHistoryList .explorer-history-commit').forEach(el => el.classList.toggle('active', el === button));
+    diff.innerHTML = '<div class="explorer-history-empty">Loading commit diff…</div>';
+    try {
+      const ctx = state.ctx;
+      const response = await fetch(`/api/project-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
+      if (!response.ok) throw new Error(await _explorerResponseError(response));
+      const data = await response.json();
+      if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
+      const commit = state.commits.find(item => item.sha === sha) || {};
+      const head = `<div class="explorer-history-head"><strong>${esc(commit.message || sha)}</strong><span>${esc(commit.author || '')} · ${esc(commit.date || '')} · ${esc(sha.slice(0, 12))}</span></div>`;
+      if (!data.files || !data.files.length) {
+        diff.innerHTML = head + '<div class="explorer-history-empty">No patch for this path in this commit.</div>';
+        return;
+      }
+      diff.innerHTML = head + data.files.map(file => `
+        <div class="file-diff">
+          <div class="file-header"><span class="badge badge-${file.status}">${esc(file.status)}</span><span class="filename">${esc(file.filename)}</span><span class="file-stats"><span class="adds">+${file.additions || 0}</span> <span class="dels">-${file.deletions || 0}</span></span></div>
+          <div class="file-body">${renderUnified(file)}</div>
+        </div>`).join('');
+    } catch (e) {
+      if (requestId !== _explorerHistoryRequest) return;
+      diff.innerHTML = `<div class="explorer-history-empty">${esc(e.message || e)}</div>`;
+    }
+  }
+  window.explorerHistorySelect = explorerHistorySelect;
+
+  function closeExplorerHistory() {
+    const modal = document.getElementById('explorerHistoryModal');
+    if (modal) modal.classList.remove('active');
+    _explorerHistoryState = null;
+    _explorerHistoryRequest += 1;
+  }
+  window.closeExplorerHistory = closeExplorerHistory;
+
+  document.addEventListener('contextmenu', (event) => {
+    const row = event.target.closest('[data-entry-kind][data-entry-path]');
+    if (row) openExplorerContextMenu(event, row);
+  });
+  document.addEventListener('click', (event) => {
+    const menu = document.getElementById('explorerContextMenu');
+    if (!menu || !menu.classList.contains('open')) return;
+    const button = event.target.closest('[data-explorer-action]');
+    if (button && menu.contains(button)) {
+      event.preventDefault();
+      _explorerMenuAction(button.getAttribute('data-explorer-action'));
+    } else if (!menu.contains(event.target)) {
+      closeExplorerContextMenu();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    const menu = document.getElementById('explorerContextMenu');
+    if (menu && menu.classList.contains('open')) {
+      const buttons = Array.from(menu.querySelectorAll('button'));
+      const index = buttons.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        buttons[(index + delta + buttons.length) % buttons.length].focus();
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        buttons[event.key === 'Home' ? 0 : buttons.length - 1].focus();
+      }
+    }
+    if (event.key === 'Escape') {
+      if (menu && menu.classList.contains('open')) closeExplorerContextMenu();
+      else if (document.getElementById('explorerEntryModal')?.classList.contains('active')) closeExplorerEntryDialog();
+      else if (document.getElementById('explorerDeleteModal')?.classList.contains('active')) closeExplorerDeleteDialog();
+      else if (document.getElementById('explorerHistoryModal')?.classList.contains('active')) closeExplorerHistory();
+    }
+  });
+  window.addEventListener('resize', closeExplorerContextMenu);
+  document.addEventListener('scroll', closeExplorerContextMenu, true);
 
   // ─── Persistent sidebar-tree folder state ───────────────────────────────
   // Each tree (self / per-project / shared-claude / cerebro) is a scope.
@@ -1439,7 +1928,7 @@
         const collapsed = hasChanged ? '' : ' collapsed';
         const arrow = hasChanged ? '' : ' collapsed';
         return `<li>
-          <div class="tree-dir${symlinkClass(node)}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
+          <div class="tree-dir${symlinkClass(node)}" data-entry-kind="folder" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(currentRepo || '')}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
             <span class="arrow${arrow}">▾</span>${symlinkMarker(node)}${node.name}/
           </div>
           <ul class="tree-node tree-dir-children${collapsed}">${renderTreeNodes(node.children, changedFiles)}</ul>
@@ -1452,7 +1941,7 @@
         else if (status) badge = '<span class="sidebar-badge modified"></span>';
         const cls = projectOpenFile === node.path ? ' active' : '';
         return `<li>
-          <div class="tree-file${cls}${symlinkClass(node)}"${symlinkTitle(node)} onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
+          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(currentRepo || '')}"${symlinkTitle(node)} onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
             ${badge}${symlinkMarker(node)}${fileIconHtml(node.name, node)}${node.name}
           </div>
         </li>`;
@@ -1482,6 +1971,20 @@
 
     if (isNotebook(filepath)) {
       await renderNotebookView(filepath);
+      return;
+    }
+
+    if (/\.(diff|patch)$/i.test(filepath)) {
+      try {
+        await ensureHighlight().catch(() => {});
+        const res = await fetch(`/api/project-diff-file?path=${encodeURIComponent(currentRepo)}&file=${encodeURIComponent(filepath)}`);
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
+        const data = await res.json();
+        if (projectOpenFile !== filepath) return;
+        renderStoredDiffDocument(filepath, data, content);
+      } catch (err) {
+        if (projectOpenFile === filepath) content.innerHTML = `<div class="file-viewer-empty">Error: ${esc(err.message || err)}</div>`;
+      }
       return;
     }
 
@@ -2191,11 +2694,12 @@
         finally { document.body.removeChild(ta); }
       }
     } catch (_) { ok = false; }
-    if (!btn) return;
+    if (!btn) return ok;
     const original = btn.textContent;
     btn.textContent = ok ? '✓ copied' : '✗ copy failed';
     btn.disabled = true;
     setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
+    return ok;
   }
 
   // Flatten the rendered outputs DOM into something useful in a paste buffer.
@@ -2996,6 +3500,26 @@
       return;
     }
 
+    // Saved unified patches use the same file headers, line gutters,
+    // word-level highlights, and Unified/Split layouts as live Git changes.
+    if (/\.(diff|patch)$/i.test(filepath)) {
+      try {
+        await ensureHighlight().catch(() => {});
+        const response = await fetch(`/api/project-diff-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.detail || `Failed to load diff (${response.status})`);
+        }
+        const data = await response.json();
+        if (!_stillActiveNav()) return;
+        renderStoredDiffDocument(filepath, data, container);
+      } catch (err) {
+        if (!_stillActiveNav()) return;
+        container.innerHTML = `<div class="no-repo"><p>Error: ${esc(err.message || err)}</p></div>`;
+      }
+      return;
+    }
+
     // Notebooks: render cells via /api/nb — activateNotebookScripts runs post-inject.
     // A trailing editor lets you POST new cells to /api/nb/exec; the resulting
     // .ipynb write triggers the watcher, every open viewer re-renders.
@@ -3251,7 +3775,7 @@
       const lower = filepath.toLowerCase();
       const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
       const videoExts = ['.mp4', '.webm', '.mov', '.m4v'];
-      if (lower.endsWith('.ipynb') || lower.endsWith('.html') || lower.endsWith('.pdf') || imageExts.some(ext => lower.endsWith(ext)) || videoExts.some(ext => lower.endsWith(ext))) {
+      if (lower.endsWith('.ipynb') || lower.endsWith('.html') || lower.endsWith('.pdf') || lower.endsWith('.diff') || lower.endsWith('.patch') || imageExts.some(ext => lower.endsWith(ext)) || videoExts.some(ext => lower.endsWith(ext))) {
         await _renderDocInto(filepath, content, { preserveScroll: true });
         if (!_stillActiveNav()) return;
         content.scrollTop = prevScroll;
@@ -4608,7 +5132,7 @@
         const safeName = name.replace(/'/g, "\\'");
         const label = name.replace(/\.md$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const activeCls = activePath === name ? ' active' : '';
-        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
+        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
 
       // Servers — proxied local dev servers declared in servers.json (or
@@ -4655,7 +5179,7 @@
             const open = _treeIsOpen(_projTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
-            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
             html += renderTree(node[folder], depth + 1, fullPath);
             html += '</div>';
@@ -4691,7 +5215,7 @@
               dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
             }
             const activeCls = activePath === f.path ? ' active' : '';
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
           });
           return html;
         }
@@ -4730,7 +5254,7 @@
           const fname = f.name;
           const icon = fileIconHtml(fname, f);
           const activeCls = activePath === f.path ? ' active' : '';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
+          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
         });
       } else {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
@@ -9822,7 +10346,7 @@
       const open = _treeIsOpen(scope, fullPath, autoOpenHere);
       const arrowCls = open ? ' open' : '';
       const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
       html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
       html += renderSidebarFileTree(node[folder], depth + 1, fullPath, opts);
       html += '</div>';
@@ -9850,7 +10374,7 @@
       } else if (hasUnseen) {
         dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }
