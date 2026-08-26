@@ -212,14 +212,7 @@ def get_diff(repo: str, diff_type: str,
     }
 
 
-def parse_notebook(filepath: str) -> list[dict]:
-    """Parse an ipynb file into a list of cells with rendered content."""
-    try:
-        with open(filepath) as f:
-            nb = json.load(f)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return []
-
+def _parse_notebook_payload(nb: dict) -> list[dict]:
     cells = []
     for cell in nb.get("cells", []):
         cell_type = cell.get("cell_type", "code")
@@ -259,6 +252,69 @@ def parse_notebook(filepath: str) -> list[dict]:
     return cells
 
 
+def parse_notebook_content(content: str) -> list[dict]:
+    """Parse notebook JSON text into the cell shape used by the UI."""
+    try:
+        payload = json.loads(content)
+    except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+        return []
+    return _parse_notebook_payload(payload if isinstance(payload, dict) else {})
+
+
+def parse_notebook(filepath: str) -> list[dict]:
+    """Parse an ipynb file into a list of cells with rendered content."""
+    try:
+        with open(filepath) as f:
+            nb = json.load(f)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return []
+    return _parse_notebook_payload(nb if isinstance(nb, dict) else {})
+
+
+def diff_notebook_cells(base_cells: list[dict], current_cells: list[dict]) -> dict:
+    """Return a positional, cell-aware notebook diff for two revisions."""
+    max_len = max(len(current_cells), len(base_cells))
+    diff_cells = []
+    for i in range(max_len):
+        cur = current_cells[i] if i < len(current_cells) else None
+        base = base_cells[i] if i < len(base_cells) else None
+
+        if cur and not base:
+            diff_cells.append({"status": "added", "cell": cur, "index": i})
+        elif base and not cur:
+            diff_cells.append({"status": "deleted", "cell": base, "index": i})
+        elif cur["cell_type"] != base["cell_type"] or cur["source"] != base["source"]:
+            diff_cells.append({"status": "modified", "cell": cur, "base_cell": base, "index": i})
+        else:
+            # Execution counts and rich outputs are reviewable notebook state
+            # even when the source itself did not change.
+            cur_output = json.dumps({
+                "execution_count": cur.get("execution_count"),
+                "outputs": cur.get("outputs", []),
+            }, sort_keys=True)
+            base_output = json.dumps({
+                "execution_count": base.get("execution_count"),
+                "outputs": base.get("outputs", []),
+            }, sort_keys=True)
+            if cur_output != base_output:
+                diff_cells.append({
+                    "status": "output_changed",
+                    "cell": cur,
+                    "base_cell": base,
+                    "index": i,
+                })
+            else:
+                diff_cells.append({"status": "unchanged", "cell": cur, "index": i})
+
+    return {
+        "cells": diff_cells,
+        "before_cells": len(base_cells),
+        "after_cells": len(current_cells),
+        "total_cells": len(current_cells),
+        "changed_cells": sum(1 for cell in diff_cells if cell["status"] != "unchanged"),
+    }
+
+
 def get_notebook_diff(repo: str, filepath: str, diff_type: str) -> dict:
     """Compare notebook cells between current and base version."""
     current_path = os.path.join(repo, filepath)
@@ -276,44 +332,13 @@ def get_notebook_diff(repo: str, filepath: str, diff_type: str) -> dict:
             capture_output=True, text=True, cwd=repo,
         )
         if result.returncode == 0:
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.ipynb', delete=False) as tmp:
-                tmp.write(result.stdout)
-                tmp_path = tmp.name
-            base_cells = parse_notebook(tmp_path)
-            os.unlink(tmp_path)
+            base_cells = parse_notebook_content(result.stdout)
         else:
             base_cells = []
     except Exception:
         base_cells = []
 
-    # Simple cell-by-cell comparison
-    max_len = max(len(current_cells), len(base_cells))
-    diff_cells = []
-    for i in range(max_len):
-        cur = current_cells[i] if i < len(current_cells) else None
-        base = base_cells[i] if i < len(base_cells) else None
-
-        if cur and not base:
-            diff_cells.append({"status": "added", "cell": cur, "index": i})
-        elif base and not cur:
-            diff_cells.append({"status": "deleted", "cell": base, "index": i})
-        elif cur["source"] != base["source"]:
-            diff_cells.append({"status": "modified", "cell": cur, "base_cell": base, "index": i})
-        else:
-            # Check if outputs changed
-            cur_out = json.dumps(cur.get("outputs", []))
-            base_out = json.dumps(base.get("outputs", []))
-            if cur_out != base_out:
-                diff_cells.append({"status": "output_changed", "cell": cur, "base_cell": base, "index": i})
-            else:
-                diff_cells.append({"status": "unchanged", "cell": cur, "index": i})
-
-    return {
-        "cells": diff_cells,
-        "total_cells": len(current_cells),
-        "changed_cells": sum(1 for c in diff_cells if c["status"] != "unchanged"),
-    }
+    return diff_notebook_cells(base_cells, current_cells)
 
 
 def get_file_tree(repo: str) -> list[dict]:

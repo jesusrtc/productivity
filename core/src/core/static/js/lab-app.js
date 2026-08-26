@@ -1371,6 +1371,15 @@
         ? `Working tree · ${esc((data.states || commit.states || []).join(' + ') || 'uncommitted')} · not committed`
         : `${esc(commit.author || '')} · ${esc(commit.date || '')} · ${esc(sha.slice(0, 12))}`;
       const head = `<div class="explorer-history-head${isWorkingTree ? ' working-tree' : ''}"><strong>${esc(commit.message || sha)}</strong><span>${details}</span></div>`;
+      if (data.notebook) {
+        await Promise.all([
+          ensureMarked().catch(() => {}),
+          ensureHighlight().catch(() => {}),
+        ]);
+        if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
+        diff.innerHTML = head + renderNotebookHistoryDiff(data.notebook);
+        return;
+      }
       if (!data.files || !data.files.length) {
         const emptyMessage = isWorkingTree
           ? 'No uncommitted changes remain for this path.'
@@ -1862,6 +1871,7 @@
   let projectEditMode = false;
   let showDotFiles = false;
   const SIDEBAR_FILE_CONFIG_KEY = 'labSidebarFileConfig-v1';
+  const SIDEBAR_RECENT_MAX_MINUTES = 4320;
   const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
     showHidden: false,
     showRecent: true,
@@ -1879,7 +1889,8 @@
         showHidden: stored.showHidden === true,
         showRecent: stored.showRecent !== false,
         recentMinutes: Number.isFinite(recentMinutes) && recentMinutes > 0
-          ? recentMinutes : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes,
+          ? Math.min(recentMinutes, SIDEBAR_RECENT_MAX_MINUTES)
+          : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes,
         trackMode: stored.trackMode === 'extensions' ? 'extensions' : 'all',
         extensions: Array.isArray(stored.extensions)
           ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
@@ -1972,6 +1983,25 @@
     return compactNode(buildSidebarTree(files), '');
   }
 
+  const _SIDEBAR_GITHUB_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.18.55-.39 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.5 7.5 0 0 1 8 4.03c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.47.55.39A8 8 0 0 0 8 .2Z"/></svg>';
+
+  function _sidebarGitHistoryButtonHtml(path) {
+    const safePath = String(path || '').replace(/'/g, "\\'");
+    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" onclick="event.preventDefault();event.stopPropagation();openSidebarFileHistory('${safePath}')" ondblclick="event.preventDefault();event.stopPropagation()" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
+  }
+
+  function openSidebarFileHistory(path) {
+    if (!path || !currentProject || !currentProject.path) return;
+    return openExplorerHistory({
+      kind: 'file',
+      path: String(path),
+      root: currentProject.path,
+      row: null,
+      surface: 'project',
+    });
+  }
+  window.openSidebarFileHistory = openSidebarFileHistory;
+
   function _sidebarRecentSectionHtml(files, activePath) {
     const recent = _sidebarRecentFiles(files);
     if (!recent.length) return '';
@@ -1993,7 +2023,7 @@
         const safePath = path.replace(/'/g, "\\'");
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span></a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path)}</a>`;
       });
       return nodeHtml;
     };
@@ -2084,7 +2114,10 @@
     _sidebarFileConfig = {
       showHidden: !!(hidden && hidden.checked),
       showRecent: !!(recent && recent.checked),
-      recentMinutes: Math.max(1, Number(freshness && freshness.value) || SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes),
+      recentMinutes: Math.min(
+        SIDEBAR_RECENT_MAX_MINUTES,
+        Math.max(1, Number(freshness && freshness.value) || SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes),
+      ),
       trackMode: track && track.value === 'extensions' ? 'extensions' : 'all',
       extensions,
     };
@@ -3132,6 +3165,65 @@
     }
     return renderNotebookCell(diffCell.cell || diffCell.base_cell, diffCell.status);
   }
+
+  function _renderNotebookHistoryOutputs(outputs) {
+    if (!outputs || !outputs.length) {
+      return '<div class="nb-history-no-output">No output</div>';
+    }
+    return `<div class="nb-history-outputs"><div class="nb-history-output-label">Output</div>${outputs.map(output => {
+      if (output.type === 'image') {
+        return `<div class="nb-output"><img src="data:image/png;base64,${output.content}"></div>`;
+      }
+      if (output.type === 'html') {
+        return `<div class="nb-output-html">${output.content}</div>`;
+      }
+      if (output.type === 'error') {
+        return `<div class="nb-output nb-output-error">${esc(output.content || '')}</div>`;
+      }
+      return `<div class="nb-output">${esc(output.content || '')}</div>`;
+    }).join('')}</div>`;
+  }
+
+  function _renderNotebookHistorySide(cell, label, emptyLabel) {
+    if (!cell) {
+      return `<section class="nb-history-side is-empty"><div class="nb-history-side-label">${label}</div><div class="nb-history-placeholder">${emptyLabel}</div></section>`;
+    }
+    const exec = cell.execution_count == null ? '' : `[${cell.execution_count}]`;
+    let sourceHtml;
+    if (cell.cell_type === 'markdown') {
+      try {
+        sourceHtml = `<div class="nb-history-markdown">${marked.parse(cell.source || '')}</div>`;
+      } catch (_) {
+        sourceHtml = `<pre class="nb-history-source"><code>${esc(cell.source || '')}</code></pre>`;
+      }
+    } else {
+      sourceHtml = `<pre class="nb-history-source"><code>${_highlightCellSource(cell.source || '')}</code></pre>`;
+    }
+    return `<section class="nb-history-side"><div class="nb-history-side-label"><span>${label}</span><span>${esc(cell.cell_type || 'code')} ${exec}</span></div>${sourceHtml}${_renderNotebookHistoryOutputs(cell.outputs)}</section>`;
+  }
+
+  function renderNotebookHistoryDiff(notebook) {
+    const cells = (notebook.cells || []).filter(cell => cell.status !== 'unchanged');
+    if (!cells.length) {
+      return '<div class="explorer-history-empty">No semantic notebook cell changes in this revision.</div>';
+    }
+    const beforeCount = Number(notebook.before_cells || 0);
+    const afterCount = Number(notebook.after_cells || 0);
+    const summary = `<div class="nb-history-summary"><strong>Notebook review</strong><span>${cells.length} changed cell${cells.length === 1 ? '' : 's'} · ${beforeCount} before → ${afterCount} after</span></div>`;
+    return summary + `<div class="nb-history-cells">${cells.map(diffCell => {
+      const status = String(diffCell.status || 'modified');
+      const before = status === 'added' ? null : (diffCell.base_cell || diffCell.cell || null);
+      const after = status === 'deleted' ? null : (diffCell.cell || null);
+      return `<article class="nb-history-cell nb-history-${escAttr(status.replace(/_/g, '-'))}">
+        <div class="nb-history-cell-head"><span>Cell ${Number(diffCell.index || 0) + 1}</span><span>${esc(status.replace(/_/g, ' '))}</span></div>
+        <div class="nb-history-grid">
+          ${_renderNotebookHistorySide(before, 'Before', 'Cell did not exist')}
+          ${_renderNotebookHistorySide(after, 'After', 'Cell was removed')}
+        </div>
+      </article>`;
+    }).join('')}</div>`;
+  }
+  window.renderNotebookHistoryDiff = renderNotebookHistoryDiff;
 
   // Browsers never execute <script> tags injected via innerHTML; DAVI / Plotly
   // notebook outputs bundle <script> blocks that populate an otherwise-empty

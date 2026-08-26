@@ -336,6 +336,96 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
     assert rendered.json()["files"][0]["additions"] == 1
 
 
+def test_notebook_git_history_returns_side_by_side_cell_revisions(
+    client, seed_project, monorepo,
+) -> None:
+    def notebook(source: str, output: str, execution_count: int) -> dict:
+        return {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [{
+                "cell_type": "code",
+                "metadata": {},
+                "source": [source],
+                "execution_count": execution_count,
+                "outputs": [{"output_type": "stream", "name": "stdout", "text": [output]}],
+            }],
+        }
+
+    pdir = seed_project("explorer-notebook-history")
+    notebooks = pdir / "notebooks"
+    notebooks.mkdir()
+    path = notebooks / "review.ipynb"
+    path.write_text(json.dumps(notebook("print('before')\n", "before\n", 1)))
+
+    subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "add", "."], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "add notebook"], cwd=monorepo, check=True, capture_output=True)
+
+    path.write_text(json.dumps(notebook("print('after')\n", "after\n", 2)))
+    subprocess.run(["git", "add", str(path.relative_to(monorepo))], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "update notebook"], cwd=monorepo, check=True, capture_output=True)
+
+    history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "notebooks/review.ipynb",
+    })
+    latest = history.json()["commits"][0]
+    committed = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "notebooks/review.ipynb",
+        "sha": latest["sha"],
+    })
+    assert committed.status_code == 200
+    notebook_diff = committed.json()["notebook"]
+    assert notebook_diff["before_cells"] == 1
+    assert notebook_diff["after_cells"] == 1
+    assert notebook_diff["changed_cells"] == 1
+    cell = notebook_diff["cells"][0]
+    assert cell["status"] == "modified"
+    assert cell["base_cell"]["source"] == "print('before')\n"
+    assert cell["cell"]["source"] == "print('after')\n"
+
+    # A working-tree-only output change is also a first-class review entry.
+    path.write_text(json.dumps(notebook("print('after')\n", "working\n", 3)))
+    working_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "notebooks/review.ipynb",
+    })
+    assert working_history.json()["commits"][0]["sha"] == "WORKTREE"
+    working = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "notebooks/review.ipynb",
+        "sha": "WORKTREE",
+    })
+    assert working.status_code == 200
+    working_body = working.json()
+    assert working_body["kind"] == "working-tree"
+    assert working_body["states"] == ["unstaged"]
+    working_cell = working_body["notebook"]["cells"][0]
+    assert working_cell["status"] == "output_changed"
+    assert working_cell["base_cell"]["outputs"][0]["content"] == "after\n"
+    assert working_cell["cell"]["outputs"][0]["content"] == "working\n"
+
+    untracked_path = notebooks / "new-review.ipynb"
+    untracked_path.write_text(json.dumps(notebook("print('new')\n", "new\n", 1)))
+    untracked_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "notebooks/new-review.ipynb",
+    })
+    assert untracked_history.json()["commits"][0]["states"] == ["untracked"]
+    untracked = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "notebooks/new-review.ipynb",
+        "sha": "WORKTREE",
+    })
+    assert untracked.status_code == 200
+    untracked_notebook = untracked.json()["notebook"]
+    assert untracked_notebook["before_cells"] == 0
+    assert untracked_notebook["after_cells"] == 1
+    assert untracked_notebook["cells"][0]["status"] == "added"
+
+
 def test_project_git_history_uses_nearest_nested_repository(
     client, seed_project, monorepo,
 ) -> None:

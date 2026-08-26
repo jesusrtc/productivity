@@ -53,15 +53,19 @@ def test_recent_files_respect_freshness_extensions_and_sort_order() -> None:
     )
     result = _run_node(
         """
-const stored = {};
+const stored = {
+  'labSidebarFileConfig-v1': JSON.stringify({recentMinutes: 10080}),
+};
 const localStorage = {
   getItem(key) { return stored[key] || null; },
   setItem(key, value) { stored[key] = value; },
 };
 const document = {addEventListener() {}};
+const window = {};
 """
         + helpers
         + """
+const loadedRecentMinutes = _sidebarFileConfig.recentMinutes;
 _sidebarFileConfig = {
   showHidden: false,
   showRecent: true,
@@ -79,6 +83,7 @@ const files = [
 const recent = _sidebarRecentFiles(files, 10000).map(file => file.path);
 process.stdout.write(JSON.stringify({
   recent,
+  loadedRecentMinutes,
   markdown: _sidebarFileExtension('README.md'),
   extensionless: _sidebarFileExtension('Makefile'),
 }));
@@ -87,6 +92,7 @@ process.stdout.write(JSON.stringify({
 
     assert result == {
         "recent": ["docs/newer.md", "docs/older.md"],
+        "loadedRecentMinutes": 4320,
         "markdown": "md",
         "extensionless": "__none__",
     }
@@ -109,6 +115,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const document = {addEventListener() {}};
+const window = {};
 const currentProject = {path: '/workspace/project'};
 const esc = value => String(value);
 const escAttr = value => String(value);
@@ -117,6 +124,8 @@ const symlinkTitle = () => '';
 const symlinkMarker = () => '';
 const fileIconHtml = () => '<i></i>';
 const _treeIsOpen = () => true;
+const historyCalls = [];
+const openExplorerHistory = ctx => historyCalls.push(ctx);
 """
         + tree_helpers
         + sidebar_helpers
@@ -141,6 +150,7 @@ _sidebarFileConfig = {
   extensions: [],
 };
 const html = _sidebarRecentSectionHtml(recentFiles, null);
+openSidebarFileHistory('core/tests/test_project_routes.py');
 process.stdout.write(JSON.stringify({
   root: branched.folders.map(folder => folder.label),
   coreChildren: core.children.folders.map(folder => folder.label),
@@ -151,7 +161,10 @@ process.stdout.write(JSON.stringify({
     html.includes('>src/core/</div>'),
     html.includes('>tests/</div>'),
     !html.includes('sidebar-shortcut-path'),
+    html.includes('sidebar-git-history'),
+    html.includes('including uncommitted changes'),
   ],
+  historyCall: historyCalls[0],
 }));
 """
     )
@@ -161,7 +174,14 @@ process.stdout.write(JSON.stringify({
         "coreChildren": ["src/core", "tests"],
         "sourceChildren": ["routes", "static/js"],
         "isolated": ["alpha/beta/gamma"],
-        "rendered": [True, True, True, True],
+        "rendered": [True, True, True, True, True, True],
+        "historyCall": {
+            "kind": "file",
+            "path": "core/tests/test_project_routes.py",
+            "root": "/workspace/project",
+            "row": None,
+            "surface": "project",
+        },
     }
 
 
@@ -177,6 +197,11 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
         "sidebarConfigExtensions",
     ):
         assert f'id="{element_id}"' in template
+
+    assert '<option value="120">2 hours</option>' in template
+    assert '<option value="4320">3 days</option>' in template
+    assert '<option value="10080">' not in template
+    assert '<option value="43200">' not in template
 
     # Repository, project, framework, and workspace sidebar renderers all use
     # the same settings entry point instead of four divergent checkboxes.

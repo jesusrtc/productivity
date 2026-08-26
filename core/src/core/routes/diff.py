@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from core import auth, fsguard, server_config
 from core.diff_parser import (
+    diff_notebook_cells,
     get_branch,
     get_commit_diff,
     get_commits,
@@ -30,6 +31,7 @@ from core.diff_parser import (
     get_registered_repos,
     parse_unified_diff,
     parse_notebook,
+    parse_notebook_content,
 )
 
 
@@ -873,6 +875,69 @@ def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]
     return "".join(patches), states
 
 
+def _entry_git_blob(repo_root: Path, revision: str, repo_rel: str) -> str:
+    """Read a text blob from Git; a missing path/revision is an empty side."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f"{revision}:{repo_rel}"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git notebook history timed out")
+    if proc.returncode != 0:
+        return ""
+    if len(proc.stdout.encode(errors="replace")) > _ENTRY_DIFF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Notebook revision is too large to render")
+    return proc.stdout
+
+
+def _entry_notebook_history_diff(
+    root: Path,
+    target: Path,
+    repo_root: Path,
+    repo_rel: str,
+    file: str,
+    sha: str,
+) -> dict:
+    if sha == _ENTRY_WORKTREE_SHA:
+        _, states = _entry_worktree_diff(repo_root, repo_rel)
+        before_raw = _entry_git_blob(repo_root, "HEAD", repo_rel)
+        try:
+            size = target.stat().st_size
+        except OSError:
+            size = 0
+        if size > _ENTRY_DIFF_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Notebook is too large to render")
+        after_raw = fsguard.guarded(root, target.read_text, errors="replace")
+        kind = "working-tree"
+    else:
+        try:
+            verified = subprocess.run(
+                ["git", "-C", str(repo_root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Git commit lookup timed out")
+        if verified.returncode != 0:
+            raise HTTPException(status_code=404, detail="Commit not found")
+        before_raw = _entry_git_blob(repo_root, f"{sha}^", repo_rel)
+        after_raw = _entry_git_blob(repo_root, sha, repo_rel)
+        states = []
+        kind = "commit"
+
+    notebook = diff_notebook_cells(
+        parse_notebook_content(before_raw),
+        parse_notebook_content(after_raw),
+    )
+    return {
+        "file": file,
+        "sha": sha,
+        "kind": kind,
+        "states": states,
+        "notebook": notebook,
+    }
+
+
 @router.get("/api/project-entry/history")
 def project_entry_history(
     path: str,
@@ -940,6 +1005,10 @@ def project_entry_history_diff(path: str, file: str, sha: str, request: Request)
     root = _entry_root(path, request)
     target = _entry_target(root, file)
     repo_root, repo_rel = _entry_git_context(root, target)
+    if repo_rel.lower().endswith(".ipynb"):
+        return _entry_notebook_history_diff(
+            root, target, repo_root, repo_rel, file, sha,
+        )
     if sha == _ENTRY_WORKTREE_SHA:
         patch, states = _entry_worktree_diff(repo_root, repo_rel)
         return {
