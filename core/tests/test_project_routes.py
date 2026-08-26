@@ -198,6 +198,36 @@ def test_project_files_includes_mtime_for_every_file_type(client, seed_project) 
         assert isinstance(files[path]["mtime"], float)
 
 
+def test_project_files_includes_deep_files_inside_nested_repository(
+    client, seed_project,
+) -> None:
+    """A nested checkout must not lose files to the project-root depth cap."""
+    import os
+    import time
+
+    pdir = seed_project("nested-repository-files")
+    nested_repo = pdir / "repositories" / "queries"
+    (nested_repo / ".git").mkdir(parents=True)
+    tools = (
+        nested_repo / "forge" / "experimental" / "cached-queries"
+        / "cached_queries" / "tools"
+    )
+    tools.mkdir(parents=True)
+    leaf = tools / "query_helper.py"
+    leaf.write_text("VALUE = 1\n")
+    future_ts = time.time() + 10_000
+    os.utime(leaf, (future_ts, future_ts))
+    rel = str(leaf.relative_to(pdir))
+
+    listed = client.get(f"/api/project-files?path={pdir}")
+    assert listed.status_code == 200
+    assert rel in {row["path"] for row in listed.json()}
+
+    mtime = client.get(f"/api/project-mtime?path={pdir}")
+    assert mtime.status_code == 200
+    assert mtime.json()["mtime"] >= future_ts
+
+
 def test_project_entry_create_rename_and_delete(client, seed_project) -> None:
     pdir = seed_project("explorer")
 
@@ -322,6 +352,14 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
     })
     assert untracked_diff.status_code == 200
     assert untracked_diff.json()["files"][0]["additions"] == 1
+
+    empty_untracked = pdir / "docs" / "empty.txt"
+    empty_untracked.touch()
+    empty_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/empty.txt",
+    })
+    assert empty_history.status_code == 200
+    assert empty_history.json()["commits"][0]["states"] == ["untracked"]
 
     patch = pdir / "docs" / "change.diff"
     patch.write_text(subprocess.run(
@@ -475,6 +513,51 @@ def test_project_git_history_uses_nearest_nested_repository(
     assert parsed["filename"] == "inside.txt"
     assert parsed["additions"] == 1
     assert parsed["deletions"] == 1
+
+    new_source = nested / "brand-new.txt"
+    new_source.write_text("new in nested repo\n")
+    new_history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "docs/nested-repo/brand-new.txt",
+    })
+    assert new_history.status_code == 200
+    new_body = new_history.json()
+    assert Path(new_body["repo"]) == nested
+    assert new_body["commits"][0]["states"] == ["untracked"]
+
+    new_diff = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "docs/nested-repo/brand-new.txt",
+        "sha": "WORKTREE",
+    })
+    assert new_diff.status_code == 200
+    assert new_diff.json()["files"][0]["status"] == "added"
+    assert new_diff.json()["files"][0]["additions"] == 1
+
+
+def test_project_git_history_supports_new_files_before_first_commit(
+    client, seed_project,
+) -> None:
+    pdir = seed_project("explorer-unborn-git")
+    nested = pdir / "repositories" / "fresh-repo"
+    nested.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=nested, check=True, capture_output=True)
+    source = nested / "new.txt"
+    source.write_text("brand new\n")
+
+    history = client.get("/api/project-entry/history", params={
+        "path": str(pdir), "file": "repositories/fresh-repo/new.txt",
+    })
+    assert history.status_code == 200
+    assert history.json()["commits"][0]["states"] == ["untracked"]
+
+    diff = client.get("/api/project-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "repositories/fresh-repo/new.txt",
+        "sha": "WORKTREE",
+    })
+    assert diff.status_code == 200
+    assert diff.json()["files"][0]["status"] == "added"
+    assert diff.json()["files"][0]["additions"] == 1
 
 
 def test_set_project_hold_with_duration(client, seed_project) -> None:

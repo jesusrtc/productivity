@@ -38,6 +38,24 @@ from core.diff_parser import (
 router = APIRouter()
 
 
+_PROJECT_SCAN_MAX_DEPTH = 5
+_PROJECT_SCAN_SKIP_DIRS = {
+    ".git", "__pycache__", "node_modules", ".venv", "venv",
+    ".mypy_cache", ".pytest_cache", "build", "dist", ".tox", ".eggs",
+    "skills", "worktrees",
+}
+
+
+def _project_scan_child_depth(directory: Path, depth: int) -> int:
+    """Give each nested Git checkout its own bounded scan-depth budget."""
+    try:
+        if (directory / ".git").exists():
+            return 0
+    except OSError:
+        pass
+    return depth + 1
+
+
 def _with_symlink_fields(entry: dict, path: Path) -> dict:
     if not path.is_symlink():
         return entry
@@ -450,11 +468,7 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
     # a full repo checkout, so listing them in the project's file sidebar
     # would drown out docs/notes. Accessible via the Repositories panel +
     # diff tabs instead.
-    SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
-                 ".mypy_cache", ".pytest_cache", "build", "dist", ".tox", ".eggs",
-                 "skills", "worktrees"}
     files = []
-    MAX_DEPTH = 5
 
     # Cheap O(1) check against the in-memory tracker maintained by
     # routes/nb_exec.py. The previous file-scan implementation skipped
@@ -466,7 +480,7 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
     from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 
     def scan(dir_path, depth=0):
-        if depth > MAX_DEPTH:
+        if depth > _PROJECT_SCAN_MAX_DEPTH:
             return
         try:
             children = sorted(dir_path.iterdir())
@@ -504,8 +518,8 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
                     entry = {"name": rel, "path": rel, "type": "dir"}
                     _with_symlink_fields(entry, child)
                     files.append(entry)
-                if child.name not in SKIP_DIRS:
-                    scan(child, depth + 1)
+                if child.name not in _PROJECT_SCAN_SKIP_DIRS:
+                    scan(child, _project_scan_child_depth(child, depth))
             elif child_is_symlink:
                 # Broken symlink: still surface the row so the sidebar can
                 # distinguish it from an absent file/folder.
@@ -553,10 +567,12 @@ def api_project_mtime(path: str, request: Request):
     cached site-packages tree — stalling the event loop for 20+ seconds
     every 2 seconds. That was the "reload takes forever" regression.
 
-    Fix: mirror the same SKIP_DIRS + dotfile skip + MAX_DEPTH the sibling
+    Fix: mirror the same skip-list + dotfile skip + bounded depth the sibling
     ``/api/project-files`` already uses so the two endpoints agree on
-    "what counts as part of the project". On the self-view this drops
-    the walk from ~25s to ~100ms.
+    "what counts as part of the project". Nested Git checkouts receive a
+    fresh depth budget, so normal source trees inside ``repositories/`` are
+    complete without letting an arbitrary directory chain run away. On the
+    self-view this drops the walk from ~25s to ~100ms.
     """
     project_path = Path(path)
     if not project_path.is_dir():
@@ -569,16 +585,11 @@ def api_project_mtime(path: str, request: Request):
         return {"mtime": None}
     # Must stay in sync with api_project_files above — clients assume the
     # same tree shape (sidebar vs. mtime poll).
-    SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
-                 ".mypy_cache", ".pytest_cache", "build", "dist", ".tox",
-                 ".eggs", "skills", "worktrees"}
-    MAX_DEPTH = 5
-
     latest = project_path.stat().st_mtime
 
     def scan(dir_path: Path, depth: int) -> None:
         nonlocal latest
-        if depth > MAX_DEPTH:
+        if depth > _PROJECT_SCAN_MAX_DEPTH:
             return
         try:
             children = list(dir_path.iterdir())
@@ -590,9 +601,9 @@ def api_project_mtime(path: str, request: Request):
             try:
                 if child.is_file():
                     latest = max(latest, child.stat().st_mtime)
-                elif child.is_dir() and child.name not in SKIP_DIRS:
+                elif child.is_dir() and child.name not in _PROJECT_SCAN_SKIP_DIRS:
                     latest = max(latest, child.stat().st_mtime)
-                    scan(child, depth + 1)
+                    scan(child, _project_scan_child_depth(child, depth))
             except OSError:
                 # Broken symlink / disappeared mid-walk — skip.
                 continue
@@ -799,15 +810,22 @@ def _entry_untracked_files(repo_root: Path, repo_rel: str) -> list[str]:
     return [item.decode(errors="replace") for item in proc.stdout.split(b"\0") if item]
 
 
+def _entry_has_head(repo_root: Path) -> bool:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        ).returncode == 0
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git commit lookup timed out")
+
+
 def _entry_worktree_diff(repo_root: Path, repo_rel: str) -> tuple[str, list[str]]:
     """Return the final HEAD-to-working-tree patch, including untracked files."""
     untracked = _entry_untracked_files(repo_root, repo_rel)
     files_from_empty = untracked
     try:
-        has_head = subprocess.run(
-            ["git", "-C", str(repo_root), "rev-parse", "--verify", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-        ).returncode == 0
+        has_head = _entry_has_head(repo_root)
         if has_head:
             tracked = subprocess.run(
                 [
@@ -956,27 +974,31 @@ def project_entry_history(
     if target.is_file() or target.is_symlink():
         args.append("--follow")
     args.extend(["--", repo_rel])
-    try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=15)
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Git history timed out")
-    if proc.returncode != 0:
-        raise HTTPException(status_code=400, detail=proc.stderr.strip() or "Could not read Git history")
     commits = []
-    for record in proc.stdout.split("\x1e"):
-        parts = record.strip().split("\x1f", 6)
-        if len(parts) != 7:
-            continue
-        sha, short_sha, author, email, date_iso, relative_date, message = parts
-        commits.append({
-            "sha": sha,
-            "short_sha": short_sha,
-            "author": author,
-            "email": email,
-            "date": date_iso,
-            "relative_date": relative_date,
-            "message": message,
-        })
+    # ``git log`` exits 128 before the repository's first commit. That is a
+    # valid history state: indexed/untracked files still need a WORKTREE row
+    # and diff, so skip the commit lookup while HEAD is unborn.
+    if _entry_has_head(repo_root):
+        try:
+            proc = subprocess.run(args, capture_output=True, text=True, timeout=15)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Git history timed out")
+        if proc.returncode != 0:
+            raise HTTPException(status_code=400, detail=proc.stderr.strip() or "Could not read Git history")
+        for record in proc.stdout.split("\x1e"):
+            parts = record.strip().split("\x1f", 6)
+            if len(parts) != 7:
+                continue
+            sha, short_sha, author, email, date_iso, relative_date, message = parts
+            commits.append({
+                "sha": sha,
+                "short_sha": short_sha,
+                "author": author,
+                "email": email,
+                "date": date_iso,
+                "relative_date": relative_date,
+                "message": message,
+            })
     working_patch, working_states = _entry_worktree_diff(repo_root, repo_rel)
     if working_patch:
         commits.insert(0, {
