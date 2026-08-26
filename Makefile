@@ -195,6 +195,7 @@ perf-prod: ## verify production page-load and terminal latency budgets against t
 # another Lab checkout that may be running on a different port.
 _stop-quiet:
 	@running_port=$$(cat $(PORT_FILE) 2>/dev/null); \
+	[ -n "$$running_port" ] || running_port="$(PORT)"; \
 	if [ -n "$$running_port" ]; then \
 		pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
 		[ -n "$$pids" ] && kill -TERM $$pids 2>/dev/null || true; \
@@ -208,6 +209,7 @@ _stop-quiet:
 		sleep 0.2; n=$$((n+1)); \
 	done
 	@running_port=$$(cat $(PORT_FILE) 2>/dev/null); \
+	[ -n "$$running_port" ] || running_port="$(PORT)"; \
 	if [ -n "$$running_port" ]; then \
 		pids=$$(lsof -nP -iTCP:$$running_port -sTCP:LISTEN -t 2>/dev/null); \
 		[ -n "$$pids" ] && kill -KILL $$pids 2>/dev/null || true; \

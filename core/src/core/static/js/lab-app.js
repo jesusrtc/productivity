@@ -7,6 +7,67 @@
     location.replace('/login');
   }
   window.labLogout = labLogout;
+
+  // Framework self-update and verified process restart.
+  let _labUpdateRestartBusy = false;
+
+  function _labUpdateWait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function _labWaitForNewBoot(previousBootId, timeoutMs = 90000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await _labUpdateWait(1000);
+      try {
+        const response = await fetch('/api/git/runtime', {cache: 'no-store'});
+        if (!response.ok) continue;
+        const runtime = await response.json();
+        if (runtime.boot_id && runtime.boot_id !== previousBootId) return runtime;
+      } catch {
+        // The connection dropping is the expected middle of a restart.
+      }
+    }
+    throw new Error('Lab did not come back within 90 seconds');
+  }
+
+  async function labUpdateAndRestart() {
+    if (_labUpdateRestartBusy) return;
+    if (!confirm('Pull origin/main with rebase/autostash and restart Lab now?')) return;
+    const button = document.getElementById('updateRestartBtn');
+    const icon = button && button.querySelector('.framework-update-icon');
+    _labUpdateRestartBusy = true;
+    if (button) {
+      button.disabled = true;
+      button.classList.add('is-busy');
+      button.title = 'Pulling origin/main…';
+    }
+    try {
+      const response = await fetch('/api/git/update-restart', {method: 'POST'});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || 'update failed');
+      if (button) button.title = 'Restarting Lab…';
+      await _labWaitForNewBoot(result.boot_id);
+      if (button) {
+        button.classList.remove('is-busy');
+        button.title = `Updated to ${result.revision}; reloading`;
+      }
+      if (icon) icon.textContent = '✓';
+      explorerToast(`Lab updated to ${result.revision}. Reloading…`);
+      setTimeout(() => location.reload(), 500);
+    } catch (error) {
+      _labUpdateRestartBusy = false;
+      if (button) {
+        button.disabled = false;
+        button.classList.remove('is-busy');
+        button.title = 'Pull origin/main, then restart Lab';
+      }
+      if (icon) icon.textContent = '↻';
+      explorerToast(String(error && error.message || error), true);
+    }
+  }
+  window.labUpdateAndRestart = labUpdateAndRestart;
+
   let currentDiffTab = 'uncommitted';
   let viewMode = 'split';
   let diffCache = { uncommitted: null, branch: null };

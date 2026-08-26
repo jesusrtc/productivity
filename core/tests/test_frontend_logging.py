@@ -345,6 +345,80 @@ def test_consolidated_logs_live_in_productivity_admin() -> None:
     assert "function initLogs" not in lab_app
 
 
+def test_framework_update_button_waits_for_a_new_server_boot_before_reload() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "core/src/core/static/js/lab-app.js").read_text()
+    start = source.index("// Framework self-update and verified process restart.")
+    end = source.index("let currentDiffTab", start)
+    helper = source[start:end]
+    result = _run_node(
+        """
+let reloads = 0;
+const calls = [];
+const icon = {textContent: '↻'};
+const classes = new Set();
+const button = {
+  disabled: false,
+  title: 'Pull origin/main, then restart Lab',
+  classList: {
+    add(value) { classes.add(value); },
+    remove(value) { classes.delete(value); },
+  },
+  querySelector(selector) { return selector === '.framework-update-icon' ? icon : null; },
+};
+const document = {getElementById(id) { return id === 'updateRestartBtn' ? button : null; }};
+const location = {reload() { reloads += 1; }};
+const window = {};
+const toasts = [];
+function confirm() { return true; }
+function explorerToast(message, error = false) { toasts.push({message, error}); }
+function setTimeout(callback) { callback(); return 1; }
+let runtimeChecks = 0;
+async function fetch(path, options = {}) {
+  calls.push({path, method: options.method || 'GET'});
+  if (path === '/api/git/update-restart') {
+    return {ok: true, json: async () => ({boot_id: 'old', revision: 'abc1234'})};
+  }
+  runtimeChecks += 1;
+  return {
+    ok: true,
+    json: async () => ({boot_id: runtimeChecks === 1 ? 'old' : 'new'}),
+  };
+}
+"""
+        + helper
+        + """
+(async () => {
+  await labUpdateAndRestart();
+  process.stdout.write(JSON.stringify({
+    calls,
+    reloads,
+    disabled: button.disabled,
+    icon: icon.textContent,
+    busy: classes.has('is-busy'),
+    toasts,
+  }));
+})().catch(error => {
+  process.stderr.write(String(error && error.stack || error));
+  process.exit(1);
+});
+"""
+    )
+
+    assert result == {
+        "calls": [
+            {"path": "/api/git/update-restart", "method": "POST"},
+            {"path": "/api/git/runtime", "method": "GET"},
+            {"path": "/api/git/runtime", "method": "GET"},
+        ],
+        "reloads": 1,
+        "disabled": True,
+        "icon": "✓",
+        "busy": False,
+        "toasts": [{"message": "Lab updated to abc1234. Reloading…", "error": False}],
+    }
+
+
 def test_admin_logs_copy_current_text_and_flush_selected_file() -> None:
     root = Path(__file__).resolve().parents[2]
     source = (root / "core/src/core/static/js/lab-app.js").read_text()

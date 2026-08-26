@@ -52,6 +52,11 @@
   .topbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--bg-secondary); display: flex; align-items: center; padding: 0 16px; z-index: 100; border-bottom: 1px solid var(--border); gap: 12px; }
   .topbar select { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
   .topbar .branch { color: var(--text-secondary); font-size: 13px; }
+  .framework-update-btn { font-size: 17px; line-height: 1; padding: 4px 10px; }
+  .framework-update-btn .framework-update-icon { display: inline-block; }
+  .framework-update-btn.is-busy { cursor: wait; color: var(--accent); }
+  .framework-update-btn.is-busy .framework-update-icon { animation: framework-update-spin .8s linear infinite; }
+  @keyframes framework-update-spin { to { transform: rotate(360deg); } }
 
   /* Chrome-style project tabs. Tabs appear when a project has live tmux
      sessions OR is the currently-viewed project. Scroll horizontally when

@@ -38,6 +38,17 @@ def test_productivity_is_default_and_workspace_selector_is_retired(client) -> No
     assert 'id="homeLink"' not in r.text
 
 
+def test_admin_topbar_has_update_restart_button_next_to_settings(client) -> None:
+    response = client.get("/")
+    html = response.text
+
+    update = html.index('id="updateRestartBtn"')
+    settings = html.index('id="settingsBtn"')
+    assert update < settings
+    assert 'onclick="labUpdateAndRestart()"' in html
+    assert 'aria-label="Update and restart Lab"' in html
+
+
 def test_retired_home_and_standalone_views_are_not_shipped(client) -> None:
     r = client.get("/")
 
