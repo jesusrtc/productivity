@@ -516,6 +516,43 @@ class TestLogTailApi:
             ("alpha", "two"),
         ]
 
+    def test_consolidated_clear_truncates_selected_log_in_every_workspace(
+        self, client, tmp_path: Path, monkeypatch,
+    ):
+        from core.routes import log as log_route
+
+        first = tmp_path / "first-logs"
+        second = tmp_path / "second-logs"
+        first.mkdir()
+        second.mkdir()
+        for log_dir in (first, second):
+            (log_dir / "errors.log").write_text('{"msg":"old"}\n')
+            (log_dir / "frontend.log").write_text('{"msg":"keep"}\n')
+        monkeypatch.setattr(
+            log_route,
+            "_workspace_log_dirs",
+            lambda _request: [("alpha", first), ("beta", second)],
+        )
+
+        r = client.delete("/api/log/clear/all?file=errors.log")
+
+        assert r.status_code == 200
+        assert r.json() == {
+            "ok": True,
+            "file": "errors.log",
+            "cleared": ["alpha", "beta"],
+            "missing": [],
+            "failed": [],
+        }
+        assert (first / "errors.log").read_text() == ""
+        assert (second / "errors.log").read_text() == ""
+        assert (first / "frontend.log").read_text() == '{"msg":"keep"}\n'
+        assert (second / "frontend.log").read_text() == '{"msg":"keep"}\n'
+
+    def test_consolidated_clear_rejects_unsupported_log(self, client):
+        r = client.delete("/api/log/clear/all?file=../project.json")
+        assert r.status_code == 400
+
     def test_log_tail_rejects_path_traversal(self, client):
         r = client.get("/api/log/tail?file=../project.json&tail=10")
         assert r.status_code == 400

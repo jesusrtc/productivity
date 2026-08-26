@@ -326,15 +326,108 @@ def test_consolidated_logs_live_in_productivity_admin() -> None:
     assert 'id="projectTabs"' in index_html
     assert "function selfShowAdmin" in lab_app
     assert "function adminRefreshLogs" in lab_app
+    assert "function adminCopyLogs" in lab_app
+    assert "function adminFlushLogs" in lab_app
     assert "/api/log/tail/all?file=" in lab_app
+    assert "/api/log/clear/all?file=" in lab_app
     assert "data-log=\"errors.log\"" in lab_app
     assert "data-log=\"backend.log\"" in lab_app
     assert "data-log=\"frontend.log\"" in lab_app
+    assert 'id="adminLogCopyButton"' in lab_app
+    assert 'id="adminLogFlushButton"' in lab_app
+    assert "Copy errors" in lab_app
+    assert "Flush errors" in lab_app
+    assert "row.exc" in lab_app
     assert "function goToLogs" in lab_app
     assert "subview: 'admin'" in lab_app
     assert "window.goToLogs = goToLogs" in lab_app
     assert 'id="logsView"' not in index_html
     assert "function initLogs" not in lab_app
+
+
+def test_admin_logs_copy_current_text_and_flush_selected_file() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "core/src/core/static/js/lab-app.js").read_text()
+    start = source.index("function _adminLogLabel(file)")
+    end = source.index("// Toggle hidden-files visibility for the productivity sidebar.", start)
+    helpers = source[start:end]
+    result = _run_node(
+        """
+const elements = {};
+function makeElement() {
+  return {
+    textContent: '',
+    disabled: false,
+    attrs: {},
+    classList: {toggle() {}},
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    getAttribute(name) { return this.attrs[name] || null; },
+  };
+}
+['adminLogOutput', 'adminLogCount', 'adminLogStatus', 'adminLogCopyButton', 'adminLogFlushButton']
+  .forEach(id => { elements[id] = makeElement(); });
+const logTabs = ['errors.log', 'backend.log', 'frontend.log'].map(file => {
+  const element = makeElement();
+  element.setAttribute('data-log', file);
+  return element;
+});
+const document = {
+  getElementById(id) { return elements[id] || null; },
+  querySelectorAll() { return logTabs; },
+};
+const window = {};
+const copied = [];
+async function _copyToClipboard(text) { copied.push(text); return true; }
+function confirm() { return true; }
+let cleared = false;
+const fetchCalls = [];
+async function fetch(url, options = {}) {
+  fetchCalls.push({url, method: options.method || 'GET'});
+  if (url.startsWith('/api/log/clear/all')) {
+    cleared = true;
+    return {ok: true, json: async () => ({cleared: ['main'], failed: []})};
+  }
+  const entries = cleared ? [] : [{
+    workspace: 'main', ts: '2026-08-26T20:00:00Z', level: 'ERROR',
+    msg: 'frontend fetch failed', href: '/api/project-mtime?path=/project',
+    status_code: 503, exc: 'traceback',
+  }];
+  return {ok: true, json: async () => ({entries})};
+}
+"""
+        + helpers
+        + """
+(async () => {
+  await adminRefreshLogs('errors.log');
+  const rendered = elements.adminLogOutput.textContent;
+  await adminCopyLogs(elements.adminLogCopyButton);
+  await adminFlushLogs(elements.adminLogFlushButton);
+  process.stdout.write(JSON.stringify({
+    rendered,
+    copied,
+    fetchCalls,
+    copyLabel: elements.adminLogCopyButton.textContent,
+    flushLabel: elements.adminLogFlushButton.textContent,
+    finalOutput: elements.adminLogOutput.textContent,
+    status: elements.adminLogStatus.textContent,
+  }));
+})().catch(err => { console.error(err); process.exit(1); });
+"""
+    )
+
+    assert "frontend fetch failed" in result["rendered"]
+    assert '"href":"/api/project-mtime?path=/project"' in result["rendered"]
+    assert "traceback" in result["rendered"]
+    assert result["copied"] == [result["rendered"]]
+    assert result["copyLabel"] == "Copy errors"
+    assert result["flushLabel"] == "Flush errors"
+    assert result["fetchCalls"] == [
+        {"url": "/api/log/tail/all?file=errors.log&tail=300", "method": "GET"},
+        {"url": "/api/log/clear/all?file=errors.log", "method": "DELETE"},
+        {"url": "/api/log/tail/all?file=errors.log&tail=300", "method": "GET"},
+    ]
+    assert result["finalOutput"] == "No log entries."
+    assert result["status"] == "Flushed errors in 1 workspace"
 
 
 def test_log_alert_script_tracks_unseen_error_cursor() -> None:

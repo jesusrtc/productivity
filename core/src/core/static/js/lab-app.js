@@ -1880,6 +1880,7 @@
     extensions: [],
   });
   let _sidebarAvailableExtensions = new Set();
+  let _sidebarRecentDiagnosticsPending = null;
 
   function _loadSidebarFileConfig() {
     try {
@@ -1932,6 +1933,121 @@
       })
       .sort((a, b) => Number(b.mtime) - Number(a.mtime)
         || String(a.path || a.name).localeCompare(String(b.path || b.name)));
+  }
+
+  function _sidebarRecentExclusionReason(file, recentPaths, cutoff) {
+    const path = String(file && (file.path || file.name) || '');
+    if (recentPaths.has(path)) return 'included';
+    const mtime = Number(file && file.mtime);
+    if (!Number.isFinite(mtime)) return 'missing_mtime';
+    if (mtime < cutoff) return 'outside_freshness_window';
+    if (_sidebarFileConfig.trackMode === 'extensions') return 'extension_not_selected';
+    return 'filtered_unknown';
+  }
+
+  function _sidebarRecentLog(level, message, details = {}) {
+    try {
+      const logger = window.labLog;
+      const fn = logger && (logger[level] || logger.info);
+      if (typeof fn === 'function') fn.call(logger, message, details);
+    } catch (_) {}
+  }
+
+  function _sidebarLogRecentDiagnostics(files, rootPath, reason, nowSeconds = Date.now() / 1000) {
+    const allFiles = (files || []).filter(file => file && file.type !== 'dir');
+    const recent = _sidebarRecentFiles(allFiles, nowSeconds);
+    const recentPaths = new Set(recent.map(file => String(file.path || file.name || '')));
+    const cutoff = nowSeconds - (_sidebarFileConfig.recentMinutes * 60);
+    const withMtime = allFiles.filter(file => Number.isFinite(Number(file.mtime)));
+    const readmes = allFiles.filter(file => /(^|\/)readme\.md$/i.test(String(file.path || file.name || '')));
+    const newest = [...withMtime]
+      .sort((a, b) => Number(b.mtime) - Number(a.mtime))
+      .slice(0, 5)
+      .map(file => ({
+        path: String(file.path || file.name || ''),
+        mtime: Number(file.mtime),
+        age_minutes: Math.round((nowSeconds - Number(file.mtime)) / 6) / 10,
+      }));
+    const summary = {
+      reason,
+      root: rootPath,
+      now: nowSeconds,
+      cutoff,
+      recent_minutes: _sidebarFileConfig.recentMinutes,
+      track_mode: _sidebarFileConfig.trackMode,
+      extensions: _sidebarFileConfig.extensions || [],
+      file_count: allFiles.length,
+      files_with_mtime: withMtime.length,
+      recent_count: recent.length,
+      readme_count: readmes.length,
+      newest,
+    };
+    _sidebarRecentLog('info', 'recent files diagnostic ' + JSON.stringify(summary), {
+      action: 'sidebar.recent.diagnostic',
+      event_type: 'sidebar.recent.summary',
+      target: rootPath,
+    });
+    readmes.slice(0, 50).forEach(file => {
+      const mtime = Number(file.mtime);
+      const row = {
+        path: String(file.path || file.name || ''),
+        mtime: Number.isFinite(mtime) ? mtime : null,
+        age_minutes: Number.isFinite(mtime) ? Math.round((nowSeconds - mtime) / 6) / 10 : null,
+        result: _sidebarRecentExclusionReason(file, recentPaths, cutoff),
+      };
+      _sidebarRecentLog('info', 'recent README diagnostic ' + JSON.stringify(row), {
+        action: 'sidebar.recent.diagnostic',
+        event_type: 'sidebar.recent.readme',
+        target: row.path,
+      });
+    });
+    if (readmes.length > 50) {
+      _sidebarRecentLog('warning', `recent README diagnostic truncated ${readmes.length - 50} rows`, {
+        action: 'sidebar.recent.diagnostic',
+        event_type: 'sidebar.recent.truncated',
+        target: rootPath,
+      });
+    }
+    try { if (window.labLog && window.labLog.flush) window.labLog.flush(); } catch (_) {}
+  }
+
+  function _sidebarMaybeLogRecentDiagnostics(files, rootPath) {
+    const pending = _sidebarRecentDiagnosticsPending;
+    if (!pending || pending.root !== rootPath) return;
+    _sidebarRecentDiagnosticsPending = null;
+    _sidebarLogRecentDiagnostics(files, rootPath, pending.reason);
+  }
+
+  async function _sidebarFetchProjectFiles(projectPath) {
+    const url = `/api/project-files?path=${encodeURIComponent(projectPath)}&include_dotfiles=${showProjectDotFiles}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      _sidebarRecentLog('error', 'recent files source fetch failed ' + JSON.stringify({
+        root: projectPath,
+        status: response.status,
+        detail: body.detail || response.statusText || 'request failed',
+      }), {
+        action: 'sidebar.recent.fetch',
+        event_type: 'sidebar.recent.fetch_failed',
+        target: projectPath,
+        status_code: response.status,
+      });
+      throw new Error(body.detail || response.statusText || 'Could not load project files');
+    }
+    const files = await response.json();
+    if (!Array.isArray(files)) {
+      _sidebarRecentLog('error', 'recent files source returned invalid payload ' + JSON.stringify({
+        root: projectPath,
+        payload_type: files === null ? 'null' : typeof files,
+      }), {
+        action: 'sidebar.recent.fetch',
+        event_type: 'sidebar.recent.invalid_payload',
+        target: projectPath,
+      });
+      throw new Error('Invalid project files response');
+    }
+    return files;
   }
 
   function _sidebarFreshnessLabel(minutes) {
@@ -2124,6 +2240,12 @@
     showDotFiles = _sidebarFileConfig.showHidden;
     showProjectDotFiles = _sidebarFileConfig.showHidden;
     try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    if (currentProject && currentProject.path) {
+      _sidebarRecentDiagnosticsPending = {
+        root: currentProject.path,
+        reason: 'file-sidebar-settings-save',
+      };
+    }
     closeSidebarFileConfig();
     void _refreshSidebarAfterFileConfig();
     return false;
@@ -5453,8 +5575,7 @@
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
-            const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(projectPath)}&include_dotfiles=${showProjectDotFiles}`);
-            const files = await filesRes.json();
+            const files = await _sidebarFetchProjectFiles(projectPath);
             let pinned = [], references = [], proxies = [];
             try {
               const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
@@ -5491,8 +5612,7 @@
         proxies = _data.proxies || [];
       } else {
         // Cold path: fetch fresh + write to cache.
-        const filesRes = await fetch(`/api/project-files?path=${encodeURIComponent(currentProject.path)}&include_dotfiles=${showProjectDotFiles}`);
-        files = await filesRes.json();
+        files = await _sidebarFetchProjectFiles(currentProject.path);
         pinnedNames = [];
         references = [];
         proxies = [];
@@ -5517,6 +5637,7 @@
       // disappears when the shortcut is created.
       const otherFiles = fileEntries;
       _sidebarRememberAvailableExtensions(fileEntries);
+      _sidebarMaybeLogRecentDiagnostics(fileEntries, projectPath);
 
       // "Meta" files are demoted to a bottom section so the sidebar reads as
       // a working list of docs first, plumbing second. Still visible; just
@@ -10799,9 +10920,9 @@
   async function selfPopulateSidebar() {
     const sidebar = document.getElementById('sidebar');
     try {
-      const res = await fetch(`/api/project-files?path=${encodeURIComponent(SELF_REPO_PATH)}&include_dotfiles=${showProjectDotFiles}`);
-      const files = await res.json();
+      const files = await _sidebarFetchProjectFiles(SELF_REPO_PATH);
       _sidebarRememberAvailableExtensions(files);
+      _sidebarMaybeLogRecentDiagnostics(files, SELF_REPO_PATH);
 
       // Bake .active onto the rendered HTML (data-filepath + class) so any
       // future sidebar rebuild — mtime poll, WS index-updated — keeps the
@@ -10980,6 +11101,10 @@
               <button class="refresh-btn" data-log="errors.log">Errors</button>
               <button class="refresh-btn" data-log="backend.log">Backend</button>
               <button class="refresh-btn" data-log="frontend.log">Frontend</button>
+              <span class="admin-log-toolbar-spacer"></span>
+              <button class="refresh-btn" id="adminLogCopyButton" type="button" data-log-action="copy">Copy errors</button>
+              <button class="refresh-btn admin-log-flush" id="adminLogFlushButton" type="button" data-log-action="flush">Flush errors</button>
+              <span class="admin-log-status" id="adminLogStatus" role="status"></span>
             </div>
             <pre class="admin-log-output" id="adminLogOutput">Loading consolidated logs…</pre>
           </div>
@@ -10989,6 +11114,12 @@
     content.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
     content.querySelectorAll('[data-log]').forEach(btn => {
       btn.addEventListener('click', () => adminRefreshLogs(btn.getAttribute('data-log')));
+    });
+    content.querySelector('#adminLogCopyButton').addEventListener('click', event => {
+      adminCopyLogs(event.currentTarget);
+    });
+    content.querySelector('#adminLogFlushButton').addEventListener('click', event => {
+      adminFlushLogs(event.currentTarget);
     });
     if (!UI_CHECK) dashStartPolling();
     dashPollTick();
@@ -11127,10 +11258,42 @@
   }
   window.adminAddWorkspace = adminAddWorkspace;
 
+  function _adminLogLabel(file) {
+    return String(file || 'errors.log').replace(/\.log$/i, '');
+  }
+
+  function _adminLogRowText(row) {
+    const stamp = row.ts || row.timestamp || '';
+    const level = String(row.level || '').toUpperCase();
+    const message = row.msg || row.message || row.raw || JSON.stringify(row);
+    const lines = [`[${row.workspace || 'workspace'}] ${stamp} ${level} ${message}`.trim()];
+    const context = {};
+    [
+      'logger', 'source', 'path', 'method', 'status_code', 'duration_ms',
+      'action', 'event_type', 'target', 'href', 'source_url',
+    ].forEach(key => {
+      if (row[key] !== undefined && row[key] !== null && row[key] !== '') context[key] = row[key];
+    });
+    if (Object.keys(context).length) lines.push('  ' + JSON.stringify(context));
+    if (row.exc) lines.push(String(row.exc));
+    return lines.join('\n');
+  }
+
   async function adminRefreshLogs(file = 'errors.log') {
     const output = document.getElementById('adminLogOutput');
     const count = document.getElementById('adminLogCount');
+    const status = document.getElementById('adminLogStatus');
+    const copyButton = document.getElementById('adminLogCopyButton');
+    const flushButton = document.getElementById('adminLogFlushButton');
     if (!output) return;
+    output.setAttribute('data-log-file', file);
+    document.querySelectorAll('.admin-log-toolbar [data-log]').forEach(button => {
+      button.classList.toggle('active', button.getAttribute('data-log') === file);
+    });
+    const label = _adminLogLabel(file);
+    if (copyButton) copyButton.textContent = `Copy ${label}`;
+    if (flushButton) flushButton.textContent = `Flush ${label}`;
+    if (status) status.textContent = '';
     output.textContent = 'Loading…';
     try {
       const r = await fetch('/api/log/tail/all?file=' + encodeURIComponent(file) + '&tail=300');
@@ -11138,17 +11301,48 @@
       const data = await r.json();
       const entries = data.entries || [];
       if (count) count.textContent = entries.length ? String(entries.length) : '';
-      output.textContent = entries.length ? entries.map(row => {
-        const stamp = row.ts || row.timestamp || '';
-        const level = String(row.level || '').toUpperCase();
-        const message = row.msg || row.message || row.raw || JSON.stringify(row);
-        return `[${row.workspace || 'workspace'}] ${stamp} ${level} ${message}`.trim();
-      }).join('\n') : 'No log entries.';
+      output.textContent = entries.length ? entries.map(_adminLogRowText).join('\n') : 'No log entries.';
     } catch (e) {
       output.textContent = 'Could not load logs: ' + (e.message || e);
     }
   }
   window.adminRefreshLogs = adminRefreshLogs;
+
+  async function adminCopyLogs(button) {
+    const output = document.getElementById('adminLogOutput');
+    const status = document.getElementById('adminLogStatus');
+    if (!output) return;
+    const ok = await _copyToClipboard(output.textContent || '', button);
+    if (status) status.textContent = ok ? 'Copied to clipboard' : 'Copy failed';
+  }
+  window.adminCopyLogs = adminCopyLogs;
+
+  async function adminFlushLogs(button) {
+    const output = document.getElementById('adminLogOutput');
+    const status = document.getElementById('adminLogStatus');
+    const file = output && output.getAttribute('data-log-file') || 'errors.log';
+    const label = _adminLogLabel(file);
+    if (!confirm(`Flush ${file} across all registered workspaces? This cannot be undone.`)) return;
+    if (button) button.disabled = true;
+    if (status) status.textContent = `Flushing ${label}…`;
+    try {
+      const response = await fetch('/api/log/clear/all?file=' + encodeURIComponent(file), {method: 'DELETE'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'flush failed');
+      const cleared = Array.isArray(data.cleared) ? data.cleared.length : 0;
+      const failed = Array.isArray(data.failed) ? data.failed : [];
+      if (failed.length) {
+        throw new Error(`cleared ${cleared}; failed: ${failed.map(row => row.workspace).join(', ')}`);
+      }
+      await adminRefreshLogs(file);
+      if (status) status.textContent = `Flushed ${label} in ${cleared} workspace${cleared === 1 ? '' : 's'}`;
+    } catch (e) {
+      if (status) status.textContent = 'Flush failed: ' + (e.message || e);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+  window.adminFlushLogs = adminFlushLogs;
 
   // Toggle hidden-files visibility for the productivity sidebar.
   // Mirrors toggleProjectDotFiles() but re-renders via selfPopulateSidebar()
@@ -11876,11 +12070,11 @@
     if (!sidebar || !currentProject || currentProject.name !== WORKSPACE_PROJECT_ID) return;
     const rootPath = currentProject.path;
     try {
-      const res = await fetch(`/api/project-files?path=${encodeURIComponent(rootPath)}&include_dotfiles=${showProjectDotFiles}`);
-      const files = await res.json();
+      const files = await _sidebarFetchProjectFiles(rootPath);
       if (!document.body.classList.contains('workspace-active')) return;
       if (!currentProject || currentProject.path !== rootPath) return;
       _sidebarRememberAvailableExtensions(files);
+      _sidebarMaybeLogRecentDiagnostics(files, rootPath);
 
       const activePath = _projDocPath || null;
       const overviewActive = !activePath ? ' active' : '';

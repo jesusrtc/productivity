@@ -328,6 +328,47 @@ def log_tail_all(
     }
 
 
+@router.delete("/api/log/clear/all")
+def log_clear_all(
+    request: Request,
+    file: str = _DEFAULT_LOG_FILE,
+) -> dict:
+    """Truncate one whitelisted log across every registered workspace.
+
+    The consolidated Admin viewer reads the same set of workspace-local log
+    files through ``/api/log/tail/all``. Clearing that view therefore needs
+    to target the same set; clearing only the active workspace would make old
+    rows appear to survive the action. This is destructive and admin-only.
+    """
+    auth.require_admin(request)
+    if not _is_allowed_log_name(file):
+        raise HTTPException(status_code=400, detail="unsupported log file")
+
+    cleared: list[str] = []
+    missing: list[str] = []
+    failed: list[dict[str, str]] = []
+    for workspace, log_dir in _workspace_log_dirs(request):
+        path = log_dir / file
+        try:
+            if not path.exists():
+                missing.append(workspace)
+                continue
+            # FileHandlers open logs in append mode, so truncating the same
+            # inode is safe: future records resume at the new end of file.
+            path.write_text("", encoding="utf-8")
+            cleared.append(workspace)
+        except OSError as exc:
+            failed.append({"workspace": workspace, "error": str(exc)})
+
+    return {
+        "ok": not failed,
+        "file": file,
+        "cleared": cleared,
+        "missing": missing,
+        "failed": failed,
+    }
+
+
 @router.get("/logs", response_class=HTMLResponse)
 async def logs_page() -> HTMLResponse:
     """Standalone log viewer, useful when the SPA shell is unavailable."""

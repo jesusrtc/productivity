@@ -98,6 +98,68 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_recent_diagnostic_reports_each_readme_mtime_and_filter_result() -> None:
+    helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  getItem(key) { return stored[key] || null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const events = [];
+const document = {addEventListener() {}};
+const window = {labLog: {
+  info(message, details) { events.push({level: 'info', message, details}); },
+  warning(message, details) { events.push({level: 'warning', message, details}); },
+  flush() { events.push({level: 'flush'}); },
+}};
+"""
+        + helpers
+        + """
+_sidebarFileConfig = {
+  showHidden: false,
+  showRecent: true,
+  recentMinutes: 60,
+  trackMode: 'all',
+  extensions: [],
+};
+const files = [
+  {path: 'repositories/queries/README.md', type: 'file', mtime: 9950},
+  {path: 'docs/README.md', type: 'file', mtime: 6000},
+  {path: 'missing/README.md', type: 'file'},
+  {path: 'notebooks/new.ipynb', type: 'file', mtime: 9990},
+];
+_sidebarLogRecentDiagnostics(files, '/workspace/project', 'settings-save', 10000);
+const rows = events
+  .filter(event => event.details && event.details.event_type === 'sidebar.recent.readme')
+  .map(event => JSON.parse(event.message.replace('recent README diagnostic ', '')));
+const summaryEvent = events.find(event => event.details && event.details.event_type === 'sidebar.recent.summary');
+process.stdout.write(JSON.stringify({
+  summary: JSON.parse(summaryEvent.message.replace('recent files diagnostic ', '')),
+  rows,
+  flushed: events.some(event => event.level === 'flush'),
+}));
+"""
+    )
+
+    assert result["summary"]["root"] == "/workspace/project"
+    assert result["summary"]["recent_minutes"] == 60
+    assert result["summary"]["file_count"] == 4
+    assert result["summary"]["files_with_mtime"] == 3
+    assert result["summary"]["recent_count"] == 2
+    assert result["summary"]["readme_count"] == 3
+    assert [(row["path"], row["result"]) for row in result["rows"]] == [
+        ("repositories/queries/README.md", "included"),
+        ("docs/README.md", "outside_freshness_window"),
+        ("missing/README.md", "missing_mtime"),
+    ]
+    assert result["flushed"] is True
+
+
 def test_recent_tree_compacts_single_child_paths_but_preserves_branches() -> None:
     tree_helpers = _between(
         "function buildSidebarTree(entries)",

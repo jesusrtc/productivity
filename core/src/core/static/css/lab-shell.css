@@ -1260,7 +1260,12 @@
   .context-placeholder h1 { margin: 8px 0 10px; font-size: 24px; }
   .context-placeholder p { color: var(--text-secondary); line-height: 1.55; }
   .context-path { display: inline-block; margin-top: 16px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-primary); color: var(--text-primary); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
-  .admin-log-toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+  .admin-log-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .admin-log-toolbar .refresh-btn.active { color: var(--text-primary); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary)); }
+  .admin-log-toolbar-spacer { flex: 1 1 24px; }
+  .admin-log-toolbar .admin-log-flush { color: var(--red); }
+  .admin-log-toolbar .admin-log-flush:hover { border-color: var(--red); color: #fff; }
+  .admin-log-status { min-width: 120px; color: var(--text-secondary); font-size: 11px; text-align: right; }
   .admin-log-output { max-height: 420px; overflow: auto; margin: 0; padding: 12px; border-radius: 6px; background: #010409; color: #c9d1d9; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
   .admin-logs-section { grid-column: 1 / -1; }
   .ws-card-body { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-primary); }
