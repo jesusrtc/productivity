@@ -247,6 +247,38 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_recent_git_status_badge_precedes_permanent_history_action() -> None:
+    helper = _between(
+        "function _sidebarPlaceGitBadge(row, badge)",
+        "function _sidebarApplyGitStatus(entry)",
+    )
+    result = _run_node(
+        helper
+        + """
+const badge = {name: 'status'};
+const actions = {name: 'history'};
+const row = {
+  children: [actions, badge],
+  querySelector(selector) {
+    return selector === '.sidebar-actions' ? actions : null;
+  },
+  insertBefore(node, reference) {
+    this.children = this.children.filter(child => child !== node);
+    this.children.splice(this.children.indexOf(reference), 0, node);
+  },
+  appendChild(node) {
+    this.children = this.children.filter(child => child !== node);
+    this.children.push(node);
+  },
+};
+_sidebarPlaceGitBadge(row, badge);
+process.stdout.write(JSON.stringify(row.children.map(child => child.name)));
+"""
+    )
+
+    assert result == ["status", "history"]
+
+
 def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     template = INDEX.read_text(encoding="utf-8")

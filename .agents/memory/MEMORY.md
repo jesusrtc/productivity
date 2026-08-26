@@ -33,3 +33,4 @@
 - [Nested repository sidebar scans and new-file history](nested-repo-sidebar-scan-and-unborn-history.md) — reset bounded scan depth at nested Git roots; history/diff supports untracked files before the first commit
 - [Sidebar sections have horizontal dividers](sidebar-sections-have-dividers.md) — separate top-level Recently updated, Servers, Files, Pinned, and Meta sections visually
 - [Terminal recent activity is selection-local](terminal-recent-tab-activity.md) — mark tabs when selected or left; persist the scope, preset window, and user-selected marker color in browser storage
+- [Backend Python changes require a server restart](backend-python-changes-require-server-restart.md) — static assets update from disk, but the always-on process keeps imported routes until `make restart`

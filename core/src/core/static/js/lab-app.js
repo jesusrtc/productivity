@@ -5447,6 +5447,15 @@
     if (cls) row.classList.add(cls);
   }
 
+  function _sidebarPlaceGitBadge(row, badge) {
+    // History is the permanent right-edge action on recent-file rows. Keep
+    // the variable-width Git status immediately before it so every GitHub
+    // icon lands in the same final column.
+    const actions = row.querySelector('.sidebar-actions');
+    if (actions) row.insertBefore(badge, actions);
+    else row.appendChild(badge);
+  }
+
   function _sidebarApplyGitStatus(entry) {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
@@ -5479,8 +5488,8 @@
         if (!badge) {
           badge = document.createElement('span');
           badge.className = 'git-badge';
-          row.appendChild(badge);
         }
+        _sidebarPlaceGitBadge(row, badge);
         if (badge.textContent !== want) badge.textContent = want;
         badge.title = _GIT_BADGE_TITLES[want] || want;
       } else if (badge) {
