@@ -479,18 +479,20 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
                 ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
                 entry = {"name": rel, "path": rel, "type": ftype}
                 _with_symlink_fields(entry, child)
+                # Every sidebar surface can optionally promote recently
+                # updated files into a shortcut section. Keep mtime on every
+                # file entry (not only notebooks) so that feature can filter
+                # locally without another filesystem walk or endpoint.
+                try:
+                    entry["mtime"] = child.stat().st_mtime
+                except OSError:
+                    pass
                 # Flag .ipynb files that currently have a running cell
                 # so the sidebar can render a blinking activity dot
-                # without each client polling every notebook. Also include
-                # the file mtime so the client can compare it against a
-                # per-file "last viewed" timestamp in localStorage and
-                # show a separate "new results" dot for notebooks whose
-                # outputs the user hasn't acknowledged yet.
+                # without each client polling every notebook. The common
+                # mtime above also lets notebooks compare against a per-file
+                # "last viewed" timestamp and show a new-results dot.
                 if child.suffix.lower() == ".ipynb":
-                    try:
-                        entry["mtime"] = child.stat().st_mtime
-                    except OSError:
-                        pass
                     if _ipynb_is_pending(child):
                         entry["pending"] = True
                 files.append(entry)

@@ -311,6 +311,63 @@
 <div class="explorer-context-menu" id="explorerContextMenu" role="menu" aria-hidden="true"></div>
 <div class="explorer-toast" id="explorerToast" role="status" aria-live="polite"></div>
 
+<!-- File sidebar display preferences. Shared by project, workspace, and
+     framework sidebars; settings live in this browser's localStorage. -->
+<div class="modal-overlay" id="sidebarFileConfigModal" onclick="if(event.target===this)closeSidebarFileConfig()">
+  <form class="form-modal sidebar-file-config-modal" onsubmit="saveSidebarFileConfig(event)" role="dialog" aria-labelledby="sidebarFileConfigTitle">
+    <div class="fm-header">
+      <span class="fm-title" id="sidebarFileConfigTitle">File sidebar settings</span>
+      <button class="fm-close" type="button" onclick="closeSidebarFileConfig()" aria-label="Close">&times;</button>
+    </div>
+    <div class="fm-body">
+      <section class="sidebar-config-section">
+        <label class="sidebar-config-check">
+          <input id="sidebarConfigHidden" type="checkbox" />
+          <span><strong>Show hidden files</strong><small>Include dotfiles and hidden folders in the main tree.</small></span>
+        </label>
+      </section>
+
+      <section class="sidebar-config-section">
+        <label class="sidebar-config-check">
+          <input id="sidebarConfigRecent" type="checkbox" onchange="sidebarFileConfigSyncState()" />
+          <span><strong>Show recently updated files</strong><small>Add a shortcut section without removing files from their folders.</small></span>
+        </label>
+
+        <div class="sidebar-config-recent-options" id="sidebarConfigRecentOptions">
+          <label>Consider files recent for
+            <select id="sidebarConfigFreshness">
+              <option value="15">15 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="360">6 hours</option>
+              <option value="1440">24 hours</option>
+              <option value="4320">3 days</option>
+              <option value="10080">7 days</option>
+              <option value="43200">30 days</option>
+            </select>
+          </label>
+
+          <fieldset class="sidebar-config-fieldset">
+            <legend>Track file types</legend>
+            <label class="sidebar-config-radio"><input type="radio" name="sidebarRecentTrack" value="all" onchange="sidebarFileConfigSyncState()" /> All file types</label>
+            <label class="sidebar-config-radio"><input type="radio" name="sidebarRecentTrack" value="extensions" onchange="sidebarFileConfigSyncState()" /> Only selected extensions</label>
+          </fieldset>
+
+          <div class="sidebar-config-extension-head">
+            <span>Extensions in this file tree</span>
+            <button type="button" onclick="sidebarFileConfigSelectExtensions(true)">Select all</button>
+            <button type="button" onclick="sidebarFileConfigSelectExtensions(false)">Unselect all</button>
+          </div>
+          <div class="sidebar-config-extensions" id="sidebarConfigExtensions"></div>
+        </div>
+      </section>
+    </div>
+    <div class="fm-actions">
+      <button type="button" class="btn-cancel" onclick="closeSidebarFileConfig()">Cancel</button>
+      <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
+</div>
+
 <!-- Explorer create / rename dialog. -->
 <div class="modal-overlay" id="explorerEntryModal" onclick="if(event.target===this)closeExplorerEntryDialog()">
   <form class="form-modal explorer-entry-dialog" onsubmit="submitExplorerEntryDialog(event)" role="dialog" aria-labelledby="explorerEntryTitle">

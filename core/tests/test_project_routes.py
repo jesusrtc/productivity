@@ -183,6 +183,21 @@ def test_project_files_marks_symlinks(client, seed_project) -> None:
     assert files[".claude/skills"]["symlink_target"] == "../real-docs"
 
 
+def test_project_files_includes_mtime_for_every_file_type(client, seed_project) -> None:
+    pdir = seed_project("recent-files")
+    (pdir / "docs" / "note.md").write_text("# note\n")
+    (pdir / "script.py").write_text("print('ok')\n")
+    (pdir / "notebooks").mkdir()
+    (pdir / "notebooks" / "analysis.ipynb").write_text("{}\n")
+
+    r = client.get(f"/api/project-files?path={pdir}")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.json()}
+
+    for path in ("docs/note.md", "script.py", "notebooks/analysis.ipynb"):
+        assert isinstance(files[path]["mtime"], float)
+
+
 def test_project_entry_create_rename_and_delete(client, seed_project) -> None:
     pdir = seed_project("explorer")
 

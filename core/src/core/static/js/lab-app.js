@@ -1861,7 +1861,198 @@
   let projectOpenFile = null;
   let projectEditMode = false;
   let showDotFiles = false;
-  let showProjectDotFiles = false;
+  const SIDEBAR_FILE_CONFIG_KEY = 'labSidebarFileConfig-v1';
+  const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
+    showHidden: false,
+    showRecent: true,
+    recentMinutes: 1440,
+    trackMode: 'all',
+    extensions: [],
+  });
+  let _sidebarAvailableExtensions = new Set();
+
+  function _loadSidebarFileConfig() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SIDEBAR_FILE_CONFIG_KEY) || '{}');
+      const recentMinutes = Number(stored.recentMinutes);
+      return {
+        showHidden: stored.showHidden === true,
+        showRecent: stored.showRecent !== false,
+        recentMinutes: Number.isFinite(recentMinutes) && recentMinutes > 0
+          ? recentMinutes : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes,
+        trackMode: stored.trackMode === 'extensions' ? 'extensions' : 'all',
+        extensions: Array.isArray(stored.extensions)
+          ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
+          : [],
+      };
+    } catch {
+      return {...SIDEBAR_FILE_CONFIG_DEFAULTS, extensions: []};
+    }
+  }
+
+  let _sidebarFileConfig = _loadSidebarFileConfig();
+  showDotFiles = _sidebarFileConfig.showHidden;
+  let showProjectDotFiles = _sidebarFileConfig.showHidden;
+
+  function _sidebarFileExtension(path) {
+    const base = String(path || '').split('/').pop().toLowerCase();
+    const index = base.lastIndexOf('.');
+    return index > 0 && index < base.length - 1 ? base.slice(index + 1) : '__none__';
+  }
+
+  function _sidebarRememberAvailableExtensions(files) {
+    _sidebarAvailableExtensions = new Set(
+      (files || [])
+        .filter(file => file && file.type !== 'dir')
+        .map(file => _sidebarFileExtension(file.path || file.name))
+    );
+  }
+
+  function _sidebarRecentFiles(files, nowSeconds = Date.now() / 1000) {
+    if (!_sidebarFileConfig.showRecent) return [];
+    const cutoff = nowSeconds - (_sidebarFileConfig.recentMinutes * 60);
+    const allowed = new Set(_sidebarFileConfig.extensions || []);
+    return (files || [])
+      .filter(file => {
+        if (!file || file.type === 'dir' || !Number.isFinite(Number(file.mtime))) return false;
+        if (Number(file.mtime) < cutoff) return false;
+        return _sidebarFileConfig.trackMode === 'all'
+          || allowed.has(_sidebarFileExtension(file.path || file.name));
+      })
+      .sort((a, b) => Number(b.mtime) - Number(a.mtime)
+        || String(a.path || a.name).localeCompare(String(b.path || b.name)));
+  }
+
+  function _sidebarFreshnessLabel(minutes) {
+    const value = Number(minutes);
+    if (value < 60) return `${value}m`;
+    if (value < 1440) return `${value / 60}h`;
+    return `${value / 1440}d`;
+  }
+
+  function _sidebarFileConfigButtonHtml() {
+    const summary = [];
+    if (_sidebarFileConfig.showHidden) summary.push('hidden');
+    if (_sidebarFileConfig.showRecent) {
+      summary.push(`recent ${_sidebarFreshnessLabel(_sidebarFileConfig.recentMinutes)}`);
+    }
+    return `<div class="sidebar-file-config-row"><button type="button" class="sidebar-file-config-button" onclick="openSidebarFileConfig()" title="Configure hidden and recently updated files"><span aria-hidden="true">&#x2699;</span> File view <span class="sidebar-file-config-summary">${esc(summary.join(' · ') || 'default')}</span></button></div>`;
+  }
+
+  function _sidebarRecentSectionHtml(files, activePath) {
+    const recent = _sidebarRecentFiles(files);
+    if (!recent.length) return '';
+    let html = `<div class="sidebar-title">Recently updated <span class="sidebar-title-count">${recent.length}</span></div>`;
+    recent.forEach(file => {
+      const path = String(file.path || file.name || '');
+      const safePath = path.replace(/'/g, "\\'");
+      const base = path.split('/').pop();
+      const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+      const activeCls = activePath === path ? ' active' : '';
+      html += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}${parent ? `<span class="sidebar-shortcut-path">${esc(parent)}</span>` : ''}</span></a>`;
+    });
+    return html;
+  }
+
+  function openSidebarFileConfig() {
+    const modal = document.getElementById('sidebarFileConfigModal');
+    if (!modal) return;
+    const hidden = document.getElementById('sidebarConfigHidden');
+    const recent = document.getElementById('sidebarConfigRecent');
+    const freshness = document.getElementById('sidebarConfigFreshness');
+    if (hidden) hidden.checked = _sidebarFileConfig.showHidden;
+    if (recent) recent.checked = _sidebarFileConfig.showRecent;
+    if (freshness) freshness.value = String(_sidebarFileConfig.recentMinutes);
+    const track = modal.querySelector(`input[name="sidebarRecentTrack"][value="${_sidebarFileConfig.trackMode}"]`);
+    if (track) track.checked = true;
+
+    const selected = new Set(_sidebarFileConfig.extensions || []);
+    const available = [..._sidebarAvailableExtensions].sort((a, b) => {
+      if (a === '__none__') return 1;
+      if (b === '__none__') return -1;
+      return a.localeCompare(b);
+    });
+    const host = document.getElementById('sidebarConfigExtensions');
+    if (host) {
+      host.innerHTML = available.length ? available.map(ext => {
+        const label = ext === '__none__' ? '(no extension)' : `.${ext}`;
+        const checked = _sidebarFileConfig.trackMode === 'all' || selected.has(ext);
+        return `<label class="sidebar-config-extension" title="${escAttr(label)}"><input type="checkbox" value="${escAttr(ext)}" ${checked ? 'checked' : ''} /><span>${esc(label)}</span></label>`;
+      }).join('') : '<span style="color:var(--text-dim);font-size:11px">No file extensions found.</span>';
+    }
+    sidebarFileConfigSyncState();
+    modal.classList.add('active');
+  }
+
+  function closeSidebarFileConfig() {
+    const modal = document.getElementById('sidebarFileConfigModal');
+    if (modal) modal.classList.remove('active');
+  }
+
+  function sidebarFileConfigSyncState() {
+    const recent = document.getElementById('sidebarConfigRecent');
+    const options = document.getElementById('sidebarConfigRecentOptions');
+    const enabled = !!(recent && recent.checked);
+    const track = document.querySelector('input[name="sidebarRecentTrack"]:checked');
+    const extensionMode = !!track && track.value === 'extensions';
+    if (options) options.classList.toggle('disabled', !enabled);
+    const freshness = document.getElementById('sidebarConfigFreshness');
+    if (freshness) freshness.disabled = !enabled;
+    document.querySelectorAll('input[name="sidebarRecentTrack"]').forEach(input => {
+      input.disabled = !enabled;
+    });
+    document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]').forEach(input => {
+      input.disabled = !enabled || !extensionMode;
+    });
+    document.querySelectorAll('.sidebar-config-extension-head button').forEach(button => {
+      button.disabled = !enabled || !extensionMode;
+    });
+  }
+
+  function sidebarFileConfigSelectExtensions(checked) {
+    document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]').forEach(input => {
+      input.checked = !!checked;
+    });
+  }
+
+  async function _refreshSidebarAfterFileConfig() {
+    if (document.body.classList.contains('self-active')) return selfPopulateSidebar();
+    if (document.body.classList.contains('workspace-active')) return workspacePopulateSidebar();
+    if (currentRepo) return loadProjectView();
+    if (currentProject && currentProject.is_project) {
+      _projectSidebarCache.delete(currentProject.path);
+      return _refreshProjectSidebar({preserveScroll: true});
+    }
+  }
+
+  function saveSidebarFileConfig(event) {
+    if (event) event.preventDefault();
+    const hidden = document.getElementById('sidebarConfigHidden');
+    const recent = document.getElementById('sidebarConfigRecent');
+    const freshness = document.getElementById('sidebarConfigFreshness');
+    const track = document.querySelector('input[name="sidebarRecentTrack"]:checked');
+    const extensions = [...document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]:checked')]
+      .map(input => input.value);
+    _sidebarFileConfig = {
+      showHidden: !!(hidden && hidden.checked),
+      showRecent: !!(recent && recent.checked),
+      recentMinutes: Math.max(1, Number(freshness && freshness.value) || SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes),
+      trackMode: track && track.value === 'extensions' ? 'extensions' : 'all',
+      extensions,
+    };
+    showDotFiles = _sidebarFileConfig.showHidden;
+    showProjectDotFiles = _sidebarFileConfig.showHidden;
+    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    closeSidebarFileConfig();
+    void _refreshSidebarAfterFileConfig();
+    return false;
+  }
+
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const modal = document.getElementById('sidebarFileConfigModal');
+    if (modal && modal.classList.contains('active')) closeSidebarFileConfig();
+  });
 
   function filterDotFiles(nodes) {
     return nodes.filter(n => !n.name.startsWith('.')).map(n => {
@@ -1872,13 +2063,28 @@
     });
   }
 
+  function _sidebarFlattenTreeFiles(nodes, out = []) {
+    (nodes || []).forEach(node => {
+      if (!node) return;
+      if (node.type === 'dir') _sidebarFlattenTreeFiles(node.children || [], out);
+      else out.push(node);
+    });
+    return out;
+  }
+
   function toggleDotFiles(checked) {
     showDotFiles = checked;
+    _sidebarFileConfig.showHidden = checked;
+    showProjectDotFiles = checked;
+    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
     loadProjectView();
   }
 
   function toggleProjectDotFiles(checked) {
     showProjectDotFiles = checked;
+    _sidebarFileConfig.showHidden = checked;
+    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    if (currentProject) _projectSidebarCache.delete(currentProject.path);
     showProjectInfo({preserveScroll: true});
   }
 
@@ -1902,6 +2108,7 @@
     try {
       const res = await fetch(`/api/tree?repo=${encodeURIComponent(currentRepo)}`);
       fileTree = await res.json();
+      _sidebarRememberAvailableExtensions(_sidebarFlattenTreeFiles(fileTree));
     } catch (err) {
       fileTree = [];
     }
@@ -1931,7 +2138,7 @@
 
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
     sb.innerHTML = '<div class="sidebar-title">Project</div>' +
-      '<div style="padding:4px 16px"><label style="font-size:11px;color:#8b949e;cursor:pointer;user-select:none"><input type="checkbox" id="dotFilesToggle" onchange="toggleDotFiles(this.checked)" ' + (showDotFiles ? 'checked' : '') + ' style="margin-right:4px"> Include dotfiles</label></div>' +
+      _sidebarFileConfigButtonHtml() +
       symlinkLegendHtml() +
       '<div class="sidebar-create"><button onclick="openCreateModal()">+ New File</button></div>' +
       '<ul class="tree-node">' + renderTreeNodes(filtered, changedFiles) + '</ul>';
@@ -5165,7 +5372,11 @@
       const pinnedSet = new Set(pinnedNames);
       const filesByName = new Map(fileEntries.map(f => [f.name, f]));
       const pinnedFiles = pinnedNames.filter(n => fileEntries.some(f => f.name === n));
-      const otherFiles = fileEntries.filter(f => !pinnedSet.has(f.name));
+      // Pinned rows are shortcuts, not a move operation. Keep every pinned
+      // file in the normal folder tree as well so its original context never
+      // disappears when the shortcut is created.
+      const otherFiles = fileEntries;
+      _sidebarRememberAvailableExtensions(fileEntries);
 
       // "Meta" files are demoted to a bottom section so the sidebar reads as
       // a working list of docs first, plumbing second. Still visible; just
@@ -5186,8 +5397,9 @@
       const activePath = _projDocPath || null;
       const dashActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
-      sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="toggleProjectDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
+      sbHtml += _sidebarFileConfigButtonHtml();
       sbHtml += symlinkLegendHtml();
+      if (pinnedFiles.length) sbHtml += `<div class="sidebar-title">Pinned <span class="sidebar-title-count">${pinnedFiles.length}</span></div>`;
       pinnedFiles.forEach(name => {
         const f = filesByName.get(name) || {name, path: name};
         const safeName = name.replace(/'/g, "\\'");
@@ -5195,6 +5407,7 @@
         const activeCls = activePath === name ? ' active' : '';
         sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
+      sbHtml += _sidebarRecentSectionHtml(fileEntries, activePath);
 
       // Servers — proxied local dev servers declared in servers.json (or
       // legacy project.json proxies). Each entry opens
@@ -5276,7 +5489,8 @@
               dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
             }
             const activeCls = activePath === f.path ? ' active' : '';
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name}')" title="Pin to top">&#x1F4CC;</button></span></a>`;
+            const isPinned = pinnedSet.has(f.name);
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span></a>`;
           });
           return html;
         }
@@ -10447,6 +10661,7 @@
     try {
       const res = await fetch(`/api/project-files?path=${encodeURIComponent(SELF_REPO_PATH)}&include_dotfiles=${showProjectDotFiles}`);
       const files = await res.json();
+      _sidebarRememberAvailableExtensions(files);
 
       // Bake .active onto the rendered HTML (data-filepath + class) so any
       // future sidebar rebuild — mtime poll, WS index-updated — keeps the
@@ -10455,8 +10670,9 @@
       const activePath = _projDocPath || null;
       const workbenchActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
-      sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="selfToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
+      sbHtml += _sidebarFileConfigButtonHtml();
       sbHtml += symlinkLegendHtml();
+      sbHtml += _sidebarRecentSectionHtml(files, activePath);
       sbHtml += '<div class="sidebar-title">Files</div>';
 
       const tree = buildSidebarTree(files);
@@ -10799,6 +11015,8 @@
   // instead of showProjectInfo().
   function selfToggleDotFiles(checked) {
     showProjectDotFiles = checked;
+    _sidebarFileConfig.showHidden = checked;
+    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
     selfPopulateSidebar();
   }
 
@@ -11522,12 +11740,14 @@
       const files = await res.json();
       if (!document.body.classList.contains('workspace-active')) return;
       if (!currentProject || currentProject.path !== rootPath) return;
+      _sidebarRememberAvailableExtensions(files);
 
       const activePath = _projDocPath || null;
       const overviewActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
-      sbHtml += '<div style="padding:4px 16px"><label style="font-size:11px;color:var(--text-secondary);cursor:pointer;user-select:none"><input type="checkbox" id="projectDotFiles" onchange="workspaceToggleDotFiles(this.checked)" ' + (showProjectDotFiles ? 'checked' : '') + ' style="margin-right:4px">Show hidden files</label></div>';
+      sbHtml += _sidebarFileConfigButtonHtml();
       sbHtml += symlinkLegendHtml();
+      sbHtml += _sidebarRecentSectionHtml(files, activePath);
       sbHtml += '<div class="sidebar-title">Files</div>';
       sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: 'workspace', autoOpen: _AUTO_OPEN_WORKSPACE, activePath});
       sidebar.innerHTML = sbHtml;
@@ -11543,6 +11763,8 @@
   // selfToggleDotFiles().
   function workspaceToggleDotFiles(checked) {
     showProjectDotFiles = checked;
+    _sidebarFileConfig.showHidden = checked;
+    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
     workspacePopulateSidebar();
   }
 
