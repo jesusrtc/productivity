@@ -1939,18 +1939,66 @@
     return `<div class="sidebar-file-config-row"><button type="button" class="sidebar-file-config-button" onclick="openSidebarFileConfig()" title="Configure hidden and recently updated files"><span aria-hidden="true">&#x2699;</span> File view <span class="sidebar-file-config-summary">${esc(summary.join(' · ') || 'default')}</span></button></div>`;
   }
 
+  function _sidebarRecentTreeModel(files) {
+    const compactNode = (node, parentPath) => {
+      const model = {files: treeFiles(node), folders: []};
+      treeFolderNames(node).forEach(folder => {
+        const labelParts = [folder];
+        let path = parentPath ? `${parentPath}/${folder}` : folder;
+        let child = node[folder];
+
+        // Match the compact-folder behavior used by editors: a run of
+        // folders with no files and exactly one child is one visual row.
+        // Stop at a real branch so siblings such as core/src and core/tests
+        // remain immediately recognizable.
+        while (treeFiles(child).length === 0) {
+          const childFolders = treeFolderNames(child);
+          if (childFolders.length !== 1) break;
+          const next = childFolders[0];
+          labelParts.push(next);
+          path += `/${next}`;
+          child = child[next];
+        }
+
+        model.folders.push({
+          label: labelParts.join('/'),
+          path,
+          children: compactNode(child, path),
+        });
+      });
+      return model;
+    };
+
+    return compactNode(buildSidebarTree(files), '');
+  }
+
   function _sidebarRecentSectionHtml(files, activePath) {
     const recent = _sidebarRecentFiles(files);
     if (!recent.length) return '';
     let html = `<div class="sidebar-title">Recently updated <span class="sidebar-title-count">${recent.length}</span></div>`;
-    recent.forEach(file => {
-      const path = String(file.path || file.name || '');
-      const safePath = path.replace(/'/g, "\\'");
-      const base = path.split('/').pop();
-      const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-      const activeCls = activePath === path ? ' active' : '';
-      html += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}${parent ? `<span class="sidebar-shortcut-path">${esc(parent)}</span>` : ''}</span></a>`;
-    });
+    const scopeRoot = currentProject && currentProject.path ? currentProject.path : 'global';
+    const scope = `recent:${scopeRoot}`;
+    const tree = _sidebarRecentTreeModel(recent);
+
+    const renderNode = node => {
+      let nodeHtml = '';
+      node.folders.forEach(folder => {
+        const fid = 'recent-folder-' + Math.random().toString(36).slice(2, 8);
+        const open = _treeIsOpen(scope, folder.path, true);
+        nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)" title="${escAttr(folder.path)}"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
+        nodeHtml += `<div class="sidebar-folder-children${open ? ' open' : ''}" id="${fid}">${renderNode(folder.children)}</div>`;
+      });
+      node.files.forEach(file => {
+        const path = String(file.path || file.name || '');
+        const safePath = path.replace(/'/g, "\\'");
+        const base = path.split('/').pop();
+        const activeCls = activePath === path ? ' active' : '';
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span></a>`;
+      });
+      return nodeHtml;
+    };
+
+    html += renderNode(tree);
     return html;
   }
 
