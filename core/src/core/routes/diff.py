@@ -38,7 +38,13 @@ from core.diff_parser import (
 router = APIRouter()
 
 
-_PROJECT_SCAN_MAX_DEPTH = 5
+# Keep a hard runaway guard, but leave enough room for ordinary source trees.
+# Five levels was too shallow for real nested checkouts such as
+# repositories/queries/forge/experimental/cached-queries/cached_queries/tools.
+# Nested Git roots still reset the budget below, but correctness must not
+# depend on whether a checkout uses a `.git` directory, a `.git` file, or
+# metadata that is unavailable to the server process.
+_PROJECT_SCAN_MAX_DEPTH = 16
 _PROJECT_SCAN_SKIP_DIRS = {
     ".git", "__pycache__", "node_modules", ".venv", "venv",
     ".mypy_cache", ".pytest_cache", "build", "dist", ".tox", ".eggs",
@@ -560,7 +566,7 @@ def api_project_file(path: str, file: str):
 def api_project_mtime(path: str, request: Request):
     """Return the latest mtime across files in a project directory.
 
-    The client polls this every 2s from the project / self view to decide
+    The client polls this every second from the project / self view to decide
     whether to refresh. The OLD implementation used ``rglob("*")`` with no
     skip-list and no depth cap, so on the self-view (``path = monorepo
     root``) it walked ``apps/*/.venv/``, ``repositories/``, and every
@@ -570,9 +576,10 @@ def api_project_mtime(path: str, request: Request):
     Fix: mirror the same skip-list + dotfile skip + bounded depth the sibling
     ``/api/project-files`` already uses so the two endpoints agree on
     "what counts as part of the project". Nested Git checkouts receive a
-    fresh depth budget, so normal source trees inside ``repositories/`` are
-    complete without letting an arbitrary directory chain run away. On the
-    self-view this drops the walk from ~25s to ~100ms.
+    fresh depth budget. The general budget is also large enough for normal
+    source trees even when nested Git metadata cannot be detected, while a
+    hard cap still prevents an arbitrary directory chain from running away.
+    On the self-view this drops the walk from ~25s to ~100ms.
     """
     project_path = Path(path)
     if not project_path.is_dir():

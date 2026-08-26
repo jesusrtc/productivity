@@ -6825,6 +6825,9 @@
   let _projMtimeMissPath = null; // project path the miss counter applies to
   let _projMtimeMisses = 0;      // consecutive "directory missing" responses
   let _projMtimeTick = 0;
+  let _projMtimeInFlight = false;
+  let _projMtimeFailures = 0;
+  let _projMtimeRetryAt = 0;
   if (!UI_CHECK) setInterval(async () => {
     // A hidden tab can't show the refresh anyway, and the next visible
     // tick (≤1s away) catches up — don't let backgrounded windows keep
@@ -6834,17 +6837,34 @@
     if (!currentProject || !currentProject.is_project) return;
     if (currentRepo) return;
     if (_projDocEditing) return;
-    if (_projMtimeMissPath !== currentProject.path) {
-      _projMtimeMissPath = currentProject.path;
+    const projectPath = currentProject.path;
+    if (_projMtimeMissPath !== projectPath) {
+      _projMtimeMissPath = projectPath;
       _projMtimeMisses = 0;
+      _projMtimeFailures = 0;
+      _projMtimeRetryAt = 0;
+      _lastProjectMtime = 0;
     }
+    // Never stack recursive filesystem walks. Previously the one-second
+    // interval launched another request while the prior request was still
+    // waiting on the 10-second filesystem guard. One timeout could therefore
+    // leave dozens of queued requests, producing the 503 cascade seen in the
+    // logs even after the original scan had already failed.
+    if (_projMtimeInFlight || Date.now() < _projMtimeRetryAt) return;
     _projMtimeTick += 1;
     // Project dir gone (deleted / volume unplugged): after a few misses,
     // probe only once a minute so it self-heals if the volume comes back.
     if (_projMtimeMisses >= 3 && _projMtimeTick % 60 !== 0) return;
+    _projMtimeInFlight = true;
     try {
-      const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(currentProject.path)}`);
+      const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(projectPath)}`);
+      if (!res.ok) throw new Error(`project mtime request failed (${res.status})`);
       const { mtime } = await res.json();
+      // A request for a tab we just navigated away from must not overwrite
+      // the new project's baseline or retry state.
+      if (!currentProject || currentProject.path !== projectPath) return;
+      _projMtimeFailures = 0;
+      _projMtimeRetryAt = 0;
       if (mtime == null) { _projMtimeMisses += 1; return; }
       _projMtimeMisses = 0;
       if (_lastProjectMtime && mtime > _lastProjectMtime) {
@@ -6873,7 +6893,15 @@
         }
       }
       _lastProjectMtime = mtime;
-    } catch(e) {}
+    } catch(e) {
+      if (currentProject && currentProject.path === projectPath) {
+        _projMtimeFailures += 1;
+        const backoffMs = Math.min(60_000, 1_000 * (2 ** _projMtimeFailures));
+        _projMtimeRetryAt = Date.now() + backoffMs;
+      }
+    } finally {
+      _projMtimeInFlight = false;
+    }
   }, 1000);
 
   // Sidebar git decorations poll. Separate from the 1s mtime poll above —

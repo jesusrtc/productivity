@@ -302,3 +302,73 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert source.count("_sidebarFileConfigButtonHtml()") >= 4
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4
+
+
+def test_project_mtime_poll_is_single_flight_and_backs_off_after_503() -> None:
+    poller = _between(
+        "// Auto-refresh project view when any file in the project folder changes",
+        "// Sidebar git decorations poll.",
+    )
+    result = _run_node(
+        """
+let tick = null;
+let now = 10_000;
+let fetchCalls = 0;
+const releases = [];
+Date.now = () => now;
+const UI_CHECK = false;
+const document = {
+  hidden: false,
+  body: {classList: {contains() { return false; }}},
+};
+const currentProject = {is_project: true, path: '/workspace/project'};
+const currentRepo = null;
+const _projDocEditing = false;
+const _projDocPath = null;
+function setInterval(callback) { tick = callback; }
+function fetch() {
+  fetchCalls += 1;
+  return new Promise(resolve => releases.push(resolve));
+}
+function response(status, body) {
+  return {ok: status >= 200 && status < 300, status, json: async () => body};
+}
+"""
+        + poller
+        + """
+(async () => {
+  const first = tick();
+  const overlap = tick();
+  const callsWhilePending = fetchCalls;
+  releases.splice(0).forEach(resolve => resolve(response(503, {detail: 'busy'})));
+  await Promise.all([first, overlap]);
+
+  now += 1_000;
+  const earlyRetry = tick();
+  const callsDuringBackoff = fetchCalls;
+  releases.splice(0).forEach(resolve => resolve(response(503, {detail: 'busy'})));
+  await earlyRetry;
+
+  now += 1_500;
+  const retry = tick();
+  const callsAfterBackoff = fetchCalls;
+  releases.splice(0).forEach(resolve => resolve(response(200, {mtime: 123})));
+  await retry;
+
+  process.stdout.write(JSON.stringify({
+    callsWhilePending,
+    callsDuringBackoff,
+    callsAfterBackoff,
+  }));
+})().catch(error => {
+  process.stderr.write(String(error && error.stack || error));
+  process.exit(1);
+});
+"""
+    )
+
+    assert result == {
+        "callsWhilePending": 1,
+        "callsDuringBackoff": 1,
+        "callsAfterBackoff": 2,
+    }

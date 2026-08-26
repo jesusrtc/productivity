@@ -32,6 +32,7 @@
 - [Sidebar file history includes working tree and notebook review](sidebar-file-history-review.md) — GitHub-mark action opens commits plus uncommitted changes; notebooks use semantic Before/After cell diffs
 - [Recent-file diagnostics and consolidated log controls](sidebar-recent-diagnostics-and-log-controls.md) — settings Save logs per-README inclusion reasons; Admin Logs can copy or flush the selected consolidated log
 - [Nested repository sidebar scans and new-file history](nested-repo-sidebar-scan-and-unborn-history.md) — reset bounded scan depth at nested Git roots; history/diff supports untracked files before the first commit
+- [Project mtime polling is single-flight](project-mtime-polling-is-single-flight.md) — never overlap recursive mtime walks; back off exponentially after HTTP failures to prevent 503 storms
 - [Sidebar sections have horizontal dividers](sidebar-sections-have-dividers.md) — separate top-level Recently updated, Servers, Files, Pinned, and Meta sections visually
 - [Terminal recent activity is selection-local](terminal-recent-tab-activity.md) — mark tabs when selected or left; persist the scope, preset window, and user-selected marker color in browser storage
 - [Backend Python changes require a server restart](backend-python-changes-require-server-restart.md) — static assets update from disk, but the always-on process keeps imported routes until `make restart`

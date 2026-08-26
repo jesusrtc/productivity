@@ -198,16 +198,15 @@ def test_project_files_includes_mtime_for_every_file_type(client, seed_project) 
         assert isinstance(files[path]["mtime"], float)
 
 
-def test_project_files_includes_deep_files_inside_nested_repository(
+def test_project_files_includes_deep_files_without_nested_git_marker(
     client, seed_project,
 ) -> None:
-    """A nested checkout must not lose files to the project-root depth cap."""
+    """Real source paths must not depend on detecting nested Git metadata."""
     import os
     import time
 
     pdir = seed_project("nested-repository-files")
     nested_repo = pdir / "repositories" / "queries"
-    (nested_repo / ".git").mkdir(parents=True)
     tools = (
         nested_repo / "forge" / "experimental" / "cached-queries"
         / "cached_queries" / "tools"
@@ -714,8 +713,8 @@ def test_project_mtime_fast_on_large_tree(seed_project, client) -> None:
 def test_project_mtime_depth_capped(seed_project, client) -> None:
     """Walk depth is capped so a pathological deeply-nested tree can't
     hang the endpoint. Plant 30-level-deep dirs and confirm we return
-    without hanging — the cap is 5 levels below the project root, so
-    files past that don't contribute but the walk also doesn't run away."""
+    without hanging — the cap leaves room for real source trees but still
+    excludes this 30-level pathological tail."""
     pdir = seed_project("deep")
     p = pdir
     for _ in range(30):
