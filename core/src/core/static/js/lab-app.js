@@ -1494,6 +1494,11 @@
   function applyIframeDarkMode(iframe) {
     try {
       const doc = iframe.contentDocument || iframe.contentWindow.document;
+      // Trackpad pinch events are dispatched inside an iframe rather than to
+      // the Lab document. Forward same-origin iframe gestures to Focus mode's
+      // page zoom handler so pinching works over rendered HTML and proxied
+      // apps too. Cross-origin/direct iframes are intentionally best-effort.
+      _wireFocusZoomDocument(doc);
       const isDark = !document.body.classList.contains('light-mode');
       // Remove any previously injected style
       const existing = doc.getElementById('gdiff-theme');
@@ -3088,9 +3093,48 @@
   // Entering from the button also requests browser fullscreen and keeps the
   // display awake. Esc exits; the layout preference persists across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
+  const FOCUS_ZOOM_MIN = 0.5;
+  const FOCUS_ZOOM_MAX = 3;
+  const FOCUS_ZOOM_SENSITIVITY = 0.01;
   let _focusWakeLock = null;
   let _focusWakeLockRequest = null;
   let _focusOwnsFullscreen = false;
+  let _focusZoom = 1;
+
+  function _applyFocusZoom(zoom) {
+    const clamped = Math.min(FOCUS_ZOOM_MAX, Math.max(FOCUS_ZOOM_MIN, zoom));
+    _focusZoom = Math.round(clamped * 1000) / 1000;
+    // CSS zoom participates in layout, unlike transform:scale(), so fixed
+    // sidebars, terminals, modals, and scrollable documents keep behaving
+    // like a normally browser-zoomed page.
+    document.body.style.zoom = _focusZoom === 1 ? '' : String(_focusZoom);
+  }
+
+  function _resetFocusZoom() {
+    _focusZoom = 1;
+    document.body.style.zoom = '';
+  }
+
+  function _handleFocusZoomWheel(e) {
+    // Chromium exposes a trackpad pinch as a cancelable Ctrl+wheel gesture.
+    // Browser page zoom is suppressed by the Fullscreen API, so reproduce it
+    // only while Focus mode is active and leave ordinary two-finger scrolling
+    // (and all behavior outside Focus mode) untouched.
+    if (!document.body.classList.contains('focus-mode')
+        || !e.ctrlKey
+        || !Number.isFinite(e.deltaY)
+        || e.deltaY === 0) return;
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+    _applyFocusZoom(_focusZoom * Math.exp(-e.deltaY * FOCUS_ZOOM_SENSITIVITY));
+  }
+
+  function _wireFocusZoomDocument(doc) {
+    if (!doc || doc.__labFocusZoomWired || typeof doc.addEventListener !== 'function') return;
+    doc.__labFocusZoomWired = true;
+    doc.addEventListener('wheel', _handleFocusZoomWheel, {capture: true, passive: false});
+  }
+
+  _wireFocusZoomDocument(document);
 
   async function _acquireFocusWakeLock() {
     if (!document.body.classList.contains('focus-mode')
@@ -3165,6 +3209,7 @@
     try { localStorage.setItem(FOCUS_MODE_KEY, on ? '1' : '0'); } catch {}
     if (on) void _acquireFocusWakeLock();
     else {
+      _resetFocusZoom();
       _releaseFocusWakeLock();
       _exitFocusFullscreen();
     }

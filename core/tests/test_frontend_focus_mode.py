@@ -78,7 +78,7 @@ const classList = {
   },
 };
 const document = {
-  body: {classList},
+  body: {classList, style: {zoom: ''}},
   visibilityState: 'visible',
   fullscreenElement: null,
   documentElement: {
@@ -188,3 +188,73 @@ process.stdout.write(JSON.stringify({
         "wakeRequests": [],
         "fullscreenRequests": 0,
     }
+
+
+def test_trackpad_pinch_zooms_only_in_focus_mode_and_resets_on_exit() -> None:
+    result = _run_node(_harness("""
+let preventedOutside = false;
+events.wheel({ctrlKey: true, deltaY: -20, preventDefault() { preventedOutside = true; }});
+const outsideZoom = document.body.style.zoom;
+
+toggleFocusMode();
+let preventedInside = false;
+events.wheel({ctrlKey: true, deltaY: -20, preventDefault() { preventedInside = true; }});
+const insideZoom = Number(document.body.style.zoom);
+
+// An ordinary two-finger scroll must remain a scroll, not become zoom.
+events.wheel({ctrlKey: false, deltaY: -20, preventDefault() { throw new Error('prevented scroll'); }});
+const afterScrollZoom = Number(document.body.style.zoom);
+
+applyFocusMode(false);
+process.stdout.write(JSON.stringify({
+  preventedOutside,
+  outsideZoom,
+  preventedInside,
+  insideZoom,
+  afterScrollZoom,
+  exitedZoom: document.body.style.zoom,
+}));
+"""))
+
+    assert result["preventedOutside"] is False
+    assert result["outsideZoom"] == ""
+    assert result["preventedInside"] is True
+    assert result["insideZoom"] > 1
+    assert result["afterScrollZoom"] == result["insideZoom"]
+    assert result["exitedZoom"] == ""
+
+
+def test_focus_trackpad_zoom_is_clamped() -> None:
+    result = _run_node(_harness("""
+toggleFocusMode();
+events.wheel({ctrlKey: true, deltaY: -10000, preventDefault() {}});
+const maxZoom = Number(document.body.style.zoom);
+events.wheel({ctrlKey: true, deltaY: 10000, preventDefault() {}});
+const minZoom = Number(document.body.style.zoom);
+process.stdout.write(JSON.stringify({maxZoom, minZoom}));
+"""))
+
+    assert result == {"maxZoom": 3, "minZoom": 0.5}
+
+
+def test_focus_trackpad_zoom_is_wired_inside_same_origin_iframes() -> None:
+    result = _run_node(_harness("""
+const iframeEvents = {};
+const iframeDocument = {
+  addEventListener(type, fn) { iframeEvents[type] = fn; },
+};
+_wireFocusZoomDocument(iframeDocument);
+_wireFocusZoomDocument(iframeDocument);
+toggleFocusMode();
+let prevented = false;
+iframeEvents.wheel({ctrlKey: true, deltaY: -20, preventDefault() { prevented = true; }});
+process.stdout.write(JSON.stringify({
+  prevented,
+  zoom: Number(document.body.style.zoom),
+  wired: iframeDocument.__labFocusZoomWired,
+}));
+"""))
+
+    assert result["prevented"] is True
+    assert result["zoom"] > 1
+    assert result["wired"] is True
