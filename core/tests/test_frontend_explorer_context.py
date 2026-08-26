@@ -130,7 +130,7 @@ def test_git_history_includes_working_tree_as_latest_entry() -> None:
 
 def test_notebook_history_renders_changed_cells_side_by_side() -> None:
     renderer = _between(
-        "function _renderNotebookHistoryOutputs(outputs)",
+        "function _notebookLineDiffKinds(beforeText, afterText, forceChanged)",
         "// Browsers never execute <script> tags",
     )
     result = _run_node(
@@ -138,17 +138,18 @@ def test_notebook_history_renders_changed_cells_side_by_side() -> None:
 const window = {};
 const esc = value => String(value);
 const escAttr = value => String(value);
-const _highlightCellSource = value => String(value);
+const _detectCellLang = value => ({lang: 'python', skipFirst: false});
+const hlLine = value => String(value);
 const marked = {parse(value) { return `<p>${value}</p>`; }};
 """
         + renderer
         + """
 const before = {
-  cell_type: 'code', source: "print('before')", execution_count: 1,
+  cell_type: 'code', source: "keep\\nold line\\nsame", execution_count: 1,
   outputs: [{type: 'text', content: 'before'}],
 };
 const after = {
-  cell_type: 'code', source: "print('after')", execution_count: 2,
+  cell_type: 'code', source: "keep\\nnew line\\nsame", execution_count: 2,
   outputs: [{type: 'text', content: 'after'}],
 };
 const html = renderNotebookHistoryDiff({
@@ -166,6 +167,11 @@ process.stdout.write(JSON.stringify({
   addedPlaceholder: html.includes('Cell did not exist'),
   outputBefore: html.includes('before'),
   outputAfter: html.includes('after'),
+  removedSourceLine: html.includes('nb-history-line nb-history-line-delete">old line'),
+  addedSourceLine: html.includes('nb-history-line nb-history-line-add">new line'),
+  unchangedSourceLine: html.includes('nb-history-line">keep'),
+  removedOutputBlock: html.includes('nb-history-outputs nb-history-output-delete'),
+  addedOutputBlock: html.includes('nb-history-outputs nb-history-output-add'),
 }));
 """
     )
@@ -177,9 +183,18 @@ process.stdout.write(JSON.stringify({
         "addedPlaceholder": True,
         "outputBefore": True,
         "outputAfter": True,
+        "removedSourceLine": True,
+        "addedSourceLine": True,
+        "unchangedSourceLine": True,
+        "removedOutputBlock": True,
+        "addedOutputBlock": True,
     }
 
     css = SHELL_CSS.read_text(encoding="utf-8")
     assert ".nb-history-grid" in css
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
+    assert ".nb-history-line-delete" in css
+    assert ".nb-history-line-add" in css
+    assert ".nb-history-output-delete" in css
+    assert ".nb-history-output-add" in css
     assert ".sidebar > .sidebar-title" in css

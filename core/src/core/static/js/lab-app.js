@@ -3349,11 +3349,61 @@
     return renderNotebookCell(diffCell.cell || diffCell.base_cell, diffCell.status);
   }
 
-  function _renderNotebookHistoryOutputs(outputs) {
-    if (!outputs || !outputs.length) {
-      return '<div class="nb-history-no-output">No output</div>';
+  function _notebookLineDiffKinds(beforeText, afterText, forceChanged) {
+    const beforeLines = String(beforeText || '').split('\n');
+    const afterLines = String(afterText || '').split('\n');
+    const beforeKinds = beforeLines.map(() => 'delete');
+    const afterKinds = afterLines.map(() => 'add');
+
+    if (!forceChanged && beforeText === afterText) {
+      return {
+        before: beforeKinds.map(() => 'context'),
+        after: afterKinds.map(() => 'context'),
+      };
     }
-    return `<div class="nb-history-outputs"><div class="nb-history-output-label">Output</div>${outputs.map(output => {
+
+    // Avoid an unbounded quadratic allocation for generated, unusually large
+    // cells. In that case the useful fallback is still honest: every line on
+    // the old side is removed and every line on the new side is added.
+    if (forceChanged || beforeLines.length * afterLines.length > 40000) {
+      return {before: beforeKinds, after: afterKinds};
+    }
+
+    const lengths = Array.from(
+      {length: beforeLines.length + 1},
+      () => new Array(afterLines.length + 1).fill(0),
+    );
+    for (let beforeIndex = 1; beforeIndex <= beforeLines.length; beforeIndex++) {
+      for (let afterIndex = 1; afterIndex <= afterLines.length; afterIndex++) {
+        lengths[beforeIndex][afterIndex] = beforeLines[beforeIndex - 1] === afterLines[afterIndex - 1]
+          ? lengths[beforeIndex - 1][afterIndex - 1] + 1
+          : Math.max(lengths[beforeIndex - 1][afterIndex], lengths[beforeIndex][afterIndex - 1]);
+      }
+    }
+
+    let beforeIndex = beforeLines.length;
+    let afterIndex = afterLines.length;
+    while (beforeIndex > 0 && afterIndex > 0) {
+      if (beforeLines[beforeIndex - 1] === afterLines[afterIndex - 1]) {
+        beforeKinds[beforeIndex - 1] = 'context';
+        afterKinds[afterIndex - 1] = 'context';
+        beforeIndex--;
+        afterIndex--;
+      } else if (lengths[beforeIndex - 1][afterIndex] >= lengths[beforeIndex][afterIndex - 1]) {
+        beforeIndex--;
+      } else {
+        afterIndex--;
+      }
+    }
+    return {before: beforeKinds, after: afterKinds};
+  }
+
+  function _renderNotebookHistoryOutputs(outputs, changeKind) {
+    const changeClass = changeKind ? ` nb-history-output-${changeKind}` : '';
+    if (!outputs || !outputs.length) {
+      return `<div class="nb-history-no-output${changeClass}">No output</div>`;
+    }
+    return `<div class="nb-history-outputs${changeClass}"><div class="nb-history-output-label">Output</div>${outputs.map(output => {
       if (output.type === 'image') {
         return `<div class="nb-output"><img src="data:image/png;base64,${output.content}"></div>`;
       }
@@ -3367,22 +3417,38 @@
     }).join('')}</div>`;
   }
 
-  function _renderNotebookHistorySide(cell, label, emptyLabel) {
+  function _renderNotebookHistoryCodeSource(cell, lineKinds) {
+    const source = String(cell.source || '');
+    const lines = source.split('\n');
+    const {lang, skipFirst} = _detectCellLang(source);
+    return `<pre class="nb-history-source"><code>${lines.map((line, index) => {
+      const kind = lineKinds[index] || 'context';
+      const kindClass = kind === 'context' ? '' : ` nb-history-line-${kind}`;
+      const highlighted = skipFirst && index === 0
+        ? `<span class="hljs-meta">${esc(line)}</span>`
+        : hlLine(line, lang);
+      return `<span class="nb-history-line${kindClass}">${highlighted}</span>`;
+    }).join('')}</code></pre>`;
+  }
+
+  function _renderNotebookHistorySide(cell, label, emptyLabel, lineKinds, outputChange) {
     if (!cell) {
       return `<section class="nb-history-side is-empty"><div class="nb-history-side-label">${label}</div><div class="nb-history-placeholder">${emptyLabel}</div></section>`;
     }
     const exec = cell.execution_count == null ? '' : `[${cell.execution_count}]`;
     let sourceHtml;
     if (cell.cell_type === 'markdown') {
+      const changedKind = (lineKinds || []).find(kind => kind !== 'context');
+      const changedClass = changedKind ? ` nb-history-markdown-${changedKind}` : '';
       try {
-        sourceHtml = `<div class="nb-history-markdown">${marked.parse(cell.source || '')}</div>`;
+        sourceHtml = `<div class="nb-history-markdown${changedClass}">${marked.parse(cell.source || '')}</div>`;
       } catch (_) {
-        sourceHtml = `<pre class="nb-history-source"><code>${esc(cell.source || '')}</code></pre>`;
+        sourceHtml = _renderNotebookHistoryCodeSource(cell, lineKinds || []);
       }
     } else {
-      sourceHtml = `<pre class="nb-history-source"><code>${_highlightCellSource(cell.source || '')}</code></pre>`;
+      sourceHtml = _renderNotebookHistoryCodeSource(cell, lineKinds || []);
     }
-    return `<section class="nb-history-side"><div class="nb-history-side-label"><span>${label}</span><span>${esc(cell.cell_type || 'code')} ${exec}</span></div>${sourceHtml}${_renderNotebookHistoryOutputs(cell.outputs)}</section>`;
+    return `<section class="nb-history-side"><div class="nb-history-side-label"><span>${label}</span><span>${esc(cell.cell_type || 'code')} ${exec}</span></div>${sourceHtml}${_renderNotebookHistoryOutputs(cell.outputs, outputChange)}</section>`;
   }
 
   function renderNotebookHistoryDiff(notebook) {
@@ -3397,11 +3463,20 @@
       const status = String(diffCell.status || 'modified');
       const before = status === 'added' ? null : (diffCell.base_cell || diffCell.cell || null);
       const after = status === 'deleted' ? null : (diffCell.cell || null);
+      const sourceDiff = _notebookLineDiffKinds(
+        before ? before.source : '',
+        after ? after.source : '',
+        !!before && !!after && before.cell_type !== after.cell_type,
+      );
+      const outputsChanged = JSON.stringify(before ? (before.outputs || []) : [])
+        !== JSON.stringify(after ? (after.outputs || []) : []);
+      const beforeOutputChange = before && outputsChanged ? 'delete' : '';
+      const afterOutputChange = after && outputsChanged ? 'add' : '';
       return `<article class="nb-history-cell nb-history-${escAttr(status.replace(/_/g, '-'))}">
         <div class="nb-history-cell-head"><span>Cell ${Number(diffCell.index || 0) + 1}</span><span>${esc(status.replace(/_/g, ' '))}</span></div>
         <div class="nb-history-grid">
-          ${_renderNotebookHistorySide(before, 'Before', 'Cell did not exist')}
-          ${_renderNotebookHistorySide(after, 'After', 'Cell was removed')}
+          ${_renderNotebookHistorySide(before, 'Before', 'Cell did not exist', sourceDiff.before, beforeOutputChange)}
+          ${_renderNotebookHistorySide(after, 'After', 'Cell was removed', sourceDiff.after, afterOutputChange)}
         </div>
       </article>`;
     }).join('')}</div>`;

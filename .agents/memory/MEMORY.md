@@ -30,6 +30,7 @@
 - [Recent files use a compact folder tree](sidebar-recent-files-use-compact-tree.md) — collapse single-child directory chains, preserve real branch levels, and persist folder open state
 - [Recent-file freshness stops at three days](sidebar-recent-freshness-three-day-cap.md) — offer 15m, 1h, 2h, 6h, 24h, and 3d; clamp legacy longer values
 - [Sidebar file history includes working tree and notebook review](sidebar-file-history-review.md) — GitHub-mark action opens commits plus uncommitted changes; notebooks use semantic Before/After cell diffs
+- [Notebook review diff granularity](notebook-review-diff-granularity.md) — source changes are line-level red/green; changed outputs use one whole-block red/green rail
 - [Recent-file diagnostics and consolidated log controls](sidebar-recent-diagnostics-and-log-controls.md) — settings Save logs per-README inclusion reasons; Admin Logs can copy or flush the selected consolidated log
 - [Nested repository sidebar scans and new-file history](nested-repo-sidebar-scan-and-unborn-history.md) — reset bounded scan depth at nested Git roots; history/diff supports untracked files before the first commit
 - [Project mtime polling is single-flight](project-mtime-polling-is-single-flight.md) — never overlap recursive mtime walks; back off exponentially after HTTP failures to prevent 503 storms

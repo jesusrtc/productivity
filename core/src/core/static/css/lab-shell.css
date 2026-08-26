@@ -376,10 +376,17 @@
   .nb-history-side + .nb-history-side { border-left: 1px solid var(--border); }
   .nb-history-side-label { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-tertiary); color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .35px; }
   .nb-history-source { min-height: 52px; margin: 0; padding: 10px 12px; overflow-x: auto; background: var(--bg-primary); color: var(--text-primary); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .nb-history-line { display: block; min-height: 1.55em; margin: 0 -12px; padding: 0 12px; }
+  .nb-history-line-delete { background: color-mix(in srgb, var(--red) 13%, transparent); box-shadow: inset 3px 0 0 var(--red); }
+  .nb-history-line-add { background: color-mix(in srgb, var(--green) 13%, transparent); box-shadow: inset 3px 0 0 var(--green); }
   .nb-history-markdown { min-height: 52px; padding: 10px 14px; color: var(--text-primary); font-size: 13px; line-height: 1.55; }
+  .nb-history-markdown-delete { background: color-mix(in srgb, var(--red) 8%, transparent); box-shadow: inset 3px 0 0 var(--red); }
+  .nb-history-markdown-add { background: color-mix(in srgb, var(--green) 8%, transparent); box-shadow: inset 3px 0 0 var(--green); }
   .nb-history-markdown > :first-child { margin-top: 0; }
   .nb-history-markdown > :last-child { margin-bottom: 0; }
   .nb-history-outputs { border-top: 1px solid var(--border); }
+  .nb-history-output-delete { background: linear-gradient(90deg, color-mix(in srgb, var(--red) 8%, transparent), transparent 18%); box-shadow: inset 3px 0 0 var(--red); }
+  .nb-history-output-add { background: linear-gradient(90deg, color-mix(in srgb, var(--green) 8%, transparent), transparent 18%); box-shadow: inset 3px 0 0 var(--green); }
   .nb-history-output-label { padding: 5px 10px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-dim); font-size: 10px; text-transform: uppercase; }
   .nb-history-no-output { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 11px; font-style: italic; }
   .nb-history-placeholder { min-height: 110px; display: grid; place-items: center; padding: 18px; color: var(--text-dim); font-size: 12px; font-style: italic; }
