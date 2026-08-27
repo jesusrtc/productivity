@@ -97,7 +97,7 @@ def get_commit_diff(repo: str, sha: str) -> dict:
     if not os.path.isdir(repo):
         return {"files": [], "repo": repo, "branch": "unknown", "type": "commit", "sha": sha}
     result = subprocess.run(
-        ["git", "diff", f"{sha}~1", sha],
+        ["git", "show", "--format=", "--no-color", "--find-renames", sha],
         capture_output=True, text=True, cwd=repo,
     )
     files = _parse_unified_diff(result.stdout)

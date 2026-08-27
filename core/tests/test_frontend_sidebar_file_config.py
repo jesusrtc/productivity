@@ -139,11 +139,18 @@ _sidebarFileConfig = {
 };
 const picker = _sidebarWorktreePickerHtml('/repo');
 const scope = _sidebarWorktreeScopeStartHtml('/repo');
+const scopedRoot = _sidebarScopedRoot('/repo');
+_sidebarFileConfig.worktreeFolder = '';
+const mainPicker = _sidebarWorktreePickerHtml('/repo');
 process.stdout.write(JSON.stringify({
-  scopedRoot: _sidebarScopedRoot('/repo'),
-  pickerHasRoot: picker.includes('<option value="">Root</option>'),
+  scopedRoot,
+  pickerHasRoot: picker.includes('<option value="">main</option>'),
   pickerHasSelected: picker.includes('value="/worktrees/feature-b" selected'),
   pickerColor: picker.includes('value="#123abc"'),
+  pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
+  pickerHasGithub: picker.includes('<svg viewBox="0 0 16 16"'),
+  mainHasHistory: mainPicker.includes('sidebarOpenRepositoryHistory(this)'),
+  mainHasLabel: mainPicker.includes('sidebar-worktree-current') && mainPicker.includes('>main</span>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
   scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
   defaultColor: _sidebarWorktreeColor('/worktrees/feature-a'),
@@ -156,6 +163,10 @@ process.stdout.write(JSON.stringify({
         "pickerHasRoot": True,
         "pickerHasSelected": True,
         "pickerColor": True,
+        "pickerHasHistory": True,
+        "pickerHasGithub": True,
+        "mainHasHistory": True,
+        "mainHasLabel": True,
         "scopeColor": True,
         "scopePath": True,
         "defaultColor": "#6e7681",

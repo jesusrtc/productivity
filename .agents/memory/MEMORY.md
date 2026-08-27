@@ -30,7 +30,7 @@
 - [Sidebar file scopes can follow worktrees](sidebar-worktree-file-scopes.md) — a browser-local parent folder discovers direct child worktrees; each sidebar surface remembers its selected root and color
 - [Recent files use a compact folder tree](sidebar-recent-files-use-compact-tree.md) — collapse single-child directory chains, preserve real branch levels, and persist folder open state
 - [Recent-file freshness stops at three days](sidebar-recent-freshness-three-day-cap.md) — offer 15m, 1h, 2h, 6h, 24h, and 3d; clamp legacy longer values
-- [Sidebar file history includes working tree and notebook review](sidebar-file-history-review.md) — GitHub-mark action opens commits plus uncommitted changes; notebooks use semantic Before/After cell diffs
+- [Sidebar file history uses one three-pane modal](sidebar-file-history-review.md) — repository and file history share files-left/diff-center/revisions-right; file history orders the clicked path first and includes commit companions
 - [Notebook review diff granularity](notebook-review-diff-granularity.md) — source changes are line-level red/green; changed outputs use one whole-block red/green rail
 - [Recent-file diagnostics and consolidated log controls](sidebar-recent-diagnostics-and-log-controls.md) — settings Save logs per-README inclusion reasons; Admin Logs can copy or flush the selected consolidated log
 - [Nested repository sidebar scans and new-file history](nested-repo-sidebar-scan-and-unborn-history.md) — reset bounded scan depth at nested Git roots; history/diff supports untracked files before the first commit

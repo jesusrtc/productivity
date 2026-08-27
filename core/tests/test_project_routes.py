@@ -313,7 +313,12 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
     subprocess.run(["git", "add", "."], cwd=monorepo, check=True)
     subprocess.run(["git", "commit", "-m", "add note"], cwd=monorepo, check=True, capture_output=True)
     source.write_text("after\n")
-    subprocess.run(["git", "add", str(source.relative_to(monorepo))], cwd=monorepo, check=True)
+    companion = pdir / "docs" / "companion.txt"
+    companion.write_text("same commit\n")
+    subprocess.run([
+        "git", "add", str(source.relative_to(monorepo)),
+        str(companion.relative_to(monorepo)),
+    ], cwd=monorepo, check=True)
     subprocess.run(["git", "commit", "-m", "update note"], cwd=monorepo, check=True, capture_output=True)
 
     history = client.get("/api/project-entry/history", params={
@@ -323,15 +328,29 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
     commits = history.json()["commits"]
     assert [commit["message"] for commit in commits[:2]] == ["update note", "add note"]
 
+    root_commit_diff = client.get("/api/commit-diff", params={
+        "repo": str(monorepo), "sha": commits[1]["sha"],
+    })
+    assert root_commit_diff.status_code == 200
+    assert any(
+        item["filename"] == str(source.relative_to(monorepo))
+        for item in root_commit_diff.json()["files"]
+    )
+
     commit_diff = client.get("/api/project-entry/history-diff", params={
         "path": str(pdir), "file": "docs/note.txt", "sha": commits[0]["sha"],
     })
     assert commit_diff.status_code == 200
-    parsed = commit_diff.json()["files"][0]
+    commit_body = commit_diff.json()
+    parsed = commit_body["files"][0]
+    assert parsed["filename"] == str(source.relative_to(monorepo))
+    assert str(companion.relative_to(monorepo)) in commit_body["changed_files"]
     assert parsed["additions"] == 1
     assert parsed["deletions"] == 1
 
     source.write_text("working tree\n")
+    pending_companion = pdir / "docs" / "pending-companion.txt"
+    pending_companion.write_text("also pending\n")
     working_history = client.get("/api/project-entry/history", params={
         "path": str(pdir), "file": "docs/note.txt",
     })
@@ -345,7 +364,10 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
         "path": str(pdir), "file": "docs/note.txt", "sha": "WORKTREE",
     })
     assert working_diff.status_code == 200
-    working_parsed = working_diff.json()["files"][0]
+    working_body = working_diff.json()
+    working_parsed = working_body["files"][0]
+    assert working_parsed["filename"] == str(source.relative_to(monorepo))
+    assert str(pending_companion.relative_to(monorepo)) in working_body["changed_files"]
     assert working_parsed["additions"] == 1
     assert working_parsed["deletions"] == 1
 
@@ -394,8 +416,11 @@ def test_project_diff_file_and_git_history(client, seed_project, monorepo) -> No
         "path": str(pdir), "file": "docs/change.diff",
     })
     assert rendered.status_code == 200
-    assert rendered.json()["files"][0]["filename"].endswith("docs/note.txt")
-    assert rendered.json()["files"][0]["additions"] == 1
+    rendered_note = next(
+        item for item in rendered.json()["files"]
+        if item["filename"].endswith("docs/note.txt")
+    )
+    assert rendered_note["additions"] == 1
 
 
 def test_notebook_git_history_returns_side_by_side_cell_revisions(

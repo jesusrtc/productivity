@@ -1364,18 +1364,93 @@
     }
   }
 
-  async function openExplorerHistory(ctx) {
-    if (!ctx) return;
+  function _explorerHistoryShell(title, loadingMessage) {
     const modal = document.getElementById('explorerHistoryModal');
+    const files = document.getElementById('explorerHistoryFiles');
     const list = document.getElementById('explorerHistoryList');
     const diff = document.getElementById('explorerHistoryDiff');
-    if (!modal || !list || !diff) return;
-    _explorerHistoryState = {ctx, commits: []};
-    const requestId = ++_explorerHistoryRequest;
-    document.getElementById('explorerHistoryTitle').textContent = `History · ${ctx.path}`;
-    list.innerHTML = '<div class="explorer-history-empty">Loading history…</div>';
-    diff.innerHTML = '<div class="explorer-history-empty">Select a commit to view this path’s changes.</div>';
+    if (!modal || !files || !list || !diff) return null;
+    document.getElementById('explorerHistoryTitle').textContent = title;
+    files.innerHTML = '<div class="explorer-history-column-title">Changed files</div><div class="explorer-history-empty">Select a revision.</div>';
+    list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">${esc(loadingMessage)}</div>`;
+    diff.innerHTML = '<div class="explorer-history-empty">Select a revision to view its changes.</div>';
     modal.classList.add('active');
+    return {modal, files, list, diff};
+  }
+
+  function _explorerHistoryRenderCommits(summary) {
+    const state = _explorerHistoryState;
+    const list = document.getElementById('explorerHistoryList');
+    if (!state || !list) return;
+    if (!state.commits.length) {
+      list.innerHTML = '<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">No commits found.</div>';
+      return;
+    }
+    list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-summary">${esc(summary)}</div>` + state.commits.map(commit => {
+      const workingTree = commit.kind === 'working-tree';
+      const branchDiff = commit.kind === 'branch';
+      const states = (commit.states || []).join(' + ') || 'uncommitted';
+      const title = workingTree
+        ? `Working tree · ${states}`
+        : (branchDiff ? `${commit.branch || ''} vs ${commit.base_branch || 'base'}` : `${commit.author || ''} · ${commit.date || ''}`);
+      const meta = workingTree
+        ? `<code>WORKTREE</code><span>${esc(states)}</span><span>·</span><span>not committed</span>`
+        : (branchDiff
+          ? `<code>BASE</code><span>${esc(commit.base_branch || 'main/master')}</span><span>·</span><span>${commit.file_count || 0} files</span>`
+          : `<code>${esc(commit.short_sha || commit.sha.slice(0, 7))}</code><span>${esc(commit.author || '')}</span><span>·</span><span>${esc(commit.relative_date || commit.date || '')}</span>`);
+      return `<button class="explorer-history-commit${workingTree ? ' working-tree' : ''}${branchDiff ? ' branch-diff' : ''}" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
+        <span class="eh-message">${esc(commit.message)}</span>
+        <span class="eh-meta">${meta}</span>
+      </button>`;
+    }).join('');
+    list.querySelectorAll('.explorer-history-commit').forEach(button => {
+      button.addEventListener('click', () => explorerHistorySelect(button.getAttribute('data-sha'), button));
+    });
+    const first = list.querySelector('.explorer-history-commit');
+    if (first) explorerHistorySelect(first.getAttribute('data-sha'), first);
+  }
+
+  function explorerHistoryScrollFile(index, button) {
+    const target = document.getElementById(`explorer-history-file-${index}`);
+    if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+    document.querySelectorAll('#explorerHistoryFiles .explorer-history-file').forEach(row => row.classList.toggle('active', row === button));
+  }
+  window.explorerHistoryScrollFile = explorerHistoryScrollFile;
+
+  function _explorerHistoryRenderFiles(data, head, emptyMessage) {
+    const filesRail = document.getElementById('explorerHistoryFiles');
+    const diff = document.getElementById('explorerHistoryDiff');
+    if (!filesRail || !diff) return;
+    const selectedFile = String(data.selected_file || '');
+    const revisionFiles = Array.isArray(data.files) ? [...data.files] : [];
+    if (data.notebook && selectedFile && !revisionFiles.some(file => file.filename === selectedFile)) {
+      revisionFiles.unshift({filename: selectedFile, status: 'modified', additions: 0, deletions: 0});
+    }
+    if (!revisionFiles.length) {
+      filesRail.innerHTML = '<div class="explorer-history-column-title">Changed files</div><div class="explorer-history-empty">No changed files.</div>';
+      diff.innerHTML = head + `<div class="explorer-history-empty">${esc(emptyMessage)}</div>`;
+      return;
+    }
+    filesRail.innerHTML = '<div class="explorer-history-column-title">Changed files</div>' + revisionFiles.map((file, index) => {
+      const total = (file.additions || 0) + (file.deletions || 0);
+      return `<button class="explorer-history-file${index === 0 ? ' active' : ''}" type="button" onclick="explorerHistoryScrollFile(${index},this)" title="${escAttr(file.filename)}"><span class="eh-file-status ${escAttr(file.status || 'modified')}"></span><span class="eh-file-name">${esc(file.filename)}</span><span class="eh-file-stat">${total}</span></button>`;
+    }).join('');
+    diff.innerHTML = head + revisionFiles.map((file, index) => {
+      const notebookSelected = data.notebook && file.filename === selectedFile;
+      const body = notebookSelected ? renderNotebookHistoryDiff(data.notebook) : renderUnified(file);
+      return `<section class="file-diff" id="explorer-history-file-${index}">
+        <div class="file-header"><span class="badge badge-${escAttr(file.status || 'modified')}">${esc(file.status || 'modified')}</span><span class="filename">${esc(file.filename)}</span><span class="file-stats"><span class="adds">+${file.additions || 0}</span> <span class="dels">-${file.deletions || 0}</span></span></div>
+        <div class="file-body">${body}</div>
+      </section>`;
+    }).join('');
+  }
+
+  async function openExplorerHistory(ctx) {
+    if (!ctx) return;
+    const shell = _explorerHistoryShell(`History · ${ctx.path}`, 'Loading file history…');
+    if (!shell) return;
+    _explorerHistoryState = {mode: 'entry', ctx, commits: [], revisionCache: {}};
+    const requestId = ++_explorerHistoryRequest;
     try {
       const response = await fetch(`/api/project-entry/history?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&limit=100`);
       if (!response.ok) throw new Error(await _explorerResponseError(response));
@@ -1383,78 +1458,100 @@
       if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
       const commits = data.commits || [];
       _explorerHistoryState.commits = commits;
-      if (!commits.length) {
-        list.innerHTML = '<div class="explorer-history-empty">No commits found for this path.</div>';
-        return;
-      }
       const committedCount = commits.filter(commit => commit.kind !== 'working-tree').length;
       const hasWorkingTree = commits.some(commit => commit.kind === 'working-tree');
       const summary = `${committedCount} commit${committedCount === 1 ? '' : 's'} · newest first${hasWorkingTree ? ' · uncommitted changes included' : ''}`;
-      list.innerHTML = `<div class="explorer-history-summary">${summary}</div>` + commits.map(commit => {
-        const workingTree = commit.kind === 'working-tree';
-        const states = (commit.states || []).join(' + ') || 'uncommitted';
-        const title = workingTree ? `Working tree · ${states}` : `${commit.author} · ${commit.date}`;
-        const meta = workingTree
-          ? `<code>WORKTREE</code><span>${esc(states)}</span><span>·</span><span>not committed</span>`
-          : `<code>${esc(commit.short_sha)}</code><span>${esc(commit.author)}</span><span>·</span><span>${esc(commit.relative_date)}</span>`;
-        return `<button class="explorer-history-commit${workingTree ? ' working-tree' : ''}" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
-          <span class="eh-message">${esc(commit.message)}</span>
-          <span class="eh-meta">${meta}</span>
-        </button>`;
-      }).join('');
-      list.querySelectorAll('.explorer-history-commit').forEach(button => {
-        button.addEventListener('click', () => explorerHistorySelect(button.getAttribute('data-sha'), button));
-      });
-      const first = list.querySelector('.explorer-history-commit');
-      if (first) explorerHistorySelect(first.getAttribute('data-sha'), first);
+      _explorerHistoryRenderCommits(summary);
     } catch (e) {
       if (requestId !== _explorerHistoryRequest) return;
-      list.innerHTML = `<div class="explorer-history-empty">${esc(e.message || e)}</div>`;
+      shell.list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">${esc(e.message || e)}</div>`;
     }
   }
   window.openExplorerHistory = openExplorerHistory;
 
+  async function openRepositoryHistory(ctx) {
+    if (!ctx || !ctx.root) return;
+    const label = ctx.label || 'main';
+    const shell = _explorerHistoryShell(`Git history · ${label}`, 'Loading repository history…');
+    if (!shell) return;
+    _explorerHistoryState = {mode: 'repository', ctx, commits: [], revisionCache: {}};
+    const requestId = ++_explorerHistoryRequest;
+    const getJson = async url => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(await _explorerResponseError(response));
+      return response.json();
+    };
+    try {
+      const repo = encodeURIComponent(ctx.root);
+      const [workingTree, branchDiff, commits] = await Promise.all([
+        getJson(`/api/diff?repo=${repo}&type=uncommitted`),
+        getJson(`/api/diff?repo=${repo}&type=branch`),
+        getJson(`/api/commits?repo=${repo}&count=100`),
+      ]);
+      if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
+      const branch = workingTree.branch || branchDiff.branch || label;
+      const base = branchDiff.base_branch || 'main/master';
+      const revisions = [
+        {sha: 'WORKTREE', kind: 'working-tree', message: 'Uncommitted changes', states: ['working tree'], file_count: (workingTree.files || []).length},
+        {sha: 'BRANCH', kind: 'branch', message: `Changes vs ${base}`, branch, base_branch: base, file_count: (branchDiff.files || []).length},
+        ...(Array.isArray(commits) ? commits.map(commit => ({...commit, kind: 'commit'})) : []),
+      ];
+      _explorerHistoryState.commits = revisions;
+      _explorerHistoryState.revisionCache = {WORKTREE: workingTree, BRANCH: branchDiff};
+      _explorerHistoryRenderCommits(`${branch} · working tree, base comparison, and ${Math.max(0, revisions.length - 2)} commits`);
+    } catch (e) {
+      if (requestId !== _explorerHistoryRequest) return;
+      shell.list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">${esc(e.message || e)}</div>`;
+    }
+  }
+  window.openRepositoryHistory = openRepositoryHistory;
+
   async function explorerHistorySelect(sha, button) {
     const state = _explorerHistoryState;
     const diff = document.getElementById('explorerHistoryDiff');
-    if (!state || !diff || !sha) return;
+    const filesRail = document.getElementById('explorerHistoryFiles');
+    if (!state || !diff || !filesRail || !sha) return;
     const requestId = ++_explorerHistoryRequest;
     document.querySelectorAll('#explorerHistoryList .explorer-history-commit').forEach(el => el.classList.toggle('active', el === button));
     const selected = state.commits.find(item => item.sha === sha) || {};
     const isWorkingTree = selected.kind === 'working-tree';
-    diff.innerHTML = `<div class="explorer-history-empty">Loading ${isWorkingTree ? 'uncommitted changes' : 'commit diff'}…</div>`;
+    const isBranchDiff = selected.kind === 'branch';
+    filesRail.innerHTML = '<div class="explorer-history-column-title">Changed files</div><div class="explorer-history-empty">Loading files…</div>';
+    diff.innerHTML = `<div class="explorer-history-empty">Loading ${isWorkingTree ? 'uncommitted changes' : (isBranchDiff ? 'base comparison' : 'commit diff')}…</div>`;
     try {
-      const ctx = state.ctx;
-      const response = await fetch(`/api/project-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
-      if (!response.ok) throw new Error(await _explorerResponseError(response));
-      const data = await response.json();
+      let data = state.revisionCache[sha];
+      if (!data) {
+        if (state.mode === 'repository') {
+          const response = await fetch(`/api/commit-diff?repo=${encodeURIComponent(state.ctx.root)}&sha=${encodeURIComponent(sha)}`);
+          if (!response.ok) throw new Error(await _explorerResponseError(response));
+          data = await response.json();
+        } else {
+          const ctx = state.ctx;
+          const response = await fetch(`/api/project-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
+          if (!response.ok) throw new Error(await _explorerResponseError(response));
+          data = await response.json();
+        }
+        state.revisionCache[sha] = data;
+      }
       if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
-      const commit = selected;
-      const details = isWorkingTree
-        ? `Working tree · ${esc((data.states || commit.states || []).join(' + ') || 'uncommitted')} · not committed`
-        : `${esc(commit.author || '')} · ${esc(commit.date || '')} · ${esc(sha.slice(0, 12))}`;
-      const head = `<div class="explorer-history-head${isWorkingTree ? ' working-tree' : ''}"><strong>${esc(commit.message || sha)}</strong><span>${details}</span></div>`;
       if (data.notebook) {
         await Promise.all([
           ensureMarked().catch(() => {}),
           ensureHighlight().catch(() => {}),
         ]);
         if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
-        diff.innerHTML = head + renderNotebookHistoryDiff(data.notebook);
-        return;
       }
-      if (!data.files || !data.files.length) {
-        const emptyMessage = isWorkingTree
-          ? 'No uncommitted changes remain for this path.'
-          : 'No patch for this path in this commit.';
-        diff.innerHTML = head + `<div class="explorer-history-empty">${emptyMessage}</div>`;
-        return;
-      }
-      diff.innerHTML = head + data.files.map(file => `
-        <div class="file-diff">
-          <div class="file-header"><span class="badge badge-${file.status}">${esc(file.status)}</span><span class="filename">${esc(file.filename)}</span><span class="file-stats"><span class="adds">+${file.additions || 0}</span> <span class="dels">-${file.deletions || 0}</span></span></div>
-          <div class="file-body">${renderUnified(file)}</div>
-        </div>`).join('');
+      const details = isWorkingTree
+        ? `Working tree · ${esc((data.states || selected.states || []).join(' + ') || 'uncommitted')} · not committed`
+        : (isBranchDiff
+          ? `${esc(selected.branch || data.branch || '')} vs ${esc(selected.base_branch || data.base_branch || 'main/master')}`
+          : `${esc(selected.author || '')} · ${esc(selected.date || '')} · ${esc(sha.slice(0, 12))}`);
+      const headClass = isWorkingTree ? ' working-tree' : (isBranchDiff ? ' branch-diff' : '');
+      const head = `<div class="explorer-history-head${headClass}"><strong>${esc(selected.message || sha)}</strong><span>${details}</span></div>`;
+      const emptyMessage = isWorkingTree
+        ? 'No uncommitted changes remain.'
+        : (isBranchDiff ? 'No changes from the base branch.' : 'No patch in this commit.');
+      _explorerHistoryRenderFiles(data, head, emptyMessage);
     } catch (e) {
       if (requestId !== _explorerHistoryRequest) return;
       diff.innerHTML = `<div class="explorer-history-empty">${esc(e.message || e)}</div>`;
@@ -2057,6 +2154,7 @@
   }
 
   function _sidebarSelectedWorktree(baseRoot) {
+    if (!_sidebarFileConfig.worktreeFolder) return null;
     const selected = String((_sidebarFileConfig.selectedWorktrees || {})[baseRoot] || '');
     if (!selected) return null;
     return _sidebarWorktreeFolders.find(row => row.path === selected) || null;
@@ -2072,15 +2170,18 @@
   }
 
   function _sidebarWorktreePickerHtml(baseRoot) {
-    if (!_sidebarFileConfig.worktreeFolder) return '';
     const selected = _sidebarSelectedWorktree(baseRoot);
     const selectedPath = selected ? selected.path : '';
+    const selectedLabel = selected ? selected.name : 'main';
     const options = [
-      '<option value="">Root</option>',
+      '<option value="">main</option>',
       ..._sidebarWorktreeFolders.map(row => `<option value="${escAttr(row.path)}"${row.path === selectedPath ? ' selected' : ''}>${esc(row.name)}</option>`),
     ];
     const color = selected ? _sidebarWorktreeColor(selected.path) : SIDEBAR_WORKTREE_DEFAULT_COLOR;
-    return `<div class="sidebar-worktree-picker"><label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label><input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+    const rootControl = _sidebarFileConfig.worktreeFolder
+      ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label>`
+      : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
+    return `<div class="sidebar-worktree-picker"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
   }
 
   function _sidebarWorktreeScopeStartHtml(baseRoot) {
@@ -2288,6 +2389,17 @@
   }
 
   const _SIDEBAR_GITHUB_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.18.55-.39 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.5 7.5 0 0 1 8 4.03c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.47.55.39A8 8 0 0 0 8 .2Z"/></svg>';
+
+  function sidebarOpenRepositoryHistory(button) {
+    const baseRoot = button && button.getAttribute('data-base-root');
+    if (!baseRoot) return;
+    const selected = _sidebarSelectedWorktree(baseRoot);
+    return openRepositoryHistory({
+      root: _sidebarScopedRoot(baseRoot),
+      label: selected ? selected.name : 'main',
+    });
+  }
+  window.sidebarOpenRepositoryHistory = sidebarOpenRepositoryHistory;
 
   function _sidebarGitHistoryButtonHtml(path, root = '') {
     const safePath = String(path || '').replace(/'/g, "\\'");

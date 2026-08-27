@@ -344,8 +344,10 @@
 
   /* File/folder Git history modal */
   .explorer-history-box { width: 94vw; max-width: 1500px; height: 90vh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); box-shadow: 0 14px 48px rgba(0,0,0,.6); }
-  .explorer-history-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 320px minmax(0,1fr); }
-  .explorer-history-list { overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg-secondary); }
+  .explorer-history-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 270px minmax(0,1fr) 320px; grid-template-areas: "files diff commits"; }
+  .explorer-history-files { grid-area: files; min-width: 0; overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg-secondary); }
+  .explorer-history-list { grid-area: commits; min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--bg-secondary); }
+  .explorer-history-column-title { position: sticky; top: 0; z-index: 2; padding: 10px 13px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font-size: 10px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; }
   .explorer-history-summary { padding: 11px 13px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-size: 11px; }
   .explorer-history-commit { width: 100%; padding: 11px 13px; display: block; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
   .explorer-history-commit:hover { background: var(--tree-hover); }
@@ -355,12 +357,24 @@
   .explorer-history-commit .eh-message { display: block; margin-bottom: 5px; font-size: 13px; line-height: 1.35; }
   .explorer-history-commit .eh-meta { display: flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 11px; }
   .explorer-history-commit code { color: var(--accent); font-size: 10px; }
-  .explorer-history-diff { min-width: 0; overflow: auto; padding: 16px; }
+  .explorer-history-commit.branch-diff code { color: var(--purple); }
+  .explorer-history-commit.branch-diff.active { box-shadow: inset 3px 0 var(--purple); }
+  .explorer-history-file { width: 100%; min-width: 0; padding: 8px 11px; display: grid; grid-template-columns: 9px minmax(0,1fr) auto; align-items: center; gap: 7px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
+  .explorer-history-file:hover { color: var(--text-primary); background: var(--tree-hover); }
+  .explorer-history-file.active { color: var(--text-primary); background: var(--bg-tertiary); box-shadow: inset 3px 0 var(--accent); }
+  .explorer-history-file .eh-file-status { width: 7px; height: 7px; border-radius: 50%; background: var(--yellow); }
+  .explorer-history-file .eh-file-status.added { background: var(--green); }
+  .explorer-history-file .eh-file-status.deleted { background: var(--red); }
+  .explorer-history-file .eh-file-status.renamed { background: var(--accent); }
+  .explorer-history-file .eh-file-name { min-width: 0; overflow: hidden; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .explorer-history-file .eh-file-stat { color: var(--text-dim); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+  .explorer-history-diff { grid-area: diff; min-width: 0; overflow: auto; padding: 16px; scroll-behavior: smooth; }
   .explorer-history-empty { display: grid; min-height: 220px; place-items: center; padding: 24px; color: var(--text-dim); text-align: center; }
   .explorer-history-head { margin: 0 0 14px; padding: 2px 2px 12px; border-bottom: 1px solid var(--border); }
   .explorer-history-head strong { display: block; margin-bottom: 5px; font-size: 14px; }
   .explorer-history-head span { color: var(--text-secondary); font-size: 11px; }
   .explorer-history-head.working-tree { border-left: 3px solid var(--yellow); padding-left: 10px; }
+  .explorer-history-head.branch-diff { border-left: 3px solid var(--purple); padding-left: 10px; }
   .explorer-history-diff .file-diff { background: var(--bg-primary); }
   .nb-history-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; color: var(--text-primary); }
   .nb-history-summary span { color: var(--text-dim); font-size: 11px; }
@@ -402,8 +416,9 @@
   .stored-diff-document .file-header { cursor: default; }
 
   @media (max-width: 760px) {
-    .explorer-history-body { grid-template-columns: 1fr; grid-template-rows: minmax(150px, 34vh) minmax(0,1fr); }
-    .explorer-history-list { border-right: 0; border-bottom: 1px solid var(--border); }
+    .explorer-history-body { grid-template-columns: 1fr; grid-template-rows: minmax(120px, 20vh) minmax(0,1fr) minmax(150px, 26vh); grid-template-areas: "files" "diff" "commits"; }
+    .explorer-history-files { border-right: 0; border-bottom: 1px solid var(--border); }
+    .explorer-history-list { border-left: 0; border-top: 1px solid var(--border); }
     .nb-history-grid { grid-template-columns: 1fr; }
     .nb-history-side + .nb-history-side { border-left: 0; border-top: 1px solid var(--border); }
     .stored-diff-toolbar { flex-wrap: wrap; }
@@ -479,7 +494,11 @@
   .sidebar-file-config-button:hover { color: var(--text-primary); border-color: var(--accent); }
   .sidebar-file-config-summary { color: var(--text-dim); }
   .sidebar-worktree-picker { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; }
+  .sidebar-repo-history { flex: none; width: 27px; height: 25px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; }
+  .sidebar-repo-history:hover { color: var(--text-primary); border-color: var(--accent); }
+  .sidebar-repo-history svg { display: block; width: 14px; height: 14px; }
   .sidebar-worktree-picker label { flex: 1; min-width: 0; }
+  .sidebar-worktree-current { flex: 1; min-width: 0; overflow: hidden; color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-worktree-picker select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 5px; padding: 4px 24px 4px 7px; background: var(--bg-tertiary); color: var(--text-primary); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
   .sidebar-worktree-picker input[type="color"] { flex: none; width: 28px; height: 25px; padding: 2px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); cursor: pointer; }
   .sidebar-worktree-picker input[type="color"]:disabled { visibility: hidden; }

@@ -414,7 +414,7 @@
   </div>
 </div>
 
-<!-- Git history for the selected explorer file/folder. -->
+<!-- Git history for a repository or selected explorer file/folder. -->
 <div class="doc-modal-overlay" id="explorerHistoryModal" onclick="if(event.target===this)closeExplorerHistory()">
   <div class="explorer-history-box" role="dialog" aria-labelledby="explorerHistoryTitle">
     <div class="doc-modal-header">
@@ -422,8 +422,9 @@
       <button class="doc-modal-close" type="button" onclick="closeExplorerHistory()" aria-label="Close">&times;</button>
     </div>
     <div class="explorer-history-body">
-      <aside class="explorer-history-list" id="explorerHistoryList"></aside>
+      <aside class="explorer-history-files" id="explorerHistoryFiles" aria-label="Changed files"></aside>
       <main class="explorer-history-diff" id="explorerHistoryDiff"></main>
+      <aside class="explorer-history-list" id="explorerHistoryList" aria-label="Commits"></aside>
     </div>
   </div>
 </div>

@@ -999,6 +999,48 @@ def _entry_notebook_history_diff(
     }
 
 
+def _entry_history_revision_files(
+    repo_root: Path,
+    repo_rel: str,
+    sha: str,
+) -> tuple[list[dict], list[str]]:
+    """Return every file changed by a history revision, selected path first."""
+    if sha == _ENTRY_WORKTREE_SHA:
+        patch, _ = _entry_worktree_diff(repo_root, ".")
+    else:
+        try:
+            proc = subprocess.run(
+                [
+                    "git", "-C", str(repo_root), "show", "--format=",
+                    "--no-color", "--find-renames", sha,
+                ],
+                capture_output=True, text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Git diff timed out")
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=404,
+                detail=proc.stderr.strip() or "Commit not found",
+            )
+        patch = proc.stdout
+
+    files = parse_unified_diff(patch)
+    selected = repo_rel.rstrip("/")
+
+    def selected_rank(item: dict) -> int:
+        filename = str(item.get("filename", "")).rstrip("/")
+        if filename == selected:
+            return 0
+        if selected and filename.startswith(selected + "/"):
+            return 1
+        return 2
+
+    # Python's stable sort preserves Git's original order inside each group.
+    files.sort(key=selected_rank)
+    return files, [str(item.get("filename", "")) for item in files]
+
+
 @router.get("/api/project-entry/history")
 def project_entry_history(
     path: str,
@@ -1070,32 +1112,38 @@ def project_entry_history_diff(path: str, file: str, sha: str, request: Request)
     root = _entry_root(path, request)
     target = _entry_target(root, file)
     repo_root, repo_rel = _entry_git_context(root, target)
+    files, changed_files = _entry_history_revision_files(repo_root, repo_rel, sha)
     if repo_rel.lower().endswith(".ipynb"):
-        return _entry_notebook_history_diff(
+        result = _entry_notebook_history_diff(
             root, target, repo_root, repo_rel, file, sha,
         )
+        result.update({
+            "repo": str(repo_root),
+            "selected_file": repo_rel,
+            "changed_files": changed_files,
+            "files": files,
+        })
+        return result
     if sha == _ENTRY_WORKTREE_SHA:
-        patch, states = _entry_worktree_diff(repo_root, repo_rel)
+        _, states = _entry_worktree_diff(repo_root, repo_rel)
         return {
             "file": file,
+            "repo": str(repo_root),
+            "selected_file": repo_rel,
             "sha": sha,
             "kind": "working-tree",
             "states": states,
-            "files": parse_unified_diff(patch),
+            "changed_files": changed_files,
+            "files": files,
         }
-    try:
-        proc = subprocess.run(
-            [
-                "git", "-C", str(repo_root), "show", "--format=", "--no-color",
-                "--find-renames", sha, "--", repo_rel,
-            ],
-            capture_output=True, text=True, timeout=20,
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Git diff timed out")
-    if proc.returncode != 0:
-        raise HTTPException(status_code=404, detail=proc.stderr.strip() or "Commit not found")
-    return {"file": file, "sha": sha, "files": parse_unified_diff(proc.stdout)}
+    return {
+        "file": file,
+        "repo": str(repo_root),
+        "selected_file": repo_rel,
+        "sha": sha,
+        "changed_files": changed_files,
+        "files": files,
+    }
 
 
 @router.get("/api/project-diff-file")

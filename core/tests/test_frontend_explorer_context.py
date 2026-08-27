@@ -54,6 +54,7 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
         "explorerEntryModal",
         "explorerDeleteModal",
         "explorerHistoryModal",
+        "explorerHistoryFiles",
     ):
         assert f'id="{element_id}"' in template
 
@@ -122,10 +123,34 @@ def test_git_history_includes_working_tree_as_latest_entry() -> None:
     assert "uncommitted changes included" in history
     assert "WORKTREE" in history
     assert "not committed" in history
-    assert "No uncommitted changes remain for this path." in history
+    assert "No uncommitted changes remain." in history
     assert "history-diff" in history
     assert "data.notebook" in history
-    assert "renderNotebookHistoryDiff(data.notebook)" in history
+    assert "renderNotebookHistoryDiff(data.notebook)" in source
+    assert "explorerHistoryScrollFile" in source
+    assert "revisionFiles.map" in source
+
+
+def test_repository_history_modal_keeps_files_left_and_revisions_right() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    template = INDEX.read_text(encoding="utf-8")
+    css = SHELL_CSS.read_text(encoding="utf-8")
+    repository_history = _between(
+        "async function openRepositoryHistory(ctx)",
+        "async function explorerHistorySelect(sha, button)",
+    )
+
+    assert "type=uncommitted" in repository_history
+    assert "type=branch" in repository_history
+    assert "/api/commits?repo=" in repository_history
+    assert "sha: 'WORKTREE'" in repository_history
+    assert "sha: 'BRANCH'" in repository_history
+    assert "working tree, base comparison" in repository_history
+    assert template.index('id="explorerHistoryFiles"') < template.index('id="explorerHistoryDiff"')
+    assert template.index('id="explorerHistoryDiff"') < template.index('id="explorerHistoryList"')
+    assert 'grid-template-areas: "files diff commits"' in css
+    assert ".explorer-history-list { grid-area: commits" in css
+    assert ".explorer-history-files { grid-area: files" in css
 
 
 def test_notebook_history_renders_changed_cells_side_by_side() -> None:
