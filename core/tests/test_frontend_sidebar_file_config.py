@@ -173,6 +173,72 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_worktree_discovery_cache_is_scoped_to_repository_root() -> None:
+    helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const urls = [];
+const localStorage = {
+  getItem(key) { return stored[key] || null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const currentRepo = null;
+const currentProject = {path: '/repo-a'};
+const SELF_REPO_PATH = '/framework';
+const document = {
+  body: {classList: {contains() { return false; }}},
+  addEventListener() {},
+};
+const window = {};
+const fetch = async url => {
+  urls.push(url);
+  const repo = new URL(`http://lab${url}`).searchParams.get('repo');
+  return {
+    ok: true,
+    async json() {
+      return {
+        path: '/worktrees',
+        folders: [{name: repo.slice(1), path: `/worktrees/${repo.slice(1)}`}],
+      };
+    },
+  };
+};
+"""
+        + helpers
+        + """
+(async () => {
+  const first = await _sidebarDiscoverWorktrees('/worktrees');
+  await _sidebarDiscoverWorktrees('/worktrees');
+  currentProject.path = '/repo-b';
+  const second = await _sidebarDiscoverWorktrees('/worktrees');
+  process.stdout.write(JSON.stringify({
+    callCount: urls.length,
+    urls,
+    first: first.map(row => row.name),
+    second: second.map(row => row.name),
+  }));
+})().catch(error => {
+  process.stderr.write(String(error && error.stack || error));
+  process.exitCode = 1;
+});
+"""
+    )
+
+    assert result == {
+        "callCount": 2,
+        "urls": [
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepo-a",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepo-b",
+        ],
+        "first": ["repo-a"],
+        "second": ["repo-b"],
+    }
+
+
 def test_recent_diagnostic_reports_each_readme_mtime_and_filter_result() -> None:
     helpers = _between(
         "let showDotFiles = false;",

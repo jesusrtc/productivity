@@ -198,27 +198,70 @@ def test_project_files_includes_mtime_for_every_file_type(client, seed_project) 
         assert isinstance(files[path]["mtime"], float)
 
 
-def test_sidebar_worktrees_lists_direct_visible_folders(client, monorepo) -> None:
+def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, monorepo) -> None:
+    source = monorepo / "source-repo"
+    project = source / "projects" / "alpha"
+    project.mkdir(parents=True)
+    (project / "README.md").write_text("alpha\n")
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=source, check=True)
+    subprocess.run(["git", "add", "."], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True, capture_output=True)
+
     parent = monorepo / "sidebar-worktrees"
-    (parent / "feature-z").mkdir(parents=True)
-    (parent / "Feature-a").mkdir()
-    (parent / ".hidden").mkdir()
+    parent.mkdir()
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature-a", str(parent / "feature-a")],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+
+    unrelated = monorepo / "unrelated-repo"
+    unrelated.mkdir()
+    (unrelated / "README.md").write_text("unrelated\n")
+    subprocess.run(["git", "init"], cwd=unrelated, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=unrelated, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=unrelated, check=True)
+    subprocess.run(["git", "add", "."], cwd=unrelated, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=unrelated, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "other-feature", str(parent / "other-feature")],
+        cwd=unrelated,
+        check=True,
+        capture_output=True,
+    )
+
+    (parent / "ordinary-folder").mkdir()
     (parent / "README.md").write_text("not a worktree\n")
 
-    response = client.get(f"/api/sidebar-worktrees?path={parent}")
+    response = client.get(
+        "/api/sidebar-worktrees",
+        params={"path": str(parent), "repo": str(project)},
+    )
 
     assert response.status_code == 200
     assert response.json() == {
         "path": str(parent.resolve()),
+        "repo": str(project.resolve()),
         "folders": [
-            {"name": "Feature-a", "path": str((parent / "Feature-a").resolve())},
-            {"name": "feature-z", "path": str((parent / "feature-z").resolve())},
+            {
+                "name": "feature-a",
+                "path": str((parent / "feature-a" / "projects" / "alpha").resolve()),
+            },
         ],
     }
 
 
 def test_sidebar_worktrees_rejects_missing_folder(client, monorepo) -> None:
-    response = client.get(f"/api/sidebar-worktrees?path={monorepo / 'missing-worktrees'}")
+    response = client.get(
+        "/api/sidebar-worktrees",
+        params={
+            "path": str(monorepo / "missing-worktrees"),
+            "repo": str(monorepo),
+        },
+    )
     assert response.status_code == 404
     assert response.json()["detail"] == "Worktree folder not found"
 

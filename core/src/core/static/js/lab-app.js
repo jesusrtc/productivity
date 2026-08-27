@@ -2049,7 +2049,19 @@
   let _sidebarRecentDiagnosticsPending = null;
   let _sidebarWorktreeFolders = [];
   let _sidebarWorktreeFolderResolved = '';
+  let _sidebarWorktreeDiscoveryKey = '';
   let _sidebarWorktreeDiscoveryPromise = null;
+  let _sidebarWorktreeDiscoveryPromiseKey = '';
+  let _sidebarWorktreeDiscoveryGeneration = 0;
+
+  function _sidebarClearWorktreeDiscovery() {
+    _sidebarWorktreeFolders = [];
+    _sidebarWorktreeFolderResolved = '';
+    _sidebarWorktreeDiscoveryKey = '';
+    _sidebarWorktreeDiscoveryPromise = null;
+    _sidebarWorktreeDiscoveryPromiseKey = '';
+    _sidebarWorktreeDiscoveryGeneration += 1;
+  }
 
   function _sidebarValidColor(value) {
     return /^#[0-9a-f]{6}$/i.test(String(value || ''))
@@ -2107,43 +2119,58 @@
     return '';
   }
 
-  async function _sidebarDiscoverWorktrees(folder, {force = false} = {}) {
+  async function _sidebarDiscoverWorktrees(folder, {
+    force = false,
+    baseRoot = _sidebarWorktreeBaseRoot(),
+  } = {}) {
     const requested = String(folder || '').trim();
-    if (!requested) {
-      _sidebarWorktreeFolders = [];
-      _sidebarWorktreeFolderResolved = '';
-      _sidebarWorktreeDiscoveryPromise = null;
+    const repositoryRoot = String(baseRoot || '').trim();
+    if (!requested || !repositoryRoot) {
+      _sidebarClearWorktreeDiscovery();
       return [];
     }
-    if (!force && requested === _sidebarWorktreeFolderResolved) {
+    const discoveryKey = `${requested}\n${repositoryRoot}`;
+    if (!force && discoveryKey === _sidebarWorktreeDiscoveryKey) {
       return _sidebarWorktreeFolders;
     }
-    if (!force && _sidebarWorktreeDiscoveryPromise) return _sidebarWorktreeDiscoveryPromise;
+    if (!force && _sidebarWorktreeDiscoveryPromise && _sidebarWorktreeDiscoveryPromiseKey === discoveryKey) {
+      return _sidebarWorktreeDiscoveryPromise;
+    }
+    const generation = ++_sidebarWorktreeDiscoveryGeneration;
     const promise = (async () => {
-      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}`);
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
-      _sidebarWorktreeFolderResolved = String(data.path || requested);
-      _sidebarWorktreeFolders = Array.isArray(data.folders)
+      const resolvedFolder = String(data.path || requested);
+      const folders = Array.isArray(data.folders)
         ? data.folders.filter(row => row && row.name && row.path).map(row => ({
             name: String(row.name),
             path: String(row.path),
           }))
         : [];
-      return _sidebarWorktreeFolders;
+      if (generation === _sidebarWorktreeDiscoveryGeneration) {
+        _sidebarWorktreeFolderResolved = resolvedFolder;
+        _sidebarWorktreeDiscoveryKey = `${resolvedFolder}\n${repositoryRoot}`;
+        _sidebarWorktreeFolders = folders;
+      }
+      return folders;
     })();
     _sidebarWorktreeDiscoveryPromise = promise;
+    _sidebarWorktreeDiscoveryPromiseKey = discoveryKey;
     try {
       return await promise;
     } finally {
-      if (_sidebarWorktreeDiscoveryPromise === promise) _sidebarWorktreeDiscoveryPromise = null;
+      if (_sidebarWorktreeDiscoveryPromise === promise) {
+        _sidebarWorktreeDiscoveryPromise = null;
+        _sidebarWorktreeDiscoveryPromiseKey = '';
+      }
     }
   }
 
-  async function _sidebarEnsureWorktrees() {
+  async function _sidebarEnsureWorktrees(baseRoot = _sidebarWorktreeBaseRoot()) {
     if (!_sidebarFileConfig.worktreeFolder) return [];
     try {
-      return await _sidebarDiscoverWorktrees(_sidebarFileConfig.worktreeFolder);
+      return await _sidebarDiscoverWorktrees(_sidebarFileConfig.worktreeFolder, {baseRoot});
     } catch (error) {
       _sidebarRecentLog('warning', `worktree folder scan failed: ${error.message || error}`, {
         action: 'sidebar.worktree.scan',
@@ -2564,19 +2591,20 @@
     }
     _sidebarFileConfig.worktreeColors = _sidebarCollectWorktreeColorsFromModal();
     if (!folder) {
-      _sidebarWorktreeFolders = [];
-      _sidebarWorktreeFolderResolved = '';
+      _sidebarClearWorktreeDiscovery();
       _sidebarRenderWorktreeConfig();
       return [];
     }
     try {
-      const folders = await _sidebarDiscoverWorktrees(folder, {force: true});
+      const folders = await _sidebarDiscoverWorktrees(folder, {
+        force: true,
+        baseRoot: _sidebarWorktreeBaseRoot(),
+      });
       if (input && _sidebarWorktreeFolderResolved) input.value = _sidebarWorktreeFolderResolved;
       _sidebarRenderWorktreeConfig();
       return folders;
     } catch (error) {
-      _sidebarWorktreeFolders = [];
-      _sidebarWorktreeFolderResolved = '';
+      _sidebarClearWorktreeDiscovery();
       const host = document.getElementById('sidebarConfigWorktreeColors');
       if (host) host.innerHTML = '';
       if (status) {
@@ -2640,8 +2668,7 @@
       if (folders === null) return false;
       worktreeFolder = _sidebarWorktreeFolderResolved || worktreeFolder;
     } else {
-      _sidebarWorktreeFolders = [];
-      _sidebarWorktreeFolderResolved = '';
+      _sidebarClearWorktreeDiscovery();
     }
     const extensions = [...document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]:checked')]
       .map(input => input.value);
@@ -2715,8 +2742,8 @@
 
   async function loadProjectView() {
     if (!currentRepo) return;
-    await _sidebarEnsureWorktrees();
     const baseRoot = currentRepo;
+    await _sidebarEnsureWorktrees(baseRoot);
     const fileRoot = _sidebarScopedRoot(baseRoot);
     _repoFileRoot = fileRoot;
     const sb = document.getElementById('sidebar');
@@ -4264,11 +4291,6 @@
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
     }
-
-    if (!isSelf && !isWorkspace) html += (currentProject.repos || []).map(r => {
-      const active = r.path === currentRepo ? ' active' : '';
-      return `<button class="repo-tab${active}" onclick="selectProjectRepo('${r.path}')">${r.name} <span style="color:#484f58;font-size:10px">${r.branch}</span></button>`;
-    }).join('');
 
     // One tab per declared server (project.json proxies) — clicking it opens
     // the same inline iframe view as the sidebar Servers entry. The list
@@ -6097,7 +6119,7 @@
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const projectPath = currentProject.path;
-    await _sidebarEnsureWorktrees();
+    await _sidebarEnsureWorktrees(projectPath);
     const fileRoot = _sidebarScopedRoot(projectPath);
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
@@ -11499,8 +11521,8 @@
   async function selfPopulateSidebar() {
     const sidebar = document.getElementById('sidebar');
     try {
-      await _sidebarEnsureWorktrees();
       const baseRoot = SELF_REPO_PATH;
+      await _sidebarEnsureWorktrees(baseRoot);
       const fileRoot = _sidebarScopedRoot(baseRoot);
       const files = await _sidebarFetchProjectFiles(fileRoot);
       if (!document.body.classList.contains('self-active')
@@ -12658,7 +12680,7 @@
     if (!sidebar || !currentProject || currentProject.name !== WORKSPACE_PROJECT_ID) return;
     const rootPath = currentProject.path;
     try {
-      await _sidebarEnsureWorktrees();
+      await _sidebarEnsureWorktrees(rootPath);
       const fileRoot = _sidebarScopedRoot(rootPath);
       const files = await _sidebarFetchProjectFiles(fileRoot);
       if (!document.body.classList.contains('workspace-active')) return;

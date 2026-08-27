@@ -540,12 +540,15 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
 
 
 @router.get("/api/sidebar-worktrees")
-def api_sidebar_worktrees(path: str, request: Request):
-    """Return the direct child folders available as file-sidebar roots.
+def api_sidebar_worktrees(path: str, repo: str, request: Request):
+    """Return direct-child worktrees belonging to ``repo``.
 
-    The browser stores the chosen parent as a display preference; discovery
-    stays server-side so the UI never has to guess at the local filesystem.
-    Auth middleware scopes non-admin absolute paths to an allowed workspace.
+    A shared worktree parent can contain checkouts from many repositories, so
+    scanning every child directory leaks unrelated projects into the picker.
+    Ask Git for the active repository's registered worktrees instead.  When
+    ``repo`` points at a project nested inside a larger checkout, preserve that
+    relative suffix in each linked worktree so the sidebar stays on the same
+    project rather than jumping to the worktree root.
     """
     try:
         parent = Path(path).expanduser().resolve()
@@ -554,25 +557,49 @@ def api_sidebar_worktrees(path: str, request: Request):
     if not parent.is_dir():
         raise HTTPException(status_code=404, detail="Worktree folder not found")
 
-    def list_folders() -> list[dict[str, str]]:
-        rows: list[dict[str, str]] = []
+    base_root = _entry_root(repo, request)
+
+    def list_worktrees() -> list[dict[str, str]]:
         try:
-            children = sorted(parent.iterdir(), key=lambda child: child.name.casefold())
-        except (PermissionError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=f"Could not read worktree folder: {exc}") from exc
-        for child in children:
-            if child.name.startswith("."):
+            git_root, relative_project = _entry_git_context(base_root, base_root)
+            proc = subprocess.run(
+                ["git", "-C", str(git_root), "worktree", "list", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=504, detail="Git worktree lookup timed out") from exc
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=400,
+                detail=proc.stderr.strip() or "Could not list Git worktrees",
+            )
+
+        suffix = Path(relative_project)
+        rows: list[dict[str, str]] = []
+        for line in proc.stdout.splitlines():
+            if not line.startswith("worktree "):
                 continue
             try:
-                if child.is_dir():
-                    rows.append({"name": child.name, "path": str(child.resolve())})
+                worktree_root = Path(line.removeprefix("worktree ")).expanduser().resolve()
             except OSError:
                 continue
-        return rows
+            if worktree_root == git_root or worktree_root.parent != parent:
+                continue
+            if worktree_root.name.startswith("."):
+                continue
+            candidate = (worktree_root / suffix).resolve()
+            try:
+                if candidate.is_dir():
+                    rows.append({"name": worktree_root.name, "path": str(candidate)})
+            except OSError:
+                continue
+        return sorted(rows, key=lambda row: row["name"].casefold())
 
     workspace_root = auth.request_root(request)
-    folders = fsguard.guarded(workspace_root, list_folders)
-    return {"path": str(parent), "folders": folders}
+    folders = fsguard.guarded(workspace_root, list_worktrees)
+    return {"path": str(parent), "repo": str(base_root), "folders": folders}
 
 
 @router.get("/api/project-file")
