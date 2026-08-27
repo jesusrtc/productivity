@@ -16,3 +16,9 @@ repository instead of the wrapper's nearest enclosing repository.
 Worktree colors are browser-local, default to `#6e7681`, and appear as the
 vertical scope rail around those sections. Keep notebook APIs pinned to the
 active workspace root even when ordinary file browsing uses another worktree.
+
+A configured worktree parent may contain branch wrapper folders, with the
+actual Git worktree nested below each wrapper. Offer the direct child wrapper
+as the Files/Recently updated scope, but retain the nested checkout (including
+any project-relative suffix) as the root for Git history. Direct-child Git
+worktrees continue to use the matching project path for both roles.

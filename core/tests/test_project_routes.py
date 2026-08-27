@@ -211,8 +211,18 @@ def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, mono
 
     parent = monorepo / "sidebar-worktrees"
     parent.mkdir()
+    (parent / "feature-a").mkdir()
     subprocess.run(
-        ["git", "worktree", "add", "-b", "feature-a", str(parent / "feature-a")],
+        [
+            "git", "worktree", "add", "-b", "feature-a",
+            str(parent / "feature-a" / "source-repo"),
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature-direct", str(parent / "feature-direct")],
         cwd=source,
         check=True,
         capture_output=True,
@@ -226,8 +236,12 @@ def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, mono
     subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=unrelated, check=True)
     subprocess.run(["git", "add", "."], cwd=unrelated, check=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=unrelated, check=True, capture_output=True)
+    (parent / "other-feature").mkdir()
     subprocess.run(
-        ["git", "worktree", "add", "-b", "other-feature", str(parent / "other-feature")],
+        [
+            "git", "worktree", "add", "-b", "other-feature",
+            str(parent / "other-feature" / "unrelated-repo"),
+        ],
         cwd=unrelated,
         check=True,
         capture_output=True,
@@ -248,7 +262,15 @@ def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, mono
         "folders": [
             {
                 "name": "feature-a",
-                "path": str((parent / "feature-a" / "projects" / "alpha").resolve()),
+                "path": str((parent / "feature-a").resolve()),
+                "repo": str(
+                    (parent / "feature-a" / "source-repo" / "projects" / "alpha").resolve()
+                ),
+            },
+            {
+                "name": "feature-direct",
+                "path": str((parent / "feature-direct" / "projects" / "alpha").resolve()),
+                "repo": str((parent / "feature-direct" / "projects" / "alpha").resolve()),
             },
         ],
     }

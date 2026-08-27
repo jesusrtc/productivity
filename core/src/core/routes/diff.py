@@ -541,14 +541,14 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
 
 @router.get("/api/sidebar-worktrees")
 def api_sidebar_worktrees(path: str, repo: str, request: Request):
-    """Return direct-child worktrees belonging to ``repo``.
+    """Return direct-child worktree scopes belonging to ``repo``.
 
     A shared worktree parent can contain checkouts from many repositories, so
     scanning every child directory leaks unrelated projects into the picker.
-    Ask Git for the active repository's registered worktrees instead.  When
-    ``repo`` points at a project nested inside a larger checkout, preserve that
-    relative suffix in each linked worktree so the sidebar stays on the same
-    project rather than jumping to the worktree root.
+    Ask Git for the active repository's registered worktrees instead. A direct
+    child may either be the checkout itself or a branch wrapper containing the
+    checkout deeper below it. When ``repo`` points at a project nested inside a
+    larger checkout, preserve that relative suffix for Git operations.
     """
     try:
         parent = Path(path).expanduser().resolve()
@@ -585,7 +585,7 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
             )
 
         suffix = Path(relative_project)
-        rows: list[dict[str, str]] = []
+        rows: dict[str, dict[str, str]] = {}
         for line in proc.stdout.splitlines():
             if not line.startswith("worktree "):
                 continue
@@ -593,17 +593,29 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
                 worktree_root = Path(line.removeprefix("worktree ")).expanduser().resolve()
             except OSError:
                 continue
-            if worktree_root == git_root or worktree_root.parent != parent:
+            if worktree_root == git_root:
                 continue
-            if worktree_root.name.startswith("."):
+            try:
+                relative_worktree = worktree_root.relative_to(parent)
+            except ValueError:
+                continue
+            if not relative_worktree.parts:
+                continue
+            scope_root = (parent / relative_worktree.parts[0]).resolve()
+            if scope_root.name.startswith("."):
                 continue
             candidate = (worktree_root / suffix).resolve()
             try:
                 if candidate.is_dir():
-                    rows.append({"name": worktree_root.name, "path": str(candidate)})
+                    scope_path = candidate if len(relative_worktree.parts) == 1 else scope_root
+                    rows[str(scope_path)] = {
+                        "name": scope_root.name,
+                        "path": str(scope_path),
+                        "repo": str(candidate),
+                    }
             except OSError:
                 continue
-        return sorted(rows, key=lambda row: row["name"].casefold())
+        return sorted(rows.values(), key=lambda row: row["name"].casefold())
 
     folders = fsguard.guarded(workspace_root, list_worktrees)
     return {"path": str(parent), "repo": str(base_root), "folders": folders}

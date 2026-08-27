@@ -2160,6 +2160,7 @@
         ? data.folders.filter(row => row && row.name && row.path).map(row => ({
             name: String(row.name),
             path: String(row.path),
+            repo: String(row.repo || row.path),
           }))
         : [];
       if (generation === _sidebarWorktreeDiscoveryGeneration) {
@@ -2436,7 +2437,7 @@
     if (!baseRoot) return;
     const selected = _sidebarSelectedWorktree(baseRoot);
     return openRepositoryHistory({
-      root: selected ? selected.path : _sidebarWorktreeRepositoryRoot(baseRoot),
+      root: selected ? (selected.repo || selected.path) : _sidebarWorktreeRepositoryRoot(baseRoot),
       label: selected ? selected.name : 'main',
     });
   }

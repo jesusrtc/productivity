@@ -125,7 +125,7 @@ const escAttr = value => String(value);
         + """
 _sidebarWorktreeFolders = [
   {name: 'feature-a', path: '/worktrees/feature-a'},
-  {name: 'feature-b', path: '/worktrees/feature-b'},
+  {name: 'feature-b', path: '/worktrees/feature-b', repo: '/worktrees/feature-b/actual-repo'},
 ];
 _sidebarFileConfig = {
   showHidden: false,
@@ -178,7 +178,7 @@ process.stdout.write(JSON.stringify({
         "mainHasLabel": True,
         "scopeColor": True,
         "scopePath": True,
-        "selectedHistoryRoot": "/worktrees/feature-b",
+        "selectedHistoryRoot": "/worktrees/feature-b/actual-repo",
         "mainHistoryRoot": "/repo/nested",
         "defaultColor": "#6e7681",
     }
@@ -214,7 +214,7 @@ const fetch = async url => {
     async json() {
       return {
         path: '/worktrees',
-        folders: [{name, path: `/worktrees/${name}`}],
+        folders: [{name, path: `/worktrees/${name}`, repo: `/worktrees/${name}/actual-repo`}],
       };
     },
   };
@@ -231,8 +231,8 @@ const fetch = async url => {
   process.stdout.write(JSON.stringify({
     callCount: urls.length,
     urls,
-    first: first.map(row => row.name),
-    second: second.map(row => row.name),
+    first: first.map(row => ({name: row.name, repo: row.repo})),
+    second: second.map(row => ({name: row.name, repo: row.repo})),
   }));
 })().catch(error => {
   process.stderr.write(String(error && error.stack || error));
@@ -247,8 +247,8 @@ const fetch = async url => {
             "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a",
             "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b",
         ],
-        "first": ["repo-a"],
-        "second": ["repo-b"],
+        "first": [{"name": "repo-a", "repo": "/worktrees/repo-a/actual-repo"}],
+        "second": [{"name": "repo-b", "repo": "/worktrees/repo-b/actual-repo"}],
     }
 
 
