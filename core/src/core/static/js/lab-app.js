@@ -1341,7 +1341,9 @@
       return;
     }
 
-    if (!currentProject || currentProject.path !== ctx.root) return;
+    if (!currentProject || !currentProject.path) return;
+    const activeFileRoot = _sidebarScopedRoot(currentProject.path);
+    if (currentProject.path !== ctx.root && activeFileRoot !== ctx.root) return;
     const previous = _projDocPath;
     const wasAffected = _explorerPathAffected(previous, oldPath, ctx.kind);
     let reopen = previous;
@@ -1353,7 +1355,7 @@
     else if (document.body.classList.contains('workspace-active')) await workspacePopulateSidebar();
     else await _refreshProjectSidebar();
 
-    if (reopen && reopen !== previous) await openProjectDoc(reopen);
+    if (reopen && reopen !== previous) await openProjectDoc(reopen, {root: ctx.root});
     else if (action === 'delete' && wasAffected) {
       setLastProjectDoc(ctx.root, null);
       if (document.body.classList.contains('self-active')) selfShowWorkbench();
@@ -1789,7 +1791,7 @@
 
     if (isNotebook(filepath)) {
       try {
-        const res = await fetch(`/api/notebook?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}`);
+        const res = await fetch(`/api/notebook?repo=${encodeURIComponent(_activeRepoFileRoot())}&path=${encodeURIComponent(filepath)}`);
         const cells = await res.json();
         await Promise.all([
           ensureMarked().catch(() => {}),
@@ -1807,7 +1809,7 @@
     setModalFooter('view');
 
     try {
-      const res = await fetch(`/api/file?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}`);
+      const res = await fetch(`/api/file?repo=${encodeURIComponent(_activeRepoFileRoot())}&path=${encodeURIComponent(filepath)}`);
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
       const data = await res.json();
       _modalFileContent = data.content;
@@ -1891,7 +1893,7 @@
       const res = await fetch('/api/file', {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: currentRepo, path: filepath, content }),
+        body: JSON.stringify({ repo: _activeRepoFileRoot(), path: filepath, content }),
       });
       const result = await res.json();
       if (!res.ok) { alert(result.detail || 'Error saving file'); return; }
@@ -1914,7 +1916,7 @@
   async function confirmDelete() {
     if (!deleteTarget || !currentRepo) return;
     try {
-      const res = await fetch(`/api/file?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(deleteTarget)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/file?repo=${encodeURIComponent(_activeRepoFileRoot())}&path=${encodeURIComponent(deleteTarget)}`, { method: 'DELETE' });
       if (!res.ok) { const err = await res.json(); alert(err.detail || 'Error deleting file'); return; }
       closeDeleteModal();
       closeModal();
@@ -1930,18 +1932,40 @@
   let fileTree = null;
   let projectOpenFile = null;
   let projectEditMode = false;
+  let _repoFileRoot = null;
+  function _activeRepoFileRoot() { return _repoFileRoot || currentRepo; }
   let showDotFiles = false;
   const SIDEBAR_FILE_CONFIG_KEY = 'labSidebarFileConfig-v1';
   const SIDEBAR_RECENT_MAX_MINUTES = 4320;
+  const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
   const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
     showHidden: false,
     showRecent: true,
     recentMinutes: 1440,
     trackMode: 'all',
     extensions: [],
+    worktreeFolder: '',
+    worktreeColors: {},
+    selectedWorktrees: {},
   });
   let _sidebarAvailableExtensions = new Set();
   let _sidebarRecentDiagnosticsPending = null;
+  let _sidebarWorktreeFolders = [];
+  let _sidebarWorktreeFolderResolved = '';
+  let _sidebarWorktreeDiscoveryPromise = null;
+
+  function _sidebarValidColor(value) {
+    return /^#[0-9a-f]{6}$/i.test(String(value || ''))
+      ? String(value).toLowerCase()
+      : SIDEBAR_WORKTREE_DEFAULT_COLOR;
+  }
+
+  function _sidebarStringMap(value, {colors = false} = {}) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key, item]) => key && typeof item === 'string' && item)
+      .map(([key, item]) => [String(key), colors ? _sidebarValidColor(item) : String(item)]));
+  }
 
   function _loadSidebarFileConfig() {
     try {
@@ -1957,15 +1981,117 @@
         extensions: Array.isArray(stored.extensions)
           ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
           : [],
+        worktreeFolder: typeof stored.worktreeFolder === 'string' ? stored.worktreeFolder.trim() : '',
+        worktreeColors: _sidebarStringMap(stored.worktreeColors, {colors: true}),
+        selectedWorktrees: _sidebarStringMap(stored.selectedWorktrees),
       };
     } catch {
-      return {...SIDEBAR_FILE_CONFIG_DEFAULTS, extensions: []};
+      return {
+        ...SIDEBAR_FILE_CONFIG_DEFAULTS,
+        extensions: [],
+        worktreeColors: {},
+        selectedWorktrees: {},
+      };
     }
   }
 
   let _sidebarFileConfig = _loadSidebarFileConfig();
   showDotFiles = _sidebarFileConfig.showHidden;
   let showProjectDotFiles = _sidebarFileConfig.showHidden;
+
+  function _storeSidebarFileConfig() {
+    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+  }
+
+  function _sidebarWorktreeBaseRoot() {
+    if (currentRepo) return currentRepo;
+    if (document.body && document.body.classList.contains('self-active')) return SELF_REPO_PATH;
+    if (currentProject && currentProject.path) return currentProject.path;
+    return '';
+  }
+
+  async function _sidebarDiscoverWorktrees(folder, {force = false} = {}) {
+    const requested = String(folder || '').trim();
+    if (!requested) {
+      _sidebarWorktreeFolders = [];
+      _sidebarWorktreeFolderResolved = '';
+      _sidebarWorktreeDiscoveryPromise = null;
+      return [];
+    }
+    if (!force && requested === _sidebarWorktreeFolderResolved) {
+      return _sidebarWorktreeFolders;
+    }
+    if (!force && _sidebarWorktreeDiscoveryPromise) return _sidebarWorktreeDiscoveryPromise;
+    const promise = (async () => {
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
+      _sidebarWorktreeFolderResolved = String(data.path || requested);
+      _sidebarWorktreeFolders = Array.isArray(data.folders)
+        ? data.folders.filter(row => row && row.name && row.path).map(row => ({
+            name: String(row.name),
+            path: String(row.path),
+          }))
+        : [];
+      return _sidebarWorktreeFolders;
+    })();
+    _sidebarWorktreeDiscoveryPromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (_sidebarWorktreeDiscoveryPromise === promise) _sidebarWorktreeDiscoveryPromise = null;
+    }
+  }
+
+  async function _sidebarEnsureWorktrees() {
+    if (!_sidebarFileConfig.worktreeFolder) return [];
+    try {
+      return await _sidebarDiscoverWorktrees(_sidebarFileConfig.worktreeFolder);
+    } catch (error) {
+      _sidebarRecentLog('warning', `worktree folder scan failed: ${error.message || error}`, {
+        action: 'sidebar.worktree.scan',
+        target: _sidebarFileConfig.worktreeFolder,
+      });
+      return [];
+    }
+  }
+
+  function _sidebarSelectedWorktree(baseRoot) {
+    const selected = String((_sidebarFileConfig.selectedWorktrees || {})[baseRoot] || '');
+    if (!selected) return null;
+    return _sidebarWorktreeFolders.find(row => row.path === selected) || null;
+  }
+
+  function _sidebarScopedRoot(baseRoot) {
+    const selected = _sidebarSelectedWorktree(baseRoot);
+    return selected ? selected.path : baseRoot;
+  }
+
+  function _sidebarWorktreeColor(path) {
+    return _sidebarValidColor((_sidebarFileConfig.worktreeColors || {})[path]);
+  }
+
+  function _sidebarWorktreePickerHtml(baseRoot) {
+    if (!_sidebarFileConfig.worktreeFolder) return '';
+    const selected = _sidebarSelectedWorktree(baseRoot);
+    const selectedPath = selected ? selected.path : '';
+    const options = [
+      '<option value="">Root</option>',
+      ..._sidebarWorktreeFolders.map(row => `<option value="${escAttr(row.path)}"${row.path === selectedPath ? ' selected' : ''}>${esc(row.name)}</option>`),
+    ];
+    const color = selected ? _sidebarWorktreeColor(selected.path) : SIDEBAR_WORKTREE_DEFAULT_COLOR;
+    return `<div class="sidebar-worktree-picker"><label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label><input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+  }
+
+  function _sidebarWorktreeScopeStartHtml(baseRoot) {
+    const selected = _sidebarSelectedWorktree(baseRoot);
+    if (!selected) return '';
+    return `<div class="sidebar-worktree-scope" data-worktree-path="${escAttr(selected.path)}" style="--sidebar-worktree-color:${escAttr(_sidebarWorktreeColor(selected.path))}" title="Files from ${escAttr(selected.name)}">`;
+  }
+
+  function _sidebarWorktreeScopeEndHtml(baseRoot) {
+    return _sidebarSelectedWorktree(baseRoot) ? '</div>' : '';
+  }
 
   function _sidebarFileExtension(path) {
     const base = String(path || '').split('/').pop().toLowerCase();
@@ -2124,6 +2250,7 @@
     if (_sidebarFileConfig.showRecent) {
       summary.push(`recent ${_sidebarFreshnessLabel(_sidebarFileConfig.recentMinutes)}`);
     }
+    if (_sidebarFileConfig.worktreeFolder) summary.push('worktrees');
     return `<div class="sidebar-file-config-row"><button type="button" class="sidebar-file-config-button" onclick="openSidebarFileConfig()" title="Configure hidden and recently updated files"><span aria-hidden="true">&#x2699;</span> File view <span class="sidebar-file-config-summary">${esc(summary.join(' · ') || 'default')}</span></button></div>`;
   }
 
@@ -2162,28 +2289,29 @@
 
   const _SIDEBAR_GITHUB_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.18.55-.39 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.5 7.5 0 0 1 8 4.03c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.47.55.39A8 8 0 0 0 8 .2Z"/></svg>';
 
-  function _sidebarGitHistoryButtonHtml(path) {
+  function _sidebarGitHistoryButtonHtml(path, root = '') {
     const safePath = String(path || '').replace(/'/g, "\\'");
-    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" onclick="event.preventDefault();event.stopPropagation();openSidebarFileHistory('${safePath}')" ondblclick="event.preventDefault();event.stopPropagation()" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
+    const safeRoot = String(root || '').replace(/'/g, "\\'");
+    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" onclick="event.preventDefault();event.stopPropagation();openSidebarFileHistory('${safePath}','${safeRoot}')" ondblclick="event.preventDefault();event.stopPropagation()" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
   }
 
-  function openSidebarFileHistory(path) {
+  function openSidebarFileHistory(path, root = '') {
     if (!path || !currentProject || !currentProject.path) return;
     return openExplorerHistory({
       kind: 'file',
       path: String(path),
-      root: currentProject.path,
+      root: root || currentProject.path,
       row: null,
       surface: 'project',
     });
   }
   window.openSidebarFileHistory = openSidebarFileHistory;
 
-  function _sidebarRecentSectionHtml(files, activePath) {
+  function _sidebarRecentSectionHtml(files, activePath, root = '') {
     const recent = _sidebarRecentFiles(files);
     if (!recent.length) return '';
     let html = `<div class="sidebar-title">Recently updated <span class="sidebar-title-count">${recent.length}</span></div>`;
-    const scopeRoot = currentProject && currentProject.path ? currentProject.path : 'global';
+    const scopeRoot = root || (currentProject && currentProject.path ? currentProject.path : 'global');
     const scope = `recent:${scopeRoot}`;
     const tree = _sidebarRecentTreeModel(recent);
 
@@ -2200,7 +2328,8 @@
         const safePath = path.replace(/'/g, "\\'");
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path)}</a>`;
+        const safeRoot = String(scopeRoot).replace(/'/g, "\\'");
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
       });
       return nodeHtml;
     };
@@ -2215,9 +2344,11 @@
     const hidden = document.getElementById('sidebarConfigHidden');
     const recent = document.getElementById('sidebarConfigRecent');
     const freshness = document.getElementById('sidebarConfigFreshness');
+    const worktreeFolder = document.getElementById('sidebarConfigWorktreeFolder');
     if (hidden) hidden.checked = _sidebarFileConfig.showHidden;
     if (recent) recent.checked = _sidebarFileConfig.showRecent;
     if (freshness) freshness.value = String(_sidebarFileConfig.recentMinutes);
+    if (worktreeFolder) worktreeFolder.value = _sidebarFileConfig.worktreeFolder || '';
     const track = modal.querySelector(`input[name="sidebarRecentTrack"][value="${_sidebarFileConfig.trackMode}"]`);
     if (track) track.checked = true;
 
@@ -2235,8 +2366,10 @@
         return `<label class="sidebar-config-extension" title="${escAttr(label)}"><input type="checkbox" value="${escAttr(ext)}" ${checked ? 'checked' : ''} /><span>${esc(label)}</span></label>`;
       }).join('') : '<span style="color:var(--text-dim);font-size:11px">No file extensions found.</span>';
     }
+    _sidebarRenderWorktreeConfig();
     sidebarFileConfigSyncState();
     modal.classList.add('active');
+    if (_sidebarFileConfig.worktreeFolder) void sidebarFileConfigScanWorktrees();
   }
 
   function closeSidebarFileConfig() {
@@ -2270,6 +2403,108 @@
     });
   }
 
+  function _sidebarCollectWorktreeColorsFromModal() {
+    const colors = {...(_sidebarFileConfig.worktreeColors || {})};
+    document.querySelectorAll('#sidebarConfigWorktreeColors input[type="color"]').forEach(input => {
+      const path = input.getAttribute('data-worktree-path');
+      if (path) colors[path] = _sidebarValidColor(input.value);
+    });
+    return colors;
+  }
+
+  function _sidebarRenderWorktreeConfig() {
+    const host = document.getElementById('sidebarConfigWorktreeColors');
+    const status = document.getElementById('sidebarConfigWorktreeStatus');
+    if (!host) return;
+    if (!_sidebarWorktreeFolders.length) {
+      host.innerHTML = '';
+      if (status && !status.classList.contains('error')) {
+        status.textContent = _sidebarFileConfig.worktreeFolder ? 'No worktrees scanned yet.' : 'Optional — leave empty to use only Root.';
+      }
+      return;
+    }
+    host.innerHTML = _sidebarWorktreeFolders.map(row => `
+      <label class="sidebar-config-worktree-color-row" title="${escAttr(row.path)}">
+        <span>${esc(row.name)}</span>
+        <input type="color" aria-label="Color for ${escAttr(row.name)}" data-worktree-path="${escAttr(row.path)}" value="${escAttr(_sidebarWorktreeColor(row.path))}" />
+      </label>`).join('');
+    if (status) {
+      status.classList.remove('error');
+      status.textContent = `${_sidebarWorktreeFolders.length} worktree${_sidebarWorktreeFolders.length === 1 ? '' : 's'} found.`;
+    }
+  }
+
+  function sidebarFileConfigWorktreeInput() {
+    const status = document.getElementById('sidebarConfigWorktreeStatus');
+    if (status) {
+      status.classList.remove('error');
+      status.textContent = 'Scan to preview worktrees.';
+    }
+  }
+
+  async function sidebarFileConfigScanWorktrees() {
+    const input = document.getElementById('sidebarConfigWorktreeFolder');
+    const status = document.getElementById('sidebarConfigWorktreeStatus');
+    const folder = String(input && input.value || '').trim();
+    if (status) {
+      status.classList.remove('error');
+      status.textContent = folder ? 'Scanning…' : 'Optional — leave empty to use only Root.';
+    }
+    _sidebarFileConfig.worktreeColors = _sidebarCollectWorktreeColorsFromModal();
+    if (!folder) {
+      _sidebarWorktreeFolders = [];
+      _sidebarWorktreeFolderResolved = '';
+      _sidebarRenderWorktreeConfig();
+      return [];
+    }
+    try {
+      const folders = await _sidebarDiscoverWorktrees(folder, {force: true});
+      if (input && _sidebarWorktreeFolderResolved) input.value = _sidebarWorktreeFolderResolved;
+      _sidebarRenderWorktreeConfig();
+      return folders;
+    } catch (error) {
+      _sidebarWorktreeFolders = [];
+      _sidebarWorktreeFolderResolved = '';
+      const host = document.getElementById('sidebarConfigWorktreeColors');
+      if (host) host.innerHTML = '';
+      if (status) {
+        status.classList.add('error');
+        status.textContent = error.message || String(error);
+      }
+      return null;
+    }
+  }
+
+  async function sidebarSelectWorktree(select) {
+    const baseRoot = String(select && select.getAttribute('data-base-root') || '');
+    if (!baseRoot) return;
+    const selected = String(select.value || '');
+    _sidebarFileConfig.selectedWorktrees = {...(_sidebarFileConfig.selectedWorktrees || {})};
+    if (selected) _sidebarFileConfig.selectedWorktrees[baseRoot] = selected;
+    else delete _sidebarFileConfig.selectedWorktrees[baseRoot];
+    _storeSidebarFileConfig();
+    _projDocPath = null;
+    _projDocRoot = null;
+    projectOpenFile = null;
+    diffCache = {uncommitted: null, branch: null};
+    _lastProjectMtime = 0;
+    _projectSidebarCache.delete(baseRoot);
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
+    await _refreshSidebarAfterFileConfig();
+  }
+
+  function sidebarSetWorktreeColor(input) {
+    const path = String(input && input.getAttribute('data-worktree-path') || '');
+    if (!path) return;
+    const color = _sidebarValidColor(input.value);
+    _sidebarFileConfig.worktreeColors = {...(_sidebarFileConfig.worktreeColors || {}), [path]: color};
+    _storeSidebarFileConfig();
+    document.querySelectorAll(`.sidebar-worktree-scope[data-worktree-path="${CSS.escape(path)}"]`).forEach(scope => {
+      scope.style.setProperty('--sidebar-worktree-color', color);
+    });
+  }
+
   async function _refreshSidebarAfterFileConfig() {
     if (document.body.classList.contains('self-active')) return selfPopulateSidebar();
     if (document.body.classList.contains('workspace-active')) return workspacePopulateSidebar();
@@ -2280,12 +2515,22 @@
     }
   }
 
-  function saveSidebarFileConfig(event) {
+  async function saveSidebarFileConfig(event) {
     if (event) event.preventDefault();
     const hidden = document.getElementById('sidebarConfigHidden');
     const recent = document.getElementById('sidebarConfigRecent');
     const freshness = document.getElementById('sidebarConfigFreshness');
     const track = document.querySelector('input[name="sidebarRecentTrack"]:checked');
+    const worktreeFolderInput = document.getElementById('sidebarConfigWorktreeFolder');
+    let worktreeFolder = String(worktreeFolderInput && worktreeFolderInput.value || '').trim();
+    if (worktreeFolder) {
+      const folders = await sidebarFileConfigScanWorktrees();
+      if (folders === null) return false;
+      worktreeFolder = _sidebarWorktreeFolderResolved || worktreeFolder;
+    } else {
+      _sidebarWorktreeFolders = [];
+      _sidebarWorktreeFolderResolved = '';
+    }
     const extensions = [...document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]:checked')]
       .map(input => input.value);
     _sidebarFileConfig = {
@@ -2297,13 +2542,17 @@
       ),
       trackMode: track && track.value === 'extensions' ? 'extensions' : 'all',
       extensions,
+      worktreeFolder,
+      worktreeColors: _sidebarCollectWorktreeColorsFromModal(),
+      selectedWorktrees: {...(_sidebarFileConfig.selectedWorktrees || {})},
     };
     showDotFiles = _sidebarFileConfig.showHidden;
     showProjectDotFiles = _sidebarFileConfig.showHidden;
-    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    _storeSidebarFileConfig();
     if (currentProject && currentProject.path) {
+      const baseRoot = _sidebarWorktreeBaseRoot() || currentProject.path;
       _sidebarRecentDiagnosticsPending = {
-        root: currentProject.path,
+        root: _sidebarScopedRoot(baseRoot),
         reason: 'file-sidebar-settings-save',
       };
     }
@@ -2354,6 +2603,10 @@
 
   async function loadProjectView() {
     if (!currentRepo) return;
+    await _sidebarEnsureWorktrees();
+    const baseRoot = currentRepo;
+    const fileRoot = _sidebarScopedRoot(baseRoot);
+    _repoFileRoot = fileRoot;
     const sb = document.getElementById('sidebar');
     const content = document.getElementById('content');
     content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
@@ -2361,7 +2614,7 @@
     // Ensure branch diff (vs master) is loaded for change indicators
     if (!diffCache.branch) {
       try {
-        const dres = await fetch(`/api/diff?repo=${encodeURIComponent(currentRepo)}&type=branch`);
+        const dres = await fetch(`/api/diff?repo=${encodeURIComponent(fileRoot)}&type=branch`);
         diffCache.branch = await dres.json();
         document.getElementById('countBranch').textContent = diffCache.branch.files.length;
         if (diffCache.branch.base_branch) document.getElementById('branchTabLabel').textContent = `vs ${diffCache.branch.base_branch}`;
@@ -2370,7 +2623,7 @@
 
     // Load file tree
     try {
-      const res = await fetch(`/api/tree?repo=${encodeURIComponent(currentRepo)}`);
+      const res = await fetch(`/api/tree?repo=${encodeURIComponent(fileRoot)}`);
       fileTree = await res.json();
       _sidebarRememberAvailableExtensions(_sidebarFlattenTreeFiles(fileTree));
     } catch (err) {
@@ -2403,9 +2656,13 @@
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
     sb.innerHTML = '<div class="sidebar-title">Project</div>' +
       _sidebarFileConfigButtonHtml() +
+      _sidebarWorktreePickerHtml(baseRoot) +
       symlinkLegendHtml() +
+      _sidebarWorktreeScopeStartHtml(baseRoot) +
       '<div class="sidebar-create"><button onclick="openCreateModal()">+ New File</button></div>' +
-      '<ul class="tree-node">' + renderTreeNodes(filtered, changedFiles) + '</ul>';
+      '<div class="sidebar-title">Files</div>' +
+      '<ul class="tree-node">' + renderTreeNodes(filtered, changedFiles) + '</ul>' +
+      _sidebarWorktreeScopeEndHtml(baseRoot);
   }
 
   function dirHasChangedFiles(node, changedFiles) {
@@ -2420,7 +2677,7 @@
         const collapsed = hasChanged ? '' : ' collapsed';
         const arrow = hasChanged ? '' : ' collapsed';
         return `<li>
-          <div class="tree-dir${symlinkClass(node)}" data-entry-kind="folder" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(currentRepo || '')}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
+          <div class="tree-dir${symlinkClass(node)}" data-entry-kind="folder" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="toggleTreeDir(this)">
             <span class="arrow${arrow}">▾</span>${symlinkMarker(node)}${node.name}/
           </div>
           <ul class="tree-node tree-dir-children${collapsed}">${renderTreeNodes(node.children, changedFiles)}</ul>
@@ -2433,7 +2690,7 @@
         else if (status) badge = '<span class="sidebar-badge modified"></span>';
         const cls = projectOpenFile === node.path ? ' active' : '';
         return `<li>
-          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(currentRepo || '')}"${symlinkTitle(node)} onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
+          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
             ${badge}${symlinkMarker(node)}${fileIconHtml(node.name, node)}${node.name}
           </div>
         </li>`;
@@ -2450,6 +2707,7 @@
 
   async function openProjectFile(filepath) {
     if (!currentRepo) return;
+    const fileRoot = _activeRepoFileRoot();
     projectOpenFile = filepath;
     projectEditMode = false;
     const content = document.getElementById('content');
@@ -2469,7 +2727,7 @@
     if (/\.(diff|patch)$/i.test(filepath)) {
       try {
         await ensureHighlight().catch(() => {});
-        const res = await fetch(`/api/project-diff-file?path=${encodeURIComponent(currentRepo)}&file=${encodeURIComponent(filepath)}`);
+        const res = await fetch(`/api/project-diff-file?path=${encodeURIComponent(fileRoot)}&file=${encodeURIComponent(filepath)}`);
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
         const data = await res.json();
         if (projectOpenFile !== filepath) return;
@@ -2481,7 +2739,7 @@
     }
 
     try {
-      const res = await fetch(`/api/file?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}`);
+      const res = await fetch(`/api/file?repo=${encodeURIComponent(fileRoot)}&path=${encodeURIComponent(filepath)}`);
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
       const data = await res.json();
       renderProjectFileView(filepath, data.content);
@@ -2562,7 +2820,7 @@
       const res = await fetch('/api/file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: currentRepo, path: filepath, content: ta.value }),
+        body: JSON.stringify({ repo: _activeRepoFileRoot(), path: filepath, content: ta.value }),
       });
       const result = await res.json();
       if (!res.ok) { alert(result.detail || 'Error saving'); return; }
@@ -3528,7 +3786,7 @@
     const content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Loading notebook...</div>';
     try {
-      const res = await fetch(`/api/notebook?repo=${encodeURIComponent(currentRepo)}&path=${encodeURIComponent(filepath)}`);
+      const res = await fetch(`/api/notebook?repo=${encodeURIComponent(_activeRepoFileRoot())}&path=${encodeURIComponent(filepath)}`);
       const cells = await res.json();
       await Promise.all([
         ensureMarked().catch(() => {}),
@@ -3951,6 +4209,7 @@
   window.showScopedCodeSearch = showScopedCodeSearch;
 
   let _projDocPath = null;
+  let _projDocRoot = null; // alternate file root selected by the worktree picker
   let _projDocContent = null;
   let _projDocEditing = false;
   let _projDocEditContainer = null; // container that holds the active edit textarea
@@ -3995,8 +4254,9 @@
 
   let _docModalEscHandler = null;
 
-  async function openProjectDocModal(filepath, { editing = false } = {}) {
+  async function openProjectDocModal(filepath, { editing = false, root = null } = {}) {
     if (!currentProject) return;
+    _projDocRoot = root || currentProject.path;
     const modal = document.getElementById('docViewModal');
     const body = document.getElementById('docModalBody');
     const titleEl = document.getElementById('docModalTitle');
@@ -4036,10 +4296,12 @@
     // Race guard against the user navigating away mid-fetch — same
     // shape as the one in _renderDocInto.
     const _navProjectPath = (currentProject && currentProject.path) || null;
+    const docRoot = _projDocRoot || _navProjectPath;
     const _stillActiveNav = () => (
       _projDocPath === filepath
       && currentProject
       && currentProject.path === _navProjectPath
+      && (_projDocRoot || currentProject.path) === docRoot
     );
     const toolbar = `
       <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px">
@@ -4050,7 +4312,7 @@
         </span>
       </div>`;
     if (mode === 'rendered') {
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       // Skip the re-mount when the iframe is already pointed at this src
       // (and the toolbar reflects 'rendered'). The WS index-updated event
       // re-runs this render path on every save anywhere in content/, and
@@ -4066,7 +4328,7 @@
       container.innerHTML = `<div style="padding:24px">${toolbar}<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe></div>`;
     } else {
       try {
-        const r = await fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
+        const r = await fetch(`/api/project-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`);
         if (!_stillActiveNav()) return;
         if (!r.ok) {
           const msg = await r.json().catch(() => ({}));
@@ -4104,17 +4366,19 @@
     // is called, so a mismatch here means a newer navigation has
     // already taken over `container` and we must not paint.
     const _navProjectPath = (currentProject && currentProject.path) || null;
+    const docRoot = _projDocRoot || _navProjectPath;
     const _stillActiveNav = () => (
       _projDocPath === filepath
       && currentProject
       && currentProject.path === _navProjectPath
+      && (_projDocRoot || currentProject.path) === docRoot
     );
 
     // Image files
     const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
     if (imageExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
       if (!_stillActiveNav()) return;
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       container.innerHTML = `<div style="padding:24px;max-width:900px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
       return;
     }
@@ -4128,7 +4392,7 @@
     // user's scroll/zoom — so leave a live iframe already pointed here alone.
     if (filepath.toLowerCase().endsWith('.pdf')) {
       if (!_stillActiveNav()) return;
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       const existing = container.querySelector('iframe.pdf-iframe');
       if (existing && existing.getAttribute('src') === src) return;
       container.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span><a href="${src}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-secondary)">open ↗</a></div><iframe class="pdf-iframe" src="${esc(src)}" title="${esc(filepath)}"></iframe></div>`;
@@ -4144,7 +4408,7 @@
     const videoExts = ['.mp4', '.webm', '.mov', '.m4v'];
     if (videoExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
       if (!_stillActiveNav()) return;
-      const src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       const existing = container.querySelector('video.project-video');
       if (existing && existing.getAttribute('src') === src) return;
       container.innerHTML = `<div style="padding:24px;max-width:1100px">
@@ -4160,7 +4424,7 @@
     // HTML files: rendered iframe by default, with a "Code" toggle to
     // view source instead. Choice is sticky per file via localStorage.
     if (/\.(html|htm)$/i.test(filepath)) {
-      const absKey = currentProject.path + '/' + filepath;
+      const absKey = docRoot + '/' + filepath;
       const mode = getHtmlViewPref(absKey);
       _projectRenderHtml(container, filepath, absKey, mode);
       return;
@@ -4171,7 +4435,7 @@
     if (/\.(diff|patch)$/i.test(filepath)) {
       try {
         await ensureHighlight().catch(() => {});
-        const response = await fetch(`/api/project-diff-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`);
+        const response = await fetch(`/api/project-diff-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`);
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.detail || `Failed to load diff (${response.status})`);
@@ -4191,6 +4455,13 @@
     // .ipynb write triggers the watcher, every open viewer re-renders.
     if (filepath.toLowerCase().endsWith('.ipynb')) {
       try {
+        // Notebook execution is intentionally workspace-scoped. An external
+        // worktree can still be browsed as files, but it cannot borrow the
+        // workspace kernel path contract.
+        if (docRoot !== currentProject.path) {
+          container.innerHTML = '<div class="no-repo"><p>Open this notebook from Root to run or review cells.</p></div>';
+          return;
+        }
         const relPath = _workspaceRelativeNotebookPath(currentProject.path, filepath);
 
         // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
@@ -4344,7 +4615,7 @@
       // here so the user sees the page immediately. The three fetches
       // below still fire to reconcile; we only re-render if the fresh
       // data differs (skip-on-match avoids flicker for unchanged docs).
-      const cacheKey = _projDocCacheKey(currentProject.path, filepath);
+      const cacheKey = _projDocCacheKey(docRoot, filepath);
       const cached = _projDocCache.get(cacheKey);
       if (cached) {
         _projDocContent = cached.content;
@@ -4354,9 +4625,9 @@
         renderProjectDoc(filepath, container);
       }
       const [fileRes, commentsRes, infoRes] = await Promise.all([
-        fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
-        fetch(`/api/project-comments?path=${encodeURIComponent(currentProject.path)}`),
-        fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`),
+        fetch(`/api/project-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`),
+        fetch(`/api/project-comments?path=${encodeURIComponent(docRoot)}`),
+        fetch(`/api/project-info?path=${encodeURIComponent(docRoot)}`),
       ]);
       if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
       const data = await fileRes.json();
@@ -4387,7 +4658,7 @@
     }
   }
 
-  async function openProjectDoc(filepath, {preserveScroll = false} = {}) {
+  async function openProjectDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentProject) return;
     // Pseudo-paths starting with `__proxy__/` are not real files — they
     // refer to a declared local-dev-server proxy. Route to the iframe
@@ -4397,11 +4668,13 @@
       const name = filepath.slice('__proxy__/'.length);
       return openProjectProxy(name);
     }
+    const docRoot = root || (preserveScroll && _projDocRoot) || currentProject.path;
+    _projDocRoot = docRoot;
     _contextSubView = 'document';
     renderRepoTabs();
     _projDocPath = filepath;
     _projDocEditing = false;
-    setLastProjectDoc(currentProject.path, filepath);
+    setLastProjectDoc(docRoot, filepath);
     // Coming back from a server view (which collapses the sidebar by
     // default) — restore this project's own sidebar preference.
     _sidebarApplyForView();
@@ -4412,7 +4685,7 @@
     // the cache below. For cache misses (or non-text files we don't
     // cache: notebooks/HTML/images) we still show the spinner.
     if (!preserveScroll) {
-      const cacheKey = _projDocCacheKey(currentProject.path, filepath);
+      const cacheKey = _projDocCacheKey(docRoot, filepath);
       if (!_projDocCache.has(cacheKey)) {
         content.innerHTML = '<div class="loading">Loading...</div>';
       }
@@ -4434,6 +4707,7 @@
       const _navProjectPath = currentProject.path;
       const _stillActiveNav = () => (
         _projDocPath === filepath && currentProject && currentProject.path === _navProjectPath
+        && _projDocRoot === docRoot
       );
       // Notebooks, images, video, and HTML iframes have no meaningful _projDocContent
       // to diff against — delegate straight to _renderDocInto so they get the correct
@@ -4449,9 +4723,9 @@
       }
       try {
         const [fileRes, commentsRes, infoRes] = await Promise.all([
-          fetch(`/api/project-file?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(filepath)}`),
-          fetch(`/api/project-comments?path=${encodeURIComponent(currentProject.path)}`),
-          fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`),
+          fetch(`/api/project-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`),
+          fetch(`/api/project-comments?path=${encodeURIComponent(docRoot)}`),
+          fetch(`/api/project-info?path=${encodeURIComponent(docRoot)}`),
         ]);
         if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
         const data = await fileRes.json();
@@ -4463,7 +4737,7 @@
         // tab-switches in sync with WS-triggered refreshes — without
         // this write, the cache could stay stale after Claude/an
         // external editor edits the file while it's open.
-        _projDocCache.set(_projDocCacheKey(_navProjectPath, filepath),
+        _projDocCache.set(_projDocCacheKey(docRoot, filepath),
           {content: data.content, comments: newComments, artifact: newArtifact});
         if (data.content === _projDocContent
             && JSON.stringify(newComments) === JSON.stringify(_projComments)
@@ -4726,8 +5000,8 @@
   // one paint to make sure the cell HTML is in the DOM before scrolling.
   // Used as the dot's onclick (with event.stopPropagation() at the call site
   // so the surrounding row click doesn't double-fire).
-  async function openProjectDocAndJumpToUnseen(filepath) {
-    await openProjectDoc(filepath);
+  async function openProjectDocAndJumpToUnseen(filepath, root = null) {
+    await openProjectDoc(filepath, root ? {root} : {});
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const target = document.querySelector('#content .nb-cell-unseen');
@@ -4825,7 +5099,7 @@
             if (href && !href.startsWith('http') && !href.startsWith('data:') && currentProject) {
               const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
               const resolvedHref = _resolveRelPath(dir, href);
-              href = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolvedHref)}&t=${_lastProjectMtime || Date.now()}`;
+              href = `/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolvedHref)}&t=${_lastProjectMtime || Date.now()}`;
             }
             return `<img src="${href}" alt="${text || ''}"${title ? ` title="${title}"` : ''} style="max-width:100%;border-radius:4px;margin:8px 0">`;
           };
@@ -4835,7 +5109,7 @@
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
             const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
             const resolved = _resolveRelPath(dir, src);
-            const newSrc = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolved)}`;
+            const newSrc = `/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolved)}`;
             return `<iframe${pre} src="${newSrc}"${post} onload="applyIframeDarkMode(this)">`;
           });
           // Also rewrite other relative src (img etc) not already handled
@@ -4843,7 +5117,7 @@
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
             const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
             const resolved = _resolveRelPath(dir, src);
-            return ` src="/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolved)}"`;
+            return ` src="/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolved)}"`;
           });
         } catch(e) {
           rendered = `<pre>${esc(_projDocContent)}</pre>`;
@@ -5101,7 +5375,7 @@
       await fetch('/api/project-comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, file: filepath, text: _pendingCommentText, comment }),
+        body: JSON.stringify({ path: _projDocRoot || currentProject.path, file: filepath, text: _pendingCommentText, comment }),
       });
       _pendingCommentText = '';
       _pendingCommentMark = null;  // the upcoming re-render rebuilds the DOM from scratch
@@ -5111,7 +5385,7 @@
 
   function startProjectDocEdit() {
     if (!_projDocPath) return;
-    openProjectDocModal(_projDocPath, { editing: true });
+    openProjectDocModal(_projDocPath, { editing: true, root: _projDocRoot || currentProject.path });
   }
 
   function cancelProjectDocEdit(filepath) {
@@ -5129,7 +5403,7 @@
       const res = await fetch('/api/project-file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, file: filepath, content: ta.value }),
+        body: JSON.stringify({ path: _projDocRoot || currentProject.path, file: filepath, content: ta.value }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.detail || 'Error saving'); return; }
       _projDocContent = ta.value;
@@ -5148,7 +5422,7 @@
       await fetch('/api/project-comments', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, comment_id: commentId }),
+        body: JSON.stringify({ path: _projDocRoot || currentProject.path, comment_id: commentId }),
       });
       openProjectDoc(_projDocPath);
     } catch (err) { alert('Error: ' + err.message); }
@@ -5371,7 +5645,7 @@
       if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/') && currentProject) {
         const dir = (_projDocPath && _projDocPath.includes('/')) ? _projDocPath.substring(0, _projDocPath.lastIndexOf('/')) : '';
         const resolved = _resolveRelPath(dir, src);
-        img.src = `/api/project-asset?path=${encodeURIComponent(currentProject.path)}&file=${encodeURIComponent(resolved)}`;
+        img.src = `/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolved)}`;
       }
     });
     const imgs = container.querySelectorAll('img');
@@ -5500,11 +5774,13 @@
     _contextSubView = 'overview';
     currentRepo = null;
     currentRepoInProject = null;
+    _repoFileRoot = null;
     // Clear the doc path BEFORE rendering tabs — the Overview tab's active
     // state (and the sidebar view suffix) both read it. User explicitly
     // chose Dashboard, so also drop the remembered doc for this project.
     if (currentProject) setLastProjectDoc(currentProject.path, null);
     _projDocPath = null;
+    _projDocRoot = null;
     renderRepoTabs();
     // Restore the project's own sidebar preference (a server view may
     // have collapsed it).
@@ -5519,9 +5795,11 @@
     _contextSubView = 'repository';
     currentRepoInProject = currentProject.repos.find(r => r.path === repoPath);
     currentRepo = repoPath;
+    _repoFileRoot = null;
     // The diff view replaces any open doc/server view — clear the doc path
     // so the server tab un-highlights and the sidebar preference resets.
     _projDocPath = null;
+    _projDocRoot = null;
     renderRepoTabs();
     _sidebarApplyForView();
     // Show diff tabs when viewing a repo
@@ -5674,7 +5952,8 @@
   // classes), then refreshes from the server unless the cache is fresh.
   async function _sidebarGitStatusRefresh() {
     if (!currentProject || !currentProject.is_project || !currentProject.path) return;
-    const path = currentProject.path;
+    const basePath = currentProject.path;
+    const path = _sidebarScopedRoot(basePath);
     const cached = _gitStatusByPath.get(path);
     if (cached) _sidebarApplyGitStatus(cached);
     if (cached && (Date.now() - cached.ts) < _GIT_STATUS_MIN_MS) return;
@@ -5686,7 +5965,9 @@
       const data = await r.json();
       const entry = {files: data.files || {}, ignored: data.ignored || [], ts: Date.now()};
       _gitStatusByPath.set(path, entry);
-      if (currentProject && currentProject.path === path) _sidebarApplyGitStatus(entry);
+      if (currentProject && currentProject.path === basePath && _sidebarScopedRoot(basePath) === path) {
+        _sidebarApplyGitStatus(entry);
+      }
     } catch (e) {
       // Network hiccup — decorations just go stale until the next tick.
     } finally {
@@ -5704,6 +5985,9 @@
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const projectPath = currentProject.path;
+    await _sidebarEnsureWorktrees();
+    const fileRoot = _sidebarScopedRoot(projectPath);
+    if (_data && _data.fileRoot !== fileRoot) _data = null;
 
     // Warm switch: when no `_data` override is passed but the cache has
     // a payload for this project, paint instantly from the cache and
@@ -5712,7 +5996,8 @@
     // the second paint only re-runs the render body (no network).
     if (!_data) {
       const cachedPayload = _projectSidebarCache.get(projectPath);
-      if (cachedPayload) {
+      if (cachedPayload && cachedPayload.fileRoot !== fileRoot) _projectSidebarCache.delete(projectPath);
+      if (cachedPayload && cachedPayload.fileRoot === fileRoot) {
         // Synchronous warm paint — recursive call returns a Promise but
         // because `_data` short-circuits both fetches, all the render
         // work happens in the synchronous prefix.
@@ -5720,7 +6005,7 @@
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
-            const files = await _sidebarFetchProjectFiles(projectPath);
+            const files = await _sidebarFetchProjectFiles(fileRoot);
             let pinned = [], references = [], proxies = [];
             try {
               const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
@@ -5731,13 +6016,14 @@
                 if (Array.isArray(info.proxies)) proxies = info.proxies;
               }
             } catch {}
-            const fresh = {files, pinned, references, proxies};
+            const fresh = {files, pinned, references, proxies, fileRoot};
+            if (!currentProject || currentProject.path !== projectPath
+                || _sidebarScopedRoot(projectPath) !== fileRoot) return;
             const prev = _projectSidebarCache.get(projectPath);
             _projectSidebarCache.set(projectPath, fresh);
             // Re-render only if (a) the data actually changed and (b)
             // the user is still on this project.
             if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
-            if (!currentProject || currentProject.path !== projectPath) return;
             _refreshProjectSidebar({preserveScroll: true, _data: fresh});
           } catch (e) {
             console.error('[_refreshProjectSidebar] reconcile failed:', e && e.stack || e);
@@ -5757,7 +6043,7 @@
         proxies = _data.proxies || [];
       } else {
         // Cold path: fetch fresh + write to cache.
-        files = await _sidebarFetchProjectFiles(currentProject.path);
+        files = await _sidebarFetchProjectFiles(fileRoot);
         pinnedNames = [];
         references = [];
         proxies = [];
@@ -5770,19 +6056,20 @@
             if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
-        _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references, proxies});
+        _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references, proxies, fileRoot});
       }
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
       const pinnedSet = new Set(pinnedNames);
       const filesByName = new Map(fileEntries.map(f => [f.name, f]));
-      const pinnedFiles = pinnedNames.filter(n => fileEntries.some(f => f.name === n));
+      const worktreeSelected = fileRoot !== projectPath;
+      const pinnedFiles = worktreeSelected ? [] : pinnedNames.filter(n => fileEntries.some(f => f.name === n));
       // Pinned rows are shortcuts, not a move operation. Keep every pinned
       // file in the normal folder tree as well so its original context never
       // disappears when the shortcut is created.
       const otherFiles = fileEntries;
       _sidebarRememberAvailableExtensions(fileEntries);
-      _sidebarMaybeLogRecentDiagnostics(fileEntries, projectPath);
+      _sidebarMaybeLogRecentDiagnostics(fileEntries, fileRoot);
 
       // "Meta" files are demoted to a bottom section so the sidebar reads as
       // a working list of docs first, plumbing second. Still visible; just
@@ -5792,18 +6079,19 @@
       // reading lives, so showing it collapsed by default hides everything.
       const AUTO_OPEN_FOLDERS = new Set(['docs', 'notebooks', 'links']);
 
-      const metaFiles = otherFiles.filter(f => !f.path.includes('/') && META_FILES.has(f.name));
-      const mainFiles = otherFiles.filter(f => !(f.path === f.name && META_FILES.has(f.name)));
+      const metaFiles = worktreeSelected ? [] : otherFiles.filter(f => !f.path.includes('/') && META_FILES.has(f.name));
+      const mainFiles = worktreeSelected ? otherFiles : otherFiles.filter(f => !(f.path === f.name && META_FILES.has(f.name)));
 
       // Active-file highlighting is baked into the rendered HTML (data-filepath
       // + .active class) so periodic sidebar rebuilds — from the mtime poller
       // and the index-updated WS event — preserve the red selection bar
       // instead of dropping it and waiting for openProjectDoc to re-add it,
       // which made the selection blink.
-      const activePath = _projDocPath || null;
+      const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const dashActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
       sbHtml += _sidebarFileConfigButtonHtml();
+      sbHtml += _sidebarWorktreePickerHtml(projectPath);
       sbHtml += symlinkLegendHtml();
       if (pinnedFiles.length) sbHtml += `<div class="sidebar-title">Pinned <span class="sidebar-title-count">${pinnedFiles.length}</span></div>`;
       pinnedFiles.forEach(name => {
@@ -5813,8 +6101,6 @@
         const activeCls = activePath === name ? ' active' : '';
         sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
-      sbHtml += _sidebarRecentSectionHtml(fileEntries, activePath);
-
       // Servers — proxied local dev servers declared in servers.json (or
       // legacy project.json proxies). Each entry opens
       // an inline iframe through /api/proxy/<id>/<name>/<path>, with the
@@ -5843,7 +6129,9 @@
       // some references (or just the shared CLAUDE.md row) would otherwise
       // hit `ReferenceError: _projTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
-      const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '');
+      const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '') + ':' + fileRoot;
+      sbHtml += _sidebarWorktreeScopeStartHtml(projectPath);
+      sbHtml += _sidebarRecentSectionHtml(fileEntries, activePath, fileRoot);
       if (mainFiles.length > 0 || dirEntries.length > 0) {
         sbHtml += '<div class="sidebar-title">Files</div>';
         const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
@@ -5859,7 +6147,7 @@
             const open = _treeIsOpen(_projTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
-            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
             html += renderTree(node[folder], depth + 1, fullPath);
             html += '</div>';
@@ -5867,6 +6155,7 @@
           // Then files
           treeFiles(node).forEach(f => {
             const safePath = f.path.replace(/'/g, "\\'");
+            const safeRoot = fileRoot.replace(/'/g, "\\'");
             const fname = f.path.split('/').pop();
             const icon = fileIconHtml(fname, f);
             // Notebook activity indicators — running (green pulse) and
@@ -5892,16 +6181,18 @@
               const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
               dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
             } else if (hasUnseen) {
-              dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
+              dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
             }
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span></a>`;
+            const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
         sbHtml += renderTree(tree, 0, '');
       }
+      sbHtml += _sidebarWorktreeScopeEndHtml(projectPath);
 
       // Virtual ``external-references/`` folder — URLs from
       // project.json.references[]. They open in a new tab (not in the
@@ -6974,8 +7265,9 @@
     if (currentRepo) return;
     if (_projDocEditing) return;
     const projectPath = currentProject.path;
-    if (_projMtimeMissPath !== projectPath) {
-      _projMtimeMissPath = projectPath;
+    const fileRoot = typeof _sidebarScopedRoot === 'function' ? _sidebarScopedRoot(projectPath) : projectPath;
+    if (_projMtimeMissPath !== fileRoot) {
+      _projMtimeMissPath = fileRoot;
       _projMtimeMisses = 0;
       _projMtimeFailures = 0;
       _projMtimeRetryAt = 0;
@@ -6993,12 +7285,13 @@
     if (_projMtimeMisses >= 3 && _projMtimeTick % 60 !== 0) return;
     _projMtimeInFlight = true;
     try {
-      const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(projectPath)}`);
+      const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(fileRoot)}`);
       if (!res.ok) throw new Error(`project mtime request failed (${res.status})`);
       const { mtime } = await res.json();
       // A request for a tab we just navigated away from must not overwrite
       // the new project's baseline or retry state.
-      if (!currentProject || currentProject.path !== projectPath) return;
+      if (!currentProject || currentProject.path !== projectPath
+          || (typeof _sidebarScopedRoot === 'function' && _sidebarScopedRoot(projectPath) !== fileRoot)) return;
       _projMtimeFailures = 0;
       _projMtimeRetryAt = 0;
       if (mtime == null) { _projMtimeMisses += 1; return; }
@@ -11045,7 +11338,7 @@
   const _AUTO_OPEN_WORKSPACE = new Set(['projects', 'content', 'docs']);
 
   function renderSidebarFileTree(node, depth, parentPath, opts) {
-    const {scope, autoOpen, activePath} = opts;
+    const {scope, autoOpen, activePath, root} = opts;
     let html = '';
     treeFolderNames(node).forEach(folder => {
       const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
@@ -11055,13 +11348,14 @@
       const open = _treeIsOpen(scope, fullPath, autoOpenHere);
       const arrowCls = open ? ' open' : '';
       const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
       html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
       html += renderSidebarFileTree(node[folder], depth + 1, fullPath, opts);
       html += '</div>';
     });
     treeFiles(node).forEach(f => {
       const safePath = f.path.replace(/'/g, "\\'");
+      const safeRoot = String(root || (currentProject && currentProject.path) || '').replace(/'/g, "\\'");
       const fname = f.path.split('/').pop();
       const icon = fileIconHtml(fname, f);
       const activeCls = activePath === f.path ? ' active' : '';
@@ -11081,9 +11375,9 @@
         const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
         dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
       } else if (hasUnseen) {
-        dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}')"></span>`;
+        dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }
@@ -11093,25 +11387,34 @@
   async function selfPopulateSidebar() {
     const sidebar = document.getElementById('sidebar');
     try {
-      const files = await _sidebarFetchProjectFiles(SELF_REPO_PATH);
+      await _sidebarEnsureWorktrees();
+      const baseRoot = SELF_REPO_PATH;
+      const fileRoot = _sidebarScopedRoot(baseRoot);
+      const files = await _sidebarFetchProjectFiles(fileRoot);
+      if (!document.body.classList.contains('self-active')
+          || !currentProject || currentProject.path !== baseRoot
+          || _sidebarScopedRoot(baseRoot) !== fileRoot) return;
       _sidebarRememberAvailableExtensions(files);
-      _sidebarMaybeLogRecentDiagnostics(files, SELF_REPO_PATH);
+      _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
 
       // Bake .active onto the rendered HTML (data-filepath + class) so any
       // future sidebar rebuild — mtime poll, WS index-updated — keeps the
       // current file highlighted. Without this the active class is only
       // applied imperatively after rebuild and the selection flickers.
-      const activePath = _projDocPath || null;
+      const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const workbenchActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
       sbHtml += _sidebarFileConfigButtonHtml();
+      sbHtml += _sidebarWorktreePickerHtml(baseRoot);
       sbHtml += symlinkLegendHtml();
-      sbHtml += _sidebarRecentSectionHtml(files, activePath);
+      sbHtml += _sidebarWorktreeScopeStartHtml(baseRoot);
+      sbHtml += _sidebarRecentSectionHtml(files, activePath, fileRoot);
       sbHtml += '<div class="sidebar-title">Files</div>';
 
       const tree = buildSidebarTree(files);
 
-      sbHtml += renderSidebarFileTree(tree, 0, '', {scope: 'self', autoOpen: _AUTO_OPEN_SELF, activePath});
+      sbHtml += renderSidebarFileTree(tree, 0, '', {scope: `self:${fileRoot}`, autoOpen: _AUTO_OPEN_SELF, activePath, root: fileRoot});
+      sbHtml += _sidebarWorktreeScopeEndHtml(baseRoot);
 
       // Meta section — mirrors the per-project sidebar so `.claude/`
       // (shared skills, agents, hooks, settings) is one click away from
@@ -12243,20 +12546,26 @@
     if (!sidebar || !currentProject || currentProject.name !== WORKSPACE_PROJECT_ID) return;
     const rootPath = currentProject.path;
     try {
-      const files = await _sidebarFetchProjectFiles(rootPath);
+      await _sidebarEnsureWorktrees();
+      const fileRoot = _sidebarScopedRoot(rootPath);
+      const files = await _sidebarFetchProjectFiles(fileRoot);
       if (!document.body.classList.contains('workspace-active')) return;
       if (!currentProject || currentProject.path !== rootPath) return;
+      if (_sidebarScopedRoot(rootPath) !== fileRoot) return;
       _sidebarRememberAvailableExtensions(files);
-      _sidebarMaybeLogRecentDiagnostics(files, rootPath);
+      _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
 
-      const activePath = _projDocPath || null;
+      const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const overviewActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
       sbHtml += _sidebarFileConfigButtonHtml();
+      sbHtml += _sidebarWorktreePickerHtml(rootPath);
       sbHtml += symlinkLegendHtml();
-      sbHtml += _sidebarRecentSectionHtml(files, activePath);
+      sbHtml += _sidebarWorktreeScopeStartHtml(rootPath);
+      sbHtml += _sidebarRecentSectionHtml(files, activePath, fileRoot);
       sbHtml += '<div class="sidebar-title">Files</div>';
-      sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: 'workspace', autoOpen: _AUTO_OPEN_WORKSPACE, activePath});
+      sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `workspace:${fileRoot}`, autoOpen: _AUTO_OPEN_WORKSPACE, activePath, root: fileRoot});
+      sbHtml += _sidebarWorktreeScopeEndHtml(rootPath);
       sidebar.innerHTML = sbHtml;
       // Fast first decoration pass (cached + rate-limited server-side);
       // the shared 6s poll keeps it fresh afterwards.

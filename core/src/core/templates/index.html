@@ -328,6 +328,19 @@
         </label>
       </section>
 
+      <section class="sidebar-config-section sidebar-config-worktrees">
+        <div class="sidebar-config-section-title">Worktrees</div>
+        <label class="sidebar-config-worktree-folder">Worktree folder
+          <span class="sidebar-config-worktree-input-row">
+            <input id="sidebarConfigWorktreeFolder" type="text" autocomplete="off" spellcheck="false" placeholder="/path/to/worktrees" oninput="sidebarFileConfigWorktreeInput()" />
+            <button type="button" onclick="sidebarFileConfigScanWorktrees()">Scan</button>
+          </span>
+          <small>Each direct subfolder becomes a choice below the File view button.</small>
+        </label>
+        <div class="sidebar-config-worktree-status" id="sidebarConfigWorktreeStatus" role="status"></div>
+        <div class="sidebar-config-worktree-colors" id="sidebarConfigWorktreeColors"></div>
+      </section>
+
       <section class="sidebar-config-section">
         <label class="sidebar-config-check">
           <input id="sidebarConfigRecent" type="checkbox" onchange="sidebarFileConfigSyncState()" />

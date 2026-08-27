@@ -198,6 +198,31 @@ def test_project_files_includes_mtime_for_every_file_type(client, seed_project) 
         assert isinstance(files[path]["mtime"], float)
 
 
+def test_sidebar_worktrees_lists_direct_visible_folders(client, monorepo) -> None:
+    parent = monorepo / "sidebar-worktrees"
+    (parent / "feature-z").mkdir(parents=True)
+    (parent / "Feature-a").mkdir()
+    (parent / ".hidden").mkdir()
+    (parent / "README.md").write_text("not a worktree\n")
+
+    response = client.get(f"/api/sidebar-worktrees?path={parent}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "path": str(parent.resolve()),
+        "folders": [
+            {"name": "Feature-a", "path": str((parent / "Feature-a").resolve())},
+            {"name": "feature-z", "path": str((parent / "feature-z").resolve())},
+        ],
+    }
+
+
+def test_sidebar_worktrees_rejects_missing_folder(client, monorepo) -> None:
+    response = client.get(f"/api/sidebar-worktrees?path={monorepo / 'missing-worktrees'}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Worktree folder not found"
+
+
 def test_project_files_includes_deep_files_without_nested_git_marker(
     client, seed_project,
 ) -> None:

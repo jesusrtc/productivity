@@ -27,6 +27,7 @@
 - [Focus mode trackpad pinch zoom](focus-mode-trackpad-pinch-zoom.md) — reproduce Chrome's suppressed fullscreen pinch gesture with Focus-only CSS zoom, including same-origin iframes
 - [Sidebar tree indentation must recurse](sidebar-tree-indentation-recurses.md) — indent nested `.sidebar-folder-children` containers; never hard-code selectors for a finite number of depths
 - [Sidebar shortcuts preserve the file tree](sidebar-shortcuts-preserve-file-tree.md) — pinned/recent sections duplicate file shortcuts; shared browser-local settings control hidden files, freshness, and extension filters
+- [Sidebar file scopes can follow worktrees](sidebar-worktree-file-scopes.md) — a browser-local parent folder discovers direct child worktrees; each sidebar surface remembers its selected root and color
 - [Recent files use a compact folder tree](sidebar-recent-files-use-compact-tree.md) — collapse single-child directory chains, preserve real branch levels, and persist folder open state
 - [Recent-file freshness stops at three days](sidebar-recent-freshness-three-day-cap.md) — offer 15m, 1h, 2h, 6h, 24h, and 3d; clamp legacy longer values
 - [Sidebar file history includes working tree and notebook review](sidebar-file-history-review.md) — GitHub-mark action opens commits plus uncommitted changes; notebooks use semantic Before/After cell diffs

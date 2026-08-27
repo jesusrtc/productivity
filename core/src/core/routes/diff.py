@@ -539,6 +539,42 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
     return files
 
 
+@router.get("/api/sidebar-worktrees")
+def api_sidebar_worktrees(path: str, request: Request):
+    """Return the direct child folders available as file-sidebar roots.
+
+    The browser stores the chosen parent as a display preference; discovery
+    stays server-side so the UI never has to guess at the local filesystem.
+    Auth middleware scopes non-admin absolute paths to an allowed workspace.
+    """
+    try:
+        parent = Path(path).expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Bad worktree folder: {exc}") from exc
+    if not parent.is_dir():
+        raise HTTPException(status_code=404, detail="Worktree folder not found")
+
+    def list_folders() -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        try:
+            children = sorted(parent.iterdir(), key=lambda child: child.name.casefold())
+        except (PermissionError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=f"Could not read worktree folder: {exc}") from exc
+        for child in children:
+            if child.name.startswith("."):
+                continue
+            try:
+                if child.is_dir():
+                    rows.append({"name": child.name, "path": str(child.resolve())})
+            except OSError:
+                continue
+        return rows
+
+    workspace_root = auth.request_root(request)
+    folders = fsguard.guarded(workspace_root, list_folders)
+    return {"path": str(parent), "folders": folders}
+
+
 @router.get("/api/project-file")
 def api_project_file(path: str, file: str):
     """Read a project-level file.

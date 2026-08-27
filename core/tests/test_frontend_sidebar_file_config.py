@@ -98,6 +98,70 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_worktree_picker_scopes_file_sections_and_keeps_per_worktree_colors() -> None:
+    helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  getItem(key) { return stored[key] || null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const currentRepo = null;
+const currentProject = {path: '/repo'};
+const SELF_REPO_PATH = '/framework';
+const document = {
+  body: {classList: {contains() { return false; }}},
+  addEventListener() {},
+};
+const window = {};
+const esc = value => String(value);
+const escAttr = value => String(value);
+"""
+        + helpers
+        + """
+_sidebarWorktreeFolders = [
+  {name: 'feature-a', path: '/worktrees/feature-a'},
+  {name: 'feature-b', path: '/worktrees/feature-b'},
+];
+_sidebarFileConfig = {
+  showHidden: false,
+  showRecent: true,
+  recentMinutes: 60,
+  trackMode: 'all',
+  extensions: [],
+  worktreeFolder: '/worktrees',
+  worktreeColors: {'/worktrees/feature-b': '#123abc'},
+  selectedWorktrees: {'/repo': '/worktrees/feature-b'},
+};
+const picker = _sidebarWorktreePickerHtml('/repo');
+const scope = _sidebarWorktreeScopeStartHtml('/repo');
+process.stdout.write(JSON.stringify({
+  scopedRoot: _sidebarScopedRoot('/repo'),
+  pickerHasRoot: picker.includes('<option value="">Root</option>'),
+  pickerHasSelected: picker.includes('value="/worktrees/feature-b" selected'),
+  pickerColor: picker.includes('value="#123abc"'),
+  scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
+  scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
+  defaultColor: _sidebarWorktreeColor('/worktrees/feature-a'),
+}));
+"""
+    )
+
+    assert result == {
+        "scopedRoot": "/worktrees/feature-b",
+        "pickerHasRoot": True,
+        "pickerHasSelected": True,
+        "pickerColor": True,
+        "scopeColor": True,
+        "scopePath": True,
+        "defaultColor": "#6e7681",
+    }
+
+
 def test_recent_diagnostic_reports_each_readme_mtime_and_filter_result() -> None:
     helpers = _between(
         "let showDotFiles = false;",
@@ -289,6 +353,9 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
         "sidebarConfigRecent",
         "sidebarConfigFreshness",
         "sidebarConfigExtensions",
+        "sidebarConfigWorktreeFolder",
+        "sidebarConfigWorktreeStatus",
+        "sidebarConfigWorktreeColors",
     ):
         assert f'id="{element_id}"' in template
 
@@ -302,6 +369,8 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert source.count("_sidebarFileConfigButtonHtml()") >= 4
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4
+    assert source.count("_sidebarWorktreePickerHtml(") >= 5
+    assert "SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681'" in source
 
 
 def test_project_mtime_poll_is_single_flight_and_backs_off_after_503() -> None:
