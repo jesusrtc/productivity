@@ -8,6 +8,11 @@ worktree. Discovery caches must vary by both parent folder and active base root.
 Each sidebar surface remembers its own Root/worktree selection, and both
 Recently updated and Files must use that same selected root.
 
+Projects may be non-Git wrapper folders with registered repositories nested
+inside them. Keep `main` file browsing rooted at the wrapper, but anchor Git
+worktree discovery and repository history to the project's first registered
+repository instead of the wrapper's nearest enclosing repository.
+
 Worktree colors are browser-local, default to `#6e7681`, and appear as the
 vertical scope rail around those sections. Keep notebook APIs pinned to the
 active workspace root even when ordinary file browsing uses another worktree.

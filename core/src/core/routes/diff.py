@@ -557,7 +557,15 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
     if not parent.is_dir():
         raise HTTPException(status_code=404, detail="Worktree folder not found")
 
-    base_root = _entry_root(repo, request)
+    try:
+        base_root = Path(repo).expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Bad repository root: {exc}") from exc
+    workspace_root = auth.request_root(request)
+    if not _git_status_dir_allowed(base_root, workspace_root):
+        raise HTTPException(status_code=403, detail="Repository is outside the workspace")
+    if not base_root.is_dir():
+        raise HTTPException(status_code=404, detail="Repository root not found")
 
     def list_worktrees() -> list[dict[str, str]]:
         try:
@@ -597,7 +605,6 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
                 continue
         return sorted(rows, key=lambda row: row["name"].casefold())
 
-    workspace_root = auth.request_root(request)
     folders = fsguard.guarded(workspace_root, list_worktrees)
     return {"path": str(parent), "repo": str(base_root), "folders": folders}
 

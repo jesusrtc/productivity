@@ -2119,17 +2119,31 @@
     return '';
   }
 
+  function _sidebarWorktreeRepositoryRoot(baseRoot) {
+    const scopeRoot = String(baseRoot || '').trim();
+    if (!scopeRoot) return '';
+    if (currentRepo && String(currentRepo) === scopeRoot) return scopeRoot;
+    if (currentProject && String(currentProject.path || '') === scopeRoot) {
+      const registered = Array.isArray(currentProject.repos)
+        ? currentProject.repos.find(row => row && row.path)
+        : null;
+      if (registered) return String(registered.path);
+    }
+    return scopeRoot;
+  }
+
   async function _sidebarDiscoverWorktrees(folder, {
     force = false,
     baseRoot = _sidebarWorktreeBaseRoot(),
   } = {}) {
     const requested = String(folder || '').trim();
-    const repositoryRoot = String(baseRoot || '').trim();
-    if (!requested || !repositoryRoot) {
+    const scopeRoot = String(baseRoot || '').trim();
+    const repositoryRoot = _sidebarWorktreeRepositoryRoot(scopeRoot);
+    if (!requested || !scopeRoot || !repositoryRoot) {
       _sidebarClearWorktreeDiscovery();
       return [];
     }
-    const discoveryKey = `${requested}\n${repositoryRoot}`;
+    const discoveryKey = `${requested}\n${scopeRoot}\n${repositoryRoot}`;
     if (!force && discoveryKey === _sidebarWorktreeDiscoveryKey) {
       return _sidebarWorktreeFolders;
     }
@@ -2150,7 +2164,7 @@
         : [];
       if (generation === _sidebarWorktreeDiscoveryGeneration) {
         _sidebarWorktreeFolderResolved = resolvedFolder;
-        _sidebarWorktreeDiscoveryKey = `${resolvedFolder}\n${repositoryRoot}`;
+        _sidebarWorktreeDiscoveryKey = `${resolvedFolder}\n${scopeRoot}\n${repositoryRoot}`;
         _sidebarWorktreeFolders = folders;
       }
       return folders;
@@ -2422,7 +2436,7 @@
     if (!baseRoot) return;
     const selected = _sidebarSelectedWorktree(baseRoot);
     return openRepositoryHistory({
-      root: _sidebarScopedRoot(baseRoot),
+      root: selected ? selected.path : _sidebarWorktreeRepositoryRoot(baseRoot),
       label: selected ? selected.name : 'main',
     });
   }
@@ -2558,7 +2572,9 @@
     if (!_sidebarWorktreeFolders.length) {
       host.innerHTML = '';
       if (status && !status.classList.contains('error')) {
-        status.textContent = _sidebarFileConfig.worktreeFolder ? 'No worktrees scanned yet.' : 'Optional — leave empty to use only Root.';
+        status.textContent = _sidebarWorktreeFolderResolved
+          ? 'No matching Git worktrees found for this project.'
+          : _sidebarFileConfig.worktreeFolder ? 'No worktrees scanned yet.' : 'Optional — leave empty to use only Root.';
       }
       return;
     }

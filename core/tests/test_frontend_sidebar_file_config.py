@@ -111,7 +111,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const currentRepo = null;
-const currentProject = {path: '/repo'};
+const currentProject = {path: '/repo', repos: [{path: '/repo/nested'}]};
 const SELF_REPO_PATH = '/framework';
 const document = {
   body: {classList: {contains() { return false; }}},
@@ -140,6 +140,13 @@ _sidebarFileConfig = {
 const picker = _sidebarWorktreePickerHtml('/repo');
 const scope = _sidebarWorktreeScopeStartHtml('/repo');
 const scopedRoot = _sidebarScopedRoot('/repo');
+let historyRequest = null;
+function openRepositoryHistory(request) { historyRequest = request; }
+sidebarOpenRepositoryHistory({getAttribute() { return '/repo'; }});
+const selectedHistoryRoot = historyRequest && historyRequest.root;
+delete _sidebarFileConfig.selectedWorktrees['/repo'];
+sidebarOpenRepositoryHistory({getAttribute() { return '/repo'; }});
+const mainHistoryRoot = historyRequest && historyRequest.root;
 _sidebarFileConfig.worktreeFolder = '';
 const mainPicker = _sidebarWorktreePickerHtml('/repo');
 process.stdout.write(JSON.stringify({
@@ -153,6 +160,8 @@ process.stdout.write(JSON.stringify({
   mainHasLabel: mainPicker.includes('sidebar-worktree-current') && mainPicker.includes('>main</span>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
   scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
+  selectedHistoryRoot,
+  mainHistoryRoot,
   defaultColor: _sidebarWorktreeColor('/worktrees/feature-a'),
 }));
 """
@@ -169,6 +178,8 @@ process.stdout.write(JSON.stringify({
         "mainHasLabel": True,
         "scopeColor": True,
         "scopePath": True,
+        "selectedHistoryRoot": "/worktrees/feature-b",
+        "mainHistoryRoot": "/repo/nested",
         "defaultColor": "#6e7681",
     }
 
@@ -187,7 +198,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const currentRepo = null;
-const currentProject = {path: '/repo-a'};
+const currentProject = {path: '/project-a', repos: [{path: '/repos/repo-a'}]};
 const SELF_REPO_PATH = '/framework';
 const document = {
   body: {classList: {contains() { return false; }}},
@@ -197,12 +208,13 @@ const window = {};
 const fetch = async url => {
   urls.push(url);
   const repo = new URL(`http://lab${url}`).searchParams.get('repo');
+  const name = repo.split('/').pop();
   return {
     ok: true,
     async json() {
       return {
         path: '/worktrees',
-        folders: [{name: repo.slice(1), path: `/worktrees/${repo.slice(1)}`}],
+        folders: [{name, path: `/worktrees/${name}`}],
       };
     },
   };
@@ -213,7 +225,8 @@ const fetch = async url => {
 (async () => {
   const first = await _sidebarDiscoverWorktrees('/worktrees');
   await _sidebarDiscoverWorktrees('/worktrees');
-  currentProject.path = '/repo-b';
+  currentProject.path = '/project-b';
+  currentProject.repos = [{path: '/repos/repo-b'}];
   const second = await _sidebarDiscoverWorktrees('/worktrees');
   process.stdout.write(JSON.stringify({
     callCount: urls.length,
@@ -231,8 +244,8 @@ const fetch = async url => {
     assert result == {
         "callCount": 2,
         "urls": [
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepo-a",
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepo-b",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b",
         ],
         "first": ["repo-a"],
         "second": ["repo-b"],
