@@ -340,6 +340,55 @@ process.stdout.write(JSON.stringify({
     assert "actor: 'human'" in source
 
 
+def test_agent_api_running_snapshot_renders_visible_running_cell() -> None:
+    renderer = _js_between(
+        "function _formatNbElapsed(milliseconds)",
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null)",
+    )
+    result = _run_node(
+        """
+function esc(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;');
+}
+function _highlightCellSource(value) { return esc(value); }
+function _renderNbOutput(output) {
+  return `<div class="nb-output">${esc(output.content || '')}</div>`;
+}
+function _isOutputCollapsed() { return false; }
+function _isCellSeen() { return true; }
+"""
+        + renderer
+        + """
+const startedAt = (Date.now() - 2100) / 1000;
+const html = renderNbCellInteractive({
+  id: 'agent-cell',
+  cell_type: 'code',
+  execution_count: 7,
+  metadata: {
+    lab_pending: true,
+    lab_actor: 'agent',
+    lab_action: 'created',
+    lab_started_at: startedAt,
+  },
+  source: "print('first')\\n",
+  outputs: [{type: 'text', content: 'first\\n'}],
+}, 3, 'projects/demo/notebooks/live.ipynb', {queuePos: 1, liveSequence: 2});
+process.stdout.write(JSON.stringify({html}));
+"""
+    )
+
+    html = result["html"]
+    assert "nb-cell-running" in html
+    assert "nb-cell-agent" in html
+    assert "agent · created" in html
+    assert "running · 2.1s" in html
+    assert 'data-nb-started-at-ms="' in html
+    assert '<span class="nb-exec">[1]</span>' in html
+    assert 'readonly aria-busy="true"' in html
+    assert html.count(" disabled") == 2
+    assert "first\n" in html
+
+
 def test_starting_a_cell_clears_stale_output_and_focuses_its_code() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")

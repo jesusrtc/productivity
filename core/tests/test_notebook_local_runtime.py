@@ -270,7 +270,7 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     assert any(out["type"] == "error" for out in missing_state.json()["cell"]["outputs"])
 
 
-def test_local_kernel_streams_text_rich_output_and_display_updates_live(
+def test_agent_api_shows_running_state_and_streams_output_before_completion(
     client, monorepo: Path
 ) -> None:
     rel, _ = _project_with_cli(monorepo)
@@ -283,14 +283,17 @@ def test_local_kernel_streams_text_rich_output_and_display_updates_live(
     code = (
         "import time\n"
         "from IPython.display import HTML, display\n"
-        "print('stream-before-sleep', flush=True)\n"
+        "print('stream-chunk-1', flush=True)\n"
         "time.sleep(1.2)\n"
+        "print('stream-chunk-2', flush=True)\n"
+        "time.sleep(0.4)\n"
         "chart = display(HTML(\"<div id='live-chart'>first</div>\"), display_id=True)\n"
         "time.sleep(0.2)\n"
         "chart.update(HTML(\"<div id='live-chart'>final</div>\"))\n"
     )
     events: list[dict] = []
-    saw_output_before_completion = False
+    saw_started_while_running = False
+    streamed_chunks: list[str] = []
     with client.websocket_connect("/ws") as ws:
         with ThreadPoolExecutor(max_workers=1) as pool:
             running = pool.submit(
@@ -303,25 +306,59 @@ def test_local_kernel_streams_text_rich_output_and_display_updates_live(
                 if event.get("type") != "notebook-execution" or event.get("path") != rel:
                     continue
                 events.append(event)
+                if event.get("phase") == "started":
+                    saw_started_while_running = not running.done()
+                    assert event["actor"] == "agent"
+                    assert event["source"] == code
+                    assert event["started_at"] <= time.time()
+
+                    live = client.get(f"/api/nb/live?path={rel}")
+                    assert live.status_code == 200, live.text
+                    snapshots = live.json()["executions"]
+                    assert len(snapshots) == 1
+                    snapshot = snapshots[0]
+                    assert snapshot["run_id"] == event["run_id"]
+                    assert snapshot["actor"] == "agent"
+                    assert snapshot["source"] == code
+                    assert snapshot["started_at"] == event["started_at"]
+
+                    notebook = json.loads(
+                        (monorepo / rel).read_text(encoding="utf-8")
+                    )
+                    pending = notebook["cells"][0]
+                    assert pending["metadata"]["lab_pending"] is True
+                    assert pending["metadata"]["lab_actor"] == "agent"
+                    assert pending["metadata"]["lab_run_id"] == event["run_id"]
+
                 content = (event.get("output") or {}).get("content", "")
-                if "stream-before-sleep" in content:
-                    saw_output_before_completion = not running.done()
+                if "stream-chunk-1" in content:
+                    assert running.done() is False
+                    streamed_chunks.append("stream-chunk-1")
                     live = client.get(f"/api/nb/live?path={rel}")
                     assert live.status_code == 200, live.text
                     snapshots = live.json()["executions"]
                     assert len(snapshots) == 1
                     assert any(
-                        "stream-before-sleep" in output.get("content", "")
+                        "stream-chunk-1" in output.get("content", "")
                         for output in snapshots[0]["outputs"]
                     )
+                    assert not any(
+                        "stream-chunk-2" in output.get("content", "")
+                        for output in snapshots[0]["outputs"]
+                    )
+                if "stream-chunk-2" in content:
+                    assert running.done() is False
+                    streamed_chunks.append("stream-chunk-2")
                 if event.get("phase") in {"finished", "failed", "interrupted"}:
                     break
             completed = running.result(timeout=10)
 
     assert completed.status_code == 200, completed.text
-    assert saw_output_before_completion is True
+    assert saw_started_while_running is True
+    assert streamed_chunks == ["stream-chunk-1", "stream-chunk-2"]
     assert events[0]["phase"] == "started"
     assert events[-1]["phase"] == "finished"
+    assert all(event["actor"] == "agent" for event in events)
     sequenced = [event["sequence"] for event in events if "sequence" in event]
     assert sequenced == sorted(set(sequenced))
     assert any(
@@ -339,7 +376,9 @@ def test_local_kernel_streams_text_rich_output_and_display_updates_live(
     assert client.get(f"/api/nb/live?path={rel}").json()["executions"] == []
 
     cell = completed.json()["cell"]
-    assert any("stream-before-sleep" in out.get("content", "") for out in cell["outputs"])
+    final_text = "\n".join(out.get("content", "") for out in cell["outputs"])
+    assert "stream-chunk-1" in final_text
+    assert "stream-chunk-2" in final_text
     html_outputs = [out for out in cell["outputs"] if out.get("type") == "html"]
     assert len(html_outputs) == 1
     assert "final" in html_outputs[0]["content"]
