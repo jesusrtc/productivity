@@ -43,3 +43,4 @@
 - [Quiet Jupyter polls are not execution timeouts](notebook-kernel-quiet-polls-are-not-timeouts.md) — `get_iopub_msg` may be empty for many one-second polls while client CLIs run; enforce only the overall monotonic deadline
 - [Repository notebooks render read-only](repository-notebooks-render-read-only.md) — Home/framework/repository `.ipynb` files are inspectable through `/api/notebook`; only active-workspace notebooks get kernel controls
 - [Repository notebooks own their kernel by path](repository-notebooks-own-kernel-by-path.md) — create valid `.ipynb` files at a user-selected active-workspace repository path; same path shares one human/agent kernel, different paths get different sessions
+- [Built-in Jupyter tab needs no server config](built-in-jupyter-tab-needs-no-server-config.md) — every project gets a first-class Jupyter tab backed by Lab's shared notebook runtime; never self-proxy Lab's port through `servers.json`

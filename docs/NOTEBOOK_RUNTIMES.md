@@ -44,6 +44,12 @@ run from their terminal. This execution path does not use Docker.
 
 ## Human workflow
 
+Every project has a built-in **Jupyter** tab beside **Overview** and **Code
+Search**. It opens the project's last-used notebook directly; when there is no
+selection yet, it shows the project notebooks and a **+ Notebook** action. This
+is part of Lab's own notebook runtime, so it does not require a `servers.json`
+entry, host, port, reverse proxy, or separate JupyterLab process.
+
 Notebook code cells are editable in place. Use **Run** or Cmd/Ctrl+Enter,
 insert cells between existing cells, restart the kernel, or interrupt a long
 cell. Drafts survive navigation. Every execution is written back to the real

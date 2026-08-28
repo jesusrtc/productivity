@@ -4619,6 +4619,8 @@
     const isSelf = document.body.classList.contains('self-active');
     const isWorkspace = document.body.classList.contains('workspace-active');
     const proxyOpen = typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/');
+    const notebookOpen = _contextSubView === 'notebooks'
+      || (typeof _projDocPath === 'string' && _projDocPath.toLowerCase().endsWith('.ipynb'));
     const overviewActive = _contextSubView === 'overview' && !_projDocPath && !currentRepo && !proxyOpen;
     const codeSearchActive = _contextSubView === 'code-search';
 
@@ -4635,6 +4637,7 @@
     } else if (currentProject.is_project) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+      html += `<button class="repo-tab${notebookOpen ? ' active' : ''}" onclick="openProjectNotebooks()" title="Lab Jupyter notebooks — no server configuration required">&#x25C9; Jupyter</button>`;
     }
 
     // One tab per declared server (project.json proxies) — clicking it opens
@@ -4730,6 +4733,107 @@
   function getLastProjectDoc(projectPath) {
     return _lastDocMap()[projectPath] || null;
   }
+
+  // Notebook selection is remembered separately from the last ordinary
+  // project document. A user can move from a notebook to README.md and still
+  // return to the same live kernel with one click on the built-in Jupyter tab.
+  const LAST_NOTEBOOK_KEY = 'labLastNotebook-v1';
+  function _lastNotebookMap() {
+    try { return JSON.parse(localStorage.getItem(LAST_NOTEBOOK_KEY) || '{}') || {}; }
+    catch { return {}; }
+  }
+  function setLastProjectNotebook(projectPath, notebookPath) {
+    if (!projectPath || !notebookPath) return;
+    const m = _lastNotebookMap();
+    m[projectPath] = notebookPath;
+    try { localStorage.setItem(LAST_NOTEBOOK_KEY, JSON.stringify(m)); } catch {}
+  }
+  function getLastProjectNotebook(projectPath) {
+    return _lastNotebookMap()[projectPath] || null;
+  }
+
+  function _projectNotebookEntries(files) {
+    return (Array.isArray(files) ? files : [])
+      .filter(f => f && f.type !== 'dir' && typeof f.path === 'string'
+        && f.path.toLowerCase().endsWith('.ipynb'))
+      .sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0)
+        || a.path.localeCompare(b.path));
+  }
+
+  async function _loadProjectNotebookEntries(projectPath) {
+    const cached = _projectSidebarCache.get(projectPath);
+    if (cached && Array.isArray(cached.files)) return _projectNotebookEntries(cached.files);
+    const response = await fetch(`/api/project-files?path=${encodeURIComponent(projectPath)}`);
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || `Could not list notebooks (${response.status})`);
+    }
+    return _projectNotebookEntries(await response.json());
+  }
+
+  function _renderProjectNotebookLauncher(notebooks) {
+    const content = document.getElementById('content');
+    if (!content) return;
+    const cards = notebooks.map(entry => {
+      const path = String(entry.path || '');
+      const safePath = path.replace(/'/g, "\\'");
+      const updated = entry.mtime
+        ? `updated ${new Date(Number(entry.mtime) * 1000).toLocaleString()}`
+        : 'not run yet';
+      return `<button type="button" onclick="openProjectDoc('${safePath}')" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer">
+        <span style="font-size:22px;color:var(--accent)">&#x25C9;</span>
+        <span style="min-width:0;flex:1"><strong style="display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(path.split('/').pop() || path)}</strong><span style="display:block;color:var(--text-dim);font:11px ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px">${esc(path)}</span></span>
+        <span style="color:var(--text-dim);font-size:11px;white-space:nowrap">${esc(updated)}</span>
+      </button>`;
+    }).join('');
+    content.innerHTML = `<div style="padding:28px;max-width:900px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
+        <div style="flex:1"><h1 style="color:var(--text-primary);font-size:24px;margin:0 0 5px">Jupyter</h1><p style="color:var(--text-secondary);font-size:13px;margin:0">Built into Lab. Every .ipynb keeps its own kernel; people and agents share it by file path.</p></div>
+        <button type="button" onclick="openNewNotebookDialog()" style="background:var(--accent);color:#fff;border:0;border-radius:6px;padding:8px 13px;cursor:pointer">+ Notebook</button>
+      </div>
+      ${notebooks.length
+        ? `<div style="display:flex;flex-direction:column;gap:9px">${cards}</div>`
+        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No notebooks in this project yet.<br><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook</button></div>`}
+    </div>`;
+  }
+
+  async function openProjectNotebooks({showLauncher = false} = {}) {
+    if (!currentProject || !currentProject.is_project) return;
+    const projectPath = currentProject.path;
+    if (!showLauncher && typeof _projDocPath === 'string'
+        && _projDocPath.toLowerCase().endsWith('.ipynb')) {
+      return openProjectDoc(_projDocPath);
+    }
+    _contextSubView = 'notebooks';
+    currentRepo = null;
+    currentRepoInProject = null;
+    _repoFileRoot = null;
+    _projDocPath = '__notebooks__';
+    _projDocRoot = projectPath;
+    renderRepoTabs();
+    _sidebarApplyForView();
+    document.getElementById('diffTabs').style.display = 'none';
+    document.body.classList.remove('has-diff-tabs');
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="loading">Loading notebooks...</div>';
+    try {
+      const notebooks = await _loadProjectNotebookEntries(projectPath);
+      if (!currentProject || currentProject.path !== projectPath || _projDocPath !== '__notebooks__') return;
+      const remembered = getLastProjectNotebook(projectPath);
+      const preferred = !showLauncher && remembered
+        ? notebooks.find(entry => entry.path === remembered)
+        : null;
+      if (preferred) return openProjectDoc(preferred.path);
+      if (!showLauncher && notebooks.length === 1) return openProjectDoc(notebooks[0].path);
+      _renderProjectNotebookLauncher(notebooks);
+    } catch (err) {
+      if (content && currentProject && currentProject.path === projectPath
+          && _projDocPath === '__notebooks__') {
+        content.innerHTML = `<div class="no-repo"><p>Error: ${esc(err.message || err)}</p></div>`;
+      }
+    }
+  }
+  window.openProjectNotebooks = openProjectNotebooks;
 
   let _docModalEscHandler = null;
 
@@ -5178,8 +5282,11 @@
     const docRoot = root || (preserveScroll && _projDocRoot) || currentProject.path;
     _projDocRoot = docRoot;
     _contextSubView = 'document';
-    renderRepoTabs();
     _projDocPath = filepath;
+    if (filepath.toLowerCase().endsWith('.ipynb')) {
+      setLastProjectNotebook(currentProject.path, filepath);
+    }
+    renderRepoTabs();
     _projDocEditing = false;
     setLastProjectDoc(docRoot, filepath);
     // Coming back from a server view (which collapses the sidebar by

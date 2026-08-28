@@ -116,6 +116,33 @@ process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
     )
 
 
+def test_builtin_jupyter_tab_needs_no_server_proxy_configuration() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    helpers = _js_between(
+        "function _projectNotebookEntries(files)",
+        "async function _loadProjectNotebookEntries(projectPath)",
+    )
+    result = _run_node(
+        helpers
+        + """
+const entries = _projectNotebookEntries([
+  {path: 'README.md', type: 'file', mtime: 30},
+  {path: 'notebooks/older.ipynb', type: 'file', mtime: 10},
+  {path: 'notebooks', type: 'dir', mtime: 50},
+  {path: 'research/newer.IPYNB', type: 'file', mtime: 20},
+]);
+process.stdout.write(JSON.stringify(entries.map(entry => entry.path)));
+"""
+    )
+
+    assert result == ["research/newer.IPYNB", "notebooks/older.ipynb"]
+    assert 'onclick="openProjectNotebooks()"' in source
+    assert "Lab Jupyter notebooks — no server configuration required" in source
+    assert "Built into Lab. Every .ipynb keeps its own kernel" in source
+    assert "window.openProjectNotebooks = openProjectNotebooks" in source
+    assert "__proxy__/Jupyter" not in source
+
+
 def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     open_block = _js_between(
