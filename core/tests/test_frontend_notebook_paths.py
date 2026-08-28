@@ -131,10 +131,7 @@ def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
         "function bindNbAddCellButton(container, relPath, filepath)",
     )
 
-    assert (
-        "const relPath = _workspaceRelativeNotebookPath(currentProject.path, filepath);"
-        in open_block
-    )
+    assert "_workspaceRelativeNotebookPathOrNull(currentProject.path, filepath)" in open_block
     assert "fetch(`/api/nb?path=${encodeURIComponent(relPath)}`)" in open_block
     assert "fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}`)" in open_block
     assert "fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}`)" in open_block
@@ -146,6 +143,9 @@ def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
     assert "if (cellId) body.cell_id = cellId;" in cell_bindings
     assert "{ path: relPath, cell_id: cellId }" in cell_bindings
     assert "JSON.stringify({ path: relPath })" in restart_binding
+    assert "/api/notebook?repo=${encodeURIComponent(docRoot)}" in open_block
+    assert "read-only notebook" in open_block
+    assert "Move or copy into a workspace project to execute" in open_block
     assert "SELF_REPO_PATH" not in open_block
     assert "window.LAB_WORKSPACE_ROOT" in source
 

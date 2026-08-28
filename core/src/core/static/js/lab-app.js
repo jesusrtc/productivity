@@ -3035,11 +3035,28 @@
     return relative;
   }
 
+  function _workspaceRelativeNotebookPathOrNull(projectPath, filepath) {
+    try { return _workspaceRelativeNotebookPath(projectPath, filepath); }
+    catch (_) { return null; }
+  }
+
   function renderNotebookCell(cell, status) {
     const statusCls = status && status !== 'unchanged' ? ` nb-${status}` : '';
     const statusLabel = status && status !== 'unchanged'
       ? `<span class="nb-status nb-status-${status}">${status}</span>` : '';
     const execCount = cell.execution_count ? `[${cell.execution_count}]` : '';
+    const metadata = cell.metadata || {};
+    const actor = metadata.lab_actor === 'agent' || metadata.lab_actor === 'human'
+      ? metadata.lab_actor : '';
+    const action = metadata.lab_action === 'modified' || metadata.lab_action === 'created'
+      ? metadata.lab_action : '';
+    const actorBadge = actor
+      ? `<span class="nb-cell-actor nb-cell-actor-${actor}">${actor}${action ? ` · ${action}` : ''}</span>`
+      : '';
+    const durationMs = Number(metadata.lab_duration_ms);
+    const timingBadge = Number.isFinite(durationMs)
+      ? `<span class="nb-cell-timing nb-cell-finished">finished in ${_formatNbElapsed(durationMs)}</span>`
+      : '';
 
     let bodyHtml = '';
     if (cell.cell_type === 'markdown') {
@@ -3076,6 +3093,8 @@
       <div class="nb-cell-header">
         <span class="nb-type">${cell.cell_type}</span>
         <span class="nb-exec">${execCount}</span>
+        ${actorBadge}
+        ${timingBadge}
         ${statusLabel}
       </div>
       ${bodyHtml}
@@ -4825,14 +4844,30 @@
     // .ipynb write triggers the watcher, every open viewer re-renders.
     if (filepath.toLowerCase().endsWith('.ipynb')) {
       try {
-        // Notebook execution is intentionally workspace-scoped. An external
-        // worktree can still be browsed as files, but it cannot borrow the
-        // workspace kernel path contract.
-        if (docRoot !== currentProject.path) {
-          container.innerHTML = '<div class="no-repo"><p>Open this notebook from Root to run or review cells.</p></div>';
+        // Execution is workspace-scoped, but notebooks in the framework Home
+        // or another repository root are still useful documents. Render those
+        // through the generic repository notebook endpoint without Run/Delete
+        // controls; only a notebook inside the active workspace gets a kernel.
+        const relPath = docRoot === currentProject.path
+          ? _workspaceRelativeNotebookPathOrNull(currentProject.path, filepath)
+          : null;
+        if (!relPath) {
+          const readOnlyRes = await fetch(`/api/notebook?repo=${encodeURIComponent(docRoot)}&path=${encodeURIComponent(filepath)}`);
+          if (!readOnlyRes.ok) {
+            const detail = await readOnlyRes.json().catch(() => ({}));
+            throw new Error(detail.detail || `Failed to load notebook (${readOnlyRes.status})`);
+          }
+          const readOnlyCells = await readOnlyRes.json();
+          await Promise.all([
+            ensureMarked().catch(() => {}),
+            ensureHighlight().catch(() => {}),
+          ]);
+          if (!_stillActiveNav()) return;
+          const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a workspace project to execute</span></div>`;
+          container.innerHTML = `<div style="padding:24px">${readOnlyHeader}<div class="nb-container">${readOnlyCells.map(c => renderNotebookCell(c, null)).join('')}</div></div>`;
+          activateNotebookScripts(container);
           return;
         }
-        const relPath = _workspaceRelativeNotebookPath(currentProject.path, filepath);
 
         // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
         // receive its first cell" rather than an error.
