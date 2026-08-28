@@ -80,6 +80,12 @@ an agent started it:
    file replacement. The final event replaces the running cell with the exact
    completed nbformat outputs and timing metadata.
 
+When a person reruns a cell, Lab immediately hides its previous output, keeps
+the code/header in view, and shows a live-output placeholder. The first stream
+event replaces that placeholder; rich output appears only when the kernel
+actually emits it. If the execution request is rejected before it starts, the
+previous output is restored unchanged.
+
 `GET /api/nb/live?path=...` returns a complete snapshot of every run currently
 in flight for that notebook. A newly opened or reconnected browser first
 overlays this snapshot on the checkpointed file and then resumes WebSocket

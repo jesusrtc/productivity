@@ -340,6 +340,34 @@ process.stdout.write(JSON.stringify({
     assert "actor: 'human'" in source
 
 
+def test_starting_a_cell_clears_stale_output_and_focuses_its_code() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    bindings = _js_between(
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null)",
+        "function renderNbAddCellButton()",
+    )
+    open_block = _js_between(
+        "// Notebooks: render cells via /api/nb",
+        "// All other files: fetch content + comments",
+    )
+
+    assert 'data-local-running-output="true"' in bindings
+    assert "Starting execution… first output will stream here." in bindings
+    assert "existing.hidden = true;" in bindings
+    assert "localRunOutputSnapshot.existing.hidden = false;" in bindings
+    assert "ta.readOnly = on;" in bindings
+    assert "gutter.textContent = '[*]';" in bindings
+    assert "wrap.querySelector('.nb-cell-header') || wrap" in bindings
+    assert "scrollIntoView({ block: 'start', behavior: 'smooth' })" in bindings
+    assert "wrap.scrollIntoView({ block: 'center'" not in bindings
+    assert "runningCell.querySelector('.nb-cell-header') || runningCell" in open_block
+    assert "scrollIntoView({ behavior: 'smooth', block: 'start' })" in open_block
+    assert "runningCell.scrollIntoView({ behavior: 'smooth', block: 'center' })" not in open_block
+    assert ".nb-output-local-running" in css
+    assert "@keyframes nb-running-spin" in css
+
+
 def test_notebook_live_execution_replays_and_applies_ordered_ws_deltas() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     open_block = _js_between(

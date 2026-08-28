@@ -3821,6 +3821,8 @@
     // pending cells persist via the path-scoped pending list so they survive
     // navigation away and back.
     const draftKey = isPending ? null : _cellDraftKey(relPath, cellKey);
+    let localRunOutputSnapshot = null;
+    const idleExecText = wrap.querySelector('.nb-exec')?.textContent || '';
     // While an agent/human execution is live, the server snapshot is the code
     // actually running. Keep any unsaved browser draft in localStorage, but do
     // not let it visually replace that source until the run has completed.
@@ -3858,24 +3860,65 @@
       _repaintHighlight();
     });
 
+    function _showLocalRunningOutput() {
+      const existing = wrap.querySelector(':scope > .nb-outputs');
+      // Keep the old output node alive (but hidden) until the server's
+      // authoritative running snapshot replaces this cell.  If the request
+      // itself fails, unhiding the same node preserves its toggle/copy event
+      // listeners as well as the prior rich output DOM.
+      localRunOutputSnapshot = { existing };
+      const placeholder = `<div class="nb-outputs" data-local-running-output="true">
+        <div class="nb-outputs-toggle nb-outputs-live-label">
+          <span class="nb-outputs-caret">▼</span> Output · live
+        </div>
+        <div class="nb-outputs-body"><div class="nb-output nb-output-local-running" role="status"><span class="nb-running-spinner" aria-hidden="true"></span><span>Starting execution… first output will stream here.</span></div></div>
+      </div>`;
+      if (existing) {
+        existing.hidden = true;
+        existing.insertAdjacentHTML('beforebegin', placeholder);
+      } else {
+        wrap.insertAdjacentHTML('beforeend', placeholder);
+      }
+    }
+
+    function _restoreLocalRunningOutput() {
+      if (!localRunOutputSnapshot) return;
+      const placeholder = wrap.querySelector(':scope > .nb-outputs[data-local-running-output="true"]');
+      if (placeholder) placeholder.remove();
+      if (localRunOutputSnapshot.existing) localRunOutputSnapshot.existing.hidden = false;
+      localRunOutputSnapshot = null;
+    }
+
     function setRunning(on) {
       runBtn.disabled = on;
       delBtn.disabled = on;
+      ta.readOnly = on;
+      if (on) ta.setAttribute('aria-busy', 'true');
+      else ta.removeAttribute('aria-busy');
       busy.style.display = on ? '' : 'none';
       if (on) {
         busy.setAttribute('data-nb-started-at-ms', String(Date.now()));
         busy.textContent = 'running · 0.0s';
+        const gutter = wrap.querySelector('.nb-exec');
+        if (gutter) gutter.textContent = '[*]';
+        _showLocalRunningOutput();
         _ensureNbElapsedTicker();
       } else {
         busy.removeAttribute('data-nb-started-at-ms');
         busy.textContent = 'running…';
+        const gutter = wrap.querySelector('.nb-exec');
+        if (gutter) gutter.textContent = idleExecText;
+        _restoreLocalRunningOutput();
       }
       const wasRunning = wrap.classList.contains('nb-cell-running');
       wrap.classList.toggle('nb-cell-running', on);
-      // Auto-scroll only on the idle → running transition. Re-renders that
-      // re-create an already-running cell don't re-scroll.
+      // Focus the header/code, never the old output. Centering the whole cell
+      // while a tall chart is still mounted lands the viewport in that stale
+      // chart and makes a live run look as if it jumped straight to the final
+      // output.
       if (on && !wasRunning) {
-        try { wrap.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {}
+        const focusTarget = wrap.querySelector('.nb-cell-header') || wrap;
+        try { focusTarget.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {}
       }
       _clearCellError(wrap);
     }
@@ -5639,7 +5682,8 @@
         // terminal / curl rather than the in-UI Run button.
         const runningCell = container.querySelector('.nb-cell-interactive.nb-cell-running');
         if (runningCell) {
-          runningCell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const focusTarget = runningCell.querySelector('.nb-cell-header') || runningCell;
+          focusTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       } catch (err) {
         if (!_stillActiveNav()) return;
