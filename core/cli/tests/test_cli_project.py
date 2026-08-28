@@ -35,6 +35,10 @@ def test_project_new_creates_directory_and_files(monorepo: Path) -> None:
 
     tasks = json.loads((pdir / "tasks.json").read_text())
     assert tasks == {"next_id": 1, "tasks": []}
+    agents = (pdir / "AGENTS.md").read_text()
+    assert "## Lab notebooks (live execution)" in agents
+    assert "lab notebook exec" in agents
+    assert (pdir / "CLAUDE.md").resolve() == (pdir / "AGENTS.md").resolve()
 
 
 def test_project_new_with_priority_due_tags_labels(monorepo: Path) -> None:
@@ -90,6 +94,7 @@ def test_agents_sync_links_project_claude_md(monorepo: Path, seed_project,
     claude = pdir / "CLAUDE.md"
     assert agents.is_file() and not agents.is_symlink()
     assert "legacy project instructions" in agents.read_text()
+    assert "lab notebook exec" in agents.read_text()
     assert claude.is_symlink()
     assert claude.resolve() == agents.resolve()
     local_settings = json.loads((pdir / ".claude" / "settings.local.json").read_text())
@@ -113,6 +118,7 @@ def test_agents_sync_root_instructions_and_memory(monorepo: Path,
     local_settings = json.loads((monorepo / ".claude" / "settings.local.json").read_text())
     assert local_settings["autoMemoryDirectory"] == str((monorepo / ".agents" / "memory").resolve())
     assert "Memory (repo-local" in (monorepo / "AGENTS.md").read_text()
+    assert "lab notebook exec" in (monorepo / "AGENTS.md").read_text()
 
 
 def test_agents_sync_is_idempotent(monorepo: Path, seed_project,
@@ -125,6 +131,23 @@ def test_agents_sync_is_idempotent(monorepo: Path, seed_project,
     second = runner.invoke(main, ["agents", "sync"])
     assert second.exit_code == 0, second.output
     assert "nothing to do" in second.output
+
+
+def test_agents_sync_notebooks_only_does_not_create_memory_or_skill_state(
+    monorepo: Path, seed_project
+) -> None:
+    project = seed_project("notebook-project")
+    (project / "AGENTS.md").write_text("# notebook project\n")
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["agents", "sync", "--notebooks-only"])
+
+    assert result.exit_code == 0, result.output
+    assert "Lab notebooks section" in result.output
+    assert "lab notebook exec" in (monorepo / "AGENTS.md").read_text()
+    assert "lab notebook exec" in (project / "AGENTS.md").read_text()
+    assert not (project / ".agents").exists()
+    assert not (project / ".claude").exists()
 
 
 def test_agents_sync_links_shared_skills(monorepo: Path, seed_project,

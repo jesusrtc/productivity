@@ -105,7 +105,28 @@ agent run is active and are not mistaken for the source actually executing.
 
 ## Agent workflow
 
-Agents use the same endpoints as the browser:
+Agents should use the `lab` command from either the workspace root or a project
+directory. It discovers the running Lab server, authenticates, resolves the
+notebook against the selected workspace, and routes the cell through the same
+live executor as the browser:
+
+```bash
+lab notebook exec projects/acme/notebooks/analysis.ipynb \
+  --code 'from client_sdk import load_table; print(load_table())'
+
+# From projects/acme/, a project-relative path works too. Reuse the stable id
+# to modify and rerun an existing cell rather than appending a new one.
+lab notebook exec notebooks/analysis.ipynb \
+  --cell-id 9f27a1c34d10 --file /tmp/analysis-cell.py
+```
+
+The command remains attached until the cell finishes, but every open Jupyter
+tab receives the created/modified cell, running timer, and incremental outputs
+immediately. Do not execute a hand-edited notebook with `jupyter`, `ipykernel`,
+`nbclient`, or `nbconvert`: those processes have no connection to Lab's live
+event publisher, so the UI can only discover the final file afterward.
+
+For API clients, the equivalent lower-level request is:
 
 ```bash
 curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
@@ -122,7 +143,7 @@ include its registered workspace id in the JSON body, for example
 `"workspace":"local"`. Browser Run, interrupt, restart, runtime, and replay
 requests add this automatically.
 
-To rerun an existing cell safely, read `/api/nb?path=...` and send its stable
+To rerun an existing cell through the API, read `/api/nb?path=...` and send its stable
 `cell_id` rather than a positional index. The same path always maps to the same
 kernel, so variables persist across human and agent runs until restart.
 

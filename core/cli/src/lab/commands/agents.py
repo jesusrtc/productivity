@@ -13,13 +13,19 @@ def agents_group() -> None:
 @agents_group.command("sync")
 @click.option("--dry-run", is_flag=True,
               help="Show what would change without touching disk.")
-def sync(dry_run: bool) -> None:
+@click.option("--notebooks-only", is_flag=True,
+              help="Only add the live-notebook execution contract.")
+def sync(dry_run: bool, notebooks_only: bool) -> None:
     """Make AGENTS.md canonical and (re)link CLAUDE.md, Copilot, and memory.
 
     Idempotent — safe to run any time (and on every ``make setup``).
     """
     root = paths.find_monorepo_root()
-    report = agentsync.sync_all(root, dry_run=dry_run)
+    report = (
+        agentsync.sync_notebook_instructions(root, dry_run=dry_run)
+        if notebooks_only
+        else agentsync.sync_all(root, dry_run=dry_run)
+    )
     actions = report["actions"]
     if not actions:
         click.echo("nothing to do — already in sync.")

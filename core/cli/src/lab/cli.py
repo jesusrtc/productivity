@@ -8,6 +8,7 @@ from lab.commands.artifact import artifact_group
 from lab.commands.config import config_group
 from lab.commands.index import index_group
 from lab.commands.link import link_group
+from lab.commands.notebook import notebook_group
 from lab.commands.ref import ref_group
 from lab.commands.repo import repo_group
 from lab.commands.pr import pr_group
@@ -32,6 +33,7 @@ main.add_command(task_group)
 main.add_command(pr_group)
 main.add_command(artifact_group)
 main.add_command(link_group)
+main.add_command(notebook_group)
 main.add_command(ref_group)
 main.add_command(index_group)
 main.add_command(repo_group)

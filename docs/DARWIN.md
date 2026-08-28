@@ -94,7 +94,13 @@ For anything not covered here, read `~/.claude/skills/darwin-cli/SKILL.md` and `
 
 ## Running Darwin code inside the lab UI
 
-The lab server (default `:3333`, overridable via `make start PORT=NNNN`) exposes a notebook executor that wraps `darwin code execute` and writes the result straight to an `.ipynb` on disk. Use it instead of running `darwin code execute` directly whenever you want the run to appear in an open notebook view (your UI **and** Claude Code can share the same notebook this way). Resolve the actual URL from any shell via `$(scripts/lab-url.sh)` so you never hardcode the port.
+The lab server (default `:3333`, overridable via `make start PORT=NNNN`) exposes a notebook executor that wraps `darwin code execute` and writes the result straight to an `.ipynb` on disk. Use `lab notebook exec` instead of running `darwin code execute` directly whenever you want the run to appear in an open notebook view (your UI **and** an agent can share the same notebook this way):
+
+```bash
+lab notebook exec projects/<id>/notebooks/<name>.ipynb --code 'print(1+1)'
+```
+
+The command discovers the active server and streams state through Lab while it waits. The endpoint below remains available to API clients; resolve its actual URL from any shell via `$(scripts/lab-url.sh)` so you never hardcode the port.
 
 ### Endpoint — `POST /api/nb/exec`
 

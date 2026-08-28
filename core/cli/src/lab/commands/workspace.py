@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from lab import paths, storage
+from lab.agent_instructions import NOTEBOOK_AGENT_SECTION
 
 
 def _write_if_missing(path: Path, content: str) -> None:
@@ -115,7 +116,10 @@ def _init_workspace_files(root: Path, *, name: str, include_example: bool) -> No
     _write_if_missing(root / "README.md", f"# {name}\n\nLab workspace.\n")
     _write_if_missing(
         root / "AGENTS.md",
-        "# Lab workspace instructions\n\nUse `lab` for project and task state. Do not hand-edit `project.json` or `tasks.json`.\n",
+        "# Lab workspace instructions\n\n"
+        "Use `lab` for project and task state. Do not hand-edit `project.json` "
+        "or `tasks.json`.\n\n"
+        f"{NOTEBOOK_AGENT_SECTION}\n",
     )
     _write_if_missing(
         root / "lab.toml",

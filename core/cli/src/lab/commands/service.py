@@ -17,7 +17,7 @@ def _ensure_workspace(root: Path) -> None:
         raise click.ClickException(f"{root} is not a Lab workspace; run `lab init {root}` first")
 
 
-def _server_port() -> str:
+def server_port(workspace: Path | None = None) -> str:
     """Resolve the lab server's port.
 
     Precedence: LAB_PORT env var → workspace server port file (written by the running
@@ -27,20 +27,27 @@ def _server_port() -> str:
     env = os.environ.get("LAB_PORT")
     if env:
         return env.strip()
-    try:
-        root = paths.find_workspace_root()
-    except paths.MonorepoNotFound:
-        return "3333"
-    pf = paths.port_file(root)
-    if not pf.is_file():
-        pf = root / ".lab-server.port"
-    if pf.is_file():
+    roots: list[Path] = []
+    if workspace is not None:
+        roots.append(workspace.expanduser().resolve())
+    else:
         try:
-            value = pf.read_text().strip()
-            if value:
-                return value
-        except OSError:
+            roots.append(paths.find_workspace_root())
+        except paths.MonorepoNotFound:
             pass
+    active = paths.active_workspace()
+    if active is not None and active not in roots:
+        roots.append(active)
+    for root in roots:
+        for pf in (paths.port_file(root), root / ".lab-server.port"):
+            if not pf.is_file():
+                continue
+            try:
+                value = pf.read_text().strip()
+                if value:
+                    return value
+            except OSError:
+                pass
     return "3333"
 
 
@@ -78,4 +85,4 @@ def stop() -> None:
 @click.command(name="open")
 def open_cmd() -> None:
     """Open the backend index URL in the default browser."""
-    webbrowser.open(f"http://localhost:{_server_port()}/api/index")
+    webbrowser.open(f"http://localhost:{server_port()}/api/index")

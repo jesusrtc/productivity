@@ -26,6 +26,7 @@ def test_lab_init_creates_workspace_and_registers(tmp_path: Path, monkeypatch) -
     assert (workspace / "projects" / "example" / "project.json").is_file()
     assert (workspace / "apps" / "example-cli" / "lab-app.toml").is_file()
     assert (workspace / "content" / "README.md").is_file()
+    assert "lab notebook exec" in (workspace / "AGENTS.md").read_text()
     assert (workspace / "repositories" / ".gitignore").read_text() == "*\n!.gitignore\n!README.md\n"
     assert (workspace / ".lab" / "state" / "indexes").is_dir()
 

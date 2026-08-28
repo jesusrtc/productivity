@@ -5,6 +5,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from lab.cli import main
+from lab.commands.service import server_port
 
 
 def test_start_invokes_make(monkeypatch, tmp_path: Path) -> None:
@@ -102,3 +103,22 @@ def test_open_respects_custom_port(monkeypatch) -> None:
     result = CliRunner().invoke(main, ["open"])
     assert result.exit_code == 0
     assert opened == ["http://localhost:4444/api/index"]
+
+
+def test_server_port_falls_back_to_running_active_workspace(
+    monkeypatch, tmp_path: Path
+) -> None:
+    current = tmp_path / "current"
+    active = tmp_path / "active"
+    current.mkdir()
+    (active / ".lab" / "state").mkdir(parents=True)
+    (active / ".lab" / "state" / "server.port").write_text("8080\n")
+    monkeypatch.delenv("LAB_PORT", raising=False)
+    monkeypatch.setattr(
+        "lab.commands.service.paths.find_workspace_root", lambda: current,
+    )
+    monkeypatch.setattr(
+        "lab.commands.service.paths.active_workspace", lambda: active,
+    )
+
+    assert server_port() == "8080"

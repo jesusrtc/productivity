@@ -10,6 +10,7 @@ import click
 
 from lab import mp as mp_mod
 from lab import paths, storage
+from lab.agent_instructions import NOTEBOOK_AGENT_SECTION
 from lab.commands._helpers import require_valid_id as _require_valid_id
 from lab.model import ModelError, Priority, Project, ProjectStatus
 from lab.util import split_csv
@@ -25,6 +26,8 @@ _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
 _PROJECT_AGENTS_MD_TEMPLATE = """# {name}
 
 {description}
+
+{notebook_section}
 
 ## Dev server
 
@@ -68,7 +71,11 @@ def _write_project_agents_md(pdir: Path, project: "Project") -> None:
     if not agents_md.exists():
         description = project.description or "New project."
         agents_md.write_text(
-            _PROJECT_AGENTS_MD_TEMPLATE.format(name=project.id, description=description),
+            _PROJECT_AGENTS_MD_TEMPLATE.format(
+                name=project.id,
+                description=description,
+                notebook_section=NOTEBOOK_AGENT_SECTION,
+            ),
             encoding="utf-8",
         )
     if not claude_md.exists() and not claude_md.is_symlink():

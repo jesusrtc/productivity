@@ -20,15 +20,20 @@ Use `lab`. Run `lab --help` for commands. Never hand-edit `project.json`, `tasks
 
 `apps/darwin-runner` and `lab darwin` are **retired** (2026-05-11). For anything that touches Darwin — running Python/PySpark on a Jupyter kernel, Trino/Spark SQL, notebook runs, schedules, pod shell, DataApp, dbt — use the **`darwin-cli` Claude skill**. The on-disk command is `darwin` (LinkedIn's hosted notebook CLI / `go/darwin`). The full command index and examples live in `docs/DARWIN.md`; the authoritative reference is the skill at `~/.claude/skills/darwin-cli/`.
 
-**When the user wants a Darwin run to show up in the lab UI**, do NOT call `darwin code execute` directly. Instead POST to the lab server's notebook executor — it runs the same `darwin code execute` under the hood, appends the cell + outputs to a real `.ipynb` on disk, and the watcher re-broadcasts to every open notebook view:
+**When the user wants a notebook run to show up live in the Lab UI**, do NOT
+hand-edit the `.ipynb` and launch Jupyter/ipykernel, and do not call
+`darwin code execute` directly. Use Lab's notebook executor so the cell appears
+as soon as it starts and its timer and outputs stream to every open view:
 
 ```bash
-curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
-  -H 'Content-Type: application/json' \
-  -d '{"path":"projects/<id>/notebooks/<name>.ipynb","code":"print(1+1)"}'
+lab notebook exec projects/<id>/notebooks/<name>.ipynb --code 'print(1+1)'
+lab notebook exec projects/<id>/notebooks/<name>.ipynb --cell-id <id> --file /tmp/cell.py
 ```
 
-The kernel session is pinned to the file path (same `path` → same Darwin kernel), so consecutive cells share state automatically. To view the running notebook, open `$(scripts/lab-url.sh)/#/nb?path=<path>`.
+The command sends the code through `POST /api/nb/exec` and waits for the final
+result in the terminal; the notebook view updates while it waits. The kernel
+session is pinned to the file path, so consecutive cells share state. To view
+the running notebook, open `$(scripts/lab-url.sh)/#/nb?path=<path>`.
 
 ## On project work
 

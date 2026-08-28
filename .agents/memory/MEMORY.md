@@ -48,3 +48,4 @@
 - [Live notebook agent/human contract](live-notebook-agent-human-contract.md) — agent cell edits and Jupyter outputs are visible live; humans share the kernel and can edit, rerun, and interrupt
 - [Notebook reruns hide stale output before scrolling](notebook-reruns-hide-stale-output-before-scrolling.md) — on idle→running, hide the prior rich output immediately and focus the code/header; centering a tall stale chart makes live execution look already finished
 - [Notebook tabs follow their owning workspace](notebook-tabs-follow-owning-workspace.md) — cross-workspace notebook paths, APIs, replay state, events, and deep links must use the project tab's workspace identity
+- [Live notebook streaming requires Lab's executor](live-notebook-streaming-requires-lab-executor.md) — raw Jupyter execution bypasses actor/timer/output events; agents must use `lab notebook exec`
