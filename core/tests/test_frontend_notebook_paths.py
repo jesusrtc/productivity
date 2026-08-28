@@ -11,6 +11,7 @@ import pytest
 NODE = shutil.which("node")
 ROOT = Path(__file__).resolve().parents[2]
 LAB_APP = ROOT / "core/src/core/static/js/lab-app.js"
+LAB_SHELL_CSS = ROOT / "core/src/core/static/css/lab-shell.css"
 
 
 def _run_node(script: str) -> dict:
@@ -118,6 +119,7 @@ process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
 
 def test_builtin_jupyter_tab_needs_no_server_proxy_configuration() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     helpers = _js_between(
         "function _projectNotebookEntries(files)",
         "async function _loadProjectNotebookEntries(projectPath)",
@@ -138,7 +140,13 @@ process.stdout.write(JSON.stringify(entries.map(entry => entry.path)));
     assert result == ["research/newer.IPYNB", "notebooks/older.ipynb"]
     assert 'onclick="openProjectNotebooks()"' in source
     assert "Lab Jupyter notebooks — no server configuration required" in source
-    assert "Built into Lab. Every .ipynb keeps its own kernel" in source
+    assert "Notebooks are scoped to this project" in source
+    assert "A notebook created in another project appears in that project's Jupyter tab" in source
+    assert "Create the first notebook here" in source
+    assert 'onclick="openProjectNotebooks({showLauncher:true})"' in source
+    assert "☷ All notebooks" in source
+    assert ".nb-notebook-list, .nb-runtime-open, .nb-interrupt-kernel" in css
+    assert ".nb-notebook-list:hover" in css
     assert "window.openProjectNotebooks = openProjectNotebooks" in source
     assert "__proxy__/Jupyter" not in source
 

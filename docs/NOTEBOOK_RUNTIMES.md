@@ -50,6 +50,11 @@ selection yet, it shows the project notebooks and a **+ Notebook** action. This
 is part of Lab's own notebook runtime, so it does not require a `servers.json`
 entry, host, port, reverse proxy, or separate JupyterLab process.
 
+The launcher displays the current project name and path because notebooks are
+project-scoped: a notebook created in project A appears in project A's Jupyter
+tab, not project B's. From an open notebook, **All notebooks** returns to the
+project launcher.
+
 Notebook code cells are editable in place. Use **Run** or Cmd/Ctrl+Enter,
 insert cells between existing cells, restart the kernel, or interrupt a long
 cell. Drafts survive navigation. Every execution is written back to the real

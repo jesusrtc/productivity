@@ -4774,6 +4774,8 @@
   function _renderProjectNotebookLauncher(notebooks) {
     const content = document.getElementById('content');
     if (!content) return;
+    const projectName = currentProject ? _projectDisplayName(currentProject) : 'this project';
+    const projectPath = currentProject && currentProject.path ? currentProject.path : '';
     const cards = notebooks.map(entry => {
       const path = String(entry.path || '');
       const safePath = path.replace(/'/g, "\\'");
@@ -4788,12 +4790,12 @@
     }).join('');
     content.innerHTML = `<div style="padding:28px;max-width:900px">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
-        <div style="flex:1"><h1 style="color:var(--text-primary);font-size:24px;margin:0 0 5px">Jupyter</h1><p style="color:var(--text-secondary);font-size:13px;margin:0">Built into Lab. Every .ipynb keeps its own kernel; people and agents share it by file path.</p></div>
+        <div style="flex:1"><h1 style="color:var(--text-primary);font-size:24px;margin:0 0 5px">Jupyter <span style="color:var(--text-dim);font-weight:400">· ${esc(projectName)}</span></h1><p style="color:var(--text-secondary);font-size:13px;margin:0">Notebooks are scoped to this project. Every .ipynb keeps its own kernel; people and agents share it by file path.</p>${projectPath ? `<code style="display:block;color:var(--text-dim);font-size:11px;margin-top:6px;overflow-wrap:anywhere">${esc(projectPath)}</code>` : ''}</div>
         <button type="button" onclick="openNewNotebookDialog()" style="background:var(--accent);color:#fff;border:0;border-radius:6px;padding:8px 13px;cursor:pointer">+ Notebook</button>
       </div>
       ${notebooks.length
         ? `<div style="display:flex;flex-direction:column;gap:9px">${cards}</div>`
-        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No notebooks in this project yet.<br><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook</button></div>`}
+        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No .ipynb files in <strong style="color:var(--text-secondary)">${esc(projectName)}</strong> yet.<div style="font-size:12px;margin-top:7px">A notebook created in another project appears in that project's Jupyter tab.</div><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook here</button></div>`}
     </div>`;
   }
 
@@ -5129,7 +5131,8 @@
         const interruptBtnHtml = provider === 'local'
           ? `<button class="nb-interrupt-kernel" type="button" title="Interrupt the currently running cell">■ Interrupt</button>`
           : '';
-        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${runtimeBadge}${sessionBadge}${interruptBtnHtml}${restartBtnHtml}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
+        const notebookListBtnHtml = `<button class="nb-notebook-list" type="button" onclick="openProjectNotebooks({showLauncher:true})" title="Show every notebook in this project">☷ All notebooks</button>`;
+        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${notebookListBtnHtml}${runtimeBadge}${sessionBadge}${interruptBtnHtml}${restartBtnHtml}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
         const realCells = nb.cells || [];
         await Promise.all([
