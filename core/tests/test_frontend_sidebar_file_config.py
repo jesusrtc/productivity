@@ -34,6 +34,27 @@ def _between(start_marker: str, end_marker: str) -> str:
     return source[start:end]
 
 
+def test_sql_files_use_the_database_icon() -> None:
+    icon_helpers = _between(
+        'const _FT_FONT =',
+        'function buildSidebarTree(entries)',
+    )
+    result = _run_node(
+        icon_helpers
+        + """
+const sql = fileIconHtml('event_session_ato_score.sql');
+const uppercase = fileIconHtml('QUERY.SQL');
+const plain = fileIconHtml('notes.txt');
+process.stdout.write(JSON.stringify({sql, uppercase, plain}));
+"""
+    )
+
+    assert 'class="ft-icon ft-sql"' in result["sql"]
+    assert '<ellipse' in result["sql"]
+    assert 'class="ft-icon ft-sql"' in result["uppercase"]
+    assert 'class="ft-icon ft-generic"' in result["plain"]
+
+
 def test_pinned_files_remain_in_the_normal_project_tree() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     sidebar = _between(

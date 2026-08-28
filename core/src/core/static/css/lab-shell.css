@@ -195,6 +195,7 @@
   .ft-icon.ft-html { color: var(--yellow); font-size: 9px; }
   .ft-icon.ft-css { color: var(--accent); font-size: 10px; }
   .ft-icon.ft-sh { color: var(--green); font-size: 10px; }
+  .ft-icon.ft-sql { color: var(--accent); }
   .ft-icon.ft-csv { color: var(--green); font-size: 11px; }
   .ft-icon.ft-git { color: var(--text-secondary); font-size: 9px; }
   .ft-icon.ft-generic { color: var(--text-dim); }
