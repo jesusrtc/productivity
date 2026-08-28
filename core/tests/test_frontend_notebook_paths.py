@@ -202,3 +202,27 @@ def test_project_runtime_panel_saves_builds_and_interrupts_through_shared_api() 
     assert "cli_checks: cliChecks" in runtime_binding
     assert "fetch('/api/nb/session/interrupt'" in interrupt_binding
     assert "Cmd/Ctrl+Enter" in source
+
+
+def test_notebook_cells_show_actor_action_and_live_elapsed_time() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    elapsed_helpers = _js_between(
+        "function _formatNbElapsed(milliseconds)",
+        "function renderNbCellInteractive(cell, index, relPath, opts)",
+    )
+    result = _run_node(
+        elapsed_helpers
+        + """
+process.stdout.write(JSON.stringify({
+  short: _formatNbElapsed(1250),
+  minute: _formatNbElapsed(65000),
+  hour: _formatNbElapsed(3661000),
+}));
+"""
+    )
+    assert result == {"short": "1.3s", "minute": "1m 5s", "hour": "1h 1m 1s"}
+    assert "nb-cell-actor-${actor}" in source
+    assert "${actor}${action ? ` · ${action}` : ''}" in source
+    assert "data-nb-started-at-ms" in source
+    assert "finished in ${_formatNbElapsed(durationMs)}" in source
+    assert "actor: 'human'" in source

@@ -133,8 +133,22 @@ class _KernelProcess:
             while not idle:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise Empty
-                message = client.get_iopub_msg(timeout=min(1.0, remaining))
+                    try:
+                        self.manager.interrupt_kernel()
+                    except Exception:
+                        pass
+                    self.interrupt_requested.clear()
+                    raise KernelExecutionError(
+                        f"local Jupyter execution timed out after {timeout}s",
+                        status_code=504,
+                    )
+                try:
+                    message = client.get_iopub_msg(timeout=min(1.0, remaining))
+                except Empty:
+                    # A cell may be legitimately quiet for minutes while a
+                    # library waits on a CLI, database, or subprocess. A
+                    # one-second poll miss is not the execution deadline.
+                    continue
                 if _parent_id(message) != msg_id:
                     continue
                 msg_type = _msg_type(message)
@@ -172,16 +186,8 @@ class _KernelProcess:
                     })
                 elif msg_type == "clear_output" and not content.get("wait"):
                     outputs.clear()
-        except Empty as exc:
-            try:
-                self.manager.interrupt_kernel()
-            except Exception:
-                pass
-            self.interrupt_requested.clear()
-            raise KernelExecutionError(
-                f"local Jupyter execution timed out after {timeout}s",
-                status_code=504,
-            ) from exc
+        except KernelExecutionError:
+            raise
         except Exception as exc:
             self.interrupt_requested.clear()
             raise KernelExecutionError(f"local Jupyter execution failed: {exc}", status_code=502) from exc

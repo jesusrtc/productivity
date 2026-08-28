@@ -33,6 +33,9 @@ repositories/
 # Superpowers scratch
 .superpowers/
 
+# Local runnable examples and demos (intentionally not shipped)
+examples/
+
 # html-proposal scratch: tmp/YYYY-MM-DD-<slug>.html files written by
 # the html-proposal skill. Local-only working docs, never tracked.
 tmp/

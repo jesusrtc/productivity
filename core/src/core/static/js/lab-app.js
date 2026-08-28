@@ -3219,6 +3219,41 @@
     } catch (_) {}
   }
 
+  function _formatNbElapsed(milliseconds) {
+    const totalSeconds = Math.max(0, Number(milliseconds) || 0) / 1000;
+    if (totalSeconds < 60) {
+      return `${totalSeconds.toFixed(totalSeconds < 10 ? 1 : 0)}s`;
+    }
+    const wholeSeconds = Math.floor(totalSeconds);
+    const hours = Math.floor(wholeSeconds / 3600);
+    const minutes = Math.floor((wholeSeconds % 3600) / 60);
+    const seconds = wholeSeconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    return `${minutes}m ${seconds}s`;
+  }
+
+  let _nbElapsedTicker = null;
+  function _updateNbElapsedTimers() {
+    const timers = Array.from(document.querySelectorAll('[data-nb-started-at-ms]'));
+    const now = Date.now();
+    timers.forEach((timer) => {
+      const startedAt = Number(timer.getAttribute('data-nb-started-at-ms'));
+      if (!Number.isFinite(startedAt)) return;
+      timer.textContent = `running · ${_formatNbElapsed(now - startedAt)}`;
+    });
+    if (!timers.length && _nbElapsedTicker != null) {
+      clearInterval(_nbElapsedTicker);
+      _nbElapsedTicker = null;
+    }
+  }
+
+  function _ensureNbElapsedTicker() {
+    _updateNbElapsedTimers();
+    if (_nbElapsedTicker == null && document.querySelector('[data-nb-started-at-ms]')) {
+      _nbElapsedTicker = setInterval(_updateNbElapsedTimers, 250);
+    }
+  }
+
   function renderNbCellInteractive(cell, index, relPath, opts) {
     opts = opts || {};
     // `opts.pending` is a client-side draft (Run button not yet sent).
@@ -3230,6 +3265,21 @@
     const serverPending = !!(cell && cell.metadata && cell.metadata.lab_pending === true);
     const pending = !!opts.pending || serverPending;
     const isCode = cell.cell_type === 'code';
+    const metadata = (cell && cell.metadata) || {};
+    const actor = metadata.lab_actor === 'agent' || metadata.lab_actor === 'human'
+      ? metadata.lab_actor : '';
+    const action = metadata.lab_action === 'modified' || metadata.lab_action === 'created'
+      ? metadata.lab_action : '';
+    const actorBadge = actor
+      ? `<span class="nb-cell-actor nb-cell-actor-${actor}" title="This cell was ${action || 'executed'} by ${actor === 'agent' ? 'an' : 'a'} ${actor}">${actor}${action ? ` · ${action}` : ''}</span>`
+      : '';
+    const startedAtMs = Number(metadata.lab_started_at) * 1000;
+    const durationMs = Number(metadata.lab_duration_ms);
+    const timingBadge = serverPending && Number.isFinite(startedAtMs)
+      ? `<span class="nb-cell-timing" data-nb-started-at-ms="${startedAtMs}">running · ${_formatNbElapsed(Date.now() - startedAtMs)}</span>`
+      : (!serverPending && Number.isFinite(durationMs)
+        ? `<span class="nb-cell-timing nb-cell-finished">finished in ${_formatNbElapsed(durationMs)}</span>`
+        : '');
     // For server-side pending cells, prefer the queue position passed in
     // by the caller (1, 2, 3 in submission order) over the bare [*]
     // placeholder. The number gives the user immediate insight into
@@ -3288,6 +3338,7 @@
     //                     is executing). Persistent blue glow + "running"
     //                     label instead of dashed grey + "draft".
     const pendingCls = serverPending ? ' nb-cell-running' : (opts.pending ? ' nb-cell-pending' : '');
+    const actorCls = actor ? ` nb-cell-${actor}` : '';
     const idxAttr = pending ? 'new' : String(index);
     const pendingId = pending ? (opts.pendingId || '') : '';
     const pendingAttr = pendingId ? ` data-pending-id="${esc(pendingId)}"` : '';
@@ -3301,21 +3352,25 @@
     const newBadge = unseen
       ? `<span class="nb-cell-new-badge" title="New outputs — click anywhere on the output to acknowledge">NEW</span>`
       : '';
-    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr} data-exec-count="${execCountNum}">
+    const serverBusyAttr = serverPending ? ' disabled' : '';
+    const serverReadonlyAttr = serverPending ? ' readonly aria-busy="true"' : '';
+    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr} data-exec-count="${execCountNum}">
       <div class="nb-cell-header">
         <span class="nb-type">code</span>
         <span class="nb-exec">${execCount}</span>
+        ${actorBadge}
+        ${timingBadge}
         ${newBadge}
         <div class="nb-cell-actions">
           <span class="nb-cell-busy" style="display:none">running…</span>
           <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
-          <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)">▶ Run</button>
-          <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}">✕</button>
+          <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)"${serverBusyAttr}>▶ Run</button>
+          <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}"${serverBusyAttr}>✕</button>
         </div>
       </div>
       <div class="nb-cell-edit-wrap">
         <pre class="nb-cell-edit-highlight hljs" aria-hidden="true"><code class="hljs">${highlighted}</code></pre>
-        <textarea class="nb-cell-edit-area" spellcheck="false" rows="${rowsHint}"
+        <textarea class="nb-cell-edit-area" spellcheck="false" rows="${rowsHint}"${serverReadonlyAttr}
           placeholder="${pending ? 'Type code, then Cmd/Ctrl+Enter or click Run…' : ''}">${esc(source)}</textarea>
       </div>
       ${outputsHtml}
@@ -3378,6 +3433,14 @@
       runBtn.disabled = on;
       delBtn.disabled = on;
       busy.style.display = on ? '' : 'none';
+      if (on) {
+        busy.setAttribute('data-nb-started-at-ms', String(Date.now()));
+        busy.textContent = 'running · 0.0s';
+        _ensureNbElapsedTicker();
+      } else {
+        busy.removeAttribute('data-nb-started-at-ms');
+        busy.textContent = 'running…';
+      }
       const wasRunning = wrap.classList.contains('nb-cell-running');
       wrap.classList.toggle('nb-cell-running', on);
       // Auto-scroll only on the idle → running transition. Re-renders that
@@ -4891,6 +4954,7 @@
         if (!_stillActiveNav()) return;
         container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
+        _ensureNbElapsedTicker();
         // Bind every interactive cell + inserters + the trailing add-cell
         // button + restart.
         container.querySelectorAll('.nb-cell-interactive').forEach((wrap) => {

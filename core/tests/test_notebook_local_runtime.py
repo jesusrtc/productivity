@@ -147,7 +147,7 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     human = client.post("/api/nb/exec", json={
         "path": rel,
         "actor": "human",
-        "code": "import os\nshared_value = 40\nprint(os.environ['LAB_RUNTIME_TEST'])",
+        "code": "import os, time\ntime.sleep(1.2)\nshared_value = 40\nprint(os.environ['LAB_RUNTIME_TEST'])",
     })
     assert human.status_code == 200, human.text
     assert human.json()["provider"] == "local"
@@ -170,6 +170,14 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     assert [cell["metadata"]["lab_actor"] for cell in notebook["cells"]] == [
         "human", "agent"
     ]
+    assert [cell["metadata"]["lab_action"] for cell in notebook["cells"]] == [
+        "created", "created"
+    ]
+    for cell in notebook["cells"]:
+        metadata = cell["metadata"]
+        assert metadata["lab_started_at"] <= metadata["lab_finished_at"]
+        assert metadata["lab_duration_ms"] >= 0
+    assert notebook["cells"][0]["metadata"]["lab_duration_ms"] >= 1000
     assert all(cell.get("id") for cell in notebook["cells"])
 
     # Stable ids let the UI rerun a cell after an agent inserts elsewhere.
@@ -182,6 +190,12 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     })
     assert rerun.status_code == 200, rerun.text
     assert rerun.json()["cell_index"] == 0
+    rerun_metadata = rerun.json()["cell"]["metadata"]
+    assert rerun_metadata["lab_actor"] == "human"
+    assert rerun_metadata["lab_action"] == "modified"
+    assert rerun_metadata["lab_duration_ms"] >= 0
+    rerun_notebook = json.loads((monorepo / rel).read_text(encoding="utf-8"))
+    assert rerun_notebook["cells"][0]["id"] == first_id
 
     restarted = client.post("/api/nb/session/restart", json={"path": rel})
     assert restarted.status_code == 200, restarted.text
@@ -224,6 +238,10 @@ def test_local_kernel_interrupt_stops_a_running_cell(client, monorepo: Path) -> 
         notebook_path = monorepo / rel
         while time.monotonic() < deadline:
             if notebook_path.is_file() and "lab_pending" in notebook_path.read_text():
+                pending = json.loads(notebook_path.read_text(encoding="utf-8"))["cells"][0]
+                assert pending["metadata"]["lab_actor"] == "human"
+                assert pending["metadata"]["lab_action"] == "created"
+                assert pending["metadata"]["lab_started_at"] <= time.time()
                 break
             time.sleep(0.05)
         interrupted = client.post("/api/nb/session/interrupt", json={"path": rel})

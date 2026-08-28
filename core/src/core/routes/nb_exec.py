@@ -33,6 +33,7 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -572,6 +573,11 @@ def _write_pending_cell(
     cells = nb.setdefault("cells", [])
     run_id = uuid.uuid4().hex
     cell_id = uuid.uuid4().hex[:12]
+    if cell_index is not None and 0 <= cell_index < len(cells):
+        # Re-execution modifies the same logical nbformat cell. Keep its id
+        # stable while swapping in the running placeholder and final outputs.
+        cell_id = str(cells[cell_index].get("id") or cell_id)
+    action = "modified" if cell_index is not None else "created"
     placeholder = {
         "id": cell_id,
         "cell_type": "code",
@@ -583,6 +589,8 @@ def _write_pending_cell(
             "lab_pending": True,
             "lab_run_id": run_id,
             "lab_actor": actor,
+            "lab_action": action,
+            "lab_started_at": time.time(),
         },
         "source": source.splitlines(keepends=True) if source else [],
         "outputs": [{
@@ -634,8 +642,16 @@ def _mark_pending_failed(
     current_idx = _pending_index(cells, idx, run_id)
     if current_idx is not None:
         cell = cells[current_idx]
-        cell.setdefault("metadata", {})["lab_pending"] = False
-        cell["metadata"].pop("lab_run_id", None)
+        metadata = cell.setdefault("metadata", {})
+        finished_at = time.time()
+        started_at = metadata.get("lab_started_at")
+        metadata["lab_pending"] = False
+        metadata["lab_finished_at"] = finished_at
+        if isinstance(started_at, (int, float)):
+            metadata["lab_duration_ms"] = max(
+                0, round((finished_at - started_at) * 1000)
+            )
+        metadata.pop("lab_run_id", None)
         cell["outputs"] = [{
             "output_type": "error",
             "ename": ename,
@@ -720,12 +736,26 @@ def _replace_pending_cell(
     current_idx = _pending_index(cells, pending_index, run_id)
     if current_idx is None:
         raise HTTPException(status_code=409, detail="running cell changed before execution completed")
-    cell_id = str(cells[current_idx].get("id") or uuid.uuid4().hex[:12])
+    pending_cell = cells[current_idx]
+    pending_metadata = pending_cell.get("metadata") or {}
+    cell_id = str(pending_cell.get("id") or uuid.uuid4().hex[:12])
+    finished_at = time.time()
+    started_at = pending_metadata.get("lab_started_at")
+    metadata: dict[str, Any] = {
+        "lab_actor": actor,
+        "lab_action": pending_metadata.get("lab_action", "created"),
+        "lab_finished_at": finished_at,
+    }
+    if isinstance(started_at, (int, float)):
+        metadata["lab_started_at"] = started_at
+        metadata["lab_duration_ms"] = max(
+            0, round((finished_at - started_at) * 1000)
+        )
     cells[current_idx] = {
         "id": cell_id,
         "cell_type": "code",
         "execution_count": exec_count,
-        "metadata": {"lab_actor": actor},
+        "metadata": metadata,
         "source": source.splitlines(keepends=True) if source else [],
         "outputs": cell_outputs or [],
     }
