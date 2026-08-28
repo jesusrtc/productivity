@@ -36,7 +36,12 @@ def _focus_mode_source() -> str:
     return source[start:end]
 
 
-def _harness(test_body: str, *, wake_lock: bool = True) -> str:
+def _harness(
+    test_body: str,
+    *,
+    wake_lock: bool = True,
+    initial_storage: dict[str, str] | None = None,
+) -> str:
     wake_lock_source = """
 const navigator = {wakeLock: {request(type) {
   wakeRequests.push(type);
@@ -58,7 +63,7 @@ const navigator = {wakeLock: {request(type) {
 """ if wake_lock else "const navigator = {};"
     return """
 const classes = new Set();
-const stored = {};
+const stored = %s;
 const events = {};
 const wakeRequests = [];
 const locks = [];
@@ -103,7 +108,7 @@ const localStorage = {
 const window = {};
 let currentProject = null;
 function renderRepoTabs() { renderCount += 1; }
-""" + wake_lock_source + _focus_mode_source() + """
+""" % json.dumps(initial_storage or {}) + wake_lock_source + _focus_mode_source() + """
 (async () => {
 """ + test_body + """
 })().catch(err => {
@@ -167,6 +172,101 @@ process.stdout.write(JSON.stringify({wakeRequests, lockReleases}));
 """))
 
     assert result == {"wakeRequests": ["screen", "screen"], "lockReleases": 1}
+
+
+def test_keep_alive_works_without_entering_focus_or_fullscreen() -> None:
+    result = _run_node(_harness("""
+toggleKeepAlive();
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  focus: classes.has('focus-mode'),
+  keepAlive: classes.has('keep-alive'),
+  stored: stored.labKeepAlive,
+  wakeRequests,
+  fullscreenRequests,
+}));
+"""))
+
+    assert result == {
+        "focus": False,
+        "keepAlive": True,
+        "stored": "1",
+        "wakeRequests": ["screen"],
+        "fullscreenRequests": 0,
+    }
+
+
+def test_keep_alive_continues_after_focus_exits() -> None:
+    result = _run_node(_harness("""
+toggleKeepAlive();
+await Promise.resolve();
+await Promise.resolve();
+toggleFocusMode();
+await Promise.resolve();
+document.fullscreenElement = null;
+events.fullscreenchange();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  focus: classes.has('focus-mode'),
+  keepAlive: classes.has('keep-alive'),
+  wakeRequests,
+  lockReleases,
+}));
+"""))
+
+    assert result == {
+        "focus": False,
+        "keepAlive": True,
+        "wakeRequests": ["screen"],
+        "lockReleases": 0,
+    }
+
+
+def test_turning_keep_alive_off_releases_its_wake_lock() -> None:
+    result = _run_node(_harness("""
+toggleKeepAlive();
+await Promise.resolve();
+await Promise.resolve();
+toggleKeepAlive();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  keepAlive: classes.has('keep-alive'),
+  stored: stored.labKeepAlive,
+  lockReleases,
+}));
+"""))
+
+    assert result == {"keepAlive": False, "stored": "0", "lockReleases": 1}
+
+
+def test_keep_alive_restores_after_reload() -> None:
+    result = _run_node(_harness("""
+await Promise.resolve();
+await Promise.resolve();
+process.stdout.write(JSON.stringify({
+  keepAlive: classes.has('keep-alive'),
+  wakeRequests,
+  fullscreenRequests,
+}));
+""", initial_storage={"labKeepAlive": "1"}))
+
+    assert result == {
+        "keepAlive": True,
+        "wakeRequests": ["screen"],
+        "fullscreenRequests": 0,
+    }
+
+
+def test_keep_alive_switch_is_rendered_beside_focus_mode() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    start = source.index("function renderRepoTabs()")
+    end = source.index("function showScopedCodeSearch()", start)
+    render = source[start:end]
+
+    assert render.index("keep-alive-toggle") < render.index("focus-toggle")
+    assert 'role="switch"' in render
+    assert 'aria-checked="${keepAliveOn}"' in render
 
 
 def test_focus_mode_degrades_gracefully_without_browser_apis() -> None:

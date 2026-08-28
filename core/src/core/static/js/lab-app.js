@@ -4728,13 +4728,15 @@
   // Hides the topbar (Home / workspace picker / project tabs / gear) and the
   // project attrs bar so only the Overview strip and the content remain.
   // Entering from the button also requests browser fullscreen and keeps the
-  // display awake. Esc exits; the layout preference persists across reloads.
+  // display awake. Keep Alive exposes that wake lock independently beside the
+  // Focus control. Esc exits Focus; both preferences persist across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
+  const KEEP_ALIVE_KEY = 'labKeepAlive';
   const FOCUS_ZOOM_MIN = 0.5;
   const FOCUS_ZOOM_MAX = 3;
   const FOCUS_ZOOM_SENSITIVITY = 0.01;
-  let _focusWakeLock = null;
-  let _focusWakeLockRequest = null;
+  let _screenWakeLock = null;
+  let _screenWakeLockRequest = null;
   let _focusOwnsFullscreen = false;
   let _focusZoom = 1;
 
@@ -4773,18 +4775,24 @@
 
   _wireFocusZoomDocument(document);
 
-  async function _acquireFocusWakeLock() {
-    if (!document.body.classList.contains('focus-mode')
+  function _shouldKeepDisplayAwake() {
+    return document.body.classList.contains('focus-mode')
+      || document.body.classList.contains('keep-alive');
+  }
+
+  async function _acquireScreenWakeLock() {
+    if (!_shouldKeepDisplayAwake()
         || document.visibilityState !== 'visible'
         || typeof navigator === 'undefined'
         || !navigator.wakeLock
         || typeof navigator.wakeLock.request !== 'function') return null;
-    if (_focusWakeLock && !_focusWakeLock.released) return _focusWakeLock;
-    if (_focusWakeLockRequest) return _focusWakeLockRequest;
+    if (_screenWakeLock && !_screenWakeLock.released) return _screenWakeLock;
+    if (_screenWakeLockRequest) return _screenWakeLockRequest;
 
     const request = navigator.wakeLock.request('screen').then(lock => {
-      // Focus may have been closed while the browser was granting the lock.
-      if (!document.body.classList.contains('focus-mode')
+      // Both intents may have been switched off while the browser was
+      // granting the lock.
+      if (!_shouldKeepDisplayAwake()
           || document.visibilityState !== 'visible') {
         try {
           const released = lock.release();
@@ -4792,22 +4800,22 @@
         } catch {}
         return null;
       }
-      _focusWakeLock = lock;
+      _screenWakeLock = lock;
       lock.addEventListener('release', () => {
-        if (_focusWakeLock === lock) _focusWakeLock = null;
+        if (_screenWakeLock === lock) _screenWakeLock = null;
       }, {once: true});
       return lock;
     }).catch(() => null);
-    _focusWakeLockRequest = request;
+    _screenWakeLockRequest = request;
     try { return await request; }
     finally {
-      if (_focusWakeLockRequest === request) _focusWakeLockRequest = null;
+      if (_screenWakeLockRequest === request) _screenWakeLockRequest = null;
     }
   }
 
-  function _releaseFocusWakeLock() {
-    const lock = _focusWakeLock;
-    _focusWakeLock = null;
+  function _releaseScreenWakeLock() {
+    const lock = _screenWakeLock;
+    _screenWakeLock = null;
     if (!lock || lock.released) return;
     try {
       const released = lock.release();
@@ -4844,10 +4852,10 @@
   function applyFocusMode(on) {
     document.body.classList.toggle('focus-mode', !!on);
     try { localStorage.setItem(FOCUS_MODE_KEY, on ? '1' : '0'); } catch {}
-    if (on) void _acquireFocusWakeLock();
+    if (on) void _acquireScreenWakeLock();
     else {
       _resetFocusZoom();
-      _releaseFocusWakeLock();
+      if (!_shouldKeepDisplayAwake()) _releaseScreenWakeLock();
       _exitFocusFullscreen();
     }
     // Re-render the strip so the button label flips.
@@ -4861,21 +4869,38 @@
     if (on) _enterFocusFullscreen();
   }
   window.toggleFocusMode = toggleFocusMode;
+
+  function applyKeepAlive(on) {
+    document.body.classList.toggle('keep-alive', !!on);
+    try { localStorage.setItem(KEEP_ALIVE_KEY, on ? '1' : '0'); } catch {}
+    if (on) void _acquireScreenWakeLock();
+    else if (!_shouldKeepDisplayAwake()) _releaseScreenWakeLock();
+    try { if (currentProject) renderRepoTabs(); } catch {}
+  }
+  function toggleKeepAlive() {
+    applyKeepAlive(!document.body.classList.contains('keep-alive'));
+  }
+  window.toggleKeepAlive = toggleKeepAlive;
+
   try {
     if (localStorage.getItem(FOCUS_MODE_KEY) === '1') {
       document.body.classList.add('focus-mode');
-      void _acquireFocusWakeLock();
     }
+    if (localStorage.getItem(KEEP_ALIVE_KEY) === '1') {
+      document.body.classList.add('keep-alive');
+    }
+    if (_shouldKeepDisplayAwake()) void _acquireScreenWakeLock();
   } catch {}
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible'
-        && document.body.classList.contains('focus-mode')) {
-      void _acquireFocusWakeLock();
+        && _shouldKeepDisplayAwake()) {
+      void _acquireScreenWakeLock();
     }
   });
   document.addEventListener('fullscreenchange', () => {
     // Browser Esc exits fullscreen first. Keep Focus mode, persistence, and
-    // the wake lock in sync with that visible exit.
+    // its layout preference in sync with that visible exit. Keep Alive, if
+    // independently enabled, continues owning the wake lock.
     if (_focusOwnsFullscreen && !document.fullscreenElement
         && document.body.classList.contains('focus-mode')) {
       _focusOwnsFullscreen = false;
@@ -4948,7 +4973,14 @@
     }
 
     const focusOn = document.body.classList.contains('focus-mode');
-    html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? 'Exit fullscreen focus and allow display sleep again (Esc)' : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
+    const keepAliveOn = document.body.classList.contains('keep-alive');
+    const keepAliveTitle = keepAliveOn
+      ? `Keep Alive is on — turn it off${focusOn ? ' (Focus mode will still keep the display awake)' : ''}`
+      : (focusOn
+        ? 'Turn on Keep Alive to stay awake after leaving Focus mode'
+        : 'Prevent the display and computer from sleeping');
+    html += `<button class="repo-tab keep-alive-toggle" role="switch" aria-checked="${keepAliveOn}" onclick="toggleKeepAlive()" title="${keepAliveTitle}"><span>Keep Alive</span><span class="keep-alive-switch" aria-hidden="true"></span></button>`;
+    html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? (keepAliveOn ? 'Exit fullscreen focus (Keep Alive will remain on)' : 'Exit fullscreen focus and allow display sleep again (Esc)') : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
     container.innerHTML = html;
   }
