@@ -59,6 +59,36 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
         assert f'id="{element_id}"' in template
 
 
+def test_notebook_creation_chooses_repository_folder_and_creates_notebook_kind() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    template = INDEX.read_text(encoding="utf-8")
+    css = SHELL_CSS.read_text(encoding="utf-8")
+
+    assert "New notebook here" in source
+    assert "function openNewNotebookDialog(ctx = null)" in source
+    assert "_notebookFoldersByRoot.get(root)" in source
+    assert "kind: isNotebook ? 'notebook' : state.kind" in source
+    assert "_sidebarFilesTitle(fileRoot)" in source
+    assert "Dedicated kernel session pinned to this .ipynb file path" in source
+    assert 'id="explorerEntryParent"' in template
+    assert 'id="explorerEntryHint"' in template
+    assert ".sidebar-title-action" in css
+
+    folder_helpers = _between(
+        "const _notebookFoldersByRoot = new Map();",
+        "function _canCreateExecutableNotebook(root)",
+    )
+    result = _run_node(folder_helpers + """
+_rememberNotebookFolders('/repo', [
+  {path: 'README.md', type: 'file'},
+  {path: 'notebooks/analysis.ipynb', type: 'file'},
+  {path: 'research/2026/input.csv', type: 'file'},
+]);
+process.stdout.write(JSON.stringify(_notebookFoldersByRoot.get('/repo')));
+""")
+    assert result == ["", "notebooks", "research", "research/2026"]
+
+
 def test_explorer_folder_and_active_path_helpers() -> None:
     helpers = _between(
         "function _explorerParentForCreate(ctx)",

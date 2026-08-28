@@ -1056,6 +1056,39 @@
   let _explorerHistoryState = null;
   let _explorerHistoryRequest = 0;
   let _explorerToastTimer = null;
+  const _notebookFoldersByRoot = new Map();
+
+  function _rememberNotebookFolders(root, entries) {
+    if (!root) return;
+    const folders = new Set();
+    (entries || []).forEach(entry => {
+      if (!entry) return;
+      const path = String(entry.path || entry.name || '').replace(/^\/+|\/+$/g, '');
+      if (!path) return;
+      const parts = path.split('/').filter(Boolean);
+      const folderParts = entry.type === 'dir' ? parts : parts.slice(0, -1);
+      for (let depth = 1; depth <= folderParts.length; depth += 1) {
+        folders.add(folderParts.slice(0, depth).join('/'));
+      }
+    });
+    _notebookFoldersByRoot.set(root, ['', ...folders].sort((a, b) => {
+      if (!a) return -1;
+      if (!b) return 1;
+      return a.localeCompare(b);
+    }));
+  }
+
+  function _canCreateExecutableNotebook(root) {
+    if (!root || !currentProject || root !== currentProject.path) return false;
+    return _workspaceRelativeNotebookPathOrNull(root, '__lab_notebook_probe__.ipynb') !== null;
+  }
+
+  function _sidebarFilesTitle(root) {
+    const create = _canCreateExecutableNotebook(root)
+      ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
+      : '';
+    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span>${create}</div>`;
+  }
 
   function _explorerContextFromRow(row) {
     if (!row) return null;
@@ -1105,12 +1138,16 @@
     );
     const firstLabel = ctx.kind === 'folder' ? (folderOpen ? 'Collapse' : 'Expand') : 'Open';
     const firstIcon = ctx.kind === 'folder' ? (folderOpen ? '▾' : '▸') : '↗';
+    const notebookAction = ctx.surface === 'project' && _canCreateExecutableNotebook(ctx.root)
+      ? _explorerMenuButton('new-notebook', '◉', 'New notebook here', '')
+      : '';
     menu.innerHTML = `
       <div class="ecm-label" title="${escAttr(ctx.path)}">${esc(ctx.path)}</div>
       ${_explorerMenuButton('open', firstIcon, firstLabel, ctx.kind === 'file' ? 'Enter' : '')}
       ${_explorerMenuButton('history', '⑂', 'View Git history', '')}
       ${_explorerMenuButton('copy-path', '⧉', 'Copy relative path', '')}
       <div class="ecm-sep" role="separator"></div>
+      ${notebookAction}
       ${_explorerMenuButton('new-file', '+', 'New file here', '')}
       ${_explorerMenuButton('new-folder', '▢', 'New folder here', '')}
       <div class="ecm-sep" role="separator"></div>
@@ -1152,6 +1189,7 @@
     closeExplorerContextMenu();
     if (action === 'history') return openExplorerHistory(ctx);
     if (action === 'rename') return openExplorerEntryDialog('rename', ctx);
+    if (action === 'new-notebook') return openNewNotebookDialog(ctx);
     if (action === 'new-file') return openExplorerEntryDialog('create-file', ctx);
     if (action === 'new-folder') return openExplorerEntryDialog('create-folder', ctx);
     if (action === 'delete') return openExplorerDeleteDialog(ctx);
@@ -1171,6 +1209,8 @@
     const modal = document.getElementById('explorerEntryModal');
     const input = document.getElementById('explorerEntryName');
     const error = document.getElementById('explorerEntryError');
+    const parentLabel = document.getElementById('explorerEntryParentLabel');
+    const hint = document.getElementById('explorerEntryHint');
     if (!modal || !input || !ctx) return;
     const isRename = action === 'rename';
     const kind = action === 'create-folder' ? 'folder' : 'file';
@@ -1183,6 +1223,8 @@
     document.getElementById('explorerEntrySubmit').textContent = isRename ? 'Rename' : 'Create';
     input.value = isRename ? ctx.path.split('/').pop() : '';
     input.placeholder = kind === 'folder' ? 'folder-name' : 'filename.ext';
+    if (parentLabel) parentLabel.hidden = true;
+    if (hint) hint.hidden = true;
     error.textContent = '';
     modal.classList.add('active');
     requestAnimationFrame(() => {
@@ -1194,6 +1236,47 @@
     });
   }
   window.openExplorerEntryDialog = openExplorerEntryDialog;
+
+  function openNewNotebookDialog(ctx = null) {
+    const root = (ctx && ctx.root) || (currentProject && currentProject.path);
+    if (!_canCreateExecutableNotebook(root)) {
+      explorerToast('Open a repository inside the active workspace to create an executable notebook.', true);
+      return;
+    }
+    const modal = document.getElementById('explorerEntryModal');
+    const input = document.getElementById('explorerEntryName');
+    const error = document.getElementById('explorerEntryError');
+    const parentLabel = document.getElementById('explorerEntryParentLabel');
+    const parentSelect = document.getElementById('explorerEntryParent');
+    const hint = document.getElementById('explorerEntryHint');
+    if (!modal || !input || !parentSelect) return;
+
+    const folders = [...(_notebookFoldersByRoot.get(root) || [''])];
+    let parent = ctx ? _explorerParentForCreate(ctx) : (folders.includes('notebooks') ? 'notebooks' : '');
+    if (parent && !folders.includes(parent)) folders.push(parent);
+    parentSelect.innerHTML = folders.map(folder => {
+      const label = folder || '. (repository root)';
+      return `<option value="${escAttr(folder)}">${esc(label)}</option>`;
+    }).join('');
+    parentSelect.value = parent;
+
+    const createContext = ctx || {kind: 'folder', path: parent, root, surface: 'project'};
+    _explorerEntryState = {action: 'create-notebook', ctx: createContext, kind: 'notebook', parent};
+    document.getElementById('explorerEntryTitle').textContent = 'New notebook';
+    document.getElementById('explorerEntryLabel').firstChild.textContent = 'Notebook name ';
+    document.getElementById('explorerEntrySubmit').textContent = 'Create notebook';
+    input.value = 'analysis.ipynb';
+    input.placeholder = 'analysis.ipynb';
+    if (parentLabel) parentLabel.hidden = false;
+    if (hint) hint.hidden = false;
+    if (error) error.textContent = '';
+    modal.classList.add('active');
+    requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(0, input.value.lastIndexOf('.'));
+    });
+  }
+  window.openNewNotebookDialog = openNewNotebookDialog;
 
   function closeExplorerEntryDialog() {
     const modal = document.getElementById('explorerEntryModal');
@@ -1214,12 +1297,17 @@
     const input = document.getElementById('explorerEntryName');
     const error = document.getElementById('explorerEntryError');
     const submit = document.getElementById('explorerEntrySubmit');
-    const name = (input.value || '').trim();
+    const isNotebook = state.action === 'create-notebook';
+    let name = (input.value || '').trim();
     if (!name) return false;
+    if (isNotebook && !name.toLowerCase().endsWith('.ipynb')) name += '.ipynb';
     submit.disabled = true;
     error.textContent = '';
     try {
       const isRename = state.action === 'rename';
+      const parent = isNotebook
+        ? (document.getElementById('explorerEntryParent').value || '')
+        : state.parent;
       const response = await fetch('/api/project-entry', {
         method: isRename ? 'PATCH' : 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1229,17 +1317,19 @@
           new_name: name,
         } : {
           path: state.ctx.root,
-          parent: state.parent,
+          parent,
           name,
-          kind: state.kind,
+          kind: isNotebook ? 'notebook' : state.kind,
         }),
       });
       if (!response.ok) throw new Error(await _explorerResponseError(response));
       const result = await response.json();
-      const savedState = state;
+      const savedState = isNotebook
+        ? {...state, action: 'create-file', kind: 'file', parent}
+        : state;
       closeExplorerEntryDialog();
       await _explorerAfterMutation(savedState, result);
-      explorerToast(isRename ? `Renamed to ${result.renamed_to}` : `Created ${result.entry}`);
+      explorerToast(isRename ? `Renamed to ${result.renamed_to}` : (isNotebook ? `Notebook created at ${result.entry}` : `Created ${result.entry}`));
     } catch (e) {
       error.textContent = e.message || String(e);
     } finally {
@@ -4924,8 +5014,9 @@
         const updatedLabel = nb.mtime
           ? 'updated ' + new Date(nb.mtime * 1000).toLocaleString()
           : (notFound ? 'new notebook' : '');
+        const kernelLabel = provider === 'local' ? 'Project Jupyter kernel' : 'Remote Darwin kernel';
         const sessionBadge = session
-          ? `<span title="${provider === 'local' ? 'Project Jupyter kernel' : 'Darwin kernel'} pinned to this file" class="nb-kernel-badge">${esc(provider)}: ${esc(session)}</span>`
+          ? `<span title="Dedicated kernel session pinned to this .ipynb file path; another notebook gets another kernel" class="nb-kernel-badge">${kernelLabel} · ${esc(session)}</span>`
           : '';
         const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" title="Configure this project's Python, libraries, CLI paths and environment">⚙ Runtime: ${esc(runtime.status || 'legacy')}</button>`;
         const restartBtnHtml = session
@@ -6474,6 +6565,7 @@
         } catch(e) {}
         _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references, proxies, fileRoot});
       }
+      _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
       const pinnedSet = new Set(pinnedNames);
@@ -6548,8 +6640,8 @@
       const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '') + ':' + fileRoot;
       sbHtml += _sidebarWorktreeScopeStartHtml(projectPath);
       sbHtml += _sidebarRecentSectionHtml(fileEntries, activePath, fileRoot);
+      sbHtml += _sidebarFilesTitle(fileRoot);
       if (mainFiles.length > 0 || dirEntries.length > 0) {
-        sbHtml += '<div class="sidebar-title">Files</div>';
         const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
         function renderTree(node, depth, parentPath) {
           let html = '';
@@ -11812,6 +11904,7 @@
           || _sidebarScopedRoot(baseRoot) !== fileRoot) return;
       _sidebarRememberAvailableExtensions(files);
       _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
+      _rememberNotebookFolders(fileRoot, files);
 
       // Bake .active onto the rendered HTML (data-filepath + class) so any
       // future sidebar rebuild — mtime poll, WS index-updated — keeps the
@@ -11825,7 +11918,7 @@
       sbHtml += symlinkLegendHtml();
       sbHtml += _sidebarWorktreeScopeStartHtml(baseRoot);
       sbHtml += _sidebarRecentSectionHtml(files, activePath, fileRoot);
-      sbHtml += '<div class="sidebar-title">Files</div>';
+      sbHtml += _sidebarFilesTitle(fileRoot);
 
       const tree = buildSidebarTree(files);
 
@@ -12970,6 +13063,7 @@
       if (_sidebarScopedRoot(rootPath) !== fileRoot) return;
       _sidebarRememberAvailableExtensions(files);
       _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
+      _rememberNotebookFolders(fileRoot, files);
 
       const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const overviewActive = !activePath ? ' active' : '';
@@ -12979,7 +13073,7 @@
       sbHtml += symlinkLegendHtml();
       sbHtml += _sidebarWorktreeScopeStartHtml(rootPath);
       sbHtml += _sidebarRecentSectionHtml(files, activePath, fileRoot);
-      sbHtml += '<div class="sidebar-title">Files</div>';
+      sbHtml += _sidebarFilesTitle(fileRoot);
       sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `workspace:${fileRoot}`, autoOpen: _AUTO_OPEN_WORKSPACE, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(rootPath);
       sidebar.innerHTML = sbHtml;

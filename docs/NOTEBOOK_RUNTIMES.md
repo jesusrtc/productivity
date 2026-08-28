@@ -4,6 +4,19 @@ Lab can run a project's notebooks on a host-local Jupyter kernel using the
 client's exact Python environment. The notebook file, kernel session, and API
 are shared by the browser UI and agents.
 
+## Create the notebook in the repository
+
+Open the project or workspace Files sidebar and select **+ Notebook**. Choose
+the repository folder and filename; Lab writes a valid `.ipynb` at that exact
+location and opens it immediately. You can also secondary-click a folder and
+choose **New notebook here**.
+
+The repository file is the durable source of truth. Lab does not move the
+notebook into a server-owned storage area: cells and outputs are written back
+to the selected `.ipynb`. Each notebook path owns a dedicated kernel session,
+so two notebook files do not share variables. Humans and agents share the
+kernel only when they target the same path.
+
 ## Configure from the notebook
 
 Open a `.ipynb` under `projects/<id>/`, select **Runtime**, and configure:

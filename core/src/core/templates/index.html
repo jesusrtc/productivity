@@ -389,9 +389,13 @@
       <button class="fm-close" type="button" onclick="closeExplorerEntryDialog()" aria-label="Close">&times;</button>
     </div>
     <div class="fm-body">
+      <label id="explorerEntryParentLabel" hidden>Repository location
+        <select id="explorerEntryParent"></select>
+      </label>
       <label id="explorerEntryLabel">Name
         <input id="explorerEntryName" type="text" autocomplete="off" spellcheck="false" required />
       </label>
+      <p class="explorer-entry-hint" id="explorerEntryHint" hidden>The `.ipynb` stays in this repository. Lab pins a dedicated remote kernel to its file path.</p>
       <div class="fm-err" id="explorerEntryError"></div>
     </div>
     <div class="fm-actions">

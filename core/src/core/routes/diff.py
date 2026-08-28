@@ -800,12 +800,31 @@ class ProjectEntryDeleteBody(BaseModel):
     entry: str
 
 
+def _new_notebook_document() -> dict:
+    """Return a valid, empty notebook for repository-first creation."""
+    return {
+        "cells": [],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3 (Lab)",
+                "language": "python",
+                "name": "python3",
+            },
+            "language_info": {"name": "python"},
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+
+
 @router.post("/api/project-entry")
 def create_project_entry(body: ProjectEntryCreateBody, request: Request):
     root = _entry_root(body.path, request)
     name = _validate_entry_name(body.name)
-    if body.kind not in {"file", "folder"}:
-        raise HTTPException(status_code=400, detail="Kind must be file or folder")
+    if body.kind not in {"file", "folder", "notebook"}:
+        raise HTTPException(status_code=400, detail="Kind must be file, folder, or notebook")
+    if body.kind == "notebook" and not name.lower().endswith(".ipynb"):
+        name = _validate_entry_name(f"{name}.ipynb")
     if body.parent:
         parent = _entry_target(root, body.parent)
         if not parent.is_dir():
@@ -819,6 +838,11 @@ def create_project_entry(body: ProjectEntryCreateBody, request: Request):
     def _create() -> None:
         if body.kind == "folder":
             target.mkdir()
+        elif body.kind == "notebook":
+            target.write_text(
+                json.dumps(_new_notebook_document(), indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
         else:
             target.touch(exist_ok=False)
 

@@ -111,7 +111,7 @@ Behavior:
 
 - **Kernel session is pinned to the file.** The server derives a deterministic session id (`lab-<sha1[:12]>` of the relative path) so every cell appended to the same `.ipynb` lands on the same Darwin kernel. Variables persist between cells naturally.
 - **The `.ipynb` on disk is the source of truth.** The endpoint loads the file (creating it if missing), appends a new code cell with the `cell_outputs` Darwin returned, bumps `execution_count`, and saves atomically.
-- **The watcher does the rest.** Because the file lives under `content/`, the watcher fires `index-updated` on the WebSocket; every open notebook view in the SPA re-renders. The same flow works whether the run came from the UI's editor or from `curl` on a terminal.
+- **The watcher does the rest.** Because the file lives under the active workspace, the watcher fires `index-updated` on the WebSocket; every open notebook view in the SPA re-renders. The same flow works whether the run came from the UI's editor or from `curl` on a terminal.
 - **Cell-level errors (NameError, SQL syntax, ...) still return 200** and land in the notebook as an `error` cell — the way Jupyter would. The endpoint only 4xx/5xx's when the `darwin` CLI itself fails (auth expired → 401, pod cold → 503, CLI missing → 503).
 
 ### From Claude Code
@@ -128,4 +128,3 @@ Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=projects/<id>/not
 
 - `GET /api/nb/session?path=<rel>` — returns the pinned session id without running anything (useful for "which kernel is this notebook on?" lookups).
 - `GET /api/nb?path=<rel>` — returns the parsed cells (the existing viewer endpoint).
-

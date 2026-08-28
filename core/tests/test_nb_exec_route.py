@@ -61,6 +61,11 @@ def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> No
     r2 = client.get(f"/api/nb/session?path={rel}")
     assert r2.json()["session"] == body["session"]
 
+    # A different .ipynb owns a different kernel session.
+    other = client.get("/api/nb/session?path=projects/demo/notebooks/y.ipynb")
+    assert other.status_code == 200, other.text
+    assert other.json()["session"] != body["session"]
+
 
 def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin) -> None:
     _, calls = patch_darwin

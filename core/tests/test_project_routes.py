@@ -347,6 +347,27 @@ def test_project_entry_create_rename_and_delete(client, seed_project) -> None:
     assert not (pdir / "docs" / "research").exists()
 
 
+def test_project_entry_creates_valid_repository_notebook(client, seed_project) -> None:
+    pdir = seed_project("notebook-create")
+    (pdir / "notebooks").mkdir()
+
+    created = client.post("/api/project-entry", json={
+        "path": str(pdir),
+        "parent": "notebooks",
+        "name": "analysis",
+        "kind": "notebook",
+    })
+
+    assert created.status_code == 200, created.text
+    assert created.json()["entry"] == "notebooks/analysis.ipynb"
+    target = pdir / "notebooks" / "analysis.ipynb"
+    notebook = json.loads(target.read_text(encoding="utf-8"))
+    assert notebook["nbformat"] == 4
+    assert notebook["nbformat_minor"] == 5
+    assert notebook["cells"] == []
+    assert notebook["metadata"]["kernelspec"]["name"] == "python3"
+
+
 def test_project_entry_rejects_traversal_and_collisions(client, seed_project) -> None:
     pdir = seed_project("explorer-safe")
     (pdir / "docs" / "kept.md").write_text("safe")

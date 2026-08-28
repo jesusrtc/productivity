@@ -42,3 +42,4 @@
 - [Notebook runtimes preserve venv Python paths](notebook-runtime-preserve-venv-python-path.md) — make interpreter paths absolute without resolving venv symlinks, or kernels lose the venv's ipykernel and client packages
 - [Quiet Jupyter polls are not execution timeouts](notebook-kernel-quiet-polls-are-not-timeouts.md) — `get_iopub_msg` may be empty for many one-second polls while client CLIs run; enforce only the overall monotonic deadline
 - [Repository notebooks render read-only](repository-notebooks-render-read-only.md) — Home/framework/repository `.ipynb` files are inspectable through `/api/notebook`; only active-workspace notebooks get kernel controls
+- [Repository notebooks own their kernel by path](repository-notebooks-own-kernel-by-path.md) — create valid `.ipynb` files at a user-selected active-workspace repository path; same path shares one human/agent kernel, different paths get different sessions
