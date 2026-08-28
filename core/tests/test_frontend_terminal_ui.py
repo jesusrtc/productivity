@@ -542,6 +542,19 @@ def test_workspace_agents_card_writes_workspace_policy() -> None:
     assert "await termRefreshAgentAvail(el);" in source
 
 
+def test_workspace_projects_card_can_create_in_owning_workspace() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert 'id="workspaceProjectModal"' in html
+    assert 'id="workspaceProjectForm"' in html
+    assert 'onclick="openWorkspaceProjectModal()">+ New project</button>' in source
+    assert "fetch('/api/projects', {" in source
+    assert "workspace: workspaceId" in source
+    assert "projectsList = workspaces.flatMap(row => row.project_rows || []);" in source
+    assert "goToProject(project.path);" in source
+
+
 def test_productivity_view_uses_workbench_without_duplicate_hidden_ids() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     lab_app = LAB_APP.read_text(encoding="utf-8")

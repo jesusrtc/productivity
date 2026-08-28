@@ -12712,7 +12712,8 @@
             <div class="ws-card-body" id="wsAgentsBody"><div class="ws-muted">Loading…</div></div>
           </div>
           <div class="s-section" id="wsProjectsCard">
-            <h2>Projects <span class="count" id="wsProjectsCount"></span></h2>
+            <h2>Projects <span class="count" id="wsProjectsCount"></span>
+              <button class="refresh-btn" type="button" onclick="openWorkspaceProjectModal()">+ New project</button></h2>
             <ul class="ws-proj-list" id="wsProjectsList"><li class="s-empty">Loading…</li></ul>
           </div>
         </div>
@@ -13011,7 +13012,109 @@
   }
   window.workspaceToggleAgent = workspaceToggleAgent;
 
-  // "Projects" card: the ACTIVE workspace's project ids from
+  let _workspaceProjectCreateBusy = false;
+
+  function openWorkspaceProjectModal() {
+    if (!_workspaceCurrent || _workspaceCurrent.unavailable) return;
+    const modal = document.getElementById('workspaceProjectModal');
+    const form = document.getElementById('workspaceProjectForm');
+    const context = document.getElementById('workspaceProjectContext');
+    const error = document.getElementById('workspaceProjectError');
+    if (!modal || !form) return;
+    form.reset();
+    if (context) context.textContent = _workspaceCurrent.name || _workspaceCurrent.id;
+    if (error) {
+      error.textContent = '';
+      error.classList.remove('on');
+    }
+    modal.classList.add('active');
+    setTimeout(() => {
+      const input = document.getElementById('workspaceProjectId');
+      if (input) input.focus();
+    }, 0);
+  }
+  window.openWorkspaceProjectModal = openWorkspaceProjectModal;
+
+  function closeWorkspaceProjectModal() {
+    if (_workspaceProjectCreateBusy) return;
+    const modal = document.getElementById('workspaceProjectModal');
+    if (modal) modal.classList.remove('active');
+  }
+  window.closeWorkspaceProjectModal = closeWorkspaceProjectModal;
+
+  function _workspaceProjectCsv(value) {
+    return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+  }
+
+  async function submitWorkspaceProject(event) {
+    if (event) event.preventDefault();
+    if (_workspaceProjectCreateBusy || !_workspaceCurrent) return false;
+    const form = document.getElementById('workspaceProjectForm');
+    const error = document.getElementById('workspaceProjectError');
+    const submit = document.getElementById('workspaceProjectSubmit');
+    if (!form) return false;
+
+    const workspaceId = _workspaceCurrent.id;
+    _workspaceProjectCreateBusy = true;
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = 'Creating…';
+    }
+    if (error) {
+      error.textContent = '';
+      error.classList.remove('on');
+    }
+
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          id: form.elements.id.value.trim(),
+          workspace: workspaceId,
+          description: form.elements.description.value.trim(),
+          priority: form.elements.priority.value || null,
+          due: form.elements.due.value || null,
+          tags: _workspaceProjectCsv(form.elements.tags.value),
+          labels: _workspaceProjectCsv(form.elements.labels.value),
+        }),
+      });
+      const created = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(created.detail || 'project creation failed');
+
+      // A catalog request that started before creation may not contain the
+      // new row. Let it settle, then fetch an authoritative post-create list.
+      const pendingCatalog = _workspaceCatalogInFlight;
+      if (pendingCatalog) await pendingCatalog;
+      const data = await fetchWorkspaceCatalog();
+      const workspaces = (data && data.workspaces) || [];
+      const refreshed = workspaces.find(row => row.id === workspaceId);
+      if (refreshed) _workspaceCurrent = refreshed;
+      projectsList = workspaces.flatMap(row => row.project_rows || []);
+      const project = projectsList.find(row =>
+        row.workspace === workspaceId && row.name === created.id);
+
+      _workspaceProjectCreateBusy = false;
+      closeWorkspaceProjectModal();
+      if (project && project.path) goToProject(project.path);
+      else await workspaceRenderProjectsCard();
+    } catch (e) {
+      if (error) {
+        error.textContent = e.message || String(e);
+        error.classList.add('on');
+      }
+    } finally {
+      _workspaceProjectCreateBusy = false;
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = 'Create project';
+      }
+    }
+    return false;
+  }
+  window.submitWorkspaceProject = submitWorkspaceProject;
+
+  // "Projects" card: the shown workspace's project ids from
   // /api/workspaces/projects. Rows open the project the same way Home's
   // active-workspace rows do (goToProjectById → in-page nav).
   async function workspaceRenderProjectsCard() {

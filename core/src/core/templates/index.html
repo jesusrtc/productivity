@@ -381,6 +381,53 @@
   </form>
 </div>
 
+<!-- Create a project in the workspace currently shown in the Workspace tab. -->
+<div class="modal-overlay" id="workspaceProjectModal" onclick="if(event.target===this)closeWorkspaceProjectModal()">
+  <form class="form-modal" id="workspaceProjectForm" onsubmit="submitWorkspaceProject(event)" role="dialog" aria-labelledby="workspaceProjectTitle">
+    <div class="fm-header">
+      <span class="fm-title" id="workspaceProjectTitle">New project</span>
+      <button class="fm-close" type="button" onclick="closeWorkspaceProjectModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="fm-body">
+      <div class="workspace-project-context">Create in <strong id="workspaceProjectContext">this workspace</strong></div>
+      <div class="fm-err" id="workspaceProjectError" role="alert"></div>
+      <label><span>Project id <span class="req">*</span></span>
+        <input id="workspaceProjectId" name="id" type="text" autocomplete="off" spellcheck="false" maxlength="80" pattern="[a-z0-9][a-z0-9_-]*" placeholder="davi-vision" required />
+        <span class="hint">Lowercase letters, numbers, hyphens, and underscores.</span>
+      </label>
+      <label>Description
+        <textarea name="description" rows="3" placeholder="What this project is for"></textarea>
+      </label>
+      <div class="row-2">
+        <label>Priority
+          <select name="priority">
+            <option value="">None</option>
+            <option value="P0">P0</option>
+            <option value="P1">P1</option>
+            <option value="P2">P2</option>
+            <option value="P3">P3</option>
+          </select>
+        </label>
+        <label>Due date
+          <input name="due" type="date" />
+        </label>
+      </div>
+      <label>Tags
+        <input name="tags" type="text" placeholder="research, monitoring" />
+        <span class="hint">Comma-separated.</span>
+      </label>
+      <label>Labels
+        <input name="labels" type="text" placeholder="MP name, another label" />
+        <span class="hint">Comma-separated MP names.</span>
+      </label>
+    </div>
+    <div class="fm-actions">
+      <button type="button" class="btn-cancel" onclick="closeWorkspaceProjectModal()">Cancel</button>
+      <button type="submit" class="btn-primary" id="workspaceProjectSubmit">Create project</button>
+    </div>
+  </form>
+</div>
+
 <!-- Explorer create / rename dialog. -->
 <div class="modal-overlay" id="explorerEntryModal" onclick="if(event.target===this)closeExplorerEntryDialog()">
   <form class="form-modal explorer-entry-dialog" onsubmit="submitExplorerEntryDialog(event)" role="dialog" aria-labelledby="explorerEntryTitle">
