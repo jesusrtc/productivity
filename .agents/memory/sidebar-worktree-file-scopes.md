@@ -22,3 +22,11 @@ actual Git worktree nested below each wrapper. Offer the direct child wrapper
 as the Files/Recently updated scope, but retain the nested checkout (including
 any project-relative suffix) as the root for Git history. Direct-child Git
 worktrees continue to use the matching project path for both roles.
+
+Discovery must send both the visible folder scope and the registered repository
+candidate. Prefer the visible scope only when it owns a `.git` marker, so a
+direct Git project survives stale registered-worktree metadata without treating
+a non-Git wrapper inside the workspace monorepo as that monorepo's repository.
+If the configured path is itself a direct-child linked worktree, normalize it to
+its parent and include it in the choices. Exclude Git's primary checkout, not
+the arbitrary checkout used to run `git worktree list`.

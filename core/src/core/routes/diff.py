@@ -540,7 +540,12 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
 
 
 @router.get("/api/sidebar-worktrees")
-def api_sidebar_worktrees(path: str, repo: str, request: Request):
+def api_sidebar_worktrees(
+    path: str,
+    repo: str,
+    request: Request,
+    scope: str | None = None,
+):
     """Return direct-child worktree scopes belonging to ``repo``.
 
     A shared worktree parent can contain checkouts from many repositories, so
@@ -548,7 +553,9 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
     Ask Git for the active repository's registered worktrees instead. A direct
     child may either be the checkout itself or a branch wrapper containing the
     checkout deeper below it. When ``repo`` points at a project nested inside a
-    larger checkout, preserve that relative suffix for Git operations.
+    larger checkout, preserve that relative suffix for Git operations. An exact
+    Git ``scope`` wins over stale registered-project metadata, and pasting a
+    linked checkout as ``path`` is normalized to its containing folder.
     """
     try:
         parent = Path(path).expanduser().resolve()
@@ -557,19 +564,55 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
     if not parent.is_dir():
         raise HTTPException(status_code=404, detail="Worktree folder not found")
 
-    try:
-        base_root = Path(repo).expanduser().resolve()
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail=f"Bad repository root: {exc}") from exc
     workspace_root = auth.request_root(request)
-    if not _git_status_dir_allowed(base_root, workspace_root):
-        raise HTTPException(status_code=403, detail="Repository is outside the workspace")
-    if not base_root.is_dir():
+
+    def repository_context() -> tuple[Path, Path, str]:
+        """Choose a live checkout without letting stale project data win.
+
+        ``scope`` is the visible project/folder root. Prefer it only when it
+        has its own Git marker; otherwise a non-Git wrapper inside the Lab
+        monorepo would accidentally resolve to the monorepo checkout instead
+        of its registered nested repository.
+        """
+        candidates: list[tuple[str, bool]] = []
+        if scope:
+            candidates.append((scope, True))
+        candidates.append((repo, False))
+        saw_directory = False
+        seen: set[str] = set()
+        for raw, require_git_marker in candidates:
+            try:
+                candidate = Path(raw).expanduser().resolve()
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=400, detail=f"Bad repository root: {exc}",
+                ) from exc
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not _git_status_dir_allowed(candidate, workspace_root):
+                raise HTTPException(status_code=403, detail="Repository is outside the workspace")
+            if not candidate.is_dir():
+                continue
+            saw_directory = True
+            if require_git_marker and not (candidate / ".git").exists():
+                continue
+            try:
+                git_root, relative_project = _entry_git_context(candidate, candidate)
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    continue
+                raise
+            return candidate, git_root, relative_project
+        if saw_directory:
+            raise HTTPException(status_code=404, detail="This location is not in a Git repository")
         raise HTTPException(status_code=404, detail="Repository root not found")
 
-    def list_worktrees() -> list[dict[str, str]]:
+    base_root, git_root, relative_project = repository_context()
+
+    def list_worktrees() -> tuple[Path, list[dict[str, str]]]:
         try:
-            git_root, relative_project = _entry_git_context(base_root, base_root)
             proc = subprocess.run(
                 ["git", "-C", str(git_root), "worktree", "list", "--porcelain"],
                 capture_output=True,
@@ -584,24 +627,37 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
                 detail=proc.stderr.strip() or "Could not list Git worktrees",
             )
 
-        suffix = Path(relative_project)
-        rows: dict[str, dict[str, str]] = {}
+        worktree_roots: list[Path] = []
         for line in proc.stdout.splitlines():
             if not line.startswith("worktree "):
                 continue
             try:
-                worktree_root = Path(line.removeprefix("worktree ")).expanduser().resolve()
+                worktree_roots.append(
+                    Path(line.removeprefix("worktree ")).expanduser().resolve()
+                )
             except OSError:
                 continue
-            if worktree_root == git_root:
+
+        # Git lists the primary checkout first. If the user pasted one linked
+        # checkout rather than its containing folder, normalize the saved
+        # setting to that checkout's parent and still include the checkout.
+        primary_root = worktree_roots[0] if worktree_roots else git_root
+        discovery_parent = parent
+        if parent != primary_root and parent in worktree_roots:
+            discovery_parent = parent.parent.resolve()
+
+        suffix = Path(relative_project)
+        rows: dict[str, dict[str, str]] = {}
+        for worktree_root in worktree_roots:
+            if worktree_root == primary_root:
                 continue
             try:
-                relative_worktree = worktree_root.relative_to(parent)
+                relative_worktree = worktree_root.relative_to(discovery_parent)
             except ValueError:
                 continue
             if not relative_worktree.parts:
                 continue
-            scope_root = (parent / relative_worktree.parts[0]).resolve()
+            scope_root = (discovery_parent / relative_worktree.parts[0]).resolve()
             if scope_root.name.startswith("."):
                 continue
             candidate = (worktree_root / suffix).resolve()
@@ -615,10 +671,12 @@ def api_sidebar_worktrees(path: str, repo: str, request: Request):
                     }
             except OSError:
                 continue
-        return sorted(rows.values(), key=lambda row: row["name"].casefold())
+        return discovery_parent, sorted(
+            rows.values(), key=lambda row: row["name"].casefold(),
+        )
 
-    folders = fsguard.guarded(workspace_root, list_worktrees)
-    return {"path": str(parent), "repo": str(base_root), "folders": folders}
+    resolved_parent, folders = fsguard.guarded(workspace_root, list_worktrees)
+    return {"path": str(resolved_parent), "repo": str(base_root), "folders": folders}
 
 
 @router.get("/api/project-file")

@@ -249,10 +249,12 @@ def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, mono
 
     (parent / "ordinary-folder").mkdir()
     (parent / "README.md").write_text("not a worktree\n")
+    wrapper = monorepo / "projects" / "wrapper"
+    wrapper.mkdir()
 
     response = client.get(
         "/api/sidebar-worktrees",
-        params={"path": str(parent), "repo": str(project)},
+        params={"path": str(parent), "repo": str(project), "scope": str(wrapper)},
     )
 
     assert response.status_code == 200
@@ -271,6 +273,56 @@ def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, mono
                 "name": "feature-direct",
                 "path": str((parent / "feature-direct" / "projects" / "alpha").resolve()),
                 "repo": str((parent / "feature-direct" / "projects" / "alpha").resolve()),
+            },
+        ],
+    }
+
+
+def test_sidebar_worktrees_prefers_git_scope_and_accepts_checkout_path(
+    client, monorepo,
+) -> None:
+    source = monorepo / "projects" / "direct-repo"
+    source.mkdir()
+    (source / ".gitignore").write_text(".worktrees/\n")
+    (source / "README.md").write_text("direct repo\n")
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=source, check=True)
+    subprocess.run(["git", "add", "."], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True, capture_output=True)
+
+    parent = source / ".worktrees"
+    checkout = parent / "feature-a"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature-a", str(checkout)],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+
+    response = client.get(
+        "/api/sidebar-worktrees",
+        params={
+            # The UI should forgive pasting the checkout itself instead of
+            # requiring users to manually trim it back to the parent folder.
+            "path": str(checkout),
+            # Project metadata can retain a checkout path after it was moved
+            # or deleted. An exact Git project root must win over that stale
+            # registered path.
+            "repo": str(parent / "missing-checkout"),
+            "scope": str(source),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "path": str(parent.resolve()),
+        "repo": str(source.resolve()),
+        "folders": [
+            {
+                "name": "feature-a",
+                "path": str(checkout.resolve()),
+                "repo": str(checkout.resolve()),
             },
         ],
     }

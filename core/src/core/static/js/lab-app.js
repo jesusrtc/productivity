@@ -2343,7 +2343,7 @@
     }
     const generation = ++_sidebarWorktreeDiscoveryGeneration;
     const promise = (async () => {
-      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}`);
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}&scope=${encodeURIComponent(scopeRoot)}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
       const resolvedFolder = String(data.path || requested);
@@ -2741,7 +2741,7 @@
       <div class="sidebar-config-folder-card-head">${identity}${remove}</div>
       <div class="sidebar-config-folder-options">
         <label class="sidebar-config-folder-color">Color<input type="color" data-scope-color value="${escAttr(color)}" /></label>
-        <label class="sidebar-config-folder-worktree">Worktree folder <span class="sidebar-config-worktree-input-row"><input type="text" data-scope-worktree value="${escAttr(worktreeFolder)}" placeholder="Optional path to worktrees" autocomplete="off" spellcheck="false" oninput="sidebarFileConfigWorktreeInput(this)" /><button type="button" onclick="sidebarFileConfigScanScope(this)">Scan</button></span><small>Optional. Only registered Git worktrees for this project become choices.</small></label>
+        <label class="sidebar-config-folder-worktree">Worktree folder <span class="sidebar-config-worktree-input-row"><input type="text" data-scope-worktree value="${escAttr(worktreeFolder)}" placeholder="Optional path to worktrees" autocomplete="off" spellcheck="false" oninput="sidebarFileConfigWorktreeInput(this)" /><button type="button" onclick="sidebarFileConfigScanScope(this)">Scan</button></span><small>Optional. Paste the folder containing Git worktrees, or a direct-child worktree inside it.</small></label>
       </div>
       <div class="sidebar-config-worktree-status" data-scope-status role="status">${worktreeFolder ? 'Scan to preview worktrees.' : 'No worktree folder — this project uses only its main folder.'}</div>
       <div class="sidebar-config-worktree-colors" data-scope-worktree-colors></div>
@@ -2967,7 +2967,7 @@
     try {
       const requested = _sidebarNormalizeWorktreeFolder(folder, projectRoot);
       const repositoryRoot = _sidebarWorktreeRepositoryRoot(projectRoot);
-      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}`);
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}&scope=${encodeURIComponent(projectRoot)}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
       const folders = Array.isArray(data.folders)

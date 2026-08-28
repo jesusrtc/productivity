@@ -353,8 +353,8 @@ const fetch = async url => {
     assert result == {
         "callCount": 2,
         "urls": [
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a",
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a&scope=%2Fproject-a",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b&scope=%2Fproject-b",
         ],
         "first": [{"name": "repo-a", "repo": "/worktrees/repo-a/actual-repo"}],
         "second": [{"name": "repo-b", "repo": "/worktrees/repo-b/actual-repo"}],
@@ -571,7 +571,7 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert source.count("_sidebarFileScopeButtonsHtml(") >= 5
     assert "function sidebarSelectFolder(button)" in source
     assert "function sidebarFileConfigAddFolder()" in source
-    assert "Only registered Git worktrees for this project become choices" in source
+    assert "Paste the folder containing Git worktrees, or a direct-child worktree inside it" in source
     assert "Add a folder or subfolder" in template
     assert "SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681'" in source
 
