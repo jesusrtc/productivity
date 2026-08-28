@@ -19,7 +19,16 @@ def host() -> str:
 
 
 def port() -> int:
-    return int(os.environ.get("LAB_PORT", "3333"))
+    override = os.environ.get("LAB_PORT")
+    if override:
+        return int(override)
+    try:
+        client_port = paths.client_env_server_port(paths.find_framework_root())
+    except paths.MonorepoNotFound:
+        client_port = None
+    if client_port is not None:
+        return client_port
+    return paths.configured_server_port(monorepo_root())
 
 
 DEBOUNCE_MS = int(os.environ.get("LAB_DEBOUNCE_MS", "250"))

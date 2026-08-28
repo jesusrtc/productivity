@@ -1,9 +1,12 @@
-.PHONY: ls install uninstall test test-fast test-integration test-all test-suite test-slow perf-prod start stop restart start-bg status dev agent-install agent-uninstall agent-status agent-tail pull-repos check-ui setup _stop-quiet _ensure-python start-all stop-all
+.PHONY: ls port install uninstall test test-fast test-integration test-all test-suite test-slow perf-prod start stop restart start-bg status dev agent-install agent-uninstall agent-status agent-tail pull-repos check-ui setup _stop-quiet _ensure-python start-all stop-all
 
 .DEFAULT_GOAL := ls
 
 ls: ## list available make targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-][a-zA-Z0-9_-]*:.*##/ {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+port: ## print the effective server port (.env, then workspace lab.toml)
+	@echo $(PORT)
 
 LAB_VENV := core/cli/.venv
 CORE_VENV := core/.venv
@@ -17,14 +20,20 @@ BACKEND_LOG := $(APP_LOG_DIR)/backend.log
 FRONTEND_LOG := $(APP_LOG_DIR)/frontend.log
 ERROR_LOG := $(APP_LOG_DIR)/errors.log
 PROCESS_OUTPUT := /dev/null
-# Port can be overridden per-run with any of these (in priority order):
-#   make start PORT=4444     # canonical, all-caps
-#   make start port=4444     # lowercase accepted for muscle-memory
+# Port resolution (in priority order):
+#   make start PORT=4444                      # canonical one-run override
+#   make start port=4444                      # lowercase muscle-memory alias
+#   client checkout .env LAB_PORT=4444       # persistent client setting
+#   active workspace lab.toml [server].port  # workspace fallback
+# Do not read ambient LAB_PORT here: terminals inherit the currently running
+# server's port. scripts/lab-url.sh reads LAB_PORT from the .env file directly
+# so that inherited runtime value cannot override the next-start setting.
 # The chosen value is exported as LAB_PORT to the server subprocess and
-# recorded in the active workspace's $(PORT_FILE) on startup so other tools (lab CLI, scripts,
-# Claude curl examples) discover the actual running port without hardcoding.
+# recorded in the active workspace's $(PORT_FILE) on startup so other tools
+# discover the actual running port without hardcoding.
 # Note: ports below 1024 (e.g. 80, 443) need root to bind on macOS/Linux.
-PORT ?= $(or $(port),$(LAB_PORT),3333)
+CONFIGURED_PORT := $(shell scripts/lab-url.sh --configured-port)
+PORT ?= $(or $(port),$(CONFIGURED_PORT),3333)
 CORE_CMD_PATTERN := core/.venv/bin/python -m core
 
 # ─── LaunchAgent (always-on supervision) ────────────────────────────────────
@@ -228,9 +237,10 @@ _stop-quiet:
 # Port rule: this checkout starts one server per requested port. Another Lab
 # checkout can keep running on a different port for migration comparisons.
 #
-# Override the port per-run with `make start PORT=4444`. The chosen value is
-# exported as $$LAB_PORT (honored by server/config.py).
-start: ## start server in background (override port with PORT=NNNN or LAB_PORT=NNNN)
+# The persistent client setting comes from `.env` → `LAB_PORT`, with the
+# active workspace's `lab.toml` → `[server].port` as fallback. PORT remains
+# the one-run override.
+start: ## start server using .env (override once with PORT=NNNN)
 	@pids=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null); \
 	if [ -n "$$pids" ]; then \
 		pid=$$(cat $(PID_FILE) 2>/dev/null); \
@@ -426,8 +436,8 @@ setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python 
 	@echo
 	@echo "setup complete."
 	@echo "  - lab CLI:    $(BIN_DIR)/lab"
-	@echo "  - server:     make start              (http://localhost:$(PORT)/)"
-	@echo "                make start PORT=4444    (override port)"
+	@echo "  - server:     make start              (configured port: $(CONFIGURED_PORT))"
+	@echo "                make start PORT=4444    (one-run override)"
 	@echo "  - worktrees:  lab project add <project> <mp>"
 
 pull-repos: ## clone/update repos listed in repositories.list

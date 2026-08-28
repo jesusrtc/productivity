@@ -81,6 +81,7 @@ const localStorage = {
   getItem(key) { return stored[key] || null; },
   setItem(key, value) { stored[key] = value; },
 };
+const currentProject = {path: '/workspace/project'};
 const document = {addEventListener() {}};
 const window = {};
 """
@@ -124,6 +125,100 @@ process.stdout.write(JSON.stringify({
         "relativeFolder": "/workspace/projects/alpha",
         "parentFolder": "/workspace/alpha",
         "homeWorktrees": "~/worktrees",
+    }
+
+
+def test_sidebar_file_settings_are_isolated_per_project() -> None:
+    helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {
+  'labSidebarFileConfig-v1': JSON.stringify({
+    showHidden: true,
+    recentMinutes: 120,
+    folderScopes: [{path: '/tracked/from-a', label: 'Only A'}],
+  }),
+};
+const localStorage = {
+  getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
+  setItem(key, value) { stored[key] = value; },
+};
+let currentProject = {name: '__self__', path: '/framework'};
+const document = {addEventListener() {}};
+const window = {};
+"""
+        + helpers
+        + """
+const selfDefaults = {
+  hidden: _sidebarFileConfig.showHidden,
+  folders: _sidebarFileConfig.folderScopes.map(row => row.path),
+};
+currentProject = {name: 'a', path: '/workspace/projects/a'};
+_sidebarActivateFileConfig();
+const projectA = {
+  hidden: _sidebarFileConfig.showHidden,
+  minutes: _sidebarFileConfig.recentMinutes,
+  folders: _sidebarFileConfig.folderScopes.map(row => row.path),
+};
+currentProject = {path: '/other-workspace/projects/b'};
+_sidebarActivateFileConfig();
+const projectBDefaults = {
+  hidden: _sidebarFileConfig.showHidden,
+  minutes: _sidebarFileConfig.recentMinutes,
+  folders: _sidebarFileConfig.folderScopes.map(row => row.path),
+};
+_sidebarFileConfig.showRecent = false;
+_sidebarFileConfig.folderScopes = [{path: '/tracked/from-b', label: 'Only B'}];
+_storeSidebarFileConfig();
+currentProject = {path: '/workspace/projects/a'};
+_sidebarActivateFileConfig();
+const projectARestored = {
+  hidden: _sidebarFileConfig.showHidden,
+  recent: _sidebarFileConfig.showRecent,
+  folders: _sidebarFileConfig.folderScopes.map(row => row.path),
+};
+const scopedKeys = Object.keys(stored)
+  .filter(key => key.startsWith('labSidebarFileConfig-v2:'))
+  .sort();
+process.stdout.write(JSON.stringify({
+  selfDefaults,
+  projectA,
+  projectBDefaults,
+  projectARestored,
+  migrationScope: stored['labSidebarFileConfig-v1-migrated'],
+  scopedKeys,
+}));
+"""
+    )
+
+    assert result == {
+        "selfDefaults": {
+            "hidden": False,
+            "folders": [],
+        },
+        "projectA": {
+            "hidden": True,
+            "minutes": 120,
+            "folders": ["/tracked/from-a"],
+        },
+        "projectBDefaults": {
+            "hidden": False,
+            "minutes": 1440,
+            "folders": [],
+        },
+        "projectARestored": {
+            "hidden": True,
+            "recent": True,
+            "folders": ["/tracked/from-a"],
+        },
+        "migrationScope": "%2Fworkspace%2Fprojects%2Fa",
+        "scopedKeys": [
+            "labSidebarFileConfig-v2:%2Fother-workspace%2Fprojects%2Fb",
+            "labSidebarFileConfig-v2:%2Fworkspace%2Fprojects%2Fa",
+        ],
     }
 
 
@@ -573,7 +668,9 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert "function sidebarFileConfigAddFolder()" in source
     assert "Paste the folder containing Git worktrees, or a direct-child worktree inside it" in source
     assert "Add a folder or subfolder" in template
+    assert "File sidebar settings for this project" in template
     assert "SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681'" in source
+    assert source.count("_sidebarActivateFileConfig();") >= 3
 
 
 def test_project_mtime_poll_is_single_flight_and_backs_off_after_503() -> None:

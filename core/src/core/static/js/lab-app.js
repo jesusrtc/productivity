@@ -257,6 +257,7 @@
     currentProject = projectsList.find(p => p.path === projectKey)
       || projectsList.find(p => p.name === projectKey);
     if (!currentProject) return;
+    _sidebarActivateFileConfig();
 
     _contextSubView = 'overview';
 
@@ -2129,7 +2130,9 @@
   let _repoFileRoot = null;
   function _activeRepoFileRoot() { return _repoFileRoot || currentRepo; }
   let showDotFiles = false;
-  const SIDEBAR_FILE_CONFIG_KEY = 'labSidebarFileConfig-v1';
+  const SIDEBAR_FILE_CONFIG_LEGACY_KEY = 'labSidebarFileConfig-v1';
+  const SIDEBAR_FILE_CONFIG_KEY_PREFIX = 'labSidebarFileConfig-v2:';
+  const SIDEBAR_FILE_CONFIG_MIGRATION_KEY = 'labSidebarFileConfig-v1-migrated';
   const SIDEBAR_RECENT_MAX_MINUTES = 4320;
   const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
   const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
@@ -2220,50 +2223,105 @@
     });
   }
 
-  function _loadSidebarFileConfig() {
+  function _sidebarDefaultFileConfig() {
+    return {
+      ...SIDEBAR_FILE_CONFIG_DEFAULTS,
+      extensions: [],
+      folderScopes: [],
+      rootScopeColors: {},
+      rootWorktreeFolders: {},
+      selectedFolders: {},
+      worktreeColors: {},
+      selectedWorktrees: {},
+    };
+  }
+
+  function _sidebarNormalizeFileConfig(stored) {
+    const recentMinutes = Number(stored && stored.recentMinutes);
+    return {
+      showHidden: !!(stored && stored.showHidden === true),
+      showRecent: !stored || stored.showRecent !== false,
+      recentMinutes: Number.isFinite(recentMinutes) && recentMinutes > 0
+        ? Math.min(recentMinutes, SIDEBAR_RECENT_MAX_MINUTES)
+        : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes,
+      trackMode: stored && stored.trackMode === 'extensions' ? 'extensions' : 'all',
+      extensions: stored && Array.isArray(stored.extensions)
+        ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
+        : [],
+      folderScopes: _sidebarFolderScopeList(stored && stored.folderScopes),
+      rootScopeColors: _sidebarStringMap(stored && stored.rootScopeColors, {colors: true}),
+      rootWorktreeFolders: _sidebarStringMap(stored && stored.rootWorktreeFolders),
+      selectedFolders: _sidebarStringMap(stored && stored.selectedFolders),
+      // Kept as a read-only fallback so browser state from the original
+      // single-worktree-folder implementation migrates without losing it.
+      worktreeFolder: stored && typeof stored.worktreeFolder === 'string'
+        ? stored.worktreeFolder.trim() : '',
+      worktreeColors: _sidebarStringMap(stored && stored.worktreeColors, {colors: true}),
+      selectedWorktrees: _sidebarStringMap(stored && stored.selectedWorktrees),
+    };
+  }
+
+  function _sidebarFileConfigScopeKey() {
+    const project = typeof currentProject !== 'undefined' ? currentProject : null;
+    const projectPath = _sidebarNormalizeFolderPath(project && project.path);
+    return projectPath ? encodeURIComponent(projectPath) : '';
+  }
+
+  function _sidebarFileConfigStorageKey(scopeKey) {
+    return scopeKey ? SIDEBAR_FILE_CONFIG_KEY_PREFIX + scopeKey : '';
+  }
+
+  function _sidebarCanMigrateLegacyFileConfig() {
+    const project = typeof currentProject !== 'undefined' ? currentProject : null;
+    const name = String(project && project.name || '');
+    return !!project && name !== '__self__' && name !== '__workspace__';
+  }
+
+  function _loadSidebarFileConfig(scopeKey = _sidebarFileConfigScopeKey()) {
+    if (!scopeKey) return _sidebarDefaultFileConfig();
     try {
-      const stored = JSON.parse(localStorage.getItem(SIDEBAR_FILE_CONFIG_KEY) || '{}');
-      const recentMinutes = Number(stored.recentMinutes);
-      return {
-        showHidden: stored.showHidden === true,
-        showRecent: stored.showRecent !== false,
-        recentMinutes: Number.isFinite(recentMinutes) && recentMinutes > 0
-          ? Math.min(recentMinutes, SIDEBAR_RECENT_MAX_MINUTES)
-          : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes,
-        trackMode: stored.trackMode === 'extensions' ? 'extensions' : 'all',
-        extensions: Array.isArray(stored.extensions)
-          ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
-          : [],
-        folderScopes: _sidebarFolderScopeList(stored.folderScopes),
-        rootScopeColors: _sidebarStringMap(stored.rootScopeColors, {colors: true}),
-        rootWorktreeFolders: _sidebarStringMap(stored.rootWorktreeFolders),
-        selectedFolders: _sidebarStringMap(stored.selectedFolders),
-        // Kept as a read-only fallback so browser state from the original
-        // single-worktree-folder implementation migrates without losing it.
-        worktreeFolder: typeof stored.worktreeFolder === 'string' ? stored.worktreeFolder.trim() : '',
-        worktreeColors: _sidebarStringMap(stored.worktreeColors, {colors: true}),
-        selectedWorktrees: _sidebarStringMap(stored.selectedWorktrees),
-      };
+      const storageKey = _sidebarFileConfigStorageKey(scopeKey);
+      let raw = localStorage.getItem(storageKey);
+      // The old setting was browser-global. Preserve it once by assigning it
+      // to the first project opened after this upgrade; every other project
+      // starts from defaults instead of inheriting those folders.
+      if (raw === null && _sidebarCanMigrateLegacyFileConfig()
+          && !localStorage.getItem(SIDEBAR_FILE_CONFIG_MIGRATION_KEY)) {
+        const legacy = localStorage.getItem(SIDEBAR_FILE_CONFIG_LEGACY_KEY);
+        if (legacy !== null) {
+          raw = legacy;
+          localStorage.setItem(storageKey, legacy);
+          localStorage.setItem(SIDEBAR_FILE_CONFIG_MIGRATION_KEY, scopeKey);
+        }
+      }
+      return _sidebarNormalizeFileConfig(JSON.parse(raw || '{}'));
     } catch {
-      return {
-        ...SIDEBAR_FILE_CONFIG_DEFAULTS,
-        extensions: [],
-        folderScopes: [],
-        rootScopeColors: {},
-        rootWorktreeFolders: {},
-        selectedFolders: {},
-        worktreeColors: {},
-        selectedWorktrees: {},
-      };
+      return _sidebarDefaultFileConfig();
     }
   }
 
-  let _sidebarFileConfig = _loadSidebarFileConfig();
+  let _sidebarFileConfigScope = _sidebarFileConfigScopeKey();
+  let _sidebarFileConfig = _loadSidebarFileConfig(_sidebarFileConfigScope);
   showDotFiles = _sidebarFileConfig.showHidden;
   let showProjectDotFiles = _sidebarFileConfig.showHidden;
 
   function _storeSidebarFileConfig() {
-    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    const storageKey = _sidebarFileConfigStorageKey(_sidebarFileConfigScope);
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(_sidebarFileConfig)); } catch {}
+  }
+
+  function _sidebarActivateFileConfig() {
+    const scopeKey = _sidebarFileConfigScopeKey();
+    if (scopeKey === _sidebarFileConfigScope) return false;
+    _sidebarFileConfigScope = scopeKey;
+    _sidebarFileConfig = _loadSidebarFileConfig(scopeKey);
+    showDotFiles = _sidebarFileConfig.showHidden;
+    showProjectDotFiles = _sidebarFileConfig.showHidden;
+    _sidebarAvailableExtensions = new Set();
+    _sidebarRecentDiagnosticsPending = null;
+    _sidebarClearWorktreeDiscovery();
+    return true;
   }
 
   function _sidebarWorktreeBaseRoot() {
@@ -3128,14 +3186,14 @@
     showDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
     showProjectDotFiles = checked;
-    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    _storeSidebarFileConfig();
     loadProjectView();
   }
 
   function toggleProjectDotFiles(checked) {
     showProjectDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
-    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    _storeSidebarFileConfig();
     if (currentProject) _projectSidebarCache.delete(currentProject.path);
     showProjectInfo({preserveScroll: true});
   }
@@ -12413,6 +12471,7 @@
       repos: [],
       workspace_id: null,
     };
+    _sidebarActivateFileConfig();
     document.getElementById('diffTabs').style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
     // Re-render the tab strip so the Productivity tab flips to `.active`
@@ -12935,7 +12994,7 @@
   function selfToggleDotFiles(checked) {
     showProjectDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
-    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    _storeSidebarFileConfig();
     selfPopulateSidebar();
   }
 
@@ -13259,6 +13318,7 @@
       workspace_name: current.name || current.id,
       workspace_color: current.color || '#8b949e',
     };
+    _sidebarActivateFileConfig();
     if (typeof projTabsRender === 'function') projTabsRender();
     renderRepoTabs();
     _sidebarApplyForView();
@@ -13794,7 +13854,7 @@
   function workspaceToggleDotFiles(checked) {
     showProjectDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
-    try { localStorage.setItem(SIDEBAR_FILE_CONFIG_KEY, JSON.stringify(_sidebarFileConfig)); } catch {}
+    _storeSidebarFileConfig();
     workspacePopulateSidebar();
   }
 

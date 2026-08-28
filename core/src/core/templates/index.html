@@ -312,12 +312,12 @@
 <div class="explorer-context-menu" id="explorerContextMenu" role="menu" aria-hidden="true"></div>
 <div class="explorer-toast" id="explorerToast" role="status" aria-live="polite"></div>
 
-<!-- File sidebar display preferences. Shared by project, workspace, and
-     framework sidebars; settings live in this browser's localStorage. -->
+<!-- Project-scoped file sidebar display preferences. Each project, workspace,
+     and framework root has its own settings in this browser's localStorage. -->
 <div class="modal-overlay" id="sidebarFileConfigModal" onclick="if(event.target===this)closeSidebarFileConfig()">
   <form class="form-modal sidebar-file-config-modal" onsubmit="saveSidebarFileConfig(event)" role="dialog" aria-labelledby="sidebarFileConfigTitle">
     <div class="fm-header">
-      <span class="fm-title" id="sidebarFileConfigTitle">File sidebar settings</span>
+      <span class="fm-title" id="sidebarFileConfigTitle">File sidebar settings for this project</span>
       <button class="fm-close" type="button" onclick="closeSidebarFileConfig()" aria-label="Close">&times;</button>
     </div>
     <div class="fm-body">
@@ -332,7 +332,7 @@
         <div class="sidebar-config-folder-head">
           <div>
             <div class="sidebar-config-section-title">Project folders</div>
-            <small>Add a folder or subfolder, then switch the whole Files and Recently updated view with its colored button.</small>
+            <small>Add a folder or subfolder for this project, then switch the whole Files and Recently updated view with its colored button.</small>
           </div>
           <button type="button" onclick="sidebarFileConfigAddFolder()">+ Add folder</button>
         </div>

@@ -20,9 +20,9 @@ def _ensure_workspace(root: Path) -> None:
 def server_port(workspace: Path | None = None) -> str:
     """Resolve the lab server's port.
 
-    Precedence: LAB_PORT env var → workspace server port file (written by the running
-    server on startup) → ``3333`` (legacy default). Mirrors
-    ``scripts/lab-url.sh`` so CLI + shell tools agree.
+    Precedence: LAB_PORT env var → workspace server port file (written by the
+    running server) → client ``.env`` → workspace ``lab.toml`` → ``3333``.
+    Mirrors ``scripts/lab-url.sh`` so CLI + shell tools agree.
     """
     env = os.environ.get("LAB_PORT")
     if env:
@@ -48,7 +48,14 @@ def server_port(workspace: Path | None = None) -> str:
                     return value
             except OSError:
                 pass
-    return "3333"
+    try:
+        client_port = paths.client_env_server_port(paths.find_framework_root())
+    except paths.MonorepoNotFound:
+        client_port = None
+    if client_port is not None:
+        return str(client_port)
+    configured_root = roots[0] if roots else None
+    return str(paths.configured_server_port(configured_root)) if configured_root else "3333"
 
 
 @click.command(name="start")

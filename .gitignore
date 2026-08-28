@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 venv/
 .coverage
+.env
 
 # Content repo (managed as its own git repo, never tracked here)
 content/

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from click.testing import CliRunner
 
 from lab.cli import main
 from lab.commands.service import server_port
+
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_start_invokes_make(monkeypatch, tmp_path: Path) -> None:
@@ -122,3 +127,91 @@ def test_server_port_falls_back_to_running_active_workspace(
     )
 
     assert server_port() == "8080"
+
+
+def test_server_port_falls_back_to_workspace_lab_toml(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "lab.toml").write_text(
+        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("LAB_PORT", raising=False)
+    monkeypatch.setenv("LAB_ENV_FILE", str(tmp_path / "missing.env"))
+    monkeypatch.setattr(
+        "lab.commands.service.paths.find_workspace_root", lambda: workspace,
+    )
+    monkeypatch.setattr(
+        "lab.commands.service.paths.active_workspace", lambda: None,
+    )
+
+    assert server_port() == "4545"
+
+
+def test_server_port_prefers_client_env_over_workspace_config(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "lab.toml").write_text(
+        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+        encoding="utf-8",
+    )
+    client_env = tmp_path / "client.env"
+    client_env.write_text("LAB_PORT=5656\n", encoding="utf-8")
+    monkeypatch.delenv("LAB_PORT", raising=False)
+    monkeypatch.setenv("LAB_ENV_FILE", str(client_env))
+    monkeypatch.setattr(
+        "lab.commands.service.paths.find_workspace_root", lambda: workspace,
+    )
+    monkeypatch.setattr(
+        "lab.commands.service.paths.active_workspace", lambda: None,
+    )
+
+    assert server_port() == "5656"
+
+
+def test_make_port_reads_active_workspace_lab_toml(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "lab.toml").write_text(
+        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["LAB_WORKSPACE"] = str(workspace)
+    env["LAB_HOME"] = str(tmp_path / "lab-home")
+    env["LAB_ENV_FILE"] = str(tmp_path / "missing.env")
+    # Lab terminals inherit the current server's port. That ambient runtime
+    # value must not override the persistent setting for the next make run.
+    env["LAB_PORT"] = "8080"
+    proc = subprocess.run(
+        ["make", "-s", "port"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=True,
+    )
+
+    assert proc.stdout.strip() == "4545"
+
+
+def test_make_port_prefers_client_env_over_workspace_config(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "lab.toml").write_text(
+        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+        encoding="utf-8",
+    )
+    client_env = tmp_path / "client.env"
+    client_env.write_text("LAB_PORT=5656\n", encoding="utf-8")
+    env = os.environ.copy()
+    env["LAB_WORKSPACE"] = str(workspace)
+    env["LAB_HOME"] = str(tmp_path / "lab-home")
+    env["LAB_ENV_FILE"] = str(client_env)
+    env["LAB_PORT"] = "8080"
+    proc = subprocess.run(
+        ["make", "-s", "port"], cwd=ROOT, env=env,
+        text=True, capture_output=True, check=True,
+    )
+
+    assert proc.stdout.strip() == "5656"

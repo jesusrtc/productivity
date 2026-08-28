@@ -29,6 +29,7 @@
 - [Sidebar shortcuts preserve the file tree](sidebar-shortcuts-preserve-file-tree.md) — pinned/recent sections duplicate file shortcuts; shared browser-local settings control hidden files, freshness, and extension filters
 - [Sidebar file scopes can follow worktrees](sidebar-worktree-file-scopes.md) — a browser-local parent folder discovers direct child worktrees; each sidebar surface remembers its selected root and color
 - [Sidebar project folders scope the complete file view](sidebar-project-folder-scopes.md) — colored Root/project buttons switch Files and Recently updated together; every project folder may own a worktree parent
+- [Sidebar file settings are project-scoped](sidebar-file-settings-are-project-scoped.md) — browser-local hidden/recent/folder/worktree preferences are keyed by active project path; never share one config across projects or workspaces
 - [Recent files use a compact folder tree](sidebar-recent-files-use-compact-tree.md) — collapse single-child directory chains, preserve real branch levels, and persist folder open state
 - [Recent-file freshness stops at three days](sidebar-recent-freshness-three-day-cap.md) — offer 15m, 1h, 2h, 6h, 24h, and 3d; clamp legacy longer values
 - [Sidebar file history uses one three-pane modal](sidebar-file-history-review.md) — repository and file history share files-left/diff-center/revisions-right; file history orders the clicked path first and includes commit companions
@@ -39,6 +40,7 @@
 - [Sidebar sections have horizontal dividers](sidebar-sections-have-dividers.md) — separate top-level Recently updated, Servers, Files, Pinned, and Meta sections visually
 - [Terminal recent activity is selection-local](terminal-recent-tab-activity.md) — mark tabs when selected or left; persist the scope, preset window, and user-selected marker color in browser storage
 - [Backend Python changes require a server restart](backend-python-changes-require-server-restart.md) — static assets update from disk, but the always-on process keeps imported routes until `make restart`
+- [Client server port comes from .env](client-server-port-config.md) — `make run/start` uses checkout-local `.env`, then workspace `lab.toml`; ambient inherited `LAB_PORT` must not override the next start
 - [Framework updates restart in place](framework-update-restarts-in-place.md) — admin update pulls `origin/main` serially, exec-restarts, and reloads only after a new boot ID
 - [Notebook runtimes preserve venv Python paths](notebook-runtime-preserve-venv-python-path.md) — make interpreter paths absolute without resolving venv symlinks, or kernels lose the venv's ipykernel and client packages
 - [Quiet Jupyter polls are not execution timeouts](notebook-kernel-quiet-polls-are-not-timeouts.md) — `get_iopub_msg` may be empty for many one-second polls while client CLIs run; enforce only the overall monotonic deadline

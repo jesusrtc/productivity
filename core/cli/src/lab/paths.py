@@ -213,6 +213,56 @@ def port_file(root: Path) -> Path:
     return workspace_state_dir(root) / "server.port"
 
 
+def configured_server_port(root: Path, default: int = 3333) -> int:
+    """Return ``[server].port`` from the workspace's ``lab.toml``.
+
+    Runtime overrides and the live ``.lab/state/server.port`` file are handled
+    by callers. This helper only resolves the workspace's persistent default.
+    """
+    config = root.expanduser().resolve() / "lab.toml"
+    if not config.is_file():
+        return default
+    try:
+        data = tomllib.loads(config.read_text(encoding="utf-8"))
+        value = (data.get("server") or {}).get("port")
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return value if 1 <= value <= 65535 else default
+
+
+def client_env_server_port(framework_root: Path) -> int | None:
+    """Return ``LAB_PORT`` from the client checkout's local ``.env`` file."""
+    configured_path = os.environ.get("LAB_ENV_FILE")
+    path = (Path(configured_path).expanduser() if configured_path
+            else framework_root.expanduser().resolve() / ".env")
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition("=")
+        if separator != "=" or key.strip() != "LAB_PORT":
+            continue
+        text = value.strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+            text = text[1:-1]
+        try:
+            port = int(text)
+        except ValueError:
+            return None
+        return port if 1 <= port <= 65535 else None
+    return None
+
+
 def sessions_file(root: Path) -> Path:
     return workspace_state_dir(root) / "sessions" / "sessions.json"
 

@@ -7,11 +7,52 @@ import pytest
 
 from lab.paths import (
     MonorepoNotFound,
+    client_env_server_port,
+    configured_server_port,
     find_monorepo_root,
     project_dir,
     project_file,
     tasks_file,
 )
+
+
+def test_client_env_server_port_reads_lab_port(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LAB_ENV_FILE", raising=False)
+    (tmp_path / ".env").write_text(
+        "# client setting\nexport LAB_PORT='5656'\n", encoding="utf-8",
+    )
+
+    assert client_env_server_port(tmp_path) == 5656
+
+
+@pytest.mark.parametrize("value", ["true", "0", "70000", "not-a-port"])
+def test_client_env_server_port_rejects_invalid_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str,
+) -> None:
+    monkeypatch.delenv("LAB_ENV_FILE", raising=False)
+    (tmp_path / ".env").write_text(f"LAB_PORT={value}\n", encoding="utf-8")
+
+    assert client_env_server_port(tmp_path) is None
+
+
+def test_configured_server_port_reads_workspace_lab_toml(tmp_path: Path) -> None:
+    (tmp_path / "lab.toml").write_text(
+        '[workspace]\nname = "test"\n\n[server]\nport = 4545\n',
+        encoding="utf-8",
+    )
+    assert configured_server_port(tmp_path) == 4545
+
+
+@pytest.mark.parametrize("value", ["true", '"4545"', "0", "70000"])
+def test_configured_server_port_rejects_invalid_values(
+    tmp_path: Path, value: str,
+) -> None:
+    (tmp_path / "lab.toml").write_text(
+        f"[server]\nport = {value}\n", encoding="utf-8",
+    )
+    assert configured_server_port(tmp_path) == 3333
 
 
 def test_find_monorepo_root_uses_env_var(monorepo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

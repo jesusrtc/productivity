@@ -14,13 +14,32 @@ pytest -v
 ## Run
 
 ```
-make start                 # from monorepo root — serves at http://localhost:3333/
-make start PORT=4444       # override the port
+make start                 # uses LAB_PORT from the client checkout's .env
+make start PORT=4444       # one-run override
 make stop
 ```
 
-The chosen port is honored via the `LAB_PORT` env var (see `src/core/config.py`)
-and recorded in the active workspace at `.lab/state/server.port` on startup.
+Copy the tracked template once, then edit the local setting whenever needed:
+
+```sh
+cp .env.example .env
+# edit LAB_PORT=3333
+make run
+```
+
+The local `.env` is ignored by Git. If `LAB_PORT` is absent there, Lab falls
+back to the active workspace's `lab.toml`:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 3333
+```
+
+Precedence is an explicit `PORT=NNNN` Make argument, `.env`, workspace
+`lab.toml`, then `3333`. The chosen port is passed through `LAB_PORT` (see
+`src/core/config.py`) and
+recorded in the active workspace at `.lab/state/server.port` on startup.
 Any tool/script/doc snippet that needs to call the server should resolve the
 URL via `scripts/lab-url.sh` rather than hardcoding `localhost:3333`.
 

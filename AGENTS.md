@@ -9,7 +9,7 @@ Use `lab`. Run `lab --help` for commands. Never hand-edit `project.json`, `tasks
 
 ## Where things live
 
-- `core/` — framework-owned backend, UI assets, and package `core`. Default port `3333`; override per-run with `make start PORT=NNNN`. The actual port is recorded in the active workspace at `.lab/state/server.port`. Resolve it from any tool, doc snippet, or curl command via `$(scripts/lab-url.sh)` — do **not** hardcode `localhost:3333`.
+- `core/` — framework-owned backend, UI assets, and package `core`. The persistent client port comes from the checkout's `.env` (`LAB_PORT`, templated by `.env.example`), falling back to the active workspace's `lab.toml` (`[server].port`) and then `3333`; override per-run with `make start PORT=NNNN`. The actual port is recorded in the active workspace at `.lab/state/server.port`. Resolve it from any tool, doc snippet, or curl command via `$(scripts/lab-url.sh)` — do **not** hardcode `localhost:3333`.
 - `core/cli/` — framework-owned installable `lab` CLI.
 - `apps/` — reserved for workspace/client apps. Do not put framework internals here.
 - `docs/` — framework docs, proposals, and migration notes.
