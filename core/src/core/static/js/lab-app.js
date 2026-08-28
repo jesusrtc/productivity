@@ -2173,7 +2173,7 @@
   function _sidebarNormalizeFolderPath(value, baseRoot = '') {
     const requested = String(value || '').trim();
     if (!requested) return '';
-    const combined = requested.starts('/')
+    const combined = requested.startsWith('/')
       ? requested
       : `${String(baseRoot || '').replace(/\/$/, '')}/${requested}`;
     const parts = [];
@@ -2190,7 +2190,7 @@
 
   function _sidebarNormalizeWorktreeFolder(value, projectRoot = '') {
     const requested = String(value || '').trim();
-    return requested.starts('~/')
+    return requested.startsWith('~/')
       ? requested
       : _sidebarNormalizeFolderPath(requested, projectRoot);
   }

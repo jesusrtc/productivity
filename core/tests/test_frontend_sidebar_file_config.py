@@ -86,6 +86,10 @@ process.stdout.write(JSON.stringify({
   loadedRecentMinutes,
   markdown: _sidebarFileExtension('README.md'),
   extensionless: _sidebarFileExtension('Makefile'),
+  absoluteFolder: _sidebarNormalizeFolderPath('/workspace/projects/alpha'),
+  relativeFolder: _sidebarNormalizeFolderPath('projects/alpha', '/workspace'),
+  parentFolder: _sidebarNormalizeFolderPath('../alpha', '/workspace/projects'),
+  homeWorktrees: _sidebarNormalizeWorktreeFolder('~/worktrees', '/workspace'),
 }));
 """
     )
@@ -95,6 +99,10 @@ process.stdout.write(JSON.stringify({
         "loadedRecentMinutes": 4320,
         "markdown": "md",
         "extensionless": "__none__",
+        "absoluteFolder": "/workspace/projects/alpha",
+        "relativeFolder": "/workspace/projects/alpha",
+        "parentFolder": "/workspace/alpha",
+        "homeWorktrees": "~/worktrees",
     }
 
 
