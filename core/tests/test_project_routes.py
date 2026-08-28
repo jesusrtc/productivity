@@ -198,6 +198,76 @@ def test_project_files_includes_mtime_for_every_file_type(client, seed_project) 
         assert isinstance(files[path]["mtime"], float)
 
 
+def test_sidebar_recent_git_modes_return_the_requested_file_sets(
+    client, seed_project,
+) -> None:
+    pdir = seed_project("recent-git-modes")
+    subprocess.run(["git", "init"], cwd=pdir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "lab@example.test"],
+        cwd=pdir,
+        check=True,
+    )
+
+    (pdir / "base.txt").write_text("base\n")
+    subprocess.run(["git", "add", "."], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "base"], cwd=pdir, check=True, capture_output=True,
+    )
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=pdir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", base_sha],
+        cwd=pdir,
+        check=True,
+    )
+
+    (pdir / "commit-two.txt").write_text("two\n")
+    subprocess.run(["git", "add", "commit-two.txt"], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "two"], cwd=pdir, check=True, capture_output=True,
+    )
+    (pdir / "commit-three.txt").write_text("three\n")
+    subprocess.run(["git", "add", "commit-three.txt"], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "three"], cwd=pdir, check=True, capture_output=True,
+    )
+
+    (pdir / "commit-two.txt").write_text("two, edited\n")
+    (pdir / "untracked.txt").write_text("new\n")
+
+    uncommitted = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "uncommitted",
+    })
+    origin_main = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "origin-main",
+    })
+    last_two = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "last-2-commits",
+    })
+
+    assert uncommitted.status_code == 200
+    assert set(uncommitted.json()["files"]) == {"commit-two.txt", "untracked.txt"}
+    assert origin_main.status_code == 200
+    assert origin_main.json()["base_ref"] == "origin/main"
+    assert set(origin_main.json()["files"]) == {
+        "commit-two.txt", "commit-three.txt", "untracked.txt",
+    }
+    assert last_two.status_code == 200
+    assert set(last_two.json()["files"]) == {"commit-two.txt", "commit-three.txt"}
+
+    invalid = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "all-history",
+    })
+    assert invalid.status_code == 400
+
+
 def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, monorepo) -> None:
     source = monorepo / "source-repo"
     project = source / "projects" / "alpha"

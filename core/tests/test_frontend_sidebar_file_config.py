@@ -34,7 +34,7 @@ def _between(start_marker: str, end_marker: str) -> str:
     return source[start:end]
 
 
-def test_sql_files_use_the_database_icon() -> None:
+def test_sql_and_scala_files_use_language_specific_icons() -> None:
     icon_helpers = _between(
         'const _FT_FONT =',
         'function buildSidebarTree(entries)',
@@ -44,14 +44,17 @@ def test_sql_files_use_the_database_icon() -> None:
         + """
 const sql = fileIconHtml('event_session_ato_score.sql');
 const uppercase = fileIconHtml('QUERY.SQL');
+const scala = fileIconHtml('StreamingJob.scala');
 const plain = fileIconHtml('notes.txt');
-process.stdout.write(JSON.stringify({sql, uppercase, plain}));
+process.stdout.write(JSON.stringify({sql, uppercase, scala, plain}));
 """
     )
 
     assert 'class="ft-icon ft-sql"' in result["sql"]
     assert '<ellipse' in result["sql"]
     assert 'class="ft-icon ft-sql"' in result["uppercase"]
+    assert 'class="ft-icon ft-scala"' in result["scala"]
+    assert '#DE3423' in result["scala"]
     assert 'class="ft-icon ft-generic"' in result["plain"]
 
 
@@ -118,7 +121,7 @@ process.stdout.write(JSON.stringify({
 
     assert result == {
         "recent": ["docs/newer.md", "docs/older.md"],
-        "loadedRecentMinutes": 4320,
+        "loadedRecentMinutes": 1440,
         "markdown": "md",
         "extensionless": "__none__",
         "absoluteFolder": "/workspace/projects/alpha",
@@ -219,6 +222,68 @@ process.stdout.write(JSON.stringify({
             "labSidebarFileConfig-v2:%2Fother-workspace%2Fprojects%2Fb",
             "labSidebarFileConfig-v2:%2Fworkspace%2Fprojects%2Fa",
         ],
+    }
+
+
+def test_recent_quick_selectors_are_mutually_exclusive_and_can_clear() -> None:
+    helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  getItem(key) { return stored[key] || null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const currentRepo = null;
+const currentProject = {path: '/workspace/project', is_project: false};
+const document = {
+  body: {classList: {contains() { return false; }}},
+  addEventListener() {},
+};
+const window = {};
+const esc = value => String(value);
+const escAttr = value => String(value);
+"""
+        + helpers
+        + """
+const button = value => ({getAttribute(name) {
+  return name === 'data-recent-mode' ? value : null;
+}});
+(async () => {
+  await sidebarSelectRecentMode(button('mtime:60'));
+  const hourHtml = _sidebarRecentSelectorsHtml();
+  await sidebarSelectRecentMode(button('mtime:60'));
+  const noneHtml = _sidebarRecentSelectorsHtml();
+  await sidebarSelectRecentMode(button('origin-main'));
+  const gitHtml = _sidebarRecentSelectorsHtml();
+  process.stdout.write(JSON.stringify({
+    hourMode: _sidebarFileConfig.recentMode,
+    hourActiveCount: (hourHtml.match(/aria-pressed="true"/g) || []).length,
+    hourIsActive: hourHtml.includes('data-recent-mode="mtime:60"')
+      && hourHtml.includes('sidebar-recent-selector active'),
+    noneActiveCount: (noneHtml.match(/aria-pressed="true"/g) || []).length,
+    gitActiveCount: (gitHtml.match(/aria-pressed="true"/g) || []).length,
+    gitIsActive: gitHtml.includes('data-recent-mode="origin-main"'),
+    storedMode: JSON.parse(stored[Object.keys(stored).find(key => key.startsWith('labSidebarFileConfig-v2:'))]).recentMode,
+  }));
+})().catch(error => {
+  process.stderr.write(String(error && error.stack || error));
+  process.exitCode = 1;
+});
+"""
+    )
+
+    assert result == {
+        "hourMode": "origin-main",
+        "hourActiveCount": 1,
+        "hourIsActive": True,
+        "noneActiveCount": 0,
+        "gitActiveCount": 1,
+        "gitIsActive": True,
+        "storedMode": "origin-main",
     }
 
 
@@ -653,13 +718,20 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
         assert f'id="{element_id}"' in template
 
     assert '<option value="120">2 hours</option>' in template
-    assert '<option value="4320">3 days</option>' in template
+    assert '<option value="1440">24 hours</option>' in template
+    assert '<option value="4320">' not in template
     assert '<option value="10080">' not in template
     assert '<option value="43200">' not in template
 
     # Repository, project, framework, and workspace sidebar renderers all use
-    # the same settings entry point instead of four divergent checkboxes.
-    assert source.count("_sidebarFileConfigButtonHtml()") >= 4
+    # one settings cog and the same mutually-exclusive quick selector group.
+    assert source.count("_sidebarFileConfigCogHtml()") >= 4
+    assert source.count("_sidebarRecentSelectorsHtml()") >= 4
+    assert "['mtime:15', '15m', '15 min'" in source
+    assert "['mtime:1440', '24h', '24 hours'" in source
+    assert "['uncommitted', 'Uncomm', 'Uncommitted'" in source
+    assert "['origin-main', 'vs main', 'vs origin/main'" in source
+    assert "['last-2-commits', '2 cmts', 'Last 2 commits'" in source
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4
     assert source.count("_sidebarWorktreePickerHtml(") >= 5

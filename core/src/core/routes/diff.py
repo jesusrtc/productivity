@@ -342,6 +342,103 @@ def api_git_status(repo: str, request: Request):
     return result
 
 
+_SIDEBAR_RECENT_GIT_MODES = {"uncommitted", "origin-main", "last-2-commits"}
+
+
+def _sidebar_git_run(directory: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", directory, "-c", "core.quotepath=false", *args],
+        capture_output=True,
+        timeout=5,
+    )
+
+
+def _sidebar_git_paths(result: subprocess.CompletedProcess) -> list[str]:
+    if result.returncode != 0:
+        return []
+    decoded = result.stdout.decode("utf-8", errors="surrogateescape")
+    return [path.strip("\n") for path in decoded.split("\0") if path.strip("\n")]
+
+
+def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
+    try:
+        inside = _sidebar_git_run(directory, "rev-parse", "--is-inside-work-tree")
+    except (subprocess.TimeoutExpired, OSError):
+        return {"files": [], "mode": mode, "available": False}
+    if inside.returncode != 0 or inside.stdout.strip() != b"true":
+        return {"files": [], "mode": mode, "available": False}
+
+    paths: list[str] = []
+    seen: set[str] = set()
+
+    def add(result: subprocess.CompletedProcess) -> None:
+        for path in _sidebar_git_paths(result):
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+    try:
+        if mode == "uncommitted":
+            tracked = _sidebar_git_run(
+                directory, "diff", "--name-only", "-z", "--relative", "HEAD", "--", ".",
+            )
+            if tracked.returncode != 0:  # unborn repository
+                tracked = _sidebar_git_run(
+                    directory, "diff", "--cached", "--name-only", "-z", "--relative", "--", ".",
+                )
+            add(tracked)
+            add(_sidebar_git_run(
+                directory, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
+            ))
+        elif mode == "origin-main":
+            base_ref = "refs/remotes/origin/main"
+            exists = _sidebar_git_run(directory, "rev-parse", "--verify", "--quiet", base_ref)
+            if exists.returncode != 0:
+                return {
+                    "files": [], "mode": mode, "available": False,
+                    "base_ref": "origin/main",
+                }
+            add(_sidebar_git_run(
+                directory, "diff", "--name-only", "-z", "--relative", "origin/main", "--", ".",
+            ))
+            add(_sidebar_git_run(
+                directory, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
+            ))
+        else:  # last-2-commits
+            revisions = _sidebar_git_run(directory, "rev-list", "--max-count=2", "HEAD")
+            if revisions.returncode != 0:
+                return {"files": [], "mode": mode, "available": False}
+            for sha in revisions.stdout.decode("ascii", errors="ignore").splitlines():
+                if sha:
+                    add(_sidebar_git_run(
+                        directory, "show", "-m", "--first-parent", "--pretty=format:",
+                        "--name-only", "-z", "--relative", sha, "--", ".",
+                    ))
+    except (subprocess.TimeoutExpired, OSError):
+        return {"files": [], "mode": mode, "available": False}
+
+    result = {"files": paths, "mode": mode, "available": True}
+    if mode == "origin-main":
+        result["base_ref"] = "origin/main"
+    return result
+
+
+@router.get("/api/sidebar-recent-files")
+def api_sidebar_recent_files(repo: str, mode: str, request: Request):
+    """File paths for one Git-backed Recently updated quick selector."""
+    if mode not in _SIDEBAR_RECENT_GIT_MODES:
+        raise HTTPException(status_code=400, detail="Unsupported recent file mode")
+    root = auth.request_root(request)
+    candidate = Path(repo) if repo.startswith("/") else root / repo
+    try:
+        resolved = candidate.expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
+    if not resolved.is_dir() or not _git_status_dir_allowed(resolved, root):
+        raise HTTPException(status_code=400, detail="repo escapes workspace")
+    return _sidebar_git_recent_files(str(resolved), mode)
+
+
 @router.get("/api/notebook")
 def api_notebook(repo: str, path: str):
     file_path = _safe_path(repo, path)

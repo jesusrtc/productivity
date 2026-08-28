@@ -31,7 +31,7 @@
 - [Sidebar project folders scope the complete file view](sidebar-project-folder-scopes.md) — colored Root/project buttons switch Files and Recently updated together; every project folder may own a worktree parent
 - [Sidebar file settings are project-scoped](sidebar-file-settings-are-project-scoped.md) — browser-local hidden/recent/folder/worktree preferences are keyed by active project path; never share one config across projects or workspaces
 - [Recent files use a compact folder tree](sidebar-recent-files-use-compact-tree.md) — collapse single-child directory chains, preserve real branch levels, and persist folder open state
-- [Recent-file freshness stops at three days](sidebar-recent-freshness-three-day-cap.md) — offer 15m, 1h, 2h, 6h, 24h, and 3d; clamp legacy longer values
+- [Recent files use one quick-selector scope](sidebar-recent-quick-selectors.md) — one active mtime/Git scope, active-click clears to None, and File view settings live in the Overview cog
 - [Sidebar file history uses one three-pane modal](sidebar-file-history-review.md) — repository and file history share files-left/diff-center/revisions-right; file history orders the clicked path first and includes commit companions
 - [Notebook review diff granularity](notebook-review-diff-granularity.md) — source changes are line-level red/green; changed outputs use one whole-block red/green rail
 - [Recent-file diagnostics and consolidated log controls](sidebar-recent-diagnostics-and-log-controls.md) — settings Save logs per-README inclusion reasons; Admin Logs can copy or flush the selected consolidated log

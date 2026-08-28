@@ -983,6 +983,8 @@
     csv: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#8BC34A" stroke-width="1.1"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 6h13M1.5 9.5h13M6 2.5v11M10.5 2.5v11"/></svg>',
     // SQL: a compact database cylinder, the common visual shorthand for SQL.
     sql: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M2 4v8c0 1.1 2.7 2 6 2s6-.9 6-2V4" fill="#4479A1"/><ellipse cx="8" cy="4" rx="6" ry="2.3" fill="#69A7D0"/><path d="M2 8c0 1.1 2.7 2 6 2s6-.9 6-2M2 11c0 1.1 2.7 2 6 2s6-.9 6-2" stroke="#C7E9FF" stroke-width=".9"/></svg>',
+    // Scala: the language's three stacked red ribbon forms.
+    scala: '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#DE3423" d="M3 1.5c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1V1.5zm0 5.1c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1V6.6zm0 5.1c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1v-4.1z"/></svg>',
     git: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#F05033" stroke-width="1.2"><circle cx="4.5" cy="3.8" r="1.5"/><circle cx="4.5" cy="12.2" r="1.5"/><circle cx="11.5" cy="8" r="1.5"/><path d="M4.5 5.3v5.4M6 8h4" stroke-linecap="round"/></svg>',
     vid: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#A074C4" stroke-width="1.2"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/><path d="M6.5 6l3.5 2-3.5 2z" fill="#A074C4" stroke="none"/></svg>',
     conf: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#A074C4" stroke-width="1.2" stroke-linecap="round"><path d="M2.5 5.2h11M2.5 10.8h11"/><circle cx="6.2" cy="5.2" r="1.5" fill="var(--bg-primary,#111)"/><circle cx="10" cy="10.8" r="1.5" fill="var(--bg-primary,#111)"/></svg>',
@@ -1007,6 +1009,7 @@
     else if (['sh', 'bash', 'zsh', 'fish'].includes(ext) || lower === 'makefile' || lower === 'dockerfile') { cls = 'ft-sh'; glyph = _FT_SVGS.sh; }
     else if (ext === 'pdf') { cls = 'ft-pdf'; glyph = _ftDoc('#E5252A'); }
     else if (ext === 'sql') { cls = 'ft-sql'; glyph = _FT_SVGS.sql; }
+    else if (ext === 'scala') { cls = 'ft-scala'; glyph = _FT_SVGS.scala; }
     else if (['csv', 'tsv', 'parquet'].includes(ext)) { cls = 'ft-csv'; glyph = _FT_SVGS.csv; }
     else if (lower.startsWith('.git')) { cls = 'ft-git'; glyph = _FT_SVGS.git; }
     else { cls = 'ft-generic'; glyph = _ftDoc('currentColor'); }
@@ -2133,11 +2136,16 @@
   const SIDEBAR_FILE_CONFIG_LEGACY_KEY = 'labSidebarFileConfig-v1';
   const SIDEBAR_FILE_CONFIG_KEY_PREFIX = 'labSidebarFileConfig-v2:';
   const SIDEBAR_FILE_CONFIG_MIGRATION_KEY = 'labSidebarFileConfig-v1-migrated';
-  const SIDEBAR_RECENT_MAX_MINUTES = 4320;
+  const SIDEBAR_RECENT_MINUTE_OPTIONS = Object.freeze([15, 60, 120, 360, 1440]);
+  const SIDEBAR_RECENT_MAX_MINUTES = 1440;
+  const SIDEBAR_RECENT_GIT_MODES = Object.freeze([
+    'uncommitted', 'origin-main', 'last-2-commits',
+  ]);
   const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
   const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
     showHidden: false,
     showRecent: true,
+    recentMode: 'mtime',
     recentMinutes: 1440,
     trackMode: 'all',
     extensions: [],
@@ -2236,14 +2244,30 @@
     };
   }
 
+  function _sidebarNormalizeRecentMinutes(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes;
+    }
+    const capped = Math.min(numeric, SIDEBAR_RECENT_MAX_MINUTES);
+    return SIDEBAR_RECENT_MINUTE_OPTIONS.includes(capped)
+      ? capped
+      : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes;
+  }
+
   function _sidebarNormalizeFileConfig(stored) {
-    const recentMinutes = Number(stored && stored.recentMinutes);
+    const recentMinutes = _sidebarNormalizeRecentMinutes(stored && stored.recentMinutes);
+    const storedMode = String(stored && stored.recentMode || '');
+    const recentMode = storedMode === 'none'
+      || storedMode === 'mtime'
+      || SIDEBAR_RECENT_GIT_MODES.includes(storedMode)
+      ? storedMode
+      : (stored && stored.showRecent === false ? 'none' : 'mtime');
     return {
       showHidden: !!(stored && stored.showHidden === true),
-      showRecent: !stored || stored.showRecent !== false,
-      recentMinutes: Number.isFinite(recentMinutes) && recentMinutes > 0
-        ? Math.min(recentMinutes, SIDEBAR_RECENT_MAX_MINUTES)
-        : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes,
+      showRecent: recentMode !== 'none',
+      recentMode,
+      recentMinutes,
       trackMode: stored && stored.trackMode === 'extensions' ? 'extensions' : 'all',
       extensions: stored && Array.isArray(stored.extensions)
         ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
@@ -2530,19 +2554,55 @@
     );
   }
 
+  function _sidebarCurrentRecentMode() {
+    const mode = String(_sidebarFileConfig && _sidebarFileConfig.recentMode || '');
+    if (mode === 'none' || mode === 'mtime' || SIDEBAR_RECENT_GIT_MODES.includes(mode)) {
+      return mode;
+    }
+    return _sidebarFileConfig && _sidebarFileConfig.showRecent === false ? 'none' : 'mtime';
+  }
+
+  function _sidebarRecentTypeAllowed(file) {
+    if (_sidebarFileConfig.trackMode !== 'extensions') return true;
+    return new Set(_sidebarFileConfig.extensions || [])
+      .has(_sidebarFileExtension(file.path || file.name));
+  }
+
   function _sidebarRecentFiles(files, nowSeconds = Date.now() / 1000) {
-    if (!_sidebarFileConfig.showRecent) return [];
+    if (_sidebarCurrentRecentMode() !== 'mtime') return [];
     const cutoff = nowSeconds - (_sidebarFileConfig.recentMinutes * 60);
-    const allowed = new Set(_sidebarFileConfig.extensions || []);
     return (files || [])
       .filter(file => {
         if (!file || file.type === 'dir' || !Number.isFinite(Number(file.mtime))) return false;
         if (Number(file.mtime) < cutoff) return false;
-        return _sidebarFileConfig.trackMode === 'all'
-          || allowed.has(_sidebarFileExtension(file.path || file.name));
+        return _sidebarRecentTypeAllowed(file);
       })
       .sort((a, b) => Number(b.mtime) - Number(a.mtime)
         || String(a.path || a.name).localeCompare(String(b.path || b.name)));
+  }
+
+  async function _sidebarResolveRecentFiles(files, rootPath) {
+    const mode = _sidebarCurrentRecentMode();
+    if (mode === 'none') return [];
+    if (mode === 'mtime') return _sidebarRecentFiles(files);
+    try {
+      const response = await fetch(`/api/sidebar-recent-files?repo=${encodeURIComponent(rootPath)}&mode=${encodeURIComponent(mode)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || response.statusText || 'Could not load Git file scope');
+      const byPath = new Map((files || [])
+        .filter(file => file && file.type !== 'dir')
+        .map(file => [String(file.path || file.name || ''), file]));
+      return (Array.isArray(data.files) ? data.files : [])
+        .map(path => byPath.get(String(path)))
+        .filter(file => file && _sidebarRecentTypeAllowed(file));
+    } catch (error) {
+      _sidebarRecentLog('warning', `recent Git file scope failed: ${error.message || error}`, {
+        action: 'sidebar.recent.git_scope',
+        event_type: 'sidebar.recent.git_scope_failed',
+        target: rootPath,
+      });
+      return [];
+    }
   }
 
   function _sidebarRecentExclusionReason(file, recentPaths, cutoff) {
@@ -2660,24 +2720,58 @@
     return files;
   }
 
-  function _sidebarFreshnessLabel(minutes) {
-    const value = Number(minutes);
-    if (value < 60) return `${value}m`;
-    if (value < 1440) return `${value / 60}h`;
-    return `${value / 1440}d`;
+  function _sidebarFileConfigCogHtml() {
+    return '<button type="button" class="sidebar-file-config-cog" onclick="event.preventDefault();event.stopPropagation();openSidebarFileConfig()" title="File view settings" aria-label="Open file view settings"><span aria-hidden="true">&#x2699;</span></button>';
   }
 
-  function _sidebarFileConfigButtonHtml() {
-    const summary = [];
-    if (_sidebarFileConfig.showHidden) summary.push('hidden');
-    if (_sidebarFileConfig.showRecent) {
-      summary.push(`recent ${_sidebarFreshnessLabel(_sidebarFileConfig.recentMinutes)}`);
-    }
-    const folderCount = (_sidebarFileConfig.folderScopes || []).length;
-    if (folderCount) summary.push(`${folderCount} folder${folderCount === 1 ? '' : 's'}`);
-    if (_sidebarActiveWorktreeFolder(_sidebarWorktreeBaseRoot())) summary.push('worktrees');
-    return `<div class="sidebar-file-config-row"><button type="button" class="sidebar-file-config-button" onclick="openSidebarFileConfig()" title="Configure hidden and recently updated files"><span aria-hidden="true">&#x2699;</span> File view <span class="sidebar-file-config-summary">${esc(summary.join(' · ') || 'default')}</span></button></div>`;
+  function _sidebarRecentSelectorValue() {
+    const mode = _sidebarCurrentRecentMode();
+    return mode === 'mtime' ? `mtime:${_sidebarFileConfig.recentMinutes}` : mode;
   }
+
+  function _sidebarRecentSelectorsHtml() {
+    const selected = _sidebarRecentSelectorValue();
+    const rows = [
+      [
+        ['mtime:15', '15m', '15 min', 'Files updated in the last 15 minutes'],
+        ['mtime:60', '1h', '1 hour', 'Files updated in the last hour'],
+        ['mtime:120', '2h', '2 hours', 'Files updated in the last 2 hours'],
+        ['mtime:360', '6h', '6 hours', 'Files updated in the last 6 hours'],
+        ['mtime:1440', '24h', '24 hours', 'Files updated in the last 24 hours'],
+      ],
+      [
+        ['uncommitted', 'Uncomm', 'Uncommitted', 'Files with uncommitted changes'],
+        ['origin-main', 'vs main', 'vs origin/main', 'Files changed compared with origin/main'],
+        ['last-2-commits', '2 cmts', 'Last 2 commits', 'Files changed by the last 2 commits'],
+      ],
+    ];
+    return `<div class="sidebar-recent-selectors" role="group" aria-label="Recently updated file scope" title="Select one file scope; click the active option again to hide Recently updated">${rows.map(row => `<div class="sidebar-recent-selector-row">${row.map(([value, shortLabel, longLabel, title]) => {
+      const active = value === selected;
+      return `<button type="button" class="sidebar-recent-selector${active ? ' active' : ''}" data-recent-mode="${escAttr(value)}" onclick="sidebarSelectRecentMode(this)" aria-label="${escAttr(title)}" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(title)}${active ? ' · click again to hide' : ''}"><span class="sidebar-recent-label-short">${esc(shortLabel)}</span><span class="sidebar-recent-label-long">${esc(longLabel)}</span></button>`;
+    }).join('')}</div>`).join('')}</div>`;
+  }
+
+  async function sidebarSelectRecentMode(button) {
+    const requested = String(button && button.getAttribute('data-recent-mode') || '');
+    const current = _sidebarRecentSelectorValue();
+    if (requested === current) {
+      _sidebarFileConfig.recentMode = 'none';
+      _sidebarFileConfig.showRecent = false;
+    } else if (requested.startsWith('mtime:')) {
+      const minutes = _sidebarNormalizeRecentMinutes(requested.slice('mtime:'.length));
+      _sidebarFileConfig.recentMode = 'mtime';
+      _sidebarFileConfig.recentMinutes = minutes;
+      _sidebarFileConfig.showRecent = true;
+    } else if (SIDEBAR_RECENT_GIT_MODES.includes(requested)) {
+      _sidebarFileConfig.recentMode = requested;
+      _sidebarFileConfig.showRecent = true;
+    } else {
+      return;
+    }
+    _storeSidebarFileConfig();
+    await _refreshSidebarAfterFileConfig();
+  }
+  window.sidebarSelectRecentMode = sidebarSelectRecentMode;
 
   function _sidebarRecentTreeModel(files) {
     const compactNode = (node, parentPath) => {
@@ -2744,8 +2838,8 @@
   }
   window.openSidebarFileHistory = openSidebarFileHistory;
 
-  function _sidebarRecentSectionHtml(files, activePath, root = '') {
-    const recent = _sidebarRecentFiles(files);
+  function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false} = {}) {
+    const recent = resolved ? (files || []) : _sidebarRecentFiles(files);
     if (!recent.length) return '';
     let html = `<div class="sidebar-title">Recently updated <span class="sidebar-title-count">${recent.length}</span></div>`;
     const scopeRoot = root || (currentProject && currentProject.path ? currentProject.path : 'global');
@@ -2895,7 +2989,7 @@
     const recent = document.getElementById('sidebarConfigRecent');
     const freshness = document.getElementById('sidebarConfigFreshness');
     if (hidden) hidden.checked = _sidebarFileConfig.showHidden;
-    if (recent) recent.checked = _sidebarFileConfig.showRecent;
+    if (recent) recent.checked = _sidebarCurrentRecentMode() !== 'none';
     if (freshness) freshness.value = String(_sidebarFileConfig.recentMinutes);
     const track = modal.querySelector(`input[name="sidebarRecentTrack"][value="${_sidebarFileConfig.trackMode}"]`);
     if (track) track.checked = true;
@@ -3122,16 +3216,22 @@
     if (!folderConfig) return false;
     const extensions = [...document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]:checked')]
       .map(input => input.value);
+    const recentMinutes = _sidebarNormalizeRecentMinutes(freshness && freshness.value);
+    const recentEnabled = !!(recent && recent.checked);
+    const previousRecentMode = _sidebarCurrentRecentMode();
+    const recentMode = !recentEnabled
+      ? 'none'
+      : (previousRecentMode === 'none' || recentMinutes !== _sidebarFileConfig.recentMinutes
+        ? 'mtime'
+        : previousRecentMode);
     const validFolderPaths = new Set(folderConfig.folderScopes.map(row => row.path));
     const selectedFolders = Object.fromEntries(Object.entries(_sidebarFileConfig.selectedFolders || {})
       .filter(([, path]) => validFolderPaths.has(path)));
     _sidebarFileConfig = {
       showHidden: !!(hidden && hidden.checked),
-      showRecent: !!(recent && recent.checked),
-      recentMinutes: Math.min(
-        SIDEBAR_RECENT_MAX_MINUTES,
-        Math.max(1, Number(freshness && freshness.value) || SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes),
-      ),
+      showRecent: recentMode !== 'none',
+      recentMode,
+      recentMinutes,
       trackMode: track && track.value === 'extensions' ? 'extensions' : 'all',
       extensions,
       folderScopes: folderConfig.folderScopes,
@@ -3226,6 +3326,12 @@
     } catch (err) {
       fileTree = [];
     }
+    let recentFiles = [];
+    try {
+      const sidebarFiles = await _sidebarFetchProjectFiles(fileRoot);
+      _sidebarRememberAvailableExtensions(sidebarFiles);
+      recentFiles = await _sidebarResolveRecentFiles(sidebarFiles, fileRoot);
+    } catch (_) {}
 
     // Get changed files with status for indicators (vs master)
     const changedFiles = new Map();
@@ -3251,12 +3357,13 @@
     }
 
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
-    sb.innerHTML = '<div class="sidebar-title">Project</div>' +
-      _sidebarFileConfigButtonHtml() +
+    sb.innerHTML = '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
+      _sidebarRecentSelectorsHtml() +
       _sidebarFileScopeButtonsHtml(baseRoot) +
       _sidebarWorktreePickerHtml(baseRoot) +
       symlinkLegendHtml() +
       _sidebarWorktreeScopeStartHtml(baseRoot) +
+      _sidebarRecentSectionHtml(recentFiles, projectOpenFile, fileRoot, {resolved: true}) +
       '<div class="sidebar-create"><button onclick="openCreateModal()">+ New File</button></div>' +
       '<div class="sidebar-title">Files</div>' +
       '<ul class="tree-node">' + renderTreeNodes(filtered, changedFiles) + '</ul>' +
@@ -7159,6 +7266,7 @@
         Promise.resolve().then(async () => {
           try {
             const files = await _sidebarFetchProjectFiles(fileRoot);
+            const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
             let pinned = [], references = [], proxies = [];
             try {
               const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
@@ -7169,7 +7277,7 @@
                 if (Array.isArray(info.proxies)) proxies = info.proxies;
               }
             } catch {}
-            const fresh = {files, pinned, references, proxies, fileRoot};
+            const fresh = {files, recentFiles, pinned, references, proxies, fileRoot};
             if (!currentProject || currentProject.path !== projectPath
                 || _sidebarScopedRoot(projectPath) !== fileRoot) return;
             const prev = _projectSidebarCache.get(projectPath);
@@ -7187,16 +7295,20 @@
     }
 
     try {
-      let files, pinnedNames, references, proxies;
+      let files, recentFiles, pinnedNames, references, proxies;
       if (_data) {
         // Render from pre-loaded payload — cache hit or reconcile path.
         files = _data.files;
         pinnedNames = _data.pinned || [];
         references = _data.references || [];
         proxies = _data.proxies || [];
+        recentFiles = Array.isArray(_data.recentFiles)
+          ? _data.recentFiles
+          : (_sidebarCurrentRecentMode() === 'mtime' ? _sidebarRecentFiles(files) : []);
       } else {
         // Cold path: fetch fresh + write to cache.
         files = await _sidebarFetchProjectFiles(fileRoot);
+        recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
         pinnedNames = [];
         references = [];
         proxies = [];
@@ -7209,7 +7321,7 @@
             if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
-        _projectSidebarCache.set(projectPath, {files, pinned: pinnedNames, references, proxies, fileRoot});
+        _projectSidebarCache.set(projectPath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
@@ -7243,8 +7355,8 @@
       // which made the selection blink.
       const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const dashActive = !activePath ? ' active' : '';
-      let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
-      sbHtml += _sidebarFileConfigButtonHtml();
+      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(projectPath);
       sbHtml += _sidebarWorktreePickerHtml(projectPath);
       sbHtml += symlinkLegendHtml();
@@ -7286,7 +7398,7 @@
       // the whole sidebar via the catch handler.
       const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '') + ':' + fileRoot;
       sbHtml += _sidebarWorktreeScopeStartHtml(projectPath);
-      sbHtml += _sidebarRecentSectionHtml(fileEntries, activePath, fileRoot);
+      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
       if (mainFiles.length > 0 || dirEntries.length > 0) {
         const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
@@ -12557,6 +12669,7 @@
       await _sidebarEnsureWorktrees(baseRoot);
       const fileRoot = _sidebarScopedRoot(baseRoot);
       const files = await _sidebarFetchProjectFiles(fileRoot);
+      const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('self-active')
           || !currentProject || currentProject.path !== baseRoot
           || _sidebarScopedRoot(baseRoot) !== fileRoot) return;
@@ -12570,13 +12683,13 @@
       // applied imperatively after rebuild and the selection flickers.
       const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const workbenchActive = !activePath ? ' active' : '';
-      let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
-      sbHtml += _sidebarFileConfigButtonHtml();
+      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(baseRoot);
       sbHtml += _sidebarWorktreePickerHtml(baseRoot);
       sbHtml += symlinkLegendHtml();
       sbHtml += _sidebarWorktreeScopeStartHtml(baseRoot);
-      sbHtml += _sidebarRecentSectionHtml(files, activePath, fileRoot);
+      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
 
       const tree = buildSidebarTree(files);
@@ -13821,6 +13934,7 @@
       await _sidebarEnsureWorktrees(rootPath);
       const fileRoot = _sidebarScopedRoot(rootPath);
       const files = await _sidebarFetchProjectFiles(fileRoot);
+      const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('workspace-active')) return;
       if (!currentProject || currentProject.path !== rootPath) return;
       if (_sidebarScopedRoot(rootPath) !== fileRoot) return;
@@ -13830,13 +13944,13 @@
 
       const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
       const overviewActive = !activePath ? ' active' : '';
-      let sbHtml = `<a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
-      sbHtml += _sidebarFileConfigButtonHtml();
+      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(rootPath);
       sbHtml += _sidebarWorktreePickerHtml(rootPath);
       sbHtml += symlinkLegendHtml();
       sbHtml += _sidebarWorktreeScopeStartHtml(rootPath);
-      sbHtml += _sidebarRecentSectionHtml(files, activePath, fileRoot);
+      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
       sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `workspace:${fileRoot}`, autoOpen: _AUTO_OPEN_WORKSPACE, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(rootPath);
