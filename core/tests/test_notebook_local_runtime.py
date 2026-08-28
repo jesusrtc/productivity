@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import core.notebook_kernel as notebook_kernel
 import core.notebook_runtime as notebook_runtime
+import pytest
 from core.notebook_runtime import ProjectRuntimeSpec, runtime_fingerprint
 
 
@@ -52,6 +55,67 @@ def test_runtime_fingerprint_is_stable_and_configuration_sensitive() -> None:
     changed = ProjectRuntimeSpec(python="3.12", packages=["pandas==2.3.3"])
     assert runtime_fingerprint(first) == runtime_fingerprint(same)
     assert runtime_fingerprint(first) != runtime_fingerprint(changed)
+
+
+def test_cancelled_http_execution_interrupts_and_drains_kernel_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.release = threading.Event()
+            self.interrupted = False
+
+        def interrupt(self) -> bool:
+            self.interrupted = True
+            self.release.set()
+            return True
+
+    class FakeSession:
+        session_id = "local-cancel-test"
+
+        def __init__(self) -> None:
+            self.process = FakeProcess()
+            self.started = asyncio.Event()
+            self.finished = False
+            self.requests = 0
+
+        def begin_request(self) -> None:
+            self.requests += 1
+
+        def end_request(self) -> None:
+            self.requests -= 1
+
+        async def call(self, method, code, timeout, emit):
+            assert method == "execute"
+            self.started.set()
+            await asyncio.to_thread(self.process.release.wait)
+            self.finished = True
+            return {"cell_outputs": [], "execution_count": 1, "kernel_id": "fake"}
+
+    session = FakeSession()
+    monkeypatch.setattr(notebook_kernel, "_session_for", lambda *args: session)
+    handle = notebook_runtime.RuntimeHandle(
+        project_id="demo",
+        python=sys.executable,
+        working_dir=str(tmp_path),
+        environment={},
+        fingerprint="fake",
+        display_name="Fake",
+    )
+
+    async def exercise() -> None:
+        task = asyncio.create_task(
+            notebook_kernel.execute(tmp_path, "cancel.ipynb", handle, "pass", 30)
+        )
+        await session.started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    assert session.process.interrupted is True
+    assert session.finished is True
+    assert session.requests == 0
 
 
 def test_managed_runtime_build_installs_pins_and_editable_libraries(
@@ -206,6 +270,82 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     assert any(out["type"] == "error" for out in missing_state.json()["cell"]["outputs"])
 
 
+def test_local_kernel_streams_text_rich_output_and_display_updates_live(
+    client, monorepo: Path
+) -> None:
+    rel, _ = _project_with_cli(monorepo)
+    assert client.put(
+        "/api/nb/runtime", json={"path": rel, "spec": _existing_spec()}
+    ).status_code == 200
+    built = client.post("/api/nb/runtime/build", json={"path": rel})
+    assert built.status_code == 200, built.text
+
+    code = (
+        "import time\n"
+        "from IPython.display import HTML, display\n"
+        "print('stream-before-sleep', flush=True)\n"
+        "time.sleep(1.2)\n"
+        "chart = display(HTML(\"<div id='live-chart'>first</div>\"), display_id=True)\n"
+        "time.sleep(0.2)\n"
+        "chart.update(HTML(\"<div id='live-chart'>final</div>\"))\n"
+    )
+    events: list[dict] = []
+    saw_output_before_completion = False
+    with client.websocket_connect("/ws") as ws:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            running = pool.submit(
+                client.post,
+                "/api/nb/exec",
+                json={"path": rel, "actor": "agent", "code": code},
+            )
+            while True:
+                event = ws.receive_json()
+                if event.get("type") != "notebook-execution" or event.get("path") != rel:
+                    continue
+                events.append(event)
+                content = (event.get("output") or {}).get("content", "")
+                if "stream-before-sleep" in content:
+                    saw_output_before_completion = not running.done()
+                    live = client.get(f"/api/nb/live?path={rel}")
+                    assert live.status_code == 200, live.text
+                    snapshots = live.json()["executions"]
+                    assert len(snapshots) == 1
+                    assert any(
+                        "stream-before-sleep" in output.get("content", "")
+                        for output in snapshots[0]["outputs"]
+                    )
+                if event.get("phase") in {"finished", "failed", "interrupted"}:
+                    break
+            completed = running.result(timeout=10)
+
+    assert completed.status_code == 200, completed.text
+    assert saw_output_before_completion is True
+    assert events[0]["phase"] == "started"
+    assert events[-1]["phase"] == "finished"
+    sequenced = [event["sequence"] for event in events if "sequence" in event]
+    assert sequenced == sorted(set(sequenced))
+    assert any(
+        event.get("phase") == "output"
+        and (event.get("output") or {}).get("type") == "html"
+        and event.get("operation") == "append"
+        for event in events
+    )
+    assert any(
+        event.get("phase") == "output"
+        and "final" in (event.get("output") or {}).get("content", "")
+        and event.get("operation") == "replace"
+        for event in events
+    )
+    assert client.get(f"/api/nb/live?path={rel}").json()["executions"] == []
+
+    cell = completed.json()["cell"]
+    assert any("stream-before-sleep" in out.get("content", "") for out in cell["outputs"])
+    html_outputs = [out for out in cell["outputs"] if out.get("type") == "html"]
+    assert len(html_outputs) == 1
+    assert "final" in html_outputs[0]["content"]
+    assert "first" not in html_outputs[0]["content"]
+
+
 def test_local_runtime_requires_build_before_exec(client, monorepo: Path) -> None:
     rel, _ = _project_with_cli(monorepo)
     saved = client.put("/api/nb/runtime", json={"path": rel, "spec": _existing_spec()})
@@ -223,34 +363,53 @@ def test_local_kernel_interrupt_stops_a_running_cell(client, monorepo: Path) -> 
     built = client.post("/api/nb/runtime/build", json={"path": rel})
     assert built.status_code == 200, built.text
 
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        running = pool.submit(
-            client.post,
-            "/api/nb/exec",
-            json={
-                "path": rel,
-                "actor": "human",
-                "timeout": 30,
-                "code": "import time\ntime.sleep(30)\nprint('should not finish')",
-            },
-        )
-        deadline = time.monotonic() + 10
-        notebook_path = monorepo / rel
-        while time.monotonic() < deadline:
-            if notebook_path.is_file() and "lab_pending" in notebook_path.read_text():
-                pending = json.loads(notebook_path.read_text(encoding="utf-8"))["cells"][0]
-                assert pending["metadata"]["lab_actor"] == "human"
-                assert pending["metadata"]["lab_action"] == "created"
-                assert pending["metadata"]["lab_started_at"] <= time.time()
-                break
-            time.sleep(0.05)
-        interrupted = client.post("/api/nb/session/interrupt", json={"path": rel})
-        assert interrupted.status_code == 200, interrupted.text
-        assert interrupted.json()["interrupted"] is True
-        completed = running.result(timeout=10)
+    terminal_event = None
+    with client.websocket_connect("/ws") as ws:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            running = pool.submit(
+                client.post,
+                "/api/nb/exec",
+                json={
+                    "path": rel,
+                    "actor": "human",
+                    "timeout": 30,
+                    "code": (
+                        "import time\n"
+                        "print('before interrupt', flush=True)\n"
+                        "time.sleep(30)\n"
+                        "print('should not finish')"
+                    ),
+                },
+            )
+            while True:
+                event = ws.receive_json()
+                if event.get("type") != "notebook-execution" or event.get("path") != rel:
+                    continue
+                if "before interrupt" in (event.get("output") or {}).get("content", ""):
+                    assert running.done() is False
+                    break
+
+            notebook_path = monorepo / rel
+            pending = json.loads(notebook_path.read_text(encoding="utf-8"))["cells"][0]
+            assert pending["metadata"]["lab_actor"] == "human"
+            assert pending["metadata"]["lab_action"] == "created"
+            assert pending["metadata"]["lab_started_at"] <= time.time()
+
+            interrupted = client.post("/api/nb/session/interrupt", json={"path": rel})
+            assert interrupted.status_code == 200, interrupted.text
+            assert interrupted.json()["interrupted"] is True
+            while terminal_event is None:
+                event = ws.receive_json()
+                if event.get("type") != "notebook-execution" or event.get("path") != rel:
+                    continue
+                if event.get("phase") in {"finished", "failed", "interrupted"}:
+                    terminal_event = event
+            completed = running.result(timeout=10)
 
     assert completed.status_code == 200, completed.text
+    assert terminal_event["phase"] == "interrupted"
     outputs = completed.json()["cell"]["outputs"]
+    assert any("before interrupt" in output.get("content", "") for output in outputs)
     assert any(
         output["type"] == "error" and "KeyboardInterrupt" in output["content"]
         for output in outputs

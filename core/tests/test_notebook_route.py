@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from core.diff_parser import parse_notebook_output
+
 
 def _write_notebook(path: Path) -> None:
     """Write a minimal nbformat v4 notebook with one markdown + one code cell.
@@ -97,3 +99,23 @@ def test_render_notebook_rejects_non_ipynb(client, monorepo) -> None:
     path.write_text("hi")
     r = client.get("/api/nb?path=projects/demo/notebooks/foo.txt")
     assert r.status_code == 400
+
+
+def test_live_and_persisted_outputs_share_svg_stream_and_display_shape() -> None:
+    stream = parse_notebook_output({
+        "output_type": "stream", "name": "stderr", "text": ["warning", "\n"],
+    })
+    svg = parse_notebook_output({
+        "output_type": "display_data",
+        "data": {"image/svg+xml": ["<svg>", "<circle />", "</svg>"]},
+        "metadata": {},
+        "transient": {"display_id": "plot-1"},
+    })
+    assert stream == {
+        "type": "text", "content": "warning\n", "stream_name": "stderr",
+    }
+    assert svg == {
+        "type": "html",
+        "content": "<svg><circle /></svg>",
+        "display_id": "plot-1",
+    }

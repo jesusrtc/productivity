@@ -77,6 +77,29 @@ process.stdout.write(JSON.stringify({relative, failures}));
     assert all(result["failures"])
 
 
+def test_notebook_path_can_follow_a_project_in_another_workspace() -> None:
+    helpers = _js_between(
+        "function _normalizeAbsolutePath(path)",
+        "function renderNotebookCell(cell, status)",
+    )
+    result = _run_node(
+        """
+const WORKSPACE_ROOT = '/Volumes/SSD/workspaces/productivity';
+"""
+        + helpers
+        + """
+const relative = _workspaceRelativeNotebookPath(
+  '/Users/jcortes/workspaces/local/projects/test',
+  'agent-demo.ipynb',
+  '/Users/jcortes/workspaces/local',
+);
+process.stdout.write(JSON.stringify({relative}));
+"""
+    )
+
+    assert result["relative"] == "projects/test/agent-demo.ipynb"
+
+
 def test_notebook_deep_link_resolves_project_under_active_workspace() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
@@ -115,6 +138,58 @@ process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
         "project=%2FUsers%2Fjcortes%2Fsrc%2Fworkspaces%2Fmain%2Fprojects%2Finvestigations"
         in result["historyCalls"][0]
     )
+
+
+def test_notebook_deep_link_keeps_an_explicit_cross_workspace_project() -> None:
+    helpers = _js_between(
+        "function _normalizeAbsolutePath(path)",
+        "function renderNotebookCell(cell, status)",
+    )
+    deep_link = _js_between(
+        "let _nbHashProject = null;",
+        "const _effectiveProject = urlProject || _nbHashProject;",
+    )
+    result = _run_node(
+        """
+const WORKSPACE_ROOT = '/Volumes/SSD/workspaces/productivity';
+const location = {
+  hash: '#/nb?path=projects/test/agent-demo.ipynb',
+  href: 'http://lab.test/?project=%2FUsers%2Fjcortes%2Fworkspaces%2Flocal%2Fprojects%2Ftest#/nb?path=projects/test/agent-demo.ipynb',
+};
+const historyCalls = [];
+const lastDocs = [];
+const history = {replaceState(_state, _title, url) { historyCalls.push(String(url)); }};
+function setLastProjectDoc(project, doc) { lastDocs.push({project, doc}); }
+const urlProject = '/Users/jcortes/workspaces/local/projects/test';
+"""
+        + helpers
+        + deep_link
+        + """
+process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
+"""
+    )
+
+    expected_project = "/Users/jcortes/workspaces/local/projects/test"
+    assert result["_nbHashProject"] == expected_project
+    assert result["lastDocs"] == [
+        {"project": expected_project, "doc": "agent-demo.ipynb"}
+    ]
+    assert "project=%2FUsers%2Fjcortes%2Fworkspaces%2Flocal%2Fprojects%2Ftest" in (
+        result["historyCalls"][0]
+    )
+
+
+def test_cold_project_hydration_does_not_stomp_a_remembered_notebook() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    select_repo = _js_between(
+        "async function selectRepo(projectKey)",
+        "async function loadDiff()",
+    )
+
+    assert "const remembered = getLastProjectDoc(currentProject.path);" in select_repo
+    assert "showProjectInfo({keepShell: true});" in select_repo
+    assert "if (remembered) openProjectDoc(remembered);" in select_repo
+    assert "showProjectInfo({keepShell: !remembered});" not in source
 
 
 def test_builtin_jupyter_tab_needs_no_server_proxy_configuration() -> None:
@@ -158,26 +233,28 @@ def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
         "// All other files: fetch content + comments",
     )
     cell_bindings = _js_between(
-        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved)",
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null)",
         "function renderNbAddCellButton()",
     )
     restart_binding = _js_between(
-        "async function bindNbRestartKernel(container, relPath, filepath)",
-        "function bindNbAddCellButton(container, relPath, filepath)",
+        "async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null)",
+        "function bindNbAddCellButton(container, relPath, filepath, workspaceId = null)",
     )
 
-    assert "_workspaceRelativeNotebookPathOrNull(currentProject.path, filepath)" in open_block
-    assert "fetch(`/api/nb?path=${encodeURIComponent(relPath)}`)" in open_block
-    assert "fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}`)" in open_block
-    assert "fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}`)" in open_block
-    assert "bindNbCellInteractive(wrap, relPath, filepath)" in open_block
-    assert "bindNbRestartKernel(container, relPath, filepath)" in open_block
-    assert "bindNbRuntimePanel(container, relPath, filepath)" in open_block
-    assert "bindNbInterruptKernel(container, relPath)" in open_block
+    assert "const notebookWorkspace = _notebookWorkspaceContext(currentProject);" in open_block
+    assert "currentProject.path, filepath, notebookWorkspace.workspaceRoot" in open_block
+    assert "fetch(`/api/nb?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`)" in open_block
+    assert "fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`)" in open_block
+    assert "fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`)" in open_block
+    assert "wrap, relPath, filepath, null, notebookWorkspace.workspaceId" in open_block
+    assert "bindNbRestartKernel(container, relPath, filepath, notebookWorkspace.workspaceId)" in open_block
+    assert "bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId)" in open_block
+    assert "bindNbInterruptKernel(container, relPath, notebookWorkspace.workspaceId)" in open_block
     assert "const body = { path: relPath, code, actor: 'human' };" in cell_bindings
+    assert "if (workspaceId) body.workspace = workspaceId;" in cell_bindings
     assert "if (cellId) body.cell_id = cellId;" in cell_bindings
-    assert "{ path: relPath, cell_id: cellId }" in cell_bindings
-    assert "JSON.stringify({ path: relPath })" in restart_binding
+    assert "...(workspaceId ? {workspace: workspaceId} : {})" in cell_bindings
+    assert "...(workspaceId ? {workspace: workspaceId} : {})" in restart_binding
     assert "/api/notebook?repo=${encodeURIComponent(docRoot)}" in open_block
     assert "read-only notebook" in open_block
     assert "Move or copy into a workspace project to execute" in open_block
@@ -188,7 +265,7 @@ def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
 def test_project_runtime_panel_exposes_python_libraries_and_cli_configuration() -> None:
     render = _js_between(
         "function _nbRuntimeLines(values)",
-        "function bindNbRuntimePanel(container, relPath, filepath)",
+        "function bindNbRuntimePanel(container, relPath, filepath, workspaceId = null)",
     )
     result = _run_node(
         """
@@ -223,12 +300,12 @@ process.stdout.write(JSON.stringify({html}));
 def test_project_runtime_panel_saves_builds_and_interrupts_through_shared_api() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     runtime_binding = _js_between(
-        "function bindNbRuntimePanel(container, relPath, filepath)",
-        "function bindNbInterruptKernel(container, relPath)",
+        "function bindNbRuntimePanel(container, relPath, filepath, workspaceId = null)",
+        "function bindNbInterruptKernel(container, relPath, workspaceId = null)",
     )
     interrupt_binding = _js_between(
-        "function bindNbInterruptKernel(container, relPath)",
-        "async function bindNbRestartKernel(container, relPath, filepath)",
+        "function bindNbInterruptKernel(container, relPath, workspaceId = null)",
+        "async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null)",
     )
     assert "fetch('/api/nb/runtime'" in runtime_binding
     assert "fetch('/api/nb/runtime/build'" in runtime_binding
@@ -261,3 +338,35 @@ process.stdout.write(JSON.stringify({
     assert "data-nb-started-at-ms" in source
     assert "finished in ${_formatNbElapsed(durationMs)}" in source
     assert "actor: 'human'" in source
+
+
+def test_notebook_live_execution_replays_and_applies_ordered_ws_deltas() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    open_block = _js_between(
+        "// Notebooks: render cells via /api/nb",
+        "// All other files: fetch content + comments",
+    )
+    live_block = _js_between(
+        "// Live notebook execution events share the global authenticated WebSocket",
+        "// Terminal panel",
+    ) if source.index("// Terminal panel") > source.index(
+        "// Live notebook execution events share the global authenticated WebSocket"
+    ) else source[source.index(
+        "// Live notebook execution events share the global authenticated WebSocket"
+    ):]
+
+    assert "`/api/nb/live?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`" in open_block
+    assert "liveByCell" in open_block
+    assert "live.sequence" in open_block
+    assert "latestNbRes" in open_block
+    assert "realCells.splice(at, 0" in open_block
+    assert "event.type === 'notebook-execution'" in live_block
+    assert "incomingSequence > currentSequence + 1" in live_block
+    assert "event.operation === 'replace'" in live_block
+    assert "body.insertAdjacentHTML('beforeend', rendered)" in live_block
+    assert "_reconcileOpenNotebook(relPath, workspaceId)" in live_block
+    assert "_reconcileOpenNotebook(reconnectNotebook, reconnectWorkspaceId)" in live_block
+    assert "const workspaceId = String(event.workspace || '');" in live_block
+    assert "const liveKey = _nbLiveKey(workspaceId, relPath);" in live_block
+    assert "const idxAttr = clientPending ? 'new' : String(index);" in source
+    assert "if (draftKey && !isServerRunning)" in source

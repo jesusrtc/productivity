@@ -43,6 +43,13 @@ def render_notebook(path: str, request: Request) -> dict:
     if not target.is_file():
         raise HTTPException(status_code=404, detail="not found")
 
+    # A server/process crash can leave an atomically checkpointed cell marked
+    # as running even though its kernel no longer exists. Recover it on first
+    # read instead of rendering an immortal spinner.
+    from core.routes.nb_exec import recover_stale_pending
+
+    recover_stale_pending(target)
+
     cells = parse_notebook(str(target))
     # Pre-render markdown cells so the client can dump HTML directly.
     for cell in cells:

@@ -287,7 +287,11 @@
       document.body.classList.add('project-active');
       const hydrateProjectChrome = () => {
         refreshAttrsBar();
-        showProjectInfo({keepShell: !remembered});
+        // The project shell (or a remembered document) is already painted.
+        // Sidebar/dashboard hydration must never replace it with a dashboard
+        // loading spinner; showProjectInfo's final race guard will paint the
+        // dashboard only when no document owns the content area.
+        showProjectInfo({keepShell: true});
       };
       // Decide synchronously whether a doc or the dashboard will paint
       // the content area. On cold full-page loads, keep the server-rendered
@@ -3386,15 +3390,15 @@
     return '/' + parts.join('/');
   }
 
-  // Notebook APIs deliberately accept only paths relative to the active
-  // workspace. Project paths, however, are absolute. Convert between the two
-  // using LAB_WORKSPACE_ROOT (not the separate framework/self-view root), and
-  // refuse to strip anything until containment has been checked.
-  function _workspaceRelativeNotebookPath(projectPath, filepath) {
-    const workspaceRoot = _normalizeAbsolutePath(WORKSPACE_ROOT);
+  // Notebook APIs deliberately accept only paths relative to the notebook's
+  // owning workspace. Project paths, however, are absolute. In a cross-workspace
+  // tab this root may differ from the shell's LAB_WORKSPACE_ROOT, so callers can
+  // pass the owning catalog path. Never strip until containment is checked.
+  function _workspaceRelativeNotebookPath(projectPath, filepath, owningWorkspaceRoot = WORKSPACE_ROOT) {
+    const workspaceRoot = _normalizeAbsolutePath(owningWorkspaceRoot);
     const projectRoot = _normalizeAbsolutePath(projectPath);
     const file = String(filepath || '');
-    if (!workspaceRoot) throw new Error('Active workspace root is unavailable');
+    if (!workspaceRoot) throw new Error('Notebook workspace root is unavailable');
     if (!projectRoot || !file || file.startsWith('/')) {
       throw new Error('Invalid notebook path');
     }
@@ -3405,7 +3409,7 @@
     const combined = _normalizeAbsolutePath(projectRoot + '/' + file);
     const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
     if (!combined || !combined.startsWith(rootPrefix)) {
-      throw new Error('Notebook is outside the active workspace');
+      throw new Error('Notebook is outside its owning workspace');
     }
     const relative = combined.slice(rootPrefix.length);
     if (!relative || relative.startsWith('/')
@@ -3415,9 +3419,39 @@
     return relative;
   }
 
-  function _workspaceRelativeNotebookPathOrNull(projectPath, filepath) {
-    try { return _workspaceRelativeNotebookPath(projectPath, filepath); }
+  function _workspaceRelativeNotebookPathOrNull(projectPath, filepath, owningWorkspaceRoot = WORKSPACE_ROOT) {
+    try { return _workspaceRelativeNotebookPath(projectPath, filepath, owningWorkspaceRoot); }
     catch (_) { return null; }
+  }
+
+  function _notebookWorkspaceContext(project = currentProject) {
+    const workspaceId = typeof _projectWorkspaceId === 'function'
+      ? _projectWorkspaceId(project) : null;
+    const workspace = typeof _workspaceForProject === 'function'
+      ? _workspaceForProject(project) : null;
+    return {
+      workspaceId: workspaceId || null,
+      workspaceRoot: (workspace && workspace.path)
+        || (project && project.workspace_path) || WORKSPACE_ROOT,
+    };
+  }
+
+  function _renderNbOutput(output) {
+    const o = output || {};
+    const displayId = o.display_id ? ` data-display-id="${escAttr(String(o.display_id))}"` : '';
+    const streamName = o.stream_name ? ` data-stream-name="${escAttr(String(o.stream_name))}"` : '';
+    const attrs = ` data-output-type="${escAttr(String(o.type || 'text'))}"${displayId}${streamName}`;
+    if (o.type === 'image') {
+      return `<div class="nb-output"${attrs}><img src="data:image/png;base64,${escAttr(o.content || '')}"></div>`;
+    }
+    if (o.type === 'html') {
+      return `<div class="nb-output-html"${attrs}>${o.content || ''}</div>`;
+    }
+    if (o.type === 'error') {
+      return `<div class="nb-output nb-output-error"${attrs}>${esc(o.content || '')}</div>`;
+    }
+    const stderrCls = o.stream_name === 'stderr' ? ' nb-output-stderr' : '';
+    return `<div class="nb-output${stderrCls}"${attrs}>${esc(o.content || '')}</div>`;
   }
 
   function renderNotebookCell(cell, status) {
@@ -3455,17 +3489,7 @@
     // Outputs
     let outputsHtml = '';
     if (cell.outputs && cell.outputs.length > 0) {
-      const outs = cell.outputs.map(o => {
-        if (o.type === 'image') {
-          return `<div class="nb-output"><img src="data:image/png;base64,${o.content}"></div>`;
-        } else if (o.type === 'html') {
-          return `<div class="nb-output-html">${o.content}</div>`;
-        } else if (o.type === 'error') {
-          return `<div class="nb-output nb-output-error">${esc(o.content)}</div>`;
-        } else {
-          return `<div class="nb-output">${esc(o.content)}</div>`;
-        }
-      }).join('');
+      const outs = cell.outputs.map(_renderNbOutput).join('');
       outputsHtml = `<div class="nb-outputs">${outs}</div>`;
     }
 
@@ -3662,7 +3686,8 @@
     // which side started the run — the "[*]" gutter + running CSS look
     // identical.
     const serverPending = !!(cell && cell.metadata && cell.metadata.lab_pending === true);
-    const pending = !!opts.pending || serverPending;
+    const clientPending = !!opts.pending;
+    const pending = clientPending || serverPending;
     const isCode = cell.cell_type === 'code';
     const metadata = (cell && cell.metadata) || {};
     const actor = metadata.lab_actor === 'agent' || metadata.lab_actor === 'human'
@@ -3692,13 +3717,8 @@
     // state persists per (path, index) via localStorage.
     let outputsHtml = '';
     if (isCode && cell.outputs && cell.outputs.length > 0) {
-      const outs = cell.outputs.map(o => {
-        if (o.type === 'image') return `<div class="nb-output"><img src="data:image/png;base64,${o.content}"></div>`;
-        if (o.type === 'html') return `<div class="nb-output-html">${o.content}</div>`;
-        if (o.type === 'error') return `<div class="nb-output nb-output-error">${esc(o.content)}</div>`;
-        return `<div class="nb-output">${esc(o.content)}</div>`;
-      }).join('');
-      const collapsed = !opts.pending && _isOutputCollapsed(relPath, cell.id || index);
+      const outs = cell.outputs.map(_renderNbOutput).join('');
+      const collapsed = !pending && _isOutputCollapsed(relPath, cell.id || index);
       const lineCount = cell.outputs.reduce((n, o) => n + ((o.content || '').split('\n').length), 0);
       const summary = collapsed
         ? `<span class="nb-outputs-summary"> · ${cell.outputs.length} output${cell.outputs.length === 1 ? '' : 's'}, ${lineCount} line${lineCount === 1 ? '' : 's'} hidden</span>`
@@ -3738,12 +3758,18 @@
     //                     label instead of dashed grey + "draft".
     const pendingCls = serverPending ? ' nb-cell-running' : (opts.pending ? ' nb-cell-pending' : '');
     const actorCls = actor ? ` nb-cell-${actor}` : '';
-    const idxAttr = pending ? 'new' : String(index);
-    const pendingId = pending ? (opts.pendingId || '') : '';
+    const idxAttr = clientPending ? 'new' : String(index);
+    const pendingId = clientPending ? (opts.pendingId || '') : '';
     const pendingAttr = pendingId ? ` data-pending-id="${esc(pendingId)}"` : '';
-    const cellIdAttr = (!pending && cell.id) ? ` data-cell-id="${esc(cell.id)}"` : '';
-    const pendingInsertAt = (pending && opts.insertAt != null) ? String(opts.insertAt) : '';
+    // A server-running cell is already a committed nbformat cell with a
+    // stable id. Keep that id/index in the DOM so live WebSocket deltas can
+    // target it while it runs; only browser-local drafts use index="new".
+    const cellIdAttr = (!clientPending && cell.id) ? ` data-cell-id="${esc(cell.id)}"` : '';
+    const pendingInsertAt = (clientPending && opts.insertAt != null) ? String(opts.insertAt) : '';
     const insertAtAttr = pendingInsertAt !== '' ? ` data-insert-at="${pendingInsertAt}"` : '';
+    const liveSequence = Number(opts.liveSequence);
+    const liveSequenceAttr = Number.isFinite(liveSequence)
+      ? ` data-live-sequence="${liveSequence}"` : '';
     const highlighted = _highlightCellSource(source);
     const execCountNum = (cell.execution_count != null) ? cell.execution_count : '';
     const unseen = !pending && outputsHtml && !_isCellSeen(relPath, cell.id || index, cell.execution_count);
@@ -3753,7 +3779,7 @@
       : '';
     const serverBusyAttr = serverPending ? ' disabled' : '';
     const serverReadonlyAttr = serverPending ? ' readonly aria-busy="true"' : '';
-    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr} data-exec-count="${execCountNum}">
+    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr}${liveSequenceAttr} data-exec-count="${execCountNum}">
       <div class="nb-cell-header">
         <span class="nb-type">code</span>
         <span class="nb-exec">${execCount}</span>
@@ -3776,7 +3802,7 @@
     </div>`;
   }
 
-  function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved) {
+  function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null) {
     if (!wrap || !wrap.classList.contains('nb-cell-interactive')) return;
     const ta = wrap.querySelector('.nb-cell-edit-area');
     if (!ta) return;  // markdown cell
@@ -3785,6 +3811,7 @@
     const busy = wrap.querySelector('.nb-cell-busy');
     const idxAttr = wrap.getAttribute('data-cell-index');
     const isPending = idxAttr === 'new';
+    const isServerRunning = wrap.classList.contains('nb-cell-running');
     const cellIndex = isPending ? null : parseInt(idxAttr, 10);
     const cellId = wrap.getAttribute('data-cell-id') || null;
     const cellKey = cellId || cellIndex;
@@ -3794,7 +3821,10 @@
     // pending cells persist via the path-scoped pending list so they survive
     // navigation away and back.
     const draftKey = isPending ? null : _cellDraftKey(relPath, cellKey);
-    if (draftKey) {
+    // While an agent/human execution is live, the server snapshot is the code
+    // actually running. Keep any unsaved browser draft in localStorage, but do
+    // not let it visually replace that source until the run has completed.
+    if (draftKey && !isServerRunning) {
       try {
         const draft = localStorage.getItem(draftKey);
         if (draft != null) ta.value = draft;
@@ -3862,6 +3892,7 @@
       }
       try {
         const body = { path: relPath, code, actor: 'human' };
+        if (workspaceId) body.workspace = workspaceId;
         if (cellId) body.cell_id = cellId;
         else if (cellIndex != null) body.cell_index = cellIndex;
         else if (!isNaN(insertAt)) body.insert_at = insertAt;
@@ -3944,8 +3975,8 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(cellId
-            ? { path: relPath, cell_id: cellId }
-            : { path: relPath, cell_index: cellIndex }),
+            ? { path: relPath, cell_id: cellId, ...(workspaceId ? {workspace: workspaceId} : {}) }
+            : { path: relPath, cell_index: cellIndex, ...(workspaceId ? {workspace: workspaceId} : {}) }),
         });
         if (!res.ok) {
           const e = await res.json().catch(() => ({ detail: res.statusText }));
@@ -4161,7 +4192,7 @@
     </dialog>`;
   }
 
-  function bindNbRuntimePanel(container, relPath, filepath) {
+  function bindNbRuntimePanel(container, relPath, filepath, workspaceId = null) {
     const openBtn = container.querySelector('.nb-runtime-open');
     const dialog = container.querySelector('.nb-runtime-dialog');
     if (!openBtn || !dialog) return;
@@ -4206,7 +4237,7 @@
       const spec = readSpec();
       const res = await fetch('/api/nb/runtime', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: relPath, spec }),
+        body: JSON.stringify({ path: relPath, spec, ...(workspaceId ? {workspace: workspaceId} : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data));
@@ -4230,7 +4261,7 @@
         await save();
         const res = await fetch('/api/nb/runtime/build', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath }),
+          body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -4248,7 +4279,7 @@
     });
   }
 
-  function bindNbInterruptKernel(container, relPath) {
+  function bindNbInterruptKernel(container, relPath, workspaceId = null) {
     const btn = container.querySelector('.nb-interrupt-kernel');
     if (!btn) return;
     btn.addEventListener('click', async () => {
@@ -4258,7 +4289,7 @@
       try {
         const res = await fetch('/api/nb/session/interrupt', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath }),
+          body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -4274,7 +4305,7 @@
     });
   }
 
-  async function bindNbRestartKernel(container, relPath, filepath) {
+  async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null) {
     const btn = container.querySelector('.nb-restart-kernel');
     if (!btn) return;
     btn.addEventListener('click', async () => {
@@ -4286,7 +4317,7 @@
         const res = await fetch('/api/nb/session/restart', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath }),
+          body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
         });
         if (!res.ok) {
           const e = await res.json().catch(() => ({ detail: res.statusText }));
@@ -4302,7 +4333,7 @@
     });
   }
 
-  function bindNbAddCellButton(container, relPath, filepath) {
+  function bindNbAddCellButton(container, relPath, filepath, workspaceId = null) {
     const btn = container.querySelector('.nb-add-cell-btn');
     const cellsHost = container.querySelector('.nb-container');
     if (!btn || !cellsHost) return;
@@ -4314,7 +4345,7 @@
       tmp.innerHTML = html;
       const node = tmp.firstElementChild;
       cellsHost.appendChild(node);
-      bindNbCellInteractive(node, relPath, filepath);
+      bindNbCellInteractive(node, relPath, filepath, null, workspaceId);
       const ta = node.querySelector('.nb-cell-edit-area');
       if (ta) ta.focus();
     });
@@ -4324,7 +4355,7 @@
   // inserts a pending cell at that position (data-insert-at), which on Run
   // POSTs `insert_at` so the new cell lands between existing cells instead
   // of being appended at the end.
-  function bindNbCellInserters(container, relPath, filepath) {
+  function bindNbCellInserters(container, relPath, filepath, workspaceId = null) {
     container.querySelectorAll('.nb-cell-insert-btn').forEach((btn) => {
       const inserter = btn.closest('.nb-cell-inserter');
       if (!inserter) return;
@@ -4343,7 +4374,7 @@
         // Drop the new pending cell right after this inserter so it sits
         // exactly at the visual gap the user clicked.
         inserter.parentNode.insertBefore(node, inserter.nextElementSibling);
-        bindNbCellInteractive(node, relPath, filepath);
+        bindNbCellInteractive(node, relPath, filepath, null, workspaceId);
         const ta = node.querySelector('.nb-cell-edit-area');
         if (ta) ta.focus();
       });
@@ -5366,8 +5397,13 @@
         // or another repository root are still useful documents. Render those
         // through the generic repository notebook endpoint without Run/Delete
         // controls; only a notebook inside the active workspace gets a kernel.
+        const notebookWorkspace = _notebookWorkspaceContext(currentProject);
+        const notebookWorkspaceQuery = notebookWorkspace.workspaceId
+          ? `&workspace=${encodeURIComponent(notebookWorkspace.workspaceId)}` : '';
         const relPath = docRoot === currentProject.path
-          ? _workspaceRelativeNotebookPathOrNull(currentProject.path, filepath)
+          ? _workspaceRelativeNotebookPathOrNull(
+              currentProject.path, filepath, notebookWorkspace.workspaceRoot,
+            )
           : null;
         if (!relPath) {
           const readOnlyRes = await fetch(`/api/notebook?repo=${encodeURIComponent(docRoot)}&path=${encodeURIComponent(filepath)}`);
@@ -5390,9 +5426,9 @@
         // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
         // receive its first cell" rather than an error.
         const [nbRes, sessRes, runtimeRes] = await Promise.all([
-          fetch(`/api/nb?path=${encodeURIComponent(relPath)}`),
-          fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}`),
-          fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}`),
+          fetch(`/api/nb?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`),
+          fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`),
+          fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`),
         ]);
         let nb = { path: relPath, cells: [], mtime: null };
         let notFound = false;
@@ -5408,6 +5444,27 @@
         const session = sessionInfo.session || '';
         const provider = sessionInfo.provider || 'darwin';
         const runtime = runtimeRes.ok ? await runtimeRes.json() : { status: 'unavailable', spec: null };
+        // Fetch replay state after the durable notebook response. The live API
+        // cross-checks each run against its on-disk marker, which makes this
+        // pair a consistent view even during the final-cell replacement.
+        const liveRes = await fetch(
+          `/api/nb/live?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`,
+        );
+        const liveInfo = liveRes.ok ? await liveRes.json() : { executions: [] };
+        if ((liveInfo.executions || []).length === 0
+            && (nb.cells || []).some(cell => cell?.metadata?.lab_pending === true)) {
+          // The file may have completed between the first /nb response and the
+          // /live cross-check. Refetch once so that race cannot leave a newly
+          // opened view showing a stale spinner with no live run behind it.
+          const latestNbRes = await fetch(
+            `/api/nb?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`,
+            { cache: 'no-store' },
+          );
+          if (latestNbRes.ok) nb = await latestNbRes.json();
+        }
+        const notebookLiveKey = _nbLiveKey(notebookWorkspace.workspaceId, relPath);
+        if ((liveInfo.executions || []).length > 0) _nbLivePaths.add(notebookLiveKey);
+        else _nbLivePaths.delete(notebookLiveKey);
 
         // Baseline "seen" state for any cell we haven't observed before so the
         // first render of a notebook is calm (nothing flagged NEW). Subsequent
@@ -5456,7 +5513,58 @@
         const notebookListBtnHtml = `<button class="nb-notebook-list" type="button" onclick="openProjectNotebooks({showLauncher:true})" title="Show every notebook in this project">☷ All notebooks</button>`;
         const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${notebookListBtnHtml}${runtimeBadge}${sessionBadge}${interruptBtnHtml}${restartBtnHtml}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
-        const realCells = nb.cells || [];
+        const liveByCell = new Map(
+          (liveInfo.executions || [])
+            .filter(run => run && run.cell_id)
+            .map(run => [String(run.cell_id), run])
+        );
+        // Reconnect/open resilience: overlay the server's in-memory execution
+        // snapshot onto the atomically-checkpointed .ipynb placeholder. A
+        // browser that arrives halfway through a 30-minute query immediately
+        // sees every output collected so far, then continues with WS deltas.
+        const realCells = (nb.cells || []).map((cell) => {
+          const live = cell && cell.id ? liveByCell.get(String(cell.id)) : null;
+          if (!live) return cell;
+          return {
+            ...cell,
+            source: live.source != null ? live.source : cell.source,
+            outputs: Array.isArray(live.outputs) ? live.outputs : cell.outputs,
+            execution_count: live.execution_count != null
+              ? live.execution_count : cell.execution_count,
+            metadata: {
+              ...(cell.metadata || {}),
+              lab_pending: true,
+              lab_run_id: live.run_id,
+              lab_actor: live.actor,
+              lab_action: cell.metadata?.lab_pending
+                ? cell.metadata.lab_action : 'modified',
+              lab_started_at: live.started_at,
+            },
+          };
+        });
+        // A created cell can land between the /nb response and the later /live
+        // response. Materialize that snapshot too; otherwise the viewer would
+        // know a run exists but have no DOM cell for its subsequent deltas.
+        for (const live of (liveInfo.executions || [])) {
+          if (!live?.cell_id || realCells.some(cell => String(cell?.id || '') === String(live.cell_id))) {
+            continue;
+          }
+          const at = Math.max(0, Math.min(Number(live.cell_index) || 0, realCells.length));
+          realCells.splice(at, 0, {
+            id: live.cell_id,
+            cell_type: 'code',
+            source: live.source || '',
+            outputs: Array.isArray(live.outputs) ? live.outputs : [],
+            execution_count: live.execution_count ?? null,
+            metadata: {
+              lab_pending: true,
+              lab_run_id: live.run_id,
+              lab_actor: live.actor,
+              lab_action: 'created',
+              lab_started_at: live.started_at,
+            },
+          });
+        }
         await Promise.all([
           ensureMarked().catch(() => {}),
           ensureHighlight().catch(() => {}),
@@ -5494,8 +5602,10 @@
         realCells.forEach((c, i) => {
           cellsHostHtml += _inserter(i);
           cellsHostHtml += _renderPendingFor(i);
+          const live = c && c.id ? liveByCell.get(String(c.id)) : null;
           cellsHostHtml += renderNbCellInteractive(c, i, relPath, {
             queuePos: _pendingPositions[i] || null,
+            liveSequence: live ? live.sequence : null,
           });
         });
         cellsHostHtml += _inserter(realCells.length);
@@ -5513,13 +5623,15 @@
         // Bind every interactive cell + inserters + the trailing add-cell
         // button + restart.
         container.querySelectorAll('.nb-cell-interactive').forEach((wrap) => {
-          bindNbCellInteractive(wrap, relPath, filepath);
+          bindNbCellInteractive(
+            wrap, relPath, filepath, null, notebookWorkspace.workspaceId,
+          );
         });
-        bindNbCellInserters(container, relPath, filepath);
-        bindNbAddCellButton(container, relPath, filepath);
-        bindNbRestartKernel(container, relPath, filepath);
-        bindNbInterruptKernel(container, relPath);
-        bindNbRuntimePanel(container, relPath, filepath);
+        bindNbCellInserters(container, relPath, filepath, notebookWorkspace.workspaceId);
+        bindNbAddCellButton(container, relPath, filepath, notebookWorkspace.workspaceId);
+        bindNbRestartKernel(container, relPath, filepath, notebookWorkspace.workspaceId);
+        bindNbInterruptKernel(container, relPath, notebookWorkspace.workspaceId);
+        bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId);
         // Auto-scroll the currently-running cell into view. The
         // server-side placeholder lands here as .nb-cell-pending with
         // its [*] gutter; bring it to the user's focus so they can see
@@ -10723,10 +10835,20 @@
     const docPath = seg[2];
     if (projectId === '.' || projectId === '..'
         || docPath.split('/').some((part) => part === '..')) return;
-    const workspaceRoot = _normalizeAbsolutePath(WORKSPACE_ROOT);
-    if (!workspaceRoot) return;
-    const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
-    const absProject = rootPrefix + 'projects/' + projectId;
+    // A cross-workspace project tab already carries its absolute project in
+    // ?project=. Prefer that authoritative owner over the shell workspace;
+    // otherwise a Local notebook opened while the SSD workspace is active is
+    // remembered under the wrong project and silently falls back to read-only.
+    const explicitProject = _normalizeAbsolutePath(urlProject);
+    const projectSuffix = `/projects/${projectId}`;
+    let absProject = explicitProject && explicitProject.endsWith(projectSuffix)
+      ? explicitProject : null;
+    if (!absProject) {
+      const workspaceRoot = _normalizeAbsolutePath(WORKSPACE_ROOT);
+      if (!workspaceRoot) return;
+      const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
+      absProject = rootPrefix + 'projects/' + projectId;
+    }
     setLastProjectDoc(absProject, docPath);
     _nbHashProject = absProject;
     const url = new URL(location.href);
@@ -14060,6 +14182,110 @@
     return ok;
   }
 
+  // Live notebook execution events share the global authenticated WebSocket
+  // but are applied only to the currently-open notebook. Each event has a
+  // monotonically increasing per-run sequence; a gap triggers a full
+  // /api/nb + /api/nb/live reconciliation rather than rendering partial or
+  // out-of-order output.
+  const _nbLivePaths = new Set();
+  let _nbLiveEventChain = Promise.resolve();
+
+  function _nbLiveKey(workspaceId, relPath) {
+    return `${String(workspaceId || '')}::${String(relPath || '')}`;
+  }
+
+  function _currentOpenNotebookRelPath() {
+    if (!currentProject || !_projDocPath || !/\.ipynb$/i.test(_projDocPath)) return null;
+    const root = _projDocRoot || currentProject.path;
+    if (root !== currentProject.path) return null;
+    const workspace = _notebookWorkspaceContext(currentProject);
+    return _workspaceRelativeNotebookPathOrNull(
+      currentProject.path, _projDocPath, workspace.workspaceRoot,
+    );
+  }
+
+  async function _reconcileOpenNotebook(relPath, workspaceId = null) {
+    if (_currentOpenNotebookRelPath() !== relPath) return;
+    if (workspaceId && workspaceId !== _projectWorkspaceId(currentProject)) return;
+    await openProjectDoc(_projDocPath, { preserveScroll: true });
+  }
+
+  async function _handleNotebookExecutionEvent(event) {
+    if (!event || !event.path) return;
+    const relPath = String(event.path);
+    const workspaceId = String(event.workspace || '');
+    const liveKey = _nbLiveKey(workspaceId, relPath);
+    const phase = String(event.phase || '');
+    const terminal = phase === 'finished' || phase === 'failed' || phase === 'interrupted';
+    if (phase === 'started' || phase === 'output' || phase === 'execution-count') {
+      _nbLivePaths.add(liveKey);
+    }
+    if (terminal) _nbLivePaths.delete(liveKey);
+
+    if (workspaceId && workspaceId !== _projectWorkspaceId(currentProject)) return;
+    if (_currentOpenNotebookRelPath() !== relPath) return;
+    if (phase === 'started' || terminal) {
+      await _reconcileOpenNotebook(relPath, workspaceId);
+      return;
+    }
+    if (phase !== 'output' && phase !== 'execution-count') return;
+
+    const cellId = String(event.cell_id || '');
+    if (!cellId) {
+      await _reconcileOpenNotebook(relPath, workspaceId);
+      return;
+    }
+    let wrap = document.querySelector(`.nb-cell-interactive[data-cell-id="${CSS.escape(cellId)}"]`);
+    if (!wrap) {
+      await _reconcileOpenNotebook(relPath, workspaceId);
+      return;
+    }
+
+    const incomingSequence = Number(event.sequence);
+    const currentSequence = Number(wrap.getAttribute('data-live-sequence'));
+    if (!Number.isFinite(incomingSequence) || !Number.isFinite(currentSequence)
+        || incomingSequence > currentSequence + 1) {
+      await _reconcileOpenNotebook(relPath, workspaceId);
+      return;
+    }
+    // Reconciliation may already have included this event in its /live
+    // snapshot while it was queued behind an earlier transition.
+    if (incomingSequence <= currentSequence) return;
+
+    if (event.execution_count != null) {
+      const count = Number(event.execution_count);
+      if (Number.isFinite(count)) {
+        wrap.setAttribute('data-exec-count', String(count));
+        const gutter = wrap.querySelector('.nb-exec');
+        if (gutter) gutter.textContent = `[${count}]`;
+      }
+    }
+
+    if (phase === 'output') {
+      const outputs = wrap.querySelector(':scope > .nb-outputs');
+      const body = outputs && outputs.querySelector('.nb-outputs-body');
+      if (!body) {
+        // The started snapshot should always include the running placeholder.
+        // If an extension/external mutation removed it, reconcile rather than
+        // inventing incomplete notebook chrome in-place.
+        await _reconcileOpenNotebook(relPath, workspaceId);
+        return;
+      }
+      if (event.reset || event.operation === 'clear') body.innerHTML = '';
+      if (event.output) {
+        const displayId = event.output.display_id ? String(event.output.display_id) : '';
+        let existing = null;
+        if (event.operation === 'replace' && displayId) {
+          existing = body.querySelector(`[data-display-id="${CSS.escape(displayId)}"]`);
+        }
+        const rendered = _renderNbOutput(event.output);
+        if (existing) existing.outerHTML = rendered;
+        else body.insertAdjacentHTML('beforeend', rendered);
+      }
+    }
+    wrap.setAttribute('data-live-sequence', String(incomingSequence));
+  }
+
   // WS live refresh — re-render current view (home panel or project view)
   // on index-updated. The project view also has a 2s mtime poller as
   // fallback, but WS refreshes within ~50ms so the sidebar + dashboard
@@ -14071,14 +14297,37 @@
     let ws = null;
     let delay = 1000;
     let lastTs = null;
+    let hasConnected = false;
     const MAX_DELAY = 30000;
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       ws = new WebSocket(`${proto}//${location.host}/ws`);
-      ws.onopen = () => { delay = 1000; try { ws.send('hello'); } catch {} };
+      ws.onopen = () => {
+        delay = 1000;
+        try { ws.send('hello'); } catch {}
+        // Events emitted while the socket was down cannot be replayed from the
+        // socket itself. Re-open the current notebook once after each reconnect
+        // so /api/nb/live supplies the complete sequence snapshot before new
+        // deltas arrive.
+        const reconnectNotebook = hasConnected ? _currentOpenNotebookRelPath() : null;
+        const reconnectWorkspaceId = reconnectNotebook && currentProject
+          ? _projectWorkspaceId(currentProject) : null;
+        hasConnected = true;
+        if (reconnectNotebook) {
+          _nbLiveEventChain = _nbLiveEventChain
+            .then(() => _reconcileOpenNotebook(reconnectNotebook, reconnectWorkspaceId))
+            .catch(() => {});
+        }
+      };
       ws.onmessage = (ev) => {
         try {
           const event = JSON.parse(ev.data);
+          if (event.type === 'notebook-execution') {
+            _nbLiveEventChain = _nbLiveEventChain
+              .then(() => _handleNotebookExecutionEvent(event))
+              .catch(() => {});
+            return;
+          }
           if (event.type !== 'index-updated') return;
           if (event.ts && event.ts === lastTs) return;
           lastTs = event.ts;
@@ -14095,8 +14344,15 @@
             else workspacePopulateSidebar();
           } else if (currentProject && currentProject.is_project
                      && !currentRepo && !_projDocEditing) {
-            if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
-            else if (!document.body.classList.contains('self-active')) showProjectInfo({preserveScroll: true});
+            const liveNotebook = _currentOpenNotebookRelPath();
+            if (_projDocPath) {
+              const liveKey = _nbLiveKey(_projectWorkspaceId(currentProject), liveNotebook);
+              if (!(liveNotebook && _nbLivePaths.has(liveKey))) {
+                openProjectDoc(_projDocPath, {preserveScroll: true});
+              }
+            } else if (!document.body.classList.contains('self-active')) {
+              showProjectInfo({preserveScroll: true});
+            }
           }
         } catch {}
       };

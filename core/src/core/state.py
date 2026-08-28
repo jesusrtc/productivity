@@ -4,7 +4,7 @@ import asyncio
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from lab import index as index_mod
 
@@ -48,6 +48,20 @@ class IndexUpdatedEvent:
         return {"type": "index-updated", "ts": self.ts}
 
 
+@dataclass(frozen=True)
+class NotebookExecutionEvent:
+    """One ordered state transition from a live notebook execution."""
+
+    payload: dict[str, Any]
+
+    def to_json(self) -> dict[str, Any]:
+        return {"type": "notebook-execution", **self.payload}
+
+
+class JsonEvent(Protocol):
+    def to_json(self) -> dict[str, Any]: ...
+
+
 class WsBroadcaster:
     """In-memory list of connected WebSockets with an async publish fan-out."""
 
@@ -64,15 +78,26 @@ class WsBroadcaster:
             if websocket in self._clients:
                 self._clients.remove(websocket)
 
-    async def publish(self, event: IndexUpdatedEvent) -> None:
+    async def publish(self, event: JsonEvent) -> None:
         async with self._lock:
             clients = list(self._clients)
-        broken: list = []
-        for ws in clients:
+
+        payload = event.to_json()
+
+        async def send(ws):
             try:
-                await ws.send_json(event.to_json())
+                # A dead or back-pressured browser must not delay every other
+                # viewer or, for notebook output, the executing kernel. Healthy
+                # local sockets complete immediately; one second is generous.
+                await asyncio.wait_for(ws.send_json(payload), timeout=1.0)
+                return None
             except Exception:
-                broken.append(ws)
+                return ws
+
+        broken = [
+            ws for ws in await asyncio.gather(*(send(ws) for ws in clients))
+            if ws is not None
+        ]
         if broken:
             async with self._lock:
                 for ws in broken:

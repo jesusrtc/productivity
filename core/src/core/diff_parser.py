@@ -212,6 +212,45 @@ def get_diff(repo: str, diff_type: str,
     }
 
 
+def parse_notebook_output(out: dict) -> dict | None:
+    """Convert one nbformat output into the stable shape consumed by the UI.
+
+    Keeping this public lets live kernel events and persisted notebook reads use
+    exactly the same MIME preference and error cleanup rules.
+    """
+    out_type = out.get("output_type", "")
+    parsed: dict | None = None
+    if out_type == "stream":
+        parsed = {
+            "type": "text",
+            "content": "".join(out.get("text", [])),
+            "stream_name": out.get("name", "stdout"),
+        }
+    elif out_type in ("execute_result", "display_data"):
+        data = out.get("data", {})
+        if "image/png" in data:
+            parsed = {"type": "image", "content": data["image/png"]}
+        elif "text/html" in data:
+            parsed = {"type": "html", "content": "".join(data["text/html"])}
+        elif "image/svg+xml" in data:
+            # SVG is trusted kernel output, just like text/html. It is common
+            # for lightweight chart helpers and should render without first
+            # rasterizing to PNG.
+            parsed = {"type": "html", "content": "".join(data["image/svg+xml"])}
+        elif "text/plain" in data:
+            parsed = {"type": "text", "content": "".join(data["text/plain"])}
+    elif out_type == "error":
+        tb = "\n".join(out.get("traceback", []))
+        # Strip ANSI codes.
+        tb = re.sub(r'\x1b\[[0-9;]*m', '', tb)
+        parsed = {"type": "error", "content": tb}
+
+    display_id = (out.get("transient") or {}).get("display_id")
+    if parsed is not None and display_id:
+        parsed["display_id"] = str(display_id)
+    return parsed
+
+
 def _parse_notebook_payload(nb: dict) -> list[dict]:
     cells = []
     for cell in nb.get("cells", []):
@@ -221,22 +260,9 @@ def _parse_notebook_payload(nb: dict) -> list[dict]:
         # Parse outputs for code cells
         outputs = []
         for out in cell.get("outputs", []):
-            out_type = out.get("output_type", "")
-            if out_type == "stream":
-                outputs.append({"type": "text", "content": "".join(out.get("text", []))})
-            elif out_type in ("execute_result", "display_data"):
-                data = out.get("data", {})
-                if "image/png" in data:
-                    outputs.append({"type": "image", "content": data["image/png"]})
-                elif "text/html" in data:
-                    outputs.append({"type": "html", "content": "".join(data["text/html"])})
-                elif "text/plain" in data:
-                    outputs.append({"type": "text", "content": "".join(data["text/plain"])})
-            elif out_type == "error":
-                tb = "\n".join(out.get("traceback", []))
-                # Strip ANSI codes
-                tb = re.sub(r'\x1b\[[0-9;]*m', '', tb)
-                outputs.append({"type": "error", "content": tb})
+            parsed = parse_notebook_output(out)
+            if parsed is not None:
+                outputs.append(parsed)
 
         cells.append({
             # nbformat 4.5 cell ids are stable across insertions/deletions and

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from core.routes import nb_exec as nb_exec_route
+from lab import paths
 
 
 def _fake_completed(stdout: str, *, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
@@ -102,6 +103,48 @@ def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin)
     assert "--session" in cmd
     assert calls[0]["code"] == "print(42)"
 
+
+def test_exec_and_live_replay_follow_explicit_owning_workspace(
+    client, monorepo: Path, tmp_path: Path, patch_darwin
+) -> None:
+    """A project tab may belong to a workspace other than the active shell."""
+    paths.register_workspace(
+        monorepo, name="Main", workspace_id="main", active=True
+    )
+    other = tmp_path / "other-workspace"
+    (other / "projects").mkdir(parents=True)
+    registration = paths.register_workspace(
+        other, name="Local", workspace_id="local", active=False
+    )
+    rel = "projects/test/agent-demo.ipynb"
+
+    executed = client.post(
+        "/api/nb/exec",
+        json={
+            "workspace": registration["id"],
+            "path": rel,
+            "code": "print(42)",
+        },
+    )
+
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["workspace"] == registration["id"]
+    assert (other / rel).is_file()
+    assert not (monorepo / rel).exists()
+    opened = client.get(
+        f"/api/nb?path={rel}&workspace={registration['id']}"
+    )
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["cells"][0]["source"] == "print(42)"
+    live = client.get(
+        f"/api/nb/live?path={rel}&workspace={registration['id']}"
+    )
+    assert live.status_code == 200, live.text
+    assert live.json() == {
+        "path": rel,
+        "workspace": registration["id"],
+        "executions": [],
+    }
 
 def test_exec_appends_to_existing_notebook_and_pins_session(
     client, monorepo: Path, patch_darwin
@@ -469,3 +512,186 @@ def test_exec_rejects_cell_index_and_insert_at_together(
     })
     assert r.status_code == 400
     assert "mutually exclusive" in r.json()["detail"]
+
+
+def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -> None:
+    target = tmp_path / "live.ipynb"
+    run_id = "run-live"
+    started = nb_exec_route._live_start(
+        target,
+        path="projects/demo/notebooks/live.ipynb",
+        workspace="local",
+        run_id=run_id,
+        cell_id="cell-live",
+        cell_index=3,
+        actor="agent",
+        source="display(chart)",
+        provider="local",
+        provider_label="project kernel",
+        execution_count=8,
+        started_at=100.0,
+    )
+    try:
+        assert started["sequence"] == 0
+        assert "Running on project kernel" in started["outputs"][0]["content"]
+
+        first, first_checkpoint, _ = nb_exec_route._live_apply_kernel_event(
+            target,
+            run_id,
+            {
+                "kind": "output",
+                "operation": "append",
+                "output": {
+                    "output_type": "display_data",
+                    "data": {"text/html": "<div id='chart'>first</div>"},
+                    "metadata": {},
+                    "transient": {"display_id": "chart-1"},
+                },
+            },
+        )
+        assert first is not None
+        assert first["reset"] is True
+        assert first["output"]["type"] == "html"
+        assert first["output"]["display_id"] == "chart-1"
+        assert first_checkpoint is not None
+
+        update, update_checkpoint, _ = nb_exec_route._live_apply_kernel_event(
+            target,
+            run_id,
+            {
+                "kind": "output",
+                "operation": "replace",
+                "output": {
+                    "output_type": "display_data",
+                    "data": {"text/html": "<div id='chart'>final</div>"},
+                    "metadata": {},
+                    "transient": {"display_id": "chart-1"},
+                },
+            },
+        )
+        assert update is not None
+        assert update["operation"] == "replace"
+        assert update_checkpoint is not None
+        snapshot = nb_exec_route._live_snapshot(target)
+        assert len(snapshot) == 1
+        assert snapshot[0]["sequence"] == 2
+        assert snapshot[0]["outputs"] == [{
+            "type": "html",
+            "content": "<div id='chart'>final</div>",
+            "display_id": "chart-1",
+        }]
+    finally:
+        nb_exec_route._live_remove(target, run_id)
+    assert nb_exec_route._live_snapshot(target) == []
+
+
+def test_live_endpoint_does_not_replay_a_run_after_its_cell_finished(
+    client, monorepo: Path
+) -> None:
+    rel = "projects/demo/notebooks/live-finish-race.ipynb"
+    target = monorepo / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    run_id = "run-finish-race"
+    cell = {
+        "id": "cell-finish-race",
+        "cell_type": "code",
+        "execution_count": 1,
+        "metadata": {
+            "lab_pending": True,
+            "lab_run_id": run_id,
+            "lab_actor": "agent",
+            "lab_started_at": 100.0,
+        },
+        "source": ["print(1)"],
+        "outputs": [],
+    }
+    target.write_text(json.dumps({
+        "nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [cell],
+    }), encoding="utf-8")
+    nb_exec_route._live_start(
+        target,
+        path=rel,
+        workspace="local",
+        run_id=run_id,
+        cell_id=cell["id"],
+        cell_index=0,
+        actor="agent",
+        source="print(1)",
+        provider="local",
+        provider_label="project kernel",
+        execution_count=1,
+        started_at=100.0,
+    )
+    try:
+        running = client.get(f"/api/nb/live?path={rel}")
+        assert running.status_code == 200
+        assert [run["run_id"] for run in running.json()["executions"]] == [run_id]
+
+        cell["metadata"]["lab_pending"] = False
+        cell["metadata"].pop("lab_run_id")
+        target.write_text(json.dumps({
+            "nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [cell],
+        }), encoding="utf-8")
+        finished = client.get(f"/api/nb/live?path={rel}")
+        assert finished.status_code == 200
+        assert finished.json()["executions"] == []
+    finally:
+        nb_exec_route._live_remove(target, run_id)
+
+
+def test_notebook_read_recovers_orphaned_running_cell_once(
+    client, monorepo: Path
+) -> None:
+    rel = "projects/demo/notebooks/orphaned.ipynb"
+    target = monorepo / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [{
+            "id": "orphan-cell",
+            "cell_type": "code",
+            "execution_count": 4,
+            "metadata": {
+                "lab_pending": True,
+                "lab_run_id": "dead-run",
+                "lab_actor": "agent",
+                "lab_started_at": 100.0,
+            },
+            "source": ["print('before crash')"],
+            "outputs": [{
+                "output_type": "stream",
+                "name": "stdout",
+                "text": ["partial output survived\n"],
+            }],
+        }],
+    }), encoding="utf-8")
+
+    first = client.get(f"/api/nb?path={rel}")
+    assert first.status_code == 200, first.text
+    recovered = json.loads(target.read_text(encoding="utf-8"))["cells"][0]
+    assert recovered["metadata"]["lab_pending"] is False
+    assert "lab_run_id" not in recovered["metadata"]
+    assert recovered["outputs"][0]["text"] == ["partial output survived\n"]
+    errors = [out for out in recovered["outputs"] if out["output_type"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["ename"] == "ExecutionLost"
+
+    second = client.get(f"/api/nb?path={rel}")
+    assert second.status_code == 200
+    again = json.loads(target.read_text(encoding="utf-8"))["cells"][0]
+    assert len([out for out in again["outputs"] if out["output_type"] == "error"]) == 1
+
+
+def test_pending_tracker_counts_queued_runs(tmp_path: Path) -> None:
+    target = tmp_path / "queued.ipynb"
+    nb_exec_route._mark_running(target)
+    nb_exec_route._mark_running(target)
+    try:
+        assert nb_exec_route.is_path_pending(target) is True
+        nb_exec_route._mark_done(target)
+        assert nb_exec_route.is_path_pending(target) is True
+    finally:
+        nb_exec_route._mark_done(target)
+    assert nb_exec_route.is_path_pending(target) is False

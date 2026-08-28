@@ -1,31 +1,28 @@
-"""Execute code on Darwin via `darwin code execute` and append the result to a
-local ``.ipynb`` notebook.
+"""Execute code in the kernel pinned to a repository ``.ipynb`` notebook.
 
-This is the single write path the UI **and** Claude Code both use:
+This is the single execution/write path the UI and agents both use:
 
     POST /api/nb/exec   { "path": "...rel.ipynb", "code": "...", "kernel": "python3" }
 
 The endpoint:
 
-1. Validates ``path`` (must live under the monorepo, must end in ``.ipynb``).
-2. Derives a stable Darwin session name from the path so every cell appended to
-   the same file lands on the same remote kernel.
-3. Shells out to the ``darwin`` CLI, capturing its JSON envelope on stdout.
-4. Loads (or creates) the ``.ipynb`` on disk, appends a new code cell with the
-   exact ``cell_outputs`` Darwin returned (they're already nbformat-shaped),
-   bumps ``execution_count``, and saves.
-5. Returns the new cell in the same shape ``GET /api/nb`` already uses, plus the
-   session id.
+1. Validates that ``path`` is a workspace-relative notebook path.
+2. Writes the created/modified cell with actor identity and a running marker.
+3. Executes on the configured local Jupyter kernel, or the legacy Darwin
+   provider when a project runtime has not been configured.
+4. Streams ordered execution-count, text, rich-display, display-update, clear,
+   error, and terminal events to every open Lab view.
+5. Atomically checkpoints partial output for restart recovery, then replaces the
+   running cell with its final nbformat outputs.
 
-Because the file lives under ``content/`` and the watcher rebroadcasts every
-write as an ``index-updated`` WS event, **any open notebook view re-renders
-automatically** — whether the run came from the UI or from Claude Code calling
-the endpoint over curl.
+The notebook file is the durable record. ``GET /api/nb/live`` supplies an
+in-memory replay snapshot to browsers that open or reconnect during a run.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -42,13 +39,14 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core import auth
-from core.diff_parser import parse_notebook
+from core.diff_parser import parse_notebook, parse_notebook_output
 from core.notebook_runtime import (
     RuntimeBuildError,
     RuntimeConfigError,
     active_runtime,
     load_runtime_spec,
 )
+from core.state import NotebookExecutionEvent
 
 
 router = APIRouter()
@@ -101,8 +99,8 @@ def _required_local_handle(root: Path, rel_path: str):
 
 # ── Per-path write lock ──────────────────────────────────────────────────────
 # Two concurrent execs to the same file would race on the JSON read-modify-
-# write. The lock is held only across the local file mutation, not across the
-# Darwin call (Darwin handles its own kernel-level serialization via --session).
+# write. The lock is held only across each local file mutation, not while a
+# kernel is executing. Each provider serializes work on the path-pinned session.
 
 _path_locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -204,23 +202,218 @@ def _bootstrap_unmark(session: str) -> None:
 # O(1), survives no file races, and naturally clears on server restart (the
 # Darwin subprocess also dies on restart, so consistent).
 
-_pending_paths: set[str] = set()
+_pending_paths: dict[str, int] = {}
 _pending_guard = threading.Lock()
 
 
 def _mark_running(target: Path) -> None:
+    key = str(target.resolve())
     with _pending_guard:
-        _pending_paths.add(str(target.resolve()))
+        _pending_paths[key] = _pending_paths.get(key, 0) + 1
 
 
 def _mark_done(target: Path) -> None:
+    key = str(target.resolve())
     with _pending_guard:
-        _pending_paths.discard(str(target.resolve()))
+        remaining = _pending_paths.get(key, 0) - 1
+        if remaining > 0:
+            _pending_paths[key] = remaining
+        else:
+            _pending_paths.pop(key, None)
 
 
 def is_path_pending(target: Path) -> bool:
     with _pending_guard:
-        return str(target.resolve()) in _pending_paths
+        return _pending_paths.get(str(target.resolve()), 0) > 0
+
+
+# ── Live execution snapshots ────────────────────────────────────────────────
+# WebSocket events carry small deltas, while this registry provides a complete
+# snapshot to a browser that opens or reconnects midway through a cell. The
+# final .ipynb remains authoritative after completion.
+
+_live_runs: dict[tuple[str, str], dict[str, Any]] = {}
+_live_guard = threading.Lock()
+_LIVE_CHECKPOINT_INTERVAL_S = 0.75
+
+
+def _live_key(target: Path, run_id: str) -> tuple[str, str]:
+    return str(target.resolve()), run_id
+
+
+def _running_placeholder_output(provider_label: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw = {
+        "output_type": "stream",
+        "name": "stdout",
+        "text": [f"⏳ Running on {provider_label}…\n"],
+    }
+    parsed = parse_notebook_output(raw) or {"type": "text", "content": raw["text"][0]}
+    return raw, parsed
+
+
+def _live_start(
+    target: Path,
+    *,
+    path: str,
+    workspace: str,
+    run_id: str,
+    cell_id: str,
+    cell_index: int,
+    actor: str,
+    source: str,
+    provider: str,
+    provider_label: str,
+    execution_count: int,
+    started_at: float,
+) -> dict[str, Any]:
+    raw, parsed = _running_placeholder_output(provider_label)
+    state = {
+        "path": path,
+        "workspace": workspace,
+        "run_id": run_id,
+        "cell_id": cell_id,
+        "cell_index": cell_index,
+        "actor": actor,
+        "source": source,
+        "provider": provider,
+        "execution_count": execution_count,
+        "started_at": started_at,
+        "sequence": 0,
+        "outputs": [parsed],
+        "raw_outputs": [raw],
+        "has_kernel_output": False,
+        "last_checkpoint_at": 0.0,
+    }
+    with _live_guard:
+        _live_runs[_live_key(target, run_id)] = state
+    return {
+        key: copy.deepcopy(value)
+        for key, value in state.items()
+        if key not in {"raw_outputs", "has_kernel_output", "last_checkpoint_at"}
+    }
+
+
+def _display_id(output: dict[str, Any] | None) -> str:
+    if not output:
+        return ""
+    return str(output.get("display_id") or (output.get("transient") or {}).get("display_id") or "")
+
+
+def _replace_display(outputs: list[dict[str, Any]], output: dict[str, Any]) -> bool:
+    wanted = _display_id(output)
+    if not wanted:
+        return False
+    for index, existing in enumerate(outputs):
+        if _display_id(existing) == wanted:
+            outputs[index] = output
+            return True
+    return False
+
+
+def _live_apply_kernel_event(
+    target: Path,
+    run_id: str,
+    kernel_event: dict[str, Any],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | None, int | None]:
+    """Apply one ordered kernel event and return WS + optional checkpoint data."""
+    with _live_guard:
+        state = _live_runs.get(_live_key(target, run_id))
+        if state is None:
+            return None, None, None
+        state["sequence"] += 1
+        kind = kernel_event.get("kind")
+        operation = kernel_event.get("operation")
+        reset = False
+        parsed_output: dict[str, Any] | None = None
+
+        if kind == "execution_count":
+            value = kernel_event.get("execution_count")
+            if isinstance(value, int):
+                state["execution_count"] = value
+        elif kind == "clear":
+            reset = not state["has_kernel_output"]
+            state["has_kernel_output"] = True
+            state["outputs"] = []
+            state["raw_outputs"] = []
+            operation = "clear"
+        elif kind == "output":
+            raw_output = copy.deepcopy(kernel_event.get("output") or {})
+            parsed_output = parse_notebook_output(raw_output)
+            if not state["has_kernel_output"]:
+                state["outputs"] = []
+                state["raw_outputs"] = []
+                state["has_kernel_output"] = True
+                reset = True
+            if operation == "replace":
+                raw_replaced = _replace_display(state["raw_outputs"], raw_output)
+                parsed_replaced = bool(parsed_output) and _replace_display(state["outputs"], parsed_output)
+                if not raw_replaced:
+                    state["raw_outputs"].append(raw_output)
+                if parsed_output is not None and not parsed_replaced:
+                    state["outputs"].append(parsed_output)
+                    operation = "append"
+            else:
+                state["raw_outputs"].append(raw_output)
+                if parsed_output is not None:
+                    state["outputs"].append(parsed_output)
+                operation = "append"
+        else:
+            return None, None, None
+
+        now = time.monotonic()
+        force_checkpoint = (
+            reset
+            or operation in {"clear", "replace"}
+            or (parsed_output is not None and parsed_output.get("type") in {"html", "image", "error"})
+        )
+        checkpoint = None
+        if kind != "execution_count" and (
+            force_checkpoint
+            or now - state["last_checkpoint_at"] >= _LIVE_CHECKPOINT_INTERVAL_S
+        ):
+            state["last_checkpoint_at"] = now
+            checkpoint = copy.deepcopy(state["raw_outputs"])
+
+        payload = {
+            "phase": "output" if kind != "execution_count" else "execution-count",
+            "path": state["path"],
+            "run_id": state["run_id"],
+            "cell_id": state["cell_id"],
+            "cell_index": state["cell_index"],
+            "actor": state["actor"],
+            "provider": state["provider"],
+            "sequence": state["sequence"],
+            "execution_count": state["execution_count"],
+            "operation": operation,
+            "reset": reset,
+        }
+        if parsed_output is not None:
+            payload["output"] = copy.deepcopy(parsed_output)
+        return payload, checkpoint, state["execution_count"]
+
+
+def _live_snapshot(target: Path) -> list[dict[str, Any]]:
+    target_key = str(target.resolve())
+    with _live_guard:
+        rows = []
+        for (path_key, _run_id), state in _live_runs.items():
+            if path_key != target_key:
+                continue
+            rows.append({
+                key: copy.deepcopy(value)
+                for key, value in state.items()
+                if key not in {"raw_outputs", "has_kernel_output", "last_checkpoint_at"}
+            })
+    return sorted(rows, key=lambda row: (row["started_at"], row["cell_index"]))
+
+
+def _live_remove(target: Path, run_id: str) -> None:
+    with _live_guard:
+        _live_runs.pop(_live_key(target, run_id), None)
+
+
+async def _publish_notebook_event(request: Request, payload: dict[str, Any]) -> None:
+    await request.app.state.ws_broadcaster.publish(NotebookExecutionEvent(payload))
 
 
 # ── Darwin invocation ────────────────────────────────────────────────────────
@@ -534,6 +727,78 @@ def _atomic_write(target: Path, nb: dict[str, Any]) -> None:
     os.replace(tmp_path, target)
 
 
+def _checkpoint_pending_outputs(
+    target: Path,
+    run_id: str,
+    outputs: list[dict[str, Any]],
+    execution_count: int | None,
+) -> None:
+    """Persist a throttled live-output snapshot without losing cell identity."""
+    with _lock_for(target):
+        nb = _load_or_empty(target)
+        cells = nb.setdefault("cells", [])
+        current_idx = _pending_index(cells, 0, run_id)
+        if current_idx is None:
+            return
+        cell = cells[current_idx]
+        cell["outputs"] = outputs
+        if isinstance(execution_count, int):
+            cell["execution_count"] = execution_count
+        _atomic_write(target, nb)
+
+
+def recover_stale_pending(target: Path) -> bool:
+    """Turn orphaned running placeholders into durable error cells.
+
+    A process crash clears the in-memory execution registry and stops the
+    kernel, but the last atomic checkpoint may still say ``lab_pending``.
+    Recover on the next read so the UI never shows an immortal running cell;
+    any text/rich output checkpointed before the crash is retained.
+    """
+    if is_path_pending(target) or not target.is_file():
+        return False
+    changed = False
+    with _lock_for(target):
+        # Re-check after acquiring the file lock: a new request may have
+        # started while this reader was waiting.
+        if is_path_pending(target):
+            return False
+        nb = _load_or_empty(target)
+        for cell in nb.get("cells", []):
+            metadata = cell.get("metadata") or {}
+            if metadata.get("lab_pending") is not True:
+                continue
+            finished_at = time.time()
+            started_at = metadata.get("lab_started_at")
+            metadata["lab_pending"] = False
+            metadata["lab_finished_at"] = finished_at
+            if isinstance(started_at, (int, float)):
+                metadata["lab_duration_ms"] = max(
+                    0, round((finished_at - started_at) * 1000)
+                )
+            metadata.pop("lab_run_id", None)
+            outputs = list(cell.get("outputs") or [])
+            if (
+                len(outputs) == 1
+                and outputs[0].get("output_type") == "stream"
+                and "Running on" in "".join(outputs[0].get("text") or [])
+            ):
+                outputs = []
+            outputs.append({
+                "output_type": "error",
+                "ename": "ExecutionLost",
+                "evalue": "Lab restarted or lost the kernel before this cell finished.",
+                "traceback": [
+                    "ExecutionLost: Lab restarted or lost the kernel before this cell finished."
+                ],
+            })
+            cell["outputs"] = outputs
+            changed = True
+        if changed:
+            _atomic_write(target, nb)
+    return changed
+
+
 def _write_pending_cell(
     target: Path, *,
     source: str,
@@ -543,7 +808,7 @@ def _write_pending_cell(
     provider_label: str = "kernel",
     provider: str = "darwin",
     actor: str = "agent",
-) -> tuple[int, str] | None:
+) -> tuple[int, str, str, float] | None:
     """Write a "running" placeholder cell to disk BEFORE shelling out to
     darwin.
 
@@ -578,6 +843,8 @@ def _write_pending_cell(
         # stable while swapping in the running placeholder and final outputs.
         cell_id = str(cells[cell_index].get("id") or cell_id)
     action = "modified" if cell_index is not None else "created"
+    started_at = time.time()
+    placeholder_output, _ = _running_placeholder_output(provider_label)
     placeholder = {
         "id": cell_id,
         "cell_type": "code",
@@ -590,14 +857,10 @@ def _write_pending_cell(
             "lab_run_id": run_id,
             "lab_actor": actor,
             "lab_action": action,
-            "lab_started_at": time.time(),
+            "lab_started_at": started_at,
         },
         "source": source.splitlines(keepends=True) if source else [],
-        "outputs": [{
-            "output_type": "stream",
-            "name": "stdout",
-            "text": [f"⏳ Running on {provider_label}…\n"],
-        }],
+        "outputs": [placeholder_output],
     }
     if cell_index is not None:
         if cell_index < 0 or cell_index >= len(cells):
@@ -613,7 +876,7 @@ def _write_pending_cell(
         cells.append(placeholder)
         idx = len(cells) - 1
     _atomic_write(target, nb)
-    return idx, run_id
+    return idx, run_id, cell_id, started_at
 
 
 def _pending_index(cells: list[dict[str, Any]], idx: int, run_id: str) -> int | None:
@@ -652,12 +915,20 @@ def _mark_pending_failed(
                 0, round((finished_at - started_at) * 1000)
             )
         metadata.pop("lab_run_id", None)
-        cell["outputs"] = [{
+        outputs = list(cell.get("outputs") or [])
+        if (
+            len(outputs) == 1
+            and outputs[0].get("output_type") == "stream"
+            and "Running on" in "".join(outputs[0].get("text") or [])
+        ):
+            outputs = []
+        outputs.append({
             "output_type": "error",
             "ename": ename,
             "evalue": evalue,
             "traceback": [evalue],
-        }]
+        })
+        cell["outputs"] = outputs
         _atomic_write(target, nb)
 
 
@@ -823,31 +1094,60 @@ def session_for(path: str, request: Request) -> dict:
     }
 
 
+@router.get("/api/nb/live")
+def live_executions(path: str, request: Request) -> dict[str, Any]:
+    """Return replayable in-flight state for reconnecting notebook views."""
+    root = auth.request_root(request)
+    target = _safe_resolve(root, path)
+    workspace = auth.workspace_id_for_root(root) or ""
+    snapshots = _live_snapshot(target)
+    # A run stays in the registry for a few instructions after its final file
+    # replacement while the terminal event is being broadcast. Cross-check the
+    # durable run marker so a browser opening in that tiny window cannot overlay
+    # an already-finished cell with a stale running snapshot.
+    with _lock_for(target):
+        pending_run_ids = {
+            str((cell.get("metadata") or {}).get("lab_run_id"))
+            for cell in _load_or_empty(target).get("cells", [])
+            if (cell.get("metadata") or {}).get("lab_pending") is True
+        }
+    return {
+        "path": path,
+        "workspace": workspace,
+        "executions": [
+            snapshot
+            for snapshot in snapshots
+            if snapshot["run_id"] in pending_run_ids
+        ],
+    }
+
+
 @router.post("/api/nb/exec")
 async def exec_cell(body: ExecBody, request: Request) -> dict:
-    """Execute ``body.code`` on Darwin and append the result to ``body.path``.
+    """Execute ``body.code`` in the notebook's pinned kernel.
 
     Two-phase write so the UI gets live feedback:
 
       1. Write a ⏳ "running" placeholder cell at the target index. The
          file watcher broadcasts this write, and any open notebook view
          re-renders with the new pending cell within ~100 ms.
-      2. Shell out to ``darwin code execute`` (the slow part — can be
-         seconds for Python, minutes for Trino).
-      3. Replace the placeholder cell with darwin's real outputs. Same
+      2. Execute in the configured local Jupyter runtime (or legacy Darwin),
+         streaming accepted IOPub events over the shared WebSocket.
+      3. Replace the placeholder cell with the kernel's final outputs. Same
          watcher broadcast → UI re-renders with the final result.
 
-    If darwin itself fails (auth expired, pod cold-start, CLI missing),
+    If the provider itself fails (runtime broken, auth expired, CLI missing),
     the placeholder is converted in place to an error cell so the user
     isn't left staring at a frozen ⏳.
 
     Always returns 200 with the new cell on success — even if the cell
-    itself raised (Darwin reports that as an ``error`` output, which
+    itself raised (Jupyter reports that as an ``error`` output, which
     still belongs in the notebook). The endpoint only 4xx/5xx's when the
     darwin CLI cannot run.
     """
     root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
+    workspace = auth.workspace_id_for_root(root) or ""
     local_handle = _required_local_handle(root, body.path) if _configured_local(root, body.path) else None
     if local_handle is not None:
         from core.notebook_kernel import session_name
@@ -881,18 +1181,27 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # cell immediately. Pick the exec_count now so the placeholder shows
     # the right [n] gutter; we'll overwrite later with Darwin's actual
     # count if it differs.
-    with _lock_for(target):
-        pre_exec_count = _next_exec_count(_load_or_empty(target))
-        pending_result = _write_pending_cell(
-            target,
-            source=body.code,
-            exec_count=pre_exec_count,
-            cell_index=replace_index,
-            insert_at=body.insert_at,
-            provider_label="project kernel" if provider == "local" else "Darwin",
-            provider=provider,
-            actor=body.actor,
-        )
+    provider_label = "project kernel" if provider == "local" else "Darwin"
+    # Count in-flight requests rather than keeping a boolean: queued cells in
+    # the same notebook must keep the path marked active when an earlier cell
+    # completes.
+    _mark_running(target)
+    try:
+        with _lock_for(target):
+            pre_exec_count = _next_exec_count(_load_or_empty(target))
+            pending_result = _write_pending_cell(
+                target,
+                source=body.code,
+                exec_count=pre_exec_count,
+                cell_index=replace_index,
+                insert_at=body.insert_at,
+                provider_label=provider_label,
+                provider=provider,
+                actor=body.actor,
+            )
+    except BaseException:
+        _mark_done(target)
+        raise
     if pending_result is None:
         # cell_index/insert_at was out of range — surface a 404 the same
         # way the post-darwin path would. Doing this AFTER releasing the
@@ -909,20 +1218,76 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
                 f"insert_at {body.insert_at} out of range "
                 f"(notebook has {len(cells)} cells; valid is 0..{len(cells)})"
             )
+        _mark_done(target)
         raise HTTPException(status_code=404, detail=detail)
-    pending_idx, run_id = pending_result
+    pending_idx, run_id, cell_id, started_at = pending_result
+    live_started = _live_start(
+        target,
+        path=body.path,
+        workspace=workspace,
+        run_id=run_id,
+        cell_id=cell_id,
+        cell_index=pending_idx,
+        actor=body.actor,
+        source=body.code,
+        provider=provider,
+        provider_label=provider_label,
+        execution_count=pre_exec_count,
+        started_at=started_at,
+    )
+    await _publish_notebook_event(request, {"phase": "started", **live_started})
 
     # Phase 2: run darwin (slow). If it errors, mark the placeholder as
     # failed so the UI shows the error instead of a stuck ⏳ cell.
     # Mark this path as "currently running" so the sidebar can show the
     # green pulse dot. Cleared in every exit path below.
-    _mark_running(target)
+    async def on_kernel_event(kernel_event: dict[str, Any]) -> None:
+        payload, checkpoint, checkpoint_count = _live_apply_kernel_event(
+            target, run_id, kernel_event
+        )
+        if checkpoint is not None:
+            await asyncio.to_thread(
+                _checkpoint_pending_outputs,
+                target,
+                run_id,
+                checkpoint,
+                checkpoint_count,
+            )
+        if payload is not None:
+            await _publish_notebook_event(request, payload)
+
+    async def publish_terminal(phase: str, detail: str | None = None) -> None:
+        cells = parse_notebook(str(target))
+        cell = next((candidate for candidate in cells if candidate.get("id") == cell_id), None)
+        payload: dict[str, Any] = {
+            "phase": phase,
+            "path": body.path,
+            "workspace": workspace,
+            "run_id": run_id,
+            "cell_id": cell_id,
+            "cell_index": next(
+                (index for index, candidate in enumerate(cells) if candidate.get("id") == cell_id),
+                pending_idx,
+            ),
+            "actor": body.actor,
+            "provider": provider,
+            "cell": cell,
+        }
+        if detail:
+            payload["detail"] = detail
+        await _publish_notebook_event(request, payload)
+
     try:
         if local_handle is not None:
             from core.notebook_kernel import execute as execute_local
 
             result = await execute_local(
-                root, body.path, local_handle, body.code, body.timeout
+                root,
+                body.path,
+                local_handle,
+                body.code,
+                body.timeout,
+                on_event=on_kernel_event,
             )
         else:
             # Darwin-only compatibility bootstrap. Local runtimes expose
@@ -946,6 +1311,8 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
             _mark_pending_failed(
                 target, pending_idx, run_id, type(exc).__name__, exc.detail
             )
+        await publish_terminal("failed", exc.detail)
+        _live_remove(target, run_id)
         _mark_done(target)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except Exception as exc:
@@ -956,11 +1323,34 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
                 _mark_pending_failed(
                     target, pending_idx, run_id, type(exc).__name__, exc.detail
                 )
+            await publish_terminal("failed", exc.detail)
+            _live_remove(target, run_id)
             _mark_done(target)
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        with _lock_for(target):
+            _mark_pending_failed(
+                target, pending_idx, run_id, type(exc).__name__, str(exc)
+            )
+        await publish_terminal("failed", str(exc))
+        _live_remove(target, run_id)
         _mark_done(target)
         raise
-    except BaseException:
+    except BaseException as exc:
+        with _lock_for(target):
+            _mark_pending_failed(
+                target,
+                pending_idx,
+                run_id,
+                type(exc).__name__,
+                str(exc) or "execution cancelled",
+            )
+        # Cancellation may already have cancelled this task; shield the final
+        # notification so other open notebook views are not left running.
+        try:
+            await asyncio.shield(publish_terminal("failed", str(exc) or "execution cancelled"))
+        except Exception:
+            pass
+        _live_remove(target, run_id)
         _mark_done(target)
         raise
 
@@ -991,11 +1381,45 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
             # Re-parse via the same helper the GET endpoint uses so the cell we
             # return matches the shape the UI already renders.
             cells = parse_notebook(str(target))
+    except BaseException as exc:
+        # Final persistence is a failure boundary too (for example, an
+        # external editor removed the running cell). Always terminate the live
+        # run and turn any surviving placeholder into an error.
+        try:
+            with _lock_for(target):
+                _mark_pending_failed(
+                    target,
+                    pending_idx,
+                    run_id,
+                    type(exc).__name__,
+                    str(exc) or "failed to persist completed cell",
+                )
+            await asyncio.shield(
+                publish_terminal(
+                    "failed", str(exc) or "failed to persist completed cell"
+                )
+            )
+        finally:
+            _live_remove(target, run_id)
+        raise
     finally:
         _mark_done(target)
 
+    terminal_phase = "finished"
+    if any(
+        output.get("output_type") == "error"
+        and output.get("ename") == "KeyboardInterrupt"
+        for output in cell_outputs
+    ):
+        terminal_phase = "interrupted"
+    try:
+        await publish_terminal(terminal_phase)
+    finally:
+        _live_remove(target, run_id)
+
     return {
         "path": body.path,
+        "workspace": workspace,
         "session": session,
         "provider": provider,
         "kernel_id": kernel_id,

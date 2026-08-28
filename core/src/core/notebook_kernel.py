@@ -10,17 +10,23 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Empty
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from jupyter_client import KernelManager
 
 from core.notebook_runtime import RuntimeHandle
+
+
+log = logging.getLogger("core.notebook_kernel")
+KernelEventCallback = Callable[[dict[str, Any]], None]
+AsyncKernelEventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class KernelExecutionError(RuntimeError):
@@ -95,7 +101,30 @@ class _KernelProcess:
         provisioner = getattr(manager, "provisioner", None)
         self.kernel_id = str(getattr(provisioner, "kernel_id", "") or self.session_id)
 
-    def execute(self, code: str, timeout: int) -> dict[str, Any]:
+    def execute(
+        self,
+        code: str,
+        timeout: int,
+        on_event: KernelEventCallback | None = None,
+    ) -> dict[str, Any]:
+        """Execute one cell and emit accepted IOPub transitions in order.
+
+        ``on_event`` is deliberately synchronous: this method owns Jupyter's
+        ZeroMQ sockets on a dedicated worker thread. The async wrapper below
+        bridges these events back onto FastAPI's event loop without ever
+        moving or concurrently touching the kernel client.
+        """
+
+        def emit(event: dict[str, Any]) -> None:
+            if on_event is None:
+                return
+            try:
+                on_event(event)
+            except Exception:
+                # Browser/event delivery is observational. Losing a viewer
+                # must never abort user code or poison the kernel session.
+                log.exception("notebook kernel event callback failed")
+
         try:
             self.start(timeout=min(timeout, 60))
         except Exception:
@@ -103,16 +132,18 @@ class _KernelProcess:
             raise
         if self.interrupt_requested.is_set():
             self.interrupt_requested.clear()
+            interrupted_output = {
+                "output_type": "error",
+                "ename": "KeyboardInterrupt",
+                "evalue": "execution interrupted before the kernel became ready",
+                "traceback": ["KeyboardInterrupt: execution interrupted"],
+            }
+            emit({"kind": "output", "operation": "append", "output": interrupted_output})
             return {
                 "output": "",
                 "kernel_id": self.kernel_id,
                 "execution_count": None,
-                "cell_outputs": [{
-                    "output_type": "error",
-                    "ename": "KeyboardInterrupt",
-                    "evalue": "execution interrupted before the kernel became ready",
-                    "traceback": ["KeyboardInterrupt: execution interrupted"],
-                }],
+                "cell_outputs": [interrupted_output],
             }
         assert self.client is not None
         assert self.manager is not None
@@ -128,6 +159,22 @@ class _KernelProcess:
         execution_count: int | None = None
         deadline = time.monotonic() + timeout
         idle = False
+        clear_waiting = False
+
+        def before_output() -> None:
+            nonlocal clear_waiting
+            if clear_waiting:
+                outputs.clear()
+                clear_waiting = False
+                emit({"kind": "clear", "wait": False})
+
+        def append_output(output: dict[str, Any]) -> None:
+            before_output()
+            outputs.append(output)
+            emit({"kind": "output", "operation": "append", "output": output})
+
+        def display_id(output: dict[str, Any]) -> str:
+            return str((output.get("transient") or {}).get("display_id") or "")
 
         try:
             while not idle:
@@ -159,8 +206,9 @@ class _KernelProcess:
                     value = content.get("execution_count")
                     if isinstance(value, int):
                         execution_count = value
+                        emit({"kind": "execution_count", "execution_count": value})
                 elif msg_type == "stream":
-                    outputs.append({
+                    append_output({
                         "output_type": "stream",
                         "name": content.get("name", "stdout"),
                         "text": content.get("text", ""),
@@ -176,16 +224,33 @@ class _KernelProcess:
                         output["execution_count"] = content.get("execution_count")
                     if content.get("transient"):
                         output["transient"] = content["transient"]
-                    outputs.append(output)
+                    before_output()
+                    target_display_id = display_id(output)
+                    replaced = False
+                    if msg_type == "update_display_data" and target_display_id:
+                        for index, existing in enumerate(outputs):
+                            if display_id(existing) == target_display_id:
+                                outputs[index] = output
+                                replaced = True
+                    if replaced:
+                        emit({"kind": "output", "operation": "replace", "output": output})
+                    else:
+                        outputs.append(output)
+                        emit({"kind": "output", "operation": "append", "output": output})
                 elif msg_type == "error":
-                    outputs.append({
+                    append_output({
                         "output_type": "error",
                         "ename": content.get("ename", "Error"),
                         "evalue": content.get("evalue", ""),
                         "traceback": content.get("traceback") or [],
                     })
-                elif msg_type == "clear_output" and not content.get("wait"):
-                    outputs.clear()
+                elif msg_type == "clear_output":
+                    if content.get("wait"):
+                        clear_waiting = True
+                    else:
+                        outputs.clear()
+                        clear_waiting = False
+                        emit({"kind": "clear", "wait": False})
         except KernelExecutionError:
             raise
         except Exception as exc:
@@ -337,13 +402,62 @@ async def execute(
     handle: RuntimeHandle,
     code: str,
     timeout: int,
+    on_event: AsyncKernelEventCallback | None = None,
 ) -> dict[str, Any]:
     session = _session_for(root, rel_path, handle)
     session.begin_request()
+    event_queue: asyncio.Queue[dict[str, Any] | None] | None = None
+    pump: asyncio.Task[None] | None = None
+    emit: KernelEventCallback | None = None
+    if on_event is not None:
+        loop = asyncio.get_running_loop()
+        event_queue = asyncio.Queue()
+
+        def emit(event: dict[str, Any]) -> None:
+            # Called only by the session worker. An unbounded queue is safe
+            # here because slow/broken WebSockets are evicted by the
+            # broadcaster rather than back-pressuring kernel I/O.
+            loop.call_soon_threadsafe(event_queue.put_nowait, event)
+
+        async def pump_events() -> None:
+            assert event_queue is not None
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    return
+                try:
+                    await on_event(event)
+                except Exception:
+                    # Streaming is best-effort; the authoritative final cell
+                    # still returns and is persisted by /api/nb/exec.
+                    log.exception("notebook async event delivery failed")
+
+        pump = asyncio.create_task(pump_events(), name=f"notebook-events-{session.session_id}")
+    call_task = asyncio.create_task(
+        session.call("execute", code, timeout, emit),
+        name=f"notebook-kernel-{session.session_id}",
+    )
     try:
-        return await session.call("execute", code, timeout)
+        # Shield the executor future: an HTTP disconnect/cancel must not detach
+        # a still-running kernel thread and enqueue the next cell concurrently.
+        return await asyncio.shield(call_task)
+    except asyncio.CancelledError:
+        # Ask the kernel to stop, then briefly let its worker consume the
+        # KeyboardInterrupt/idle messages. This keeps session busy state and
+        # the event pump aligned with what actually happened in the kernel.
+        try:
+            await asyncio.shield(asyncio.to_thread(session.process.interrupt))
+            await asyncio.wait_for(asyncio.shield(call_task), timeout=10)
+        except BaseException:
+            pass
+        raise
     finally:
-        session.end_request()
+        try:
+            if event_queue is not None and pump is not None:
+                event_queue.put_nowait(None)
+                await asyncio.shield(pump)
+        finally:
+            session.end_request()
 
 
 async def restart(root: Path, rel_path: str, handle: RuntimeHandle) -> bool:
