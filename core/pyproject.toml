@@ -14,6 +14,10 @@ dependencies = [
     "markdown>=3.6",
     "pyyaml>=6.0",
     "jinja2>=3.1",
+    # Host-local project notebook kernels. Lab owns the Jupyter control
+    # plane while each project runtime supplies its exact Python/packages.
+    "jupyter-client>=8.6,<9",
+    "ipykernel>=6.29,<8",
     "lab",
     # Reverse proxy for per-project local servers (routes/proxy.py): used
     # to forward HTTP from /api/proxy/<project>/<name>/<path> to a

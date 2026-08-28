@@ -3088,7 +3088,7 @@
   // A trailing "+ Add cell" button creates pending draft cells that aren't
   // committed to .ipynb until the first Run — but ARE persisted in
   // localStorage so they survive tab switches / re-renders.
-  function _cellDraftKey(relPath, index) { return 'nb-draft:' + relPath + ':' + index; }
+  function _cellDraftKey(relPath, cellKey) { return 'nb-draft:' + relPath + ':' + cellKey; }
   function _pendingKey(relPath) { return 'nb-pending:' + relPath; }
   function _readPending(relPath) {
     try {
@@ -3157,15 +3157,15 @@
   // Per-cell output collapse state. Keyed by (path, index); cleared en masse
   // when cells are deleted (indices shift). Pending cells have no committed
   // index so they don't participate.
-  function _collapseKey(relPath, index) { return 'nb-collapse:' + relPath + ':' + index; }
-  function _isOutputCollapsed(relPath, index) {
-    try { return localStorage.getItem(_collapseKey(relPath, index)) === '1'; }
+  function _collapseKey(relPath, cellKey) { return 'nb-collapse:' + relPath + ':' + cellKey; }
+  function _isOutputCollapsed(relPath, cellKey) {
+    try { return localStorage.getItem(_collapseKey(relPath, cellKey)) === '1'; }
     catch (_) { return false; }
   }
-  function _setOutputCollapsed(relPath, index, collapsed) {
+  function _setOutputCollapsed(relPath, cellKey, collapsed) {
     try {
-      if (collapsed) localStorage.setItem(_collapseKey(relPath, index), '1');
-      else localStorage.removeItem(_collapseKey(relPath, index));
+      if (collapsed) localStorage.setItem(_collapseKey(relPath, cellKey), '1');
+      else localStorage.removeItem(_collapseKey(relPath, cellKey));
     } catch (_) {}
   }
 
@@ -3174,19 +3174,19 @@
   // .ipynb in the background). The stored value is the highest exec count
   // the user has clicked through; if a render sees a higher count, the cell
   // gets a green-bordered "NEW" badge until the user clicks the outputs.
-  function _seenKey(relPath, index) { return 'nb-seen:' + relPath + ':' + index; }
-  function _baselineSeenIfNew(relPath, index, execCount) {
+  function _seenKey(relPath, cellKey) { return 'nb-seen:' + relPath + ':' + cellKey; }
+  function _baselineSeenIfNew(relPath, cellKey, execCount) {
     if (execCount == null) return;
     try {
-      if (localStorage.getItem(_seenKey(relPath, index)) == null) {
-        localStorage.setItem(_seenKey(relPath, index), String(execCount));
+      if (localStorage.getItem(_seenKey(relPath, cellKey)) == null) {
+        localStorage.setItem(_seenKey(relPath, cellKey), String(execCount));
       }
     } catch (_) {}
   }
-  function _isCellSeen(relPath, index, execCount) {
+  function _isCellSeen(relPath, cellKey, execCount) {
     if (execCount == null) return true;
     try {
-      const stored = localStorage.getItem(_seenKey(relPath, index));
+      const stored = localStorage.getItem(_seenKey(relPath, cellKey));
       // No baseline yet means this cell has never been seen in this
       // notebook view. Two cases produce that:
       //   (a) Initial open — _baselineSeenIfNew has already run before us
@@ -3203,9 +3203,9 @@
       return parseInt(stored, 10) >= execCount;
     } catch (_) { return true; }
   }
-  function _markCellSeen(relPath, index, execCount) {
+  function _markCellSeen(relPath, cellKey, execCount) {
     if (execCount == null) return;
-    try { localStorage.setItem(_seenKey(relPath, index), String(execCount)); } catch (_) {}
+    try { localStorage.setItem(_seenKey(relPath, cellKey), String(execCount)); } catch (_) {}
   }
   function _clearAllSeenForPath(relPath) {
     try {
@@ -3249,7 +3249,7 @@
         if (o.type === 'error') return `<div class="nb-output nb-output-error">${esc(o.content)}</div>`;
         return `<div class="nb-output">${esc(o.content)}</div>`;
       }).join('');
-      const collapsed = !opts.pending && _isOutputCollapsed(relPath, index);
+      const collapsed = !opts.pending && _isOutputCollapsed(relPath, cell.id || index);
       const lineCount = cell.outputs.reduce((n, o) => n + ((o.content || '').split('\n').length), 0);
       const summary = collapsed
         ? `<span class="nb-outputs-summary"> · ${cell.outputs.length} output${cell.outputs.length === 1 ? '' : 's'}, ${lineCount} line${lineCount === 1 ? '' : 's'} hidden</span>`
@@ -3291,16 +3291,17 @@
     const idxAttr = pending ? 'new' : String(index);
     const pendingId = pending ? (opts.pendingId || '') : '';
     const pendingAttr = pendingId ? ` data-pending-id="${esc(pendingId)}"` : '';
+    const cellIdAttr = (!pending && cell.id) ? ` data-cell-id="${esc(cell.id)}"` : '';
     const pendingInsertAt = (pending && opts.insertAt != null) ? String(opts.insertAt) : '';
     const insertAtAttr = pendingInsertAt !== '' ? ` data-insert-at="${pendingInsertAt}"` : '';
     const highlighted = _highlightCellSource(source);
     const execCountNum = (cell.execution_count != null) ? cell.execution_count : '';
-    const unseen = !pending && outputsHtml && !_isCellSeen(relPath, index, cell.execution_count);
+    const unseen = !pending && outputsHtml && !_isCellSeen(relPath, cell.id || index, cell.execution_count);
     const unseenCls = unseen ? ' nb-cell-unseen' : '';
     const newBadge = unseen
       ? `<span class="nb-cell-new-badge" title="New outputs — click anywhere on the output to acknowledge">NEW</span>`
       : '';
-    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}" data-cell-index="${idxAttr}"${pendingAttr}${insertAtAttr} data-exec-count="${execCountNum}">
+    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr} data-exec-count="${execCountNum}">
       <div class="nb-cell-header">
         <span class="nb-type">code</span>
         <span class="nb-exec">${execCount}</span>
@@ -3331,12 +3332,14 @@
     const idxAttr = wrap.getAttribute('data-cell-index');
     const isPending = idxAttr === 'new';
     const cellIndex = isPending ? null : parseInt(idxAttr, 10);
+    const cellId = wrap.getAttribute('data-cell-id') || null;
+    const cellKey = cellId || cellIndex;
     const pendingId = wrap.getAttribute('data-pending-id') || null;
 
     // Restore in-flight draft. Committed cells use a per-index draft key;
     // pending cells persist via the path-scoped pending list so they survive
     // navigation away and back.
-    const draftKey = isPending ? null : _cellDraftKey(relPath, cellIndex);
+    const draftKey = isPending ? null : _cellDraftKey(relPath, cellKey);
     if (draftKey) {
       try {
         const draft = localStorage.getItem(draftKey);
@@ -3396,8 +3399,9 @@
         insertAt = parseInt(wrap.getAttribute('data-insert-at') || '', 10);
       }
       try {
-        const body = { path: relPath, code };
-        if (cellIndex != null) body.cell_index = cellIndex;
+        const body = { path: relPath, code, actor: 'human' };
+        if (cellId) body.cell_id = cellId;
+        else if (cellIndex != null) body.cell_index = cellIndex;
         else if (!isNaN(insertAt)) body.insert_at = insertAt;
         const res = await fetch('/api/nb/exec', {
           method: 'POST',
@@ -3477,7 +3481,9 @@
         const res = await fetch('/api/nb/cell/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath, cell_index: cellIndex }),
+          body: JSON.stringify(cellId
+            ? { path: relPath, cell_id: cellId }
+            : { path: relPath, cell_index: cellIndex }),
         });
         if (!res.ok) {
           const e = await res.json().catch(() => ({ detail: res.statusText }));
@@ -3527,7 +3533,7 @@
         } else if (!nowCollapsed && summary) {
           summary.remove();
         }
-        _setOutputCollapsed(relPath, cellIndex, nowCollapsed);
+        _setOutputCollapsed(relPath, cellKey, nowCollapsed);
       });
     }
 
@@ -3561,7 +3567,7 @@
         wrap.classList.remove('nb-cell-unseen');
         const badge = wrap.querySelector('.nb-cell-new-badge');
         if (badge) badge.remove();
-        if (!isNaN(execCount)) _markCellSeen(relPath, cellIndex, execCount);
+        if (!isNaN(execCount)) _markCellSeen(relPath, cellKey, execCount);
 
         // When this was the LAST unseen cell in the notebook, also clear
         // the sidebar's blue "new outputs" dot. The dot is driven by the
@@ -3656,6 +3662,156 @@
       <button class="nb-add-cell-btn" type="button">+ Add cell</button>
     </div>`;
   }
+
+  function _nbRuntimeLines(values) {
+    return (Array.isArray(values) ? values : []).join('\n');
+  }
+
+  function renderNbRuntimePanel(runtime, relPath) {
+    const spec = (runtime && runtime.spec) || {
+      version: 1, mode: 'local', kind: 'managed', python: '', packages: [],
+      editable: [], imports: [], cli_paths: [], cli_checks: [], environment: {},
+      working_dir: '.', validation_code: '',
+    };
+    const status = (runtime && runtime.status) || 'legacy';
+    const activePython = runtime && runtime.active && runtime.active.python;
+    return `<dialog class="nb-runtime-dialog">
+      <form method="dialog" class="nb-runtime-card">
+        <div class="nb-runtime-title"><div><strong>Project Runtime</strong><span>Shared by people and agents</span></div><button value="cancel" class="nb-runtime-close" title="Close">✕</button></div>
+        <p class="nb-runtime-help">Choose the exact Python environment for this project. Libraries that invoke CLI commands inherit the configured CLI paths inside the Jupyter kernel.</p>
+        <div class="nb-runtime-grid">
+          <label>Provider<select name="mode"><option value="local"${spec.mode === 'local' ? ' selected' : ''}>Local Jupyter</option><option value="darwin"${spec.mode === 'darwin' ? ' selected' : ''}>Darwin (legacy)</option></select></label>
+          <label>Environment<select name="kind"><option value="managed"${spec.kind === 'managed' ? ' selected' : ''}>Managed by Lab</option><option value="existing"${spec.kind === 'existing' ? ' selected' : ''}>Existing Python</option></select></label>
+          <label class="nb-runtime-span">Python version or executable<input name="python" value="${esc(spec.python || '')}" placeholder="3.12, python3, or /absolute/path/to/python"></label>
+          <label>Working directory<input name="working_dir" value="${esc(spec.working_dir || '.')}" placeholder="."></label>
+          <label>CLI directories<textarea name="cli_paths" rows="3" placeholder="tools/bin\nclients/acme/bin">${esc(_nbRuntimeLines(spec.cli_paths))}</textarea></label>
+          <label>Python packages<textarea name="packages" rows="5" placeholder="pandas==2.3.2\npolars>=1.0">${esc(_nbRuntimeLines(spec.packages))}</textarea></label>
+          <label>Editable local libraries<textarea name="editable" rows="5" placeholder="libs/client_sdk">${esc(_nbRuntimeLines(spec.editable))}</textarea></label>
+          <label>Required imports<textarea name="imports" rows="4" placeholder="pandas\nclient_sdk">${esc(_nbRuntimeLines(spec.imports))}</textarea></label>
+          <label>CLI checks (JSON)<textarea name="cli_checks" rows="4" placeholder='[{"command":"client-cli","args":["--version"]}]'>${esc(JSON.stringify(spec.cli_checks || [], null, 2))}</textarea></label>
+          <label class="nb-runtime-span">Environment variables (JSON)<textarea name="environment" rows="3" placeholder='{"DATA_PROFILE":"prod"}'>${esc(JSON.stringify(spec.environment || {}, null, 2))}</textarea></label>
+          <label class="nb-runtime-span">Extra validation code<textarea name="validation_code" rows="3" placeholder="from client_sdk import healthcheck\nassert healthcheck()">${esc(spec.validation_code || '')}</textarea></label>
+        </div>
+        <div class="nb-runtime-current"><span>Status: <strong>${esc(status)}</strong></span>${activePython ? `<span title="Active interpreter">${esc(activePython)}</span>` : ''}</div>
+        <pre class="nb-runtime-log" hidden></pre>
+        <div class="nb-runtime-actions"><button type="button" class="nb-runtime-save">Save</button><button type="button" class="nb-runtime-build">Build &amp; validate in Jupyter</button></div>
+      </form>
+    </dialog>`;
+  }
+
+  function bindNbRuntimePanel(container, relPath, filepath) {
+    const openBtn = container.querySelector('.nb-runtime-open');
+    const dialog = container.querySelector('.nb-runtime-dialog');
+    if (!openBtn || !dialog) return;
+    openBtn.addEventListener('click', () => dialog.showModal());
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    const saveBtn = dialog.querySelector('.nb-runtime-save');
+    const buildBtn = dialog.querySelector('.nb-runtime-build');
+    const log = dialog.querySelector('.nb-runtime-log');
+
+    function lines(name) {
+      return (dialog.querySelector(`[name="${name}"]`).value || '')
+        .split('\n').map(v => v.trim()).filter(Boolean);
+    }
+    function readJson(name, fallback) {
+      const raw = (dialog.querySelector(`[name="${name}"]`).value || '').trim();
+      return raw ? JSON.parse(raw) : fallback;
+    }
+    function readSpec() {
+      const cliChecks = readJson('cli_checks', []);
+      const environment = readJson('environment', {});
+      if (!Array.isArray(cliChecks)) throw new Error('CLI checks must be a JSON array');
+      if (!environment || Array.isArray(environment) || typeof environment !== 'object') throw new Error('Environment variables must be a JSON object');
+      return {
+        version: 1,
+        mode: dialog.querySelector('[name="mode"]').value,
+        kind: dialog.querySelector('[name="kind"]').value,
+        python: dialog.querySelector('[name="python"]').value.trim(),
+        packages: lines('packages'), editable: lines('editable'), imports: lines('imports'),
+        cli_paths: lines('cli_paths'), cli_checks: cliChecks, environment,
+        working_dir: dialog.querySelector('[name="working_dir"]').value.trim() || '.',
+        validation_code: dialog.querySelector('[name="validation_code"]').value,
+      };
+    }
+    function showLog(message, isError) {
+      log.hidden = false;
+      log.classList.toggle('nb-runtime-log-error', !!isError);
+      log.textContent = message;
+    }
+    async function save() {
+      const spec = readSpec();
+      const res = await fetch('/api/nb/runtime', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: relPath, spec }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data));
+      return data;
+    }
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true; buildBtn.disabled = true;
+      try {
+        const data = await save();
+        showLog(`Saved project runtime. Status: ${data.status}`, false);
+      } catch (err) {
+        showLog(err.message || String(err), true);
+      } finally {
+        saveBtn.disabled = false; buildBtn.disabled = false;
+      }
+    });
+    buildBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true; buildBtn.disabled = true;
+      buildBtn.textContent = 'Building & validating…';
+      try {
+        await save();
+        const res = await fetch('/api/nb/runtime/build', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: relPath }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const detail = data.detail || {};
+          throw new Error([detail.message || detail, detail.log || ''].filter(Boolean).join('\n\n'));
+        }
+        showLog((data.built && data.built.log) || 'Runtime is ready. Import and CLI checks passed inside Jupyter.', false);
+        setTimeout(() => { dialog.close(); openProjectDoc(filepath, { preserveScroll: true }); }, 700);
+      } catch (err) {
+        showLog(err.message || String(err), true);
+      } finally {
+        saveBtn.disabled = false; buildBtn.disabled = false;
+        buildBtn.textContent = 'Build & validate in Jupyter';
+      }
+    });
+  }
+
+  function bindNbInterruptKernel(container, relPath) {
+    const btn = container.querySelector('.nb-interrupt-kernel');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = '■ Interrupting…';
+      try {
+        const res = await fetch('/api/nb/session/interrupt', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: relPath }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || `interrupt failed (${res.status})`);
+        }
+        btn.textContent = '✓ Interrupted';
+      } catch (err) {
+        alert('Kernel interrupt failed: ' + (err.message || err));
+        btn.textContent = original;
+      } finally {
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
+      }
+    });
+  }
+
   async function bindNbRestartKernel(container, relPath, filepath) {
     const btn = container.querySelector('.nb-restart-kernel');
     if (!btn) return;
@@ -4617,9 +4773,10 @@
 
         // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
         // receive its first cell" rather than an error.
-        const [nbRes, sessRes] = await Promise.all([
+        const [nbRes, sessRes, runtimeRes] = await Promise.all([
           fetch(`/api/nb?path=${encodeURIComponent(relPath)}`),
           fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}`),
+          fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}`),
         ]);
         let nb = { path: relPath, cells: [], mtime: null };
         let notFound = false;
@@ -4631,7 +4788,10 @@
           const e = await nbRes.json().catch(() => ({}));
           throw new Error(e.detail || ('Failed to load notebook (' + nbRes.status + ')'));
         }
-        const session = sessRes.ok ? (await sessRes.json()).session : '';
+        const sessionInfo = sessRes.ok ? await sessRes.json() : {};
+        const session = sessionInfo.session || '';
+        const provider = sessionInfo.provider || 'darwin';
+        const runtime = runtimeRes.ok ? await runtimeRes.json() : { status: 'unavailable', spec: null };
 
         // Baseline "seen" state for any cell we haven't observed before so the
         // first render of a notebook is calm (nothing flagged NEW). Subsequent
@@ -4651,7 +4811,7 @@
         //      and the user could never see what changed in their absence.
         const everViewed = _nbGetLastViewed(filepath) > 0;
         if (!preserveScroll && !everViewed) {
-          (nb.cells || []).forEach((c, i) => _baselineSeenIfNew(relPath, i, c.execution_count));
+          (nb.cells || []).forEach((c, i) => _baselineSeenIfNew(relPath, c.id || i, c.execution_count));
         }
         // Stamp this open as "viewed" so the sidebar's amber unseen-results
         // dot disappears for this file. Use the current file mtime so any
@@ -4667,12 +4827,16 @@
           ? 'updated ' + new Date(nb.mtime * 1000).toLocaleString()
           : (notFound ? 'new notebook' : '');
         const sessionBadge = session
-          ? `<span title="Darwin kernel pinned to this file" style="font-family:ui-monospace,monospace;font-size:11px;background:var(--bg-tertiary);color:var(--accent);padding:1px 6px;border-radius:3px">kernel: ${esc(session)}</span>`
+          ? `<span title="${provider === 'local' ? 'Project Jupyter kernel' : 'Darwin kernel'} pinned to this file" class="nb-kernel-badge">${esc(provider)}: ${esc(session)}</span>`
           : '';
+        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" title="Configure this project's Python, libraries, CLI paths and environment">⚙ Runtime: ${esc(runtime.status || 'legacy')}</button>`;
         const restartBtnHtml = session
           ? `<button class="nb-restart-kernel" type="button" title="Restart kernel (wipes variables, like Jupyter's Restart Kernel)">↻ Restart kernel</button>`
           : '';
-        const header = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>${sessionBadge}${restartBtnHtml}<span style="font-size:11px;color:var(--text-secondary)">${updatedLabel}</span></div>`;
+        const interruptBtnHtml = provider === 'local'
+          ? `<button class="nb-interrupt-kernel" type="button" title="Interrupt the currently running cell">■ Interrupt</button>`
+          : '';
+        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${runtimeBadge}${sessionBadge}${interruptBtnHtml}${restartBtnHtml}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
         const realCells = nb.cells || [];
         await Promise.all([
@@ -4725,7 +4889,7 @@
         // fetching, do NOT stomp the new view's content with this
         // notebook's HTML.
         if (!_stillActiveNav()) return;
-        container.innerHTML = `<div style="padding:24px">${header}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
+        container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
         // Bind every interactive cell + inserters + the trailing add-cell
         // button + restart.
@@ -4735,6 +4899,8 @@
         bindNbCellInserters(container, relPath, filepath);
         bindNbAddCellButton(container, relPath, filepath);
         bindNbRestartKernel(container, relPath, filepath);
+        bindNbInterruptKernel(container, relPath);
+        bindNbRuntimePanel(container, relPath, filepath);
         // Auto-scroll the currently-running cell into view. The
         // server-side placeholder lands here as .nb-cell-pending with
         // its [*] gutter; bring it to the user's focus so they can see

@@ -31,6 +31,7 @@ from core.routes import log as log_route
 from core.routes import markdown as markdown_route
 from core.routes import mutation as mutation_route
 from core.routes import nb_exec as nb_exec_route
+from core.routes import nb_runtime as nb_runtime_route
 from core.routes import notebook as notebook_route
 from core.routes import project as project_route
 from core.routes import proxy as proxy_route
@@ -175,6 +176,14 @@ def _remove_port_file(app: FastAPI) -> None:
 
 
 def _stop_workspace_runtime(app: FastAPI) -> None:
+    cache = getattr(app.state, "index_cache", None)
+    if cache is not None:
+        # Kernels are pinned to workspace-relative notebook paths. Shut them
+        # down before a workspace switch so no client process is orphaned and
+        # no session can accidentally cross workspace boundaries.
+        from core.notebook_kernel import shutdown_root
+
+        shutdown_root(Path(cache.root))
     watcher = getattr(app.state, "index_watcher", None)
     if watcher is not None:
         watcher.stop()
@@ -490,6 +499,7 @@ def create_app() -> FastAPI:
     app.include_router(markdown_route.router)
     app.include_router(notebook_route.router)
     app.include_router(nb_exec_route.router)
+    app.include_router(nb_runtime_route.router)
     app.include_router(ws_route.router)
     app.include_router(mutation_route.router)
     app.include_router(search_route.router)

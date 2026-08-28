@@ -137,10 +137,68 @@ def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
     )
     assert "fetch(`/api/nb?path=${encodeURIComponent(relPath)}`)" in open_block
     assert "fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}`)" in open_block
+    assert "fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}`)" in open_block
     assert "bindNbCellInteractive(wrap, relPath, filepath)" in open_block
     assert "bindNbRestartKernel(container, relPath, filepath)" in open_block
-    assert "const body = { path: relPath, code };" in cell_bindings
-    assert "JSON.stringify({ path: relPath, cell_index: cellIndex })" in cell_bindings
+    assert "bindNbRuntimePanel(container, relPath, filepath)" in open_block
+    assert "bindNbInterruptKernel(container, relPath)" in open_block
+    assert "const body = { path: relPath, code, actor: 'human' };" in cell_bindings
+    assert "if (cellId) body.cell_id = cellId;" in cell_bindings
+    assert "{ path: relPath, cell_id: cellId }" in cell_bindings
     assert "JSON.stringify({ path: relPath })" in restart_binding
     assert "SELF_REPO_PATH" not in open_block
     assert "window.LAB_WORKSPACE_ROOT" in source
+
+
+def test_project_runtime_panel_exposes_python_libraries_and_cli_configuration() -> None:
+    render = _js_between(
+        "function _nbRuntimeLines(values)",
+        "function bindNbRuntimePanel(container, relPath, filepath)",
+    )
+    result = _run_node(
+        """
+function esc(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;'); }
+"""
+        + render
+        + """
+const html = renderNbRuntimePanel({status: 'ready', spec: {
+  version: 1, mode: 'local', kind: 'existing', python: '/client/.venv/bin/python',
+  packages: ['pandas==2.3.2'], editable: ['libs/sdk'], imports: ['client_sdk'],
+  cli_paths: ['tools/bin'], cli_checks: [{command: 'client-cli', args: ['--version']}],
+  environment: {PROFILE: 'test'}, working_dir: '.', validation_code: 'assert True',
+}, active: {python: '/client/.venv/bin/python'}}, 'projects/acme/notebooks/x.ipynb');
+process.stdout.write(JSON.stringify({html}));
+"""
+    )
+    html = result["html"]
+    for expected in (
+        "Project Runtime",
+        "Shared by people and agents",
+        "Local Jupyter",
+        "/client/.venv/bin/python",
+        "pandas==2.3.2",
+        "libs/sdk",
+        "tools/bin",
+        "client-cli",
+        "Build &amp; validate in Jupyter",
+    ):
+        assert expected in html
+
+
+def test_project_runtime_panel_saves_builds_and_interrupts_through_shared_api() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    runtime_binding = _js_between(
+        "function bindNbRuntimePanel(container, relPath, filepath)",
+        "function bindNbInterruptKernel(container, relPath)",
+    )
+    interrupt_binding = _js_between(
+        "function bindNbInterruptKernel(container, relPath)",
+        "async function bindNbRestartKernel(container, relPath, filepath)",
+    )
+    assert "fetch('/api/nb/runtime'" in runtime_binding
+    assert "fetch('/api/nb/runtime/build'" in runtime_binding
+    assert "packages: lines('packages')" in runtime_binding
+    assert "cli_paths: lines('cli_paths')" in runtime_binding
+    assert "cli_checks: cliChecks" in runtime_binding
+    assert "fetch('/api/nb/session/interrupt'" in interrupt_binding
+    assert "Cmd/Ctrl+Enter" in source

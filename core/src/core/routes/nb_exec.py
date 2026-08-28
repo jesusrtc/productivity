@@ -33,14 +33,21 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core import auth
 from core.diff_parser import parse_notebook
+from core.notebook_runtime import (
+    RuntimeBuildError,
+    RuntimeConfigError,
+    active_runtime,
+    load_runtime_spec,
+)
 
 
 router = APIRouter()
@@ -71,6 +78,24 @@ def _safe_resolve(root: Path, rel: str) -> Path:
 def _session_for(rel_path: str) -> str:
     digest = hashlib.sha1(rel_path.encode("utf-8")).hexdigest()[:12]
     return f"lab-{digest}"
+
+
+def _configured_local(root: Path, rel_path: str) -> bool:
+    try:
+        spec = load_runtime_spec(root, rel_path)
+    except RuntimeConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return spec is not None and spec.mode == "local"
+
+
+def _required_local_handle(root: Path, rel_path: str):
+    try:
+        handle = active_runtime(root, rel_path)
+    except (RuntimeBuildError, RuntimeConfigError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if handle is None:
+        raise HTTPException(status_code=409, detail="project runtime is not configured for local execution")
+    return handle
 
 
 # ── Per-path write lock ──────────────────────────────────────────────────────
@@ -514,7 +539,10 @@ def _write_pending_cell(
     exec_count: int,
     cell_index: int | None = None,
     insert_at: int | None = None,
-) -> int | None:
+    provider_label: str = "kernel",
+    provider: str = "darwin",
+    actor: str = "agent",
+) -> tuple[int, str] | None:
     """Write a "running" placeholder cell to disk BEFORE shelling out to
     darwin.
 
@@ -533,19 +561,34 @@ def _write_pending_cell(
     error after dropping the lock).
     """
     nb = _load_or_empty(target)
+    if provider == "local":
+        metadata = nb.setdefault("metadata", {})
+        metadata["kernelspec"] = {
+            "name": "python3",
+            "display_name": "Python 3 (Lab Project Runtime)",
+            "language": "python",
+        }
+        metadata.setdefault("language_info", {"name": "python"})
     cells = nb.setdefault("cells", [])
+    run_id = uuid.uuid4().hex
+    cell_id = uuid.uuid4().hex[:12]
     placeholder = {
+        "id": cell_id,
         "cell_type": "code",
         "execution_count": exec_count,
         # `lab_pending` lets a future frontend pass paint this cell with
         # a "running" frame; harmless to any nbformat consumer that
         # doesn't know about it.
-        "metadata": {"lab_pending": True},
+        "metadata": {
+            "lab_pending": True,
+            "lab_run_id": run_id,
+            "lab_actor": actor,
+        },
         "source": source.splitlines(keepends=True) if source else [],
         "outputs": [{
             "output_type": "stream",
             "name": "stdout",
-            "text": ["⏳ Running on Darwin…\n"],
+            "text": [f"⏳ Running on {provider_label}…\n"],
         }],
     }
     if cell_index is not None:
@@ -562,10 +605,24 @@ def _write_pending_cell(
         cells.append(placeholder)
         idx = len(cells) - 1
     _atomic_write(target, nb)
-    return idx
+    return idx, run_id
 
 
-def _mark_pending_failed(target: Path, idx: int, ename: str, evalue: str) -> None:
+def _pending_index(cells: list[dict[str, Any]], idx: int, run_id: str) -> int | None:
+    """Find a running placeholder after concurrent inserts may have shifted it."""
+    if 0 <= idx < len(cells):
+        metadata = cells[idx].get("metadata") or {}
+        if metadata.get("lab_run_id") == run_id:
+            return idx
+    for current, cell in enumerate(cells):
+        if (cell.get("metadata") or {}).get("lab_run_id") == run_id:
+            return current
+    return None
+
+
+def _mark_pending_failed(
+    target: Path, idx: int, run_id: str, ename: str, evalue: str
+) -> None:
     """Convert the pending placeholder at ``idx`` into an error cell.
 
     Called when darwin itself fails (auth expired, pod cold-starting,
@@ -574,9 +631,12 @@ def _mark_pending_failed(target: Path, idx: int, ename: str, evalue: str) -> Non
     """
     nb = _load_or_empty(target)
     cells = nb.get("cells", [])
-    if 0 <= idx < len(cells):
-        cells[idx]["metadata"]["lab_pending"] = False
-        cells[idx]["outputs"] = [{
+    current_idx = _pending_index(cells, idx, run_id)
+    if current_idx is not None:
+        cell = cells[current_idx]
+        cell.setdefault("metadata", {})["lab_pending"] = False
+        cell["metadata"].pop("lab_run_id", None)
+        cell["outputs"] = [{
             "output_type": "error",
             "ename": ename,
             "evalue": evalue,
@@ -592,6 +652,7 @@ def _write_code_cell(
     exec_count: int,
     cell_index: int | None,
     insert_at: int | None = None,
+    cell_id: str | None = None,
 ) -> int:
     """Append, replace, or insert a code cell.
 
@@ -613,6 +674,7 @@ def _write_code_cell(
     nb = _load_or_empty(target)
     cells = nb.setdefault("cells", [])
     new_cell = {
+        "id": cell_id or uuid.uuid4().hex[:12],
         "cell_type": "code",
         "execution_count": exec_count,
         "metadata": {},
@@ -642,6 +704,35 @@ def _write_code_cell(
     return idx
 
 
+def _replace_pending_cell(
+    target: Path,
+    *,
+    pending_index: int,
+    run_id: str,
+    source: str,
+    cell_outputs: list[dict[str, Any]],
+    exec_count: int,
+    actor: str,
+) -> int:
+    """Replace this request's placeholder, resilient to concurrent inserts."""
+    nb = _load_or_empty(target)
+    cells = nb.setdefault("cells", [])
+    current_idx = _pending_index(cells, pending_index, run_id)
+    if current_idx is None:
+        raise HTTPException(status_code=409, detail="running cell changed before execution completed")
+    cell_id = str(cells[current_idx].get("id") or uuid.uuid4().hex[:12])
+    cells[current_idx] = {
+        "id": cell_id,
+        "cell_type": "code",
+        "execution_count": exec_count,
+        "metadata": {"lab_actor": actor},
+        "source": source.splitlines(keepends=True) if source else [],
+        "outputs": cell_outputs or [],
+    }
+    _atomic_write(target, nb)
+    return current_idx
+
+
 # ── Request / response schema ────────────────────────────────────────────────
 
 class ExecBody(BaseModel):
@@ -662,24 +753,44 @@ class ExecBody(BaseModel):
     # ``insert_at == len(cells)`` is identical to an append. Mutually
     # exclusive with ``cell_index``.
     insert_at: int | None = Field(default=None, ge=0)
+    cell_id: str | None = Field(
+        default=None,
+        description="Stable nbformat cell id; preferred over cell_index for replacing a cell",
+    )
+    actor: Literal["human", "agent"] = Field(
+        default="agent",
+        description="Origin of the notebook mutation for UI/audit metadata",
+    )
 
 
 class CellDeleteBody(BaseModel):
     path: str = Field(..., description="Notebook path relative to the monorepo root")
-    cell_index: int = Field(..., ge=0)
+    cell_index: int | None = Field(default=None, ge=0)
+    cell_id: str | None = None
 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/api/nb/session")
 def session_for(path: str, request: Request) -> dict:
-    """Return the Darwin session name pinned to ``path``.
-
-    Lets the UI show which kernel a notebook is using before the first run.
-    """
+    """Return the provider/session pinned to this notebook path."""
     root = auth.request_root(request)
     _safe_resolve(root, path)  # validate only
-    return {"path": path, "session": _session_for(path)}
+    if _configured_local(root, path):
+        from core.notebook_kernel import session_name
+
+        return {
+            "path": path,
+            "session": session_name(root, path),
+            "provider": "local",
+            "capabilities": ["execute", "restart", "interrupt"],
+        }
+    return {
+        "path": path,
+        "session": _session_for(path),
+        "provider": "darwin",
+        "capabilities": ["execute", "restart"],
+    }
 
 
 @router.post("/api/nb/exec")
@@ -707,12 +818,34 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     """
     root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
-    session = _session_for(body.path)
+    local_handle = _required_local_handle(root, body.path) if _configured_local(root, body.path) else None
+    if local_handle is not None:
+        from core.notebook_kernel import session_name
+
+        session = session_name(root, body.path)
+        provider = "local"
+    else:
+        session = _session_for(body.path)
+        provider = "darwin"
     if body.cell_index is not None and body.insert_at is not None:
         raise HTTPException(
             status_code=400,
             detail="cell_index and insert_at are mutually exclusive",
         )
+    if body.cell_id is not None and body.insert_at is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="cell_id and insert_at are mutually exclusive",
+        )
+
+    replace_index = body.cell_index
+    if body.cell_id is not None:
+        with _lock_for(target):
+            cells = _load_or_empty(target).get("cells", [])
+            matches = [i for i, cell in enumerate(cells) if cell.get("id") == body.cell_id]
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"cell_id {body.cell_id!r} not found")
+        replace_index = matches[0]
 
     # Phase 1: write the pending placeholder so the UI sees a running
     # cell immediately. Pick the exec_count now so the placeholder shows
@@ -720,22 +853,25 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # count if it differs.
     with _lock_for(target):
         pre_exec_count = _next_exec_count(_load_or_empty(target))
-        pending_idx = _write_pending_cell(
+        pending_result = _write_pending_cell(
             target,
             source=body.code,
             exec_count=pre_exec_count,
-            cell_index=body.cell_index,
+            cell_index=replace_index,
             insert_at=body.insert_at,
+            provider_label="project kernel" if provider == "local" else "Darwin",
+            provider=provider,
+            actor=body.actor,
         )
-    if pending_idx is None:
+    if pending_result is None:
         # cell_index/insert_at was out of range — surface a 404 the same
         # way the post-darwin path would. Doing this AFTER releasing the
         # lock avoids HTTPException unwinding through the lock.
         nb = _load_or_empty(target)
         cells = nb.get("cells", [])
-        if body.cell_index is not None:
+        if replace_index is not None:
             detail = (
-                f"cell_index {body.cell_index} out of range "
+                f"cell_index {replace_index} out of range "
                 f"(notebook has {len(cells)} cells)"
             )
         else:
@@ -744,6 +880,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
                 f"(notebook has {len(cells)} cells; valid is 0..{len(cells)})"
             )
         raise HTTPException(status_code=404, detail=detail)
+    pending_idx, run_id = pending_result
 
     # Phase 2: run darwin (slow). If it errors, mark the placeholder as
     # failed so the UI shows the error instead of a stuck ⏳ cell.
@@ -751,53 +888,74 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # green pulse dot. Cleared in every exit path below.
     _mark_running(target)
     try:
-        # Phase 2a: per-session bootstrap + per-call code sync. Skipped
-        # entirely when content/code/ doesn't exist, so the existing
-        # exec path is byte-identical for projects that don't use this
-        # feature.
-        if _code_dir(root).is_dir():
-            if _bootstrap_needed(session):
-                try:
-                    await _exec_bootstrap(session, body.kernel)
-                except _DarwinError:
-                    _bootstrap_unmark(session)
-                    raise
-            pushed_modules = await _push_code(root)
-            if pushed_modules:
-                await _exec_reload(pushed_modules, session, body.kernel)
+        if local_handle is not None:
+            from core.notebook_kernel import execute as execute_local
 
-        result = await _darwin_exec(
-            body.code, session=session, kernel=body.kernel, timeout=body.timeout
-        )
+            result = await execute_local(
+                root, body.path, local_handle, body.code, body.timeout
+            )
+        else:
+            # Darwin-only compatibility bootstrap. Local runtimes expose
+            # project libraries directly through their configured Python/PATH.
+            if _code_dir(root).is_dir():
+                if _bootstrap_needed(session):
+                    try:
+                        await _exec_bootstrap(session, body.kernel)
+                    except _DarwinError:
+                        _bootstrap_unmark(session)
+                        raise
+                pushed_modules = await _push_code(root)
+                if pushed_modules:
+                    await _exec_reload(pushed_modules, session, body.kernel)
+
+            result = await _darwin_exec(
+                body.code, session=session, kernel=body.kernel, timeout=body.timeout
+            )
     except _DarwinError as exc:
         with _lock_for(target):
-            _mark_pending_failed(target, pending_idx, type(exc).__name__, exc.detail)
+            _mark_pending_failed(
+                target, pending_idx, run_id, type(exc).__name__, exc.detail
+            )
         _mark_done(target)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except Exception as exc:
+        from core.notebook_kernel import KernelExecutionError
+
+        if isinstance(exc, KernelExecutionError):
+            with _lock_for(target):
+                _mark_pending_failed(
+                    target, pending_idx, run_id, type(exc).__name__, exc.detail
+                )
+            _mark_done(target)
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        _mark_done(target)
+        raise
     except BaseException:
         _mark_done(target)
         raise
 
     cell_outputs = result.get("cell_outputs") or []
     kernel_id = result.get("kernel_id")
-    exec_count_from_darwin = result.get("execution_count")
+    exec_count_from_kernel = result.get("execution_count")
 
     # Phase 3: replace the placeholder with the real outputs. We use
     # cell_index=pending_idx so the placeholder is overwritten in place
     # — no shifting, no duplicate cells.
     try:
         with _lock_for(target):
-            if isinstance(exec_count_from_darwin, int) and exec_count_from_darwin > 0:
-                exec_count = exec_count_from_darwin
+            if isinstance(exec_count_from_kernel, int) and exec_count_from_kernel > 0:
+                exec_count = exec_count_from_kernel
             else:
                 exec_count = pre_exec_count
 
-            idx = _write_code_cell(
+            idx = _replace_pending_cell(
                 target,
+                pending_index=pending_idx,
+                run_id=run_id,
                 source=body.code,
                 cell_outputs=cell_outputs,
                 exec_count=exec_count,
-                cell_index=pending_idx,
+                actor=body.actor,
             )
 
             # Re-parse via the same helper the GET endpoint uses so the cell we
@@ -809,6 +967,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     return {
         "path": body.path,
         "session": session,
+        "provider": provider,
         "kernel_id": kernel_id,
         "execution_count": exec_count,
         "cell_index": idx,
@@ -823,14 +982,28 @@ class SessionRestartBody(BaseModel):
 
 @router.post("/api/nb/session/restart")
 async def session_restart(body: SessionRestartBody, request: Request) -> dict:
-    """Restart the Darwin kernel pinned to ``body.path``.
-
-    Kills the running kernel for this notebook's session and lets the next
-    ``/api/nb/exec`` call spin up a fresh one. Variables are wiped — same
-    semantics as Jupyter's "Restart Kernel".
-    """
+    """Restart the local or Darwin kernel pinned to ``body.path``."""
     root = auth.request_root(request)
     _safe_resolve(root, body.path)  # validate
+    if _configured_local(root, body.path):
+        handle = _required_local_handle(root, body.path)
+        from core.notebook_kernel import restart as restart_local, session_name
+
+        try:
+            was_running = await restart_local(root, body.path, handle)
+        except Exception as exc:
+            from core.notebook_kernel import KernelExecutionError
+
+            if isinstance(exc, KernelExecutionError):
+                raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+            raise
+        return {
+            "path": body.path,
+            "session": session_name(root, body.path),
+            "provider": "local",
+            "restarted": was_running,
+        }
+
     session = _session_for(body.path)
     try:
         proc = await asyncio.to_thread(
@@ -862,9 +1035,28 @@ async def session_restart(body: SessionRestartBody, request: Request) -> dict:
     )
 
 
+@router.post("/api/nb/session/interrupt")
+async def session_interrupt(body: SessionRestartBody, request: Request) -> dict:
+    """Interrupt a currently running host-local notebook cell."""
+    root = auth.request_root(request)
+    _safe_resolve(root, body.path)
+    if not _configured_local(root, body.path):
+        raise HTTPException(status_code=400, detail="interrupt is currently available for local runtimes")
+    handle = _required_local_handle(root, body.path)
+    from core.notebook_kernel import interrupt as interrupt_local, session_name
+
+    interrupted = await interrupt_local(root, body.path, handle)
+    return {
+        "path": body.path,
+        "session": session_name(root, body.path),
+        "provider": "local",
+        "interrupted": interrupted,
+    }
+
+
 @router.post("/api/nb/cell/delete")
 def delete_cell(body: CellDeleteBody, request: Request) -> dict:
-    """Remove the cell at ``body.cell_index`` from ``body.path``."""
+    """Remove a cell by stable id (preferred) or legacy positional index."""
     root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
     if not target.is_file():
@@ -873,12 +1065,21 @@ def delete_cell(body: CellDeleteBody, request: Request) -> dict:
     with _lock_for(target):
         nb = _load_or_empty(target)
         cells = nb.setdefault("cells", [])
-        if body.cell_index < 0 or body.cell_index >= len(cells):
+        cell_index = body.cell_index
+        if body.cell_id is not None:
+            cell_index = next(
+                (i for i, cell in enumerate(cells) if cell.get("id") == body.cell_id),
+                None,
+            )
+        if cell_index is None:
+            detail = "cell_id not found" if body.cell_id else "cell_id or cell_index is required"
+            raise HTTPException(status_code=404 if body.cell_id else 400, detail=detail)
+        if cell_index < 0 or cell_index >= len(cells):
             raise HTTPException(
                 status_code=404,
-                detail=f"cell_index {body.cell_index} out of range (notebook has {len(cells)} cells)",
+                detail=f"cell_index {cell_index} out of range (notebook has {len(cells)} cells)",
             )
-        del cells[body.cell_index]
+        del cells[cell_index]
         _atomic_write(target, nb)
 
     return {

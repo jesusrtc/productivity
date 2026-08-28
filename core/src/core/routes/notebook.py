@@ -10,6 +10,7 @@ inside ``projects/<id>/notebooks/``.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -49,4 +50,10 @@ def render_notebook(path: str, request: Request) -> dict:
             _RENDERER.reset()
             cell["html"] = _RENDERER.convert(cell.get("source", ""))
 
-    return {"path": path, "cells": cells, "mtime": target.stat().st_mtime}
+    raw = target.read_bytes()
+    return {
+        "path": path,
+        "cells": cells,
+        "mtime": target.stat().st_mtime,
+        "revision": hashlib.sha256(raw).hexdigest()[:16],
+    }

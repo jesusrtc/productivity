@@ -239,6 +239,10 @@ def _parse_notebook_payload(nb: dict) -> list[dict]:
                 outputs.append({"type": "error", "content": tb})
 
         cells.append({
+            # nbformat 4.5 cell ids are stable across insertions/deletions and
+            # let the notebook UI and agent API target the same cell without
+            # racing on a positional index.
+            "id": cell.get("id"),
             "cell_type": cell_type,
             "source": source,
             "outputs": outputs,
