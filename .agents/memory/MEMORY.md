@@ -45,3 +45,4 @@
 - [Repository notebooks render read-only](repository-notebooks-render-read-only.md) — Home/framework/repository `.ipynb` files are inspectable through `/api/notebook`; only active-workspace notebooks get kernel controls
 - [Repository notebooks own their kernel by path](repository-notebooks-own-kernel-by-path.md) — create valid `.ipynb` files at a user-selected active-workspace repository path; same path shares one human/agent kernel, different paths get different sessions
 - [Built-in Jupyter tab needs no server config](built-in-jupyter-tab-needs-no-server-config.md) — every project gets a first-class Jupyter tab backed by Lab's shared notebook runtime; never self-proxy Lab's port through `servers.json`
+- [Live notebook agent/human contract](live-notebook-agent-human-contract.md) — agent cell edits and Jupyter outputs are visible live; humans share the kernel and can edit, rerun, and interrupt
