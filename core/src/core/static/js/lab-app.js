@@ -2131,6 +2131,10 @@
     recentMinutes: 1440,
     trackMode: 'all',
     extensions: [],
+    folderScopes: [],
+    rootScopeColors: {},
+    rootWorktreeFolders: {},
+    selectedFolders: {},
     worktreeFolder: '',
     worktreeColors: {},
     selectedWorktrees: {},
@@ -2166,6 +2170,49 @@
       .map(([key, item]) => [String(key), colors ? _sidebarValidColor(item) : String(item)]));
   }
 
+  function _sidebarNormalizeFolderPath(value, baseRoot = '') {
+    const requested = String(value || '').trim();
+    if (!requested) return '';
+    const combined = requested.starts('/')
+      ? requested
+      : `${String(baseRoot || '').replace(/\/$/, '')}/${requested}`;
+    const parts = [];
+    combined.split('/').forEach(part => {
+      if (!part || part === '.') return;
+      if (part === '..') {
+        if (parts.length) parts.pop();
+        return;
+      }
+      parts.push(part);
+    });
+    return '/' + parts.join('/');
+  }
+
+  function _sidebarNormalizeWorktreeFolder(value, projectRoot = '') {
+    const requested = String(value || '').trim();
+    return requested.starts('~/')
+      ? requested
+      : _sidebarNormalizeFolderPath(requested, projectRoot);
+  }
+
+  function _sidebarFolderScopeList(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    return value.flatMap(row => {
+      if (!row || typeof row !== 'object') return [];
+      const path = _sidebarNormalizeFolderPath(row.path);
+      if (!path || seen.has(path)) return [];
+      seen.add(path);
+      const fallback = path.split('/').filter(Boolean).pop() || path;
+      return [{
+        path,
+        label: String(row.label || fallback).trim() || fallback,
+        color: _sidebarValidColor(row.color),
+        worktreeFolder: String(row.worktreeFolder || '').trim(),
+      }];
+    });
+  }
+
   function _loadSidebarFileConfig() {
     try {
       const stored = JSON.parse(localStorage.getItem(SIDEBAR_FILE_CONFIG_KEY) || '{}');
@@ -2180,6 +2227,12 @@
         extensions: Array.isArray(stored.extensions)
           ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
           : [],
+        folderScopes: _sidebarFolderScopeList(stored.folderScopes),
+        rootScopeColors: _sidebarStringMap(stored.rootScopeColors, {colors: true}),
+        rootWorktreeFolders: _sidebarStringMap(stored.rootWorktreeFolders),
+        selectedFolders: _sidebarStringMap(stored.selectedFolders),
+        // Kept as a read-only fallback so browser state from the original
+        // single-worktree-folder implementation migrates without losing it.
         worktreeFolder: typeof stored.worktreeFolder === 'string' ? stored.worktreeFolder.trim() : '',
         worktreeColors: _sidebarStringMap(stored.worktreeColors, {colors: true}),
         selectedWorktrees: _sidebarStringMap(stored.selectedWorktrees),
@@ -2188,6 +2241,10 @@
       return {
         ...SIDEBAR_FILE_CONFIG_DEFAULTS,
         extensions: [],
+        folderScopes: [],
+        rootScopeColors: {},
+        rootWorktreeFolders: {},
+        selectedFolders: {},
         worktreeColors: {},
         selectedWorktrees: {},
       };
@@ -2207,6 +2264,43 @@
     if (document.body && document.body.classList.contains('self-active')) return SELF_REPO_PATH;
     if (currentProject && currentProject.path) return currentProject.path;
     return '';
+  }
+
+  function _sidebarFolderScope(path) {
+    const requested = String(path || '');
+    return (_sidebarFileConfig.folderScopes || []).find(row => row.path === requested) || null;
+  }
+
+  function _sidebarSelectedFolder(baseRoot) {
+    const selected = String((_sidebarFileConfig.selectedFolders || {})[baseRoot] || '');
+    return selected ? _sidebarFolderScope(selected) : null;
+  }
+
+  function _sidebarProjectRoot(baseRoot) {
+    const selected = _sidebarSelectedFolder(baseRoot);
+    return selected ? selected.path : baseRoot;
+  }
+
+  function _sidebarProjectLabel(baseRoot) {
+    const selected = _sidebarSelectedFolder(baseRoot);
+    return selected ? selected.label : 'Root';
+  }
+
+  function _sidebarProjectColor(baseRoot) {
+    const selected = _sidebarSelectedFolder(baseRoot);
+    return selected
+      ? _sidebarValidColor(selected.color)
+      : _sidebarValidColor((_sidebarFileConfig.rootScopeColors || {})[baseRoot]);
+  }
+
+  function _sidebarActiveWorktreeFolder(baseRoot) {
+    const selected = _sidebarSelectedFolder(baseRoot);
+    if (selected) return String(selected.worktreeFolder || '').trim();
+    return String(
+      (_sidebarFileConfig.rootWorktreeFolders || {})[baseRoot]
+      || _sidebarFileConfig.worktreeFolder
+      || ''
+    ).trim();
   }
 
   function _sidebarWorktreeRepositoryRoot(baseRoot) {
@@ -2273,28 +2367,35 @@
   }
 
   async function _sidebarEnsureWorktrees(baseRoot = _sidebarWorktreeBaseRoot()) {
-    if (!_sidebarFileConfig.worktreeFolder) return [];
+    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
+    if (!worktreeFolder) {
+      _sidebarClearWorktreeDiscovery();
+      return [];
+    }
     try {
-      return await _sidebarDiscoverWorktrees(_sidebarFileConfig.worktreeFolder, {baseRoot});
+      return await _sidebarDiscoverWorktrees(worktreeFolder, {baseRoot: projectRoot});
     } catch (error) {
+      _sidebarClearWorktreeDiscovery();
       _sidebarRecentLog('warning', `worktree folder scan failed: ${error.message || error}`, {
         action: 'sidebar.worktree.scan',
-        target: _sidebarFileConfig.worktreeFolder,
+        target: worktreeFolder,
       });
       return [];
     }
   }
 
   function _sidebarSelectedWorktree(baseRoot) {
-    if (!_sidebarFileConfig.worktreeFolder) return null;
-    const selected = String((_sidebarFileConfig.selectedWorktrees || {})[baseRoot] || '');
+    if (!_sidebarActiveWorktreeFolder(baseRoot)) return null;
+    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const selected = String((_sidebarFileConfig.selectedWorktrees || {})[projectRoot] || '');
     if (!selected) return null;
     return _sidebarWorktreeFolders.find(row => row.path === selected) || null;
   }
 
   function _sidebarScopedRoot(baseRoot) {
     const selected = _sidebarSelectedWorktree(baseRoot);
-    return selected ? selected.path : baseRoot;
+    return selected ? selected.path : _sidebarProjectRoot(baseRoot);
   }
 
   function _sidebarWorktreeColor(path) {
@@ -2302,6 +2403,8 @@
   }
 
   function _sidebarWorktreePickerHtml(baseRoot) {
+    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
     const selectedPath = selected ? selected.path : '';
     const selectedLabel = selected ? selected.name : 'main';
@@ -2310,20 +2413,42 @@
       ..._sidebarWorktreeFolders.map(row => `<option value="${escAttr(row.path)}"${row.path === selectedPath ? ' selected' : ''}>${esc(row.name)}</option>`),
     ];
     const color = selected ? _sidebarWorktreeColor(selected.path) : SIDEBAR_WORKTREE_DEFAULT_COLOR;
-    const rootControl = _sidebarFileConfig.worktreeFolder
+    const rootControl = worktreeFolder
       ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label>`
       : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
-    return `<div class="sidebar-worktree-picker"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+    return `<div class="sidebar-worktree-picker" data-project-root="${escAttr(projectRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+  }
+
+  function _sidebarFileScopeButtonsHtml(baseRoot) {
+    const selectedPath = _sidebarSelectedFolder(baseRoot)?.path || '';
+    const rootColor = _sidebarValidColor((_sidebarFileConfig.rootScopeColors || {})[baseRoot]);
+    const scopes = [
+      {path: '', label: 'Root', color: rootColor, title: baseRoot},
+      ...(_sidebarFileConfig.folderScopes || []).map(row => ({
+        path: row.path,
+        label: row.label,
+        color: _sidebarValidColor(row.color),
+        title: row.path,
+      })),
+    ];
+    return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Project folders">${scopes.map(scope => {
+      const active = scope.path === selectedPath;
+      return `<button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path)}" onclick="sidebarSelectFolder(this)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.title)}" style="--sidebar-project-color:${escAttr(scope.color)}"><span class="sidebar-file-scope-dot"></span><span>${esc(scope.label)}</span></button>`;
+    }).join('')}</div>`;
   }
 
   function _sidebarWorktreeScopeStartHtml(baseRoot) {
+    const folder = _sidebarSelectedFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
-    if (!selected) return '';
-    return `<div class="sidebar-worktree-scope" data-worktree-path="${escAttr(selected.path)}" style="--sidebar-worktree-color:${escAttr(_sidebarWorktreeColor(selected.path))}" title="Files from ${escAttr(selected.name)}">`;
+    if (!folder && !selected) return '';
+    const color = selected ? _sidebarWorktreeColor(selected.path) : _sidebarProjectColor(baseRoot);
+    const worktreeAttr = selected ? ` data-worktree-path="${escAttr(selected.path)}"` : '';
+    const label = selected ? `${_sidebarProjectLabel(baseRoot)} · ${selected.name}` : _sidebarProjectLabel(baseRoot);
+    return `<div class="sidebar-worktree-scope" data-file-scope-root="${escAttr(_sidebarScopedRoot(baseRoot))}"${worktreeAttr} style="--sidebar-worktree-color:${escAttr(color)}" title="Files from ${escAttr(label)}">`;
   }
 
   function _sidebarWorktreeScopeEndHtml(baseRoot) {
-    return _sidebarSelectedWorktree(baseRoot) ? '</div>' : '';
+    return (_sidebarSelectedFolder(baseRoot) || _sidebarSelectedWorktree(baseRoot)) ? '</div>' : '';
   }
 
   function _sidebarFileExtension(path) {
@@ -2433,7 +2558,7 @@
 
   function _sidebarMaybeLogRecentDiagnostics(files, rootPath) {
     const pending = _sidebarRecentDiagnosticsPending;
-    if (!pending || pending.root !== rootPath) return;
+    if (!pending || (pending.root && pending.root !== rootPath)) return;
     _sidebarRecentDiagnosticsPending = null;
     _sidebarLogRecentDiagnostics(files, rootPath, pending.reason);
   }
@@ -2483,7 +2608,9 @@
     if (_sidebarFileConfig.showRecent) {
       summary.push(`recent ${_sidebarFreshnessLabel(_sidebarFileConfig.recentMinutes)}`);
     }
-    if (_sidebarFileConfig.worktreeFolder) summary.push('worktrees');
+    const folderCount = (_sidebarFileConfig.folderScopes || []).length;
+    if (folderCount) summary.push(`${folderCount} folder${folderCount === 1 ? '' : 's'}`);
+    if (_sidebarActiveWorktreeFolder(_sidebarWorktreeBaseRoot())) summary.push('worktrees');
     return `<div class="sidebar-file-config-row"><button type="button" class="sidebar-file-config-button" onclick="openSidebarFileConfig()" title="Configure hidden and recently updated files"><span aria-hidden="true">&#x2699;</span> File view <span class="sidebar-file-config-summary">${esc(summary.join(' · ') || 'default')}</span></button></div>`;
   }
 
@@ -2526,8 +2653,9 @@
     const baseRoot = button && button.getAttribute('data-base-root');
     if (!baseRoot) return;
     const selected = _sidebarSelectedWorktree(baseRoot);
+    const projectRoot = _sidebarProjectRoot(baseRoot);
     return openRepositoryHistory({
-      root: selected ? (selected.repo || selected.path) : _sidebarWorktreeRepositoryRoot(baseRoot),
+      root: selected ? (selected.repo || selected.path) : _sidebarWorktreeRepositoryRoot(projectRoot),
       label: selected ? selected.name : 'main',
     });
   }
@@ -2582,17 +2710,128 @@
     return html;
   }
 
+  function _sidebarConfigFolderCardHtml(row, {root = false, baseRoot = ''} = {}) {
+    const path = root ? baseRoot : String(row && row.path || '');
+    const fallback = path.split('/').filter(Boolean).pop() || 'Project';
+    const label = root ? 'Root' : String(row && row.label || fallback);
+    const color = root
+      ? _sidebarValidColor((_sidebarFileConfig.rootScopeColors || {})[baseRoot])
+      : _sidebarValidColor(row && row.color);
+    const rootWorktreeFolder = String(
+      (_sidebarFileConfig.rootWorktreeFolders || {})[baseRoot]
+      || _sidebarFileConfig.worktreeFolder
+      || ''
+    );
+    const worktreeFolder = root ? rootWorktreeFolder : String(row && row.worktreeFolder || '');
+    const identity = root
+      ? `<div class="sidebar-config-folder-identity"><strong>Root</strong><code title="${escAttr(baseRoot)}">${esc(baseRoot)}</code></div>`
+      : `<div class="sidebar-config-folder-fields">
+          <label>Name<input type="text" data-scope-label value="${escAttr(label)}" placeholder="Project name" /></label>
+          <label class="sidebar-config-folder-path">Folder or subfolder<input type="text" data-scope-path value="${escAttr(path)}" placeholder="projects/my-project or /absolute/path" autocomplete="off" spellcheck="false" /></label>
+        </div>`;
+    const remove = root ? '' : '<button class="sidebar-config-folder-remove" type="button" onclick="sidebarFileConfigRemoveFolder(this)" aria-label="Remove project folder" title="Remove project folder">&times;</button>';
+    return `<div class="sidebar-config-folder-card${root ? ' root' : ''}" data-scope-root="${root ? 'true' : 'false'}">
+      <div class="sidebar-config-folder-card-head">${identity}${remove}</div>
+      <div class="sidebar-config-folder-options">
+        <label class="sidebar-config-folder-color">Color<input type="color" data-scope-color value="${escAttr(color)}" /></label>
+        <label class="sidebar-config-folder-worktree">Worktree folder <span class="sidebar-config-worktree-input-row"><input type="text" data-scope-worktree value="${escAttr(worktreeFolder)}" placeholder="Optional path to worktrees" autocomplete="off" spellcheck="false" oninput="sidebarFileConfigWorktreeInput(this)" /><button type="button" onclick="sidebarFileConfigScanScope(this)">Scan</button></span><small>Optional. Only registered Git worktrees for this project become choices.</small></label>
+      </div>
+      <div class="sidebar-config-worktree-status" data-scope-status role="status">${worktreeFolder ? 'Scan to preview worktrees.' : 'No worktree folder — this project uses only its main folder.'}</div>
+      <div class="sidebar-config-worktree-colors" data-scope-worktree-colors></div>
+    </div>`;
+  }
+
+  function _sidebarRenderFolderConfig() {
+    const host = document.getElementById('sidebarConfigFolderScopes');
+    if (!host) return;
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    host.innerHTML = _sidebarConfigFolderCardHtml(null, {root: true, baseRoot})
+      + (_sidebarFileConfig.folderScopes || []).map(row => _sidebarConfigFolderCardHtml(row)).join('');
+  }
+
+  function sidebarFileConfigAddFolder() {
+    const host = document.getElementById('sidebarConfigFolderScopes');
+    if (!host) return;
+    host.insertAdjacentHTML('beforeend', _sidebarConfigFolderCardHtml({
+      path: '',
+      label: '',
+      color: SIDEBAR_WORKTREE_DEFAULT_COLOR,
+      worktreeFolder: '',
+    }));
+    const error = document.getElementById('sidebarConfigFolderError');
+    if (error) error.classList.remove('on');
+  }
+
+  function sidebarFileConfigRemoveFolder(button) {
+    const card = button && button.closest('.sidebar-config-folder-card');
+    if (card && card.getAttribute('data-scope-root') !== 'true') card.remove();
+  }
+
+  function _sidebarFolderCardPath(card, baseRoot = _sidebarWorktreeBaseRoot()) {
+    if (!card) return '';
+    if (card.getAttribute('data-scope-root') === 'true') return baseRoot;
+    const input = card.querySelector('[data-scope-path]');
+    return _sidebarNormalizeFolderPath(input && input.value, baseRoot);
+  }
+
+  function _sidebarCollectFolderConfigFromModal() {
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    const rootScopeColors = {...(_sidebarFileConfig.rootScopeColors || {})};
+    const rootWorktreeFolders = {...(_sidebarFileConfig.rootWorktreeFolders || {})};
+    const folderScopes = [];
+    const seen = new Set([baseRoot]);
+    let problem = '';
+    document.querySelectorAll('#sidebarConfigFolderScopes .sidebar-config-folder-card').forEach(card => {
+      const isRoot = card.getAttribute('data-scope-root') === 'true';
+      const colorInput = card.querySelector('[data-scope-color]');
+      const worktreeInput = card.querySelector('[data-scope-worktree]');
+      const color = _sidebarValidColor(colorInput && colorInput.value);
+      if (isRoot) {
+        rootScopeColors[baseRoot] = color;
+        const rootFolder = _sidebarNormalizeWorktreeFolder(worktreeInput && worktreeInput.value, baseRoot);
+        if (rootFolder) rootWorktreeFolders[baseRoot] = rootFolder;
+        else delete rootWorktreeFolders[baseRoot];
+        return;
+      }
+      const path = _sidebarFolderCardPath(card, baseRoot);
+      if (!path) {
+        problem ||= 'Every project needs a folder path.';
+        return;
+      }
+      if (seen.has(path)) {
+        problem ||= path === baseRoot
+          ? 'Root is already included; choose a different folder or subfolder.'
+          : `The folder ${path} was added more than once.`;
+        return;
+      }
+      seen.add(path);
+      const labelInput = card.querySelector('[data-scope-label]');
+      const fallback = path.split('/').filter(Boolean).pop() || path;
+      const worktreeFolder = _sidebarNormalizeWorktreeFolder(worktreeInput && worktreeInput.value, path);
+      folderScopes.push({
+        path,
+        label: String(labelInput && labelInput.value || fallback).trim() || fallback,
+        color,
+        worktreeFolder,
+      });
+    });
+    const error = document.getElementById('sidebarConfigFolderError');
+    if (error) {
+      error.textContent = problem;
+      error.classList.toggle('on', !!problem);
+    }
+    return problem ? null : {folderScopes, rootScopeColors, rootWorktreeFolders};
+  }
+
   function openSidebarFileConfig() {
     const modal = document.getElementById('sidebarFileConfigModal');
     if (!modal) return;
     const hidden = document.getElementById('sidebarConfigHidden');
     const recent = document.getElementById('sidebarConfigRecent');
     const freshness = document.getElementById('sidebarConfigFreshness');
-    const worktreeFolder = document.getElementById('sidebarConfigWorktreeFolder');
     if (hidden) hidden.checked = _sidebarFileConfig.showHidden;
     if (recent) recent.checked = _sidebarFileConfig.showRecent;
     if (freshness) freshness.value = String(_sidebarFileConfig.recentMinutes);
-    if (worktreeFolder) worktreeFolder.value = _sidebarFileConfig.worktreeFolder || '';
     const track = modal.querySelector(`input[name="sidebarRecentTrack"][value="${_sidebarFileConfig.trackMode}"]`);
     if (track) track.checked = true;
 
@@ -2610,10 +2849,17 @@
         return `<label class="sidebar-config-extension" title="${escAttr(label)}"><input type="checkbox" value="${escAttr(ext)}" ${checked ? 'checked' : ''} /><span>${esc(label)}</span></label>`;
       }).join('') : '<span style="color:var(--text-dim);font-size:11px">No file extensions found.</span>';
     }
-    _sidebarRenderWorktreeConfig();
+    _sidebarRenderFolderConfig();
+    const error = document.getElementById('sidebarConfigFolderError');
+    if (error) error.classList.remove('on');
     sidebarFileConfigSyncState();
     modal.classList.add('active');
-    if (_sidebarFileConfig.worktreeFolder) void sidebarFileConfigScanWorktrees();
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const activeCard = [...document.querySelectorAll('#sidebarConfigFolderScopes .sidebar-config-folder-card')]
+      .find(card => _sidebarFolderCardPath(card, baseRoot) === projectRoot);
+    const scan = activeCard && activeCard.querySelector('.sidebar-config-worktree-input-row button');
+    if (scan && _sidebarActiveWorktreeFolder(baseRoot)) void sidebarFileConfigScanScope(scan);
   }
 
   function closeSidebarFileConfig() {
@@ -2649,71 +2895,86 @@
 
   function _sidebarCollectWorktreeColorsFromModal() {
     const colors = {...(_sidebarFileConfig.worktreeColors || {})};
-    document.querySelectorAll('#sidebarConfigWorktreeColors input[type="color"]').forEach(input => {
+    document.querySelectorAll('#sidebarConfigFolderScopes [data-scope-worktree-colors] input[type="color"]').forEach(input => {
       const path = input.getAttribute('data-worktree-path');
       if (path) colors[path] = _sidebarValidColor(input.value);
     });
     return colors;
   }
 
-  function _sidebarRenderWorktreeConfig() {
-    const host = document.getElementById('sidebarConfigWorktreeColors');
-    const status = document.getElementById('sidebarConfigWorktreeStatus');
-    if (!host) return;
-    if (!_sidebarWorktreeFolders.length) {
+  function _sidebarRenderWorktreeConfig(card, folders) {
+    const host = card && card.querySelector('[data-scope-worktree-colors]');
+    const status = card && card.querySelector('[data-scope-status]');
+    if (!host || !status) return;
+    if (!folders.length) {
       host.innerHTML = '';
-      if (status && !status.classList.contains('error')) {
-        status.textContent = _sidebarWorktreeFolderResolved
-          ? 'No matching Git worktrees found for this project.'
-          : _sidebarFileConfig.worktreeFolder ? 'No worktrees scanned yet.' : 'Optional — leave empty to use only Root.';
-      }
+      status.classList.remove('error');
+      status.textContent = 'No matching Git worktrees found for this project.';
       return;
     }
-    host.innerHTML = _sidebarWorktreeFolders.map(row => `
+    host.innerHTML = folders.map(row => `
       <label class="sidebar-config-worktree-color-row" title="${escAttr(row.path)}">
         <span>${esc(row.name)}</span>
         <input type="color" aria-label="Color for ${escAttr(row.name)}" data-worktree-path="${escAttr(row.path)}" value="${escAttr(_sidebarWorktreeColor(row.path))}" />
       </label>`).join('');
+    status.classList.remove('error');
+    status.textContent = `${folders.length} worktree${folders.length === 1 ? '' : 's'} found.`;
+  }
+
+  function sidebarFileConfigWorktreeInput(input) {
+    const card = input && input.closest('.sidebar-config-folder-card');
+    const status = card && card.querySelector('[data-scope-status]');
+    const colors = card && card.querySelector('[data-scope-worktree-colors]');
+    if (colors) colors.innerHTML = '';
     if (status) {
       status.classList.remove('error');
-      status.textContent = `${_sidebarWorktreeFolders.length} worktree${_sidebarWorktreeFolders.length === 1 ? '' : 's'} found.`;
+      status.textContent = String(input.value || '').trim()
+        ? 'Scan to preview worktrees.'
+        : 'No worktree folder — this project uses only its main folder.';
     }
   }
 
-  function sidebarFileConfigWorktreeInput() {
-    const status = document.getElementById('sidebarConfigWorktreeStatus');
-    if (status) {
-      status.classList.remove('error');
-      status.textContent = 'Scan to preview worktrees.';
-    }
-  }
-
-  async function sidebarFileConfigScanWorktrees() {
-    const input = document.getElementById('sidebarConfigWorktreeFolder');
-    const status = document.getElementById('sidebarConfigWorktreeStatus');
+  async function sidebarFileConfigScanScope(button) {
+    const card = button && button.closest('.sidebar-config-folder-card');
+    const input = card && card.querySelector('[data-scope-worktree]');
+    const status = card && card.querySelector('[data-scope-status]');
+    const colors = card && card.querySelector('[data-scope-worktree-colors]');
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    const projectRoot = _sidebarFolderCardPath(card, baseRoot);
     const folder = String(input && input.value || '').trim();
     if (status) {
       status.classList.remove('error');
-      status.textContent = folder ? 'Scanning…' : 'Optional — leave empty to use only Root.';
+      status.textContent = folder ? 'Scanning…' : 'No worktree folder — this project uses only its main folder.';
     }
-    _sidebarFileConfig.worktreeColors = _sidebarCollectWorktreeColorsFromModal();
     if (!folder) {
-      _sidebarClearWorktreeDiscovery();
-      _sidebarRenderWorktreeConfig();
+      if (colors) colors.innerHTML = '';
       return [];
     }
+    if (!projectRoot) {
+      if (status) {
+        status.classList.add('error');
+        status.textContent = 'Enter this project folder before scanning its worktrees.';
+      }
+      return null;
+    }
     try {
-      const folders = await _sidebarDiscoverWorktrees(folder, {
-        force: true,
-        baseRoot: _sidebarWorktreeBaseRoot(),
-      });
-      if (input && _sidebarWorktreeFolderResolved) input.value = _sidebarWorktreeFolderResolved;
-      _sidebarRenderWorktreeConfig();
+      const requested = _sidebarNormalizeWorktreeFolder(folder, projectRoot);
+      const repositoryRoot = _sidebarWorktreeRepositoryRoot(projectRoot);
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
+      const folders = Array.isArray(data.folders)
+        ? data.folders.filter(row => row && row.name && row.path).map(row => ({
+            name: String(row.name),
+            path: String(row.path),
+            repo: String(row.repo || row.path),
+          }))
+        : [];
+      if (input) input.value = String(data.path || requested);
+      _sidebarRenderWorktreeConfig(card, folders);
       return folders;
     } catch (error) {
-      _sidebarClearWorktreeDiscovery();
-      const host = document.getElementById('sidebarConfigWorktreeColors');
-      if (host) host.innerHTML = '';
+      if (colors) colors.innerHTML = '';
       if (status) {
         status.classList.add('error');
         status.textContent = error.message || String(error);
@@ -2722,13 +2983,37 @@
     }
   }
 
+  async function sidebarSelectFolder(button) {
+    const baseRoot = String(button && button.getAttribute('data-base-root') || '');
+    if (!baseRoot) return;
+    const requested = String(button.getAttribute('data-folder-path') || '');
+    const selected = requested && _sidebarFolderScope(requested) ? requested : '';
+    const previous = String((_sidebarFileConfig.selectedFolders || {})[baseRoot] || '');
+    if (selected === previous) return;
+    _sidebarFileConfig.selectedFolders = {...(_sidebarFileConfig.selectedFolders || {})};
+    if (selected) _sidebarFileConfig.selectedFolders[baseRoot] = selected;
+    else delete _sidebarFileConfig.selectedFolders[baseRoot];
+    _sidebarClearWorktreeDiscovery();
+    _storeSidebarFileConfig();
+    _projDocPath = null;
+    _projDocRoot = null;
+    projectOpenFile = null;
+    diffCache = {uncommitted: null, branch: null};
+    _lastProjectMtime = 0;
+    _projectSidebarCache.delete(baseRoot);
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
+    await _refreshSidebarAfterFileConfig();
+  }
+
   async function sidebarSelectWorktree(select) {
     const baseRoot = String(select && select.getAttribute('data-base-root') || '');
     if (!baseRoot) return;
+    const projectRoot = _sidebarProjectRoot(baseRoot);
     const selected = String(select.value || '');
     _sidebarFileConfig.selectedWorktrees = {...(_sidebarFileConfig.selectedWorktrees || {})};
-    if (selected) _sidebarFileConfig.selectedWorktrees[baseRoot] = selected;
-    else delete _sidebarFileConfig.selectedWorktrees[baseRoot];
+    if (selected) _sidebarFileConfig.selectedWorktrees[projectRoot] = selected;
+    else delete _sidebarFileConfig.selectedWorktrees[projectRoot];
     _storeSidebarFileConfig();
     _projDocPath = null;
     _projDocRoot = null;
@@ -2768,17 +3053,13 @@
     const recent = document.getElementById('sidebarConfigRecent');
     const freshness = document.getElementById('sidebarConfigFreshness');
     const track = document.querySelector('input[name="sidebarRecentTrack"]:checked');
-    const worktreeFolderInput = document.getElementById('sidebarConfigWorktreeFolder');
-    let worktreeFolder = String(worktreeFolderInput && worktreeFolderInput.value || '').trim();
-    if (worktreeFolder) {
-      const folders = await sidebarFileConfigScanWorktrees();
-      if (folders === null) return false;
-      worktreeFolder = _sidebarWorktreeFolderResolved || worktreeFolder;
-    } else {
-      _sidebarClearWorktreeDiscovery();
-    }
+    const folderConfig = _sidebarCollectFolderConfigFromModal();
+    if (!folderConfig) return false;
     const extensions = [...document.querySelectorAll('#sidebarConfigExtensions input[type="checkbox"]:checked')]
       .map(input => input.value);
+    const validFolderPaths = new Set(folderConfig.folderScopes.map(row => row.path));
+    const selectedFolders = Object.fromEntries(Object.entries(_sidebarFileConfig.selectedFolders || {})
+      .filter(([, path]) => validFolderPaths.has(path)));
     _sidebarFileConfig = {
       showHidden: !!(hidden && hidden.checked),
       showRecent: !!(recent && recent.checked),
@@ -2788,17 +3069,22 @@
       ),
       trackMode: track && track.value === 'extensions' ? 'extensions' : 'all',
       extensions,
-      worktreeFolder,
+      folderScopes: folderConfig.folderScopes,
+      rootScopeColors: folderConfig.rootScopeColors,
+      rootWorktreeFolders: folderConfig.rootWorktreeFolders,
+      selectedFolders,
+      worktreeFolder: _sidebarFileConfig.worktreeFolder || '',
       worktreeColors: _sidebarCollectWorktreeColorsFromModal(),
       selectedWorktrees: {...(_sidebarFileConfig.selectedWorktrees || {})},
     };
+    _sidebarClearWorktreeDiscovery();
     showDotFiles = _sidebarFileConfig.showHidden;
     showProjectDotFiles = _sidebarFileConfig.showHidden;
     _storeSidebarFileConfig();
     if (currentProject && currentProject.path) {
       const baseRoot = _sidebarWorktreeBaseRoot() || currentProject.path;
       _sidebarRecentDiagnosticsPending = {
-        root: _sidebarScopedRoot(baseRoot),
+        root: null,
         reason: 'file-sidebar-settings-save',
       };
     }
@@ -2902,6 +3188,7 @@
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
     sb.innerHTML = '<div class="sidebar-title">Project</div>' +
       _sidebarFileConfigButtonHtml() +
+      _sidebarFileScopeButtonsHtml(baseRoot) +
       _sidebarWorktreePickerHtml(baseRoot) +
       symlinkLegendHtml() +
       _sidebarWorktreeScopeStartHtml(baseRoot) +
@@ -6709,6 +6996,7 @@
       const dashActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>`;
       sbHtml += _sidebarFileConfigButtonHtml();
+      sbHtml += _sidebarFileScopeButtonsHtml(projectPath);
       sbHtml += _sidebarWorktreePickerHtml(projectPath);
       sbHtml += symlinkLegendHtml();
       if (pinnedFiles.length) sbHtml += `<div class="sidebar-title">Pinned <span class="sidebar-title-count">${pinnedFiles.length}</span></div>`;
@@ -12024,6 +12312,7 @@
       const workbenchActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
       sbHtml += _sidebarFileConfigButtonHtml();
+      sbHtml += _sidebarFileScopeButtonsHtml(baseRoot);
       sbHtml += _sidebarWorktreePickerHtml(baseRoot);
       sbHtml += symlinkLegendHtml();
       sbHtml += _sidebarWorktreeScopeStartHtml(baseRoot);
@@ -13282,6 +13571,7 @@
       const overviewActive = !activePath ? ' active' : '';
       let sbHtml = `<a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>`;
       sbHtml += _sidebarFileConfigButtonHtml();
+      sbHtml += _sidebarFileScopeButtonsHtml(rootPath);
       sbHtml += _sidebarWorktreePickerHtml(rootPath);
       sbHtml += symlinkLegendHtml();
       sbHtml += _sidebarWorktreeScopeStartHtml(rootPath);

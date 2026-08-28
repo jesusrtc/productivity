@@ -328,17 +328,16 @@
         </label>
       </section>
 
-      <section class="sidebar-config-section sidebar-config-worktrees">
-        <div class="sidebar-config-section-title">Worktrees</div>
-        <label class="sidebar-config-worktree-folder">Worktree folder
-          <span class="sidebar-config-worktree-input-row">
-            <input id="sidebarConfigWorktreeFolder" type="text" autocomplete="off" spellcheck="false" placeholder="/path/to/worktrees" oninput="sidebarFileConfigWorktreeInput()" />
-            <button type="button" onclick="sidebarFileConfigScanWorktrees()">Scan</button>
-          </span>
-          <small>Direct child folders containing registered Git worktrees become choices below the File view button.</small>
-        </label>
-        <div class="sidebar-config-worktree-status" id="sidebarConfigWorktreeStatus" role="status"></div>
-        <div class="sidebar-config-worktree-colors" id="sidebarConfigWorktreeColors"></div>
+      <section class="sidebar-config-section sidebar-config-project-folders">
+        <div class="sidebar-config-folder-head">
+          <div>
+            <div class="sidebar-config-section-title">Project folders</div>
+            <small>Add a folder or subfolder, then switch the whole Files and Recently updated view with its colored button.</small>
+          </div>
+          <button type="button" onclick="sidebarFileConfigAddFolder()">+ Add folder</button>
+        </div>
+        <div class="sidebar-config-folder-list" id="sidebarConfigFolderScopes"></div>
+        <div class="fm-err" id="sidebarConfigFolderError" role="alert"></div>
       </section>
 
       <section class="sidebar-config-section">

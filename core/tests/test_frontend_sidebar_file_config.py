@@ -184,6 +184,86 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_project_folder_buttons_scope_files_and_use_their_own_worktree_folder() -> None:
+    helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  getItem(key) { return stored[key] || null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const currentRepo = null;
+const currentProject = {path: '/workspace', repos: []};
+const SELF_REPO_PATH = '/framework';
+const document = {
+  body: {classList: {contains() { return false; }}},
+  addEventListener() {},
+};
+const window = {};
+const esc = value => String(value);
+const escAttr = value => String(value);
+"""
+        + helpers
+        + """
+_sidebarWorktreeFolders = [
+  {name: 'feature-a', path: '/worktrees/alpha/feature-a'},
+];
+_sidebarFileConfig = {
+  showHidden: false,
+  showRecent: true,
+  recentMinutes: 60,
+  trackMode: 'all',
+  extensions: [],
+  folderScopes: [
+    {path: '/workspace/projects/alpha', label: 'Alpha', color: '#ff5500', worktreeFolder: '/worktrees/alpha'},
+    {path: '/workspace/projects/beta', label: 'Beta', color: '#33aa77', worktreeFolder: '/worktrees/beta'},
+  ],
+  rootScopeColors: {'/workspace': '#445566'},
+  rootWorktreeFolders: {'/workspace': '/worktrees/root'},
+  selectedFolders: {'/workspace': '/workspace/projects/alpha'},
+  worktreeFolder: '',
+  worktreeColors: {'/worktrees/alpha/feature-a': '#aa22cc'},
+  selectedWorktrees: {'/workspace/projects/alpha': '/worktrees/alpha/feature-a'},
+};
+const buttons = _sidebarFileScopeButtonsHtml('/workspace');
+const picker = _sidebarWorktreePickerHtml('/workspace');
+const scope = _sidebarWorktreeScopeStartHtml('/workspace');
+process.stdout.write(JSON.stringify({
+  projectRoot: _sidebarProjectRoot('/workspace'),
+  fileRoot: _sidebarScopedRoot('/workspace'),
+  worktreeFolder: _sidebarActiveWorktreeFolder('/workspace'),
+  hasRoot: buttons.includes('>Root</span>'),
+  hasAlpha: buttons.includes('>Alpha</span>'),
+  hasBeta: buttons.includes('>Beta</span>'),
+  alphaActive: buttons.includes('data-folder-path="/workspace/projects/alpha"')
+    && buttons.includes('class="sidebar-file-scope-button active"'),
+  alphaColor: buttons.includes('--sidebar-project-color:#ff5500'),
+  pickerRoot: picker.includes('data-project-root="/workspace/projects/alpha"'),
+  pickerWorktree: picker.includes('value="/worktrees/alpha/feature-a" selected'),
+  scopeColor: scope.includes('--sidebar-worktree-color:#aa22cc'),
+}));
+"""
+    )
+
+    assert result == {
+        "projectRoot": "/workspace/projects/alpha",
+        "fileRoot": "/worktrees/alpha/feature-a",
+        "worktreeFolder": "/worktrees/alpha",
+        "hasRoot": True,
+        "hasAlpha": True,
+        "hasBeta": True,
+        "alphaActive": True,
+        "alphaColor": True,
+        "pickerRoot": True,
+        "pickerWorktree": True,
+        "scopeColor": True,
+    }
+
+
 def test_worktree_discovery_cache_is_scoped_to_repository_root() -> None:
     helpers = _between(
         "let showDotFiles = false;",
@@ -443,9 +523,8 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
         "sidebarConfigRecent",
         "sidebarConfigFreshness",
         "sidebarConfigExtensions",
-        "sidebarConfigWorktreeFolder",
-        "sidebarConfigWorktreeStatus",
-        "sidebarConfigWorktreeColors",
+        "sidebarConfigFolderScopes",
+        "sidebarConfigFolderError",
     ):
         assert f'id="{element_id}"' in template
 
@@ -460,6 +539,11 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4
     assert source.count("_sidebarWorktreePickerHtml(") >= 5
+    assert source.count("_sidebarFileScopeButtonsHtml(") >= 5
+    assert "function sidebarSelectFolder(button)" in source
+    assert "function sidebarFileConfigAddFolder()" in source
+    assert "Only registered Git worktrees for this project become choices" in source
+    assert "Add a folder or subfolder" in template
     assert "SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681'" in source
 
 
