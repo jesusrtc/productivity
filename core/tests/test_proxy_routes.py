@@ -249,6 +249,27 @@ def test_proxy_start_runs_make_in_tmux(client, seed_project, monkeypatch) -> Non
     assert kwargs["capture_output"] is True
 
 
+def test_proxy_start_uses_active_named_tmux_socket(
+    client, seed_project, monkeypatch,
+) -> None:
+    project = seed_project("demo")
+    _configure_proxy(project, start_command="make server-start")
+    calls = _stub_tmux(monkeypatch)
+    monkeypatch.setattr(
+        proxy_mod.term_routes, "_active_tmux_socket", lambda: "lab-fresh"
+    )
+    monkeypatch.setattr(
+        proxy_mod.term_routes, "_tmux_server_alive", lambda _socket: True
+    )
+
+    response = client.post("/api/proxies/demo/web/start")
+
+    assert response.status_code == 200, response.text
+    assert calls[-1][0][:6] == [
+        "tmux", "-L", "lab-fresh", "new-session", "-d", "-s",
+    ]
+
+
 def test_proxy_restart_stops_old_session_before_starting(
     client, seed_project, monkeypatch,
 ) -> None:

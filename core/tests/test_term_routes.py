@@ -1381,3 +1381,178 @@ def test_copilot_explicit_auto_false_overrides_workspace(client, seed_project, i
     assert r.json()["auto"] is False
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == "copilot"
+
+
+# ─── rolling tmux socket generations ───────────────────────────────────────
+
+
+def test_tmux_list_aggregates_active_and_draining_sockets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from core.routes import term as term_mod
+    from lab import tmux_sockets
+
+    monkeypatch.setenv("LAB_HOME", str(tmp_path / "lab-home"))
+    tmux_sockets.write_state(
+        tmux_sockets.rotated_state(tmux_sockets.default_state(), "lab-fresh")
+    )
+    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
+
+    def fake_run(argv, **_kwargs):
+        socket_name = "lab-fresh" if argv[1:3] == ["-L", "lab-fresh"] else "default"
+        name = (
+            "neurona-demo-new-123456"
+            if socket_name == "lab-fresh"
+            else "neurona-demo-old-654321"
+        )
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=f"{name}|1|0|1\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
+
+    rows = term_mod._tmux_list(["neurona-"])
+
+    assert rows is not None
+    assert {(row["name"], row["tmux_socket"]) for row in rows} == {
+        ("neurona-demo-new-123456", "lab-fresh"),
+        ("neurona-demo-old-654321", "default"),
+    }
+
+
+def test_filtered_listing_does_not_prune_drain_with_other_lab_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Exact-name status probes must count every Lab session for draining."""
+    from core.routes import term as term_mod
+    from lab import tmux_sockets
+
+    monkeypatch.setenv("LAB_HOME", str(tmp_path / "lab-home"))
+    tmux_sockets.write_state(
+        tmux_sockets.rotated_state(tmux_sockets.default_state(), "lab-fresh")
+    )
+    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
+
+    def fake_run(argv, **_kwargs):
+        socket_name = "lab-fresh" if argv[1:3] == ["-L", "lab-fresh"] else "default"
+        name = (
+            "neurona-demo-target-123456"
+            if socket_name == "lab-fresh"
+            else "neurona-demo-different-654321"
+        )
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=f"{name}|1|0|1\n", stderr=""
+        )
+
+    monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
+
+    term_mod._tmux_list(["neurona-demo-target-123456"])
+
+    assert {
+        row["name"] for row in tmux_sockets.read_state()["generations"]
+    } == {"lab-fresh", "default"}
+
+
+def test_create_and_close_session_use_active_named_socket(
+    client,
+    seed_project,
+    isolated_prefix,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from core.routes import term as term_mod
+    from lab import tmux_sockets
+
+    seed_project("demo")
+    tmux_sockets.write_state({
+        "version": 1,
+        "active": "lab-fresh",
+        "generations": [{
+            "name": "lab-fresh",
+            "status": "active",
+            "created_at": 1,
+        }],
+    })
+    monkeypatch.setattr(term_mod, "_tmux_server_alive", lambda _socket: True)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        if "list-sessions" in argv:
+            return subprocess.CompletedProcess(
+                argv, 1, stdout="", stderr="no sessions"
+            )
+        if "has-session" in argv:
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
+
+    response = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "terminal",
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["tmux_socket"] == "lab-fresh"
+    assert body["attach_command"] == (
+        f"tmux -L 'lab-fresh' attach -t '{body['name']}'"
+    )
+    assert any(
+        argv[:5] == ["tmux", "-L", "lab-fresh", "new-session", "-d"]
+        for argv in calls
+    )
+
+    calls.clear()
+    closed = client.delete(f"/api/term/sessions/{body['name']}")
+    assert closed.status_code == 200, closed.text
+    assert [
+        "tmux", "-L", "lab-fresh", "kill-session", "-t", body["name"],
+    ] in calls
+
+
+def test_dead_active_named_socket_fails_without_reseeding_from_backend(
+    client,
+    seed_project,
+    isolated_prefix,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.routes import term as term_mod
+    from lab import tmux_sockets
+
+    seed_project("demo")
+    tmux_sockets.write_state({
+        "version": 1,
+        "active": "lab-fresh",
+        "generations": [{
+            "name": "lab-fresh",
+            "status": "active",
+            "created_at": 1,
+        }],
+    })
+    monkeypatch.setattr(term_mod, "_tmux_server_alive", lambda _socket: False)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        if "list-sessions" in argv:
+            return subprocess.CompletedProcess(
+                argv, 1, stdout="", stderr="no server running"
+            )
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
+
+    response = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "terminal",
+    })
+
+    assert response.status_code == 409
+    assert "lab terminal rotate" in response.json()["detail"]
+    assert not any("new-session" in argv for argv in calls)

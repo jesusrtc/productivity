@@ -70,6 +70,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.requests import ClientDisconnect
 
+from lab import tmux_sockets
+
 from core import auth, server_config
 from core.routes import term as term_routes
 
@@ -245,8 +247,17 @@ def _command_failure(proc: subprocess.CompletedProcess[str], fallback: str) -> s
 def _kill_proxy_control_session(session_name: str) -> None:
     if not term_routes._tmux_available():
         return
+    socket_name = (
+        term_routes._tmux_find_session_socket(session_name)
+        or tmux_sockets.DEFAULT_SOCKET
+    )
     subprocess.run(
-        ["tmux", "kill-session", "-t", session_name],
+        term_routes._tmux_command(
+            socket_name,
+            "kill-session",
+            "-t",
+            session_name,
+        ),
         capture_output=True,
         text=True,
         env=term_routes._tmux_child_env(),
@@ -275,15 +286,34 @@ def _start_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dic
         _kill_proxy_control_session(session_name)
 
     command = shlex.join(start_argv)
-    proc = subprocess.run(
-        [
-            "tmux", "new-session", "-d", "-s", session_name,
-            "-c", str(project_dir), command,
-        ],
-        capture_output=True,
-        text=True,
-        env=term_routes._tmux_child_env(),
-    )
+    with tmux_sockets.state_lock():
+        socket_name = term_routes._active_tmux_socket()
+        if (
+            socket_name != tmux_sockets.DEFAULT_SOCKET
+            and not term_routes._tmux_server_alive(socket_name)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"terminal socket {socket_name!r} is no longer running; "
+                    "run `lab terminal rotate` directly from iTerm"
+                ),
+            )
+        proc = subprocess.run(
+            term_routes._tmux_command(
+                socket_name,
+                "new-session",
+                "-d",
+                "-s",
+                session_name,
+                "-c",
+                str(project_dir),
+                command,
+            ),
+            capture_output=True,
+            text=True,
+            env=term_routes._tmux_child_env(),
+        )
     if proc.returncode != 0:
         raise HTTPException(
             status_code=409,

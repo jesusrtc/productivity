@@ -16,6 +16,7 @@ from lab.commands.project import project_group
 from lab.commands.search import search_cmd
 from lab.commands.service import open_cmd, start, stop
 from lab.commands.task import task_group
+from lab.commands.terminal import terminal_group
 from lab.commands.workspace import init_cmd, workspace_group
 
 
@@ -30,6 +31,7 @@ main.add_command(config_group)
 main.add_command(agents_group)
 main.add_command(app_group)
 main.add_command(task_group)
+main.add_command(terminal_group)
 main.add_command(pr_group)
 main.add_command(artifact_group)
 main.add_command(link_group)

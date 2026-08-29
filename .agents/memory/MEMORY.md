@@ -52,3 +52,4 @@
 - [Notebook tabs follow their owning workspace](notebook-tabs-follow-owning-workspace.md) — cross-workspace notebook paths, APIs, replay state, events, and deep links must use the project tab's workspace identity
 - [Live notebook streaming requires Lab's executor](live-notebook-streaming-requires-lab-executor.md) — raw Jupyter execution bypasses actor/timer/output events; agents must use `lab notebook exec`
 - [Client issues can use diagnostic scripts](client-issue-diagnostic-scripts.md) — for issues occurring in the user's client environment, provide a focused script they can run there and bring back its output for evidence-based diagnosis
+- [Lab terminals use bounded rolling tmux sockets](lab-terminal-rolling-tmux-sockets.md) — active + at most one drain; exact socket affinity for old sessions; no background watcher or PTY byte-path discovery

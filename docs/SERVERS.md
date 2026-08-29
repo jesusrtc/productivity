@@ -80,6 +80,11 @@ collision-resistant hash. It shows up in the normal terminal UI as a "server"
 tab — `tmux attach` works on it like any other session. Stopping runs
 `server-stop` (if present), then kills that tmux session.
 
+Lab starts new managed servers on the active terminal socket. During a rolling
+terminal-socket handoff, already-running servers remain on the draining socket
+and keep working; status, stop, restart, and attach operations continue to
+target their original socket. See [Terminal transport](TERMINALS.md).
+
 ### Health and auto-restart
 
 A background supervisor checks every project every ~10s (`LAB_SERVER_SUPERVISOR_INTERVAL`):

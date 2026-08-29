@@ -12,7 +12,7 @@ with a ``server-start`` target. Convention (see ``docs/SERVERS.md``):
   SERVER_PORT = 8006             # optional
   SERVER_HEALTH_URL = http://... # optional; defaults to 127.0.0.1:<port>/
 
-"Starting" a server means spawning a detached tmux session (default socket,
+"Starting" a server means spawning a detached tmux session (Lab's active socket,
 same naming scheme as the terminal UI — see ``core.routes.term``) that runs
 ``make server-start`` in the foreground. The session then shows up in the
 normal terminal UI as a "server" tab. "Stopping" runs the optional
@@ -51,7 +51,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
-from lab import paths, storage
+from lab import paths, storage, tmux_sockets
 from lab.model import ModelError, validate_id
 
 from core import auth, fsguard
@@ -367,10 +367,32 @@ def _spawn_server_session(root: Path, project_id: str, project_dir: Path) -> str
     session_name = _live_or_current_session_name(root, project_id)
     if term_routes._tmux_has_session(session_name):
         return session_name
-    proc = subprocess.run(
-        ["tmux", "new-session", "-d", "-s", session_name, "-c", str(project_dir), "make server-start"],
-        capture_output=True, text=True, env=term_routes._tmux_child_env(),
-    )
+    with tmux_sockets.state_lock():
+        socket_name = term_routes._active_tmux_socket()
+        if (
+            socket_name != tmux_sockets.DEFAULT_SOCKET
+            and not term_routes._tmux_server_alive(socket_name)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"terminal socket {socket_name!r} is no longer running; "
+                    "run `lab terminal rotate` directly from iTerm"
+                ),
+            )
+        proc = subprocess.run(
+            term_routes._tmux_command(
+                socket_name,
+                "new-session",
+                "-d",
+                "-s",
+                session_name,
+                "-c",
+                str(project_dir),
+                "make server-start",
+            ),
+            capture_output=True, text=True, env=term_routes._tmux_child_env(),
+        )
     if proc.returncode != 0:
         out = (proc.stdout or "").strip()
         err = (proc.stderr or "").strip()
@@ -400,8 +422,17 @@ def _stop_server_session(root: Path, project_id: str, project_dir: Path, has_sto
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="make server-stop timed out after 20s")
     if term_routes._tmux_available():
+        socket_name = (
+            term_routes._tmux_find_session_socket(session_name)
+            or tmux_sockets.DEFAULT_SOCKET
+        )
         subprocess.run(
-            ["tmux", "kill-session", "-t", session_name],
+            term_routes._tmux_command(
+                socket_name,
+                "kill-session",
+                "-t",
+                session_name,
+            ),
             capture_output=True, text=True, env=term_routes._tmux_child_env(),
         )
     log.info(
@@ -447,6 +478,7 @@ def _default_status_entry() -> dict:
         "consecutive_restart_failures": 0,
         "last_restart_attempt": None,
         "session_created": None,
+        "tmux_socket": None,
     }
 
 
@@ -487,10 +519,12 @@ def _refresh_status(root: Path, project_id: str, row: dict) -> dict:
             entry["started_at"] = None
             entry["consecutive_unhealthy"] = 0
             entry["session_created"] = None
+            entry["tmux_socket"] = None
         else:
             if entry["started_at"] is None:
                 entry["started_at"] = now_mono
             entry["session_created"] = session_info.get("created") or None
+            entry["tmux_socket"] = session_info.get("tmux_socket")
         if alive and health_url:
             entry["consecutive_unhealthy"] = 0 if healthy else entry["consecutive_unhealthy"] + 1
         entry["alive"] = alive
@@ -522,7 +556,10 @@ def _row_for(root: Path, project_id: str, row: dict, entry: dict) -> dict:
         "healthy": entry["healthy"],
         "session_name": session_name,
         "session_created": entry.get("session_created"),
-        "attach_command": f"tmux attach -t '{session_name}'",
+        "attach_command": term_routes._attach_command(
+            session_name,
+            str(entry.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET),
+        ),
         "last_check": entry["last_check"],
         "restarts": entry["restarts"],
     }

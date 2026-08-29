@@ -378,6 +378,43 @@ def test_start_hard_tmux_failure_returns_409(client, server_project, isolated_tm
     assert "hard failure" in r.json()["detail"]
 
 
+def test_start_uses_active_named_tmux_socket(
+    server_project,
+    monorepo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.routes.servers as servers_mod
+
+    project_dir = server_project("webapp")
+    monkeypatch.setattr(
+        servers_mod.term_routes, "_tmux_available", lambda: True
+    )
+    monkeypatch.setattr(
+        servers_mod.term_routes, "_tmux_has_session", lambda _name: False
+    )
+    monkeypatch.setattr(
+        servers_mod.term_routes, "_active_tmux_socket", lambda: "lab-fresh"
+    )
+    monkeypatch.setattr(
+        servers_mod.term_routes, "_tmux_server_alive", lambda _socket: True
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(servers_mod.subprocess, "run", fake_run)
+
+    servers_mod._spawn_server_session(monorepo, "webapp", project_dir)
+
+    assert calls == [[
+        "tmux", "-L", "lab-fresh", "new-session", "-d", "-s",
+        servers_mod._session_name_for(monorepo, "webapp"),
+        "-c", str(project_dir), "make server-start",
+    ]]
+
+
 # ─── 3. stop ─────────────────────────────────────────────────────────────────
 
 def test_stop_runs_server_stop_target_and_kills_session(client, server_project, isolated_tmux, monorepo: Path, ws) -> None:

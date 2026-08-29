@@ -68,6 +68,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 
 from lab import settings as lab_settings
+from lab import tmux_sockets
 
 from core import auth, fsguard
 from core import workspace_config
@@ -637,7 +638,7 @@ def _clean_pane_line(line: str) -> str:
     return " ".join(line.strip().split())
 
 
-def _infer_session_summary(name: str) -> str | None:
+def _infer_session_summary(name: str, tmux_socket: str) -> str | None:
     """Best-effort hover summary from the visible tmux pane.
 
     This intentionally does not ask the agent to summarize itself; that would
@@ -645,14 +646,15 @@ def _infer_session_summary(name: str) -> str | None:
     capture gives enough context for hover text without touching stdin.
     """
     now = time.monotonic()
-    cached = _SUMMARY_CACHE.get(name)
+    cache_key = f"{tmux_socket}\0{name}"
+    cached = _SUMMARY_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _SUMMARY_TTL_S:
         return cached[1] or None
     if not _tmux_available():
         return None
     try:
         proc = subprocess.run(
-            ["tmux", "capture-pane", "-pt", name, "-S", "-120"],
+            _tmux_command(tmux_socket, "capture-pane", "-pt", name, "-S", "-120"),
             capture_output=True, text=True, timeout=1.0, env=_tmux_child_env(),
         )
     except (OSError, subprocess.SubprocessError):
@@ -670,7 +672,7 @@ def _infer_session_summary(name: str) -> str | None:
         summary = " / ".join(tail)
         if len(summary) > 240:
             summary = summary[:237].rstrip() + "..."
-    _SUMMARY_CACHE[name] = (now, summary)
+    _SUMMARY_CACHE[cache_key] = (now, summary)
     return summary or None
 
 
@@ -874,7 +876,12 @@ def _parse_tmux_name_with_project_ids(
     return None
 
 
-def _reconstruct_meta_entry(root: Path, name: str, created: int = 0) -> dict | None:
+def _reconstruct_meta_entry(
+    root: Path,
+    name: str,
+    created: int = 0,
+    tmux_socket: str = tmux_sockets.DEFAULT_SOCKET,
+) -> dict | None:
     """Best-effort runtime entry for a live session .sessions.json has no
     record of. The durable project.json entry wins where present; otherwise
     the logical name's leading word fills the gaps ("bash" → terminal,
@@ -892,6 +899,7 @@ def _reconstruct_meta_entry(root: Path, name: str, created: int = 0) -> dict | N
         "agent": None,
         "cwd": str(_project_cwd(root, pid)),
         "created_at": created or int(time.time()),
+        "tmux_socket": tmux_socket,
         "recovered": True,
     }
     if entry["kind"] == "claude":
@@ -942,8 +950,21 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
         )
     for n, s in live_by_name.items():
         if n in meta:
+            socket_name = str(
+                s.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
+            )
+            if meta[n].get("tmux_socket") != socket_name:
+                meta[n]["tmux_socket"] = socket_name
+                changed = True
             continue
-        entry = _reconstruct_meta_entry(root, n, created=s.get("created", 0))
+        entry = _reconstruct_meta_entry(
+            root,
+            n,
+            created=s.get("created", 0),
+            tmux_socket=str(
+                s.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
+            ),
+        )
         if entry:
             meta[n] = entry
             changed = True
@@ -976,6 +997,35 @@ def _tmux_available() -> bool:
     return shutil.which("tmux") is not None
 
 
+def _tmux_command(socket_name: str, *args: str) -> list[str]:
+    """Build a socket-aware tmux argv without changing default commands."""
+    return tmux_sockets.command(socket_name, *args)
+
+
+def _active_tmux_socket() -> str:
+    return tmux_sockets.active_socket()
+
+
+def _tmux_server_alive(socket_name: str) -> bool:
+    """Whether an already-seeded tmux server is reachable."""
+    if not _tmux_available():
+        return False
+    proc = subprocess.run(
+        _tmux_command(socket_name, "show-options", "-gv", "exit-empty"),
+        capture_output=True,
+        text=True,
+        env=_tmux_child_env(),
+    )
+    return proc.returncode == 0
+
+
+def _is_lab_tmux_name(name: str) -> bool:
+    prefix = os.environ.get("LAB_TMUX_PREFIX")
+    if prefix:
+        return name.startswith(prefix)
+    return name.startswith(_SESSION_PREFIX) or name.startswith("lab-")
+
+
 def _tmux_list(prefixes: str | list[str]) -> list[dict] | None:
     """Return live tmux sessions whose names start with any of ``prefixes``.
 
@@ -994,46 +1044,108 @@ def _tmux_list(prefixes: str | list[str]) -> list[dict] | None:
         return None
     if isinstance(prefixes, str):
         prefixes = [prefixes]
-    proc = subprocess.run(
-        ["tmux", "list-sessions", "-F",
-         "#{session_name}|#{session_created}|#{session_attached}|#{session_windows}"],
-        capture_output=True, text=True, env=_tmux_child_env(),
-    )
-    if proc.returncode != 0:
-        err = (proc.stderr or "").lower()
-        if "no server running" in err or "no sessions" in err:
-            return []
-        log.warning(
-            "tmux list-sessions failed: %s",
-            (proc.stderr or proc.stdout or "").strip()[:500],
-            extra={"event_type": "term.tmux.list_failed"},
-        )
-        return None
     rows: list[dict] = []
-    for line in proc.stdout.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split("|")
-        name = parts[0]
-        if not any(name.startswith(p) for p in prefixes):
-            continue
-        rows.append({
-            "name": name,
-            "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
-            "attached": parts[2] != "0" if len(parts) > 2 else False,
-            "windows": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1,
-        })
+    lab_rows_by_socket: dict[str, int] = {}
+    generations = tmux_sockets.generations()
+    for generation in generations:
+        socket_name = str(generation["name"])
+        proc = subprocess.run(
+            _tmux_command(
+                socket_name,
+                "list-sessions",
+                "-F",
+                "#{session_name}|#{session_created}|#{session_attached}|#{session_windows}",
+            ),
+            capture_output=True,
+            text=True,
+            env=_tmux_child_env(),
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or "").lower()
+            if tmux_sockets.is_no_server_error(err):
+                lab_rows_by_socket[socket_name] = 0
+                continue
+            log.warning(
+                "tmux list-sessions failed on socket %s: %s",
+                socket_name,
+                (proc.stderr or proc.stdout or "").strip()[:500],
+                extra={
+                    "event_type": "term.tmux.list_failed",
+                    "target": socket_name,
+                },
+            )
+            return None
+
+        lab_count = 0
+        for line in proc.stdout.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("|")
+            name = parts[0]
+            if _is_lab_tmux_name(name):
+                lab_count += 1
+            if not any(name.startswith(p) for p in prefixes):
+                continue
+            rows.append({
+                "name": name,
+                "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
+                "attached": parts[2] != "0" if len(parts) > 2 else False,
+                "windows": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1,
+                "tmux_socket": socket_name,
+            })
+        lab_rows_by_socket[socket_name] = lab_count
+
+    empty_draining = {
+        str(row["name"])
+        for row in generations
+        if row.get("status") == "draining"
+        and lab_rows_by_socket.get(str(row["name"])) == 0
+    }
+    if empty_draining:
+        try:
+            tmux_sockets.prune_drained(empty_draining)
+        except OSError:
+            log.warning("failed to prune drained tmux socket state", exc_info=True)
     return rows
 
 
-def _tmux_has_session(name: str) -> bool:
+def _tmux_has_session(name: str, socket_name: str | None = None) -> bool:
     if not _tmux_available():
         return False
-    proc = subprocess.run(
-        ["tmux", "has-session", "-t", name],
-        capture_output=True, text=True, env=_tmux_child_env(),
-    )
-    return proc.returncode == 0
+    sockets = [socket_name] if socket_name else tmux_sockets.socket_names()
+    for candidate in sockets:
+        proc = subprocess.run(
+            _tmux_command(str(candidate), "has-session", "-t", name),
+            capture_output=True,
+            text=True,
+            env=_tmux_child_env(),
+        )
+        if proc.returncode == 0:
+            return True
+    return False
+
+
+def _tmux_find_session_socket(
+    name: str,
+    preferred_socket: str | None = None,
+) -> str | None:
+    if not _tmux_available():
+        return None
+    sockets = tmux_sockets.socket_names()
+    if preferred_socket in sockets:
+        sockets = [str(preferred_socket)] + [
+            socket_name for socket_name in sockets
+            if socket_name != preferred_socket
+        ]
+    # Preserve the historical one-argument helper call in steady state.
+    # Besides keeping monkeypatched integrations compatible, this makes the
+    # normal one-socket path exactly one has-session subprocess.
+    if len(sockets) == 1:
+        return sockets[0] if _tmux_has_session(name) else None
+    for socket_name in sockets:
+        if _tmux_has_session(name, socket_name):
+            return socket_name
+    return None
 
 
 def _tmux_session_info(name: str) -> dict | None:
@@ -1053,7 +1165,10 @@ def _tmux_session_info(name: str) -> dict | None:
     return None
 
 
-def _configure_tmux_wheel_scrolling(session_name: str) -> None:
+def _configure_tmux_wheel_scrolling(
+    session_name: str,
+    socket_name: str = tmux_sockets.DEFAULT_SOCKET,
+) -> None:
     """Enable mouse + route wheel-up like a normal terminal would.
 
     Wheel-up routing (mirrors tmux's stock WheelUpPane binding):
@@ -1094,7 +1209,7 @@ def _configure_tmux_wheel_scrolling(session_name: str) -> None:
     env = _tmux_child_env()
     # Per-session mouse intercept.
     subprocess.run(
-        ["tmux", "set-option", "-t", session_name, "mouse", "on"],
+        _tmux_command(socket_name, "set-option", "-t", session_name, "mouse", "on"),
         capture_output=True, text=True, env=env,
     )
     # Keep altscreen-app output (git log's pager, less, man, etc.) in the
@@ -1102,20 +1217,42 @@ def _configure_tmux_wheel_scrolling(session_name: str) -> None:
     # `alternate-screen on` wipes the pane back to pre-command state on
     # exit, which reads as "the terminal cleared my output."
     subprocess.run(
-        ["tmux", "set-option", "-t", session_name, "alternate-screen", "off"],
+        _tmux_command(
+            socket_name,
+            "set-option",
+            "-t",
+            session_name,
+            "alternate-screen",
+            "off",
+        ),
         capture_output=True, text=True, env=env,
     )
     subprocess.run(
-        ["tmux", "bind-key", "-T", "root", "WheelUpPane",
-         "if-shell", "-F", "#{||:#{pane_in_mode},#{mouse_any_flag}}",
-         "send-keys -M", "copy-mode -e"],
+        _tmux_command(
+            socket_name,
+            "bind-key",
+            "-T",
+            "root",
+            "WheelUpPane",
+            "if-shell",
+            "-F",
+            "#{||:#{pane_in_mode},#{mouse_any_flag}}",
+            "send-keys -M",
+            "copy-mode -e",
+        ),
         capture_output=True, text=True, env=env,
     )
     # Wheel-down: let tmux's built-in copy-mode-vi/emacs table handle it.
     # Reset any prior root-table override so we don't inherit garbage from
     # an earlier run of this process.
     subprocess.run(
-        ["tmux", "unbind-key", "-T", "root", "WheelDownPane"],
+        _tmux_command(
+            socket_name,
+            "unbind-key",
+            "-T",
+            "root",
+            "WheelDownPane",
+        ),
         capture_output=True, text=True, env=env,
     )
 
@@ -1211,8 +1348,13 @@ def _legacy_workspace_tmux_name_for(
     return f"{_SESSION_PREFIX}{workspace}-{project_sane}-{tab_sane}-{digest}"
 
 
-def _attach_command(name: str) -> str:
+def _attach_command(
+    name: str,
+    socket_name: str = tmux_sockets.DEFAULT_SOCKET,
+) -> str:
     """Exact command to attach to this tmux session from any terminal."""
+    if socket_name != tmux_sockets.DEFAULT_SOCKET:
+        return f"tmux -L '{socket_name}' attach -t '{name}'"
     return f"tmux attach -t '{name}'"
 
 
@@ -1293,7 +1435,12 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
     rows: list[dict] = []
     saved_by_logical = _project_session_by_name(root, project_id) if project_id else {}
     for name, info in live.items():
-        row = {**info, **meta.get(name, {}), "name": name, "attach_command": _attach_command(name)}
+        row = {**info, **meta.get(name, {}), "name": name}
+        socket_name = str(
+            row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
+        )
+        row["tmux_socket"] = socket_name
+        row["attach_command"] = _attach_command(name, socket_name)
         if project_id and row.get("project_id") != project_id:
             continue
         logical = row.get("logical_name")
@@ -1303,7 +1450,7 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
                 if saved.get(key):
                     row[key] = saved[key]
         if not row.get("summary"):
-            inferred = _infer_session_summary(name)
+            inferred = _infer_session_summary(name, socket_name)
             if inferred:
                 row["summary"] = inferred
         rows.append(row)
@@ -1743,8 +1890,12 @@ def create_session(body: NewSession, request: Request) -> dict:
     # suffix so it coexists with the original).
     if existing_for_tab and not body.start_fresh:
         name, info = existing_for_tab
+        socket_name = str(
+            info.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
+        )
         row = {"name": name, **info, "already_running": True,
-               "attach_command": _attach_command(name)}
+               "tmux_socket": socket_name,
+               "attach_command": _attach_command(name, socket_name)}
         if body.project_id:
             saved = _project_session_by_name(root, body.project_id).get(
                 info.get("logical_name") or preferred_sane
@@ -1779,15 +1930,25 @@ def create_session(body: NewSession, request: Request) -> dict:
     # prior crash, or the deterministic hash landing on a name reused from
     # an earlier run) — adopt it rather than erroring or trying to spawn a
     # duplicate (which tmux itself would refuse anyway).
-    if _tmux_has_session(tmux_name):
-        entry = meta.get(tmux_name) or _reconstruct_meta_entry(root, tmux_name) or {
-            "project_id": body.project_id,
-            "logical_name": logical,
-            "kind": kind,
-            "agent": agent,
-            "cwd": str(cwd),
-            "created_at": int(time.time()),
-        }
+    existing_socket = _tmux_find_session_socket(tmux_name)
+    if existing_socket:
+        entry = (
+            meta.get(tmux_name)
+            or _reconstruct_meta_entry(
+                root,
+                tmux_name,
+                tmux_socket=existing_socket,
+            )
+            or {
+                "project_id": body.project_id,
+                "logical_name": logical,
+                "kind": kind,
+                "agent": agent,
+                "cwd": str(cwd),
+                "created_at": int(time.time()),
+            }
+        )
+        entry["tmux_socket"] = existing_socket
         meta[tmux_name] = entry
         _save_meta(root, meta)
         _invalidate_project_term_caches()
@@ -1800,7 +1961,7 @@ def create_session(body: NewSession, request: Request) -> dict:
             },
         )
         return {"name": tmux_name, **entry, "already_running": True,
-                "attach_command": _attach_command(tmux_name)}
+                "attach_command": _attach_command(tmux_name, existing_socket)}
 
     # Build the command line.
     auto_applied = False
@@ -1852,10 +2013,37 @@ def create_session(body: NewSession, request: Request) -> dict:
     # Spawn tmux. We pass argv via shell so tmux can parse it; simpler for
     # claude's flag expansion and matches what users see in `tmux ls`.
     cmd_str = " ".join(_shell_quote(a) for a in cmd_argv)
-    proc = subprocess.run(
-        ["tmux", "new-session", "-d", "-s", tmux_name, "-c", str(cwd), cmd_str],
-        capture_output=True, text=True, env=_tmux_child_env(),
-    )
+    # Serialize just the routing decision + spawn with CLI rotation. This
+    # prevents a terminal created concurrently with a handoff from landing
+    # on the just-retired socket. The lock is never touched by terminal I/O.
+    with tmux_sockets.state_lock():
+        socket_name = _active_tmux_socket()
+        if (
+            socket_name != tmux_sockets.DEFAULT_SOCKET
+            and not _tmux_server_alive(socket_name)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"terminal socket {socket_name!r} is no longer running; "
+                    "run `lab terminal rotate` directly from iTerm"
+                ),
+            )
+        proc = subprocess.run(
+            _tmux_command(
+                socket_name,
+                "new-session",
+                "-d",
+                "-s",
+                tmux_name,
+                "-c",
+                str(cwd),
+                cmd_str,
+            ),
+            capture_output=True,
+            text=True,
+            env=_tmux_child_env(),
+        )
     if proc.returncode != 0:
         log.error(
             "tmux new-session failed for %s: %s",
@@ -1870,7 +2058,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=(proc.stderr or proc.stdout).strip() or "tmux failed")
 
     # Mouse wheel → tmux copy-mode scrollback (no send-keys fallback).
-    _configure_tmux_wheel_scrolling(tmux_name)
+    _configure_tmux_wheel_scrolling(tmux_name, socket_name)
 
     # Record runtime metadata.
     meta = _load_meta(root)
@@ -1885,6 +2073,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         "claude_session_id": claude_session_id,
         "resumed_from": resumed_from,
         "created_at": int(time.time()),
+        "tmux_socket": socket_name,
     }
     _save_meta(root, meta)
     _invalidate_project_term_caches()
@@ -1914,7 +2103,11 @@ def create_session(body: NewSession, request: Request) -> dict:
             "target": tmux_name,
         },
     )
-    return {"name": tmux_name, **meta[tmux_name], "attach_command": _attach_command(tmux_name)}
+    return {
+        "name": tmux_name,
+        **meta[tmux_name],
+        "attach_command": _attach_command(tmux_name, socket_name),
+    }
 
 
 @router.delete("/api/term/sessions/{name}")
@@ -1942,8 +2135,17 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
     _require_project_access(request, active_root, root, project_id)
 
     if _tmux_available():
-        subprocess.run(["tmux", "kill-session", "-t", name], capture_output=True, text=True,
-                       env=_tmux_child_env())
+        socket_name = str(
+            info.get("tmux_socket")
+            or _tmux_find_session_socket(name)
+            or tmux_sockets.DEFAULT_SOCKET
+        )
+        subprocess.run(
+            _tmux_command(socket_name, "kill-session", "-t", name),
+            capture_output=True,
+            text=True,
+            env=_tmux_child_env(),
+        )
     meta.pop(name, None)
     _save_meta(root, meta)
     _invalidate_project_term_caches()
@@ -2016,8 +2218,17 @@ def kill_project_sessions(
         if not any(name.startswith(p) for p in prefixes):
             continue
         if _tmux_available():
-            subprocess.run(["tmux", "kill-session", "-t", name], capture_output=True, text=True,
-                           env=_tmux_child_env())
+            socket_name = str(
+                info.get("tmux_socket")
+                or _tmux_find_session_socket(name)
+                or tmux_sockets.DEFAULT_SOCKET
+            )
+            subprocess.run(
+                _tmux_command(socket_name, "kill-session", "-t", name),
+                capture_output=True,
+                text=True,
+                env=_tmux_child_env(),
+            )
         meta.pop(name, None)
         killed.append(name)
         if info.get("logical_name") == "server":
@@ -2112,7 +2323,9 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
     workspaces = _known_workspaces(active_root)
     root = _resolve_session_workspace_root(name, active_root, workspaces)
     meta = _load_meta(root)
-    project_id = (meta.get(name) or {}).get("project_id")
+    session_meta = meta.get(name) or {}
+    project_id = session_meta.get("project_id")
+    known_socket = session_meta.get("tmux_socket")
     try:
         _require_project_access(websocket, active_root, root, project_id)
     except HTTPException as exc:
@@ -2136,16 +2349,19 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
     # the client can drop before we even send the "no-session" frame).
     name_ok = bool(_VALID_WS_NAME.match(name)) and any(name.startswith(p) for p in prefixes)
     tmux_up = name_ok and _tmux_available()
-    has_session = False
+    tmux_socket: str | None = None
     if tmux_up:
         try:
-            has_session = await loop.run_in_executor(
-                None, _tmux_has_session, name,
+            tmux_socket = await loop.run_in_executor(
+                None,
+                _tmux_find_session_socket,
+                name,
+                str(known_socket) if known_socket else None,
             )
         except Exception:  # pragma: no cover
-            has_session = False
+            tmux_socket = None
 
-    if not (name_ok and tmux_up and has_session):
+    if not (name_ok and tmux_up and tmux_socket):
         log.warning(
             "WS terminal %s rejected: no session",
             name,
@@ -2166,12 +2382,17 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
     # set on BOTH sides of the fork (slave in the child before exec, master
     # in the parent) so tmux can never observe the transient default size —
     # it must see the client's real geometry from its very first read.
+    attach_argv = _tmux_command(str(tmux_socket), "attach", "-t", name)
     pid, fd = pty.fork()
     if pid == 0:
         env = {**_tmux_child_env(), "TERM": "xterm-256color"}
         _set_winsize(0, init_rows, init_cols)  # stdin == PTY slave post-fork
         try:
-            os.execvpe("tmux", ["tmux", "attach", "-t", name], env)
+            os.execvpe(
+                "tmux",
+                attach_argv,
+                env,
+            )
         except Exception:  # pragma: no cover
             os._exit(1)
 
