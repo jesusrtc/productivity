@@ -9188,7 +9188,12 @@
     if (!_termIsScopeActive(projectId)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
-    const toRestore = saved.filter(s => s && s.name && !liveLogicalNames.has(s.name));
+    // Attached tmux aliases deliberately do not respawn as ordinary shell
+    // sessions if the source/alias later disappears. The user can paste the
+    // source name again from + New when they want to reattach it.
+    const toRestore = saved.filter(s =>
+      s && s.name && s.kind !== 'attached' && !liveLogicalNames.has(s.name)
+    );
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
     const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId, workspaceId);
     if (!_termIsScopeActive(projectId)) return;
@@ -10087,6 +10092,8 @@
     // Resolve workspace policy before revealing the menu so a disabled agent
     // never flashes as a clickable choice during the network round-trip.
     await termRefreshAgentAvail(el);
+    const attachError = document.getElementById('termAttachError');
+    if (attachError) attachError.textContent = '';
     el.classList.add('open');
     // One-shot outside-click listener to dismiss.
     const off = (e) => {
@@ -10124,6 +10131,72 @@
       const base = btn.textContent.replace(/ — not installed$/, '');
       btn.textContent = ok ? base : base + ' — not installed';
     });
+  }
+
+  async function termAttachExisting(ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    const picker = document.getElementById('termNewPicker');
+    const input = document.getElementById('termAttachName');
+    const submit = document.getElementById('termAttachSubmit');
+    const error = document.getElementById('termAttachError');
+    const sessionName = String(input && input.value || '').trim();
+    if (error) error.textContent = '';
+    if (!sessionName) {
+      if (error) error.textContent = 'Paste a session name.';
+      if (input) input.focus();
+      return;
+    }
+
+    let projectId = null;
+    if (document.body.classList.contains('cerebro-active')) {
+      projectId = CEREBRO_PROJECT_ID;
+    } else if (document.body.classList.contains('self-active')) {
+      projectId = SELF_PROJECT_ID;
+    } else if (currentProject && currentProject.is_project) {
+      projectId = currentProject.name;
+    }
+    if (!projectId) {
+      if (error) error.textContent = 'Open a project first.';
+      return;
+    }
+    const workspaceId = _termWorkspaceId();
+    if (submit) submit.disabled = true;
+    if (input) input.disabled = true;
+    termSetStatus('idle', `attaching ${sessionName}…`);
+    try {
+      const response = await fetch('/api/term/sessions/attach', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          project_id: projectId,
+          workspace: workspaceId,
+          name: sessionName,
+        }),
+      });
+      const attached = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(attached.detail || response.statusText || 'attach failed');
+      if (input) input.value = '';
+      if (picker) picker.classList.remove('open');
+      if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
+      _termClearDead(attached.name);
+      await _termRefreshSessionsForProjectId(projectId);
+      if (!_termIsScopeActive(projectId)) return;
+      if (!termSessions.some(s => s && s.name === attached.name)) {
+        termSessions = [{...attached, project_id: attached.project_id || projectId}, ...termSessions];
+        _termSessionsCache.set(_termSessionsKey(projectId, workspaceId), termSessions);
+        termRenderSessionList();
+      }
+      termAttach(attached.name, projectId);
+    } catch (attachError) {
+      if (error) error.textContent = attachError && attachError.message || 'Attach failed.';
+      termSetStatus('err', 'attach failed');
+    } finally {
+      if (submit) submit.disabled = false;
+      if (input) input.disabled = false;
+    }
   }
 
   function termCreateNew(kind, agent) {
@@ -10197,7 +10270,12 @@
     if (!termCurrentSession) return;
     const projectId = _termActiveProjectId();
     const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
-    if (!confirm('Close terminal session ' + termCurrentSession + '? It will stay closed after reload.')) return;
+    const session = (termSessions || []).find(s => s && s.name === termCurrentSession);
+    const isAttached = session && session.kind === 'attached';
+    const question = isAttached
+      ? 'Detach ' + (session.logical_name || termCurrentSession) + ' from Lab? The original tmux session will keep running.'
+      : 'Close terminal session ' + termCurrentSession + '? It will stay closed after reload.';
+    if (!confirm(question)) return;
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true', {method: 'DELETE'}); } catch {}
@@ -10219,7 +10297,8 @@
     // `-r` = read-only client: sees every keystroke + output, can't inject
     // input. Good for riding along a running Claude session from iTerm
     // without risk of accidentally typing into it.
-    const cmd = `tmux attach -t ${name} -r`;
+    const session = (termSessions || []).find(s => s && s.name === name);
+    const cmd = `${session && session.attach_command || `tmux attach -t '${name}'`} -r`;
     try {
       await navigator.clipboard.writeText(cmd);
       termFlashCopy('copied');

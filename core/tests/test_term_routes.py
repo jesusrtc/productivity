@@ -231,6 +231,110 @@ def test_create_terminal_session(client, seed_project, isolated_prefix) -> None:
     assert body["claude_session_id"] is None
 
 
+def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
+    client,
+    seed_project,
+    isolated_prefix,
+) -> None:
+    seed_project("demo")
+    source_name = "existing-work"
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", source_name, "bash"],
+        check=True,
+    )
+
+    response = client.post("/api/term/sessions/attach", json={
+        "project_id": "demo",
+        "name": source_name,
+    })
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["name"].startswith(isolated_prefix + "demo-")
+    assert body["name"] != source_name
+    assert body["kind"] == "attached"
+    assert body["source_session"] == source_name
+    assert body["cmd"] == f"tmux attach -t '{source_name}'"
+
+    listed = client.get("/api/term/sessions", params={"project_id": "demo"})
+    assert listed.status_code == 200, listed.text
+    assert [row["name"] for row in listed.json()] == [body["name"]]
+
+    saved = client.get(
+        "/api/term/sessions/saved", params={"project_id": "demo"}
+    ).json()
+    assert saved == [{
+        "name": body["logical_name"],
+        "kind": "attached",
+        "source_session": source_name,
+    }]
+
+    closed = client.delete(
+        f"/api/term/sessions/{body['name']}", params={"purge": "true"}
+    )
+    assert closed.status_code == 200, closed.text
+    assert subprocess.run(
+        ["tmux", "has-session", "-t", source_name]
+    ).returncode == 0
+    assert subprocess.run(
+        ["tmux", "has-session", "-t", body["name"]]
+    ).returncode != 0
+
+
+def test_attach_existing_tmux_session_is_idempotent(
+    client,
+    seed_project,
+    isolated_prefix,
+) -> None:
+    seed_project("demo")
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", "existing-work", "bash"],
+        check=True,
+    )
+    payload = {"project_id": "demo", "name": "existing-work"}
+
+    first = client.post("/api/term/sessions/attach", json=payload)
+    second = client.post("/api/term/sessions/attach", json=payload)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert second.json()["name"] == first.json()["name"]
+    assert second.json()["already_running"] is True
+
+
+@pytest.mark.parametrize("name", ["", "bad.name", "bad:name", "bad/name", "bad name"])
+def test_attach_existing_tmux_session_rejects_invalid_names(
+    client,
+    seed_project,
+    isolated_prefix,
+    name: str,
+) -> None:
+    seed_project("demo")
+
+    response = client.post("/api/term/sessions/attach", json={
+        "project_id": "demo",
+        "name": name,
+    })
+
+    assert response.status_code == 400
+
+
+def test_attach_existing_tmux_session_reports_a_missing_source(
+    client,
+    seed_project,
+    isolated_prefix,
+) -> None:
+    seed_project("demo")
+
+    response = client.post("/api/term/sessions/attach", json={
+        "project_id": "demo",
+        "name": "does-not-exist",
+    })
+
+    assert response.status_code == 404
+    assert "was not found" in response.json()["detail"]
+
+
 def test_unknown_kind_rejected(client, seed_project, isolated_prefix) -> None:
     seed_project("demo")
     r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "banana"})

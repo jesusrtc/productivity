@@ -1408,6 +1408,12 @@ class NewSession(BaseModel):
     start_fresh: bool = False
 
 
+class AttachSession(BaseModel):
+    project_id: str
+    workspace: str | None = None
+    name: str
+
+
 # ─── endpoints ──────────────────────────────────────────────────────────────
 
 
@@ -1798,6 +1804,155 @@ def projects_with_sessions(request: Request) -> list[str]:
         ids.append(pid)
     _PROJECTS_WITH_SESSIONS_CACHE = (time.monotonic(), list(ids))
     return ids
+
+
+@router.post("/api/term/sessions/attach")
+def attach_session(body: AttachSession, request: Request) -> dict:
+    """Expose an existing tmux session as a safe Lab-owned grouped alias.
+
+    The alias shares the source session's windows and panes, so browser input
+    and output are the same session. Killing the Lab alias does not kill the
+    original session. No nested tmux client, proxy process, or byte-path
+    forwarding is introduced.
+    """
+    if not _tmux_available():
+        raise HTTPException(status_code=500, detail="tmux not installed. Run: brew install tmux")
+
+    source_name = (body.name or "").strip()
+    if len(source_name) > 200 or not _VALID_WS_NAME.fullmatch(source_name):
+        raise HTTPException(
+            status_code=400,
+            detail="invalid tmux session name; use letters, digits, underscores, or hyphens",
+        )
+
+    active_root = auth.request_root(request)
+    root = _workspace_root_for(active_root, body.workspace)
+    user = _require_project_access(request, active_root, root, body.project_id)
+    cwd = _project_cwd(root, body.project_id)
+    if not cwd.is_dir():
+        raise HTTPException(status_code=400, detail=f"project directory not found: {cwd}")
+
+    # A registered Lab session retains its workspace access boundary. An
+    # otherwise-unregistered host tmux session may contain anything, so only
+    # an admin can import it into Lab by name.
+    owner: tuple[Path, dict] | None = None
+    for workspace_row in _known_workspaces(active_root):
+        try:
+            candidate = (_load_meta(workspace_row["path"]).get(source_name) or {})
+        except OSError:
+            continue
+        if candidate:
+            owner = (workspace_row["path"], candidate)
+            break
+    if owner:
+        _require_project_access(
+            request,
+            active_root,
+            owner[0],
+            owner[1].get("project_id"),
+        )
+    elif not auth.is_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="admin access is required to attach an unregistered tmux session",
+        )
+
+    meta = _load_meta(root)
+    for alias_name, info in meta.items():
+        if (
+            info.get("project_id") == body.project_id
+            and info.get("kind") == "attached"
+            and info.get("source_session") == source_name
+        ):
+            alias_socket = _tmux_find_session_socket(
+                alias_name,
+                str(info.get("tmux_socket") or "") or None,
+            )
+            if alias_socket:
+                info["tmux_socket"] = alias_socket
+                return {
+                    "name": alias_name,
+                    **info,
+                    "already_running": True,
+                    "attach_command": _attach_command(alias_name, alias_socket),
+                }
+
+    taken_logical = {
+        str(info.get("logical_name"))
+        for info in meta.values()
+        if info.get("project_id") == body.project_id and info.get("logical_name")
+    }
+    logical = _pick_unique_logical_name(_sanitize(source_name), taken_logical)
+
+    # Rotation and new-session creation use the same lock. This prevents a
+    # source found on the draining generation from being pruned between the
+    # lookup and creation of its grouped alias.
+    with tmux_sockets.state_lock():
+        source_socket = _tmux_find_session_socket(source_name)
+        if not source_socket:
+            raise HTTPException(
+                status_code=404,
+                detail=f"tmux session {source_name!r} was not found on a Lab socket",
+            )
+        alias_name = _tmux_name_for(body.project_id, logical, root)
+        while _tmux_find_session_socket(alias_name):
+            taken_logical.add(logical)
+            logical = _pick_unique_logical_name(_sanitize(source_name), taken_logical)
+            alias_name = _tmux_name_for(body.project_id, logical, root)
+        proc = subprocess.run(
+            _tmux_command(
+                source_socket,
+                "new-session",
+                "-d",
+                "-t",
+                source_name,
+                "-s",
+                alias_name,
+            ),
+            capture_output=True,
+            text=True,
+            env=_tmux_child_env(),
+        )
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(proc.stderr or proc.stdout or "tmux could not attach the session").strip(),
+        )
+
+    _configure_tmux_wheel_scrolling(alias_name, source_socket)
+    entry = {
+        "project_id": body.project_id,
+        "logical_name": logical,
+        "kind": "attached",
+        "agent": None,
+        "cwd": str(cwd),
+        "cmd": _attach_command(source_name, source_socket),
+        "source_session": source_name,
+        "created_at": int(time.time()),
+        "tmux_socket": source_socket,
+    }
+    meta = _load_meta(root)
+    meta[alias_name] = entry
+    _save_meta(root, meta)
+    _upsert_project_session(root, body.project_id, {
+        "name": logical,
+        "kind": "attached",
+        "source_session": source_name,
+    })
+    _invalidate_project_term_caches()
+    log.info(
+        "existing tmux session attached through grouped alias",
+        extra={
+            "event_type": "term.session.attach_existing",
+            "action": body.project_id,
+            "target": alias_name,
+        },
+    )
+    return {
+        "name": alias_name,
+        **entry,
+        "attach_command": _attach_command(alias_name, source_socket),
+    }
 
 
 @router.post("/api/term/sessions")

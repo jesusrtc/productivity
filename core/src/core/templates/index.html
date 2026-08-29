@@ -283,6 +283,14 @@
         <button data-agent="codex" onclick="termCreateNew('claude','codex')" title="OpenAI Codex CLI">Codex</button>
         <button data-agent="copilot" onclick="termCreateNew('claude','copilot')" title="GitHub Copilot CLI">Copilot</button>
         <button onclick="termCreateNew('terminal')" title="Plain $SHELL (bash / zsh)">Terminal</button>
+        <form class="term-attach-form" id="termAttachForm" onsubmit="termAttachExisting(event)">
+          <label for="termAttachName">Attach tmux session</label>
+          <div class="term-attach-controls">
+            <input id="termAttachName" type="text" placeholder="session name" aria-label="tmux session name" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button class="term-attach-submit" id="termAttachSubmit" type="submit" title="Attach without stopping the original session">Attach</button>
+          </div>
+          <span class="term-attach-error" id="termAttachError" aria-live="polite"></span>
+        </form>
       </div>
     </div>
     <button id="termKillBtn" class="danger" onclick="termKillCurrent()" title="Close the active terminal and keep it closed after reload">Close</button>

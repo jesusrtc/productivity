@@ -533,6 +533,112 @@ async function fetch() {
     assert by_agent["codex"]["disabled"] is False
 
 
+def test_terminal_new_menu_attaches_an_existing_tmux_session() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    attach_existing = _js_between(
+        "async function termAttachExisting(ev)",
+        "function termCreateNew(kind, agent)",
+    )
+
+    assert 'id="termAttachForm" onsubmit="termAttachExisting(event)"' in html
+    assert 'id="termAttachName" type="text" placeholder="session name"' in html
+    assert '>Attach tmux session</label>' in html
+    assert 'id="termAttachSubmit" type="submit"' in html
+    assert ".term-attach-form" in css
+    assert ".term-attach-controls input" in css
+
+    result = _run_node(
+        """
+const calls = [];
+const attached = [];
+const statuses = [];
+const picker = {classList: {remove(value) { calls.push('picker:' + value); }}};
+const input = {value: '  existing-work  ', disabled: false, focus() {}};
+const submit = {disabled: false};
+const error = {textContent: ''};
+const elements = {
+  termNewPicker: picker,
+  termAttachName: input,
+  termAttachSubmit: submit,
+  termAttachError: error,
+};
+const document = {
+  getElementById(id) { return elements[id] || null; },
+  body: {classList: {contains() { return false; }}},
+};
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const SELF_PROJECT_ID = '__self__';
+const currentProject = {is_project: true, name: 'demo'};
+let termSessions = [];
+const _termSessionsCache = {set(key, value) { calls.push('cache:' + key + ':' + value.length); }};
+function _termWorkspaceId() { return 'main'; }
+function _termActiveProjectId() { return 'demo'; }
+function _termIsScopeActive(pid) { return pid === 'demo'; }
+function _termClearDead(name) { calls.push('clear:' + name); }
+async function _termRefreshSessionsForProjectId(pid) { calls.push('refresh:' + pid); return true; }
+function _termSessionsKey(pid, workspace) { return pid + ':' + workspace; }
+function termRenderSessionList() { calls.push('render'); }
+function termAttach(name, pid) { attached.push([name, pid]); }
+function termSetStatus(kind, message) { statuses.push([kind, message]); }
+async function fetch(url, options) {
+  calls.push({url, options, body: JSON.parse(options.body)});
+  return {
+    ok: true,
+    json: async () => ({
+      name: 'lab-demo-existing-work',
+      logical_name: 'existing-work',
+      project_id: 'demo',
+      kind: 'attached',
+    }),
+  };
+}
+""" + attach_existing + """
+(async () => {
+  let prevented = 0;
+  await termAttachExisting({
+    preventDefault() { prevented += 1; },
+    stopPropagation() { prevented += 1; },
+  });
+  process.stdout.write(JSON.stringify({
+    calls,
+    attached,
+    statuses,
+    prevented,
+    inputValue: input.value,
+    inputDisabled: input.disabled,
+    submitDisabled: submit.disabled,
+    error: error.textContent,
+  }));
+})().catch((err) => { console.error(err && err.stack || err); process.exit(1); });
+"""
+    )
+
+    request = next(call for call in result["calls"] if isinstance(call, dict))
+    assert request["url"] == "/api/term/sessions/attach"
+    assert request["options"]["method"] == "POST"
+    assert request["body"] == {
+        "project_id": "demo",
+        "workspace": "main",
+        "name": "existing-work",
+    }
+    assert result["attached"] == [["lab-demo-existing-work", "demo"]]
+    assert result["prevented"] == 2
+    assert result["inputValue"] == ""
+    assert result["inputDisabled"] is False
+    assert result["submitDisabled"] is False
+    assert result["error"] == ""
+    assert "picker:open" in result["calls"]
+
+
+def test_attached_tmux_sessions_are_not_restored_as_plain_shells() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert "s.kind !== 'attached'" in source
+    assert "The original tmux session will keep running." in source
+    assert "session && session.attach_command" in source
+
+
 def test_workspace_agents_card_writes_workspace_policy() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
 

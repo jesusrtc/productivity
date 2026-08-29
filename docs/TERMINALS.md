@@ -35,6 +35,20 @@ Rows are labeled `active` or `draining` and include the number of Lab
 sessions on each socket. Attach commands returned by the API and UI include
 `tmux -L <socket>` when a session is on a named socket.
 
+## Attach an existing tmux session
+
+Open **+ New**, paste an existing tmux session name into **Attach tmux
+session**, and select **Attach**. Lab searches the active and draining socket
+generations and creates a lightweight grouped-session alias inside the current
+project. The alias shares the source session's windows and panes; it does not
+start a nested tmux client or forwarding process.
+
+Closing an attached Lab tab removes only this alias. The original tmux session
+continues running. Attached aliases are not automatically recreated as plain
+shells if the source later disappears; paste the source name again to reattach.
+For access safety, importing a host tmux session that Lab does not already own
+requires an administrator account.
+
 ## Resource and UX guarantees
 
 - Steady state uses exactly one routed tmux server.
