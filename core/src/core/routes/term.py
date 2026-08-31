@@ -678,32 +678,84 @@ def _infer_session_summary(name: str, tmux_socket: str) -> str | None:
     return summary or None
 
 
-_AGENT_NAME_TTL_S = 5.0
-_AGENT_NAME_CACHE: dict[str, tuple[float, str | None]] = {}
-_CODEX_NAMES_CACHE: tuple[float, dict[str, tuple[str, str]]] | None = None
+_AGENT_METADATA_TTL_S = 5.0
+_AGENT_METADATA_CACHE: dict[
+    str, tuple[float, tuple[str | None, str | None]]
+] = {}
+_CODEX_METADATA_CACHE: tuple[
+    float, dict[str, tuple[str, str, str | None]]
+] | None = None
 _CODEX_PROCESS_UUID_RE = re.compile(r"^pid:(\d+):")
+_AGENT_IMAGE_TAG_RE = re.compile(r"<image\b[^>]*>.*?</image>", re.DOTALL | re.I)
+_AGENT_IMAGE_REF_RE = re.compile(r"\[Image\s+#\d+\]", re.I)
+_AGENT_IMAGE_PATH_RE = re.compile(
+    r"(?:^|\s)\.lab/terminal-pastes/\S+\.(?:png|jpe?g|webp)\b", re.I,
+)
 
 
-def _cached_agent_name(key: str, loader) -> str | None:
+def _message_content_text(content) -> str | None:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    parts = []
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") not in ("text", "input_text"):
+            continue
+        value = item.get("text")
+        if isinstance(value, str):
+            parts.append(value)
+    return "\n".join(parts) or None
+
+
+def _clean_agent_task(raw: str | None, *, max_len: int = 280) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    text = _AGENT_IMAGE_TAG_RE.sub(" ", raw)
+    text = _AGENT_IMAGE_REF_RE.sub(" ", text)
+    text = _AGENT_IMAGE_PATH_RE.sub(" ", text)
+    text = " ".join(text.strip().split())
+    if not text or text in ("[Request interrupted by user]", "Request interrupted by user"):
+        return None
+    if (
+        text.startswith("# AGENTS.md instructions for ")
+        or text.startswith("Base directory for this skill:")
+        or text.startswith("<environment_context>")
+    ):
+        return None
+    if len(text) > max_len:
+        return text[: max_len - 3].rstrip() + "..."
+    return text
+
+
+def _cached_agent_metadata(key: str, loader) -> tuple[str | None, str | None]:
     now = time.monotonic()
-    cached = _AGENT_NAME_CACHE.get(key)
-    if cached and now - cached[0] < _AGENT_NAME_TTL_S:
+    cached = _AGENT_METADATA_CACHE.get(key)
+    if cached and now - cached[0] < _AGENT_METADATA_TTL_S:
         return cached[1]
     try:
-        value = _clean_optional_text(loader(), max_len=100)
-    except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError):
-        value = None
-    _AGENT_NAME_CACHE[key] = (now, value)
+        name, task = loader()
+        value = (
+            _clean_optional_text(name, max_len=100),
+            _clean_agent_task(task),
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError, yaml.YAMLError):
+        value = (None, None)
+    _AGENT_METADATA_CACHE[key] = (now, value)
     return value
 
 
-def _claude_session_name(session_id: str, cwd: str) -> str | None:
-    """Read Claude Code's generated AI title for a known session UUID."""
+def _claude_session_metadata(
+    session_id: str, cwd: str,
+) -> tuple[str | None, str | None]:
+    """Read Claude Code's generated title and latest direct user task."""
     project_slug = re.sub(r"[^A-Za-z0-9]", "-", str(Path(cwd).resolve()))
     project_dir = Path.home() / ".claude" / "projects" / project_slug
     transcript = project_dir / f"{session_id}.jsonl"
 
-    def load() -> str | None:
+    def load() -> tuple[str | None, str | None]:
+        title = None
+        task = None
         if transcript.is_file():
             # Claude repeats the ai-title event near the live tail. Limiting
             # the read keeps terminal-list polling cheap for long sessions.
@@ -714,7 +766,6 @@ def _claude_session_name(session_id: str, cwd: str) -> str | None:
                 data = handle.read()
             if start:
                 _, _, data = data.partition(b"\n")
-            title = None
             for raw in data.splitlines():
                 try:
                     event = json.loads(raw)
@@ -723,79 +774,115 @@ def _claude_session_name(session_id: str, cwd: str) -> str | None:
                 candidate = event.get("customTitle") or event.get("aiTitle")
                 if isinstance(candidate, str) and candidate.strip():
                     title = candidate
-            if title:
-                return title
+                message = event.get("message")
+                if (
+                    event.get("type") == "user"
+                    and event.get("isSidechain") is not True
+                    and event.get("userType") in (None, "external")
+                    and not event.get("toolUseResult")
+                    and not event.get("sourceToolAssistantUUID")
+                    and isinstance(message, dict)
+                ):
+                    candidate_task = _clean_agent_task(
+                        _message_content_text(message.get("content"))
+                    )
+                    if candidate_task:
+                        task = candidate_task
 
         index_path = project_dir / "sessions-index.json"
-        if not index_path.is_file():
-            return None
-        payload = json.loads(index_path.read_text())
-        entries = payload.get("entries") if isinstance(payload, dict) else None
-        for entry in entries if isinstance(entries, list) else []:
-            if isinstance(entry, dict) and entry.get("sessionId") == session_id:
-                return entry.get("name") or entry.get("summary")
-        return None
+        if index_path.is_file() and (not title or not task):
+            payload = json.loads(index_path.read_text())
+            entries = payload.get("entries") if isinstance(payload, dict) else None
+            for entry in entries if isinstance(entries, list) else []:
+                if isinstance(entry, dict) and entry.get("sessionId") == session_id:
+                    title = title or entry.get("name") or entry.get("summary")
+                    task = task or entry.get("firstPrompt") or entry.get("summary")
+                    break
+        return title, task
 
-    return _cached_agent_name(f"claude:{session_id}", load)
+    return _cached_agent_metadata(f"claude:{session_id}", load)
 
 
-def _copilot_session_name(session_id: str) -> str | None:
-    """Read Copilot CLI's saved name/summary for a Lab-owned UUID."""
+def _copilot_session_metadata(session_id: str) -> tuple[str | None, str | None]:
+    """Read Copilot CLI's saved name and latest ``user.message`` task."""
     home = Path(os.environ.get("COPILOT_HOME") or (Path.home() / ".copilot"))
-    workspace = home / "session-state" / session_id / "workspace.yaml"
+    session_dir = home / "session-state" / session_id
+    workspace = session_dir / "workspace.yaml"
+    events = session_dir / "events.jsonl"
 
-    def load() -> str | None:
-        if not workspace.is_file():
-            return None
-        payload = yaml.safe_load(workspace.read_text())
-        if not isinstance(payload, dict):
-            return None
-        candidates = [payload]
-        nested = payload.get("workspace")
-        if isinstance(nested, dict):
-            candidates.append(nested)
-        for candidate in candidates:
-            value = candidate.get("name") or candidate.get("summary")
-            if isinstance(value, str) and value.strip():
-                return value
-        return None
+    def load() -> tuple[str | None, str | None]:
+        title = None
+        workspace_summary = None
+        if workspace.is_file():
+            payload = yaml.safe_load(workspace.read_text())
+            if isinstance(payload, dict):
+                candidates = [payload]
+                nested = payload.get("workspace")
+                if isinstance(nested, dict):
+                    candidates.append(nested)
+                for candidate in candidates:
+                    if not title:
+                        title = candidate.get("name") or candidate.get("summary")
+                    if not workspace_summary:
+                        workspace_summary = candidate.get("summary")
+        task = None
+        if events.is_file():
+            with events.open("rb") as handle:
+                size = handle.seek(0, os.SEEK_END)
+                start = max(0, size - 512 * 1024)
+                handle.seek(start)
+                data = handle.read()
+            if start:
+                _, _, data = data.partition(b"\n")
+            for raw in data.splitlines():
+                try:
+                    event = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                event_data = event.get("data")
+                if event.get("type") != "user.message" or not isinstance(event_data, dict):
+                    continue
+                candidate_task = _clean_agent_task(event_data.get("content"))
+                if candidate_task:
+                    task = candidate_task
+        return title, task or workspace_summary
 
-    return _cached_agent_name(f"copilot:{session_id}", load)
+    return _cached_agent_metadata(f"copilot:{session_id}", load)
 
 
 def _tty_key(raw: str | None) -> str:
     return (raw or "").removeprefix("/dev/").strip()
 
 
-def _codex_session_names_by_tty(
+def _codex_session_metadata_by_tty(
     ttys: set[str], cwds: set[str] | None = None,
-) -> dict[str, tuple[str, str]]:
-    """Map live pane TTYs to ``(thread id, display name)`` for Codex CLI.
+) -> dict[str, tuple[str, str, str | None]]:
+    """Map pane TTYs to ``(thread id, display name, latest user task)``.
 
     Codex's log index records a process UUID containing the native PID and
     the active top-level thread ID. Joining that with the thread index and
     each process's controlling TTY gives an exact per-pane mapping, including
     after `/new` switches a long-lived TUI process to another conversation.
     """
-    global _CODEX_NAMES_CACHE
+    global _CODEX_METADATA_CACHE
     wanted = {_tty_key(tty) for tty in ttys if _tty_key(tty)}
     if not wanted:
         return {}
     now = time.monotonic()
     if (
-        _CODEX_NAMES_CACHE
-        and now - _CODEX_NAMES_CACHE[0] < _AGENT_NAME_TTL_S
-        and wanted.issubset(_CODEX_NAMES_CACHE[1])
+        _CODEX_METADATA_CACHE
+        and now - _CODEX_METADATA_CACHE[0] < _AGENT_METADATA_TTL_S
+        and wanted.issubset(_CODEX_METADATA_CACHE[1])
     ):
         return {
-            tty: value for tty, value in _CODEX_NAMES_CACHE[1].items()
+            tty: value for tty, value in _CODEX_METADATA_CACHE[1].items()
             if tty in wanted
         }
 
     logs_path = Path.home() / ".codex" / "logs_2.sqlite"
     threads_path = Path.home() / ".codex" / "state_5.sqlite"
     if not logs_path.is_file() or not threads_path.is_file():
-        _CODEX_NAMES_CACHE = (now, {})
+        _CODEX_METADATA_CACHE = (now, {})
         return {}
     try:
         proc = subprocess.run(
@@ -812,7 +899,7 @@ def _codex_session_names_by_tty(
                 if tty in wanted:
                     pid_tty[int(fields[0])] = tty
         if not pid_tty:
-            _CODEX_NAMES_CACHE = (now, {})
+            _CODEX_METADATA_CACHE = (now, {})
             return {}
 
         directories = sorted(cwd for cwd in (cwds or set()) if cwd)
@@ -826,7 +913,7 @@ def _codex_session_names_by_tty(
         ) as conn:
             thread_rows = conn.execute(
                 f"""
-                SELECT id, title, name
+                SELECT id, title, name, preview
                 FROM threads
                 WHERE archived = 0 AND source = 'cli'{cwd_where}
                 ORDER BY updated_at DESC
@@ -836,7 +923,7 @@ def _codex_session_names_by_tty(
             ).fetchall()
         threads = {str(row[0]): row for row in thread_rows}
         if not threads:
-            _CODEX_NAMES_CACHE = (now, {})
+            _CODEX_METADATA_CACHE = (now, {})
             return {}
         thread_ids = list(threads)
         placeholders = ",".join("?" for _ in thread_ids)
@@ -852,7 +939,7 @@ def _codex_session_names_by_tty(
                 """,
                 thread_ids,
             ).fetchall()
-        best: dict[str, tuple[int, str, str]] = {}
+        best: dict[str, tuple[int, str, str, str | None]] = {}
         for process_uuid, thread_id, last_seen in candidates:
             match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))
             thread = threads.get(str(thread_id))
@@ -866,9 +953,57 @@ def _codex_session_names_by_tty(
                 continue
             current = best.get(tty)
             if current is None or int(last_seen or 0) > current[0]:
-                best[tty] = (int(last_seen or 0), str(thread_id), display)
-        resolved = {tty: (row[1], row[2]) for tty, row in best.items()}
-        _CODEX_NAMES_CACHE = (now, resolved)
+                best[tty] = (
+                    int(last_seen or 0), str(thread_id), display, None,
+                )
+
+        tasks: dict[str, str] = {}
+        live_thread_ids = sorted({row[1] for row in best.values()})
+        history_path = Path.home() / ".codex" / "thread_history_1.sqlite"
+        task_rows = []
+        if live_thread_ids and history_path.is_file():
+            live_placeholders = ",".join("?" for _ in live_thread_ids)
+            try:
+                with sqlite3.connect(
+                    f"file:{history_path}?mode=ro", uri=True, timeout=0.2,
+                ) as conn:
+                    task_rows = conn.execute(
+                        f"""
+                        SELECT thread_id, item_json
+                        FROM (
+                            SELECT thread_id, item_json,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY thread_id
+                                    ORDER BY rollout_ordinal DESC
+                                ) AS position
+                            FROM thread_items
+                            WHERE item_type = 'userMessage'
+                              AND thread_id IN ({live_placeholders})
+                        )
+                        WHERE position = 1
+                        """,
+                        live_thread_ids,
+                    ).fetchall()
+            except sqlite3.Error:
+                # Older Codex builds may have no projection DB/table yet.
+                # Keep the session name and fall back to the thread preview.
+                pass
+        for thread_id, item_json in task_rows:
+            try:
+                item = json.loads(item_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            task = _clean_agent_task(_message_content_text(item.get("content")))
+            if task:
+                tasks[str(thread_id)] = task
+        resolved = {
+            tty: (
+                row[1], row[2],
+                tasks.get(row[1]) or _clean_agent_task(threads[row[1]][3]),
+            )
+            for tty, row in best.items()
+        }
+        _CODEX_METADATA_CACHE = (now, resolved)
         return resolved
     except (OSError, sqlite3.Error, subprocess.SubprocessError):
         return {}
@@ -883,23 +1018,28 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
         str(row.get("cwd")) for row in rows
         if row.get("agent") == "codex" and row.get("cwd")
     }
-    codex_names = _codex_session_names_by_tty(codex_ttys, codex_cwds)
+    codex_metadata = _codex_session_metadata_by_tty(codex_ttys, codex_cwds)
     for row in rows:
         agent = row.get("agent")
         session_id = row.get("agent_session_id") or row.get("claude_session_id")
         display = None
+        task = None
         if agent == "codex":
-            identity = codex_names.get(_tty_key(row.get("pane_tty")))
-            if identity:
-                session_id, display = identity
+            metadata = codex_metadata.get(_tty_key(row.get("pane_tty")))
+            if metadata:
+                session_id, display, task = metadata
         elif agent == "claude" and isinstance(session_id, str):
-            display = _claude_session_name(session_id, str(row.get("cwd") or ""))
+            display, task = _claude_session_metadata(
+                session_id, str(row.get("cwd") or ""),
+            )
         elif agent == "copilot" and isinstance(session_id, str):
-            display = _copilot_session_name(session_id)
+            display, task = _copilot_session_metadata(session_id)
         if isinstance(session_id, str) and session_id:
             row["agent_session_id"] = session_id
         if display:
             row["agent_session_name"] = display
+        if task:
+            row["agent_session_summary"] = task
 
 
 # ─── registry recovery ──────────────────────────────────────────────────────
@@ -1690,12 +1830,21 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
             for key in ("label", "summary"):
                 if saved.get(key):
                     row[key] = saved[key]
-        if not row.get("summary"):
-            inferred = _infer_session_summary(name, socket_name)
-            if inferred:
-                row["summary"] = inferred
         rows.append(row)
     _enrich_agent_session_names(rows)
+    for row in rows:
+        if row.get("summary"):
+            continue
+        agent_summary = row.get("agent_session_summary")
+        if agent_summary:
+            row["summary"] = agent_summary
+            continue
+        inferred = _infer_session_summary(
+            str(row.get("name") or ""),
+            str(row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET),
+        )
+        if inferred:
+            row["summary"] = inferred
     return rows
 
 

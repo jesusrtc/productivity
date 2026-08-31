@@ -469,16 +469,20 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
 
     monkeypatch.setattr(
         term_mod,
-        "_codex_session_names_by_tty",
-        lambda _ttys, _cwds: {"ttys001": ("codex-id", "Codex conversation")},
+        "_codex_session_metadata_by_tty",
+        lambda _ttys, _cwds: {
+            "ttys001": ("codex-id", "Codex conversation", "Fix tab names"),
+        },
     )
     monkeypatch.setattr(
-        term_mod, "_claude_session_name",
-        lambda session_id, cwd: f"Claude {session_id} in {cwd}",
+        term_mod, "_claude_session_metadata",
+        lambda session_id, cwd: (
+            f"Claude {session_id} in {cwd}", "Review the API",
+        ),
     )
     monkeypatch.setattr(
-        term_mod, "_copilot_session_name",
-        lambda session_id: f"Copilot {session_id}",
+        term_mod, "_copilot_session_metadata",
+        lambda session_id: (f"Copilot {session_id}", "Update the tests"),
     )
     rows = [
         {"agent": "codex", "pane_tty": "/dev/ttys001"},
@@ -494,10 +498,88 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
 
     assert rows[0]["agent_session_id"] == "codex-id"
     assert rows[0]["agent_session_name"] == "Codex conversation"
+    assert rows[0]["agent_session_summary"] == "Fix tab names"
     assert rows[1]["agent_session_id"] == "claude-id"
     assert rows[1]["agent_session_name"] == "Claude claude-id in /repo"
+    assert rows[1]["agent_session_summary"] == "Review the API"
     assert rows[2]["agent_session_name"] == "Copilot copilot-id"
+    assert rows[2]["agent_session_summary"] == "Update the tests"
     assert "agent_session_name" not in rows[3]
+
+
+def test_agent_task_cleanup_removes_image_markup_and_truncates() -> None:
+    import core.routes.term as term_mod
+
+    cleaned = term_mod._clean_agent_task(
+        '<image name=[Image #1] path=".lab/terminal-pastes/example.png"> </image> '
+        "Please fix the tab title [Image #1]",
+    )
+    assert cleaned == "Please fix the tab title"
+    assert term_mod._clean_agent_task("[Request interrupted by user]") is None
+    assert term_mod._clean_agent_task("x" * 400).endswith("...")
+    assert len(term_mod._clean_agent_task("x" * 400)) == 280
+
+
+def test_copilot_metadata_uses_latest_user_message(monkeypatch, tmp_path: Path) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    session_dir = tmp_path / "session-state" / "copilot-id"
+    session_dir.mkdir(parents=True)
+    (session_dir / "workspace.yaml").write_text(
+        "summary: Generated Copilot title\n",
+    )
+    events = [
+        {"type": "user.message", "data": {"content": "First task"}},
+        {"type": "assistant.message", "data": {"content": "Working"}},
+        {
+            "type": "user.message",
+            "data": {"content": "Fix the terminal header [Image #1]"},
+        },
+    ]
+    (session_dir / "events.jsonl").write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n",
+    )
+    term_mod._AGENT_METADATA_CACHE.clear()
+
+    assert term_mod._copilot_session_metadata("copilot-id") == (
+        "Generated Copilot title", "Fix the terminal header",
+    )
+
+
+def test_claude_metadata_uses_latest_direct_user_message(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cwd = "/repo"
+    project_dir = tmp_path / ".claude" / "projects" / "-repo"
+    project_dir.mkdir(parents=True)
+    events = [
+        {"aiTitle": "Generated Claude title"},
+        {
+            "type": "user", "isSidechain": False, "userType": "external",
+            "message": {"content": "First task"},
+        },
+        {
+            "type": "user", "isSidechain": False, "userType": "external",
+            "toolUseResult": {"ok": True},
+            "message": {"content": "Ignore this tool result"},
+        },
+        {
+            "type": "user", "isSidechain": False, "userType": "external",
+            "message": {"content": [{"type": "text", "text": "Latest task"}]},
+        },
+    ]
+    (project_dir / "claude-id.jsonl").write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n",
+    )
+    term_mod._AGENT_METADATA_CACHE.clear()
+
+    assert term_mod._claude_session_metadata("claude-id", cwd) == (
+        "Generated Claude title", "Latest task",
+    )
 
 
 def test_second_claude_gets_suffix(client, seed_project, isolated_prefix) -> None:

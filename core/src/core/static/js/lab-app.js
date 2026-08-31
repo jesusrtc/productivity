@@ -10053,7 +10053,17 @@
   }
 
   function _termSessionDisplay(s) {
-    return (s && (s.label || s.agent_session_name || s.logical_name || s.name)) || '';
+    if (!s) return '';
+    const manual = String(s.label || '').trim();
+    const agentSession = String(s.agent_session_name || '').trim();
+    if (manual && agentSession && manual !== agentSession) {
+      return `${manual}: ${agentSession}`;
+    }
+    return manual || agentSession || s.logical_name || s.name || '';
+  }
+
+  function _termSessionSummary(s) {
+    return (s && (s.agent_session_summary || s.summary)) || '';
   }
 
   function _termSessionVisual(s) {
@@ -10075,7 +10085,8 @@
     const parts = [];
     const display = _termSessionDisplay(s);
     if (display) parts.push(display);
-    if (s && s.summary) parts.push(s.summary);
+    const summary = _termSessionSummary(s);
+    if (summary) parts.push(`TL;DR: ${summary}`);
     if (s && s.name) parts.push(s.name);
     if (statusTitle) parts.push(statusTitle);
     parts.push('Double-click to rename');
@@ -10089,7 +10100,7 @@
     const workspaceId = _termWorkspaceId();
     const logical = session.logical_name || '';
     if (!projectId || !logical) return;
-    const current = session.label || session.agent_session_name || logical;
+    const current = session.label || logical;
     const nextRaw = prompt('Rename terminal tab', current);
     if (nextRaw === null) return;
     const next = nextRaw.trim();
@@ -10144,10 +10155,11 @@
       return;
     }
     const display = _termSessionDisplay(session);
+    const summary = _termSessionSummary(session);
     const visual = _termSessionVisual(session);
     el.className = `term-active-session on ${visual.kind}`;
     el.title = _termSessionTitle(session, '');
-    el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="name">${termSessEsc(display)}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+    el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">TL;DR · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
   }
 
   function _termSessionPillHtml(s, index) {

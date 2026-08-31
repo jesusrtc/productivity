@@ -442,8 +442,10 @@ const document = {getElementById(id) {
 }};
 const termSessions = [{
   name: 'lab-demo-codex-2-abc123', logical_name: 'codex-2',
-  kind: 'claude', agent: 'codex', summary: 'Reviewing changes',
+  kind: 'claude', agent: 'codex',
+  label: 'Sessions', summary: 'stale pane prompt',
   agent_session_name: 'Review terminal naming',
+  agent_session_summary: 'Show the latest task in hover and header',
 }];
 let termCurrentSession = termSessions[0].name;
 let termCurrentProjectId = 'demo';
@@ -460,11 +462,15 @@ process.stdout.write(JSON.stringify({
     )
 
     assert result["className"] == "term-active-session on claude"
-    assert '<span class="name">Review terminal naming</span>' in result["html"]
+    assert '<span class="name">Sessions: Review terminal naming</span>' in result["html"]
+    assert (
+        '<span class="summary">TL;DR · Show the latest task in hover and header</span>'
+        in result["html"]
+    )
     assert '<span class="agent">codex</span>' in result["html"]
 
 
-def test_terminal_session_name_priority_keeps_manual_label_override() -> None:
+def test_terminal_session_name_combines_manual_and_agent_titles() -> None:
     display_helper = _js_between(
         "function _termSessionDisplay(s)",
         "function _termSessionVisual(s)",
@@ -487,9 +493,34 @@ process.stdout.write(JSON.stringify({
 
     assert result == {
         "generated": "Generated session title",
-        "manual": "My tab",
+        "manual": "My tab: Generated session title",
         "fallback": "codex-3",
     }
+
+
+def test_terminal_hover_prefers_latest_agent_task() -> None:
+    title_helpers = _js_between(
+        "function _termSessionDisplay(s)",
+        "async function termRenameSession(name)",
+    )
+    result = _run_node(
+        title_helpers + """
+process.stdout.write(JSON.stringify(_termSessionTitle({
+  name: 'tmux-name', logical_name: 'codex-2', label: 'Sessions',
+  agent_session_name: 'Terminal naming',
+  agent_session_summary: 'Show the latest user assignment',
+  summary: 'Ask Codex to do anything',
+}, 'Recently active')));
+"""
+    )
+
+    assert result.splitlines() == [
+        "Sessions: Terminal naming",
+        "TL;DR: Show the latest user assignment",
+        "tmux-name",
+        "Recently active",
+        "Double-click to rename",
+    ]
 
 
 def test_workspace_view_opens_its_own_terminal_scope() -> None:
