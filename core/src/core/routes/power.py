@@ -2,7 +2,8 @@
 
 The browser Wake Lock API used by Lab's existing Keep Alive switch cannot
 prevent a Mac from sleeping after its lid closes.  This route deliberately
-uses macOS's system setting instead, behind the standard administrator prompt.
+uses macOS's system setting instead, authenticated through sudo with either
+the user's configured Touch ID flow or a one-time password from the UI.
 
 The privileged helper reads a user-owned deadline file once per second.  That
 keeps renewal cheap (only the deadline changes), survives a Lab server restart,
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from core import auth
 
@@ -30,11 +31,14 @@ router = APIRouter()
 
 _ALLOWED_MINUTES = {15, 30, 60}
 _APPROVAL_TIMEOUT_S = 120
+_SUCCESS_MARKER = "__LAB_LID_AWAKE_STARTED__"
 _LOCK = threading.Lock()
 
 
 class LidAwakeRequest(BaseModel):
     minutes: Literal[15, 30, 60]
+    auth_method: Literal["touch_id", "password"] = "touch_id"
+    password: SecretStr | None = None
 
 
 def _deadline_path() -> Path:
@@ -45,8 +49,9 @@ def _deadline_path() -> Path:
 def _is_supported() -> bool:
     return (
         sys.platform == "darwin"
-        and Path("/usr/bin/osascript").is_file()
         and Path("/usr/bin/pmset").is_file()
+        and Path("/usr/bin/script").is_file()
+        and Path("/usr/bin/sudo").is_file()
     )
 
 
@@ -97,7 +102,7 @@ def _status(*, now: int | None = None) -> dict:
 
 
 def _timer_helper_command(deadline_file: Path) -> str:
-    """Return the fixed root helper command passed as one AppleScript argv item."""
+    """Return the fixed command that sudo runs as root."""
     path = shlex.quote(str(deadline_file))
     loop = (
         "trap '/usr/bin/pmset -a disablesleep 0' EXIT HUP INT TERM\n"
@@ -109,51 +114,85 @@ def _timer_helper_command(deadline_file: Path) -> str:
         "  /bin/sleep 1\n"
         "done\n"
     )
-    # pmset runs in the foreground, so osascript can report a real failure.
-    # Only the small deadline watcher is detached; all of its file descriptors
-    # are redirected so `do shell script` can return immediately.
+    # pmset runs in the foreground, then the small deadline watcher detaches.
+    # A fixed marker is printed only after both steps succeed; macOS `script`
+    # always exits zero, so the caller uses this marker as its success signal.
     return (
         "/usr/bin/pmset -a disablesleep 1; "
         "status=$?; [ \"$status\" -eq 0 ] || exit \"$status\"; "
         f"/usr/bin/nohup /bin/sh -c {shlex.quote(loop)} "
-        "</dev/null >/dev/null 2>&1 &"
+        f"</dev/null >/dev/null 2>&1 & /bin/echo {_SUCCESS_MARKER}"
     )
 
 
-def _start_privileged_timer() -> None:
+def _start_privileged_timer(
+    *, auth_method: Literal["touch_id", "password"], password: str | None = None,
+) -> None:
     command = _timer_helper_command(_deadline_path())
+    if auth_method == "password":
+        argv = [
+            "/usr/bin/sudo", "-S", "-p", "",
+            "--", "/bin/sh", "-c", command,
+        ]
+        stdin = None
+        input_text = f"{password}\n"
+    else:
+        argv = [
+            "/usr/bin/script", "-q", "/dev/null",
+            "/usr/bin/sudo",
+            "-p", "Approve Lid Awake with Touch ID",
+            "--", "/bin/sh", "-c", command,
+        ]
+        stdin = subprocess.DEVNULL
+        input_text = None
+
     try:
         proc = subprocess.run(
-            [
-                "/usr/bin/osascript",
-                "-e", "on run argv",
-                "-e", "do shell script (item 1 of argv) with administrator privileges",
-                "-e", "end run",
-                "--", command,
-            ],
-            capture_output=True,
+            argv,
+            stdin=stdin,
+            input=input_text,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             timeout=_APPROVAL_TIMEOUT_S,
+            start_new_session=True,
         )
     except subprocess.TimeoutExpired as exc:
+        detail = (
+            "Password authentication timed out. Lid Awake was not started."
+            if auth_method == "password"
+            else "Touch ID approval timed out. Lid Awake was not started."
+        )
         raise HTTPException(
             status_code=504,
-            detail="Administrator approval timed out. Lid Awake was not started.",
+            detail=detail,
         ) from exc
     except OSError as exc:
+        detail = (
+            "macOS could not start password authentication."
+            if auth_method == "password"
+            else "macOS could not start Touch ID approval."
+        )
         raise HTTPException(
             status_code=503,
-            detail="macOS could not open the administrator approval dialog.",
+            detail=detail,
         ) from exc
 
-    if proc.returncode == 0:
+    output = proc.stdout or ""
+    if _SUCCESS_MARKER in output:
         return
-    message = (proc.stderr or proc.stdout or "").strip()
-    if "User canceled" in message or "(-128)" in message:
-        detail = "Administrator approval was cancelled. Lid Awake was not started."
-    else:
-        detail = message or "macOS could not start Lid Awake."
-    raise HTTPException(status_code=409, detail=detail)
+    if auth_method == "password":
+        raise HTTPException(
+            status_code=409,
+            detail="Password authentication failed. Check your Mac password and try again.",
+        )
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "Touch ID was not approved. Confirm that sudo works with Touch ID "
+            "in Terminal, then try again."
+        ),
+    )
 
 
 @router.get("/api/power/lid-awake")
@@ -173,6 +212,9 @@ def start_lid_awake(body: LidAwakeRequest, request: Request) -> dict:
 
     with _LOCK:
         was_active = _status()["active"]
+        password = body.password.get_secret_value() if body.password else None
+        if not was_active and body.auth_method == "password" and not password:
+            raise HTTPException(status_code=400, detail="Enter your Mac password.")
         deadline = int(time.time()) + body.minutes * 60
         try:
             _write_deadline(deadline)
@@ -183,7 +225,10 @@ def start_lid_awake(body: LidAwakeRequest, request: Request) -> dict:
         # it on its next one-second tick, so no second approval is necessary.
         if not was_active:
             try:
-                _start_privileged_timer()
+                _start_privileged_timer(
+                    auth_method=body.auth_method,
+                    password=password if body.auth_method == "password" else None,
+                )
             except Exception:
                 _clear_deadline()
                 raise

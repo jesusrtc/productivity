@@ -327,6 +327,17 @@ process.stdout.write(JSON.stringify({activeLabel, inactiveLabel}));
     }
 
 
+def test_lid_awake_remembers_only_the_authentication_method() -> None:
+    source = _focus_mode_source()
+
+    assert "const LID_AWAKE_AUTH_KEY = 'labLidAwakeAuth';" in source
+    assert 'type="password"' in source
+    assert 'autocomplete="off"' in source
+    assert "localStorage.setItem(LID_AWAKE_AUTH_KEY, method)" in source
+    assert "localStorage.setItem(LID_AWAKE_AUTH_KEY, password)" not in source
+    assert "localStorage.setItem('password'" not in source
+
+
 def test_focus_mode_degrades_gracefully_without_browser_apis() -> None:
     result = _run_node(_harness("""
 delete document.documentElement.requestFullscreen;

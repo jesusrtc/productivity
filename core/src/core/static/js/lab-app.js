@@ -4971,6 +4971,7 @@
   // Focus control. Esc exits Focus; both preferences persist across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
   const KEEP_ALIVE_KEY = 'labKeepAlive';
+  const LID_AWAKE_AUTH_KEY = 'labLidAwakeAuth';
   const LID_AWAKE_DURATIONS = [15, 30, 60];
   const FOCUS_ZOOM_MIN = 0.5;
   const FOCUS_ZOOM_MAX = 3;
@@ -4984,6 +4985,13 @@
   let _lidAwakeMenuOpen = false;
   let _lidAwakeBusy = false;
   let _lidAwakeError = '';
+  let _lidAwakeAuthMethod = 'touch_id';
+  try {
+    const savedLidAwakeAuth = localStorage.getItem(LID_AWAKE_AUTH_KEY);
+    if (savedLidAwakeAuth === 'touch_id' || savedLidAwakeAuth === 'password') {
+      _lidAwakeAuthMethod = savedLidAwakeAuth;
+    }
+  } catch {}
 
   function _lidAwakeIsActive() {
     return _lidAwakeDeadlineMs > Date.now();
@@ -5033,16 +5041,28 @@
     const cancel = active
       ? `<button type="button" role="menuitem" class="lid-awake-cancel" onclick="event.stopPropagation(); cancelLidAwake()"${disabled}>Cancel now</button>`
       : '';
+    const authentication = active ? '' : `
+      <div class="lid-awake-auth-label">Approve with</div>
+      <div class="lid-awake-auth" role="radiogroup" aria-label="Lid Awake authentication">
+        <button type="button" role="radio" aria-checked="${_lidAwakeAuthMethod === 'touch_id'}" class="${_lidAwakeAuthMethod === 'touch_id' ? 'selected' : ''}" onclick="event.stopPropagation(); setLidAwakeAuthMethod('touch_id')"${disabled}>Touch ID</button>
+        <button type="button" role="radio" aria-checked="${_lidAwakeAuthMethod === 'password'}" class="${_lidAwakeAuthMethod === 'password' ? 'selected' : ''}" onclick="event.stopPropagation(); setLidAwakeAuthMethod('password')"${disabled}>Password</button>
+      </div>
+      ${_lidAwakeAuthMethod === 'password'
+        ? `<input id="lidAwakePassword" class="lid-awake-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Mac password" aria-label="Mac password"${disabled}>`
+        : ''}`;
     const message = _lidAwakeError
       ? `<div class="lid-awake-error">${esc(_lidAwakeError)}</div>`
       : (_lidAwakeBusy
-        ? '<div class="lid-awake-note">Waiting for macOS approval…</div>'
+        ? `<div class="lid-awake-note">${_lidAwakeAuthMethod === 'password' ? 'Checking password…' : 'Waiting for Touch ID…'}</div>`
         : (active
           ? '<div class="lid-awake-note">Choose a duration to reset the timer from now.</div>'
-          : '<div class="lid-awake-note">Keeps this Mac running with the lid closed. Starting it may ask for administrator approval.</div>'));
+          : `<div class="lid-awake-note">${_lidAwakeAuthMethod === 'password'
+            ? 'Sent once to sudo on this Mac. The password is never saved.'
+            : 'Keeps this Mac running with the lid closed. Starting it asks for Touch ID.'}</div>`));
     menu.innerHTML = `
       <div class="lid-awake-title">Lid Awake</div>
       ${current}
+      ${authentication}
       <div class="lid-awake-durations">${durationButtons}</div>
       ${cancel}
       ${message}`;
@@ -5079,11 +5099,15 @@
   async function _syncLidAwakeStatus() {
     if (!window.fetch) return;
     try {
+      const wasActive = _lidAwakeIsActive();
+      const wasSupported = _lidAwakeSupported;
       const response = await window.fetch('/api/power/lid-awake');
       if (!response.ok) return;
       _applyLidAwakeStatus(await response.json());
       _updateLidAwakeControl();
-      if (_lidAwakeMenuOpen) _renderLidAwakeMenu();
+      if (_lidAwakeMenuOpen
+          && (wasActive !== _lidAwakeIsActive()
+            || wasSupported !== _lidAwakeSupported)) _renderLidAwakeMenu();
     } catch {}
   }
 
@@ -5096,8 +5120,32 @@
   }
   window.toggleLidAwakeMenu = toggleLidAwakeMenu;
 
+  function setLidAwakeAuthMethod(method) {
+    if (_lidAwakeBusy || _lidAwakeIsActive()
+        || (method !== 'touch_id' && method !== 'password')) return;
+    _lidAwakeAuthMethod = method;
+    _lidAwakeError = '';
+    try { localStorage.setItem(LID_AWAKE_AUTH_KEY, method); } catch {}
+    _renderLidAwakeMenu();
+    if (method === 'password') {
+      const input = document.getElementById('lidAwakePassword');
+      if (input && typeof input.focus === 'function') input.focus();
+    }
+  }
+  window.setLidAwakeAuthMethod = setLidAwakeAuthMethod;
+
   async function setLidAwake(minutes) {
     if (_lidAwakeBusy || !LID_AWAKE_DURATIONS.includes(Number(minutes))) return;
+    let password = null;
+    if (!_lidAwakeIsActive() && _lidAwakeAuthMethod === 'password') {
+      const input = document.getElementById('lidAwakePassword');
+      password = input ? input.value : '';
+      if (!password) {
+        _lidAwakeError = 'Enter your Mac password.';
+        _renderLidAwakeMenu();
+        return;
+      }
+    }
     _lidAwakeBusy = true;
     _lidAwakeError = '';
     _renderLidAwakeMenu();
@@ -5106,7 +5154,11 @@
       const response = await window.fetch('/api/power/lid-awake', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({minutes: Number(minutes)}),
+        body: JSON.stringify({
+          minutes: Number(minutes),
+          auth_method: _lidAwakeAuthMethod,
+          ...(password !== null ? {password} : {}),
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail || 'Lid Awake could not be started.');
@@ -5116,6 +5168,7 @@
       _lidAwakeError = String(error && error.message || error);
       _lidAwakeMenuOpen = true;
     } finally {
+      password = null;
       _lidAwakeBusy = false;
       if (currentProject) renderRepoTabs();
       else _renderLidAwakeMenu();
@@ -5415,7 +5468,7 @@
         : (lidAwakeOn
           ? 'Mac stays running with the lid closed; choose a new time or cancel'
           : 'Keep this Mac running with the lid closed for 15, 30, or 60 minutes');
-      html += `<button class="repo-tab lid-awake-toggle${lidAwakeOn ? ' active' : ''}${_lidAwakeBusy ? ' busy' : ''}" data-testid="lid-awake-toggle" onclick="toggleLidAwakeMenu(event)" aria-haspopup="menu" aria-expanded="${_lidAwakeMenuOpen}" aria-label="${lidAwakeOn ? `${_lidAwakeLabel()}; choose a new time or cancel` : 'Start Lid Awake timer'}" title="${lidAwakeTitle}"${!_lidAwakeSupported ? ' disabled' : ''}><span class="lid-awake-label">${_lidAwakeLabel()}</span></button>`;
+      html += `<button class="repo-tab lid-awake-toggle${lidAwakeOn ? ' active' : ''}${_lidAwakeBusy ? ' busy' : ''}" data-testid="lid-awake-toggle" onclick="toggleLidAwakeMenu(event)" aria-haspopup="dialog" aria-expanded="${_lidAwakeMenuOpen}" aria-label="${lidAwakeOn ? `${_lidAwakeLabel()}; choose a new time or cancel` : 'Start Lid Awake timer'}" title="${lidAwakeTitle}"${!_lidAwakeSupported ? ' disabled' : ''}><span class="lid-awake-label">${_lidAwakeLabel()}</span></button>`;
     }
     html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? (keepAliveOn ? 'Exit fullscreen focus (Keep Alive will remain on)' : 'Exit fullscreen focus and allow display sleep again (Esc)') : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
