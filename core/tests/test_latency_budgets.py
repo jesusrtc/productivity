@@ -72,14 +72,61 @@ class TestTermSessionsLatency:
     def test_list_sessions_budget(self, client, mock_tmux_alive, monkeypatch):
         from core.routes import term as term_route
 
-        # Force an empty _tmux_list to isolate handler overhead from the
-        # subprocess spawn cost (the real cost is measured in the real-
-        # tmux test below).
-        monkeypatch.setattr(term_route, "_tmux_list", lambda prefix: [])
+        # Exercise row shaping with a busy workspace rather than an empty
+        # response. The global poll does not consume agent titles/summaries,
+        # so those expensive lookups must remain completely off its path.
+        listing = [
+            {"name": f"lab-demo-codex-{i}", "created": i, "windows": 1}
+            for i in range(40)
+        ]
+        metadata = {
+            row["name"]: {
+                "project_id": "demo", "logical_name": f"codex-{i}",
+                "agent": "codex", "pane_tty": f"/dev/ttys{i:03d}",
+                "created_at": i,
+            }
+            for i, row in enumerate(listing)
+        }
+        monkeypatch.setattr(term_route, "_tmux_list", lambda _prefix: listing)
+        monkeypatch.setattr(term_route, "_sync_meta", lambda _root, _rows: metadata)
+        detail_calls = []
+        monkeypatch.setattr(
+            term_route, "_enrich_agent_session_names",
+            lambda _rows: detail_calls.append("agent"),
+        )
+        monkeypatch.setattr(
+            term_route, "_infer_session_summary",
+            lambda *_args: detail_calls.append("pane"),
+        )
 
         samples = [_time_ns(lambda: client.get("/api/term/sessions"))
                    for _ in range(30)]
         _assert_p95(samples, budget_ms=20.0, name="GET /api/term/sessions")
+        assert detail_calls == []
+
+    def test_codex_metadata_covered_cache_budget(self, monkeypatch):
+        """A mixed terminal rail stays sub-ms while metadata cache is hot."""
+        from core.routes import term as term_route
+
+        covered = {f"ttys{i:03d}" for i in range(100)}
+        resolved = {
+            f"ttys{i:03d}": (f"thread-{i}", f"Title {i}", f"Task {i}")
+            for i in range(0, 100, 4)
+        }
+        monkeypatch.setattr(
+            term_route, "_CODEX_METADATA_CACHE",
+            (time.monotonic(), covered, resolved),
+        )
+
+        def _lookup():
+            rows = term_route._codex_session_metadata_by_tty(covered)
+            assert len(rows) == 25
+
+        samples = [_time_ns(_lookup) for _ in range(200)]
+        _assert_p95(
+            samples, budget_ms=0.25,
+            name="Codex terminal metadata covered-cache lookup", warmup=5,
+        )
 
 
 class TestClientLogPostLatency:

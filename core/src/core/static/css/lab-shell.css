@@ -1747,6 +1747,8 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
+  .term-session-tooltip { position: fixed; z-index: 1200; max-width: min(420px, calc(100vw - 16px)); box-sizing: border-box; padding: 7px 9px; color: var(--text-primary); background: #20252c; border: 1px solid #414852; border-radius: 5px; box-shadow: 0 5px 18px rgba(0,0,0,.48); font: 11px/1.35 ui-monospace, monospace; white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; }
+  .term-session-tooltip[hidden] { display: none; }
   .term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0 var(--term-recent-color, var(--green)); }
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
   /* Dead session: server told us the tmux session is gone, or the
@@ -1831,6 +1833,8 @@
   .term-group-color { width: 15px; height: 15px; cursor: pointer; }
   .term-group-color.selected { outline: 2px solid var(--text-primary); outline-offset: 2px; }
   .term-status { padding: 4px 10px; font-size: 11px; color: var(--text-secondary); background: var(--bg-secondary); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; flex-shrink: 0; display: flex; gap: 10px; align-items: center; }
+  #termStatusText { max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
+  .term-status-summary { min-width: 0; flex: 1; padding-left: 10px; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); border-left: 1px solid var(--border); white-space: nowrap; }
   .term-status .dot { width: 7px; height: 7px; border-radius: 50%; background: #484f58; display: inline-block; }
   .term-status.live .dot { background: var(--green); }
   .term-status.err .dot { background: var(--red); }

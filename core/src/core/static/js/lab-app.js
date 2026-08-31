@@ -10144,22 +10144,73 @@
 
   function _termRenderActiveSessionHeader() {
     const el = document.getElementById('termActiveSession');
-    if (!el) return;
+    const statusSummary = document.getElementById('termStatusSummary');
+    if (!el && !statusSummary) return;
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId
     );
     if (!session) {
-      el.innerHTML = '';
-      el.removeAttribute('title');
-      el.className = 'term-active-session';
+      if (el) {
+        el.innerHTML = '';
+        el.removeAttribute('title');
+        el.className = 'term-active-session';
+      }
+      if (statusSummary) {
+        statusSummary.textContent = '';
+        statusSummary.removeAttribute('title');
+        statusSummary.hidden = true;
+      }
       return;
     }
     const display = _termSessionDisplay(session);
     const summary = _termSessionSummary(session);
     const visual = _termSessionVisual(session);
-    el.className = `term-active-session on ${visual.kind}`;
-    el.title = _termSessionTitle(session, '');
-    el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">TL;DR · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+    if (el) {
+      el.className = `term-active-session on ${visual.kind}`;
+      el.title = _termSessionTitle(session, '');
+      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">TL;DR · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+    }
+    if (statusSummary) {
+      statusSummary.textContent = summary ? `TL;DR · ${summary}` : '';
+      statusSummary.title = summary || '';
+      statusSummary.hidden = !summary;
+    }
+  }
+
+  function _termHideSessionTooltip() {
+    const tooltip = document.getElementById('termSessionTooltip');
+    if (!tooltip) return;
+    tooltip.hidden = true;
+    tooltip.textContent = '';
+  }
+
+  function _termShowSessionTooltip(anchor) {
+    const tooltip = document.getElementById('termSessionTooltip');
+    const text = anchor && anchor.getAttribute('data-tooltip');
+    if (!tooltip || !text) {
+      _termHideSessionTooltip();
+      return;
+    }
+    // Native `title` tooltips wait for the browser's dwell timer. This
+    // fixed-position tooltip is populated and laid out in the pointer/focus
+    // event itself, so the task appears immediately and is keyboard-visible.
+    tooltip.textContent = text;
+    tooltip.hidden = false;
+    tooltip.style.left = '0px';
+    tooltip.style.top = '0px';
+    const anchorRect = anchor.getBoundingClientRect();
+    const tipRect = tooltip.getBoundingClientRect();
+    const gap = 8;
+    let left = anchorRect.right + gap;
+    if (left + tipRect.width > window.innerWidth - gap) {
+      left = Math.max(gap, anchorRect.left - tipRect.width - gap);
+    }
+    const top = Math.max(
+      gap,
+      Math.min(anchorRect.top, window.innerHeight - tipRect.height - gap),
+    );
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
   }
 
   function _termSessionPillHtml(s, index) {
@@ -10175,8 +10226,10 @@
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
     const recentTitle = recentMeta ? `Recently active — ${recentMeta.label} · window ${_termRecentWindowLabel()}` : '';
-    const ariaLabel = `${display} · ${visual.badge}`;
-    return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" title="${termSessEsc(_termSessionTitle(s, [statusTitle, recentTitle].filter(Boolean).join(' · ')))}">
+    const summary = _termSessionSummary(s);
+    const ariaLabel = `${display} · ${visual.badge}${summary ? ` · ${summary}` : ''}`;
+    const tooltip = _termSessionTitle(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
+    return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
@@ -10187,6 +10240,7 @@
   function termRenderSessionList() {
     const el = document.getElementById('termSessionList');
     if (!el) return;
+    _termHideSessionTooltip();
     _termRenderActiveSessionHeader();
     if (!termSessions || termSessions.length === 0) {
       el.innerHTML = '';
@@ -10232,6 +10286,10 @@
     flushDivider();
     el.innerHTML = html;
     el.querySelectorAll('.sess').forEach(node => {
+      node.addEventListener('pointerenter', () => _termShowSessionTooltip(node));
+      node.addEventListener('pointerleave', _termHideSessionTooltip);
+      node.addEventListener('focus', () => _termShowSessionTooltip(node));
+      node.addEventListener('blur', _termHideSessionTooltip);
       node.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();

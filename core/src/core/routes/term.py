@@ -682,8 +682,12 @@ _AGENT_METADATA_TTL_S = 5.0
 _AGENT_METADATA_CACHE: dict[
     str, tuple[float, tuple[str | None, str | None]]
 ] = {}
+# Cache both the TTYs that were inspected and the subset that resolved to a
+# live Codex thread.  A pane TTY can legitimately have no Codex process; if
+# we only cache successful resolutions, one such terminal turns every poll
+# into another ps + SQLite scan instead of a cache hit.
 _CODEX_METADATA_CACHE: tuple[
-    float, dict[str, tuple[str, str, str | None]]
+    float, set[str], dict[str, tuple[str, str, str | None]]
 ] | None = None
 _CODEX_PROCESS_UUID_RE = re.compile(r"^pid:(\d+):")
 _AGENT_IMAGE_TAG_RE = re.compile(r"<image\b[^>]*>.*?</image>", re.DOTALL | re.I)
@@ -875,14 +879,14 @@ def _codex_session_metadata_by_tty(
         and wanted.issubset(_CODEX_METADATA_CACHE[1])
     ):
         return {
-            tty: value for tty, value in _CODEX_METADATA_CACHE[1].items()
+            tty: value for tty, value in _CODEX_METADATA_CACHE[2].items()
             if tty in wanted
         }
 
     logs_path = Path.home() / ".codex" / "logs_2.sqlite"
     threads_path = Path.home() / ".codex" / "state_5.sqlite"
     if not logs_path.is_file() or not threads_path.is_file():
-        _CODEX_METADATA_CACHE = (now, {})
+        _CODEX_METADATA_CACHE = (now, wanted, {})
         return {}
     try:
         proc = subprocess.run(
@@ -899,7 +903,7 @@ def _codex_session_metadata_by_tty(
                 if tty in wanted:
                     pid_tty[int(fields[0])] = tty
         if not pid_tty:
-            _CODEX_METADATA_CACHE = (now, {})
+            _CODEX_METADATA_CACHE = (now, wanted, {})
             return {}
 
         directories = sorted(cwd for cwd in (cwds or set()) if cwd)
@@ -923,7 +927,7 @@ def _codex_session_metadata_by_tty(
             ).fetchall()
         threads = {str(row[0]): row for row in thread_rows}
         if not threads:
-            _CODEX_METADATA_CACHE = (now, {})
+            _CODEX_METADATA_CACHE = (now, wanted, {})
             return {}
         thread_ids = list(threads)
         placeholders = ",".join("?" for _ in thread_ids)
@@ -1003,7 +1007,7 @@ def _codex_session_metadata_by_tty(
             )
             for tty, row in best.items()
         }
-        _CODEX_METADATA_CACHE = (now, resolved)
+        _CODEX_METADATA_CACHE = (now, wanted, resolved)
         return resolved
     except (OSError, sqlite3.Error, subprocess.SubprocessError):
         return {}
@@ -1799,7 +1803,9 @@ class AttachSession(BaseModel):
 # duration of each tmux spawn (a few ms, several times per second under the
 # UI's polling) — visible as typing-echo jitter.
 
-def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
+def _sessions_for_root(
+    root: Path, project_id: str | None, *, include_agent_details: bool = True,
+) -> list[dict]:
     """One workspace's live session rows (optionally scoped to
     ``project_id``), with the runtime registry reconciled against the live
     tmux listing. Factored out of ``list_sessions`` so the "every
@@ -1831,20 +1837,25 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
                 if saved.get(key):
                     row[key] = saved[key]
         rows.append(row)
-    _enrich_agent_session_names(rows)
-    for row in rows:
-        if row.get("summary"):
-            continue
-        agent_summary = row.get("agent_session_summary")
-        if agent_summary:
-            row["summary"] = agent_summary
-            continue
-        inferred = _infer_session_summary(
-            str(row.get("name") or ""),
-            str(row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET),
-        )
-        if inferred:
-            row["summary"] = inferred
+    # Agent titles/tasks and capture-pane summaries are useful in the active
+    # project's terminal UI, but the unscoped endpoint is polled every five
+    # seconds by the dashboard/top tabs and consumes none of those fields.
+    # Avoid ps, SQLite and one tmux capture per row on that global hot path.
+    if include_agent_details:
+        _enrich_agent_session_names(rows)
+        for row in rows:
+            if row.get("summary"):
+                continue
+            agent_summary = row.get("agent_session_summary")
+            if agent_summary:
+                row["summary"] = agent_summary
+                continue
+            inferred = _infer_session_summary(
+                str(row.get("name") or ""),
+                str(row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET),
+            )
+            if inferred:
+                row["summary"] = inferred
     return rows
 
 
@@ -1897,7 +1908,10 @@ def list_sessions(
         if not auth.can_access_workspace(user, str(ws["id"])):
             continue
         try:
-            ws_rows = fsguard.guarded(ws["path"], _sessions_for_root, ws["path"], None)
+            ws_rows = fsguard.guarded(
+                ws["path"], _sessions_for_root, ws["path"], None,
+                include_agent_details=False,
+            )
         except HTTPException as exc:
             if exc.status_code != 503:
                 raise
@@ -1948,6 +1962,7 @@ def list_attachable_sessions(
         try:
             ws_rows = fsguard.guarded(
                 ws["path"], _sessions_for_root, ws["path"], None,
+                include_agent_details=False,
             )
         except HTTPException as exc:
             if exc.status_code != 503:

@@ -470,6 +470,93 @@ process.stdout.write(JSON.stringify({
     assert '<span class="agent">codex</span>' in result["html"]
 
 
+def test_terminal_latest_task_is_visible_in_console_status_bar() -> None:
+    header_helpers = _js_between(
+        "function _termSessionDisplay(s)",
+        "function _termSessionPillHtml(s, index)",
+    )
+    result = _run_node(
+        """
+const activeHeader = {
+  className: '', title: '', innerHTML: '',
+  removeAttribute() {},
+};
+const statusSummary = {
+  textContent: '', title: '', hidden: true,
+  removeAttribute(name) { if (name === 'title') this.title = ''; },
+};
+const document = {getElementById(id) {
+  if (id === 'termActiveSession') return activeHeader;
+  if (id === 'termStatusSummary') return statusSummary;
+  return null;
+}};
+const termSessions = [{
+  name: 'tmux-codex', logical_name: 'codex', agent: 'codex',
+  agent_session_name: 'Session names',
+  agent_session_summary: 'Fix immediate hover and show this task above the terminal',
+}];
+let termCurrentSession = 'tmux-codex';
+let termCurrentProjectId = 'demo';
+function _termActiveProjectId() { return 'demo'; }
+function termSessEsc(value) { return String(value); }
+""" + header_helpers + """
+_termRenderActiveSessionHeader();
+process.stdout.write(JSON.stringify(statusSummary));
+"""
+    )
+
+    assert result == {
+        "textContent": (
+            "TL;DR · Fix immediate hover and show this task above the terminal"
+        ),
+        "title": "Fix immediate hover and show this task above the terminal",
+        "hidden": False,
+    }
+
+
+def test_terminal_custom_tooltip_opens_synchronously_without_native_title() -> None:
+    tooltip_helpers = _js_between(
+        "function _termHideSessionTooltip()",
+        "function _termSessionPillHtml(s, index)",
+    )
+    result = _run_node(
+        """
+const tooltip = {
+  hidden: true, textContent: '', style: {},
+  getBoundingClientRect() { return {width: 220, height: 80}; },
+};
+const anchor = {
+  getAttribute(name) {
+    return name === 'data-tooltip' ? 'Sessions\\nTL;DR: Latest task' : null;
+  },
+  getBoundingClientRect() {
+    return {left: 20, right: 70, top: 30, width: 50, height: 36};
+  },
+};
+const document = {getElementById(id) {
+  return id === 'termSessionTooltip' ? tooltip : null;
+}};
+const window = {innerWidth: 900, innerHeight: 700};
+""" + tooltip_helpers + """
+_termShowSessionTooltip(anchor);
+process.stdout.write(JSON.stringify(tooltip));
+"""
+    )
+
+    assert result["hidden"] is False
+    assert result["textContent"] == "Sessions\nTL;DR: Latest task"
+    assert result["style"] == {"left": "78px", "top": "30px"}
+
+    source = LAB_APP.read_text(encoding="utf-8")
+    pill = _js_between(
+        "function _termSessionPillHtml(s, index)",
+        "function termRenderSessionList()",
+    )
+    assert 'data-tooltip="${termSessEsc(tooltip)}"' in pill
+    assert ' title="${termSessEsc(_termSessionTitle' not in pill
+    assert "node.addEventListener('pointerenter'" in source
+
+
 def test_terminal_session_name_combines_manual_and_agent_titles() -> None:
     display_helper = _js_between(
         "function _termSessionDisplay(s)",

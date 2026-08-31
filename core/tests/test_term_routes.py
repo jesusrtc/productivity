@@ -520,6 +520,28 @@ def test_agent_task_cleanup_removes_image_markup_and_truncates() -> None:
     assert len(term_mod._clean_agent_task("x" * 400)) == 280
 
 
+def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
+    monkeypatch,
+) -> None:
+    """An ordinary terminal beside Codex must not defeat the hot cache."""
+    import core.routes.term as term_mod
+
+    cached = {
+        "ttys001": ("thread-1", "Session title", "Latest task"),
+    }
+    term_mod._CODEX_METADATA_CACHE = (
+        term_mod.time.monotonic(), {"ttys001", "ttys002"}, cached,
+    )
+
+    def unexpected_process(*_args, **_kwargs):
+        raise AssertionError("a covered cache lookup must not run ps")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", unexpected_process)
+    assert term_mod._codex_session_metadata_by_tty(
+        {"/dev/ttys001", "/dev/ttys002"}, {"/repo"},
+    ) == cached
+
+
 def test_copilot_metadata_uses_latest_user_message(monkeypatch, tmp_path: Path) -> None:
     import core.routes.term as term_mod
 
@@ -1440,8 +1462,10 @@ def test_workspace_neutral_names_keep_workspace_in_collision_hash(
 
 
 def test_list_sessions_unscoped_spans_all_registered_workspaces(
-    client, seed_project, second_workspace_tmux,
+    client, seed_project, second_workspace_tmux, monkeypatch,
 ) -> None:
+    import core.routes.term as term_mod
+
     seed_project("demo")
     other_root = second_workspace_tmux
 
@@ -1449,10 +1473,30 @@ def test_list_sessions_unscoped_spans_all_registered_workspaces(
                        json={"project_id": "demo", "kind": "terminal"}).json()
     other_name = _spawn_and_adopt(other_root, "demo2", "bash")
 
+    # The global endpoint feeds top tabs/the dashboard and does not display
+    # agent titles or task summaries. It must not pay for those expensive
+    # ps/SQLite/capture-pane lookups on its five-second poll.
+    detail_calls: list[str] = []
+    monkeypatch.setattr(
+        term_mod, "_enrich_agent_session_names",
+        lambda _rows: detail_calls.append("agent"),
+    )
+    monkeypatch.setattr(
+        term_mod, "_infer_session_summary",
+        lambda *_args: detail_calls.append("pane"),
+    )
+
     rows = client.get("/api/term/sessions").json()
     by_name = {r["name"]: r for r in rows}
     assert by_name[mine["name"]]["workspace"] == "ssd"
     assert by_name[other_name]["workspace"] == "other"
+    assert detail_calls == []
+
+    # A project-scoped request powers the visible terminal panel and keeps
+    # the richer details enabled.
+    scoped = client.get("/api/term/sessions?project_id=demo")
+    assert scoped.status_code == 200
+    assert "agent" in detail_calls
 
 
 def test_create_and_list_sessions_can_target_non_active_workspace(

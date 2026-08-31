@@ -22,6 +22,7 @@
 - [Terminal tmux names hide workspace identity](terminal-tmux-names-hide-workspace.md) — current names are `neurona-<project>-<tab>-<hash6>`; ownership stays in hash/runtime metadata and old names remain discoverable
 - [Terminal tab dividers are browser-local](terminal-tab-groups-are-browser-local.md) — draggable colored lines are locally persisted navigation chrome scoped to each terminal surface
 - [Terminal tabs use agent session names](terminal-tabs-use-agent-session-names.md) — combine manual + provider names and show the provider's latest direct user task in hover/header
+- [Terminal session metadata stays off the global poll](terminal-session-metadata-hot-path.md) — unscoped/attach scans skip agent details; Codex cache coverage includes unresolved TTYs
 - [Project names are display aliases](project-names-are-display-aliases.md) — keep `project.json.id` and the directory stable; render/edit `project.json.name` as the human-facing tab label
 - [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles
 - [Focus mode and Keep Alive](focus-mode-is-presentation-mode.md) — Focus requests fullscreen plus a wake lock; the adjacent persistent Keep Alive switch can own the wake lock independently
