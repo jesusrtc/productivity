@@ -295,7 +295,8 @@
          (vertical/horizontal) and detail (compact icons/full labels). -->
     <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminal sessions" aria-orientation="vertical"></div>
     <div class="term-console">
-      <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termStatusSummary" class="term-status-summary" aria-live="polite" hidden></span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
+      <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
+      <div id="termStatusSummary" class="term-status-summary" aria-live="polite" hidden><span class="term-status-summary-label">TL;DR</span><span id="termStatusSummaryText" class="term-status-summary-text"></span></div>
       <div class="term-body" id="termBody">
         <div class="term-empty" id="termEmpty">
           Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this project's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.

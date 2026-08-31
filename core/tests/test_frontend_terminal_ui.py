@@ -470,7 +470,7 @@ process.stdout.write(JSON.stringify({
     assert '<span class="agent">codex</span>' in result["html"]
 
 
-def test_terminal_latest_task_is_visible_in_console_status_bar() -> None:
+def test_terminal_latest_task_has_a_dedicated_multiline_console_block() -> None:
     header_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "function _termSessionPillHtml(s, index)",
@@ -482,12 +482,14 @@ const activeHeader = {
   removeAttribute() {},
 };
 const statusSummary = {
-  textContent: '', title: '', hidden: true,
+  title: '', hidden: true,
   removeAttribute(name) { if (name === 'title') this.title = ''; },
 };
+const statusSummaryText = {textContent: ''};
 const document = {getElementById(id) {
   if (id === 'termActiveSession') return activeHeader;
   if (id === 'termStatusSummary') return statusSummary;
+  if (id === 'termStatusSummaryText') return statusSummaryText;
   return null;
 }};
 const termSessions = [{
@@ -501,17 +503,26 @@ function _termActiveProjectId() { return 'demo'; }
 function termSessEsc(value) { return String(value); }
 """ + header_helpers + """
 _termRenderActiveSessionHeader();
-process.stdout.write(JSON.stringify(statusSummary));
+process.stdout.write(JSON.stringify({statusSummary, statusSummaryText}));
 """
     )
 
-    assert result == {
-        "textContent": (
-            "TL;DR · Fix immediate hover and show this task above the terminal"
-        ),
+    assert result["statusSummary"] == {
         "title": "Fix immediate hover and show this task above the terminal",
         "hidden": False,
     }
+    assert result["statusSummaryText"]["textContent"] == (
+        "Fix immediate hover and show this task above the terminal"
+    )
+
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    status_end = html.index('</div>', html.index('id="termStatus"'))
+    assert html.index('id="termStatusSummary"') > status_end
+    assert 'id="termStatusSummaryText"' in html
+    assert "grid-template-columns: 42px minmax(0, 1fr)" in css
+    assert "min-height: 4.2em" in css
+    assert "-webkit-line-clamp: 4" in css
 
 
 def test_terminal_custom_tooltip_opens_synchronously_without_native_title() -> None:

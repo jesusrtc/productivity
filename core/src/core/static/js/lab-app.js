@@ -10145,6 +10145,7 @@
   function _termRenderActiveSessionHeader() {
     const el = document.getElementById('termActiveSession');
     const statusSummary = document.getElementById('termStatusSummary');
+    const statusSummaryText = document.getElementById('termStatusSummaryText');
     if (!el && !statusSummary) return;
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId
@@ -10156,10 +10157,10 @@
         el.className = 'term-active-session';
       }
       if (statusSummary) {
-        statusSummary.textContent = '';
         statusSummary.removeAttribute('title');
         statusSummary.hidden = true;
       }
+      if (statusSummaryText) statusSummaryText.textContent = '';
       return;
     }
     const display = _termSessionDisplay(session);
@@ -10171,10 +10172,10 @@
       el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">TL;DR · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
     }
     if (statusSummary) {
-      statusSummary.textContent = summary ? `TL;DR · ${summary}` : '';
       statusSummary.title = summary || '';
       statusSummary.hidden = !summary;
     }
+    if (statusSummaryText) statusSummaryText.textContent = summary || '';
   }
 
   function _termHideSessionTooltip() {
