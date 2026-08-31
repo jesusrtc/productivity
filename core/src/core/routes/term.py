@@ -1553,7 +1553,11 @@ def list_attachable_sessions(
     target_workspace = _workspace_id_for_root(active_root, target_root)
 
     registered: dict[tuple[str, str], dict] = {}
-    already_added_sources: set[str] = set()
+    # A tmux client is not what makes a session "attached" in this picker.
+    # The useful distinction is whether Lab already has a terminal tab for
+    # it.  Map both registered sessions and the sources behind grouped
+    # aliases to the Lab tab that represents them.
+    tabs_by_source: dict[str, dict] = {}
     for ws in _known_workspaces(active_root):
         workspace_id = str(ws["id"])
         if not auth.can_access_workspace(user, workspace_id):
@@ -1589,13 +1593,15 @@ def list_attachable_sessions(
                 enriched.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
             )
             registered[(socket_name, str(enriched["name"]))] = enriched
-            if (
-                workspace_id == target_workspace
-                and owner_project == project_id
-                and enriched.get("kind") == "attached"
-                and enriched.get("source_session")
-            ):
-                already_added_sources.add(str(enriched["source_session"]))
+            tab = {
+                "session_name": str(enriched["name"]),
+                "project_id": owner_project,
+                "project_name": project_names[owner_project],
+                "workspace": workspace_id,
+            }
+            tabs_by_source.setdefault(str(enriched["name"]), tab)
+            if enriched.get("kind") == "attached" and enriched.get("source_session"):
+                tabs_by_source.setdefault(str(enriched["source_session"]), tab)
 
     # This scan includes unregistered sessions, so it must not prune a
     # draining socket merely because that socket has no Lab-owned sessions.
@@ -1643,7 +1649,27 @@ def list_attachable_sessions(
             }
         else:
             row = {**row}
-        row["already_added"] = name in already_added_sources
+            # Grouped aliases are implementation details of an existing Lab
+            # tab.  Their original source is listed instead and carries that
+            # tab's status, avoiding duplicate rows for the same terminal.
+            if row.get("kind") == "attached":
+                continue
+        tab = tabs_by_source.get(name)
+        row["has_ui_tab"] = tab is not None
+        if tab:
+            row["tab_session_name"] = tab["session_name"]
+            row["tab_project_id"] = tab["project_id"]
+            row["tab_project_name"] = tab["project_name"]
+            row["tab_workspace"] = tab["workspace"]
+            row["tab_in_current_project"] = (
+                tab["workspace"] == target_workspace
+                and tab["project_id"] == project_id
+            )
+        else:
+            row["tab_in_current_project"] = False
+        # Preserve the narrower legacy meaning for cached clients: this was
+        # always "already added to the picker target", not "has any Lab tab".
+        row["already_added"] = row["tab_in_current_project"]
         row["current_project"] = (
             row.get("workspace") == target_workspace
             and row.get("project_id") == project_id

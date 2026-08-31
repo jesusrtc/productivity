@@ -324,6 +324,10 @@ def test_attachable_session_picker_lists_and_groups_registered_and_host_sessions
         ["tmux", "new-session", "-d", "-s", "host-work", "bash"],
         check=True,
     )
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", "host-free", "bash"],
+        check=True,
+    )
     attached = client.post("/api/term/sessions/attach", json={
         "project_id": "demo", "name": "host-work",
     })
@@ -337,11 +341,21 @@ def test_attachable_session_picker_lists_and_groups_registered_and_host_sessions
     by_name = {row["name"]: row for row in response.json()}
     assert by_name[demo["name"]]["project_name"] == "Demo Display Name"
     assert by_name[demo["name"]]["current_project"] is True
+    assert by_name[demo["name"]]["has_ui_tab"] is True
     assert by_name[other["name"]]["project_id"] == "other"
     assert by_name[other["name"]]["current_project"] is False
+    assert by_name[other["name"]]["has_ui_tab"] is True
+    assert by_name[other["name"]]["already_added"] is False
     assert by_name["host-work"]["project_id"] is None
     assert by_name["host-work"]["project_name"] == "Unassigned"
+    assert by_name["host-work"]["has_ui_tab"] is True
     assert by_name["host-work"]["already_added"] is True
+    assert by_name["host-work"]["tab_session_name"] == attached.json()["name"]
+    assert by_name["host-work"]["tab_project_id"] == "demo"
+    assert by_name["host-work"]["tab_in_current_project"] is True
+    assert by_name["host-free"]["has_ui_tab"] is False
+    assert by_name["host-free"]["already_added"] is False
+    assert attached.json()["name"] not in by_name
 
 
 @pytest.mark.parametrize("name", ["", "bad.name", "bad:name", "bad/name", "bad name"])

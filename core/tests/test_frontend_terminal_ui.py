@@ -547,8 +547,15 @@ def test_terminal_new_menu_opens_a_grouped_tmux_session_modal() -> None:
     assert ".form-modal.term-attach-modal" in css
     assert ".term-attach-project.current" in css
     assert ".term-attach-badge.live" in css
+    assert ".term-attach-row.has-tab:disabled" in css
     assert "/api/term/sessions/attachable?${query}" in source
     assert "_termAttachModalScope = {projectId, workspaceId, projectLabel};" in source
+    assert "const heading = hasUiTab ? 'Attached in Lab' : 'Available to attach';" in source
+    assert "const disabled = hasUiTab || _termAttachPendingName;" in source
+    assert "Client attached" not in _js_between(
+        "function termRenderAttachModal()",
+        "async function termReloadAttachModal()",
+    )
 
 
 def test_tmux_attach_modal_orders_current_project_unattached_sessions_first() -> None:
@@ -564,17 +571,17 @@ const WORKSPACE_PROJECT_ID = '__workspace__';
 """ + ordering + """
 const scope = {projectId: 'demo', workspaceId: 'main'};
 const groups = _termAttachOrderedGroups([
-  {name: 'other-free', logical_name: 'free', project_id: 'other', project_name: 'Other', workspace: 'main', attached: false, created: 40},
-  {name: 'demo-live', logical_name: 'live', project_id: 'demo', project_name: 'Demo', workspace: 'main', attached: true, created: 50},
-  {name: 'demo-free-old', logical_name: 'free-old', project_id: 'demo', project_name: 'Demo', workspace: 'main', attached: false, created: 10},
-  {name: 'demo-free-new', logical_name: 'free-new', project_id: 'demo', project_name: 'Demo', workspace: 'main', attached: false, created: 30},
-  {name: 'loose', logical_name: 'loose', project_id: null, project_name: 'Unassigned', workspace: null, attached: false, created: 99},
+  {name: 'other-free', logical_name: 'free', project_id: 'other', project_name: 'Other', workspace: 'main', has_ui_tab: false, created: 40},
+  {name: 'demo-live', logical_name: 'live', project_id: 'demo', project_name: 'Demo', workspace: 'main', has_ui_tab: true, created: 50},
+  {name: 'demo-free-old', logical_name: 'free-old', project_id: 'demo', project_name: 'Demo', workspace: 'main', has_ui_tab: false, created: 10},
+  {name: 'demo-free-new', logical_name: 'free-new', project_id: 'demo', project_name: 'Demo', workspace: 'main', has_ui_tab: false, created: 30},
+  {name: 'loose', logical_name: 'loose', project_id: null, project_name: 'Unassigned', workspace: null, has_ui_tab: false, created: 99},
 ], scope);
 const filtered = _termAttachOrderedGroups(groups.flatMap(group => group.rows), scope, 'other');
 process.stdout.write(JSON.stringify({
   projects: groups.map(group => group.projectName),
   current: groups.map(group => group.current),
-  demoRows: groups[0].rows.map(row => [row.name, row.attached]),
+  demoRows: groups[0].rows.map(row => [row.name, row.has_ui_tab]),
   filtered: filtered.map(group => group.projectName),
 }));
 """

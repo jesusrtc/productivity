@@ -1804,6 +1804,7 @@
   .term-attach-state-title + .term-attach-row { border-top: 0; }
   .term-attach-row:hover:not(:disabled), .term-attach-row:focus-visible { background: #388bfd18; outline: none; }
   .term-attach-row:disabled { opacity: .55; cursor: wait; }
+  .term-attach-row.has-tab:disabled { opacity: .72; cursor: default; }
   .term-attach-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .term-attach-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font: 12px var(--font-mono); }
   .term-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font: 9px var(--font-mono); }

@@ -10384,8 +10384,7 @@
     });
     const groups = Array.from(byProject.values());
     groups.forEach(group => group.rows.sort((a, b) =>
-      Number(!!a.attached) - Number(!!b.attached)
-      || Number(!!a.already_added) - Number(!!b.already_added)
+      Number(!!a.has_ui_tab) - Number(!!b.has_ui_tab)
       || Number(b.created || b.created_at || 0) - Number(a.created || a.created_at || 0)
       || String(a.logical_name || a.name).localeCompare(String(b.logical_name || b.name))
     ));
@@ -10438,10 +10437,10 @@
         ? `<span class="term-attach-workspace">${termSessEsc(group.workspace)}</span>` : '';
       const current = group.current
         ? '<span class="term-attach-current-badge">Current project</span>' : '';
-      const sections = [false, true].map(attached => {
-        const sessions = group.rows.filter(row => !!row.attached === attached);
+      const sections = [false, true].map(hasUiTab => {
+        const sessions = group.rows.filter(row => !!row.has_ui_tab === hasUiTab);
         if (!sessions.length) return '';
-        const heading = attached ? 'Client attached' : 'No client attached';
+        const heading = hasUiTab ? 'Attached in Lab' : 'Available to attach';
         const sessionRows = sessions.map(row => {
           const label = String(row.logical_name || row.name || 'tmux');
           const fullName = String(row.name || '');
@@ -10451,15 +10450,19 @@
           if (age) meta.push(age);
           const kind = row.agent || row.kind;
           const kindBadge = kind ? `<span class="term-attach-badge">${termSessEsc(kind)}</span>` : '';
-          const attachedBadge = attached ? '<span class="term-attach-badge live">attached</span>' : '';
-          const addedBadge = row.already_added ? '<span class="term-attach-badge added">already in project</span>' : '';
-          const title = row.summary
-            ? `${fullName} — ${String(row.summary)}`
-            : `Attach ${fullName} without stopping the original session`;
-          return `<button type="button" class="term-attach-row" data-term-attach-name="${termSessEsc(fullName)}" title="${termSessEsc(title)}" ${_termAttachPendingName ? 'disabled' : ''}>
+          const attachedBadge = hasUiTab ? '<span class="term-attach-badge live">attached</span>' : '';
+          const tabLocation = [row.tab_project_name || row.tab_project_id, row.tab_workspace]
+            .filter(Boolean).join(' · ');
+          const title = hasUiTab
+            ? `Already has a Lab terminal tab${tabLocation ? ` in ${tabLocation}` : ''}`
+            : (row.summary
+              ? `${fullName} — ${String(row.summary)}`
+              : `Attach ${fullName} without stopping the original session`);
+          const disabled = hasUiTab || _termAttachPendingName;
+          return `<button type="button" class="term-attach-row${hasUiTab ? ' has-tab' : ''}" data-term-attach-name="${termSessEsc(fullName)}" title="${termSessEsc(title)}" ${disabled ? 'disabled' : ''}>
             <span class="term-attach-main"><span class="term-attach-label">${termSessEsc(label)}</span>${label !== fullName ? `<span class="term-attach-name">${termSessEsc(fullName)}</span>` : ''}</span>
             <span class="term-attach-meta">${termSessEsc(meta.join(' · '))}</span>
-            <span class="term-attach-badges">${kindBadge}${attachedBadge}${addedBadge}</span>
+            <span class="term-attach-badges">${kindBadge}${attachedBadge}</span>
           </button>`;
         }).join('');
         return `<div class="term-attach-state-title">${heading} · ${sessions.length}</div>${sessionRows}`;
@@ -10469,7 +10472,12 @@
         ${sections}
       </section>`;
     }).join('');
-    _termSetAttachStatus(`${visibleCount} live ${visibleCount === 1 ? 'session' : 'sessions'} · select one to attach`);
+    const availableCount = groups.reduce(
+      (total, group) => total + group.rows.filter(row => !row.has_ui_tab).length,
+      0,
+    );
+    const attachedCount = visibleCount - availableCount;
+    _termSetAttachStatus(`${availableCount} available to attach · ${attachedCount} already ${attachedCount === 1 ? 'has a tab' : 'have tabs'}`);
   }
 
   async function termReloadAttachModal() {
