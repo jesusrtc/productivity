@@ -1026,7 +1026,9 @@ def _is_lab_tmux_name(name: str) -> bool:
     return name.startswith(_SESSION_PREFIX) or name.startswith("lab-")
 
 
-def _tmux_list(prefixes: str | list[str]) -> list[dict] | None:
+def _tmux_list(
+    prefixes: str | list[str], *, prune_draining: bool = True,
+) -> list[dict] | None:
     """Return live tmux sessions whose names start with any of ``prefixes``.
 
     ``prefixes`` may be a single string (back-compat with callers that only
@@ -1101,7 +1103,7 @@ def _tmux_list(prefixes: str | list[str]) -> list[dict] | None:
         if row.get("status") == "draining"
         and lab_rows_by_socket.get(str(row["name"])) == 0
     }
-    if empty_draining:
+    if empty_draining and prune_draining:
         try:
             tmux_sockets.prune_drained(empty_draining)
         except OSError:
@@ -1527,6 +1529,127 @@ def list_sessions(
             r["workspace"] = ws["id"]
         rows.extend(ws_rows)
     rows.sort(key=lambda r: r.get("created", 0), reverse=True)
+    return rows
+
+
+@router.get("/api/term/sessions/attachable")
+def list_attachable_sessions(
+    request: Request, project_id: str, workspace: str | None = None,
+) -> list[dict]:
+    """List live tmux sessions for the attach-session picker.
+
+    Unlike the normal session list, admins also see otherwise-unregistered
+    sessions on Lab's active/draining tmux sockets. Registered sessions are
+    enriched with their owning workspace/project so the client can group the
+    picker. Non-admins only see sessions already registered in workspaces they
+    can access; importing an arbitrary host session remains admin-only, just
+    like the attach endpoint itself.
+    """
+    active_root = auth.request_root(request)
+    target_root = _workspace_root_for(active_root, workspace)
+    user = _require_project_access(
+        request, active_root, target_root, project_id,
+    )
+    target_workspace = _workspace_id_for_root(active_root, target_root)
+
+    registered: dict[tuple[str, str], dict] = {}
+    already_added_sources: set[str] = set()
+    for ws in _known_workspaces(active_root):
+        workspace_id = str(ws["id"])
+        if not auth.can_access_workspace(user, workspace_id):
+            continue
+        try:
+            ws_rows = fsguard.guarded(
+                ws["path"], _sessions_for_root, ws["path"], None,
+            )
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise
+            continue
+        except OSError as exc:
+            _warn_root_unavailable_once(
+                ws["path"], "attachable session listing", exc,
+            )
+            continue
+
+        project_names: dict[str, str] = {}
+        for row in ws_rows:
+            owner_project = str(row.get("project_id") or "")
+            if owner_project not in project_names:
+                project_doc = _load_project(ws["path"], owner_project)
+                project_names[owner_project] = str(
+                    (project_doc or {}).get("name") or owner_project
+                )
+            enriched = {
+                **row,
+                "workspace": workspace_id,
+                "project_name": project_names[owner_project],
+            }
+            socket_name = str(
+                enriched.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
+            )
+            registered[(socket_name, str(enriched["name"]))] = enriched
+            if (
+                workspace_id == target_workspace
+                and owner_project == project_id
+                and enriched.get("kind") == "attached"
+                and enriched.get("source_session")
+            ):
+                already_added_sources.add(str(enriched["source_session"]))
+
+    # This scan includes unregistered sessions, so it must not prune a
+    # draining socket merely because that socket has no Lab-owned sessions.
+    live = _tmux_list([""], prune_draining=False)
+    if live is None:
+        raise HTTPException(
+            status_code=503,
+            detail="tmux sessions are temporarily unavailable",
+        )
+
+    rows: list[dict] = []
+    seen_names: set[str] = set()
+    for live_row in live:
+        name = str(live_row.get("name") or "")
+        # The attach endpoint currently identifies a source by name, not by
+        # socket. If a rolling generation happens to contain the same name,
+        # show the active generation's first match only so the picker cannot
+        # imply a socket choice the attach operation does not support.
+        if (
+            not name
+            or name in seen_names
+            or len(name) > 200
+            or not _VALID_WS_NAME.fullmatch(name)
+        ):
+            continue
+        seen_names.add(name)
+        socket_name = str(
+            live_row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
+        )
+        row = registered.get((socket_name, name))
+        if row is None:
+            if not auth.is_admin(user):
+                continue
+            row = {
+                **live_row,
+                "name": name,
+                "logical_name": name,
+                "project_id": None,
+                "project_name": "Unassigned",
+                "workspace": None,
+                "kind": "tmux",
+                "agent": None,
+                "tmux_socket": socket_name,
+                "attach_command": _attach_command(name, socket_name),
+            }
+        else:
+            row = {**row}
+        row["already_added"] = name in already_added_sources
+        row["current_project"] = (
+            row.get("workspace") == target_workspace
+            and row.get("project_id") == project_id
+        )
+        rows.append(row)
+
     return rows
 
 

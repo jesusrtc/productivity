@@ -533,43 +533,78 @@ async function fetch() {
     assert by_agent["codex"]["disabled"] is False
 
 
-def test_terminal_new_menu_attaches_an_existing_tmux_session() -> None:
+def test_terminal_new_menu_opens_a_grouped_tmux_session_modal() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
-    attach_existing = _js_between(
-        "async function termAttachExisting(ev)",
-        "function termCreateNew(kind, agent)",
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert 'onclick="termOpenAttachModal(event)"' in html
+    assert 'id="termAttachModal"' in html
+    assert 'aria-labelledby="termAttachModalTitle"' in html
+    assert 'id="termAttachFilter" type="search"' in html
+    assert 'id="termAttachList" onclick="termChooseAttachCandidate(event)"' in html
+    assert 'id="termAttachName"' not in html
+    assert ".form-modal.term-attach-modal" in css
+    assert ".term-attach-project.current" in css
+    assert ".term-attach-badge.live" in css
+    assert "/api/term/sessions/attachable?${query}" in source
+    assert "_termAttachModalScope = {projectId, workspaceId, projectLabel};" in source
+
+
+def test_tmux_attach_modal_orders_current_project_unattached_sessions_first() -> None:
+    ordering = _js_between(
+        "function _termAttachProjectLabel(row)",
+        "function _termAttachAge(row)",
+    )
+    result = _run_node(
+        """
+const SELF_PROJECT_ID = '__self__';
+const CEREBRO_PROJECT_ID = '__cerebro__';
+const WORKSPACE_PROJECT_ID = '__workspace__';
+""" + ordering + """
+const scope = {projectId: 'demo', workspaceId: 'main'};
+const groups = _termAttachOrderedGroups([
+  {name: 'other-free', logical_name: 'free', project_id: 'other', project_name: 'Other', workspace: 'main', attached: false, created: 40},
+  {name: 'demo-live', logical_name: 'live', project_id: 'demo', project_name: 'Demo', workspace: 'main', attached: true, created: 50},
+  {name: 'demo-free-old', logical_name: 'free-old', project_id: 'demo', project_name: 'Demo', workspace: 'main', attached: false, created: 10},
+  {name: 'demo-free-new', logical_name: 'free-new', project_id: 'demo', project_name: 'Demo', workspace: 'main', attached: false, created: 30},
+  {name: 'loose', logical_name: 'loose', project_id: null, project_name: 'Unassigned', workspace: null, attached: false, created: 99},
+], scope);
+const filtered = _termAttachOrderedGroups(groups.flatMap(group => group.rows), scope, 'other');
+process.stdout.write(JSON.stringify({
+  projects: groups.map(group => group.projectName),
+  current: groups.map(group => group.current),
+  demoRows: groups[0].rows.map(row => [row.name, row.attached]),
+  filtered: filtered.map(group => group.projectName),
+}));
+"""
     )
 
-    assert 'id="termAttachForm" onsubmit="termAttachExisting(event)"' in html
-    assert 'id="termAttachName" type="text" placeholder="session name"' in html
-    assert '>Attach tmux session</label>' in html
-    assert 'id="termAttachSubmit" type="submit"' in html
-    assert ".term-attach-form" in css
-    assert ".term-attach-controls input" in css
+    assert result == {
+        "projects": ["Demo", "Other", "Unassigned"],
+        "current": [True, False, False],
+        "demoRows": [
+            ["demo-free-new", False],
+            ["demo-free-old", False],
+            ["demo-live", True],
+        ],
+        "filtered": ["Other"],
+    }
 
+
+def test_tmux_attach_modal_selection_uses_captured_project_scope() -> None:
+    attach_existing = _js_between(
+        "async function termAttachExisting(rawSessionName)",
+        "function termCreateNew(kind, agent)",
+    )
     result = _run_node(
         """
 const calls = [];
 const attached = [];
 const statuses = [];
-const picker = {classList: {remove(value) { calls.push('picker:' + value); }}};
-const input = {value: '  existing-work  ', disabled: false, focus() {}};
-const submit = {disabled: false};
-const error = {textContent: ''};
-const elements = {
-  termNewPicker: picker,
-  termAttachName: input,
-  termAttachSubmit: submit,
-  termAttachError: error,
-};
-const document = {
-  getElementById(id) { return elements[id] || null; },
-  body: {classList: {contains() { return false; }}},
-};
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const currentProject = {is_project: true, name: 'demo'};
+let _termAttachModalScope = {projectId: 'demo', workspaceId: 'main', projectLabel: 'Demo'};
+let _termAttachModalGeneration = 7;
+let _termAttachPendingName = null;
 let termSessions = [];
 const _termSessionsCache = {set(key, value) { calls.push('cache:' + key + ':' + value.length); }};
 function _termWorkspaceId() { return 'main'; }
@@ -581,6 +616,9 @@ function _termSessionsKey(pid, workspace) { return pid + ':' + workspace; }
 function termRenderSessionList() { calls.push('render'); }
 function termAttach(name, pid) { attached.push([name, pid]); }
 function termSetStatus(kind, message) { statuses.push([kind, message]); }
+function termRenderAttachModal() { calls.push('render-modal'); }
+function _termSetAttachStatus(message, error = false) { statuses.push([error ? 'modal-err' : 'modal', message]); }
+function termCloseAttachModal() { calls.push('close-modal'); _termAttachModalGeneration += 1; }
 async function fetch(url, options) {
   calls.push({url, options, body: JSON.parse(options.body)});
   return {
@@ -595,21 +633,8 @@ async function fetch(url, options) {
 }
 """ + attach_existing + """
 (async () => {
-  let prevented = 0;
-  await termAttachExisting({
-    preventDefault() { prevented += 1; },
-    stopPropagation() { prevented += 1; },
-  });
-  process.stdout.write(JSON.stringify({
-    calls,
-    attached,
-    statuses,
-    prevented,
-    inputValue: input.value,
-    inputDisabled: input.disabled,
-    submitDisabled: submit.disabled,
-    error: error.textContent,
-  }));
+  await termAttachExisting('  existing-work  ');
+  process.stdout.write(JSON.stringify({calls, attached, statuses}));
 })().catch((err) => { console.error(err && err.stack || err); process.exit(1); });
 """
     )
@@ -623,12 +648,8 @@ async function fetch(url, options) {
         "name": "existing-work",
     }
     assert result["attached"] == [["lab-demo-existing-work", "demo"]]
-    assert result["prevented"] == 2
-    assert result["inputValue"] == ""
-    assert result["inputDisabled"] is False
-    assert result["submitDisabled"] is False
-    assert result["error"] == ""
-    assert "picker:open" in result["calls"]
+    assert "close-modal" in result["calls"]
+    assert "refresh:demo" in result["calls"]
 
 
 def test_attached_tmux_sessions_are_not_restored_as_plain_shells() -> None:

@@ -10092,8 +10092,6 @@
     // Resolve workspace policy before revealing the menu so a disabled agent
     // never flashes as a clickable choice during the network round-trip.
     await termRefreshAgentAvail(el);
-    const attachError = document.getElementById('termAttachError');
-    if (attachError) attachError.textContent = '';
     el.classList.add('open');
     // One-shot outside-click listener to dismiss.
     const off = (e) => {
@@ -10133,39 +10131,238 @@
     });
   }
 
-  async function termAttachExisting(ev) {
+  let _termAttachModalScope = null;
+  let _termAttachModalRows = [];
+  let _termAttachModalRequestSeq = 0;
+  let _termAttachModalGeneration = 0;
+  let _termAttachPendingName = null;
+  let _termAttachEscHandler = null;
+
+  function _termAttachProjectLabel(row) {
+    const projectId = String(row && row.project_id || '');
+    if (!projectId) return 'Unassigned';
+    if (projectId === SELF_PROJECT_ID) return 'Framework';
+    if (projectId === CEREBRO_PROJECT_ID) return 'Cerebro';
+    if (projectId === WORKSPACE_PROJECT_ID) return 'Workspace';
+    return String(row.project_name || projectId);
+  }
+
+  function _termAttachGroupKey(row) {
+    return `${String(row && row.workspace || '')}\u0000${String(row && row.project_id || '')}`;
+  }
+
+  function _termAttachOrderedGroups(rows, scope, filter = '') {
+    const needle = String(filter || '').trim().toLowerCase();
+    const filtered = (Array.isArray(rows) ? rows : []).filter(row => {
+      if (!needle) return true;
+      return [
+        row && row.name,
+        row && row.logical_name,
+        row && row.project_id,
+        row && row.project_name,
+        row && row.workspace,
+        row && row.agent,
+        row && row.kind,
+      ].some(value => String(value || '').toLowerCase().includes(needle));
+    });
+    const byProject = new Map();
+    filtered.forEach(row => {
+      const key = _termAttachGroupKey(row);
+      if (!byProject.has(key)) {
+        byProject.set(key, {
+          key,
+          projectId: String(row.project_id || ''),
+          projectName: _termAttachProjectLabel(row),
+          workspace: String(row.workspace || ''),
+          current: !!row.current_project || (
+            String(row.project_id || '') === String(scope && scope.projectId || '')
+            && String(row.workspace || '') === String(scope && scope.workspaceId || '')
+          ),
+          rows: [],
+        });
+      }
+      byProject.get(key).rows.push(row);
+    });
+    const groups = Array.from(byProject.values());
+    groups.forEach(group => group.rows.sort((a, b) =>
+      Number(!!a.attached) - Number(!!b.attached)
+      || Number(!!a.already_added) - Number(!!b.already_added)
+      || Number(b.created || b.created_at || 0) - Number(a.created || a.created_at || 0)
+      || String(a.logical_name || a.name).localeCompare(String(b.logical_name || b.name))
+    ));
+    groups.sort((a, b) =>
+      Number(b.current) - Number(a.current)
+      || Number(!a.projectId) - Number(!b.projectId)
+      || a.projectName.localeCompare(b.projectName)
+      || a.workspace.localeCompare(b.workspace)
+    );
+    return groups;
+  }
+
+  function _termAttachAge(row) {
+    const timestamp = Number(row && (row.created || row.created_at) || 0);
+    if (!timestamp) return '';
+    const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    return `${Math.floor(seconds / 86400)}d`;
+  }
+
+  function _termSetAttachStatus(message, error = false) {
+    const status = document.getElementById('termAttachStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('error', !!error);
+  }
+
+  function termRenderAttachModal() {
+    const list = document.getElementById('termAttachList');
+    if (!list) return;
+    const filter = document.getElementById('termAttachFilter');
+    const groups = _termAttachOrderedGroups(
+      _termAttachModalRows,
+      _termAttachModalScope,
+      filter && filter.value,
+    );
+    const visibleCount = groups.reduce((total, group) => total + group.rows.length, 0);
+    if (!visibleCount) {
+      list.innerHTML = `<div class="term-attach-empty">${_termAttachModalRows.length ? 'No sessions match this filter.' : 'No live tmux sessions found.'}</div>`;
+      _termSetAttachStatus(_termAttachModalRows.length ? 'Try a different filter.' : 'There are no sessions available to attach.');
+      return;
+    }
+
+    list.innerHTML = groups.map(group => {
+      const projectId = group.projectId && group.projectId !== group.projectName
+        ? `<span class="term-attach-project-id">${termSessEsc(group.projectId)}</span>` : '';
+      const workspace = group.workspace
+        ? `<span class="term-attach-workspace">${termSessEsc(group.workspace)}</span>` : '';
+      const current = group.current
+        ? '<span class="term-attach-current-badge">Current project</span>' : '';
+      const sections = [false, true].map(attached => {
+        const sessions = group.rows.filter(row => !!row.attached === attached);
+        if (!sessions.length) return '';
+        const heading = attached ? 'Client attached' : 'No client attached';
+        const sessionRows = sessions.map(row => {
+          const label = String(row.logical_name || row.name || 'tmux');
+          const fullName = String(row.name || '');
+          const meta = [];
+          if (row.windows != null) meta.push(`${row.windows} ${Number(row.windows) === 1 ? 'window' : 'windows'}`);
+          const age = _termAttachAge(row);
+          if (age) meta.push(age);
+          const kind = row.agent || row.kind;
+          const kindBadge = kind ? `<span class="term-attach-badge">${termSessEsc(kind)}</span>` : '';
+          const attachedBadge = attached ? '<span class="term-attach-badge live">attached</span>' : '';
+          const addedBadge = row.already_added ? '<span class="term-attach-badge added">already in project</span>' : '';
+          const title = row.summary
+            ? `${fullName} — ${String(row.summary)}`
+            : `Attach ${fullName} without stopping the original session`;
+          return `<button type="button" class="term-attach-row" data-term-attach-name="${termSessEsc(fullName)}" title="${termSessEsc(title)}" ${_termAttachPendingName ? 'disabled' : ''}>
+            <span class="term-attach-main"><span class="term-attach-label">${termSessEsc(label)}</span>${label !== fullName ? `<span class="term-attach-name">${termSessEsc(fullName)}</span>` : ''}</span>
+            <span class="term-attach-meta">${termSessEsc(meta.join(' · '))}</span>
+            <span class="term-attach-badges">${kindBadge}${attachedBadge}${addedBadge}</span>
+          </button>`;
+        }).join('');
+        return `<div class="term-attach-state-title">${heading} · ${sessions.length}</div>${sessionRows}`;
+      }).join('');
+      return `<section class="term-attach-project${group.current ? ' current' : ''}">
+        <div class="term-attach-project-head"><span class="term-attach-project-name">${termSessEsc(group.projectName)}</span>${projectId}${current}${workspace}<span class="term-attach-project-count">${group.rows.length}</span></div>
+        ${sections}
+      </section>`;
+    }).join('');
+    _termSetAttachStatus(`${visibleCount} live ${visibleCount === 1 ? 'session' : 'sessions'} · select one to attach`);
+  }
+
+  async function termReloadAttachModal() {
+    const scope = _termAttachModalScope;
+    const list = document.getElementById('termAttachList');
+    if (!scope || !list) return;
+    const seq = ++_termAttachModalRequestSeq;
+    list.innerHTML = '<div class="term-attach-empty">Loading live sessions…</div>';
+    _termSetAttachStatus('Reading tmux sessions…');
+    const query = new URLSearchParams({project_id: scope.projectId});
+    if (scope.workspaceId) query.set('workspace', scope.workspaceId);
+    try {
+      const response = await fetch(`/api/term/sessions/attachable?${query}`);
+      const rows = await response.json().catch(() => []);
+      if (!response.ok) throw new Error(rows.detail || response.statusText || 'session list failed');
+      if (seq !== _termAttachModalRequestSeq || scope !== _termAttachModalScope) return;
+      _termAttachModalRows = Array.isArray(rows) ? rows : [];
+      termRenderAttachModal();
+    } catch (listError) {
+      if (seq !== _termAttachModalRequestSeq || scope !== _termAttachModalScope) return;
+      _termAttachModalRows = [];
+      list.innerHTML = '<div class="term-attach-empty">Could not load tmux sessions.</div>';
+      _termSetAttachStatus(listError && listError.message || 'Could not load tmux sessions.', true);
+    }
+  }
+
+  async function termOpenAttachModal(ev) {
     if (ev) {
       ev.preventDefault();
       ev.stopPropagation();
     }
-    const picker = document.getElementById('termNewPicker');
-    const input = document.getElementById('termAttachName');
-    const submit = document.getElementById('termAttachSubmit');
-    const error = document.getElementById('termAttachError');
-    const sessionName = String(input && input.value || '').trim();
-    if (error) error.textContent = '';
-    if (!sessionName) {
-      if (error) error.textContent = 'Paste a session name.';
-      if (input) input.focus();
-      return;
-    }
-
-    let projectId = null;
-    if (document.body.classList.contains('cerebro-active')) {
-      projectId = CEREBRO_PROJECT_ID;
-    } else if (document.body.classList.contains('self-active')) {
-      projectId = SELF_PROJECT_ID;
-    } else if (currentProject && currentProject.is_project) {
-      projectId = currentProject.name;
-    }
+    const projectId = _termActiveProjectId();
     if (!projectId) {
-      if (error) error.textContent = 'Open a project first.';
+      termSetStatus('err', 'open a project before attaching a session');
       return;
     }
     const workspaceId = _termWorkspaceId();
-    if (submit) submit.disabled = true;
-    if (input) input.disabled = true;
+    const projectLabel = currentProject && currentProject.is_project
+      ? _projectDisplayName(currentProject)
+      : projectId;
+    _termAttachModalGeneration += 1;
+    _termAttachModalScope = {projectId, workspaceId, projectLabel};
+    _termAttachModalRows = [];
+    _termAttachPendingName = null;
+    document.getElementById('termNewPicker')?.classList.remove('open');
+    const modal = document.getElementById('termAttachModal');
+    const target = document.getElementById('termAttachTarget');
+    const filter = document.getElementById('termAttachFilter');
+    if (target) target.textContent = `Add to ${projectLabel}${workspaceId ? ` · ${workspaceId}` : ''}`;
+    if (filter) filter.value = '';
+    if (modal) modal.classList.add('active');
+    if (!_termAttachEscHandler) {
+      _termAttachEscHandler = event => {
+        if (event.key === 'Escape') termCloseAttachModal();
+      };
+      document.addEventListener('keydown', _termAttachEscHandler);
+    }
+    await termReloadAttachModal();
+    if (_termAttachModalScope && filter) filter.focus();
+  }
+
+  function termCloseAttachModal() {
+    _termAttachModalRequestSeq += 1;
+    _termAttachModalGeneration += 1;
+    _termAttachModalScope = null;
+    _termAttachModalRows = [];
+    _termAttachPendingName = null;
+    document.getElementById('termAttachModal')?.classList.remove('active');
+    if (_termAttachEscHandler) {
+      document.removeEventListener('keydown', _termAttachEscHandler);
+      _termAttachEscHandler = null;
+    }
+  }
+
+  function termChooseAttachCandidate(ev) {
+    const button = ev && ev.target && ev.target.closest
+      ? ev.target.closest('[data-term-attach-name]') : null;
+    if (!button || _termAttachPendingName) return;
+    void termAttachExisting(button.dataset.termAttachName);
+  }
+
+  async function termAttachExisting(rawSessionName) {
+    const sessionName = String(rawSessionName || '').trim();
+    const scope = _termAttachModalScope;
+    if (!sessionName || !scope) return;
+    const {projectId, workspaceId} = scope;
+    const generation = _termAttachModalGeneration;
+    _termAttachPendingName = sessionName;
+    termRenderAttachModal();
+    _termSetAttachStatus(`Attaching ${sessionName}…`);
     termSetStatus('idle', `attaching ${sessionName}…`);
+    let failureMessage = null;
     try {
       const response = await fetch('/api/term/sessions/attach', {
         method: 'POST',
@@ -10178,8 +10375,7 @@
       });
       const attached = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(attached.detail || response.statusText || 'attach failed');
-      if (input) input.value = '';
-      if (picker) picker.classList.remove('open');
+      if (generation === _termAttachModalGeneration) termCloseAttachModal();
       if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
       _termClearDead(attached.name);
       await _termRefreshSessionsForProjectId(projectId);
@@ -10191,11 +10387,14 @@
       }
       termAttach(attached.name, projectId);
     } catch (attachError) {
-      if (error) error.textContent = attachError && attachError.message || 'Attach failed.';
+      failureMessage = attachError && attachError.message || 'Attach failed.';
       termSetStatus('err', 'attach failed');
     } finally {
-      if (submit) submit.disabled = false;
-      if (input) input.disabled = false;
+      if (generation === _termAttachModalGeneration) {
+        _termAttachPendingName = null;
+        termRenderAttachModal();
+        if (failureMessage) _termSetAttachStatus(failureMessage, true);
+      }
     }
   }
 

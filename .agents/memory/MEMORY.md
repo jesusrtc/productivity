@@ -54,3 +54,4 @@
 - [Client issues can use diagnostic scripts](client-issue-diagnostic-scripts.md) — for issues occurring in the user's client environment, provide a focused script they can run there and bring back its output for evidence-based diagnosis
 - [Lab terminals use bounded rolling tmux sockets](lab-terminal-rolling-tmux-sockets.md) — active + at most one drain; exact socket affinity for old sessions; no background watcher or PTY byte-path discovery
 - [Existing tmux attachment uses a grouped alias](lab-terminal-attach-uses-grouped-alias.md) — + New imports by session name without nesting; closing the Lab alias leaves the original session running
+- [Terminal attach picker groups live sessions](terminal-attach-picker-groups-sessions.md) — modal groups by project/client state, pins current-project unattached sessions first, and captures the target scope

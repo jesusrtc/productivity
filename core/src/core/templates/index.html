@@ -283,14 +283,7 @@
         <button data-agent="codex" onclick="termCreateNew('claude','codex')" title="OpenAI Codex CLI">Codex</button>
         <button data-agent="copilot" onclick="termCreateNew('claude','copilot')" title="GitHub Copilot CLI">Copilot</button>
         <button onclick="termCreateNew('terminal')" title="Plain $SHELL (bash / zsh)">Terminal</button>
-        <form class="term-attach-form" id="termAttachForm" onsubmit="termAttachExisting(event)">
-          <label for="termAttachName">Attach tmux session</label>
-          <div class="term-attach-controls">
-            <input id="termAttachName" type="text" placeholder="session name" aria-label="tmux session name" autocomplete="off" autocapitalize="off" spellcheck="false">
-            <button class="term-attach-submit" id="termAttachSubmit" type="submit" title="Attach without stopping the original session">Attach</button>
-          </div>
-          <span class="term-attach-error" id="termAttachError" aria-live="polite"></span>
-        </form>
+        <button class="term-attach-open" type="button" onclick="termOpenAttachModal(event)" title="Choose from live tmux sessions without stopping the original session">Attach tmux session&hellip;</button>
       </div>
     </div>
     <button id="termKillBtn" class="danger" onclick="termKillCurrent()" title="Close the active terminal and keep it closed after reload">Close</button>
@@ -312,6 +305,32 @@
 </div>
 <div class="term-toggle" id="termToggle" onclick="termToggleCollapse()" title="Show/hide terminal">Terminal</div>
 <div class="sidebar-toggle" id="sidebarToggle" onclick="sidebarToggleCollapse()" title="Show/hide files sidebar (remembered per project)">Files</div>
+
+<!-- Session chooser opened from Terminal → + New. Its target project is
+     captured when the button is clicked so navigation cannot redirect an
+     in-flight attach to a different project. -->
+<div class="modal-overlay" id="termAttachModal" onclick="if(event.target===this)termCloseAttachModal()">
+  <div class="form-modal term-attach-modal" role="dialog" aria-modal="true" aria-labelledby="termAttachModalTitle">
+    <div class="fm-header">
+      <div class="term-attach-heading">
+        <span class="fm-title" id="termAttachModalTitle">Attach tmux session</span>
+        <span class="term-attach-target" id="termAttachTarget"></span>
+      </div>
+      <button class="fm-close" type="button" onclick="termCloseAttachModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="term-attach-toolbar">
+      <input id="termAttachFilter" type="search" placeholder="Filter sessions or projects&hellip;" aria-label="Filter tmux sessions" oninput="termRenderAttachModal()" autocomplete="off" spellcheck="false">
+      <button type="button" onclick="termReloadAttachModal()" title="Reload live tmux sessions" aria-label="Reload live tmux sessions">&#x21BB;</button>
+    </div>
+    <div class="term-attach-list" id="termAttachList" onclick="termChooseAttachCandidate(event)">
+      <div class="term-attach-empty">Loading live sessions&hellip;</div>
+    </div>
+    <div class="term-attach-footer">
+      <span id="termAttachStatus" role="status" aria-live="polite">Select a session. The original keeps running.</span>
+      <button type="button" class="btn-cancel" onclick="termCloseAttachModal()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <!-- Diff popover -->
 <div class="diff-popover" id="diffPopover"></div>

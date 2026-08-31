@@ -302,6 +302,48 @@ def test_attach_existing_tmux_session_is_idempotent(
     assert second.json()["already_running"] is True
 
 
+def test_attachable_session_picker_lists_and_groups_registered_and_host_sessions(
+    client,
+    seed_project,
+    isolated_prefix,
+    monorepo: Path,
+) -> None:
+    demo_dir = seed_project("demo")
+    seed_project("other")
+    demo_doc = json.loads((demo_dir / "project.json").read_text())
+    demo_doc["name"] = "Demo Display Name"
+    (demo_dir / "project.json").write_text(json.dumps(demo_doc, indent=2))
+
+    demo = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "terminal",
+    }).json()
+    other = client.post("/api/term/sessions", json={
+        "project_id": "other", "kind": "terminal",
+    }).json()
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", "host-work", "bash"],
+        check=True,
+    )
+    attached = client.post("/api/term/sessions/attach", json={
+        "project_id": "demo", "name": "host-work",
+    })
+    assert attached.status_code == 200, attached.text
+
+    response = client.get(
+        "/api/term/sessions/attachable", params={"project_id": "demo"},
+    )
+
+    assert response.status_code == 200, response.text
+    by_name = {row["name"]: row for row in response.json()}
+    assert by_name[demo["name"]]["project_name"] == "Demo Display Name"
+    assert by_name[demo["name"]]["current_project"] is True
+    assert by_name[other["name"]]["project_id"] == "other"
+    assert by_name[other["name"]]["current_project"] is False
+    assert by_name["host-work"]["project_id"] is None
+    assert by_name["host-work"]["project_name"] == "Unassigned"
+    assert by_name["host-work"]["already_added"] is True
+
+
 @pytest.mark.parametrize("name", ["", "bad.name", "bad:name", "bad/name", "bad name"])
 def test_attach_existing_tmux_session_rejects_invalid_names(
     client,
