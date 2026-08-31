@@ -464,6 +464,42 @@ def test_agent_argv_copilot_unavailable(monkeypatch) -> None:
     assert exc.value.status_code == 400
 
 
+def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setattr(
+        term_mod,
+        "_codex_session_names_by_tty",
+        lambda _ttys, _cwds: {"ttys001": ("codex-id", "Codex conversation")},
+    )
+    monkeypatch.setattr(
+        term_mod, "_claude_session_name",
+        lambda session_id, cwd: f"Claude {session_id} in {cwd}",
+    )
+    monkeypatch.setattr(
+        term_mod, "_copilot_session_name",
+        lambda session_id: f"Copilot {session_id}",
+    )
+    rows = [
+        {"agent": "codex", "pane_tty": "/dev/ttys001"},
+        {
+            "agent": "claude", "claude_session_id": "claude-id",
+            "cwd": "/repo",
+        },
+        {"agent": "copilot", "agent_session_id": "copilot-id"},
+        {"agent": None, "kind": "terminal"},
+    ]
+
+    term_mod._enrich_agent_session_names(rows)
+
+    assert rows[0]["agent_session_id"] == "codex-id"
+    assert rows[0]["agent_session_name"] == "Codex conversation"
+    assert rows[1]["agent_session_id"] == "claude-id"
+    assert rows[1]["agent_session_name"] == "Claude claude-id in /repo"
+    assert rows[2]["agent_session_name"] == "Copilot copilot-id"
+    assert "agent_session_name" not in rows[3]
+
+
 def test_second_claude_gets_suffix(client, seed_project, isolated_prefix) -> None:
     """`+ New` while a default-named session is already live spawns claude-2."""
     seed_project("demo")
@@ -1494,13 +1530,17 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
         lambda cmd: "/fake/copilot" if cmd == "copilot" else real_which(cmd),
     )
 
-    # Off by default: bare `copilot`.
+    # Off by default: only the stable session UUID is added.
     r = client.post("/api/term/sessions", json={
         "project_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot",
     })
     assert r.status_code == 200, r.text
+    session_id = r.json()["agent_session_id"]
+    uuid.UUID(session_id)
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
-    assert state["sessions"][r.json()["name"]]["cmd"] == "copilot"
+    assert state["sessions"][r.json()["name"]]["cmd"] == (
+        f"copilot --session-id {session_id}"
+    )
     assert r.json()["auto"] is False
 
     # Workspace checkbox on: fresh sessions get --autopilot.
@@ -1510,8 +1550,11 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
     })
     assert r.status_code == 200, r.text
     assert r.json()["auto"] is True
+    session_id = r.json()["agent_session_id"]
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
-    assert state["sessions"][r.json()["name"]]["cmd"] == "copilot --autopilot"
+    assert state["sessions"][r.json()["name"]]["cmd"] == (
+        f"copilot --session-id {session_id} --autopilot"
+    )
 
 
 def test_copilot_explicit_auto_false_overrides_workspace(client, seed_project, isolated_prefix,
@@ -1539,8 +1582,11 @@ def test_copilot_explicit_auto_false_overrides_workspace(client, seed_project, i
 
     assert r.status_code == 200, r.text
     assert r.json()["auto"] is False
+    session_id = r.json()["agent_session_id"]
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
-    assert state["sessions"][r.json()["name"]]["cmd"] == "copilot"
+    assert state["sessions"][r.json()["name"]]["cmd"] == (
+        f"copilot --session-id {session_id}"
+    )
 
 
 # ─── rolling tmux socket generations ───────────────────────────────────────

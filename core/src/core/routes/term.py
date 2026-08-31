@@ -12,7 +12,7 @@ Why tmux + PTY (and not one or the other):
 Session identity lives in TWO places:
 
 - ``projects/<id>/project.json`` — durable. Stores the *logical*
-  session list: ``{name, kind, claude_session_id?}``. This is the source of
+  session list: ``{name, kind, claude_session_id?, agent_session_id?}``. This is the source of
   truth for "which sessions does this project know about" and for the
   Claude session UUIDs we need to ``--resume``. Survives server restarts.
 - ``.lab/state/sessions/sessions.json`` — runtime. Maps the live tmux
@@ -55,6 +55,7 @@ import pty
 import re
 import shutil
 import signal
+import sqlite3
 import struct
 import subprocess
 import termios
@@ -66,6 +67,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+import yaml
 
 from lab import settings as lab_settings
 from lab import tmux_sockets
@@ -676,6 +678,230 @@ def _infer_session_summary(name: str, tmux_socket: str) -> str | None:
     return summary or None
 
 
+_AGENT_NAME_TTL_S = 5.0
+_AGENT_NAME_CACHE: dict[str, tuple[float, str | None]] = {}
+_CODEX_NAMES_CACHE: tuple[float, dict[str, tuple[str, str]]] | None = None
+_CODEX_PROCESS_UUID_RE = re.compile(r"^pid:(\d+):")
+
+
+def _cached_agent_name(key: str, loader) -> str | None:
+    now = time.monotonic()
+    cached = _AGENT_NAME_CACHE.get(key)
+    if cached and now - cached[0] < _AGENT_NAME_TTL_S:
+        return cached[1]
+    try:
+        value = _clean_optional_text(loader(), max_len=100)
+    except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError):
+        value = None
+    _AGENT_NAME_CACHE[key] = (now, value)
+    return value
+
+
+def _claude_session_name(session_id: str, cwd: str) -> str | None:
+    """Read Claude Code's generated AI title for a known session UUID."""
+    project_slug = re.sub(r"[^A-Za-z0-9]", "-", str(Path(cwd).resolve()))
+    project_dir = Path.home() / ".claude" / "projects" / project_slug
+    transcript = project_dir / f"{session_id}.jsonl"
+
+    def load() -> str | None:
+        if transcript.is_file():
+            # Claude repeats the ai-title event near the live tail. Limiting
+            # the read keeps terminal-list polling cheap for long sessions.
+            with transcript.open("rb") as handle:
+                size = handle.seek(0, os.SEEK_END)
+                start = max(0, size - 512 * 1024)
+                handle.seek(start)
+                data = handle.read()
+            if start:
+                _, _, data = data.partition(b"\n")
+            title = None
+            for raw in data.splitlines():
+                try:
+                    event = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                candidate = event.get("customTitle") or event.get("aiTitle")
+                if isinstance(candidate, str) and candidate.strip():
+                    title = candidate
+            if title:
+                return title
+
+        index_path = project_dir / "sessions-index.json"
+        if not index_path.is_file():
+            return None
+        payload = json.loads(index_path.read_text())
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and entry.get("sessionId") == session_id:
+                return entry.get("name") or entry.get("summary")
+        return None
+
+    return _cached_agent_name(f"claude:{session_id}", load)
+
+
+def _copilot_session_name(session_id: str) -> str | None:
+    """Read Copilot CLI's saved name/summary for a Lab-owned UUID."""
+    home = Path(os.environ.get("COPILOT_HOME") or (Path.home() / ".copilot"))
+    workspace = home / "session-state" / session_id / "workspace.yaml"
+
+    def load() -> str | None:
+        if not workspace.is_file():
+            return None
+        payload = yaml.safe_load(workspace.read_text())
+        if not isinstance(payload, dict):
+            return None
+        candidates = [payload]
+        nested = payload.get("workspace")
+        if isinstance(nested, dict):
+            candidates.append(nested)
+        for candidate in candidates:
+            value = candidate.get("name") or candidate.get("summary")
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    return _cached_agent_name(f"copilot:{session_id}", load)
+
+
+def _tty_key(raw: str | None) -> str:
+    return (raw or "").removeprefix("/dev/").strip()
+
+
+def _codex_session_names_by_tty(
+    ttys: set[str], cwds: set[str] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Map live pane TTYs to ``(thread id, display name)`` for Codex CLI.
+
+    Codex's log index records a process UUID containing the native PID and
+    the active top-level thread ID. Joining that with the thread index and
+    each process's controlling TTY gives an exact per-pane mapping, including
+    after `/new` switches a long-lived TUI process to another conversation.
+    """
+    global _CODEX_NAMES_CACHE
+    wanted = {_tty_key(tty) for tty in ttys if _tty_key(tty)}
+    if not wanted:
+        return {}
+    now = time.monotonic()
+    if (
+        _CODEX_NAMES_CACHE
+        and now - _CODEX_NAMES_CACHE[0] < _AGENT_NAME_TTL_S
+        and wanted.issubset(_CODEX_NAMES_CACHE[1])
+    ):
+        return {
+            tty: value for tty, value in _CODEX_NAMES_CACHE[1].items()
+            if tty in wanted
+        }
+
+    logs_path = Path.home() / ".codex" / "logs_2.sqlite"
+    threads_path = Path.home() / ".codex" / "state_5.sqlite"
+    if not logs_path.is_file() or not threads_path.is_file():
+        _CODEX_NAMES_CACHE = (now, {})
+        return {}
+    try:
+        proc = subprocess.run(
+            ["ps", "-axo", "pid=,tty="], capture_output=True, text=True,
+            timeout=1.0,
+        )
+        if proc.returncode != 0:
+            return {}
+        pid_tty: dict[int, str] = {}
+        for line in proc.stdout.splitlines():
+            fields = line.split()
+            if len(fields) >= 2 and fields[0].isdigit():
+                tty = _tty_key(fields[1])
+                if tty in wanted:
+                    pid_tty[int(fields[0])] = tty
+        if not pid_tty:
+            _CODEX_NAMES_CACHE = (now, {})
+            return {}
+
+        directories = sorted(cwd for cwd in (cwds or set()) if cwd)
+        cwd_where = ""
+        cwd_params: list[str] = []
+        if directories:
+            cwd_where = f" AND cwd IN ({','.join('?' for _ in directories)})"
+            cwd_params = directories
+        with sqlite3.connect(
+            f"file:{threads_path}?mode=ro", uri=True, timeout=0.2,
+        ) as conn:
+            thread_rows = conn.execute(
+                f"""
+                SELECT id, title, name
+                FROM threads
+                WHERE archived = 0 AND source = 'cli'{cwd_where}
+                ORDER BY updated_at DESC
+                LIMIT 500
+                """,
+                cwd_params,
+            ).fetchall()
+        threads = {str(row[0]): row for row in thread_rows}
+        if not threads:
+            _CODEX_NAMES_CACHE = (now, {})
+            return {}
+        thread_ids = list(threads)
+        placeholders = ",".join("?" for _ in thread_ids)
+        with sqlite3.connect(
+            f"file:{logs_path}?mode=ro", uri=True, timeout=0.2,
+        ) as conn:
+            candidates = conn.execute(
+                f"""
+                SELECT process_uuid, thread_id, MAX(ts) AS last_seen
+                FROM logs
+                WHERE thread_id IN ({placeholders})
+                GROUP BY process_uuid, thread_id
+                """,
+                thread_ids,
+            ).fetchall()
+        best: dict[str, tuple[int, str, str]] = {}
+        for process_uuid, thread_id, last_seen in candidates:
+            match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))
+            thread = threads.get(str(thread_id))
+            if not match or not thread:
+                continue
+            tty = pid_tty.get(int(match.group(1)))
+            if not tty:
+                continue
+            display = _clean_optional_text(thread[2] or thread[1], max_len=100)
+            if not display:
+                continue
+            current = best.get(tty)
+            if current is None or int(last_seen or 0) > current[0]:
+                best[tty] = (int(last_seen or 0), str(thread_id), display)
+        resolved = {tty: (row[1], row[2]) for tty, row in best.items()}
+        _CODEX_NAMES_CACHE = (now, resolved)
+        return resolved
+    except (OSError, sqlite3.Error, subprocess.SubprocessError):
+        return {}
+
+
+def _enrich_agent_session_names(rows: list[dict]) -> None:
+    codex_ttys = {
+        str(row.get("pane_tty")) for row in rows
+        if row.get("agent") == "codex" and row.get("pane_tty")
+    }
+    codex_cwds = {
+        str(row.get("cwd")) for row in rows
+        if row.get("agent") == "codex" and row.get("cwd")
+    }
+    codex_names = _codex_session_names_by_tty(codex_ttys, codex_cwds)
+    for row in rows:
+        agent = row.get("agent")
+        session_id = row.get("agent_session_id") or row.get("claude_session_id")
+        display = None
+        if agent == "codex":
+            identity = codex_names.get(_tty_key(row.get("pane_tty")))
+            if identity:
+                session_id, display = identity
+        elif agent == "claude" and isinstance(session_id, str):
+            display = _claude_session_name(session_id, str(row.get("cwd") or ""))
+        elif agent == "copilot" and isinstance(session_id, str):
+            display = _copilot_session_name(session_id)
+        if isinstance(session_id, str) and session_id:
+            row["agent_session_id"] = session_id
+        if display:
+            row["agent_session_name"] = display
+
+
 # ─── registry recovery ──────────────────────────────────────────────────────
 #
 # .sessions.json is rebuildable state: every live tmux session is named
@@ -910,6 +1136,8 @@ def _reconstruct_meta_entry(
             entry["agent"] = s.get("agent") or entry["agent"]
             if s.get("claude_session_id"):
                 entry["claude_session_id"] = s["claude_session_id"]
+            if s.get("agent_session_id"):
+                entry["agent_session_id"] = s["agent_session_id"]
             break
     return entry
 
@@ -1056,7 +1284,10 @@ def _tmux_list(
                 socket_name,
                 "list-sessions",
                 "-F",
-                "#{session_name}|#{session_created}|#{session_attached}|#{session_windows}",
+                (
+                    "#{session_name}|#{session_created}|#{session_attached}|"
+                    "#{session_windows}|#{pane_tty}|#{pane_pid}"
+                ),
             ),
             capture_output=True,
             text=True,
@@ -1093,6 +1324,8 @@ def _tmux_list(
                 "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0,
                 "attached": parts[2] != "0" if len(parts) > 2 else False,
                 "windows": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1,
+                "pane_tty": parts[4] if len(parts) > 4 else "",
+                "pane_pid": int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0,
                 "tmux_socket": socket_name,
             })
         lab_rows_by_socket[socket_name] = lab_count
@@ -1276,9 +1509,9 @@ def _default_logical_name(kind: str) -> str:
 def _agent_argv(agent: str) -> list[str]:
     """Launch argv for a non-Claude agent (codex / copilot).
 
-    Resume/session bookkeeping is Claude-only for now, so these spawn a fresh
-    session. Raises HTTPException if the CLI is missing so the UI can surface a
-    clean "not installed" message instead of an opaque tmux failure.
+    These spawn a fresh session (Copilot's caller-owned UUID is appended by the
+    create route). Raises HTTPException if the CLI is missing so the UI can
+    surface a clean "not installed" message instead of an opaque tmux failure.
     """
     if agent == "codex":
         if not shutil.which("codex"):
@@ -1462,6 +1695,7 @@ def _sessions_for_root(root: Path, project_id: str | None) -> list[dict]:
             if inferred:
                 row["summary"] = inferred
         rows.append(row)
+    _enrich_agent_session_names(rows)
     return rows
 
 
@@ -2271,6 +2505,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     auto_applied = False
     resumed_from = None
     claude_session_id = None
+    agent_session_id = None
     if kind == "claude" and agent == "claude":
         parts = ["claude"]
         wants_auto = (
@@ -2295,12 +2530,19 @@ def create_session(body: NewSession, request: Request) -> dict:
         else:
             claude_session_id = str(uuid.uuid4())
             parts.extend(["--session-id", claude_session_id])
+        agent_session_id = claude_session_id
         cmd_argv = parts
     elif kind == "claude":
         # codex / copilot — fresh session (resume is Claude-only for now).
         # Same `auto` contract as claude: an explicit request wins,
         # otherwise the workspace's per-agent autopilot setting decides.
         cmd_argv = _agent_argv(agent)
+        if agent == "copilot":
+            # Copilot accepts a caller-owned UUID. Keeping it in Lab's
+            # registry lets the session-list endpoint read its generated
+            # name from ~/.copilot/session-state/<uuid>/workspace.yaml.
+            agent_session_id = str(uuid.uuid4())
+            cmd_argv = cmd_argv + ["--session-id", agent_session_id]
         wants_auto = (
             body.auto
             if body.auto is not None
@@ -2375,6 +2617,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         "cmd": cmd_str,
         "auto": auto_applied,
         "claude_session_id": claude_session_id,
+        "agent_session_id": agent_session_id,
         "resumed_from": resumed_from,
         "created_at": int(time.time()),
         "tmux_socket": socket_name,
@@ -2382,13 +2625,16 @@ def create_session(body: NewSession, request: Request) -> dict:
     _save_meta(root, meta)
     _invalidate_project_term_caches()
 
-    # Record durable entry (claude session id survives restart).
+    # Record durable provider identity (Claude resumes it; Copilot uses it for
+    # display-name lookup even though reopening still starts a fresh session).
     if body.project_id:
         entry: dict = {"name": logical, "kind": kind}
         if agent:
             entry["agent"] = agent
         if claude_session_id:
             entry["claude_session_id"] = claude_session_id
+        if agent_session_id and agent != "claude":
+            entry["agent_session_id"] = agent_session_id
         _upsert_project_session(root, body.project_id, entry)
         saved = _project_session_by_name(root, body.project_id).get(logical)
         if saved:

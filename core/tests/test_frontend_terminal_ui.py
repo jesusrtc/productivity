@@ -443,6 +443,7 @@ const document = {getElementById(id) {
 const termSessions = [{
   name: 'lab-demo-codex-2-abc123', logical_name: 'codex-2',
   kind: 'claude', agent: 'codex', summary: 'Reviewing changes',
+  agent_session_name: 'Review terminal naming',
 }];
 let termCurrentSession = termSessions[0].name;
 let termCurrentProjectId = 'demo';
@@ -459,8 +460,36 @@ process.stdout.write(JSON.stringify({
     )
 
     assert result["className"] == "term-active-session on claude"
-    assert '<span class="name">codex-2</span>' in result["html"]
+    assert '<span class="name">Review terminal naming</span>' in result["html"]
     assert '<span class="agent">codex</span>' in result["html"]
+
+
+def test_terminal_session_name_priority_keeps_manual_label_override() -> None:
+    display_helper = _js_between(
+        "function _termSessionDisplay(s)",
+        "function _termSessionVisual(s)",
+    )
+    result = _run_node(
+        display_helper + """
+process.stdout.write(JSON.stringify({
+  generated: _termSessionDisplay({
+    name: 'tmux-name', logical_name: 'codex-3',
+    agent_session_name: 'Generated session title',
+  }),
+  manual: _termSessionDisplay({
+    name: 'tmux-name', logical_name: 'codex-3',
+    agent_session_name: 'Generated session title', label: 'My tab',
+  }),
+  fallback: _termSessionDisplay({name: 'tmux-name', logical_name: 'codex-3'}),
+}));
+"""
+    )
+
+    assert result == {
+        "generated": "Generated session title",
+        "manual": "My tab",
+        "fallback": "codex-3",
+    }
 
 
 def test_workspace_view_opens_its_own_terminal_scope() -> None:

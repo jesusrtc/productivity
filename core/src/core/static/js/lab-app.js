@@ -10009,7 +10009,7 @@
   }
 
   function _termSessionDisplay(s) {
-    return (s && (s.label || s.logical_name || s.name)) || '';
+    return (s && (s.label || s.agent_session_name || s.logical_name || s.name)) || '';
   }
 
   function _termSessionVisual(s) {
@@ -10045,7 +10045,7 @@
     const workspaceId = _termWorkspaceId();
     const logical = session.logical_name || '';
     if (!projectId || !logical) return;
-    const current = session.label || logical;
+    const current = session.label || session.agent_session_name || logical;
     const nextRaw = prompt('Rename terminal tab', current);
     if (nextRaw === null) return;
     const next = nextRaw.trim();
