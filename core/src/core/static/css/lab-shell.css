@@ -1887,26 +1887,26 @@
   .doc-modal-body { flex: 1; overflow-y: auto; }
 
 /* ─── Focus mode ─────────────────────────────────────────────────────────
-   body.focus-mode hides the topbar + project attrs bar; the Overview strip
-   (repo-tabs) and content shift to the top. These rules sit at the end of
-   the file so they win every equal-specificity offset rule above. */
-  body.focus-mode .topbar,
+   Keep the topbar so Home and the open workspace/project tabs remain usable.
+   Only the project attrs bar is hidden; the Overview strip and content move
+   into its place below the 48px topbar. These rules sit at the end of the file
+   so they win every equal-specificity offset rule above. */
   body.focus-mode .attrs-bar { display: none; }
-  body.focus-mode .repo-tabs { top: 0; }
-  body.focus-mode .diff-tabs { top: 0; }
-  body.focus-mode.has-repo-tabs .diff-tabs { top: 36px; }
-  body.focus-mode .layout { padding-top: 40px; }
-  body.focus-mode .sidebar { top: 40px; }
-  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 36px; }
-  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 36px; }
-  /* Both bars visible (repo tabs at 0 + diff tabs at 36): content at 76.
+  body.focus-mode .repo-tabs { top: 48px; }
+  body.focus-mode .diff-tabs { top: 48px; }
+  body.focus-mode.has-repo-tabs .diff-tabs { top: 84px; }
+  body.focus-mode .layout { padding-top: 88px; }
+  body.focus-mode .sidebar { top: 88px; }
+  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 84px; }
+  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 84px; }
+  /* Both bars visible (repo tabs at 48 + diff tabs at 84): content at 124.
      Three body classes so this outranks project-active.has-repo-tabs. */
-  body.focus-mode.has-repo-tabs.has-diff-tabs .layout { padding-top: 76px; }
-  body.focus-mode.has-repo-tabs.has-diff-tabs .sidebar { top: 76px; }
-  body.focus-mode .term-panel { top: 40px; }
-  body.focus-mode.has-repo-tabs .term-panel { top: 76px; }
-  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 36px; }
-  body.focus-mode .k-view { top: 0; }
+  body.focus-mode.has-repo-tabs.has-diff-tabs .layout { padding-top: 124px; }
+  body.focus-mode.has-repo-tabs.has-diff-tabs .sidebar { top: 124px; }
+  body.focus-mode .term-panel { top: 88px; }
+  body.focus-mode.has-repo-tabs .term-panel { top: 124px; }
+  body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 84px; }
+  body.focus-mode .k-view { top: 48px; }
   .repo-tab.keep-alive-toggle { margin-left: auto; display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
   .repo-tab.keep-alive-toggle:hover { color: var(--text-primary); }
   .repo-tab.keep-alive-toggle[aria-checked="true"] { color: var(--accent); }

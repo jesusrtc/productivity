@@ -11,6 +11,7 @@ import pytest
 NODE = shutil.which("node")
 ROOT = Path(__file__).resolve().parents[2]
 LAB_APP = ROOT / "core/src/core/static/js/lab-app.js"
+LAB_SHELL_CSS = ROOT / "core/src/core/static/css/lab-shell.css"
 
 
 def _run_node(script: str) -> dict:
@@ -33,6 +34,13 @@ def _focus_mode_source() -> str:
     source = LAB_APP.read_text(encoding="utf-8")
     start = source.index("const FOCUS_MODE_KEY")
     end = source.index("function renderRepoTabs()", start)
+    return source[start:end]
+
+
+def _focus_mode_css_source() -> str:
+    source = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    start = source.index("/* ─── Focus mode")
+    end = source.index(".repo-tab.keep-alive-toggle", start)
     return source[start:end]
 
 
@@ -137,6 +145,19 @@ process.stdout.write(JSON.stringify({
         "wakeRequests": ["screen"],
         "fullscreenRequests": 1,
     }
+
+
+def test_focus_mode_keeps_home_and_project_tabs_visible() -> None:
+    css = _focus_mode_css_source()
+
+    assert "body.focus-mode .topbar" not in css
+    assert "body.focus-mode .attrs-bar { display: none; }" in css
+    assert "body.focus-mode .repo-tabs { top: 48px; }" in css
+    assert "body.focus-mode.has-repo-tabs .diff-tabs { top: 84px; }" in css
+    assert (
+        "body.focus-mode.has-repo-tabs.has-diff-tabs .layout { padding-top: 124px; }"
+        in css
+    )
 
 
 def test_exiting_browser_fullscreen_exits_focus_and_releases_wake_lock() -> None:

@@ -4964,8 +4964,8 @@
   }
 
   // ─── Focus mode ─────────────────────────────────────────────────────────
-  // Hides the topbar (Home / workspace picker / project tabs / gear) and the
-  // project attrs bar so only the Overview strip and the content remain.
+  // Keeps the topbar (Home / workspace picker / project tabs / gear) visible
+  // while hiding the project attrs bar above the Overview strip and content.
   // Entering from the button also requests browser fullscreen and keeps the
   // display awake. Keep Alive exposes that wake lock independently beside the
   // Focus control. Esc exits Focus; both preferences persist across reloads.
