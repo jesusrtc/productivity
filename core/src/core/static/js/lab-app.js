@@ -4971,7 +4971,6 @@
   // Focus control. Esc exits Focus; both preferences persist across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
   const KEEP_ALIVE_KEY = 'labKeepAlive';
-  const LID_AWAKE_AUTH_KEY = 'labLidAwakeAuth';
   const LID_AWAKE_DURATIONS = [15, 30, 60];
   const FOCUS_ZOOM_MIN = 0.5;
   const FOCUS_ZOOM_MAX = 3;
@@ -4985,13 +4984,8 @@
   let _lidAwakeMenuOpen = false;
   let _lidAwakeBusy = false;
   let _lidAwakeError = '';
-  let _lidAwakeAuthMethod = 'touch_id';
-  try {
-    const savedLidAwakeAuth = localStorage.getItem(LID_AWAKE_AUTH_KEY);
-    if (savedLidAwakeAuth === 'touch_id' || savedLidAwakeAuth === 'password') {
-      _lidAwakeAuthMethod = savedLidAwakeAuth;
-    }
-  } catch {}
+  let _lidAwakePasswordSaved = false;
+  let _lidAwakeEditingPassword = false;
 
   function _lidAwakeIsActive() {
     return _lidAwakeDeadlineMs > Date.now();
@@ -5012,6 +5006,10 @@
 
   function _applyLidAwakeStatus(status) {
     _lidAwakeSupported = status && status.supported !== false;
+    if (status && typeof status.password_saved === 'boolean') {
+      _lidAwakePasswordSaved = status.password_saved;
+      if (!_lidAwakePasswordSaved) _lidAwakeEditingPassword = true;
+    }
     const deadline = Number(status && status.deadline);
     _lidAwakeDeadlineMs = status && status.active && Number.isFinite(deadline)
       ? deadline * 1000
@@ -5041,24 +5039,27 @@
     const cancel = active
       ? `<button type="button" role="menuitem" class="lid-awake-cancel" onclick="event.stopPropagation(); cancelLidAwake()"${disabled}>Cancel now</button>`
       : '';
-    const authentication = active ? '' : `
-      <div class="lid-awake-auth-label">Approve with</div>
-      <div class="lid-awake-auth" role="radiogroup" aria-label="Lid Awake authentication">
-        <button type="button" role="radio" aria-checked="${_lidAwakeAuthMethod === 'touch_id'}" class="${_lidAwakeAuthMethod === 'touch_id' ? 'selected' : ''}" onclick="event.stopPropagation(); setLidAwakeAuthMethod('touch_id')"${disabled}>Touch ID</button>
-        <button type="button" role="radio" aria-checked="${_lidAwakeAuthMethod === 'password'}" class="${_lidAwakeAuthMethod === 'password' ? 'selected' : ''}" onclick="event.stopPropagation(); setLidAwakeAuthMethod('password')"${disabled}>Password</button>
-      </div>
-      ${_lidAwakeAuthMethod === 'password'
-        ? `<input id="lidAwakePassword" class="lid-awake-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Mac password" aria-label="Mac password"${disabled}>`
-        : ''}`;
+    const needsPassword = !active
+      && (!_lidAwakePasswordSaved || _lidAwakeEditingPassword);
+    const authentication = active ? '' : (needsPassword ? `
+      <label class="lid-awake-password-label" for="lidAwakePassword">Mac password</label>
+      <input id="lidAwakePassword" class="lid-awake-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Enter Mac password"${disabled}>`
+      : `<div class="lid-awake-saved-password">
+          <span>Password saved in macOS Keychain</span>
+          <div class="lid-awake-secret-actions">
+            <button type="button" onclick="event.stopPropagation(); editLidAwakePassword()"${disabled}>Change</button>
+            <button type="button" onclick="event.stopPropagation(); forgetLidAwakePassword()"${disabled}>Forget</button>
+          </div>
+        </div>`);
     const message = _lidAwakeError
       ? `<div class="lid-awake-error">${esc(_lidAwakeError)}</div>`
       : (_lidAwakeBusy
-        ? `<div class="lid-awake-note">${_lidAwakeAuthMethod === 'password' ? 'Checking password…' : 'Waiting for Touch ID…'}</div>`
+        ? `<div class="lid-awake-note">${needsPassword ? 'Checking password…' : 'Using saved password…'}</div>`
         : (active
           ? '<div class="lid-awake-note">Choose a duration to reset the timer from now.</div>'
-          : `<div class="lid-awake-note">${_lidAwakeAuthMethod === 'password'
-            ? 'Sent once to sudo on this Mac. The password is never saved.'
-            : 'Keeps this Mac running with the lid closed. Starting it asks for Touch ID.'}</div>`));
+          : `<div class="lid-awake-note">${needsPassword
+            ? 'After a successful start, the password is encrypted in macOS Keychain—not browser storage.'
+            : 'Keeps this Mac running with the lid closed. The browser never receives the saved password.'}</div>`));
     menu.innerHTML = `
       <div class="lid-awake-title">Lid Awake</div>
       ${current}
@@ -5116,28 +5117,28 @@
     if (!_lidAwakeSupported || _lidAwakeBusy) return;
     _lidAwakeMenuOpen = !_lidAwakeMenuOpen;
     _lidAwakeError = '';
+    if (!_lidAwakeMenuOpen && _lidAwakePasswordSaved) {
+      _lidAwakeEditingPassword = false;
+    }
     _renderLidAwakeMenu();
   }
   window.toggleLidAwakeMenu = toggleLidAwakeMenu;
 
-  function setLidAwakeAuthMethod(method) {
-    if (_lidAwakeBusy || _lidAwakeIsActive()
-        || (method !== 'touch_id' && method !== 'password')) return;
-    _lidAwakeAuthMethod = method;
+  function editLidAwakePassword() {
+    if (_lidAwakeBusy || _lidAwakeIsActive()) return;
+    _lidAwakeEditingPassword = true;
     _lidAwakeError = '';
-    try { localStorage.setItem(LID_AWAKE_AUTH_KEY, method); } catch {}
     _renderLidAwakeMenu();
-    if (method === 'password') {
-      const input = document.getElementById('lidAwakePassword');
-      if (input && typeof input.focus === 'function') input.focus();
-    }
+    const input = document.getElementById('lidAwakePassword');
+    if (input && typeof input.focus === 'function') input.focus();
   }
-  window.setLidAwakeAuthMethod = setLidAwakeAuthMethod;
+  window.editLidAwakePassword = editLidAwakePassword;
 
   async function setLidAwake(minutes) {
     if (_lidAwakeBusy || !LID_AWAKE_DURATIONS.includes(Number(minutes))) return;
     let password = null;
-    if (!_lidAwakeIsActive() && _lidAwakeAuthMethod === 'password') {
+    if (!_lidAwakeIsActive()
+        && (!_lidAwakePasswordSaved || _lidAwakeEditingPassword)) {
       const input = document.getElementById('lidAwakePassword');
       password = input ? input.value : '';
       if (!password) {
@@ -5156,15 +5157,35 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           minutes: Number(minutes),
-          auth_method: _lidAwakeAuthMethod,
           ...(password !== null ? {password} : {}),
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail || 'Lid Awake could not be started.');
+      if (!response.ok) {
+        const detail = body && body.detail;
+        const error = new Error(
+          (detail && typeof detail === 'object' ? detail.message : detail)
+            || 'Lid Awake could not be started.'
+        );
+        if (detail && typeof detail.password_saved === 'boolean') {
+          error.passwordSaved = detail.password_saved;
+        }
+        throw error;
+      }
       _applyLidAwakeStatus(body);
-      _lidAwakeMenuOpen = false;
+      _lidAwakeEditingPassword = false;
+      if (body.warning) {
+        _lidAwakeError = String(body.warning);
+        _lidAwakeEditingPassword = true;
+        _lidAwakeMenuOpen = true;
+      } else {
+        _lidAwakeMenuOpen = false;
+      }
     } catch (error) {
+      if (error && error.passwordSaved === false) {
+        _lidAwakePasswordSaved = false;
+        _lidAwakeEditingPassword = true;
+      }
       _lidAwakeError = String(error && error.message || error);
       _lidAwakeMenuOpen = true;
     } finally {
@@ -5175,6 +5196,29 @@
     }
   }
   window.setLidAwake = setLidAwake;
+
+  async function forgetLidAwakePassword() {
+    if (_lidAwakeBusy || _lidAwakeIsActive()) return;
+    _lidAwakeBusy = true;
+    _lidAwakeError = '';
+    _renderLidAwakeMenu();
+    try {
+      const response = await window.fetch('/api/power/lid-awake/password', {
+        method: 'DELETE',
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || 'The saved password could not be forgotten.');
+      _lidAwakePasswordSaved = false;
+      _lidAwakeEditingPassword = true;
+    } catch (error) {
+      _lidAwakeError = String(error && error.message || error);
+    } finally {
+      _lidAwakeBusy = false;
+      if (currentProject) renderRepoTabs();
+      else _renderLidAwakeMenu();
+    }
+  }
+  window.forgetLidAwakePassword = forgetLidAwakePassword;
 
   async function cancelLidAwake() {
     if (_lidAwakeBusy) return;

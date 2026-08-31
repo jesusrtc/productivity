@@ -1924,14 +1924,14 @@
   .lid-awake-title { color: var(--text-primary); font-size: 13px; font-weight: 650; margin-bottom: 9px; }
   .lid-awake-current { display: flex; align-items: center; gap: 7px; color: var(--yellow); margin-bottom: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .lid-awake-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--yellow); box-shadow: 0 0 0 3px rgba(210,153,34,.15); }
-  .lid-awake-auth-label { margin: 0 0 5px; color: var(--text-secondary); }
-  .lid-awake-auth { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
-  .lid-awake-auth button { padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-primary); color: var(--text-secondary); font: inherit; cursor: pointer; }
-  .lid-awake-auth button:hover { color: var(--text-primary); border-color: var(--text-dim); }
-  .lid-awake-auth button.selected { color: var(--accent); border-color: var(--accent); background: rgba(88,166,255,.08); }
-  .lid-awake-auth button:disabled { cursor: wait; opacity: .55; }
+  .lid-awake-password-label { display: block; margin: 0 0 5px; color: var(--text-secondary); }
   .lid-awake-password { box-sizing: border-box; width: 100%; margin-bottom: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; outline: none; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
   .lid-awake-password:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88,166,255,.12); }
+  .lid-awake-saved-password { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding: 7px 9px; border: 1px solid rgba(63,185,80,.35); border-radius: 5px; color: var(--green); background: rgba(63,185,80,.06); }
+  .lid-awake-secret-actions { display: flex; gap: 4px; }
+  .lid-awake-secret-actions button { padding: 2px 5px; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+  .lid-awake-secret-actions button:hover { color: var(--text-primary); }
+  .lid-awake-secret-actions button:disabled { cursor: wait; opacity: .55; }
   .lid-awake-durations { display: grid; grid-template-columns: 1fr; gap: 6px; }
   .lid-awake-durations button,
   .lid-awake-cancel { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }

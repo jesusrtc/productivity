@@ -2,8 +2,8 @@
 
 The browser Wake Lock API used by Lab's existing Keep Alive switch cannot
 prevent a Mac from sleeping after its lid closes.  This route deliberately
-uses macOS's system setting instead, authenticated through sudo with either
-the user's configured Touch ID flow or a one-time password from the UI.
+uses macOS's system setting instead, authenticated through sudo with a password
+stored by the backend in the user's encrypted macOS Keychain.
 
 The privileged helper reads a user-owned deadline file once per second.  That
 keeps renewal cheap (only the deadline changes), survives a Lab server restart,
@@ -12,6 +12,7 @@ and guarantees that the helper restores normal sleep when the deadline expires.
 from __future__ import annotations
 
 import os
+import select
 import shlex
 import subprocess
 import sys
@@ -31,13 +32,15 @@ router = APIRouter()
 
 _ALLOWED_MINUTES = {15, 30, 60}
 _APPROVAL_TIMEOUT_S = 120
+_KEYCHAIN_TIMEOUT_S = 15
+_KEYCHAIN_SERVICE = "com.neurona.lab.lid-awake"
+_KEYCHAIN_LABEL = "Lab Lid Awake"
 _SUCCESS_MARKER = "__LAB_LID_AWAKE_STARTED__"
 _LOCK = threading.Lock()
 
 
 class LidAwakeRequest(BaseModel):
     minutes: Literal[15, 30, 60]
-    auth_method: Literal["touch_id", "password"] = "touch_id"
     password: SecretStr | None = None
 
 
@@ -50,9 +53,144 @@ def _is_supported() -> bool:
     return (
         sys.platform == "darwin"
         and Path("/usr/bin/pmset").is_file()
+        and Path("/usr/bin/security").is_file()
         and Path("/usr/bin/script").is_file()
         and Path("/usr/bin/sudo").is_file()
     )
+
+
+def _keychain_account() -> str:
+    return f"uid:{os.getuid()}"
+
+
+def _keychain_has_password() -> bool:
+    try:
+        proc = subprocess.run(
+            [
+                "/usr/bin/security", "find-generic-password",
+                "-a", _keychain_account(),
+                "-s", _KEYCHAIN_SERVICE,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_KEYCHAIN_TIMEOUT_S,
+            start_new_session=True,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
+def _read_keychain_password() -> str | None:
+    try:
+        proc = subprocess.run(
+            [
+                "/usr/bin/security", "find-generic-password", "-w",
+                "-a", _keychain_account(),
+                "-s", _KEYCHAIN_SERVICE,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=_KEYCHAIN_TIMEOUT_S,
+            start_new_session=True,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    password = (proc.stdout or "").rstrip("\r\n")
+    return password or None
+
+
+def _save_keychain_password(password: str) -> bool:
+    """Save without putting the password in argv or browser storage."""
+    argv = [
+        "/usr/bin/script", "-q", "/dev/null",
+        "/usr/bin/security", "add-generic-password",
+        "-a", _keychain_account(),
+        "-s", _KEYCHAIN_SERVICE,
+        "-l", _KEYCHAIN_LABEL,
+        "-U",
+        # macOS security(1) prompts when -w is the final argument.
+        "-w",
+    ]
+    if not _answer_keychain_password_prompts(argv, password):
+        return False
+    # macOS script(1) can mask the child exit code, so verify the stored value.
+    return _read_keychain_password() == password
+
+
+def _answer_keychain_password_prompts(argv: list[str], password: str) -> bool:
+    """Answer both security(1) prompts through its private terminal."""
+    proc: subprocess.Popen | None = None
+    try:
+        proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        prompts = (
+            b"password data for new item:",
+            b"retype password for new item:",
+        )
+        prompt_index = 0
+        transcript = b""
+        deadline = time.monotonic() + _KEYCHAIN_TIMEOUT_S
+        while prompt_index < len(prompts):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, _KEYCHAIN_TIMEOUT_S)
+            readable, _, _ = select.select([proc.stdout], [], [], remaining)
+            if not readable:
+                raise subprocess.TimeoutExpired(argv, _KEYCHAIN_TIMEOUT_S)
+            chunk = os.read(proc.stdout.fileno(), 4096)
+            if not chunk:
+                return False
+            transcript = (transcript + chunk)[-1024:]
+            if prompts[prompt_index] not in transcript.lower():
+                continue
+            proc.stdin.write(password.encode("utf-8") + b"\n")
+            proc.stdin.flush()
+            prompt_index += 1
+            transcript = b""
+
+        proc.stdin.close()
+        return proc.wait(timeout=max(0.1, deadline - time.monotonic())) == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+
+
+def _delete_keychain_password() -> bool:
+    try:
+        proc = subprocess.run(
+            [
+                "/usr/bin/security", "delete-generic-password",
+                "-a", _keychain_account(),
+                "-s", _KEYCHAIN_SERVICE,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_KEYCHAIN_TIMEOUT_S,
+            start_new_session=True,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
 
 
 def _read_deadline() -> int | None:
@@ -89,15 +227,17 @@ def _clear_deadline() -> None:
 
 def _status(*, now: int | None = None) -> dict:
     current = int(time.time() if now is None else now)
+    supported = _is_supported()
     deadline = _read_deadline()
     active = bool(deadline and deadline > current)
     if deadline is not None and not active:
         _clear_deadline()
     return {
-        "supported": _is_supported(),
+        "supported": supported,
         "active": active,
         "deadline": deadline if active else None,
         "remaining_seconds": max(0, deadline - current) if active and deadline else 0,
+        "password_saved": _keychain_has_password() if supported else False,
     }
 
 
@@ -115,8 +255,8 @@ def _timer_helper_command(deadline_file: Path) -> str:
         "done\n"
     )
     # pmset runs in the foreground, then the small deadline watcher detaches.
-    # A fixed marker is printed only after both steps succeed; macOS `script`
-    # always exits zero, so the caller uses this marker as its success signal.
+    # A fixed marker is printed only after both steps succeed, so the caller
+    # does not mistake a sudo or pmset failure for a running timer.
     return (
         "/usr/bin/pmset -a disablesleep 1; "
         "status=$?; [ \"$status\" -eq 0 ] || exit \"$status\"; "
@@ -125,32 +265,15 @@ def _timer_helper_command(deadline_file: Path) -> str:
     )
 
 
-def _start_privileged_timer(
-    *, auth_method: Literal["touch_id", "password"], password: str | None = None,
-) -> None:
+def _start_privileged_timer(*, password: str) -> None:
     command = _timer_helper_command(_deadline_path())
-    if auth_method == "password":
-        argv = [
-            "/usr/bin/sudo", "-S", "-p", "",
-            "--", "/bin/sh", "-c", command,
-        ]
-        stdin = None
-        input_text = f"{password}\n"
-    else:
-        argv = [
-            "/usr/bin/script", "-q", "/dev/null",
-            "/usr/bin/sudo",
-            "-p", "Approve Lid Awake with Touch ID",
-            "--", "/bin/sh", "-c", command,
-        ]
-        stdin = subprocess.DEVNULL
-        input_text = None
-
     try:
         proc = subprocess.run(
-            argv,
-            stdin=stdin,
-            input=input_text,
+            [
+                "/usr/bin/sudo", "-k", "-S", "-p", "",
+                "--", "/bin/sh", "-c", command,
+            ],
+            input=f"{password}\n",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -158,40 +281,22 @@ def _start_privileged_timer(
             start_new_session=True,
         )
     except subprocess.TimeoutExpired as exc:
-        detail = (
-            "Password authentication timed out. Lid Awake was not started."
-            if auth_method == "password"
-            else "Touch ID approval timed out. Lid Awake was not started."
-        )
         raise HTTPException(
             status_code=504,
-            detail=detail,
+            detail="Password authentication timed out. Lid Awake was not started.",
         ) from exc
     except OSError as exc:
-        detail = (
-            "macOS could not start password authentication."
-            if auth_method == "password"
-            else "macOS could not start Touch ID approval."
-        )
         raise HTTPException(
             status_code=503,
-            detail=detail,
+            detail="macOS could not start password authentication.",
         ) from exc
 
     output = proc.stdout or ""
     if _SUCCESS_MARKER in output:
         return
-    if auth_method == "password":
-        raise HTTPException(
-            status_code=409,
-            detail="Password authentication failed. Check your Mac password and try again.",
-        )
     raise HTTPException(
         status_code=409,
-        detail=(
-            "Touch ID was not approved. Confirm that sudo works with Touch ID "
-            "in Terminal, then try again."
-        ),
+        detail="Password authentication failed. Check your Mac password and try again.",
     )
 
 
@@ -211,10 +316,24 @@ def start_lid_awake(body: LidAwakeRequest, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Choose 15, 30, or 60 minutes.")
 
     with _LOCK:
-        was_active = _status()["active"]
-        password = body.password.get_secret_value() if body.password else None
-        if not was_active and body.auth_method == "password" and not password:
-            raise HTTPException(status_code=400, detail="Enter your Mac password.")
+        current_status = _status()
+        was_active = current_status["active"]
+        supplied_password = body.password.get_secret_value() if body.password else None
+        password = supplied_password
+        used_saved_password = False
+        if not was_active and not password:
+            password = _read_keychain_password()
+            used_saved_password = bool(password)
+        if not was_active and not password:
+            message = (
+                "The saved password could not be read. Enter a new Mac password."
+                if current_status["password_saved"]
+                else "Enter your Mac password."
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={"message": message, "password_saved": False},
+            )
         deadline = int(time.time()) + body.minutes * 60
         try:
             _write_deadline(deadline)
@@ -225,14 +344,44 @@ def start_lid_awake(body: LidAwakeRequest, request: Request) -> dict:
         # it on its next one-second tick, so no second approval is necessary.
         if not was_active:
             try:
-                _start_privileged_timer(
-                    auth_method=body.auth_method,
-                    password=password if body.auth_method == "password" else None,
-                )
+                _start_privileged_timer(password=password)
+            except HTTPException as exc:
+                _clear_deadline()
+                if exc.status_code == 409:
+                    _delete_keychain_password()
+                    source = "Saved Mac password" if used_saved_password else "Mac password"
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": f"{source} did not work. Enter a new password.",
+                            "password_saved": False,
+                        },
+                    ) from exc
+                raise
             except Exception:
                 _clear_deadline()
                 raise
+
+            if supplied_password and not _save_keychain_password(supplied_password):
+                status = _status()
+                status["warning"] = (
+                    "Lid Awake started, but macOS Keychain could not save the password."
+                )
+                return status
         return _status()
+
+
+@router.delete("/api/power/lid-awake/password")
+def forget_lid_awake_password(request: Request) -> dict:
+    auth.require_admin(request)
+    with _LOCK:
+        _delete_keychain_password()
+        if _keychain_has_password():
+            raise HTTPException(
+                status_code=503,
+                detail="macOS Keychain could not forget the saved password.",
+            )
+        return {"password_saved": False}
 
 
 @router.delete("/api/power/lid-awake")

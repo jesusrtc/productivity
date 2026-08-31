@@ -327,14 +327,15 @@ process.stdout.write(JSON.stringify({activeLabel, inactiveLabel}));
     }
 
 
-def test_lid_awake_remembers_only_the_authentication_method() -> None:
+def test_lid_awake_keeps_saved_password_out_of_browser_storage() -> None:
     source = _focus_mode_source()
 
-    assert "const LID_AWAKE_AUTH_KEY = 'labLidAwakeAuth';" in source
     assert 'type="password"' in source
     assert 'autocomplete="off"' in source
-    assert "localStorage.setItem(LID_AWAKE_AUTH_KEY, method)" in source
-    assert "localStorage.setItem(LID_AWAKE_AUTH_KEY, password)" not in source
+    assert "password_saved" in source
+    assert "macOS Keychain" in source
+    assert "LID_AWAKE_AUTH_KEY" not in source
+    assert "localStorage.setItem(LID_AWAKE" not in source
     assert "localStorage.setItem('password'" not in source
 
 
