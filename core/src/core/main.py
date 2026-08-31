@@ -33,6 +33,7 @@ from core.routes import mutation as mutation_route
 from core.routes import nb_exec as nb_exec_route
 from core.routes import nb_runtime as nb_runtime_route
 from core.routes import notebook as notebook_route
+from core.routes import power as power_route
 from core.routes import project as project_route
 from core.routes import proxy as proxy_route
 from core.routes import search as search_route
@@ -498,6 +499,7 @@ def create_app() -> FastAPI:
     app.include_router(task_route.router)
     app.include_router(markdown_route.router)
     app.include_router(notebook_route.router)
+    app.include_router(power_route.router)
     app.include_router(nb_exec_route.router)
     app.include_router(nb_runtime_route.router)
     app.include_router(ws_route.router)

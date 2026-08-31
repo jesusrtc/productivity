@@ -258,15 +258,52 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_keep_alive_switch_is_rendered_beside_focus_mode() -> None:
+def test_keep_alive_and_lid_awake_are_rendered_beside_focus_mode() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     start = source.index("function renderRepoTabs()")
     end = source.index("function showScopedCodeSearch()", start)
     render = source[start:end]
 
-    assert render.index("keep-alive-toggle") < render.index("focus-toggle")
+    assert render.index("keep-alive-toggle") < render.index("lid-awake-toggle")
+    assert render.index("lid-awake-toggle") < render.index("focus-toggle")
     assert 'role="switch"' in render
     assert 'aria-checked="${keepAliveOn}"' in render
+    assert 'data-testid="lid-awake-toggle"' in render
+    assert "15, 30, 60" in _focus_mode_source()
+
+
+def test_lid_awake_countdown_format() -> None:
+    result = _run_node(_harness("""
+process.stdout.write(JSON.stringify({
+  ninetySeconds: _formatLidAwakeRemaining(90000),
+  oneHour: _formatLidAwakeRemaining(3600000),
+  expired: _formatLidAwakeRemaining(-1000),
+}));
+"""))
+
+    assert result == {
+        "ninetySeconds": "1:30",
+        "oneHour": "60:00",
+        "expired": "0:00",
+    }
+
+
+def test_lid_awake_status_drives_active_label() -> None:
+    result = _run_node(_harness("""
+const now = Date.now;
+Date.now = () => 1000000;
+_applyLidAwakeStatus({supported: true, active: true, deadline: 1090});
+const activeLabel = _lidAwakeLabel();
+_applyLidAwakeStatus({supported: true, active: false, deadline: null});
+const inactiveLabel = _lidAwakeLabel();
+Date.now = now;
+process.stdout.write(JSON.stringify({activeLabel, inactiveLabel}));
+"""))
+
+    assert result == {
+        "activeLabel": "Lid Awake 1:30",
+        "inactiveLabel": "Lid Awake",
+    }
 
 
 def test_focus_mode_degrades_gracefully_without_browser_apis() -> None:

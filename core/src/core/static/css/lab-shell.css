@@ -1913,6 +1913,27 @@
   .keep-alive-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--text-secondary); transition: transform .15s ease, background .15s ease; }
   .repo-tab.keep-alive-toggle[aria-checked="true"] .keep-alive-switch { background: var(--accent); }
   .repo-tab.keep-alive-toggle[aria-checked="true"] .keep-alive-switch::after { background: var(--bg-primary); transform: translateX(10px); }
+  .repo-tab.lid-awake-toggle { color: var(--text-secondary); min-width: 94px; }
+  .repo-tab.lid-awake-toggle:hover { color: var(--text-primary); }
+  .repo-tab.lid-awake-toggle.active { color: var(--yellow); border-bottom-color: var(--yellow); }
+  .repo-tab.lid-awake-toggle.busy { cursor: wait; opacity: .72; }
+  .repo-tab.lid-awake-toggle:disabled { cursor: not-allowed; opacity: .5; }
+  .lid-awake-menu { display: none; position: fixed; width: 286px; z-index: 160; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 12px; }
+  .lid-awake-menu.open { display: block; }
+  .lid-awake-title { color: var(--text-primary); font-size: 13px; font-weight: 650; margin-bottom: 9px; }
+  .lid-awake-current { display: flex; align-items: center; gap: 7px; color: var(--yellow); margin-bottom: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .lid-awake-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--yellow); box-shadow: 0 0 0 3px rgba(210,153,34,.15); }
+  .lid-awake-durations { display: grid; grid-template-columns: 1fr; gap: 6px; }
+  .lid-awake-durations button,
+  .lid-awake-cancel { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+  .lid-awake-durations button:hover { border-color: var(--accent); color: var(--accent); }
+  .lid-awake-durations button:disabled,
+  .lid-awake-cancel:disabled { cursor: wait; opacity: .55; }
+  .lid-awake-cancel { margin-top: 8px; color: var(--red); }
+  .lid-awake-cancel:hover { border-color: var(--red); background: rgba(248,81,73,.08); }
+  .lid-awake-note,
+  .lid-awake-error { margin-top: 10px; line-height: 1.45; color: var(--text-secondary); }
+  .lid-awake-error { color: var(--red); }
   .repo-tab.focus-toggle { color: var(--text-secondary); }
   .repo-tab.focus-toggle:hover { color: var(--text-primary); }
   body.focus-mode .repo-tab.focus-toggle { color: var(--accent); }

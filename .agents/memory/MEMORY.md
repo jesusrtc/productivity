@@ -24,6 +24,7 @@
 - [Project names are display aliases](project-names-are-display-aliases.md) — keep `project.json.id` and the directory stable; render/edit `project.json.name` as the human-facing tab label
 - [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles
 - [Focus mode and Keep Alive](focus-mode-is-presentation-mode.md) — Focus requests fullscreen plus a wake lock; the adjacent persistent Keep Alive switch can own the wake lock independently
+- [Lid Awake is a timed system control](lid-awake-is-a-timed-system-control.md) — admin-only macOS pmset timer survives page/server closure and safely resets normal sleep on cancel or expiry
 - [Focus mode trackpad pinch zoom](focus-mode-trackpad-pinch-zoom.md) — reproduce Chrome's suppressed fullscreen pinch gesture with Focus-only CSS zoom, including same-origin iframes
 - [Sidebar tree indentation must recurse](sidebar-tree-indentation-recurses.md) — indent nested `.sidebar-folder-children` containers; never hard-code selectors for a finite number of depths
 - [Sidebar shortcuts preserve the file tree](sidebar-shortcuts-preserve-file-tree.md) — pinned/recent sections duplicate file shortcuts; shared browser-local settings control hidden files, freshness, and extension filters

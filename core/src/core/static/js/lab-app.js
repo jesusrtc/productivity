@@ -4971,6 +4971,7 @@
   // Focus control. Esc exits Focus; both preferences persist across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
   const KEEP_ALIVE_KEY = 'labKeepAlive';
+  const LID_AWAKE_DURATIONS = [15, 30, 60];
   const FOCUS_ZOOM_MIN = 0.5;
   const FOCUS_ZOOM_MAX = 3;
   const FOCUS_ZOOM_SENSITIVITY = 0.01;
@@ -4978,6 +4979,188 @@
   let _screenWakeLockRequest = null;
   let _focusOwnsFullscreen = false;
   let _focusZoom = 1;
+  let _lidAwakeSupported = true;
+  let _lidAwakeDeadlineMs = 0;
+  let _lidAwakeMenuOpen = false;
+  let _lidAwakeBusy = false;
+  let _lidAwakeError = '';
+
+  function _lidAwakeIsActive() {
+    return _lidAwakeDeadlineMs > Date.now();
+  }
+
+  function _formatLidAwakeRemaining(remainingMs) {
+    const totalSeconds = Math.max(0, Math.ceil(Number(remainingMs || 0) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
+
+  function _lidAwakeLabel() {
+    if (_lidAwakeBusy && !_lidAwakeIsActive()) return 'Lid Awake…';
+    if (!_lidAwakeIsActive()) return 'Lid Awake';
+    return `Lid Awake ${_formatLidAwakeRemaining(_lidAwakeDeadlineMs - Date.now())}`;
+  }
+
+  function _applyLidAwakeStatus(status) {
+    _lidAwakeSupported = status && status.supported !== false;
+    const deadline = Number(status && status.deadline);
+    _lidAwakeDeadlineMs = status && status.active && Number.isFinite(deadline)
+      ? deadline * 1000
+      : 0;
+  }
+
+  function _renderLidAwakeMenu() {
+    const menu = document.getElementById('lidAwakeMenu');
+    if (!menu) return;
+    const button = document.querySelector('.lid-awake-toggle');
+    if (button) button.setAttribute('aria-expanded', _lidAwakeMenuOpen ? 'true' : 'false');
+    if (!_lidAwakeMenuOpen || !button || !currentProject) {
+      menu.classList.remove('open');
+      menu.innerHTML = '';
+      return;
+    }
+
+    const active = _lidAwakeIsActive();
+    const verb = active ? 'Renew for' : 'Start for';
+    const disabled = _lidAwakeBusy ? ' disabled' : '';
+    const durationButtons = LID_AWAKE_DURATIONS.map(minutes =>
+      `<button type="button" role="menuitem" onclick="event.stopPropagation(); setLidAwake(${minutes})"${disabled}>${verb} ${minutes} min</button>`
+    ).join('');
+    const current = active
+      ? `<div class="lid-awake-current"><span class="lid-awake-dot"></span><span id="lidAwakeMenuCountdown">${_formatLidAwakeRemaining(_lidAwakeDeadlineMs - Date.now())} remaining</span></div>`
+      : '';
+    const cancel = active
+      ? `<button type="button" role="menuitem" class="lid-awake-cancel" onclick="event.stopPropagation(); cancelLidAwake()"${disabled}>Cancel now</button>`
+      : '';
+    const message = _lidAwakeError
+      ? `<div class="lid-awake-error">${esc(_lidAwakeError)}</div>`
+      : (_lidAwakeBusy
+        ? '<div class="lid-awake-note">Waiting for macOS approval…</div>'
+        : (active
+          ? '<div class="lid-awake-note">Choose a duration to reset the timer from now.</div>'
+          : '<div class="lid-awake-note">Keeps this Mac running with the lid closed. Starting it may ask for administrator approval.</div>'));
+    menu.innerHTML = `
+      <div class="lid-awake-title">Lid Awake</div>
+      ${current}
+      <div class="lid-awake-durations">${durationButtons}</div>
+      ${cancel}
+      ${message}`;
+
+    const rect = button.getBoundingClientRect();
+    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+    menu.style.right = `${Math.max(8, Math.round(window.innerWidth - rect.right))}px`;
+    menu.classList.add('open');
+  }
+
+  function _updateLidAwakeControl() {
+    if (_lidAwakeDeadlineMs && !_lidAwakeIsActive()) {
+      _lidAwakeDeadlineMs = 0;
+      _lidAwakeMenuOpen = false;
+      if (currentProject) renderRepoTabs();
+      else _renderLidAwakeMenu();
+      return;
+    }
+    const button = document.querySelector('.lid-awake-toggle');
+    if (button) {
+      const label = button.querySelector('.lid-awake-label');
+      if (label) label.textContent = _lidAwakeLabel();
+      button.classList.toggle('active', _lidAwakeIsActive());
+      button.setAttribute('aria-label', _lidAwakeIsActive()
+        ? `${_lidAwakeLabel()}; choose a new time or cancel`
+        : 'Start Lid Awake timer');
+    }
+    const countdown = document.getElementById('lidAwakeMenuCountdown');
+    if (countdown && _lidAwakeIsActive()) {
+      countdown.textContent = `${_formatLidAwakeRemaining(_lidAwakeDeadlineMs - Date.now())} remaining`;
+    }
+  }
+
+  async function _syncLidAwakeStatus() {
+    if (!window.fetch) return;
+    try {
+      const response = await window.fetch('/api/power/lid-awake');
+      if (!response.ok) return;
+      _applyLidAwakeStatus(await response.json());
+      _updateLidAwakeControl();
+      if (_lidAwakeMenuOpen) _renderLidAwakeMenu();
+    } catch {}
+  }
+
+  function toggleLidAwakeMenu(event) {
+    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    if (!_lidAwakeSupported || _lidAwakeBusy) return;
+    _lidAwakeMenuOpen = !_lidAwakeMenuOpen;
+    _lidAwakeError = '';
+    _renderLidAwakeMenu();
+  }
+  window.toggleLidAwakeMenu = toggleLidAwakeMenu;
+
+  async function setLidAwake(minutes) {
+    if (_lidAwakeBusy || !LID_AWAKE_DURATIONS.includes(Number(minutes))) return;
+    _lidAwakeBusy = true;
+    _lidAwakeError = '';
+    _renderLidAwakeMenu();
+    _updateLidAwakeControl();
+    try {
+      const response = await window.fetch('/api/power/lid-awake', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({minutes: Number(minutes)}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || 'Lid Awake could not be started.');
+      _applyLidAwakeStatus(body);
+      _lidAwakeMenuOpen = false;
+    } catch (error) {
+      _lidAwakeError = String(error && error.message || error);
+      _lidAwakeMenuOpen = true;
+    } finally {
+      _lidAwakeBusy = false;
+      if (currentProject) renderRepoTabs();
+      else _renderLidAwakeMenu();
+    }
+  }
+  window.setLidAwake = setLidAwake;
+
+  async function cancelLidAwake() {
+    if (_lidAwakeBusy) return;
+    _lidAwakeBusy = true;
+    _lidAwakeError = '';
+    _renderLidAwakeMenu();
+    try {
+      const response = await window.fetch('/api/power/lid-awake', {method: 'DELETE'});
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || 'Lid Awake could not be cancelled.');
+      _applyLidAwakeStatus(body);
+      _lidAwakeMenuOpen = false;
+    } catch (error) {
+      _lidAwakeError = String(error && error.message || error);
+      _lidAwakeMenuOpen = true;
+    } finally {
+      _lidAwakeBusy = false;
+      if (currentProject) renderRepoTabs();
+      else _renderLidAwakeMenu();
+    }
+  }
+  window.cancelLidAwake = cancelLidAwake;
+
+  document.addEventListener('click', (event) => {
+    const target = event && event.target;
+    if (target && target.closest
+        && target.closest('#lidAwakeMenu, .lid-awake-toggle')) return;
+    if (!_lidAwakeMenuOpen) return;
+    _lidAwakeMenuOpen = false;
+    _renderLidAwakeMenu();
+  });
+
+  if (typeof LAB_IS_ADMIN === 'undefined' || LAB_IS_ADMIN) {
+    if (window.fetch) void _syncLidAwakeStatus();
+    if (typeof window.setInterval === 'function') {
+      window.setInterval(_updateLidAwakeControl, 1000);
+      window.setInterval(() => void _syncLidAwakeStatus(), 15000);
+    }
+  }
 
   function _applyFocusZoom(zoom) {
     const clamped = Math.min(FOCUS_ZOOM_MAX, Math.max(FOCUS_ZOOM_MIN, zoom));
@@ -5135,6 +5318,10 @@
         && _shouldKeepDisplayAwake()) {
       void _acquireScreenWakeLock();
     }
+    if (document.visibilityState === 'visible'
+        && (typeof LAB_IS_ADMIN === 'undefined' || LAB_IS_ADMIN)) {
+      void _syncLidAwakeStatus();
+    }
   });
   document.addEventListener('fullscreenchange', () => {
     // Browser Esc exits fullscreen first. Keep Focus mode, persistence, and
@@ -5161,6 +5348,8 @@
   function renderRepoTabs() {
     const container = document.getElementById('repoTabs');
     if (!currentProject) {
+      _lidAwakeMenuOpen = false;
+      _renderLidAwakeMenu();
       container.style.display = 'none';
       document.body.classList.remove('has-repo-tabs');
       return;
@@ -5219,9 +5408,19 @@
         ? 'Turn on Keep Alive to stay awake after leaving Focus mode'
         : 'Prevent the display and computer from sleeping');
     html += `<button class="repo-tab keep-alive-toggle" role="switch" aria-checked="${keepAliveOn}" onclick="toggleKeepAlive()" title="${keepAliveTitle}"><span>Keep Alive</span><span class="keep-alive-switch" aria-hidden="true"></span></button>`;
+    if (typeof LAB_IS_ADMIN === 'undefined' || LAB_IS_ADMIN) {
+      const lidAwakeOn = _lidAwakeIsActive();
+      const lidAwakeTitle = !_lidAwakeSupported
+        ? 'Lid Awake is available only on macOS'
+        : (lidAwakeOn
+          ? 'Mac stays running with the lid closed; choose a new time or cancel'
+          : 'Keep this Mac running with the lid closed for 15, 30, or 60 minutes');
+      html += `<button class="repo-tab lid-awake-toggle${lidAwakeOn ? ' active' : ''}${_lidAwakeBusy ? ' busy' : ''}" data-testid="lid-awake-toggle" onclick="toggleLidAwakeMenu(event)" aria-haspopup="menu" aria-expanded="${_lidAwakeMenuOpen}" aria-label="${lidAwakeOn ? `${_lidAwakeLabel()}; choose a new time or cancel` : 'Start Lid Awake timer'}" title="${lidAwakeTitle}"${!_lidAwakeSupported ? ' disabled' : ''}><span class="lid-awake-label">${_lidAwakeLabel()}</span></button>`;
+    }
     html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? (keepAliveOn ? 'Exit fullscreen focus (Keep Alive will remain on)' : 'Exit fullscreen focus and allow display sleep again (Esc)') : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
     container.innerHTML = html;
+    _renderLidAwakeMenu();
   }
 
   function showScopedCodeSearch() {
