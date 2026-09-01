@@ -261,6 +261,83 @@ process.stdout.write(JSON.stringify({saved, other, codeHidden, otherCodeHidden})
         "codeHidden": True,
         "otherCodeHidden": False,
     }
+    peek_helper = _js_between(
+        "function _setNotebookCodePeek(notebook, target)",
+        "function _notebookCommittedCells(container)",
+    )
+    peek_result = _run_node(
+        peek_helper
+        + """
+function fakeCell(id) {
+  const classes = new Set();
+  const attrs = new Map([['aria-expanded', 'false']]);
+  const button = {
+    textContent: 'Show code', title: '',
+    setAttribute(name, value) { attrs.set(name, String(value)); },
+    getAttribute(name) { return attrs.get(name) || null; },
+  };
+  return {
+    id, button,
+    classList: {
+      contains(name) { return classes.has(name); },
+      add(name) { classes.add(name); },
+      remove(name) { classes.delete(name); },
+    },
+    querySelector(selector) {
+      return selector === '[data-nb-peek-code]' ? button : null;
+    },
+  };
+}
+const first = fakeCell('first');
+const second = fakeCell('second');
+const notebook = {
+  querySelectorAll(selector) {
+    if (selector === '.nb-cell.nb-code-peek') {
+      return [first, second].filter(cell => cell.classList.contains('nb-code-peek'));
+    }
+    if (selector === '[data-nb-peek-code]') return [first.button, second.button];
+    return [];
+  },
+};
+const firstOpen = _setNotebookCodePeek(notebook, first);
+const afterFirst = {
+  open: firstOpen && firstOpen.id,
+  first: first.classList.contains('nb-code-peek'),
+  second: second.classList.contains('nb-code-peek'),
+  label: first.button.textContent,
+  expanded: first.button.getAttribute('aria-expanded'),
+};
+const secondOpen = _setNotebookCodePeek(notebook, second);
+const afterSecond = {
+  open: secondOpen && secondOpen.id,
+  first: first.classList.contains('nb-code-peek'),
+  second: second.classList.contains('nb-code-peek'),
+  firstLabel: first.button.textContent,
+  secondLabel: second.button.textContent,
+};
+const closed = _setNotebookCodePeek(notebook, second);
+process.stdout.write(JSON.stringify({
+  afterFirst,
+  afterSecond,
+  closed: closed && closed.id,
+  anyOpen: first.classList.contains('nb-code-peek') || second.classList.contains('nb-code-peek'),
+  secondExpanded: second.button.getAttribute('aria-expanded'),
+}));
+"""
+    )
+    assert peek_result == {
+        "afterFirst": {
+            "open": "first", "first": True, "second": False,
+            "label": "Hide code", "expanded": "true",
+        },
+        "afterSecond": {
+            "open": "second", "first": False, "second": True,
+            "firstLabel": "Show code", "secondLabel": "Hide code",
+        },
+        "closed": None,
+        "anyOpen": False,
+        "secondExpanded": "false",
+    }
     position_helpers = _js_between(
         "function _notebookCommittedCells(container)",
         "function _renderNbJumpControls(cellCount, codeHidden = false)",
@@ -294,6 +371,8 @@ process.stdout.write(JSON.stringify({
     assert 'data-nb-jump="start"' in source
     assert 'data-nb-jump="end"' in source
     assert "data-nb-toggle-code" in source
+    assert "data-nb-peek-code" in source
+    assert "_setNotebookCodePeek(notebook, cell)" in source
     assert "_setNotebookCodeHidden(scope, path, codeHidden)" in source
     assert 'data-cell-type="code"' in source
     assert "_bindNbNavigation(" in source
@@ -304,6 +383,8 @@ process.stdout.write(JSON.stringify({
     assert "top:var(--nb-jump-top, 102px)" in css
     assert "bottom:22px" not in css
     assert ".nb-container.nb-code-hidden" in css
+    assert ":not(.nb-code-peek) > .nb-cell-edit-wrap" in css
+    assert ".nb-output-code-toggle { display:inline-flex; }" in css
     assert ".nb-cell-no-outputs" in css
     assert "scroll-margin-top: calc(var(--nb-jump-top, 102px) + 100px)" in css
 
@@ -436,6 +517,9 @@ function _highlightCellSource(value) { return esc(value); }
 function _renderNbOutput(output) {
   return `<div class="nb-output">${esc(output.content || '')}</div>`;
 }
+function _renderNbPeekCodeButton() {
+  return '<button data-nb-peek-code>Show code</button>';
+}
 function _isOutputCollapsed() { return false; }
 function _isCellSeen() { return true; }
 """
@@ -468,6 +552,7 @@ process.stdout.write(JSON.stringify({html}));
     assert '<span class="nb-exec">[1]</span>' in html
     assert 'readonly aria-busy="true"' in html
     assert html.count(" disabled") == 2
+    assert "data-nb-peek-code" in html
     assert "first\n" in html
 
 

@@ -7,4 +7,5 @@ the bookmark to unrelated content. A currently running cell takes priority on
 open. Keep the Start/current/End controls in an upper sticky strip clear of the
 terminal panel. Persist the path-scoped output-only toggle too: hide committed
 code source and outputless code cells, while leaving markdown, outputs, drafts,
-and running cells visible.
+and running cells visible. Every output cell can temporarily reveal its source;
+keep at most one such code peek open and close the prior peek when another opens.

@@ -994,6 +994,18 @@
     margin-left: auto;            /* push to the right edge of the toggle row */
     padding: 1px 8px;             /* smaller — sits inside the toggle bar */
   }
+  .nb-output-code-toggle,
+  .nb-output-code-actions { display:none; }
+  .nb-output-code-toggle {
+    align-items:center; background:transparent; border:1px solid var(--border);
+    color:var(--text-secondary); padding:1px 8px; border-radius:3px;
+    font:11px/1.35 ui-monospace,monospace; cursor:pointer; white-space:nowrap;
+  }
+  .nb-output-code-toggle:hover { color:var(--accent); border-color:var(--accent); }
+  .nb-output-code-actions {
+    justify-content:flex-end; padding:4px 12px; border-bottom:1px solid var(--border);
+    background:var(--bg-secondary);
+  }
   .nb-outputs-toggle { display: flex; align-items: center; gap: 6px; }
   /* Restart-kernel button — sits next to the kernel badge in the file header. */
   .nb-restart-kernel {
@@ -1052,14 +1064,19 @@
   /* Output-only mode keeps markdown and rich results while collapsing code
      sources, cell action headers, empty committed code cells, and inserters.
      Draft/running cells remain fully visible so active work never vanishes. */
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running) > .nb-cell-header,
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running) > .nb-source,
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running) > .nb-cell-edit-wrap {
+  .nb-container.nb-code-hidden .nb-output-code-toggle { display:inline-flex; }
+  .nb-container.nb-code-hidden .nb-output-code-actions { display:flex; }
+  .nb-container.nb-code-hidden > .nb-cell.nb-cell-pending .nb-output-code-toggle,
+  .nb-container.nb-code-hidden > .nb-cell.nb-cell-running .nb-output-code-toggle { display:none; }
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-peek) > .nb-cell-header,
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-peek) > .nb-source,
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-peek) > .nb-cell-edit-wrap {
     display:none;
   }
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"].nb-cell-no-outputs:not(.nb-cell-pending):not(.nb-cell-running),
   .nb-container.nb-code-hidden > .nb-cell-inserter { display:none; }
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"] > .nb-outputs { border-top:0; }
+  .nb-container.nb-code-hidden > .nb-cell.nb-code-peek > .nb-outputs { border-top:1px solid var(--border); }
   .nb-runtime-dialog { width:min(860px, calc(100vw - 32px)); max-height:calc(100vh - 40px); padding:0; border:1px solid var(--border); border-radius:10px; background:var(--bg-primary); color:var(--text-primary); box-shadow:0 24px 80px rgba(0,0,0,.55); }
   .nb-runtime-dialog::backdrop { background:rgba(0,0,0,.58); backdrop-filter:blur(2px); }
   .nb-runtime-card { padding:20px; overflow:auto; max-height:calc(100vh - 80px); }
