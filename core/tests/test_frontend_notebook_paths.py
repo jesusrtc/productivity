@@ -40,7 +40,7 @@ def _js_between(start_marker: str, end_marker: str) -> str:
 def test_notebook_path_uses_active_workspace_when_framework_root_differs() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
-        "function renderNotebookCell(cell, status)",
+        "function renderNotebookCell(cell, status, index = null)",
     )
     result = _run_node(
         """
@@ -80,7 +80,7 @@ process.stdout.write(JSON.stringify({relative, failures}));
 def test_notebook_path_can_follow_a_project_in_another_workspace() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
-        "function renderNotebookCell(cell, status)",
+        "function renderNotebookCell(cell, status, index = null)",
     )
     result = _run_node(
         """
@@ -103,7 +103,7 @@ process.stdout.write(JSON.stringify({relative}));
 def test_notebook_deep_link_resolves_project_under_active_workspace() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
-        "function renderNotebookCell(cell, status)",
+        "function renderNotebookCell(cell, status, index = null)",
     )
     deep_link = _js_between(
         "let _nbHashProject = null;",
@@ -143,7 +143,7 @@ process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
 def test_notebook_deep_link_keeps_an_explicit_cross_workspace_project() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
-        "function renderNotebookCell(cell, status)",
+        "function renderNotebookCell(cell, status, index = null)",
     )
     deep_link = _js_between(
         "let _nbHashProject = null;",
@@ -224,6 +224,76 @@ process.stdout.write(JSON.stringify(entries.map(entry => entry.path)));
     assert ".nb-notebook-list:hover" in css
     assert "window.openProjectNotebooks = openProjectNotebooks" in source
     assert "__proxy__/Jupyter" not in source
+
+
+def test_large_notebooks_restore_last_read_cell_and_offer_jump_controls() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    helpers = _js_between(
+        "function _notebookPositionKey(scope, path)",
+        "function _notebookCommittedCells(container)",
+    )
+    result = _run_node(
+        """
+const values = new Map();
+const localStorage = {
+  getItem(key) { return values.has(key) ? values.get(key) : null; },
+  setItem(key, value) { values.set(key, String(value)); },
+};
+"""
+        + helpers
+        + """
+const attrs = new Map([['data-cell-id', 'stable-cell'], ['data-cell-index', '41']]);
+const cell = {getAttribute(name) { return attrs.get(name) || null; }};
+_writeNotebookPosition('workspace-a', 'projects/demo/large.ipynb', cell);
+const saved = _readNotebookPosition('workspace-a', 'projects/demo/large.ipynb');
+const other = _readNotebookPosition('workspace-b', 'projects/demo/large.ipynb');
+process.stdout.write(JSON.stringify({saved, other}));
+"""
+    )
+
+    assert result == {
+        "saved": {"cellId": "stable-cell", "index": 41},
+        "other": None,
+    }
+    position_helpers = _js_between(
+        "function _notebookCommittedCells(container)",
+        "function _renderNbJumpControls(cellCount)",
+    )
+    position_result = _run_node(
+        "const window = {innerHeight: 900};\n"
+        + position_helpers
+        + """
+function fakeCell(id, index, top) {
+  return {
+    getAttribute(name) {
+      if (name === 'data-cell-id') return id;
+      if (name === 'data-cell-index') return String(index);
+      return null;
+    },
+    getBoundingClientRect() { return {top}; },
+  };
+}
+const cells = [fakeCell('a', 0, -120), fakeCell('b', 2, 160), fakeCell('c', 3, 260)];
+const stable = _resolveNotebookPosition(cells, {cellId: 'b', index: 1});
+const clamped = _resolveNotebookPosition(cells, {cellId: 'deleted', index: 99});
+const reading = _notebookReadingCell(cells);
+process.stdout.write(JSON.stringify({
+  stable: stable.getAttribute('data-cell-id'),
+  clamped: clamped.getAttribute('data-cell-id'),
+  reading: reading.getAttribute('data-cell-id'),
+}));
+"""
+    )
+    assert position_result == {"stable": "b", "clamped": "c", "reading": "b"}
+    assert 'data-nb-jump="start"' in source
+    assert 'data-nb-jump="end"' in source
+    assert "_bindNbNavigation(" in source
+    assert "notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot" in source
+    assert "running || _resolveNotebookPosition" in source
+    assert ".nb-jump-controls" in css
+    assert "position:fixed" in css
+    assert "scroll-margin-top: 140px" in css
 
 
 def test_all_notebook_operations_reuse_workspace_relative_path() -> None:

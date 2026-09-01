@@ -704,7 +704,7 @@
 
   /* Notebook cells */
   .nb-container { padding: 8px 0; }
-  .nb-cell { margin: 0 0 8px; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+  .nb-cell { margin: 0 0 8px; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; scroll-margin-top: 140px; }
   .nb-cell.nb-added { border-left: 3px solid #3fb950; }
   .nb-cell.nb-deleted { border-left: 3px solid #f85149; opacity: 0.6; }
   .nb-cell.nb-modified { border-left: 3px solid #d29922; }
@@ -1017,6 +1017,26 @@
   .nb-runtime-status-broken { color:var(--red); border-color:rgba(248,81,73,.55); }
   .nb-runtime-status-draft, .nb-runtime-status-update_available { color:var(--yellow); border-color:rgba(210,153,34,.55); }
   .nb-interrupt-kernel:hover { color:var(--yellow); border-color:var(--yellow); }
+  .nb-jump-controls {
+    position:fixed; right:22px; bottom:22px; z-index:59;
+    display:flex; align-items:center; overflow:hidden;
+    border:1px solid var(--border); border-radius:8px;
+    background:color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    box-shadow:0 8px 24px rgba(0,0,0,.4); backdrop-filter:blur(8px);
+  }
+  body.term-open:not(.term-collapsed) .nb-jump-controls { right:calc(var(--term-width) + 22px); }
+  .nb-jump-controls button {
+    border:0; background:transparent; color:var(--text-secondary);
+    padding:7px 10px; font:11px ui-monospace,monospace; cursor:pointer; white-space:nowrap;
+  }
+  .nb-jump-controls button:hover, .nb-jump-controls button:focus-visible {
+    color:var(--text-primary); background:var(--bg-tertiary); outline:none;
+  }
+  .nb-jump-controls button:disabled { opacity:.4; cursor:default; }
+  .nb-jump-position {
+    min-width:68px; padding:7px 8px; border-left:1px solid var(--border); border-right:1px solid var(--border);
+    color:var(--text-dim); text-align:center; font:10px ui-monospace,monospace; white-space:nowrap;
+  }
   .nb-runtime-dialog { width:min(860px, calc(100vw - 32px)); max-height:calc(100vh - 40px); padding:0; border:1px solid var(--border); border-radius:10px; background:var(--bg-primary); color:var(--text-primary); box-shadow:0 24px 80px rgba(0,0,0,.55); }
   .nb-runtime-dialog::backdrop { background:rgba(0,0,0,.58); backdrop-filter:blur(2px); }
   .nb-runtime-card { padding:20px; overflow:auto; max-height:calc(100vh - 80px); }

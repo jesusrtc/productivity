@@ -3619,7 +3619,7 @@
     return `<div class="nb-output${stderrCls}"${attrs}>${esc(o.content || '')}</div>`;
   }
 
-  function renderNotebookCell(cell, status) {
+  function renderNotebookCell(cell, status, index = null) {
     const statusCls = status && status !== 'unchanged' ? ` nb-${status}` : '';
     const statusLabel = status && status !== 'unchanged'
       ? `<span class="nb-status nb-status-${status}">${status}</span>` : '';
@@ -3658,7 +3658,9 @@
       outputsHtml = `<div class="nb-outputs">${outs}</div>`;
     }
 
-    return `<div class="nb-cell${statusCls}">
+    const indexAttr = Number.isInteger(index) ? ` data-cell-index="${index}"` : '';
+    const cellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
+    return `<div class="nb-cell${statusCls}"${indexAttr}${cellIdAttr}>
       <div class="nb-cell-header">
         <span class="nb-type">${cell.cell_type}</span>
         <span class="nb-exec">${execCount}</span>
@@ -3807,6 +3809,170 @@
     } catch (_) {}
   }
 
+  // Per-notebook reading position. Large notebooks can grow and have cells
+  // inserted in the middle, so persist both the stable nbformat cell id and
+  // its last-known index. The id wins on restore; the index is a graceful
+  // fallback for older notebooks (or when the saved cell was deleted).
+  function _notebookPositionKey(scope, path) {
+    return 'nb-position:' + String(scope || '') + '|' + String(path || '');
+  }
+  function _readNotebookPosition(scope, path) {
+    try {
+      const raw = localStorage.getItem(_notebookPositionKey(scope, path));
+      if (!raw) return null;
+      const saved = JSON.parse(raw);
+      if (!saved || typeof saved !== 'object') return null;
+      const index = saved.index == null ? NaN : Number(saved.index);
+      return {
+        cellId: saved.cellId ? String(saved.cellId) : '',
+        index: Number.isInteger(index) && index >= 0 ? index : null,
+      };
+    } catch (_) { return null; }
+  }
+  function _writeNotebookPosition(scope, path, cell) {
+    if (!cell) return;
+    const indexAttr = cell.getAttribute('data-cell-index');
+    const rawIndex = indexAttr == null ? NaN : Number(indexAttr);
+    const index = Number.isInteger(rawIndex) && rawIndex >= 0 ? rawIndex : null;
+    const cellId = cell.getAttribute('data-cell-id') || '';
+    if (!cellId && index == null) return;
+    try {
+      localStorage.setItem(
+        _notebookPositionKey(scope, path),
+        JSON.stringify({ cellId, index }),
+      );
+    } catch (_) {}
+  }
+
+  function _notebookCommittedCells(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.nb-container > .nb-cell[data-cell-index]'))
+      .filter(cell => cell.getAttribute('data-cell-index') !== 'new');
+  }
+
+  function _notebookReadingCell(cells) {
+    if (!cells || !cells.length) return null;
+    // The fixed Lab chrome occupies roughly the top 128px. Treat the last
+    // cell whose top has crossed a reading line just below it as the current
+    // cell. This remains stable while reading a tall output within one cell.
+    const readingLine = Math.min(
+      Math.max(0, window.innerHeight - 1),
+      Math.max(140, Math.round(window.innerHeight * 0.22)),
+    );
+    let current = cells[0];
+    for (const cell of cells) {
+      const rect = cell.getBoundingClientRect();
+      if (rect.top <= readingLine) current = cell;
+      else break;
+    }
+    return current;
+  }
+
+  function _resolveNotebookPosition(cells, saved) {
+    if (!cells || !cells.length) return null;
+    if (saved && saved.cellId) {
+      const byId = cells.find(cell => cell.getAttribute('data-cell-id') === saved.cellId);
+      if (byId) return byId;
+    }
+    if (saved && saved.index != null) {
+      const byIndex = cells.find(
+        cell => Number(cell.getAttribute('data-cell-index')) === saved.index,
+      );
+      if (byIndex) return byIndex;
+      return cells[Math.min(saved.index, cells.length - 1)];
+    }
+    return cells[0];
+  }
+
+  function _renderNbJumpControls(cellCount) {
+    const disabled = cellCount > 0 ? '' : ' disabled';
+    const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
+    return `<nav class="nb-jump-controls" aria-label="Notebook position">
+      <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ Start</button>
+      <span class="nb-jump-position" aria-live="polite">${label}</span>
+      <button type="button" data-nb-jump="end" title="Go to the last cell" aria-label="Go to the last cell"${disabled}>End ↓</button>
+    </nav>`;
+  }
+
+  let _nbNavigationCleanup = null;
+  function _clearNbNavigation() {
+    if (!_nbNavigationCleanup) return;
+    _nbNavigationCleanup();
+    _nbNavigationCleanup = null;
+  }
+
+  function _bindNbNavigation(container, scope, path, { restore = true } = {}) {
+    _clearNbNavigation();
+    const cells = _notebookCommittedCells(container);
+    const controls = container && container.querySelector('.nb-jump-controls');
+    const positionLabel = controls && controls.querySelector('.nb-jump-position');
+    if (!cells.length) return null;
+
+    let frame = null;
+    let active = true;
+    function record(cell) {
+      if (!cell) return;
+      _writeNotebookPosition(scope, path, cell);
+      if (positionLabel) {
+        const idx = cells.indexOf(cell);
+        if (idx >= 0) positionLabel.textContent = `${idx + 1} / ${cells.length}`;
+      }
+    }
+    function recordCurrent() {
+      frame = null;
+      if (!active || !container.isConnected) return;
+      record(_notebookReadingCell(cells));
+    }
+    function scheduleRecord() {
+      if (frame == null) frame = requestAnimationFrame(recordCurrent);
+    }
+    function jump(cell, block) {
+      if (!cell) return;
+      record(cell);
+      cell.scrollIntoView({ behavior: 'smooth', block });
+    }
+
+    if (controls) {
+      const start = controls.querySelector('[data-nb-jump="start"]');
+      const end = controls.querySelector('[data-nb-jump="end"]');
+      if (start) start.addEventListener('click', () => jump(cells[0], 'start'));
+      if (end) end.addEventListener('click', () => jump(cells[cells.length - 1], 'end'));
+    }
+    window.addEventListener('scroll', scheduleRecord, { passive: true });
+    window.addEventListener('resize', scheduleRecord, { passive: true });
+
+    if (restore) {
+      // Let the newly-injected cell DOM settle before scrolling. A running
+      // cell takes priority because the user should see live work immediately;
+      // otherwise reopen at the most recently read cell (or the first cell on
+      // a notebook that has no saved position yet).
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!active || !container.isConnected) return;
+        const running = container.querySelector('.nb-cell-interactive.nb-cell-running');
+        const target = running || _resolveNotebookPosition(
+          cells, _readNotebookPosition(scope, path),
+        );
+        if (target) {
+          target.scrollIntoView({ behavior: 'auto', block: 'start' });
+          record(target);
+        }
+      }));
+    } else {
+      scheduleRecord();
+    }
+
+    _nbNavigationCleanup = () => {
+      if (!active) return;
+      // Capture the latest position before a tab switch replaces this DOM.
+      record(_notebookReadingCell(cells));
+      active = false;
+      if (frame != null) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', scheduleRecord);
+      window.removeEventListener('resize', scheduleRecord);
+    };
+    return { recordCurrent };
+  }
+
   function _formatNbElapsed(milliseconds) {
     const totalSeconds = Math.max(0, Number(milliseconds) || 0) / 1000;
     if (totalSeconds < 60) {
@@ -3902,7 +4068,8 @@
       let bodyHtml = '';
       try { bodyHtml = `<div class="nb-markdown">${marked.parse(cell.source)}</div>`; }
       catch (e) { bodyHtml = `<div class="nb-source">${esc(cell.source)}</div>`; }
-      return `<div class="nb-cell nb-cell-interactive" data-cell-index="${index}">
+      const markdownCellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
+      return `<div class="nb-cell nb-cell-interactive" data-cell-index="${index}"${markdownCellIdAttr}>
         <div class="nb-cell-header">
           <span class="nb-type">${cell.cell_type}</span>
         </div>
@@ -4796,6 +4963,7 @@
   }
 
   async function renderNotebookView(filepath) {
+    _clearNbNavigation();
     const content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Loading notebook...</div>';
     try {
@@ -4805,11 +4973,14 @@
         ensureMarked().catch(() => {}),
         ensureHighlight().catch(() => {}),
       ]);
+      const scope = _activeRepoFileRoot();
       content.innerHTML = `<div class="file-viewer-header">
         <span class="fv-path">${esc(filepath)}</span>
       </div>
-      <div class="nb-container">${cells.map(c => renderNotebookCell(c, null)).join('')}</div>`;
+      ${_renderNbJumpControls(cells.length)}
+      <div class="nb-container">${cells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div>`;
       activateNotebookScripts(content);
+      _bindNbNavigation(content, scope, filepath);
     } catch (err) {
       content.innerHTML = `<div class="file-viewer-empty">Error: ${err.message}</div>`;
     }
@@ -5922,8 +6093,9 @@
           ]);
           if (!_stillActiveNav()) return;
           const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a workspace project to execute</span></div>`;
-          container.innerHTML = `<div style="padding:24px">${readOnlyHeader}<div class="nb-container">${readOnlyCells.map(c => renderNotebookCell(c, null)).join('')}</div></div>`;
+          container.innerHTML = `<div style="padding:24px">${readOnlyHeader}${_renderNbJumpControls(readOnlyCells.length)}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
           activateNotebookScripts(container);
+          _bindNbNavigation(container, docRoot, filepath, { restore: !preserveScroll });
           return;
         }
 
@@ -6121,7 +6293,7 @@
         // fetching, do NOT stomp the new view's content with this
         // notebook's HTML.
         if (!_stillActiveNav()) return;
-        container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
+        container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}${_renderNbJumpControls(realCells.length)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
         _ensureNbElapsedTicker();
         // Bind every interactive cell + inserters + the trailing add-cell
@@ -6136,11 +6308,15 @@
         bindNbRestartKernel(container, relPath, filepath, notebookWorkspace.workspaceId);
         bindNbInterruptKernel(container, relPath, notebookWorkspace.workspaceId);
         bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId);
-        // Auto-scroll the currently-running cell into view. The
-        // server-side placeholder lands here as .nb-cell-pending with
-        // its [*] gutter; bring it to the user's focus so they can see
-        // what's executing even when the run was kicked off from a
-        // terminal / curl rather than the in-UI Run button.
+        _bindNbNavigation(
+          container,
+          notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot,
+          relPath,
+          { restore: !preserveScroll },
+        );
+        // Preserve the live-execution focus behavior during watcher refreshes.
+        // Initial opens also restore through _bindNbNavigation, which gives a
+        // running cell priority over the saved reading position.
         const runningCell = container.querySelector('.nb-cell-interactive.nb-cell-running');
         if (runningCell) {
           const focusTarget = runningCell.querySelector('.nb-cell-header') || runningCell;
@@ -6213,6 +6389,7 @@
 
   async function openProjectDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentProject) return;
+    _clearNbNavigation();
     // Pseudo-paths starting with `__proxy__/` are not real files — they
     // refer to a declared local-dev-server proxy. Route to the iframe
     // renderer; everything else (active highlight, last-opened memory)
