@@ -10413,6 +10413,21 @@
       </span>`).join('');
   }
 
+  function _termShowNewestContextItems(container, visibleCount) {
+    if (!container) return;
+    if (container.style) container.style.maxHeight = '';
+    const rows = container.querySelectorAll
+      ? Array.from(container.querySelectorAll('.term-context-row'))
+      : [];
+    if (rows.length > visibleCount && container.style) {
+      const first = rows[rows.length - visibleCount];
+      const last = rows[rows.length - 1];
+      const height = (last.offsetTop + last.offsetHeight) - first.offsetTop;
+      if (height > 0) container.style.maxHeight = `${Math.ceil(height)}px`;
+    }
+    container.scrollTop = container.scrollHeight;
+  }
+
   function _termSessionSummary(s) {
     const context = _termSessionContext(s);
     return context.items.length ? context.items[context.items.length - 1] : '';
@@ -10541,7 +10556,7 @@
         || statusSummaryText.dataset.contextKey !== contextKey
       ) {
         statusSummaryText.innerHTML = _termContextRowsHtml(context);
-        statusSummaryText.scrollTop = statusSummaryText.scrollHeight;
+        _termShowNewestContextItems(statusSummaryText, 3);
         if (statusSummaryText.dataset) {
           statusSummaryText.dataset.contextKey = contextKey;
         }
@@ -10614,7 +10629,7 @@
     const itemList = tooltip.querySelector
       ? tooltip.querySelector('.term-session-tooltip-items')
       : null;
-    if (itemList) itemList.scrollTop = itemList.scrollHeight;
+    _termShowNewestContextItems(itemList, 5);
     tooltip.style.left = '0px';
     tooltip.style.top = '0px';
     const anchorRect = anchor.getBoundingClientRect();

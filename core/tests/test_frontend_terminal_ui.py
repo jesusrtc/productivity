@@ -602,6 +602,35 @@ process.stdout.write(JSON.stringify(tooltip));
     assert "node.addEventListener('pointerleave', _termScheduleSessionTooltipHide)" in source
 
 
+def test_terminal_context_viewport_uses_exact_newest_row_count() -> None:
+    helper = _js_between(
+        "function _termShowNewestContextItems(container, visibleCount)",
+        "function _termSessionSummary(s)",
+    )
+    result = _run_node(
+        helper
+        + """
+const rows = [
+  {offsetTop: 0, offsetHeight: 14},
+  {offsetTop: 21, offsetHeight: 28},
+  {offsetTop: 56, offsetHeight: 14},
+  {offsetTop: 77, offsetHeight: 28},
+  {offsetTop: 112, offsetHeight: 14},
+  {offsetTop: 133, offsetHeight: 28},
+];
+const container = {
+  style: {maxHeight: 'old'}, scrollTop: 0, scrollHeight: 220,
+  querySelectorAll() { return rows; },
+};
+_termShowNewestContextItems(container, 3);
+process.stdout.write(JSON.stringify(container));
+"""
+    )
+
+    assert result["style"]["maxHeight"] == "84px"
+    assert result["scrollTop"] == 220
+
+
 def test_terminal_session_name_avoids_stale_generated_titles() -> None:
     display_helper = _js_between(
         "function _termSessionDisplay(s)",

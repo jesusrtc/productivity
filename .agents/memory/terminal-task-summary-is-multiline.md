@@ -8,4 +8,6 @@ provider exposes a genuine AI recap; otherwise show direct user requests since
 Clamp each objective or request preview to two visual lines (backend cleanup
 also caps an item at 280 characters). Both lists retain the complete history
 and open at the newest request. Bound the header viewport to three two-line
-items and the hover viewport to five; older requests remain scrollable.
+items and the hover viewport to five; size the viewports from the actual row
+heights so short requests do not reveal extra rows. Older requests remain
+scrollable.
