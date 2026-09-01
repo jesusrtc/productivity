@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sqlite3
 import subprocess
 import textwrap
 import uuid
@@ -471,18 +472,24 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
         term_mod,
         "_codex_session_metadata_by_tty",
         lambda _ttys, _cwds: {
-            "ttys001": ("codex-id", "Codex conversation", "Fix tab names"),
+            "ttys001": (
+                "codex-id", "Codex conversation",
+                ["Review the behavior", "Fix tab names"],
+            ),
         },
     )
     monkeypatch.setattr(
         term_mod, "_claude_session_metadata",
         lambda session_id, cwd: (
-            f"Claude {session_id} in {cwd}", "Review the API",
+            f"Claude {session_id} in {cwd}",
+            ["Inspect the route", "Review the API"],
         ),
     )
     monkeypatch.setattr(
         term_mod, "_copilot_session_metadata",
-        lambda session_id: (f"Copilot {session_id}", "Update the tests"),
+        lambda session_id: (
+            f"Copilot {session_id}", ["Find the test", "Update the tests"],
+        ),
     )
     rows = [
         {"agent": "codex", "pane_tty": "/dev/ttys001"},
@@ -499,11 +506,20 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
     assert rows[0]["agent_session_id"] == "codex-id"
     assert rows[0]["agent_session_name"] == "Codex conversation"
     assert rows[0]["agent_session_summary"] == "Fix tab names"
+    assert rows[0]["agent_session_requests"] == [
+        "Review the behavior", "Fix tab names",
+    ]
     assert rows[1]["agent_session_id"] == "claude-id"
     assert rows[1]["agent_session_name"] == "Claude claude-id in /repo"
     assert rows[1]["agent_session_summary"] == "Review the API"
+    assert rows[1]["agent_session_requests"] == [
+        "Inspect the route", "Review the API",
+    ]
     assert rows[2]["agent_session_name"] == "Copilot copilot-id"
     assert rows[2]["agent_session_summary"] == "Update the tests"
+    assert rows[2]["agent_session_requests"] == [
+        "Find the test", "Update the tests",
+    ]
     assert "agent_session_name" not in rows[3]
 
 
@@ -527,7 +543,7 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
     import core.routes.term as term_mod
 
     cached = {
-        "ttys001": ("thread-1", "Session title", "Latest task"),
+        "ttys001": ("thread-1", "Session title", ["Latest task"]),
     }
     term_mod._CODEX_METADATA_CACHE = (
         term_mod.time.monotonic(), {"ttys001", "ttys002"}, cached,
@@ -542,7 +558,74 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
     ) == cached
 
 
-def test_copilot_metadata_uses_latest_user_message(monkeypatch, tmp_path: Path) -> None:
+def test_codex_metadata_returns_latest_three_user_requests(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    with sqlite3.connect(codex_home / "state_5.sqlite") as conn:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+                id TEXT, title TEXT, name TEXT, preview TEXT,
+                archived INTEGER, source TEXT, cwd TEXT, updated_at INTEGER
+            )
+            """,
+        )
+        conn.execute(
+            "INSERT INTO threads VALUES (?, ?, ?, ?, 0, 'cli', ?, 10)",
+            ("thread-1", "Generated objective", None, "Preview", "/repo"),
+        )
+    with sqlite3.connect(codex_home / "logs_2.sqlite") as conn:
+        conn.execute(
+            "CREATE TABLE logs (process_uuid TEXT, thread_id TEXT, ts INTEGER)",
+        )
+        conn.execute(
+            "INSERT INTO logs VALUES ('pid:123:live', 'thread-1', 10)",
+        )
+    with sqlite3.connect(codex_home / "thread_history_1.sqlite") as conn:
+        conn.execute(
+            """
+            CREATE TABLE thread_items (
+                thread_id TEXT, item_json TEXT, item_type TEXT,
+                rollout_ordinal INTEGER
+            )
+            """,
+        )
+        for ordinal, content in enumerate(("one", "two", "three", "four"), 1):
+            conn.execute(
+                "INSERT INTO thread_items VALUES (?, ?, 'userMessage', ?)",
+                (
+                    "thread-1",
+                    json.dumps({"content": [{"type": "text", "text": content}]}),
+                    ordinal,
+                ),
+            )
+
+    monkeypatch.setattr(
+        term_mod.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="123 ttys001\n",
+        ),
+    )
+    term_mod._CODEX_METADATA_CACHE = None
+
+    assert term_mod._codex_session_metadata_by_tty(
+        {"/dev/ttys001"}, {"/repo"},
+    ) == {
+        "ttys001": (
+            "thread-1", "Generated objective", ["two", "three", "four"],
+        ),
+    }
+
+
+def test_copilot_metadata_uses_latest_three_user_messages(
+    monkeypatch, tmp_path: Path,
+) -> None:
     import core.routes.term as term_mod
 
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
@@ -565,11 +648,44 @@ def test_copilot_metadata_uses_latest_user_message(monkeypatch, tmp_path: Path) 
     term_mod._AGENT_METADATA_CACHE.clear()
 
     assert term_mod._copilot_session_metadata("copilot-id") == (
-        "Generated Copilot title", "Fix the terminal header",
+        "Generated Copilot title", ["First task", "Fix the terminal header"],
     )
 
 
-def test_claude_metadata_uses_latest_direct_user_message(
+def test_copilot_metadata_replaces_placeholder_title_with_stable_objective(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    session_dir = tmp_path / "session-state" / "copilot-id"
+    session_dir.mkdir(parents=True)
+    (session_dir / "workspace.yaml").write_text(
+        "name: Session Initialization\nuser_named: false\n",
+    )
+    events = [
+        {"type": "user.message", "data": {"content": "hello"}},
+        {
+            "type": "user.message",
+            "data": {"content": "Explain what this repo is about"},
+        },
+        {
+            "type": "user.message",
+            "data": {"content": "nice, thanks for that"},
+        },
+    ]
+    (session_dir / "events.jsonl").write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n",
+    )
+    term_mod._AGENT_METADATA_CACHE.clear()
+
+    assert term_mod._copilot_session_metadata("copilot-id") == (
+        "Explain what this repo is about",
+        ["hello", "Explain what this repo is about", "nice, thanks for that"],
+    )
+
+
+def test_claude_metadata_uses_latest_direct_user_messages(
     monkeypatch, tmp_path: Path,
 ) -> None:
     import core.routes.term as term_mod
@@ -600,7 +716,7 @@ def test_claude_metadata_uses_latest_direct_user_message(
     term_mod._AGENT_METADATA_CACHE.clear()
 
     assert term_mod._claude_session_metadata("claude-id", cwd) == (
-        "Generated Claude title", "Latest task",
+        "Generated Claude title", ["First task", "Latest task"],
     )
 
 

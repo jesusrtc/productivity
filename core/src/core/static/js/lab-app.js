@@ -10239,8 +10239,19 @@
     return manual || agentSession || s.logical_name || s.name || '';
   }
 
+  function _termSessionRequests(s) {
+    const saved = s && s.agent_session_requests;
+    const requests = Array.isArray(saved)
+      ? saved.map(value => String(value || '').trim()).filter(Boolean).slice(-3)
+      : [];
+    if (requests.length) return requests;
+    const fallback = String(s && (s.agent_session_summary || s.summary) || '').trim();
+    return fallback ? [fallback] : [];
+  }
+
   function _termSessionSummary(s) {
-    return (s && (s.agent_session_summary || s.summary)) || '';
+    const requests = _termSessionRequests(s);
+    return requests.length ? requests[requests.length - 1] : '';
   }
 
   function _termSessionVisual(s) {
@@ -10262,8 +10273,11 @@
     const parts = [];
     const display = _termSessionDisplay(s);
     if (display) parts.push(display);
-    const summary = _termSessionSummary(s);
-    if (summary) parts.push(`TL;DR: ${summary}`);
+    const requests = _termSessionRequests(s);
+    if (requests.length) {
+      parts.push('Requests:');
+      requests.forEach(request => parts.push(`• ${request}`));
+    }
     if (s && s.name) parts.push(s.name);
     if (statusTitle) parts.push(statusTitle);
     parts.push('Double-click to rename');
@@ -10341,18 +10355,21 @@
       return;
     }
     const display = _termSessionDisplay(session);
+    const requests = _termSessionRequests(session);
     const summary = _termSessionSummary(session);
     const visual = _termSessionVisual(session);
     if (el) {
       el.className = `term-active-session on ${visual.kind}`;
       el.title = _termSessionTitle(session, '');
-      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">TL;DR · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">Requests · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
     }
     if (statusSummary) {
-      statusSummary.title = summary || '';
-      statusSummary.hidden = !summary;
+      statusSummary.title = requests.join('\n');
+      statusSummary.hidden = !requests.length;
     }
-    if (statusSummaryText) statusSummaryText.textContent = summary || '';
+    if (statusSummaryText) {
+      statusSummaryText.textContent = requests.map(request => `• ${request}`).join('\n');
+    }
   }
 
   function _termHideSessionTooltip() {

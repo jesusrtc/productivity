@@ -680,14 +680,14 @@ def _infer_session_summary(name: str, tmux_socket: str) -> str | None:
 
 _AGENT_METADATA_TTL_S = 5.0
 _AGENT_METADATA_CACHE: dict[
-    str, tuple[float, tuple[str | None, str | None]]
+    str, tuple[float, tuple[str | None, list[str]]]
 ] = {}
 # Cache both the TTYs that were inspected and the subset that resolved to a
 # live Codex thread.  A pane TTY can legitimately have no Codex process; if
 # we only cache successful resolutions, one such terminal turns every poll
 # into another ps + SQLite scan instead of a cache hit.
 _CODEX_METADATA_CACHE: tuple[
-    float, set[str], dict[str, tuple[str, str, str | None]]
+    float, set[str], dict[str, tuple[str, str, list[str]]]
 ] | None = None
 _CODEX_PROCESS_UUID_RE = re.compile(r"^pid:(\d+):")
 _AGENT_IMAGE_TAG_RE = re.compile(r"<image\b[^>]*>.*?</image>", re.DOTALL | re.I)
@@ -695,6 +695,14 @@ _AGENT_IMAGE_REF_RE = re.compile(r"\[Image\s+#\d+\]", re.I)
 _AGENT_IMAGE_PATH_RE = re.compile(
     r"(?:^|\s)\.lab/terminal-pastes/\S+\.(?:png|jpe?g|webp)\b", re.I,
 )
+_COPILOT_PLACEHOLDER_TITLES = {
+    "copilot", "github copilot", "new session", "session initialization",
+}
+_CONTEXT_FREE_REQUESTS = {
+    "continue", "go ahead", "go on", "great", "hello", "hey", "hi",
+    "more", "nice", "nice thanks", "ok", "okay", "sounds good",
+    "tell me more", "thank you", "thanks", "yes",
+}
 
 
 def _message_content_text(content) -> str | None:
@@ -732,34 +740,52 @@ def _clean_agent_task(raw: str | None, *, max_len: int = 280) -> str | None:
     return text
 
 
-def _cached_agent_metadata(key: str, loader) -> tuple[str | None, str | None]:
+def _clean_agent_requests(raw_requests) -> list[str]:
+    if isinstance(raw_requests, str):
+        raw_requests = [raw_requests]
+    if not isinstance(raw_requests, (list, tuple)):
+        return []
+    requests = []
+    for raw in raw_requests:
+        request = _clean_agent_task(raw)
+        if request:
+            requests.append(request)
+    return requests[-3:]
+
+
+def _request_is_substantive(request: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", request.lower()).strip()
+    return bool(normalized and normalized not in _CONTEXT_FREE_REQUESTS)
+
+
+def _cached_agent_metadata(key: str, loader) -> tuple[str | None, list[str]]:
     now = time.monotonic()
     cached = _AGENT_METADATA_CACHE.get(key)
     if cached and now - cached[0] < _AGENT_METADATA_TTL_S:
         return cached[1]
     try:
-        name, task = loader()
+        name, requests = loader()
         value = (
             _clean_optional_text(name, max_len=100),
-            _clean_agent_task(task),
+            _clean_agent_requests(requests),
         )
     except (OSError, TypeError, ValueError, json.JSONDecodeError, yaml.YAMLError):
-        value = (None, None)
+        value = (None, [])
     _AGENT_METADATA_CACHE[key] = (now, value)
     return value
 
 
 def _claude_session_metadata(
     session_id: str, cwd: str,
-) -> tuple[str | None, str | None]:
-    """Read Claude Code's generated title and latest direct user task."""
+) -> tuple[str | None, list[str]]:
+    """Read Claude Code's generated title and latest direct user requests."""
     project_slug = re.sub(r"[^A-Za-z0-9]", "-", str(Path(cwd).resolve()))
     project_dir = Path.home() / ".claude" / "projects" / project_slug
     transcript = project_dir / f"{session_id}.jsonl"
 
-    def load() -> tuple[str | None, str | None]:
+    def load() -> tuple[str | None, list[str]]:
         title = None
-        task = None
+        requests = []
         if transcript.is_file():
             # Claude repeats the ai-title event near the live tail. Limiting
             # the read keeps terminal-list polling cheap for long sessions.
@@ -791,32 +817,41 @@ def _claude_session_metadata(
                         _message_content_text(message.get("content"))
                     )
                     if candidate_task:
-                        task = candidate_task
+                        requests.append(candidate_task)
 
         index_path = project_dir / "sessions-index.json"
-        if index_path.is_file() and (not title or not task):
+        if index_path.is_file() and (not title or not requests):
             payload = json.loads(index_path.read_text())
             entries = payload.get("entries") if isinstance(payload, dict) else None
             for entry in entries if isinstance(entries, list) else []:
                 if isinstance(entry, dict) and entry.get("sessionId") == session_id:
                     title = title or entry.get("name") or entry.get("summary")
-                    task = task or entry.get("firstPrompt") or entry.get("summary")
+                    fallback = entry.get("firstPrompt") or entry.get("summary")
+                    if not requests and fallback:
+                        requests.append(fallback)
                     break
-        return title, task
+        return title, requests[-3:]
 
     return _cached_agent_metadata(f"claude:{session_id}", load)
 
 
-def _copilot_session_metadata(session_id: str) -> tuple[str | None, str | None]:
-    """Read Copilot CLI's saved name and latest ``user.message`` task."""
+def _copilot_session_metadata(session_id: str) -> tuple[str | None, list[str]]:
+    """Read Copilot CLI's saved name and latest ``user.message`` requests.
+
+    Copilot's ``workspace.yaml`` may leave the placeholder name ``Session
+    Initialization`` in place for the whole conversation.  In that case use
+    the first substantive direct request as a stable objective, while keeping
+    the latest three requests available for follow-up context in the UI.
+    """
     home = Path(os.environ.get("COPILOT_HOME") or (Path.home() / ".copilot"))
     session_dir = home / "session-state" / session_id
     workspace = session_dir / "workspace.yaml"
     events = session_dir / "events.jsonl"
 
-    def load() -> tuple[str | None, str | None]:
+    def load() -> tuple[str | None, list[str]]:
         title = None
         workspace_summary = None
+        user_named = False
         if workspace.is_file():
             payload = yaml.safe_load(workspace.read_text())
             if isinstance(payload, dict):
@@ -829,16 +864,23 @@ def _copilot_session_metadata(session_id: str) -> tuple[str | None, str | None]:
                         title = candidate.get("name") or candidate.get("summary")
                     if not workspace_summary:
                         workspace_summary = candidate.get("summary")
-        task = None
+                    user_named = user_named or candidate.get("user_named") is True
+        all_requests = []
         if events.is_file():
             with events.open("rb") as handle:
                 size = handle.seek(0, os.SEEK_END)
-                start = max(0, size - 512 * 1024)
-                handle.seek(start)
-                data = handle.read()
-            if start:
-                _, _, data = data.partition(b"\n")
-            for raw in data.splitlines():
+                if size <= 640 * 1024:
+                    handle.seek(0)
+                    chunks = [handle.read()]
+                else:
+                    handle.seek(0)
+                    head = handle.read(128 * 1024)
+                    head, _, _ = head.rpartition(b"\n")
+                    handle.seek(size - 512 * 1024)
+                    tail = handle.read()
+                    _, _, tail = tail.partition(b"\n")
+                    chunks = [head, tail]
+            for raw in b"\n".join(chunks).splitlines():
                 try:
                     event = json.loads(raw)
                 except (json.JSONDecodeError, UnicodeDecodeError):
@@ -848,8 +890,25 @@ def _copilot_session_metadata(session_id: str) -> tuple[str | None, str | None]:
                     continue
                 candidate_task = _clean_agent_task(event_data.get("content"))
                 if candidate_task:
-                    task = candidate_task
-        return title, task or workspace_summary
+                    all_requests.append(candidate_task)
+        if (
+            not title
+            or (
+                not user_named
+                and re.sub(r"\s+", " ", str(title).strip().lower())
+                in _COPILOT_PLACEHOLDER_TITLES
+            )
+        ):
+            objective = next(
+                (request for request in all_requests if _request_is_substantive(request)),
+                None,
+            )
+            if objective:
+                title = objective
+        requests = all_requests[-3:]
+        if not requests and workspace_summary:
+            requests = [workspace_summary]
+        return title, requests
 
     return _cached_agent_metadata(f"copilot:{session_id}", load)
 
@@ -860,8 +919,8 @@ def _tty_key(raw: str | None) -> str:
 
 def _codex_session_metadata_by_tty(
     ttys: set[str], cwds: set[str] | None = None,
-) -> dict[str, tuple[str, str, str | None]]:
-    """Map pane TTYs to ``(thread id, display name, latest user task)``.
+) -> dict[str, tuple[str, str, list[str]]]:
+    """Map pane TTYs to ``(thread id, display name, latest user requests)``.
 
     Codex's log index records a process UUID containing the native PID and
     the active top-level thread ID. Joining that with the thread index and
@@ -943,7 +1002,7 @@ def _codex_session_metadata_by_tty(
                 """,
                 thread_ids,
             ).fetchall()
-        best: dict[str, tuple[int, str, str, str | None]] = {}
+        best: dict[str, tuple[int, str, str]] = {}
         for process_uuid, thread_id, last_seen in candidates:
             match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))
             thread = threads.get(str(thread_id))
@@ -958,10 +1017,10 @@ def _codex_session_metadata_by_tty(
             current = best.get(tty)
             if current is None or int(last_seen or 0) > current[0]:
                 best[tty] = (
-                    int(last_seen or 0), str(thread_id), display, None,
+                    int(last_seen or 0), str(thread_id), display,
                 )
 
-        tasks: dict[str, str] = {}
+        tasks: dict[str, list[str]] = {}
         live_thread_ids = sorted({row[1] for row in best.values()})
         history_path = Path.home() / ".codex" / "thread_history_1.sqlite"
         task_rows = []
@@ -973,9 +1032,9 @@ def _codex_session_metadata_by_tty(
                 ) as conn:
                     task_rows = conn.execute(
                         f"""
-                        SELECT thread_id, item_json
+                        SELECT thread_id, item_json, rollout_ordinal
                         FROM (
-                            SELECT thread_id, item_json,
+                            SELECT thread_id, item_json, rollout_ordinal,
                                 ROW_NUMBER() OVER (
                                     PARTITION BY thread_id
                                     ORDER BY rollout_ordinal DESC
@@ -984,7 +1043,8 @@ def _codex_session_metadata_by_tty(
                             WHERE item_type = 'userMessage'
                               AND thread_id IN ({live_placeholders})
                         )
-                        WHERE position = 1
+                        WHERE position <= 3
+                        ORDER BY thread_id, rollout_ordinal
                         """,
                         live_thread_ids,
                     ).fetchall()
@@ -992,18 +1052,19 @@ def _codex_session_metadata_by_tty(
                 # Older Codex builds may have no projection DB/table yet.
                 # Keep the session name and fall back to the thread preview.
                 pass
-        for thread_id, item_json in task_rows:
+        for thread_id, item_json, _rollout_ordinal in task_rows:
             try:
                 item = json.loads(item_json)
             except (TypeError, json.JSONDecodeError):
                 continue
             task = _clean_agent_task(_message_content_text(item.get("content")))
             if task:
-                tasks[str(thread_id)] = task
+                tasks.setdefault(str(thread_id), []).append(task)
         resolved = {
             tty: (
                 row[1], row[2],
-                tasks.get(row[1]) or _clean_agent_task(threads[row[1]][3]),
+                tasks.get(row[1])
+                or _clean_agent_requests([threads[row[1]][3]]),
             )
             for tty, row in best.items()
         }
@@ -1027,23 +1088,26 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
         agent = row.get("agent")
         session_id = row.get("agent_session_id") or row.get("claude_session_id")
         display = None
-        task = None
+        requests = []
         if agent == "codex":
             metadata = codex_metadata.get(_tty_key(row.get("pane_tty")))
             if metadata:
-                session_id, display, task = metadata
+                session_id, display, requests = metadata
         elif agent == "claude" and isinstance(session_id, str):
-            display, task = _claude_session_metadata(
+            display, requests = _claude_session_metadata(
                 session_id, str(row.get("cwd") or ""),
             )
         elif agent == "copilot" and isinstance(session_id, str):
-            display, task = _copilot_session_metadata(session_id)
+            display, requests = _copilot_session_metadata(session_id)
         if isinstance(session_id, str) and session_id:
             row["agent_session_id"] = session_id
         if display:
             row["agent_session_name"] = display
-        if task:
-            row["agent_session_summary"] = task
+        requests = _clean_agent_requests(requests)
+        if requests:
+            row["agent_session_requests"] = requests
+            # Keep the scalar during the API transition and for older clients.
+            row["agent_session_summary"] = requests[-1]
 
 
 # ─── registry recovery ──────────────────────────────────────────────────────

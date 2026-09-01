@@ -110,7 +110,7 @@ class TestTermSessionsLatency:
 
         covered = {f"ttys{i:03d}" for i in range(100)}
         resolved = {
-            f"ttys{i:03d}": (f"thread-{i}", f"Title {i}", f"Task {i}")
+            f"ttys{i:03d}": (f"thread-{i}", f"Title {i}", [f"Task {i}"])
             for i in range(0, 100, 4)
         }
         monkeypatch.setattr(

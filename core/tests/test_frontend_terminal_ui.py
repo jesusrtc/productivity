@@ -445,7 +445,10 @@ const termSessions = [{
   kind: 'claude', agent: 'codex',
   label: 'Sessions', summary: 'stale pane prompt',
   agent_session_name: 'Review terminal naming',
-  agent_session_summary: 'Show the latest task in hover and header',
+  agent_session_requests: [
+    'Inspect the tab metadata',
+    'Show the latest task in hover and header',
+  ],
 }];
 let termCurrentSession = termSessions[0].name;
 let termCurrentProjectId = 'demo';
@@ -464,7 +467,7 @@ process.stdout.write(JSON.stringify({
     assert result["className"] == "term-active-session on claude"
     assert '<span class="name">Sessions: Review terminal naming</span>' in result["html"]
     assert (
-        '<span class="summary">TL;DR · Show the latest task in hover and header</span>'
+        '<span class="summary">Requests · Show the latest task in hover and header</span>'
         in result["html"]
     )
     assert '<span class="agent">codex</span>' in result["html"]
@@ -495,7 +498,11 @@ const document = {getElementById(id) {
 const termSessions = [{
   name: 'tmux-codex', logical_name: 'codex', agent: 'codex',
   agent_session_name: 'Session names',
-  agent_session_summary: 'Fix immediate hover and show this task above the terminal',
+  agent_session_requests: [
+    'Inspect the existing header',
+    'Fix immediate hover',
+    'Show this task above the terminal',
+  ],
 }];
 let termCurrentSession = 'tmux-codex';
 let termCurrentProjectId = 'demo';
@@ -508,11 +515,15 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryText}));
     )
 
     assert result["statusSummary"] == {
-        "title": "Fix immediate hover and show this task above the terminal",
+        "title": (
+            "Inspect the existing header\nFix immediate hover\n"
+            "Show this task above the terminal"
+        ),
         "hidden": False,
     }
     assert result["statusSummaryText"]["textContent"] == (
-        "Fix immediate hover and show this task above the terminal"
+        "• Inspect the existing header\n• Fix immediate hover\n"
+        "• Show this task above the terminal"
     )
 
     html = INDEX_HTML.read_text(encoding="utf-8")
@@ -520,9 +531,11 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryText}));
     status_end = html.index('</div>', html.index('id="termStatus"'))
     assert html.index('id="termStatusSummary"') > status_end
     assert 'id="termStatusSummaryText"' in html
-    assert "grid-template-columns: 42px minmax(0, 1fr)" in css
+    assert ">Requests</span>" in html
+    assert "grid-template-columns: 56px minmax(0, 1fr)" in css
     assert "min-height: 4.2em" in css
-    assert "-webkit-line-clamp: 4" in css
+    assert "white-space: pre-line" in css
+    assert "-webkit-line-clamp: 6" in css
 
 
 def test_terminal_custom_tooltip_opens_synchronously_without_native_title() -> None:
@@ -538,7 +551,7 @@ const tooltip = {
 };
 const anchor = {
   getAttribute(name) {
-    return name === 'data-tooltip' ? 'Sessions\\nTL;DR: Latest task' : null;
+    return name === 'data-tooltip' ? 'Sessions\\nRequests:\\n• Latest task' : null;
   },
   getBoundingClientRect() {
     return {left: 20, right: 70, top: 30, width: 50, height: 36};
@@ -555,7 +568,7 @@ process.stdout.write(JSON.stringify(tooltip));
     )
 
     assert result["hidden"] is False
-    assert result["textContent"] == "Sessions\nTL;DR: Latest task"
+    assert result["textContent"] == "Sessions\nRequests:\n• Latest task"
     assert result["style"] == {"left": "78px", "top": "30px"}
 
     source = LAB_APP.read_text(encoding="utf-8")
@@ -606,7 +619,10 @@ def test_terminal_hover_prefers_latest_agent_task() -> None:
 process.stdout.write(JSON.stringify(_termSessionTitle({
   name: 'tmux-name', logical_name: 'codex-2', label: 'Sessions',
   agent_session_name: 'Terminal naming',
-  agent_session_summary: 'Show the latest user assignment',
+  agent_session_requests: [
+    'Inspect the current metadata',
+    'Show the latest user assignment',
+  ],
   summary: 'Ask Codex to do anything',
 }, 'Recently active')));
 """
@@ -614,7 +630,9 @@ process.stdout.write(JSON.stringify(_termSessionTitle({
 
     assert result.splitlines() == [
         "Sessions: Terminal naming",
-        "TL;DR: Show the latest user assignment",
+        "Requests:",
+        "• Inspect the current metadata",
+        "• Show the latest user assignment",
         "tmux-name",
         "Recently active",
         "Double-click to rename",

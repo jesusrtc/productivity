@@ -1854,10 +1854,10 @@
   .term-group-color.selected { outline: 2px solid var(--text-primary); outline-offset: 2px; }
   .term-status { padding: 4px 10px; font-size: 11px; color: var(--text-secondary); background: var(--bg-secondary); border-bottom: 1px solid var(--border); font-family: ui-monospace, monospace; flex-shrink: 0; display: flex; gap: 10px; align-items: center; }
   #termStatusText { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .term-status-summary { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; gap: 9px; padding: 7px 10px 8px; color: var(--text-primary); background: var(--bg-primary); border-bottom: 1px solid var(--border); font: 11px/1.4 ui-monospace, monospace; flex-shrink: 0; }
+  .term-status-summary { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: 9px; padding: 7px 10px 8px; color: var(--text-primary); background: var(--bg-primary); border-bottom: 1px solid var(--border); font: 11px/1.4 ui-monospace, monospace; flex-shrink: 0; }
   .term-status-summary[hidden] { display: none; }
   .term-status-summary-label { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-  .term-status-summary-text { display: -webkit-box; min-height: 4.2em; overflow: hidden; overflow-wrap: anywhere; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+  .term-status-summary-text { display: -webkit-box; min-height: 4.2em; overflow: hidden; overflow-wrap: anywhere; white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
   .term-status .dot { width: 7px; height: 7px; border-radius: 50%; background: #484f58; display: inline-block; }
   .term-status.live .dot { background: var(--green); }
   .term-status.err .dot { background: var(--red); }
