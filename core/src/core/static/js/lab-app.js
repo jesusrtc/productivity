@@ -3660,7 +3660,9 @@
 
     const indexAttr = Number.isInteger(index) ? ` data-cell-index="${index}"` : '';
     const cellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
-    return `<div class="nb-cell${statusCls}"${indexAttr}${cellIdAttr}>
+    const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
+    const cellTypeAttr = ` data-cell-type="${escAttr(String(cell.cell_type || 'cell'))}"`;
+    return `<div class="nb-cell${statusCls}${outputStateCls}"${indexAttr}${cellIdAttr}${cellTypeAttr}>
       <div class="nb-cell-header">
         <span class="nb-type">${cell.cell_type}</span>
         <span class="nb-exec">${execCount}</span>
@@ -3844,6 +3846,18 @@
     } catch (_) {}
   }
 
+  function _notebookCodeHiddenKey(scope, path) {
+    return 'nb-hide-code:' + String(scope || '') + '|' + String(path || '');
+  }
+  function _isNotebookCodeHidden(scope, path) {
+    try { return localStorage.getItem(_notebookCodeHiddenKey(scope, path)) === '1'; }
+    catch (_) { return false; }
+  }
+  function _setNotebookCodeHidden(scope, path, hidden) {
+    try { localStorage.setItem(_notebookCodeHiddenKey(scope, path), hidden ? '1' : '0'); }
+    catch (_) {}
+  }
+
   function _notebookCommittedCells(container) {
     if (!container) return [];
     return Array.from(container.querySelectorAll('.nb-container > .nb-cell[data-cell-index]'))
@@ -3884,13 +3898,18 @@
     return cells[0];
   }
 
-  function _renderNbJumpControls(cellCount) {
+  function _renderNbJumpControls(cellCount, codeHidden = false) {
     const disabled = cellCount > 0 ? '' : ' disabled';
     const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
+    const codeLabel = codeHidden ? 'Show code' : 'Hide code';
+    const codeTitle = codeHidden
+      ? 'Show code sources'
+      : 'Hide code sources and show notebook outputs';
     return `<nav class="nb-jump-controls" aria-label="Notebook position">
-      <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ Start</button>
+      <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ <span class="nb-jump-word">Start</span></button>
       <span class="nb-jump-position" aria-live="polite">${label}</span>
-      <button type="button" data-nb-jump="end" title="Go to the last cell" aria-label="Go to the last cell"${disabled}>End ↓</button>
+      <button type="button" data-nb-jump="end" title="Go to the last cell" aria-label="Go to the last cell"${disabled}><span class="nb-jump-word">End</span> ↓</button>
+      <button type="button" data-nb-toggle-code title="${codeTitle}" aria-pressed="${codeHidden ? 'true' : 'false'}">${codeLabel}</button>
     </nav>`;
   }
 
@@ -3904,12 +3923,35 @@
   function _bindNbNavigation(container, scope, path, { restore = true } = {}) {
     _clearNbNavigation();
     const cells = _notebookCommittedCells(container);
+    const notebook = container && container.querySelector('.nb-container');
     const controls = container && container.querySelector('.nb-jump-controls');
     const positionLabel = controls && controls.querySelector('.nb-jump-position');
-    if (!cells.length) return null;
+    const codeToggle = controls && controls.querySelector('[data-nb-toggle-code]');
+    let codeHidden = _isNotebookCodeHidden(scope, path);
 
     let frame = null;
     let active = true;
+    function navigableCells() {
+      if (!codeHidden) return cells;
+      const visible = cells.filter((cell) => (
+        cell.getAttribute('data-cell-type') !== 'code'
+        || cell.classList.contains('nb-cell-has-outputs')
+        || cell.classList.contains('nb-cell-pending')
+        || cell.classList.contains('nb-cell-running')
+      ));
+      return visible.length ? visible : cells;
+    }
+    function applyCodeHidden(hidden) {
+      codeHidden = !!hidden;
+      if (notebook) notebook.classList.toggle('nb-code-hidden', codeHidden);
+      if (codeToggle) {
+        codeToggle.textContent = codeHidden ? 'Show code' : 'Hide code';
+        codeToggle.title = codeHidden
+          ? 'Show code sources'
+          : 'Hide code sources and show notebook outputs';
+        codeToggle.setAttribute('aria-pressed', codeHidden ? 'true' : 'false');
+      }
+    }
     function record(cell) {
       if (!cell) return;
       _writeNotebookPosition(scope, path, cell);
@@ -3921,7 +3963,7 @@
     function recordCurrent() {
       frame = null;
       if (!active || !container.isConnected) return;
-      record(_notebookReadingCell(cells));
+      record(_notebookReadingCell(navigableCells()));
     }
     function scheduleRecord() {
       if (frame == null) frame = requestAnimationFrame(recordCurrent);
@@ -3932,12 +3974,34 @@
       cell.scrollIntoView({ behavior: 'smooth', block });
     }
 
+    applyCodeHidden(codeHidden);
     if (controls) {
       const start = controls.querySelector('[data-nb-jump="start"]');
       const end = controls.querySelector('[data-nb-jump="end"]');
-      if (start) start.addEventListener('click', () => jump(cells[0], 'start'));
-      if (end) end.addEventListener('click', () => jump(cells[cells.length - 1], 'end'));
+      if (start) start.addEventListener('click', () => {
+        const visible = navigableCells();
+        jump(visible[0], 'start');
+      });
+      if (end) end.addEventListener('click', () => {
+        const visible = navigableCells();
+        jump(visible[visible.length - 1], 'end');
+      });
+      if (codeToggle) codeToggle.addEventListener('click', () => {
+        const before = _notebookReadingCell(navigableCells());
+        const beforeIndex = Math.max(0, cells.indexOf(before));
+        applyCodeHidden(!codeHidden);
+        _setNotebookCodeHidden(scope, path, codeHidden);
+        const visible = navigableCells();
+        const target = visible.find(cell => cells.indexOf(cell) >= beforeIndex)
+          || visible[visible.length - 1];
+        requestAnimationFrame(() => {
+          if (!active || !target) return;
+          target.scrollIntoView({ behavior: 'auto', block: 'start' });
+          record(target);
+        });
+      });
     }
+    if (!cells.length) return null;
     window.addEventListener('scroll', scheduleRecord, { passive: true });
     window.addEventListener('resize', scheduleRecord, { passive: true });
 
@@ -3949,9 +4013,15 @@
       requestAnimationFrame(() => requestAnimationFrame(() => {
         if (!active || !container.isConnected) return;
         const running = container.querySelector('.nb-cell-interactive.nb-cell-running');
-        const target = running || _resolveNotebookPosition(
+        const resolved = running || _resolveNotebookPosition(
           cells, _readNotebookPosition(scope, path),
         );
+        const visible = navigableCells();
+        const resolvedIndex = Math.max(0, cells.indexOf(resolved));
+        const target = visible.includes(resolved)
+          ? resolved
+          : (visible.find(cell => cells.indexOf(cell) >= resolvedIndex)
+            || visible[visible.length - 1]);
         if (target) {
           target.scrollIntoView({ behavior: 'auto', block: 'start' });
           record(target);
@@ -3964,7 +4034,7 @@
     _nbNavigationCleanup = () => {
       if (!active) return;
       // Capture the latest position before a tab switch replaces this DOM.
-      record(_notebookReadingCell(cells));
+      record(_notebookReadingCell(navigableCells()));
       active = false;
       if (frame != null) cancelAnimationFrame(frame);
       window.removeEventListener('scroll', scheduleRecord);
@@ -4069,7 +4139,7 @@
       try { bodyHtml = `<div class="nb-markdown">${marked.parse(cell.source)}</div>`; }
       catch (e) { bodyHtml = `<div class="nb-source">${esc(cell.source)}</div>`; }
       const markdownCellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
-      return `<div class="nb-cell nb-cell-interactive" data-cell-index="${index}"${markdownCellIdAttr}>
+      return `<div class="nb-cell nb-cell-interactive nb-cell-no-outputs" data-cell-index="${index}"${markdownCellIdAttr} data-cell-type="markdown">
         <div class="nb-cell-header">
           <span class="nb-type">${cell.cell_type}</span>
         </div>
@@ -4111,7 +4181,8 @@
       : '';
     const serverBusyAttr = serverPending ? ' disabled' : '';
     const serverReadonlyAttr = serverPending ? ' readonly aria-busy="true"' : '';
-    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr}${liveSequenceAttr} data-exec-count="${execCountNum}">
+    const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
+    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}${outputStateCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr}${liveSequenceAttr} data-exec-count="${execCountNum}" data-cell-type="code">
       <div class="nb-cell-header">
         <span class="nb-type">code</span>
         <span class="nb-exec">${execCount}</span>
@@ -4977,7 +5048,7 @@
       content.innerHTML = `<div class="file-viewer-header">
         <span class="fv-path">${esc(filepath)}</span>
       </div>
-      ${_renderNbJumpControls(cells.length)}
+      ${_renderNbJumpControls(cells.length, _isNotebookCodeHidden(scope, filepath))}
       <div class="nb-container">${cells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div>`;
       activateNotebookScripts(content);
       _bindNbNavigation(content, scope, filepath);
@@ -6093,7 +6164,7 @@
           ]);
           if (!_stillActiveNav()) return;
           const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a workspace project to execute</span></div>`;
-          container.innerHTML = `<div style="padding:24px">${readOnlyHeader}${_renderNbJumpControls(readOnlyCells.length)}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
+          container.innerHTML = `<div style="padding:24px">${readOnlyHeader}${_renderNbJumpControls(readOnlyCells.length, _isNotebookCodeHidden(docRoot, filepath))}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
           activateNotebookScripts(container);
           _bindNbNavigation(container, docRoot, filepath, { restore: !preserveScroll });
           return;
@@ -6293,7 +6364,8 @@
         // fetching, do NOT stomp the new view's content with this
         // notebook's HTML.
         if (!_stillActiveNav()) return;
-        container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}${_renderNbJumpControls(realCells.length)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
+        const notebookPositionScope = notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot;
+        container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}${_renderNbJumpControls(realCells.length, _isNotebookCodeHidden(notebookPositionScope, relPath))}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
         _ensureNbElapsedTicker();
         // Bind every interactive cell + inserters + the trailing add-cell
@@ -6310,7 +6382,7 @@
         bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId);
         _bindNbNavigation(
           container,
-          notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot,
+          notebookPositionScope,
           relPath,
           { restore: !preserveScroll },
         );

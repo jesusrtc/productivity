@@ -246,19 +246,24 @@ const localStorage = {
 const attrs = new Map([['data-cell-id', 'stable-cell'], ['data-cell-index', '41']]);
 const cell = {getAttribute(name) { return attrs.get(name) || null; }};
 _writeNotebookPosition('workspace-a', 'projects/demo/large.ipynb', cell);
+_setNotebookCodeHidden('workspace-a', 'projects/demo/large.ipynb', true);
 const saved = _readNotebookPosition('workspace-a', 'projects/demo/large.ipynb');
 const other = _readNotebookPosition('workspace-b', 'projects/demo/large.ipynb');
-process.stdout.write(JSON.stringify({saved, other}));
+const codeHidden = _isNotebookCodeHidden('workspace-a', 'projects/demo/large.ipynb');
+const otherCodeHidden = _isNotebookCodeHidden('workspace-b', 'projects/demo/large.ipynb');
+process.stdout.write(JSON.stringify({saved, other, codeHidden, otherCodeHidden}));
 """
     )
 
     assert result == {
         "saved": {"cellId": "stable-cell", "index": 41},
         "other": None,
+        "codeHidden": True,
+        "otherCodeHidden": False,
     }
     position_helpers = _js_between(
         "function _notebookCommittedCells(container)",
-        "function _renderNbJumpControls(cellCount)",
+        "function _renderNbJumpControls(cellCount, codeHidden = false)",
     )
     position_result = _run_node(
         "const window = {innerHeight: 900};\n"
@@ -288,12 +293,19 @@ process.stdout.write(JSON.stringify({
     assert position_result == {"stable": "b", "clamped": "c", "reading": "b"}
     assert 'data-nb-jump="start"' in source
     assert 'data-nb-jump="end"' in source
+    assert "data-nb-toggle-code" in source
+    assert "_setNotebookCodeHidden(scope, path, codeHidden)" in source
+    assert 'data-cell-type="code"' in source
     assert "_bindNbNavigation(" in source
     assert "notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot" in source
     assert "running || _resolveNotebookPosition" in source
     assert ".nb-jump-controls" in css
-    assert "position:fixed" in css
-    assert "scroll-margin-top: 140px" in css
+    assert "position:sticky" in css
+    assert "top:var(--nb-jump-top, 102px)" in css
+    assert "bottom:22px" not in css
+    assert ".nb-container.nb-code-hidden" in css
+    assert ".nb-cell-no-outputs" in css
+    assert "scroll-margin-top: calc(var(--nb-jump-top, 102px) + 100px)" in css
 
 
 def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
