@@ -473,7 +473,7 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
         "_codex_session_metadata_by_tty",
         lambda _ttys, _cwds: {
             "ttys001": (
-                "codex-id", "Codex conversation",
+                "codex-id", "Codex conversation", None,
                 ["Review the behavior", "Fix tab names"],
             ),
         },
@@ -482,13 +482,15 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
         term_mod, "_claude_session_metadata",
         lambda session_id, cwd: (
             f"Claude {session_id} in {cwd}",
+            "Reviewing the terminal metadata API",
             ["Inspect the route", "Review the API"],
         ),
     )
     monkeypatch.setattr(
         term_mod, "_copilot_session_metadata",
         lambda session_id: (
-            f"Copilot {session_id}", ["Find the test", "Update the tests"],
+            f"Copilot {session_id}", None,
+            ["Find the test", "Update the tests"],
         ),
     )
     rows = [
@@ -511,7 +513,12 @@ def test_agent_session_names_are_normalized_for_all_supported_clis(monkeypatch) 
     ]
     assert rows[1]["agent_session_id"] == "claude-id"
     assert rows[1]["agent_session_name"] == "Claude claude-id in /repo"
-    assert rows[1]["agent_session_summary"] == "Review the API"
+    assert rows[1]["agent_session_objective"] == (
+        "Reviewing the terminal metadata API"
+    )
+    assert rows[1]["agent_session_summary"] == (
+        "Reviewing the terminal metadata API"
+    )
     assert rows[1]["agent_session_requests"] == [
         "Inspect the route", "Review the API",
     ]
@@ -543,7 +550,7 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
     import core.routes.term as term_mod
 
     cached = {
-        "ttys001": ("thread-1", "Session title", ["Latest task"]),
+        "ttys001": ("thread-1", "Session title", None, ["Latest task"]),
     }
     term_mod._CODEX_METADATA_CACHE = (
         term_mod.time.monotonic(), {"ttys001", "ttys002"}, cached,
@@ -558,7 +565,7 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
     ) == cached
 
 
-def test_codex_metadata_returns_latest_three_user_requests(
+def test_codex_metadata_returns_all_user_requests_after_clear(
     monkeypatch, tmp_path: Path,
 ) -> None:
     import core.routes.term as term_mod
@@ -595,7 +602,8 @@ def test_codex_metadata_returns_latest_three_user_requests(
             )
             """,
         )
-        for ordinal, content in enumerate(("one", "two", "three", "four"), 1):
+        contents = ("old task", "/clear", "one", "two", "three", "four")
+        for ordinal, content in enumerate(contents, 1):
             conn.execute(
                 "INSERT INTO thread_items VALUES (?, ?, 'userMessage', ?)",
                 (
@@ -618,12 +626,13 @@ def test_codex_metadata_returns_latest_three_user_requests(
         {"/dev/ttys001"}, {"/repo"},
     ) == {
         "ttys001": (
-            "thread-1", "Generated objective", ["two", "three", "four"],
+            "thread-1", "", None,
+            ["one", "two", "three", "four"],
         ),
     }
 
 
-def test_copilot_metadata_uses_latest_three_user_messages(
+def test_copilot_metadata_uses_all_user_messages(
     monkeypatch, tmp_path: Path,
 ) -> None:
     import core.routes.term as term_mod
@@ -648,11 +657,12 @@ def test_copilot_metadata_uses_latest_three_user_messages(
     term_mod._AGENT_METADATA_CACHE.clear()
 
     assert term_mod._copilot_session_metadata("copilot-id") == (
-        "Generated Copilot title", ["First task", "Fix the terminal header"],
+        "Generated Copilot title", None,
+        ["First task", "Fix the terminal header"],
     )
 
 
-def test_copilot_metadata_replaces_placeholder_title_with_stable_objective(
+def test_copilot_metadata_drops_placeholder_and_starts_after_clear(
     monkeypatch, tmp_path: Path,
 ) -> None:
     import core.routes.term as term_mod
@@ -669,6 +679,8 @@ def test_copilot_metadata_replaces_placeholder_title_with_stable_objective(
             "type": "user.message",
             "data": {"content": "Explain what this repo is about"},
         },
+        {"type": "user.message", "data": {"content": "/clear"}},
+        {"type": "user.message", "data": {"content": "Current task"}},
         {
             "type": "user.message",
             "data": {"content": "nice, thanks for that"},
@@ -680,12 +692,46 @@ def test_copilot_metadata_replaces_placeholder_title_with_stable_objective(
     term_mod._AGENT_METADATA_CACHE.clear()
 
     assert term_mod._copilot_session_metadata("copilot-id") == (
-        "Explain what this repo is about",
-        ["hello", "Explain what this repo is about", "nice, thanks for that"],
+        None, None, ["Current task", "nice, thanks for that"],
     )
 
 
-def test_claude_metadata_uses_latest_direct_user_messages(
+def test_copilot_metadata_prefers_latest_ai_checkpoint_summary(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    session_dir = tmp_path / "session-state" / "copilot-id"
+    session_dir.mkdir(parents=True)
+    (session_dir / "workspace.yaml").write_text(
+        "name: Session Initialization\nsummary_count: 1\n",
+    )
+    (session_dir / "events.jsonl").write_text(
+        json.dumps({"type": "user.message", "data": {"content": "Do work"}})
+        + "\n",
+    )
+    with sqlite3.connect(tmp_path / "session-store.db") as conn:
+        conn.execute(
+            """
+            CREATE TABLE checkpoints (
+                id INTEGER, session_id TEXT, checkpoint_number INTEGER,
+                title TEXT, overview TEXT
+            )
+            """,
+        )
+        conn.execute(
+            "INSERT INTO checkpoints VALUES (1, ?, 1, ?, ?)",
+            ("copilot-id", "Implement terminal history", "Longer recap"),
+        )
+    term_mod._AGENT_METADATA_CACHE.clear()
+
+    assert term_mod._copilot_session_metadata("copilot-id") == (
+        None, "Implement terminal history", ["Do work"],
+    )
+
+
+def test_claude_metadata_uses_post_clear_requests_and_current_recap(
     monkeypatch, tmp_path: Path,
 ) -> None:
     import core.routes.term as term_mod
@@ -702,12 +748,23 @@ def test_claude_metadata_uses_latest_direct_user_messages(
         },
         {
             "type": "user", "isSidechain": False, "userType": "external",
+            "message": {"content": (
+                "<command-name>/clear</command-name>\n"
+                "<command-message>clear</command-message>"
+            )},
+        },
+        {
+            "type": "user", "isSidechain": False, "userType": "external",
             "toolUseResult": {"ok": True},
             "message": {"content": "Ignore this tool result"},
         },
         {
             "type": "user", "isSidechain": False, "userType": "external",
             "message": {"content": [{"type": "text", "text": "Latest task"}]},
+        },
+        {
+            "type": "system", "subtype": "away_summary",
+            "content": "Implementing terminal request history",
         },
     ]
     (project_dir / "claude-id.jsonl").write_text(
@@ -716,7 +773,19 @@ def test_claude_metadata_uses_latest_direct_user_messages(
     term_mod._AGENT_METADATA_CACHE.clear()
 
     assert term_mod._claude_session_metadata("claude-id", cwd) == (
-        "Generated Claude title", ["First task", "Latest task"],
+        None, "Implementing terminal request history",
+        ["Latest task"],
+    )
+
+    with (project_dir / "claude-id.jsonl").open("a") as handle:
+        handle.write(json.dumps({
+            "type": "user", "isSidechain": False, "userType": "external",
+            "message": {"content": "Follow-up request"},
+        }) + "\n")
+    term_mod._AGENT_METADATA_CACHE.clear()
+
+    assert term_mod._claude_session_metadata("claude-id", cwd) == (
+        None, None, ["Latest task", "Follow-up request"],
     )
 
 

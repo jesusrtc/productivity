@@ -3619,6 +3619,10 @@
     return `<div class="nb-output${stderrCls}"${attrs}>${esc(o.content || '')}</div>`;
   }
 
+  function _renderNbPeekCodeButton() {
+    return `<button class="nb-output-code-toggle" type="button" data-nb-peek-code aria-expanded="false" title="Show the code that produced this output">Show code</button>`;
+  }
+
   function renderNotebookCell(cell, status, index = null) {
     const statusCls = status && status !== 'unchanged' ? ` nb-${status}` : '';
     const statusLabel = status && status !== 'unchanged'
@@ -3655,7 +3659,13 @@
     let outputsHtml = '';
     if (cell.outputs && cell.outputs.length > 0) {
       const outs = cell.outputs.map(_renderNbOutput).join('');
-      outputsHtml = `<div class="nb-outputs">${outs}</div>`;
+      const codeActions = cell.cell_type === 'code'
+        ? `<div class="nb-output-code-actions">${_renderNbPeekCodeButton()}</div>`
+        : '';
+      outputsHtml = `<div class="nb-outputs">
+        ${codeActions}
+        ${outs}
+      </div>`;
     }
 
     const indexAttr = Number.isInteger(index) ? ` data-cell-index="${index}"` : '';
@@ -3858,6 +3868,28 @@
     catch (_) {}
   }
 
+  function _setNotebookCodePeek(notebook, target) {
+    if (!notebook) return null;
+    const wasOpen = !!(target && target.classList.contains('nb-code-peek'));
+    notebook.querySelectorAll('.nb-cell.nb-code-peek').forEach((cell) => {
+      cell.classList.remove('nb-code-peek');
+    });
+    notebook.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
+      button.textContent = 'Show code';
+      button.title = 'Show the code that produced this output';
+      button.setAttribute('aria-expanded', 'false');
+    });
+    if (!target || wasOpen) return null;
+    target.classList.add('nb-code-peek');
+    const button = target.querySelector('[data-nb-peek-code]');
+    if (button) {
+      button.textContent = 'Hide code';
+      button.title = 'Hide this cell code';
+      button.setAttribute('aria-expanded', 'true');
+    }
+    return target;
+  }
+
   function _notebookCommittedCells(container) {
     if (!container) return [];
     return Array.from(container.querySelectorAll('.nb-container > .nb-cell[data-cell-index]'))
@@ -3901,9 +3933,9 @@
   function _renderNbJumpControls(cellCount, codeHidden = false) {
     const disabled = cellCount > 0 ? '' : ' disabled';
     const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
-    const codeLabel = codeHidden ? 'Show code' : 'Hide code';
+    const codeLabel = codeHidden ? 'Show all code' : 'Hide all code';
     const codeTitle = codeHidden
-      ? 'Show code sources'
+      ? 'Show every code source'
       : 'Hide code sources and show notebook outputs';
     return `<nav class="nb-jump-controls" aria-label="Notebook position">
       <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ <span class="nb-jump-word">Start</span></button>
@@ -3944,10 +3976,11 @@
     function applyCodeHidden(hidden) {
       codeHidden = !!hidden;
       if (notebook) notebook.classList.toggle('nb-code-hidden', codeHidden);
+      if (!codeHidden) _setNotebookCodePeek(notebook, null);
       if (codeToggle) {
-        codeToggle.textContent = codeHidden ? 'Show code' : 'Hide code';
+        codeToggle.textContent = codeHidden ? 'Show all code' : 'Hide all code';
         codeToggle.title = codeHidden
-          ? 'Show code sources'
+          ? 'Show every code source'
           : 'Hide code sources and show notebook outputs';
         codeToggle.setAttribute('aria-pressed', codeHidden ? 'true' : 'false');
       }
@@ -3998,6 +4031,23 @@
           if (!active || !target) return;
           target.scrollIntoView({ behavior: 'auto', block: 'start' });
           record(target);
+        });
+      });
+    }
+    if (notebook) {
+      notebook.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!codeHidden) return;
+          const cell = button.closest('.nb-cell[data-cell-type="code"]');
+          if (!cell) return;
+          const expanded = _setNotebookCodePeek(notebook, cell);
+          requestAnimationFrame(() => {
+            if (!active || !expanded) return;
+            expanded.scrollIntoView({ behavior: 'auto', block: 'start' });
+            record(expanded);
+          });
         });
       });
     }
@@ -4128,6 +4178,7 @@
         <div class="nb-outputs-toggle" title="Click to ${collapsed ? 'show' : 'hide'} output">
           <span class="nb-outputs-caret">${collapsed ? '▶' : '▼'}</span> Output${summary}
           <button class="nb-outputs-copy" type="button" title="Copy output to clipboard">⧉ copy</button>
+          ${_renderNbPeekCodeButton()}
         </div>
         <div class="nb-outputs-body">${outs}</div>
       </div>`;
@@ -4454,8 +4505,8 @@
     const toggle = outputsWrap && outputsWrap.querySelector('.nb-outputs-toggle');
     if (toggle && !isPending) {
       toggle.addEventListener('click', (e) => {
-        // Don't trigger collapse when the user clicked the copy-output button.
-        if (e.target.closest('.nb-outputs-copy')) return;
+        // Output action buttons should not also fold the output panel.
+        if (e.target.closest('.nb-outputs-copy, [data-nb-peek-code]')) return;
         const nowCollapsed = !outputsWrap.classList.contains('nb-outputs-collapsed');
         outputsWrap.classList.toggle('nb-outputs-collapsed', nowCollapsed);
         const caret = toggle.querySelector('.nb-outputs-caret');
@@ -10304,26 +10355,50 @@
   function _termSessionDisplay(s) {
     if (!s) return '';
     const manual = String(s.label || '').trim();
-    const agentSession = String(s.agent_session_name || '').trim();
-    if (manual && agentSession && manual !== agentSession) {
-      return `${manual}: ${agentSession}`;
-    }
-    return manual || agentSession || s.logical_name || s.name || '';
+    if (manual) return manual;
+    const requestCount = Array.isArray(s.agent_session_requests)
+      ? s.agent_session_requests.filter(Boolean).length
+      : 0;
+    const agentSession = requestCount <= 1
+      ? String(s.agent_session_name || '').trim()
+      : '';
+    return agentSession || s.logical_name || s.name || '';
   }
 
   function _termSessionRequests(s) {
     const saved = s && s.agent_session_requests;
     const requests = Array.isArray(saved)
-      ? saved.map(value => String(value || '').trim()).filter(Boolean).slice(-3)
+      ? saved.map(value => String(value || '').trim()).filter(Boolean)
       : [];
     if (requests.length) return requests;
+    if (_termSessionObjective(s)) return [];
     const fallback = String(s && (s.agent_session_summary || s.summary) || '').trim();
     return fallback ? [fallback] : [];
   }
 
+  function _termSessionObjective(s) {
+    return String(s && s.agent_session_objective || '').trim();
+  }
+
+  function _termSessionContext(s) {
+    const objective = _termSessionObjective(s);
+    if (objective) {
+      return {label: 'Objective', items: [objective], isObjective: true};
+    }
+    return {label: 'Requests', items: _termSessionRequests(s), isObjective: false};
+  }
+
+  function _termContextRowsHtml(context) {
+    return context.items.map(item => `
+      <span class="term-context-row${context.isObjective ? ' objective' : ''}">
+        ${context.isObjective ? '' : '<span class="term-context-bullet" aria-hidden="true">•</span>'}
+        <span class="term-context-preview">${termSessEsc(item)}</span>
+      </span>`).join('');
+  }
+
   function _termSessionSummary(s) {
-    const requests = _termSessionRequests(s);
-    return requests.length ? requests[requests.length - 1] : '';
+    const context = _termSessionContext(s);
+    return context.items.length ? context.items[context.items.length - 1] : '';
   }
 
   function _termSessionVisual(s) {
@@ -10341,19 +10416,14 @@
     };
   }
 
-  function _termSessionTitle(s, statusTitle) {
-    const parts = [];
-    const display = _termSessionDisplay(s);
-    if (display) parts.push(display);
-    const requests = _termSessionRequests(s);
-    if (requests.length) {
-      parts.push('Requests:');
-      requests.forEach(request => parts.push(`• ${request}`));
-    }
-    if (s && s.name) parts.push(s.name);
-    if (statusTitle) parts.push(statusTitle);
-    parts.push('Double-click to rename');
-    return parts.join('\n');
+  function _termSessionTooltipPayload(s, statusTitle) {
+    const context = _termSessionContext(s);
+    return JSON.stringify({
+      label: context.label,
+      items: context.items,
+      isObjective: context.isObjective,
+      meta: [s && s.name, statusTitle, 'Double-click to rename'].filter(Boolean),
+    });
   }
 
   async function termRenameSession(name) {
@@ -10408,6 +10478,7 @@
   function _termRenderActiveSessionHeader() {
     const el = document.getElementById('termActiveSession');
     const statusSummary = document.getElementById('termStatusSummary');
+    const statusSummaryLabel = document.getElementById('termStatusSummaryLabel');
     const statusSummaryText = document.getElementById('termStatusSummaryText');
     if (!el && !statusSummary) return;
     const session = (termSessions || []).find(s =>
@@ -10423,46 +10494,110 @@
         statusSummary.removeAttribute('title');
         statusSummary.hidden = true;
       }
-      if (statusSummaryText) statusSummaryText.textContent = '';
+      if (statusSummaryText) {
+        statusSummaryText.textContent = '';
+        if (statusSummaryText.dataset) delete statusSummaryText.dataset.contextKey;
+      }
+      if (statusSummaryLabel) statusSummaryLabel.textContent = 'Requests';
       return;
     }
     const display = _termSessionDisplay(session);
-    const requests = _termSessionRequests(session);
+    const context = _termSessionContext(session);
     const summary = _termSessionSummary(session);
     const visual = _termSessionVisual(session);
     if (el) {
       el.className = `term-active-session on ${visual.kind}`;
-      el.title = _termSessionTitle(session, '');
-      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">Requests · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+      el.removeAttribute('title');
+      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">${termSessEsc(context.label)} · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
     }
     if (statusSummary) {
-      statusSummary.title = requests.join('\n');
-      statusSummary.hidden = !requests.length;
+      statusSummary.removeAttribute('title');
+      statusSummary.hidden = !context.items.length;
     }
+    if (statusSummaryLabel) statusSummaryLabel.textContent = context.label;
     if (statusSummaryText) {
-      statusSummaryText.textContent = requests.map(request => `• ${request}`).join('\n');
+      const contextKey = JSON.stringify([
+        session.name, context.label, context.items,
+      ]);
+      if (
+        !statusSummaryText.dataset
+        || statusSummaryText.dataset.contextKey !== contextKey
+      ) {
+        statusSummaryText.innerHTML = _termContextRowsHtml(context);
+        statusSummaryText.scrollTop = statusSummaryText.scrollHeight;
+        if (statusSummaryText.dataset) {
+          statusSummaryText.dataset.contextKey = contextKey;
+        }
+      }
+    }
+  }
+
+  let _termSessionTooltipHideTimer = null;
+
+  function _termCancelSessionTooltipHide() {
+    if (_termSessionTooltipHideTimer !== null) {
+      clearTimeout(_termSessionTooltipHideTimer);
+      _termSessionTooltipHideTimer = null;
     }
   }
 
   function _termHideSessionTooltip() {
+    _termCancelSessionTooltipHide();
     const tooltip = document.getElementById('termSessionTooltip');
     if (!tooltip) return;
     tooltip.hidden = true;
-    tooltip.textContent = '';
+    tooltip.innerHTML = '';
+  }
+
+  function _termScheduleSessionTooltipHide() {
+    _termCancelSessionTooltipHide();
+    _termSessionTooltipHideTimer = setTimeout(_termHideSessionTooltip, 120);
   }
 
   function _termShowSessionTooltip(anchor) {
     const tooltip = document.getElementById('termSessionTooltip');
-    const text = anchor && anchor.getAttribute('data-tooltip');
-    if (!tooltip || !text) {
+    const raw = anchor && anchor.getAttribute('data-tooltip');
+    if (!tooltip || !raw) {
       _termHideSessionTooltip();
       return;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (_error) {
+      payload = {label: 'Requests', items: [raw], isObjective: false, meta: []};
+    }
+    const items = Array.isArray(payload.items)
+      ? payload.items.map(value => String(value || '').trim()).filter(Boolean)
+      : [];
+    const context = {
+      label: String(payload.label || 'Requests'),
+      items,
+      isObjective: payload.isObjective === true,
+    };
+    const meta = Array.isArray(payload.meta)
+      ? payload.meta.map(value => String(value || '').trim()).filter(Boolean)
+      : [];
+    _termCancelSessionTooltipHide();
+    if (!tooltip._termInteractive && tooltip.addEventListener) {
+      tooltip.addEventListener('pointerenter', _termCancelSessionTooltipHide);
+      tooltip.addEventListener('pointerleave', _termScheduleSessionTooltipHide);
+      tooltip._termInteractive = true;
     }
     // Native `title` tooltips wait for the browser's dwell timer. This
     // fixed-position tooltip is populated and laid out in the pointer/focus
     // event itself, so the task appears immediately and is keyboard-visible.
-    tooltip.textContent = text;
+    tooltip.innerHTML = `
+      <div class="term-session-tooltip-context">
+        <div class="term-session-tooltip-label">${termSessEsc(context.label)}</div>
+        <div class="term-session-tooltip-items">${_termContextRowsHtml(context)}</div>
+      </div>
+      ${meta.length ? `<div class="term-session-tooltip-meta">${meta.map(termSessEsc).join('<br>')}</div>` : ''}`;
     tooltip.hidden = false;
+    const itemList = tooltip.querySelector
+      ? tooltip.querySelector('.term-session-tooltip-items')
+      : null;
+    if (itemList) itemList.scrollTop = itemList.scrollHeight;
     tooltip.style.left = '0px';
     tooltip.style.top = '0px';
     const anchorRect = anchor.getBoundingClientRect();
@@ -10493,9 +10628,11 @@
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
     const recentTitle = recentMeta ? `Recently active — ${recentMeta.label} · window ${_termRecentWindowLabel()}` : '';
+    const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
-    const ariaLabel = `${display} · ${visual.badge}${summary ? ` · ${summary}` : ''}`;
-    const tooltip = _termSessionTitle(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
+    const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
+    const ariaLabel = `${display} · ${visual.badge}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
     return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
@@ -10554,9 +10691,9 @@
     el.innerHTML = html;
     el.querySelectorAll('.sess').forEach(node => {
       node.addEventListener('pointerenter', () => _termShowSessionTooltip(node));
-      node.addEventListener('pointerleave', _termHideSessionTooltip);
+      node.addEventListener('pointerleave', _termScheduleSessionTooltipHide);
       node.addEventListener('focus', () => _termShowSessionTooltip(node));
-      node.addEventListener('blur', _termHideSessionTooltip);
+      node.addEventListener('blur', _termScheduleSessionTooltipHide);
       node.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();

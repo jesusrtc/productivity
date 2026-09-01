@@ -1,31 +1,27 @@
-# Terminal tabs use agent session names
+# Terminal tabs avoid stale provider titles
 
-Agent terminal tabs combine an explicit Lab `label` with the provider-derived
-`agent_session_name` as `Manual name: Session name`. Without a manual label,
-they render the provider name, then the Lab logical name, then the raw tmux
-name.
+An explicit Lab `label` is the complete tab name and always wins. Without one,
+an agent tab may use the provider-derived `agent_session_name` while the
+conversation has zero or one direct request. Once two or more requests exist,
+fall back to the Lab logical name: Codex/Claude/Copilot titles are generally
+generated once and can become misleading after a new task or follow-up.
 
-Hover text and the selected-terminal header show up to three direct user
-requests as `agent_session_requests`; `agent_session_summary` remains the
-latest request for older clients. Prefer this provider metadata over captured
-pane text, and remove image placeholders and injected instruction messages.
+The generated provider title is identity metadata, not proof of the current
+objective. Never persist it as a manual rename, and do not put it above the
+request history in the hover card.
 
 Provider identity is resolved without scraping pane transcript text:
 
 - Claude Code uses Lab's known `claude_session_id` and the matching transcript
-  `ai-title` / sessions index entry; the latest non-sidechain external user
-  message supplies the task.
+  `ai-title` / sessions index entry.
 - Copilot CLI is launched with a Lab-minted `--session-id`; its name/summary is
-  read from `~/.copilot/session-state/<id>/workspace.yaml`, and direct
-  `user.message` requests come from `events.jsonl`. When the non-user-authored
-  name stays `Session Initialization`, use the first substantive request as
-  the stable objective instead.
+  read from `~/.copilot/session-state/<id>/workspace.yaml`. Ignore a
+  non-user-authored `Session Initialization` placeholder rather than deriving
+  another stale title from the first request.
 - Codex CLI is mapped exactly from tmux pane TTY → live native PID →
   `~/.codex/logs_2.sqlite` process/thread entry → the top-level `cli` thread in
-  `state_5.sqlite`; its latest projected `userMessage` comes from
-  `thread_history_1.sqlite`. Read the latest three projected user messages,
-  filter candidate threads by the tab cwd, and keep the lookup cached so
-  normal terminal polling stays near its prior latency.
+  `state_5.sqlite`; projected user messages come from
+  `thread_history_1.sqlite`. Filter candidate threads by tab cwd and keep the
+  lookup cached so normal terminal polling stays near its prior latency.
 
-Keep `agent_session_name` dynamic and separate from the user-authored `label`;
-never persist an automatically generated provider title as a manual rename.
+After `/clear`, discard the old provider title as well as the old requests.
