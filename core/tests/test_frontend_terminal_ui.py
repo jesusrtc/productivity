@@ -473,7 +473,7 @@ process.stdout.write(JSON.stringify({
     assert '<span class="agent">codex</span>' in result["html"]
 
 
-def test_terminal_latest_task_has_a_dedicated_multiline_console_block() -> None:
+def test_terminal_request_block_keeps_history_in_a_three_item_viewport() -> None:
     header_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "function _termSessionPillHtml(s, index)",
@@ -524,6 +524,8 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSu
     assert result["statusSummaryText"]["innerHTML"].count(
         'class="term-context-row"'
     ) == 4
+    assert "Inspect the existing header" in result["statusSummaryText"]["innerHTML"]
+    assert "Fix immediate hover" in result["statusSummaryText"]["innerHTML"]
     assert "Keep every request in the current session" in (
         result["statusSummaryText"]["innerHTML"]
     )
@@ -537,7 +539,8 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSu
     assert 'id="termStatusSummaryText"' in html
     assert ">Requests</span>" in html
     assert "grid-template-columns: 56px minmax(0, 1fr)" in css
-    assert "max-height: min(24vh, 220px)" in css
+    assert "max-height: min(24vh, calc(8.4em + 14px))" in css
+    assert "max-height: min(34vh, calc(13.5em + 28px))" in css
     assert "overflow-y: auto" in css
     assert "-webkit-line-clamp: 2" in css
 
@@ -555,7 +558,7 @@ const tooltip = {
   getBoundingClientRect() { return {width: 220, height: 80}; },
 };
 const payload = JSON.stringify({
-  label: 'Requests', items: ['Latest task', 'Another request'],
+  label: 'Requests', items: ['Old request', 'Latest task', 'Another request', 'Newest request'],
   isObjective: false, meta: ['tmux-name', 'Double-click to rename'],
 });
 const anchor = {
@@ -579,8 +582,10 @@ process.stdout.write(JSON.stringify(tooltip));
 
     assert result["hidden"] is False
     assert "term-session-tooltip-label\">Requests" in result["innerHTML"]
+    assert "Old request" in result["innerHTML"]
     assert "Latest task" in result["innerHTML"]
     assert "Another request" in result["innerHTML"]
+    assert "Newest request" in result["innerHTML"]
     assert "tmux-name" in result["innerHTML"]
     assert result["style"] == {"left": "78px", "top": "30px"}
     assert result["onpointerenter"] is True
@@ -631,7 +636,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_terminal_hover_uses_all_requests_or_current_ai_objective() -> None:
+def test_terminal_hover_scrolls_all_requests_or_uses_current_ai_objective() -> None:
     title_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "async function termRenameSession(name)",

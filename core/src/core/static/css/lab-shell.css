@@ -1823,7 +1823,7 @@
   .term-session-tooltip[hidden] { display: none; }
   .term-session-tooltip-context { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 9px; }
   .term-session-tooltip-label { position: sticky; top: 0; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-  .term-session-tooltip-items { display: flex; flex-direction: column; gap: 7px; max-height: min(34vh, 260px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .term-session-tooltip-items { display: flex; flex-direction: column; gap: 7px; max-height: min(34vh, calc(13.5em + 28px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
   .term-session-tooltip-meta { margin-top: 8px; padding-top: 7px; color: var(--text-dim); border-top: 1px solid #414852; white-space: pre-line; }
   .term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0 var(--term-recent-color, var(--green)); }
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
@@ -1913,7 +1913,7 @@
   .term-status-summary { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: 9px; padding: 7px 10px 8px; color: var(--text-primary); background: var(--bg-primary); border-bottom: 1px solid var(--border); font: 11px/1.4 ui-monospace, monospace; flex-shrink: 0; }
   .term-status-summary[hidden] { display: none; }
   .term-status-summary-label { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-  .term-status-summary-text { display: flex; min-height: 0; max-height: min(24vh, 220px); flex-direction: column; gap: 7px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .term-status-summary-text { display: flex; min-height: 0; max-height: min(24vh, calc(8.4em + 14px)); flex-direction: column; gap: 7px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
   .term-context-row { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 3px; min-width: 0; }
   .term-context-row.objective { display: block; }
   .term-context-bullet { color: var(--text-secondary); }

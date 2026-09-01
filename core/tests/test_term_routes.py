@@ -588,10 +588,19 @@ def test_codex_metadata_returns_all_user_requests_after_clear(
         )
     with sqlite3.connect(codex_home / "logs_2.sqlite") as conn:
         conn.execute(
-            "CREATE TABLE logs (process_uuid TEXT, thread_id TEXT, ts INTEGER)",
+            """
+            CREATE TABLE logs (
+                process_uuid TEXT, thread_id TEXT, ts INTEGER, target TEXT
+            )
+            """,
         )
         conn.execute(
-            "INSERT INTO logs VALUES ('pid:123:live', 'thread-1', 10)",
+            """
+            INSERT INTO logs VALUES (
+                'pid:123:live', 'thread-1', 10,
+                'codex_core::shell_snapshot'
+            )
+            """,
         )
     with sqlite3.connect(codex_home / "thread_history_1.sqlite") as conn:
         conn.execute(
@@ -630,6 +639,58 @@ def test_codex_metadata_returns_all_user_requests_after_clear(
             ["one", "two", "three", "four"],
         ),
     }
+
+
+def test_codex_metadata_uses_empty_thread_started_by_clear(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    with sqlite3.connect(codex_home / "state_5.sqlite") as conn:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+                id TEXT, title TEXT, name TEXT, preview TEXT,
+                archived INTEGER, source TEXT, cwd TEXT, updated_at INTEGER
+            )
+            """,
+        )
+        conn.execute(
+            "INSERT INTO threads VALUES (?, ?, ?, ?, 0, 'cli', ?, 10)",
+            ("thread-old", "Old title", None, "Old request", "/repo"),
+        )
+    with sqlite3.connect(codex_home / "logs_2.sqlite") as conn:
+        conn.execute(
+            """
+            CREATE TABLE logs (
+                process_uuid TEXT, thread_id TEXT, ts INTEGER, target TEXT
+            )
+            """,
+        )
+        conn.executemany(
+            "INSERT INTO logs VALUES ('pid:123:live', ?, ?, ?)",
+            [
+                ("thread-old", 10, "codex_core::shell_snapshot"),
+                ("thread-old", 20, "codex_core::session::turn"),
+                ("thread-empty", 30, "codex_core::shell_snapshot"),
+            ],
+        )
+
+    monkeypatch.setattr(
+        term_mod.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="123 ttys001\n",
+        ),
+    )
+    term_mod._CODEX_METADATA_CACHE = None
+
+    assert term_mod._codex_session_metadata_by_tty(
+        {"/dev/ttys001"}, {"/repo"},
+    ) == {"ttys001": ("thread-empty", "", None, [])}
 
 
 def test_copilot_metadata_uses_all_user_messages(

@@ -1103,6 +1103,7 @@ def _codex_session_metadata_by_tty(
                 thread_ids,
             ).fetchall()
         best: dict[str, tuple[int, str, str]] = {}
+        live_process_uuids: set[str] = set()
         for process_uuid, thread_id, last_seen in candidates:
             match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))
             thread = threads.get(str(thread_id))
@@ -1111,6 +1112,7 @@ def _codex_session_metadata_by_tty(
             tty = pid_tty.get(int(match.group(1)))
             if not tty:
                 continue
+            live_process_uuids.add(str(process_uuid))
             display = _clean_optional_text(thread[2] or thread[1], max_len=100)
             if not display:
                 continue
@@ -1119,6 +1121,44 @@ def _codex_session_metadata_by_tty(
                 best[tty] = (
                     int(last_seen or 0), str(thread_id), display,
                 )
+
+        # Slash commands such as `/clear` and `/new` start a fresh Codex
+        # thread before it has a user event. That empty thread is logged by
+        # the TUI's shell snapshot, but it is not projected into `threads`
+        # yet. Prefer a newer snapshot even when its thread row is absent so
+        # the prior conversation's requests disappear immediately.
+        if best and live_process_uuids:
+            process_placeholders = ",".join("?" for _ in live_process_uuids)
+            earliest_known = min(row[0] for row in best.values())
+            with sqlite3.connect(
+                f"file:{logs_path}?mode=ro", uri=True, timeout=0.2,
+            ) as conn:
+                starts = conn.execute(
+                    f"""
+                    SELECT process_uuid, thread_id, ts AS started_at
+                    FROM logs
+                    WHERE ts > ?
+                      AND target = 'codex_core::shell_snapshot'
+                      AND thread_id IS NOT NULL
+                      AND process_uuid IN ({process_placeholders})
+                    ORDER BY ts DESC
+                    """,
+                    [earliest_known, *sorted(live_process_uuids)],
+                ).fetchall()
+            for process_uuid, thread_id, started_at in starts:
+                match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))
+                tty = pid_tty.get(int(match.group(1))) if match else None
+                if not tty:
+                    continue
+                started = int(started_at or 0)
+                current = best.get(tty)
+                if current is not None and started > current[0]:
+                    thread = threads.get(str(thread_id))
+                    display = _clean_optional_text(
+                        (thread[2] or thread[1]) if thread else None,
+                        max_len=100,
+                    ) or ""
+                    best[tty] = (started, str(thread_id), display)
 
         tasks: dict[str, list[str]] = {}
         cleared_threads: set[str] = set()
@@ -1160,6 +1200,9 @@ def _codex_session_metadata_by_tty(
                 tasks.setdefault(str(thread_id), []).append(task)
         resolved = {}
         for tty, row in best.items():
+            if row[1] not in threads:
+                resolved[tty] = (row[1], "", None, [])
+                continue
             requests = tasks[row[1]] if row[1] in tasks else (
                 _clean_agent_requests([threads[row[1]][3]])
             )

@@ -23,8 +23,8 @@
 - [Terminal tab dividers are browser-local](terminal-tab-groups-are-browser-local.md) — draggable colored lines are locally persisted navigation chrome scoped to each terminal surface
 - [Terminal tabs avoid stale provider titles](terminal-tabs-use-agent-session-names.md) — manual labels win; provider titles yield to the logical name once a conversation has follow-ups
 - [Terminal session metadata stays off the global poll](terminal-session-metadata-hot-path.md) — unscoped/attach scans skip agent details; Codex cache coverage includes unresolved TTYs
-- [Terminal context is scrollable and two lines per item](terminal-task-summary-is-multiline.md) — show a current AI objective or every post-clear request, with each item clamped to two lines
-- [Terminal sessions prefer real recaps over request history](terminal-session-requests-and-copilot-objective.md) — use provider recap/checkpoint metadata when current; otherwise show all direct user requests since `/clear`
+- [Terminal context uses bounded scrollable request history](terminal-task-summary-is-multiline.md) — show three two-line requests in the header or five in hover, with full history available by scrolling
+- [Terminal sessions prefer real recaps over request history](terminal-session-requests-and-copilot-objective.md) — prefer current provider recaps; otherwise show post-clear requests and detect empty Codex `/clear` threads
 - [Project names are display aliases](project-names-are-display-aliases.md) — keep `project.json.id` and the directory stable; render/edit `project.json.name` as the human-facing tab label
 - [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles
 - [Focus mode and Keep Alive](focus-mode-is-presentation-mode.md) — Focus requests fullscreen plus a wake lock; the adjacent persistent Keep Alive switch can own the wake lock independently
