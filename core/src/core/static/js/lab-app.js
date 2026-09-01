@@ -3672,6 +3672,9 @@
     const cellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
     const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
     const cellTypeAttr = ` data-cell-type="${escAttr(String(cell.cell_type || 'cell'))}"`;
+    const codePeekHeader = cell.cell_type === 'code' && outputsHtml
+      ? `<div class="nb-cell-actions nb-code-peek-header-actions">${_renderNbPeekCodeButton()}</div>`
+      : '';
     return `<div class="nb-cell${statusCls}${outputStateCls}"${indexAttr}${cellIdAttr}${cellTypeAttr}>
       <div class="nb-cell-header">
         <span class="nb-type">${cell.cell_type}</span>
@@ -3679,6 +3682,7 @@
         ${actorBadge}
         ${timingBadge}
         ${statusLabel}
+        ${codePeekHeader}
       </div>
       ${bodyHtml}
       ${outputsHtml}
@@ -3881,12 +3885,11 @@
     });
     if (!target || wasOpen) return null;
     target.classList.add('nb-code-peek');
-    const button = target.querySelector('[data-nb-peek-code]');
-    if (button) {
+    target.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
       button.textContent = 'Hide code';
       button.title = 'Hide this cell code';
       button.setAttribute('aria-expanded', 'true');
-    }
+    });
     return target;
   }
 
@@ -3930,6 +3933,15 @@
     return cells[0];
   }
 
+  function _notebookRunningCell(notebook) {
+    if (!notebook) return null;
+    const running = Array.from(
+      notebook.querySelectorAll('.nb-cell-interactive.nb-cell-running'),
+    );
+    return running.find(cell => cell.getAttribute('data-queue-pos') === '1')
+      || running[0] || null;
+  }
+
   function _renderNbJumpControls(cellCount, codeHidden = false) {
     const disabled = cellCount > 0 ? '' : ' disabled';
     const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
@@ -3941,15 +3953,17 @@
       <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ <span class="nb-jump-word">Start</span></button>
       <span class="nb-jump-position" aria-live="polite">${label}</span>
       <button type="button" data-nb-jump="end" title="Go to the last cell" aria-label="Go to the last cell"${disabled}><span class="nb-jump-word">End</span> ↓</button>
+      <button type="button" class="nb-jump-running" data-nb-jump-running title="Go to the running cell" aria-label="Go to the running cell" hidden><span class="nb-jump-running-dot" aria-hidden="true"></span><span class="nb-jump-word">Running</span></button>
       <button type="button" data-nb-toggle-code title="${codeTitle}" aria-pressed="${codeHidden ? 'true' : 'false'}">${codeLabel}</button>
     </nav>`;
   }
 
   let _nbNavigationCleanup = null;
+  let _nbNavigationRefreshRunning = null;
   function _clearNbNavigation() {
-    if (!_nbNavigationCleanup) return;
-    _nbNavigationCleanup();
+    if (_nbNavigationCleanup) _nbNavigationCleanup();
     _nbNavigationCleanup = null;
+    _nbNavigationRefreshRunning = null;
   }
 
   function _bindNbNavigation(container, scope, path, { restore = true } = {}) {
@@ -3959,6 +3973,7 @@
     const controls = container && container.querySelector('.nb-jump-controls');
     const positionLabel = controls && controls.querySelector('.nb-jump-position');
     const codeToggle = controls && controls.querySelector('[data-nb-toggle-code]');
+    const runningButton = controls && controls.querySelector('[data-nb-jump-running]');
     let codeHidden = _isNotebookCodeHidden(scope, path);
 
     let frame = null;
@@ -4006,8 +4021,20 @@
       record(cell);
       cell.scrollIntoView({ behavior: 'smooth', block });
     }
+    function refreshRunningControl() {
+      if (!runningButton) return;
+      const running = _notebookRunningCell(notebook);
+      runningButton.hidden = !running;
+      if (!running) return;
+      const idx = cells.indexOf(running);
+      const suffix = idx >= 0 ? ` ${idx + 1} of ${cells.length}` : '';
+      runningButton.title = `Go to running cell${suffix}`;
+      runningButton.setAttribute('aria-label', `Go to running cell${suffix}`);
+    }
 
     applyCodeHidden(codeHidden);
+    refreshRunningControl();
+    _nbNavigationRefreshRunning = refreshRunningControl;
     if (controls) {
       const start = controls.querySelector('[data-nb-jump="start"]');
       const end = controls.querySelector('[data-nb-jump="end"]');
@@ -4018,6 +4045,9 @@
       if (end) end.addEventListener('click', () => {
         const visible = navigableCells();
         jump(visible[visible.length - 1], 'end');
+      });
+      if (runningButton) runningButton.addEventListener('click', () => {
+        jump(_notebookRunningCell(notebook), 'start');
       });
       if (codeToggle) codeToggle.addEventListener('click', () => {
         const before = _notebookReadingCell(navigableCells());
@@ -4056,14 +4086,13 @@
     window.addEventListener('resize', scheduleRecord, { passive: true });
 
     if (restore) {
-      // Let the newly-injected cell DOM settle before scrolling. A running
-      // cell takes priority because the user should see live work immediately;
-      // otherwise reopen at the most recently read cell (or the first cell on
-      // a notebook that has no saved position yet).
+      // Let the newly-injected cell DOM settle before scrolling, then reopen
+      // at the most recently read cell (or the first cell on a notebook that
+      // has no saved position yet). Running work never steals the viewport;
+      // the blue Running control is the explicit jump affordance.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         if (!active || !container.isConnected) return;
-        const running = container.querySelector('.nb-cell-interactive.nb-cell-running');
-        const resolved = running || _resolveNotebookPosition(
+        const resolved = _resolveNotebookPosition(
           cells, _readNotebookPosition(scope, path),
         );
         const visible = navigableCells();
@@ -4223,6 +4252,9 @@
     const liveSequence = Number(opts.liveSequence);
     const liveSequenceAttr = Number.isFinite(liveSequence)
       ? ` data-live-sequence="${liveSequence}"` : '';
+    const queuePos = Number(opts.queuePos);
+    const queuePosAttr = Number.isInteger(queuePos) && queuePos > 0
+      ? ` data-queue-pos="${queuePos}"` : '';
     const highlighted = _highlightCellSource(source);
     const execCountNum = (cell.execution_count != null) ? cell.execution_count : '';
     const unseen = !pending && outputsHtml && !_isCellSeen(relPath, cell.id || index, cell.execution_count);
@@ -4233,7 +4265,7 @@
     const serverBusyAttr = serverPending ? ' disabled' : '';
     const serverReadonlyAttr = serverPending ? ' readonly aria-busy="true"' : '';
     const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
-    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}${outputStateCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr}${liveSequenceAttr} data-exec-count="${execCountNum}" data-cell-type="code">
+    return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}${outputStateCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr}${liveSequenceAttr}${queuePosAttr} data-exec-count="${execCountNum}" data-cell-type="code">
       <div class="nb-cell-header">
         <span class="nb-type">code</span>
         <span class="nb-exec">${execCount}</span>
@@ -4243,6 +4275,7 @@
         <div class="nb-cell-actions">
           <span class="nb-cell-busy" style="display:none">running…</span>
           <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
+          ${outputsHtml ? _renderNbPeekCodeButton() : ''}
           <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)"${serverBusyAttr}>▶ Run</button>
           <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}"${serverBusyAttr}>✕</button>
         </div>
@@ -4364,16 +4397,8 @@
         if (gutter) gutter.textContent = idleExecText;
         _restoreLocalRunningOutput();
       }
-      const wasRunning = wrap.classList.contains('nb-cell-running');
       wrap.classList.toggle('nb-cell-running', on);
-      // Focus the header/code, never the old output. Centering the whole cell
-      // while a tall chart is still mounted lands the viewport in that stale
-      // chart and makes a live run look as if it jumped straight to the final
-      // output.
-      if (on && !wasRunning) {
-        const focusTarget = wrap.querySelector('.nb-cell-header') || wrap;
-        try { focusTarget.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {}
-      }
+      if (_nbNavigationRefreshRunning) _nbNavigationRefreshRunning();
       _clearCellError(wrap);
     }
 
@@ -6437,14 +6462,6 @@
           relPath,
           { restore: !preserveScroll },
         );
-        // Preserve the live-execution focus behavior during watcher refreshes.
-        // Initial opens also restore through _bindNbNavigation, which gives a
-        // running cell priority over the saved reading position.
-        const runningCell = container.querySelector('.nb-cell-interactive.nb-cell-running');
-        if (runningCell) {
-          const focusTarget = runningCell.querySelector('.nb-cell-header') || runningCell;
-          focusTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
       } catch (err) {
         if (!_stillActiveNav()) return;
         container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;

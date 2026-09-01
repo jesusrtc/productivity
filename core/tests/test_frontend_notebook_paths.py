@@ -270,21 +270,25 @@ process.stdout.write(JSON.stringify({saved, other, codeHidden, otherCodeHidden})
         + """
 function fakeCell(id) {
   const classes = new Set();
-  const attrs = new Map([['aria-expanded', 'false']]);
-  const button = {
-    textContent: 'Show code', title: '',
-    setAttribute(name, value) { attrs.set(name, String(value)); },
-    getAttribute(name) { return attrs.get(name) || null; },
-  };
+  function fakeButton() {
+    const attrs = new Map([['aria-expanded', 'false']]);
+    return {
+      textContent: 'Show code', title: '',
+      setAttribute(name, value) { attrs.set(name, String(value)); },
+      getAttribute(name) { return attrs.get(name) || null; },
+    };
+  }
+  const headerButton = fakeButton();
+  const outputButton = fakeButton();
   return {
-    id, button,
+    id, headerButton, outputButton,
     classList: {
       contains(name) { return classes.has(name); },
       add(name) { classes.add(name); },
       remove(name) { classes.delete(name); },
     },
-    querySelector(selector) {
-      return selector === '[data-nb-peek-code]' ? button : null;
+    querySelectorAll(selector) {
+      return selector === '[data-nb-peek-code]' ? [headerButton, outputButton] : [];
     },
   };
 }
@@ -295,7 +299,9 @@ const notebook = {
     if (selector === '.nb-cell.nb-code-peek') {
       return [first, second].filter(cell => cell.classList.contains('nb-code-peek'));
     }
-    if (selector === '[data-nb-peek-code]') return [first.button, second.button];
+    if (selector === '[data-nb-peek-code]') {
+      return [first.headerButton, first.outputButton, second.headerButton, second.outputButton];
+    }
     return [];
   },
 };
@@ -304,16 +310,18 @@ const afterFirst = {
   open: firstOpen && firstOpen.id,
   first: first.classList.contains('nb-code-peek'),
   second: second.classList.contains('nb-code-peek'),
-  label: first.button.textContent,
-  expanded: first.button.getAttribute('aria-expanded'),
+  headerLabel: first.headerButton.textContent,
+  outputLabel: first.outputButton.textContent,
+  expanded: first.outputButton.getAttribute('aria-expanded'),
 };
 const secondOpen = _setNotebookCodePeek(notebook, second);
 const afterSecond = {
   open: secondOpen && secondOpen.id,
   first: first.classList.contains('nb-code-peek'),
   second: second.classList.contains('nb-code-peek'),
-  firstLabel: first.button.textContent,
-  secondLabel: second.button.textContent,
+  firstLabel: first.headerButton.textContent,
+  secondHeaderLabel: second.headerButton.textContent,
+  secondOutputLabel: second.outputButton.textContent,
 };
 const closed = _setNotebookCodePeek(notebook, second);
 process.stdout.write(JSON.stringify({
@@ -321,18 +329,20 @@ process.stdout.write(JSON.stringify({
   afterSecond,
   closed: closed && closed.id,
   anyOpen: first.classList.contains('nb-code-peek') || second.classList.contains('nb-code-peek'),
-  secondExpanded: second.button.getAttribute('aria-expanded'),
+  secondExpanded: second.outputButton.getAttribute('aria-expanded'),
 }));
 """
     )
     assert peek_result == {
         "afterFirst": {
             "open": "first", "first": True, "second": False,
-            "label": "Hide code", "expanded": "true",
+            "headerLabel": "Hide code", "outputLabel": "Hide code",
+            "expanded": "true",
         },
         "afterSecond": {
             "open": "second", "first": False, "second": True,
-            "firstLabel": "Show code", "secondLabel": "Hide code",
+            "firstLabel": "Show code", "secondHeaderLabel": "Hide code",
+            "secondOutputLabel": "Hide code",
         },
         "closed": None,
         "anyOpen": False,
@@ -346,11 +356,12 @@ process.stdout.write(JSON.stringify({
         "const window = {innerHeight: 900};\n"
         + position_helpers
         + """
-function fakeCell(id, index, top) {
+function fakeCell(id, index, top, queuePos = null) {
   return {
     getAttribute(name) {
       if (name === 'data-cell-id') return id;
       if (name === 'data-cell-index') return String(index);
+      if (name === 'data-queue-pos') return queuePos == null ? null : String(queuePos);
       return null;
     },
     getBoundingClientRect() { return {top}; },
@@ -360,29 +371,42 @@ const cells = [fakeCell('a', 0, -120), fakeCell('b', 2, 160), fakeCell('c', 3, 2
 const stable = _resolveNotebookPosition(cells, {cellId: 'b', index: 1});
 const clamped = _resolveNotebookPosition(cells, {cellId: 'deleted', index: 99});
 const reading = _notebookReadingCell(cells);
+const running = _notebookRunningCell({
+  querySelectorAll() {
+    return [fakeCell('queued', 4, 0, 2), fakeCell('active', 5, 0, 1)];
+  },
+});
 process.stdout.write(JSON.stringify({
   stable: stable.getAttribute('data-cell-id'),
   clamped: clamped.getAttribute('data-cell-id'),
   reading: reading.getAttribute('data-cell-id'),
+  running: running.getAttribute('data-cell-id'),
 }));
 """
     )
-    assert position_result == {"stable": "b", "clamped": "c", "reading": "b"}
+    assert position_result == {
+        "stable": "b", "clamped": "c", "reading": "b", "running": "active",
+    }
     assert 'data-nb-jump="start"' in source
     assert 'data-nb-jump="end"' in source
+    assert "data-nb-jump-running" in source
     assert "data-nb-toggle-code" in source
     assert "data-nb-peek-code" in source
+    assert "nb-code-peek-header-actions" in source
     assert "_setNotebookCodePeek(notebook, cell)" in source
     assert "_setNotebookCodeHidden(scope, path, codeHidden)" in source
     assert 'data-cell-type="code"' in source
     assert "_bindNbNavigation(" in source
     assert "notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot" in source
-    assert "running || _resolveNotebookPosition" in source
+    assert "running || _resolveNotebookPosition" not in source
+    assert "jump(_notebookRunningCell(notebook), 'start')" in source
     assert ".nb-jump-controls" in css
     assert "position:sticky" in css
     assert "top:var(--nb-jump-top, 102px)" in css
     assert "bottom:22px" not in css
     assert ".nb-container.nb-code-hidden" in css
+    assert ".nb-jump-controls .nb-jump-running" in css
+    assert ".nb-container.nb-code-hidden .nb-cell-del { display:none; }" in css
     assert ":not(.nb-code-peek) > .nb-cell-edit-wrap" in css
     assert ".nb-output-code-toggle { display:inline-flex; }" in css
     assert ".nb-cell-no-outputs" in css
@@ -551,12 +575,13 @@ process.stdout.write(JSON.stringify({html}));
     assert 'data-nb-started-at-ms="' in html
     assert '<span class="nb-exec">[1]</span>' in html
     assert 'readonly aria-busy="true"' in html
+    assert 'data-queue-pos="1"' in html
     assert html.count(" disabled") == 2
     assert "data-nb-peek-code" in html
     assert "first\n" in html
 
 
-def test_starting_a_cell_clears_stale_output_and_focuses_its_code() -> None:
+def test_starting_a_cell_clears_stale_output_without_stealing_scroll() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     bindings = _js_between(
@@ -574,12 +599,14 @@ def test_starting_a_cell_clears_stale_output_and_focuses_its_code() -> None:
     assert "localRunOutputSnapshot.existing.hidden = false;" in bindings
     assert "ta.readOnly = on;" in bindings
     assert "gutter.textContent = '[*]';" in bindings
-    assert "wrap.querySelector('.nb-cell-header') || wrap" in bindings
-    assert "scrollIntoView({ block: 'start', behavior: 'smooth' })" in bindings
+    assert "_nbNavigationRefreshRunning()" in bindings
+    assert "focusTarget.scrollIntoView" not in bindings
     assert "wrap.scrollIntoView({ block: 'center'" not in bindings
-    assert "runningCell.querySelector('.nb-cell-header') || runningCell" in open_block
-    assert "scrollIntoView({ behavior: 'smooth', block: 'start' })" in open_block
+    assert "runningCell.querySelector('.nb-cell-header') || runningCell" not in open_block
+    assert "const runningCell = container.querySelector" not in open_block
     assert "runningCell.scrollIntoView({ behavior: 'smooth', block: 'center' })" not in open_block
+    assert "delBtn.classList.contains('nb-cell-del-confirming')" in bindings
+    assert "Click again within 3s to delete this cell" in bindings
     assert ".nb-output-local-running" in css
     assert "@keyframes nb-running-spin" in css
 
