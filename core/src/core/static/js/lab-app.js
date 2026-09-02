@@ -4121,20 +4121,21 @@
       || running[0] || null;
   }
 
-  function _renderNbJumpControls(cellCount, codeHidden = false) {
+  function _renderNbJumpControls(cellCount, codeHidden = false, actionsHtml = '') {
     const disabled = cellCount > 0 ? '' : ' disabled';
     const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
     const codeLabel = codeHidden ? 'Show all code' : 'Hide all code';
     const codeTitle = codeHidden
       ? 'Show every code source'
       : 'Hide code sources and show notebook outputs';
-    return `<nav class="nb-jump-controls" aria-label="Notebook position">
+    return `<nav class="nb-jump-controls" aria-label="Notebook controls">
       <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ <span class="nb-jump-word">Start</span></button>
       <span class="nb-jump-position" aria-live="polite">${label}</span>
       <button type="button" data-nb-jump="end" title="Go to the last cell" aria-label="Go to the last cell"${disabled}><span class="nb-jump-word">End</span> ↓</button>
       <button type="button" class="nb-jump-running" data-nb-jump-running title="Go to the running cell" aria-label="Go to the running cell" hidden><span class="nb-jump-running-dot" aria-hidden="true"></span><span class="nb-jump-word">Running</span></button>
       <button type="button" data-nb-toggle-code title="${codeTitle}" aria-pressed="${codeHidden ? 'true' : 'false'}">${codeLabel}</button>
-    </nav>`;
+      ${actionsHtml}
+    </nav><div class="nb-jump-controls-spacer" aria-hidden="true"></div>`;
   }
 
   let _nbNavigationCleanup = null;
@@ -5004,6 +5005,155 @@
     });
   }
 
+  async function _requestNbKernelRestart(relPath, workspaceId = null) {
+    const res = await fetch('/api/nb/session/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(data.detail || ('restart failed (' + res.status + ')'));
+    }
+    return res.json().catch(() => ({}));
+  }
+
+  const _nbRunAllState = new Map();
+
+  function _nbRunAllKey(relPath, workspaceId = null) {
+    return `${String(workspaceId || '')}::${String(relPath || '')}`;
+  }
+
+  function renderNbRunAllButtons(relPath, workspaceId, codeCellCount, kernelBusy = false) {
+    const state = _nbRunAllState.get(_nbRunAllKey(relPath, workspaceId));
+    const disabled = state || kernelBusy || codeCellCount < 1 ? ' disabled' : '';
+    const runLabel = state && !state.restartFirst
+      ? `▶ Running ${state.current}/${state.total}…`
+      : '▶ Run all';
+    const restartLabel = state && state.restartFirst
+      ? (state.phase === 'restarting'
+        ? '↻ Restarting…'
+        : `↻ Running ${state.current}/${state.total}…`)
+      : '↻ Restart & run all';
+    return `<button class="nb-run-all" type="button" title="Run every code cell from top to bottom"${disabled}>${runLabel}</button>
+      <button class="nb-restart-run-all" type="button" title="Restart the kernel, then run every code cell from top to bottom"${disabled}>${restartLabel}</button>`;
+  }
+
+  function _syncNbRunAllButtons(container, state = null) {
+    const runBtn = container.querySelector('.nb-run-all');
+    const restartBtn = container.querySelector('.nb-restart-run-all');
+    if (!runBtn || !restartBtn) return;
+    runBtn.disabled = !!state;
+    restartBtn.disabled = !!state;
+    const restartOnlyBtn = container.querySelector('.nb-restart-kernel');
+    if (restartOnlyBtn) restartOnlyBtn.disabled = !!state;
+    runBtn.textContent = state && !state.restartFirst
+      ? `▶ Running ${state.current}/${state.total}…`
+      : '▶ Run all';
+    restartBtn.textContent = state && state.restartFirst
+      ? (state.phase === 'restarting'
+        ? '↻ Restarting…'
+        : `↻ Running ${state.current}/${state.total}…`)
+      : '↻ Restart & run all';
+  }
+
+  function _nbExecutionError(result) {
+    const outputs = result && result.cell && Array.isArray(result.cell.outputs)
+      ? result.cell.outputs : [];
+    const error = outputs.find(output => output
+      && (output.type === 'error' || output.output_type === 'error'));
+    if (!error) return null;
+    const detail = String(error.content || error.evalue || error.ename || 'cell execution failed')
+      .split('\n').find(line => line.trim()) || 'cell execution failed';
+    return detail.slice(0, 240);
+  }
+
+  function bindNbRunAll(container, relPath, filepath, workspaceId = null) {
+    const runBtn = container.querySelector('.nb-run-all');
+    const restartBtn = container.querySelector('.nb-restart-run-all');
+    if (!runBtn || !restartBtn) return;
+
+    async function runAll(restartFirst) {
+      const key = _nbRunAllKey(relPath, workspaceId);
+      if (_nbRunAllState.has(key)) return;
+      const cells = Array.from(
+        container.querySelectorAll('.nb-cell-interactive[data-cell-type="code"]'),
+      ).filter(cell => cell.getAttribute('data-cell-index') !== 'new').map((cell) => {
+        const textarea = cell.querySelector('.nb-cell-edit-area');
+        return {
+          code: textarea ? textarea.value : '',
+          cellId: cell.getAttribute('data-cell-id') || null,
+          cellIndex: parseInt(cell.getAttribute('data-cell-index') || '', 10),
+        };
+      }).filter(cell => cell.code.trim() && (cell.cellId || Number.isInteger(cell.cellIndex)));
+      if (!cells.length) {
+        alert('There are no non-empty code cells to run.');
+        return;
+      }
+      if (restartFirst && !confirm(
+        `Restart the kernel and run ${cells.length} code cell${cells.length === 1 ? '' : 's'}? All variables will be wiped.`,
+      )) return;
+
+      const state = {
+        restartFirst,
+        phase: restartFirst ? 'restarting' : 'running',
+        current: restartFirst ? 0 : 1,
+        total: cells.length,
+      };
+      _nbRunAllState.set(key, state);
+      _syncNbRunAllButtons(container, state);
+      let failure = null;
+      try {
+        if (restartFirst) {
+          await _requestNbKernelRestart(relPath, workspaceId);
+          state.phase = 'running';
+        }
+        for (let index = 0; index < cells.length; index += 1) {
+          state.current = index + 1;
+          _syncNbRunAllButtons(container, state);
+          const cell = cells[index];
+          const body = { path: relPath, code: cell.code, actor: 'human' };
+          if (workspaceId) body.workspace = workspaceId;
+          if (cell.cellId) body.cell_id = cell.cellId;
+          else body.cell_index = cell.cellIndex;
+          const res = await fetch('/api/nb/exec', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const result = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(result.detail || `cell ${index + 1} failed (${res.status})`);
+          }
+          try {
+            localStorage.removeItem(_cellDraftKey(relPath, cell.cellId || cell.cellIndex));
+          } catch (_) {}
+          const executionError = _nbExecutionError(result);
+          if (executionError) {
+            throw new Error(`Cell ${index + 1} stopped Run all: ${executionError}`);
+          }
+        }
+      } catch (err) {
+        failure = err;
+      } finally {
+        _nbRunAllState.delete(key);
+        _syncNbRunAllButtons(container, null);
+        if (_currentOpenNotebookRelPath() === relPath
+            && (!workspaceId || workspaceId === _projectWorkspaceId(currentProject))) {
+          try {
+            await openProjectDoc(filepath, { preserveScroll: true });
+          } catch (err) {
+            if (!failure) failure = err;
+          }
+        }
+      }
+      if (failure) alert('Run all failed: ' + (failure.message || failure));
+    }
+
+    runBtn.addEventListener('click', () => runAll(false));
+    restartBtn.addEventListener('click', () => runAll(true));
+  }
+
   function bindNbInterruptKernel(container, relPath, workspaceId = null) {
     const btn = container.querySelector('.nb-interrupt-kernel');
     if (!btn) return;
@@ -5039,15 +5189,7 @@
       const originalText = btn.textContent;
       btn.textContent = '↻ Restarting…';
       try {
-        const res = await fetch('/api/nb/session/restart', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
-        });
-        if (!res.ok) {
-          const e = await res.json().catch(() => ({ detail: res.statusText }));
-          throw new Error(e.detail || ('restart failed (' + res.status + ')'));
-        }
+        await _requestNbKernelRestart(relPath, workspaceId);
         btn.textContent = '✓ Kernel restarted';
         setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1500);
       } catch (err) {
@@ -6482,7 +6624,7 @@
           ]);
           if (!_stillActiveNav()) return;
           const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a workspace project to execute</span></div>`;
-          container.innerHTML = `<div style="padding:24px">${readOnlyHeader}${_renderNbJumpControls(readOnlyCells.length, _isNotebookCodeHidden(docRoot, filepath))}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
+          container.innerHTML = `<div style="padding:24px">${_renderNbJumpControls(readOnlyCells.length, _isNotebookCodeHidden(docRoot, filepath))}${readOnlyHeader}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
           activateNotebookScripts(container);
           _bindNbNavigation(container, docRoot, filepath, { restore: !preserveScroll });
           return;
@@ -6569,14 +6711,24 @@
           ? `<span title="Dedicated kernel session pinned to this .ipynb file path; another notebook gets another kernel" class="nb-kernel-badge">${kernelLabel} · ${esc(session)}</span>`
           : '';
         const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" title="Configure this project's Python, libraries, CLI paths and environment">⚙ Runtime: ${esc(runtime.status || 'legacy')}</button>`;
+        const notebookRunAllActive = _nbRunAllState.has(
+          _nbRunAllKey(relPath, notebookWorkspace.workspaceId),
+        );
         const restartBtnHtml = session
-          ? `<button class="nb-restart-kernel" type="button" title="Restart kernel (wipes variables, like Jupyter's Restart Kernel)">↻ Restart kernel</button>`
+          ? `<button class="nb-restart-kernel" type="button" title="Restart kernel (wipes variables, like Jupyter's Restart Kernel)"${notebookRunAllActive ? ' disabled' : ''}>↻ Restart kernel</button>`
           : '';
         const interruptBtnHtml = provider === 'local'
           ? `<button class="nb-interrupt-kernel" type="button" title="Interrupt the currently running cell">■ Interrupt</button>`
           : '';
+        const runAllButtonsHtml = renderNbRunAllButtons(
+          relPath,
+          notebookWorkspace.workspaceId,
+          (nb.cells || []).filter(cell => cell && cell.cell_type === 'code').length,
+          (liveInfo.executions || []).length > 0,
+        );
+        const toolbarActionsHtml = `${runtimeBadge}${runAllButtonsHtml}${interruptBtnHtml}${restartBtnHtml}`;
         const notebookListBtnHtml = `<button class="nb-notebook-list" type="button" onclick="openProjectNotebooks({showLauncher:true})" title="Show every notebook in this project">☷ All notebooks</button>`;
-        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${notebookListBtnHtml}${runtimeBadge}${sessionBadge}${interruptBtnHtml}${restartBtnHtml}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
+        const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${notebookListBtnHtml}${sessionBadge}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
         const liveByCell = new Map(
           (liveInfo.executions || [])
@@ -6683,7 +6835,7 @@
         // notebook's HTML.
         if (!_stillActiveNav()) return;
         const notebookPositionScope = notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot;
-        container.innerHTML = `<div style="padding:24px">${header}${renderNbRuntimePanel(runtime, relPath)}${_renderNbJumpControls(realCells.length, _isNotebookCodeHidden(notebookPositionScope, relPath))}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
+        container.innerHTML = `<div style="padding:24px">${_renderNbJumpControls(realCells.length, _isNotebookCodeHidden(notebookPositionScope, relPath), toolbarActionsHtml)}${header}${renderNbRuntimePanel(runtime, relPath)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
         _ensureNbElapsedTicker();
         // Bind every interactive cell + inserters + the trailing add-cell
@@ -6695,6 +6847,7 @@
         });
         bindNbCellInserters(container, relPath, filepath, notebookWorkspace.workspaceId);
         bindNbAddCellButton(container, relPath, filepath, notebookWorkspace.workspaceId);
+        bindNbRunAll(container, relPath, filepath, notebookWorkspace.workspaceId);
         bindNbRestartKernel(container, relPath, filepath, notebookWorkspace.workspaceId);
         bindNbInterruptKernel(container, relPath, notebookWorkspace.workspaceId);
         bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId);

@@ -350,7 +350,7 @@ process.stdout.write(JSON.stringify({
     }
     position_helpers = _js_between(
         "function _notebookCommittedCells(container)",
-        "function _renderNbJumpControls(cellCount, codeHidden = false)",
+        "function _renderNbJumpControls(cellCount, codeHidden = false, actionsHtml = '')",
     )
     position_result = _run_node(
         "const window = {innerHeight: 900};\n"
@@ -401,8 +401,10 @@ process.stdout.write(JSON.stringify({
     assert "running || _resolveNotebookPosition" not in source
     assert "jump(_notebookRunningCell(notebook), 'start')" in source
     assert ".nb-jump-controls" in css
-    assert "position:sticky" in css
+    assert "position:fixed" in css
     assert "top:var(--nb-jump-top, 102px)" in css
+    assert "right:24px" in css
+    assert ".nb-jump-controls-spacer" in css
     assert "bottom:22px" not in css
     assert ".nb-container.nb-code-hidden" in css
     assert ".nb-jump-controls .nb-jump-running" in css
@@ -534,7 +536,7 @@ def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
         "function renderNbAddCellButton()",
     )
     restart_binding = _js_between(
-        "async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null)",
+        "async function _requestNbKernelRestart(relPath, workspaceId = null)",
         "function bindNbAddCellButton(container, relPath, filepath, workspaceId = null)",
     )
 
@@ -611,6 +613,107 @@ def test_project_runtime_panel_saves_builds_and_interrupts_through_shared_api() 
     assert "cli_checks: cliChecks" in runtime_binding
     assert "fetch('/api/nb/session/interrupt'" in interrupt_binding
     assert "Cmd/Ctrl+Enter" in source
+
+
+def test_notebook_run_all_sequences_cells_and_can_restart_first() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    binding = _js_between(
+        "async function _requestNbKernelRestart(relPath, workspaceId = null)",
+        "async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null)",
+    )
+    result = _run_node(
+        """
+const calls = [];
+const alerts = [];
+const opened = [];
+const removedDrafts = [];
+const listeners = {};
+const currentProject = {workspace_id: 'workspace-a'};
+function _projectWorkspaceId(project) { return project.workspace_id; }
+function _currentOpenNotebookRelPath() { return 'projects/demo/notebooks/x.ipynb'; }
+function _cellDraftKey(path, cell) { return `draft:${path}:${cell}`; }
+const localStorage = {removeItem(key) { removedDrafts.push(key); }};
+function confirm() { return true; }
+function alert(message) { alerts.push(String(message)); }
+async function openProjectDoc(path, options) { opened.push({path, options}); }
+function response(data) {
+  return {ok: true, status: 200, async json() { return data; }};
+}
+async function fetch(url, options) {
+  const body = JSON.parse(options.body);
+  calls.push({url, body});
+  return response(url.endsWith('/restart') ? {restarted: true} : {cell: {outputs: []}});
+}
+function button(name) {
+  return {
+    name, disabled: false, textContent: '',
+    addEventListener(event, fn) { listeners[`${name}:${event}`] = fn; },
+  };
+}
+const run = button('run');
+const restart = button('restart');
+function cell(id, index, code) {
+  return {
+    getAttribute(name) {
+      if (name === 'data-cell-id') return id;
+      if (name === 'data-cell-index') return String(index);
+      return null;
+    },
+    querySelector(selector) {
+      return selector === '.nb-cell-edit-area' ? {value: code} : null;
+    },
+  };
+}
+const cells = [cell('first', 0, 'a = 1'), cell('second', 2, 'print(a)')];
+const container = {
+  querySelector(selector) {
+    if (selector === '.nb-run-all') return run;
+    if (selector === '.nb-restart-run-all') return restart;
+    return null;
+  },
+  querySelectorAll(selector) {
+    return selector.includes('data-cell-type') ? cells : [];
+  },
+};
+"""
+        + binding
+        + """
+bindNbRunAll(
+  container,
+  'projects/demo/notebooks/x.ipynb',
+  'notebooks/x.ipynb',
+  'workspace-a',
+);
+Promise.resolve(listeners['restart:click']()).then(() => {
+  process.stdout.write(JSON.stringify({calls, alerts, opened, removedDrafts}));
+});
+"""
+    )
+
+    assert [call["url"] for call in result["calls"]] == [
+        "/api/nb/session/restart",
+        "/api/nb/exec",
+        "/api/nb/exec",
+    ]
+    assert [call["body"].get("cell_id") for call in result["calls"][1:]] == [
+        "first",
+        "second",
+    ]
+    assert all(call["body"]["workspace"] == "workspace-a" for call in result["calls"])
+    assert result["alerts"] == []
+    assert result["opened"] == [
+        {"path": "notebooks/x.ipynb", "options": {"preserveScroll": True}}
+    ]
+    assert result["removedDrafts"] == [
+        "draft:projects/demo/notebooks/x.ipynb:first",
+        "draft:projects/demo/notebooks/x.ipynb:second",
+    ]
+    assert "toolbarActionsHtml" in source
+    assert "${runtimeBadge}${runAllButtonsHtml}${interruptBtnHtml}${restartBtnHtml}" in source
+    assert "${notebookListBtnHtml}${sessionBadge}" in source
+    assert ".nb-run-all" in css
+    assert ".nb-restart-run-all" in css
 
 
 def test_notebook_cells_show_actor_action_and_live_elapsed_time() -> None:
