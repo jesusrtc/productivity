@@ -859,7 +859,7 @@ process.stdout.write(JSON.stringify({
 
 def test_linked_file_sync_is_opt_in_and_reveals_the_terminal_panel() -> None:
     sync_helper = _js_between(
-        "function _termMaybeSyncForFile(root, path)",
+        "function _termSyncFromFileClick(root, path)",
         "async function _termOpenLinkedFile(session)",
     )
     result = _run_node("""
@@ -869,7 +869,6 @@ const document = {body: {classList: {
   remove(value) { classes.delete(value); },
 }}};
 let _linkedTerminalSyncOn = false;
-let _termLinkedNavigation = false;
 let termCurrentSession = 'tmux-linked';
 let termCurrentProjectId = 'demo';
 let termSessions = [{name: 'tmux-linked', linked_file: {root: '/repo', path: 'a.ipynb'}}];
@@ -883,13 +882,13 @@ function _termRememberVisibility(key, shown) { remembered.push([key, shown]); }
 function _termVisibilityKey() { return 'demo-key'; }
 function termAttach(name, project) { attaches.push([name, project]); }
 """ + sync_helper + """
-_termMaybeSyncForFile('/repo', 'a.ipynb');
+_termSyncFromFileClick('/repo', 'a.ipynb');
 const whileOff = {classes: [...classes], attaches: [...attaches]};
 _linkedTerminalSyncOn = true;
-_termMaybeSyncForFile('/repo', 'a.ipynb');
+_termSyncFromFileClick('/repo', 'a.ipynb');
 const active = {classes: [...classes], attaches: [...attaches], remembered: [...remembered]};
 termCurrentSession = 'other';
-_termMaybeSyncForFile('/repo', 'a.ipynb');
+_termSyncFromFileClick('/repo', 'a.ipynb');
 process.stdout.write(JSON.stringify({whileOff, active, finalAttaches: attaches}));
 """)
 
@@ -900,6 +899,70 @@ process.stdout.write(JSON.stringify({whileOff, active, finalAttaches: attaches})
     assert result["active"]["attaches"] == []
     assert result["active"]["remembered"] == [["demo-key", True]]
     assert result["finalAttaches"] == [["tmux-linked", "demo"]]
+
+
+def test_linked_terminal_sync_only_runs_from_explicit_file_or_terminal_clicks() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    repo_open = _js_between(
+        "async function openProjectFile(filepath)",
+        "function renderProjectFileView(filepath, fileContent)",
+    )
+    project_open = _js_between(
+        "async function openProjectDoc(filepath",
+        "function _proxyFromCachedSidebar(name)",
+    )
+
+    assert "_termSyncFromFileClick" not in repo_open
+    assert "_termSyncFromFileClick" not in project_open
+    assert source.count("_termSyncFromFileClick(") == 3
+    assert source.count("onclick=\"openProjectDocFromFileClick(") == 3
+    assert source.count("onclick=\"openProjectFileFromFileClick(") == 1
+    assert "if (ctx.surface === 'repo') openProjectFile(ctx.path);" in source
+    assert "else openProjectDoc(ctx.path, {root: ctx.root});" in source
+    assert "const request = ++_termLinkedNavigationSeq;" in source
+    assert "if (request !== _termLinkedNavigationSeq) return;" in source
+
+
+def test_terminal_to_file_prefers_recent_row_then_files_tree() -> None:
+    chooser = _js_between(
+        "function _termPreferredLinkedSidebarRow(linked)",
+        "function _termRevealLinkedSidebarRow(row)",
+    )
+    result = _run_node("""
+function makeRow(id, classes, root, path) {
+  return {
+    id,
+    classList: {contains(value) { return classes.includes(value); }},
+    getAttribute(name) {
+      if (name === 'data-entry-root') return root;
+      if (name === 'data-entry-path') return path;
+      return null;
+    },
+  };
+}
+const linked = {root: '/repo', path: 'notebooks/a.ipynb'};
+const files = makeRow('files', ['sidebar-file'], '/repo', 'notebooks/a.ipynb');
+const recent = makeRow('recent', ['sidebar-file', 'sidebar-file-recent'], '/repo', 'notebooks/a.ipynb');
+const wrong = makeRow('wrong', ['sidebar-file-recent'], '/repo', 'notebooks/b.ipynb');
+let rows = [files, wrong, recent];
+const document = {querySelectorAll() { return rows; }};
+function _termLinkedFileMatches(candidate, root, path) {
+  return candidate.root === root && candidate.path === path;
+}
+""" + chooser + """
+const withRecent = _termPreferredLinkedSidebarRow(linked).id;
+rows = [files, wrong];
+const filesFallback = _termPreferredLinkedSidebarRow(linked).id;
+rows = [wrong];
+const missing = _termPreferredLinkedSidebarRow(linked);
+process.stdout.write(JSON.stringify({withRecent, filesFallback, missing}));
+""")
+
+    assert result == {
+        "withRecent": "recent",
+        "filesFallback": "files",
+        "missing": None,
+    }
 
 
 def test_tmux_attach_modal_orders_current_project_unattached_sessions_first() -> None:

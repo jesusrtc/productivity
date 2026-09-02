@@ -6172,6 +6172,7 @@
 
   function toggleLinkedTerminalSync() {
     _linkedTerminalSyncOn = !_linkedTerminalSyncOn;
+    if (!_linkedTerminalSyncOn) _termCancelPendingLinkedFileOpen();
     try { localStorage.setItem(LINKED_TERMINAL_SYNC_KEY, _linkedTerminalSyncOn ? '1' : '0'); } catch {}
     try { if (currentProject) renderRepoTabs(); } catch {}
   }
@@ -11433,7 +11434,11 @@
   let _termLinkModalState = null;
   let _termLinkPending = false;
   let _termLinkEscHandler = null;
-  let _termLinkedNavigation = false;
+  let _termLinkedNavigationSeq = 0;
+
+  function _termCancelPendingLinkedFileOpen() {
+    _termLinkedNavigationSeq += 1;
+  }
 
   function _termNormalizeLinkedRoot(value) {
     const root = String(value || '').trim();
@@ -11689,8 +11694,8 @@
     }
   });
 
-  function _termMaybeSyncForFile(root, path) {
-    if (!_linkedTerminalSyncOn || _termLinkedNavigation) return;
+  function _termSyncFromFileClick(root, path) {
+    if (!_linkedTerminalSyncOn) return;
     const matches = (termSessions || []).filter(session =>
       _termLinkedFileMatches(session.linked_file, root, path));
     if (!matches.length) return;
@@ -11707,22 +11712,71 @@
     termAttach(target.name, projectId);
   }
 
+  function _termPreferredLinkedSidebarRow(linked) {
+    const rows = Array.from(document.querySelectorAll(
+      '[data-entry-kind="file"][data-entry-path][data-entry-root]',
+    ));
+    const matches = rows.filter(row => _termLinkedFileMatches(
+      linked,
+      row.getAttribute('data-entry-root'),
+      row.getAttribute('data-entry-path'),
+    ));
+    return matches.find(row => row.classList.contains('sidebar-file-recent'))
+      || matches.find(row => row.classList.contains('tree-file'))
+      || matches.find(row => row.classList.contains('sidebar-file'))
+      || null;
+  }
+
+  function _termRevealLinkedSidebarRow(row) {
+    if (!row) return;
+    let parent = row.parentElement;
+    while (parent && parent.id !== 'sidebar') {
+      const trigger = parent.previousElementSibling;
+      if (parent.classList.contains('sidebar-folder-children')) {
+        parent.classList.add('open');
+        if (trigger && trigger.classList.contains('sidebar-folder')) {
+          trigger.querySelector('.folder-arrow')?.classList.add('open');
+          _treeSetOpen(
+            trigger.getAttribute('data-tree-scope'),
+            trigger.getAttribute('data-tree-path'),
+            true,
+          );
+        }
+      } else if (parent.classList.contains('tree-dir-children')) {
+        parent.classList.remove('collapsed');
+        if (trigger && trigger.classList.contains('tree-dir')) {
+          trigger.querySelector('.arrow')?.classList.remove('collapsed');
+        }
+      }
+      parent = parent.parentElement;
+    }
+  }
+
+  function _termSelectLinkedSidebarRow(linked) {
+    const row = _termPreferredLinkedSidebarRow(linked);
+    if (!row) return false;
+    _termRevealLinkedSidebarRow(row);
+    document.querySelectorAll('.sidebar-file.active, .tree-file.active')
+      .forEach(candidate => candidate.classList.remove('active'));
+    row.classList.add('active');
+    try { row.scrollIntoView({block: 'nearest'}); } catch {}
+    return true;
+  }
+
   async function _termOpenLinkedFile(session) {
-    if (!_linkedTerminalSyncOn || _termLinkedNavigation) return;
+    const request = ++_termLinkedNavigationSeq;
+    if (!_linkedTerminalSyncOn) return;
     const linked = _termLinkedFile(session && session.linked_file);
     if (!linked || !currentProject) return;
-    _termLinkedNavigation = true;
-    try {
-      const repoRoot = typeof _activeRepoFileRoot === 'function'
-        ? _termNormalizeLinkedRoot(_activeRepoFileRoot()) : '';
-      if (currentRepo && repoRoot === linked.root) {
-        await openProjectFile(linked.path);
-      } else {
-        await openProjectDoc(linked.path, {root: linked.root});
-      }
-    } finally {
-      _termLinkedNavigation = false;
+    const repoRoot = typeof _activeRepoFileRoot === 'function'
+      ? _termNormalizeLinkedRoot(_activeRepoFileRoot()) : '';
+    if (currentRepo && repoRoot === linked.root) {
+      await openProjectFile(linked.path);
+    } else {
+      await openProjectDoc(linked.path, {root: linked.root});
     }
+    if (request !== _termLinkedNavigationSeq) return;
+    _termSelectLinkedSidebarRow(linked);
   }
 
   let _termAttachModalScope = null;
