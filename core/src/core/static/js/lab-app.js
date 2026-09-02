@@ -11396,6 +11396,23 @@
     return String(path || '').split('/').filter(Boolean).pop() || 'file';
   }
 
+  function _termLinkedAbsolutePath(root, path) {
+    const normalizedRoot = _termNormalizeLinkedRoot(root);
+    const normalizedPath = String(path || '').trim();
+    if (!normalizedPath) return normalizedRoot;
+    if (normalizedPath.startsWith('/')) return normalizedPath;
+    const relativePath = normalizedPath.replace(/^\.\/+/, '').replace(/^\/+/, '');
+    if (!normalizedRoot || normalizedRoot === '/') return `/${relativePath}`;
+    return `${normalizedRoot}/${relativePath}`;
+  }
+
+  function _termCopyLinkedAbsolutePath(state) {
+    const absolutePath = state
+      ? _termLinkedAbsolutePath(state.ctx.root, state.ctx.path)
+      : '';
+    return absolutePath ? _copyToClipboard(absolutePath) : Promise.resolve(false);
+  }
+
   function _termSetLinkStatus(message, error = false) {
     const status = document.getElementById('termLinkStatus');
     if (!status) return;
@@ -11508,6 +11525,10 @@
     const state = _termLinkModalState;
     const session = (termSessions || []).find(row => row.name === sessionName);
     if (!state || !session || _termLinkPending) return;
+    // Start the clipboard write while the secondary-click choice still owns
+    // browser user activation; session persistence may take long enough for
+    // that permission window to expire.
+    const clipboardCopy = _termCopyLinkedAbsolutePath(state);
     _termLinkPending = true;
     _termRenderLinkModal();
     _termSetLinkStatus(`Linking ${state.fileName}…`);
@@ -11520,7 +11541,8 @@
       document.body.classList.remove('term-collapsed');
       _termRememberVisibility(_termVisibilityKey(), true);
       termAttach(name, projectId);
-      explorerToast(`Linked ${state.fileName} to ${_termSessionDisplay(session)}`);
+      const copied = await clipboardCopy;
+      explorerToast(`Linked ${state.fileName} to ${_termSessionDisplay(session)} · ${copied ? 'Absolute path copied' : 'Clipboard unavailable'}`);
     } catch (error) {
       _termLinkPending = false;
       _termRenderLinkModal();
@@ -11551,6 +11573,7 @@
   async function termCreateLinkedSession(kind, agent) {
     const state = _termLinkModalState;
     if (!state || _termLinkPending) return;
+    const clipboardCopy = _termCopyLinkedAbsolutePath(state);
     _termLinkPending = true;
     _termRenderLinkModal();
     _termSetLinkStatus(`Creating ${state.fileName}…`);
@@ -11573,7 +11596,8 @@
     try {
       await _termSaveLinkedFile(session, {root: state.ctx.root, path: state.ctx.path});
       termCloseLinkModal();
-      explorerToast(`Created ${state.fileName} and linked it`);
+      const copied = await clipboardCopy;
+      explorerToast(`Created ${state.fileName} and linked it · ${copied ? 'Absolute path copied' : 'Clipboard unavailable'}`);
     } catch (error) {
       _termLinkPending = false;
       _termRenderLinkModal();

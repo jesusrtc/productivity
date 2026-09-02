@@ -824,6 +824,8 @@ def test_file_terminal_link_modal_offers_new_and_existing_sessions() -> None:
     assert "async function termLinkExistingSession(sessionName)" in source
     assert "name: state.fileName" in source
     assert "linked_file: linkedFile" in source
+    assert source.count("const clipboardCopy = _termCopyLinkedAbsolutePath(state);") == 2
+    assert "Absolute path copied" in source
 
 
 def test_linked_file_identity_normalizes_only_the_root_suffix() -> None:
@@ -839,6 +841,8 @@ process.stdout.write(JSON.stringify({
   differentRoot: _termLinkedFileMatches(linked, '/workspace/other', 'notebooks/analysis.ipynb'),
   label: _termLinkedFileLabel(linked),
   basename: _termLinkedFileName(linked.path),
+  absolute: _termLinkedAbsolutePath(linked.root, linked.path),
+  rootAbsolute: _termLinkedAbsolutePath('/', './analysis.ipynb'),
 }));
 """)
 
@@ -848,6 +852,8 @@ process.stdout.write(JSON.stringify({
         "differentRoot": False,
         "label": "notebooks/analysis.ipynb",
         "basename": "analysis.ipynb",
+        "absolute": "/workspace/project/notebooks/analysis.ipynb",
+        "rootAbsolute": "/analysis.ipynb",
     }
 
 

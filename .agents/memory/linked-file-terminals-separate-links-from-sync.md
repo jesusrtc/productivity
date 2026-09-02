@@ -6,3 +6,5 @@ File double-click remains the full-size file modal; linking starts from the
 file's secondary-click menu. Automatic file-to-terminal and terminal-to-file
 navigation is controlled separately by the browser-local `Sync linked` switch,
 which defaults off, so links remain useful without forcing navigation.
+Completing either a new-terminal or existing-terminal link also copies the
+file's absolute path to the clipboard so it can be pasted into an agent prompt.
