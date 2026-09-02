@@ -71,6 +71,10 @@ def test_pinned_files_remain_in_the_normal_project_tree() -> None:
 
 
 def test_recent_files_respect_freshness_extensions_and_sort_order() -> None:
+    sort_helpers = _between(
+        "function _sidebarEntryName(entry)",
+        "function _sidebarTreeLatestMtime(node)",
+    )
     helpers = _between(
         "let showDotFiles = false;",
         "function filterDotFiles(nodes)",
@@ -88,6 +92,7 @@ const currentProject = {path: '/workspace/project'};
 const document = {addEventListener() {}};
 const window = {};
 """
+        + sort_helpers
         + helpers
         + """
 const loadedRecentMinutes = _sidebarFileConfig.recentMinutes;
@@ -129,6 +134,171 @@ process.stdout.write(JSON.stringify({
         "parentFolder": "/workspace/alpha",
         "homeWorktrees": "~/worktrees",
     }
+
+
+def test_recent_and_main_file_sort_modes_are_independent() -> None:
+    tree_helpers = _between(
+        "function buildSidebarTree(entries)",
+        "// ─── Explorer secondary-click menu",
+    )
+    sidebar_helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    nested_sort_helpers = _between(
+        "function _sidebarSortNestedTree(nodes, metadataByPath, mode)",
+        "function toggleDotFiles(checked)",
+    )
+    result = _run_node(
+        """
+const stored = {
+  'labSidebarFileConfig-v2:%2Fworkspace%2Fproject': JSON.stringify({
+    recentSort: 'type',
+    filesSort: 'updated',
+  }),
+};
+const localStorage = {
+  getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const currentProject = {path: '/workspace/project'};
+const document = {addEventListener() {}};
+const window = {};
+"""
+        + tree_helpers
+        + sidebar_helpers
+        + nested_sort_helpers
+        + """
+const loaded = {
+  recent: _sidebarFileConfig.recentSort,
+  files: _sidebarFileConfig.filesSort,
+};
+const defaults = _sidebarNormalizeFileConfig({});
+const files = [
+  {path: 'old/a.md', type: 'file', mtime: 500},
+  {path: 'new/b.md', type: 'file', mtime: 900},
+  {path: 'zeta.py', type: 'file', mtime: 800},
+  {path: 'alpha.md', type: 'file', mtime: 700},
+  {path: 'beta.py', type: 'file', mtime: 600},
+];
+_sidebarFileConfig = {
+  showRecent: true,
+  recentMinutes: 60,
+  recentSort: 'updated',
+  filesSort: 'type',
+  trackMode: 'all',
+  extensions: [],
+};
+const tree = buildSidebarTree(files);
+const recentUpdated = _sidebarRecentFiles(files, 1000).map(file => file.path);
+const recentFolders = treeFolderNames(tree, _sidebarCurrentSortMode('recent'));
+const rootFilesByType = treeFiles(tree, _sidebarCurrentSortMode('files')).map(file => file.path);
+const nestedUpdated = _sidebarSortNestedTree([
+  {name: 'photo.png', path: 'photo.png', type: 'file'},
+  {name: 'script.py', path: 'script.py', type: 'file'},
+], new Map([
+  ['photo.png', {path: 'photo.png', type: 'image', mtime: 20}],
+  ['script.py', {path: 'script.py', type: 'file', mtime: 30}],
+]), 'updated');
+_sidebarFileConfig.recentSort = 'name';
+const recentByName = _sidebarRecentFiles(files, 1000).map(file => file.path);
+process.stdout.write(JSON.stringify({
+  loaded,
+  defaults: {recent: defaults.recentSort, files: defaults.filesSort},
+  recentUpdated,
+  recentFolders,
+  rootFilesByType,
+  nestedUpdated: nestedUpdated.map(file => ({path: file.path, type: file.type, mtime: file.mtime})),
+  recentByName,
+  filesSortAfterRecentChange: _sidebarFileConfig.filesSort,
+}));
+"""
+    )
+
+    assert result == {
+        "loaded": {"recent": "type", "files": "updated"},
+        "defaults": {"recent": "updated", "files": "name"},
+        "recentUpdated": [
+            "new/b.md",
+            "zeta.py",
+            "alpha.md",
+            "beta.py",
+            "old/a.md",
+        ],
+        "recentFolders": ["new", "old"],
+        "rootFilesByType": ["alpha.md", "beta.py", "zeta.py"],
+        "nestedUpdated": [
+            {"path": "script.py", "type": "file", "mtime": 30},
+            {"path": "photo.png", "type": "file", "mtime": 20},
+        ],
+        "recentByName": [
+            "old/a.md",
+            "alpha.md",
+            "new/b.md",
+            "beta.py",
+            "zeta.py",
+        ],
+        "filesSortAfterRecentChange": "type",
+    }
+
+
+def test_sort_controls_persist_and_refresh_each_section_independently() -> None:
+    sidebar_helpers = _between(
+        "let showDotFiles = false;",
+        "function filterDotFiles(nodes)",
+    )
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {
+  getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
+  setItem(key, value) { stored[key] = value; },
+};
+const currentProject = {path: '/workspace/project'};
+const document = {addEventListener() {}};
+const window = {};
+const esc = value => String(value);
+const escAttr = value => String(value);
+"""
+        + sidebar_helpers
+        + """
+_sidebarFileConfig = {
+  recentSort: 'updated',
+  filesSort: 'name',
+};
+let refreshes = 0;
+_refreshSidebarAfterFileConfig = async () => { refreshes += 1; };
+(async () => {
+  await sidebarSelectSort({
+    value: 'type',
+    getAttribute(name) { return name === 'data-sort-section' ? 'recent' : null; },
+  });
+  const afterRecent = {..._sidebarFileConfig};
+  await sidebarSelectSort({
+    value: 'updated',
+    getAttribute(name) { return name === 'data-sort-section' ? 'files' : null; },
+  });
+  const storageKey = 'labSidebarFileConfig-v2:%2Fworkspace%2Fproject';
+  process.stdout.write(JSON.stringify({
+    afterRecent,
+    final: _sidebarFileConfig,
+    refreshes,
+    stored: JSON.parse(stored[storageKey]),
+    recentHtml: _sidebarSortSelectHtml('recent'),
+    filesHtml: _sidebarSortSelectHtml('files'),
+  }));
+})();
+"""
+    )
+
+    assert result["afterRecent"] == {"recentSort": "type", "filesSort": "name"}
+    assert result["final"] == {"recentSort": "type", "filesSort": "updated"}
+    assert result["stored"] == result["final"]
+    assert result["refreshes"] == 2
+    assert 'data-sort-section="recent"' in result["recentHtml"]
+    assert '<option value="type" selected>' in result["recentHtml"]
+    assert 'data-sort-section="files"' in result["filesHtml"]
+    assert '<option value="updated" selected>' in result["filesHtml"]
 
 
 def test_sidebar_file_settings_are_isolated_per_project() -> None:
@@ -522,6 +692,10 @@ const fetch = async url => {
 
 
 def test_recent_diagnostic_reports_each_readme_mtime_and_filter_result() -> None:
+    sort_helpers = _between(
+        "function _sidebarEntryName(entry)",
+        "function _sidebarTreeLatestMtime(node)",
+    )
     helpers = _between(
         "let showDotFiles = false;",
         "function filterDotFiles(nodes)",
@@ -541,6 +715,7 @@ const window = {labLog: {
   flush() { events.push({level: 'flush'}); },
 }};
 """
+        + sort_helpers
         + helpers
         + """
 _sidebarFileConfig = {

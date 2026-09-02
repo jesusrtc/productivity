@@ -1045,16 +1045,57 @@
     return tree;
   }
 
-  function treeFolderNames(node) {
-    return Object.keys(node || {}).filter(k => k !== '__files__' && k !== '__entry__').sort();
+  function _sidebarEntryName(entry) {
+    return String(entry && (entry.path || entry.name) || '').split('/').pop();
+  }
+
+  function _sidebarCompareNames(a, b) {
+    return String(a || '').localeCompare(String(b || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  }
+
+  function _sidebarCompareFiles(a, b, mode = 'name') {
+    const nameA = _sidebarEntryName(a);
+    const nameB = _sidebarEntryName(b);
+    if (mode === 'updated') {
+      const updated = Number(b && b.mtime || 0) - Number(a && a.mtime || 0);
+      if (updated) return updated;
+    } else if (mode === 'type') {
+      const type = _sidebarCompareNames(_sidebarFileExtension(nameA), _sidebarFileExtension(nameB));
+      if (type) return type;
+    }
+    return _sidebarCompareNames(nameA, nameB)
+      || _sidebarCompareNames(a && (a.path || a.name), b && (b.path || b.name));
+  }
+
+  function _sidebarTreeLatestMtime(node) {
+    let latest = 0;
+    ((node && node.__files__) || []).forEach(file => {
+      latest = Math.max(latest, Number(file && file.mtime || 0));
+    });
+    Object.keys(node || {})
+      .filter(key => key !== '__files__' && key !== '__entry__')
+      .forEach(key => { latest = Math.max(latest, _sidebarTreeLatestMtime(node[key])); });
+    return latest;
+  }
+
+  function treeFolderNames(node, mode = 'name') {
+    const folders = Object.keys(node || {}).filter(k => k !== '__files__' && k !== '__entry__');
+    if (mode !== 'updated') return folders.sort(_sidebarCompareNames);
+    const latest = new Map(folders.map(folder => [folder, _sidebarTreeLatestMtime(node[folder])]));
+    return folders.sort((a, b) => Number(latest.get(b)) - Number(latest.get(a))
+      || _sidebarCompareNames(a, b));
   }
 
   function treeFolderEntry(node, folder, fullPath) {
     return (node && node[folder] && node[folder].__entry__) || { name: folder, path: fullPath, type: 'dir' };
   }
 
-  function treeFiles(node) {
-    return (node && node.__files__) || [];
+  function treeFiles(node, mode = 'name') {
+    return [...((node && node.__files__) || [])]
+      .sort((a, b) => _sidebarCompareFiles(a, b, mode));
   }
 
   // ─── Explorer secondary-click menu ────────────────────────────────────
@@ -1098,7 +1139,7 @@
     const create = _canCreateExecutableNotebook(root)
       ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
       : '';
-    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span>${create}</div>`;
+    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${create}</span></div>`;
   }
 
   function _explorerContextFromRow(row) {
@@ -2141,12 +2182,15 @@
   const SIDEBAR_RECENT_GIT_MODES = Object.freeze([
     'uncommitted', 'origin-main', 'last-2-commits',
   ]);
+  const SIDEBAR_SORT_MODES = Object.freeze(['updated', 'name', 'type']);
   const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
   const SIDEBAR_FILE_CONFIG_DEFAULTS = Object.freeze({
     showHidden: false,
     showRecent: true,
     recentMode: 'mtime',
     recentMinutes: 1440,
+    recentSort: 'updated',
+    filesSort: 'name',
     trackMode: 'all',
     extensions: [],
     folderScopes: [],
@@ -2255,6 +2299,19 @@
       : SIDEBAR_FILE_CONFIG_DEFAULTS.recentMinutes;
   }
 
+  function _sidebarNormalizeSortMode(value, fallback) {
+    const requested = String(value || '');
+    return SIDEBAR_SORT_MODES.includes(requested) ? requested : fallback;
+  }
+
+  function _sidebarCurrentSortMode(section) {
+    const isRecent = section === 'recent';
+    return _sidebarNormalizeSortMode(
+      isRecent ? _sidebarFileConfig.recentSort : _sidebarFileConfig.filesSort,
+      isRecent ? SIDEBAR_FILE_CONFIG_DEFAULTS.recentSort : SIDEBAR_FILE_CONFIG_DEFAULTS.filesSort,
+    );
+  }
+
   function _sidebarNormalizeFileConfig(stored) {
     const recentMinutes = _sidebarNormalizeRecentMinutes(stored && stored.recentMinutes);
     const storedMode = String(stored && stored.recentMode || '');
@@ -2268,6 +2325,8 @@
       showRecent: recentMode !== 'none',
       recentMode,
       recentMinutes,
+      recentSort: _sidebarNormalizeSortMode(stored && stored.recentSort, SIDEBAR_FILE_CONFIG_DEFAULTS.recentSort),
+      filesSort: _sidebarNormalizeSortMode(stored && stored.filesSort, SIDEBAR_FILE_CONFIG_DEFAULTS.filesSort),
       trackMode: stored && stored.trackMode === 'extensions' ? 'extensions' : 'all',
       extensions: stored && Array.isArray(stored.extensions)
         ? [...new Set(stored.extensions.map(value => String(value).toLowerCase()))]
@@ -2577,8 +2636,7 @@
         if (Number(file.mtime) < cutoff) return false;
         return _sidebarRecentTypeAllowed(file);
       })
-      .sort((a, b) => Number(b.mtime) - Number(a.mtime)
-        || String(a.path || a.name).localeCompare(String(b.path || b.name)));
+      .sort((a, b) => _sidebarCompareFiles(a, b, _sidebarCurrentSortMode('recent')));
   }
 
   async function _sidebarResolveRecentFiles(files, rootPath) {
@@ -2594,7 +2652,8 @@
         .map(file => [String(file.path || file.name || ''), file]));
       return (Array.isArray(data.files) ? data.files : [])
         .map(path => byPath.get(String(path)))
-        .filter(file => file && _sidebarRecentTypeAllowed(file));
+        .filter(file => file && _sidebarRecentTypeAllowed(file))
+        .sort((a, b) => _sidebarCompareFiles(a, b, _sidebarCurrentSortMode('recent')));
     } catch (error) {
       _sidebarRecentLog('warning', `recent Git file scope failed: ${error.message || error}`, {
         action: 'sidebar.recent.git_scope',
@@ -2724,6 +2783,38 @@
     return '<button type="button" class="sidebar-file-config-cog" onclick="event.preventDefault();event.stopPropagation();openSidebarFileConfig()" title="File view settings" aria-label="Open file view settings"><span aria-hidden="true">&#x2699;</span></button>';
   }
 
+  function _sidebarSortSelectHtml(section) {
+    const isRecent = section === 'recent';
+    const value = _sidebarCurrentSortMode(section);
+    const label = isRecent ? 'Recently updated' : 'Files';
+    const options = [
+      ['updated', 'Update ↓'],
+      ['name', 'Name'],
+      ['type', 'Type'],
+    ];
+    return `<label class="sidebar-sort-control" title="Sort ${escAttr(label)} independently"><select data-sort-section="${escAttr(section)}" aria-label="Sort ${escAttr(label)}" onchange="sidebarSelectSort(this)">${options.map(([mode, text]) => `<option value="${mode}"${mode === value ? ' selected' : ''}>${text}</option>`).join('')}</select></label>`;
+  }
+
+  async function sidebarSelectSort(select) {
+    const section = String(select && select.getAttribute('data-sort-section') || '');
+    const fallback = section === 'recent'
+      ? SIDEBAR_FILE_CONFIG_DEFAULTS.recentSort
+      : SIDEBAR_FILE_CONFIG_DEFAULTS.filesSort;
+    const mode = _sidebarNormalizeSortMode(select && select.value, fallback);
+    if (section === 'recent') {
+      if (_sidebarFileConfig.recentSort === mode) return;
+      _sidebarFileConfig.recentSort = mode;
+    } else if (section === 'files') {
+      if (_sidebarFileConfig.filesSort === mode) return;
+      _sidebarFileConfig.filesSort = mode;
+    } else {
+      return;
+    }
+    _storeSidebarFileConfig();
+    await _refreshSidebarAfterFileConfig();
+  }
+  window.sidebarSelectSort = sidebarSelectSort;
+
   function _sidebarRecentSelectorValue() {
     const mode = _sidebarCurrentRecentMode();
     return mode === 'mtime' ? `mtime:${_sidebarFileConfig.recentMinutes}` : mode;
@@ -2774,9 +2865,10 @@
   window.sidebarSelectRecentMode = sidebarSelectRecentMode;
 
   function _sidebarRecentTreeModel(files) {
+    const sortMode = _sidebarCurrentSortMode('recent');
     const compactNode = (node, parentPath) => {
-      const model = {files: treeFiles(node), folders: []};
-      treeFolderNames(node).forEach(folder => {
+      const model = {files: treeFiles(node, sortMode), folders: []};
+      treeFolderNames(node, sortMode).forEach(folder => {
         const labelParts = [folder];
         let path = parentPath ? `${parentPath}/${folder}` : folder;
         let child = node[folder];
@@ -2786,7 +2878,7 @@
         // Stop at a real branch so siblings such as core/src and core/tests
         // remain immediately recognizable.
         while (treeFiles(child).length === 0) {
-          const childFolders = treeFolderNames(child);
+          const childFolders = treeFolderNames(child, sortMode);
           if (childFolders.length !== 1) break;
           const next = childFolders[0];
           labelParts.push(next);
@@ -2841,7 +2933,7 @@
   function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false} = {}) {
     const recent = resolved ? (files || []) : _sidebarRecentFiles(files);
     if (!recent.length) return '';
-    let html = `<div class="sidebar-title">Recently updated <span class="sidebar-title-count">${recent.length}</span></div>`;
+    let html = `<div class="sidebar-title sidebar-title-with-action"><span>Recently updated <span class="sidebar-title-count">${recent.length}</span></span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('recent')}</span></div>`;
     const scopeRoot = root || (currentProject && currentProject.path ? currentProject.path : 'global');
     const scope = `recent:${scopeRoot}`;
     const tree = _sidebarRecentTreeModel(recent);
@@ -3232,6 +3324,8 @@
       showRecent: recentMode !== 'none',
       recentMode,
       recentMinutes,
+      recentSort: _sidebarFileConfig.recentSort,
+      filesSort: _sidebarFileConfig.filesSort,
       trackMode: track && track.value === 'extensions' ? 'extensions' : 'all',
       extensions,
       folderScopes: folderConfig.folderScopes,
@@ -3282,6 +3376,33 @@
     return out;
   }
 
+  function _sidebarSortNestedTree(nodes, metadataByPath, mode) {
+    const prepared = (nodes || []).map(node => {
+      if (!node) return node;
+      if (node.type !== 'dir') {
+        const metadata = metadataByPath.get(String(node.path || ''));
+        return Number.isFinite(Number(metadata && metadata.mtime))
+          ? {...node, mtime: Number(metadata.mtime)}
+          : {...node};
+      }
+      const children = _sidebarSortNestedTree(node.children || [], metadataByPath, mode);
+      const mtime = children.reduce((latest, child) => Math.max(latest, Number(child && child.mtime || 0)), 0);
+      return {...node, children, mtime};
+    }).filter(Boolean);
+    return prepared.sort((a, b) => {
+      if (a.type === 'dir' && b.type !== 'dir') return -1;
+      if (a.type !== 'dir' && b.type === 'dir') return 1;
+      if (a.type === 'dir') {
+        if (mode === 'updated') {
+          const updated = Number(b.mtime || 0) - Number(a.mtime || 0);
+          if (updated) return updated;
+        }
+        return _sidebarCompareNames(a.name, b.name);
+      }
+      return _sidebarCompareFiles(a, b, mode);
+    });
+  }
+
   function toggleDotFiles(checked) {
     showDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
@@ -3327,8 +3448,9 @@
       fileTree = [];
     }
     let recentFiles = [];
+    let sidebarFiles = [];
     try {
-      const sidebarFiles = await _sidebarFetchProjectFiles(fileRoot);
+      sidebarFiles = await _sidebarFetchProjectFiles(fileRoot);
       _sidebarRememberAvailableExtensions(sidebarFiles);
       recentFiles = await _sidebarResolveRecentFiles(sidebarFiles, fileRoot);
     } catch (_) {}
@@ -3357,6 +3479,8 @@
     }
 
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
+    const metadataByPath = new Map(sidebarFiles.map(file => [String(file.path || file.name || ''), file]));
+    const sortedFiles = _sidebarSortNestedTree(filtered, metadataByPath, _sidebarCurrentSortMode('files'));
     sb.innerHTML = '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
       _sidebarRecentSelectorsHtml() +
       _sidebarFileScopeButtonsHtml(baseRoot) +
@@ -3365,8 +3489,8 @@
       _sidebarWorktreeScopeStartHtml(baseRoot) +
       _sidebarRecentSectionHtml(recentFiles, projectOpenFile, fileRoot, {resolved: true}) +
       '<div class="sidebar-create"><button onclick="openCreateModal()">+ New File</button></div>' +
-      '<div class="sidebar-title">Files</div>' +
-      '<ul class="tree-node">' + renderTreeNodes(filtered, changedFiles) + '</ul>' +
+      _sidebarFilesTitle(fileRoot) +
+      '<ul class="tree-node">' + renderTreeNodes(sortedFiles, changedFiles) + '</ul>' +
       _sidebarWorktreeScopeEndHtml(baseRoot);
   }
 
@@ -8018,7 +8142,7 @@
         function renderTree(node, depth, parentPath) {
           let html = '';
           // Render folders first
-          const folders = treeFolderNames(node);
+          const folders = treeFolderNames(node, _sidebarCurrentSortMode('files'));
           folders.forEach(folder => {
             const fid = 'folder-' + Math.random().toString(36).substr(2, 6);
             const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
@@ -8033,7 +8157,7 @@
             html += '</div>';
           });
           // Then files
-          treeFiles(node).forEach(f => {
+          treeFiles(node, _sidebarCurrentSortMode('files')).forEach(f => {
             const safePath = f.path.replace(/'/g, "\\'");
             const safeRoot = fileRoot.replace(/'/g, "\\'");
             const fname = f.path.split('/').pop();
@@ -13705,8 +13829,9 @@
 
   function renderSidebarFileTree(node, depth, parentPath, opts) {
     const {scope, autoOpen, activePath, root} = opts;
+    const sortMode = opts.sortMode || _sidebarCurrentSortMode('files');
     let html = '';
-    treeFolderNames(node).forEach(folder => {
+    treeFolderNames(node, sortMode).forEach(folder => {
       const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
       const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
       const d = treeFolderEntry(node, folder, fullPath);
@@ -13719,7 +13844,7 @@
       html += renderSidebarFileTree(node[folder], depth + 1, fullPath, opts);
       html += '</div>';
     });
-    treeFiles(node).forEach(f => {
+    treeFiles(node, sortMode).forEach(f => {
       const safePath = f.path.replace(/'/g, "\\'");
       const safeRoot = String(root || (currentProject && currentProject.path) || '').replace(/'/g, "\\'");
       const fname = f.path.split('/').pop();
