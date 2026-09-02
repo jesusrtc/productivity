@@ -1193,11 +1193,15 @@
     const notebookAction = ctx.surface === 'project' && _canCreateExecutableNotebook(ctx.root)
       ? _explorerMenuButton('new-notebook', '◉', 'New notebook here', '')
       : '';
+    const linkTerminalAction = ctx.kind === 'file'
+      ? _explorerMenuButton('link-terminal', '⇄', 'Link terminal…', '')
+      : '';
     menu.innerHTML = `
       <div class="ecm-label" title="${escAttr(ctx.path)}">${esc(ctx.path)}</div>
       ${_explorerMenuButton('open', firstIcon, firstLabel, ctx.kind === 'file' ? 'Enter' : '')}
       ${_explorerMenuButton('history', '⑂', 'View Git history', '')}
       ${_explorerMenuButton('copy-path', '⧉', 'Copy relative path', '')}
+      ${linkTerminalAction}
       <div class="ecm-sep" role="separator"></div>
       ${notebookAction}
       ${_explorerMenuButton('new-file', '+', 'New file here', '')}
@@ -1239,6 +1243,7 @@
       return;
     }
     closeExplorerContextMenu();
+    if (action === 'link-terminal') return termOpenLinkModal(ctx);
     if (action === 'history') return openExplorerHistory(ctx);
     if (action === 'rename') return openExplorerEntryDialog('rename', ctx);
     if (action === 'new-notebook') return openNewNotebookDialog(ctx);
@@ -3537,6 +3542,7 @@
   async function openProjectFile(filepath) {
     if (!currentRepo) return;
     const fileRoot = _activeRepoFileRoot();
+    _termMaybeSyncForFile(fileRoot, filepath);
     projectOpenFile = filepath;
     projectEditMode = false;
     const content = document.getElementById('content');
@@ -5634,6 +5640,7 @@
   // Focus control. Esc exits Focus; both preferences persist across reloads.
   const FOCUS_MODE_KEY = 'labFocusMode';
   const KEEP_ALIVE_KEY = 'labKeepAlive';
+  const LINKED_TERMINAL_SYNC_KEY = 'labLinkedTerminalSync';
   const LID_AWAKE_DURATIONS = [15, 30, 60];
   const LID_AWAKE_DEFAULT_UNTIL = '17:00';
   const FOCUS_ZOOM_MIN = 0.5;
@@ -5648,6 +5655,7 @@
   let _lidAwakeMenuOpen = false;
   let _lidAwakeBusy = false;
   let _lidAwakeError = '';
+  let _linkedTerminalSyncOn = false;
   let _lidAwakePasswordSaved = false;
   let _lidAwakeEditingPassword = false;
   let _lidAwakeUntilTime = LID_AWAKE_DEFAULT_UNTIL;
@@ -6103,6 +6111,13 @@
   }
   window.toggleKeepAlive = toggleKeepAlive;
 
+  function toggleLinkedTerminalSync() {
+    _linkedTerminalSyncOn = !_linkedTerminalSyncOn;
+    try { localStorage.setItem(LINKED_TERMINAL_SYNC_KEY, _linkedTerminalSyncOn ? '1' : '0'); } catch {}
+    try { if (currentProject) renderRepoTabs(); } catch {}
+  }
+  window.toggleLinkedTerminalSync = toggleLinkedTerminalSync;
+
   try {
     if (localStorage.getItem(FOCUS_MODE_KEY) === '1') {
       document.body.classList.add('focus-mode');
@@ -6110,6 +6125,7 @@
     if (localStorage.getItem(KEEP_ALIVE_KEY) === '1') {
       document.body.classList.add('keep-alive');
     }
+    _linkedTerminalSyncOn = localStorage.getItem(LINKED_TERMINAL_SYNC_KEY) === '1';
     if (_shouldKeepDisplayAwake()) void _acquireScreenWakeLock();
   } catch {}
   document.addEventListener('visibilitychange', () => {
@@ -6207,6 +6223,10 @@
         ? 'Turn on Keep Alive to stay awake after leaving Focus mode'
         : 'Prevent the display and computer from sleeping');
     html += `<button class="repo-tab keep-alive-toggle" role="switch" aria-checked="${keepAliveOn}" onclick="toggleKeepAlive()" title="${keepAliveTitle}"><span>Keep Alive</span><span class="keep-alive-switch" aria-hidden="true"></span></button>`;
+    const linkedSyncTitle = _linkedTerminalSyncOn
+      ? 'Linked file and terminal selections follow each other — turn off to keep navigation independent'
+      : 'Keep linked files and terminals independent until this is turned on';
+    html += `<button class="repo-tab linked-terminal-sync-toggle" role="switch" aria-checked="${_linkedTerminalSyncOn}" onclick="toggleLinkedTerminalSync()" title="${linkedSyncTitle}"><span>Sync linked</span><span class="linked-terminal-sync-switch" aria-hidden="true"></span></button>`;
     if (typeof LAB_IS_ADMIN === 'undefined' || LAB_IS_ADMIN) {
       const lidAwakeOn = _lidAwakeIsActive();
       const lidAwakeTitle = !_lidAwakeSupported
@@ -6934,6 +6954,7 @@
       return openProjectProxy(name);
     }
     const docRoot = root || (preserveScroll && _projDocRoot) || currentProject.path;
+    _termMaybeSyncForFile(docRoot, filepath);
     _projDocRoot = docRoot;
     _contextSubView = 'document';
     _projDocPath = filepath;
@@ -10845,11 +10866,12 @@
 
   function _termSessionTooltipPayload(s, statusTitle) {
     const context = _termSessionContext(s);
+    const linked = String(s && s.linked_file && s.linked_file.path || '').trim();
     return JSON.stringify({
       label: context.label,
       items: context.items,
       isObjective: context.isObjective,
-      meta: [s && s.name, statusTitle, 'Double-click to rename'].filter(Boolean),
+      meta: [s && s.name, linked ? `Linked file: ${linked}` : '', statusTitle, 'Double-click to rename'].filter(Boolean),
     });
   }
 
@@ -10932,10 +10954,14 @@
     const context = _termSessionContext(session);
     const summary = _termSessionSummary(session);
     const visual = _termSessionVisual(session);
+    const linked = String(session.linked_file && session.linked_file.path || '').trim();
     if (el) {
       el.className = `term-active-session on ${visual.kind}`;
       el.removeAttribute('title');
-      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${summary ? `<span class="summary">${termSessEsc(context.label)} · ${termSessEsc(summary)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+      const subline = summary
+        ? `${context.label} · ${summary}`
+        : (linked ? `Linked · ${linked}` : '');
+      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${subline ? `<span class="summary">${termSessEsc(subline)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
     }
     if (statusSummary) {
       statusSummary.removeAttribute('title');
@@ -11060,10 +11086,12 @@
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
     const ariaLabel = `${display} · ${visual.badge}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
+    const linked = String(s.linked_file && s.linked_file.path || '').trim();
     return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
+      ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
       <span class="k">${termSessEsc(visual.badge)}</span>
     </span>`;
   }
@@ -11134,6 +11162,8 @@
       node.addEventListener('click', () => {
         const name = node.getAttribute('data-name');
         if (!name) return;
+        const session = (termSessions || []).find(row => row.name === name);
+        if (session) void _termOpenLinkedFile(session);
         // Clicking a dead pill is an explicit retry: clear the block and
         // let termAttach try again. Refresh first so we don't hand it a
         // name tmux has already reaped.
@@ -11326,6 +11356,281 @@
       const base = btn.textContent.replace(/ — not installed$/, '');
       btn.textContent = ok ? base : base + ' — not installed';
     });
+  }
+
+  // ─── File ↔ terminal links ───────────────────────────────────────────
+  // The link is durable session metadata. Automatic navigation is a
+  // separate browser-local preference so a user can keep useful links
+  // without every file or terminal selection moving the other pane.
+  let _termLinkModalState = null;
+  let _termLinkPending = false;
+  let _termLinkEscHandler = null;
+  let _termLinkedNavigation = false;
+
+  function _termNormalizeLinkedRoot(value) {
+    const root = String(value || '').trim();
+    return root.length > 1 ? root.replace(/\/+$/, '') : root;
+  }
+
+  function _termLinkedFile(linkedFile) {
+    if (!linkedFile || typeof linkedFile !== 'object') return null;
+    const root = _termNormalizeLinkedRoot(linkedFile.root);
+    const path = String(linkedFile.path || '').trim();
+    return root && path ? {root, path} : null;
+  }
+
+  function _termLinkedFileMatches(linkedFile, root, path) {
+    const linked = _termLinkedFile(linkedFile);
+    return !!linked
+      && linked.root === _termNormalizeLinkedRoot(root)
+      && linked.path === String(path || '').trim();
+  }
+
+  function _termLinkedFileLabel(linkedFile) {
+    const linked = _termLinkedFile(linkedFile);
+    if (!linked) return '';
+    return linked.path;
+  }
+
+  function _termLinkedFileName(path) {
+    return String(path || '').split('/').filter(Boolean).pop() || 'file';
+  }
+
+  function _termSetLinkStatus(message, error = false) {
+    const status = document.getElementById('termLinkStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('error', !!error);
+  }
+
+  function _termRenderLinkModal() {
+    const state = _termLinkModalState;
+    const list = document.getElementById('termLinkList');
+    if (!state || !list) return;
+    const rows = Array.isArray(termSessions) ? termSessions : [];
+    if (!rows.length) {
+      list.innerHTML = '<div class="term-link-empty">No existing terminals yet. Create one above.</div>';
+      return;
+    }
+    list.innerHTML = rows.map(session => {
+      const linked = _termLinkedFile(session.linked_file);
+      const sameFile = _termLinkedFileMatches(session.linked_file, state.ctx.root, state.ctx.path);
+      const visual = _termSessionVisual(session);
+      const name = _termSessionDisplay(session);
+      const detail = linked
+        ? (sameFile ? `Linked to ${linked.path}` : `Currently linked to ${linked.path}`)
+        : 'Not linked';
+      const badge = sameFile ? 'linked' : visual.badge;
+      return `<div class="term-link-row">
+        <button type="button" class="term-link-choice" data-term-link-session="${termSessEsc(session.name)}" ${_termLinkPending ? 'disabled' : ''}>
+          <span class="term-link-choice-copy"><span class="term-link-choice-name">${termSessEsc(name)}</span><span class="term-link-choice-file">${termSessEsc(detail)}</span></span>
+          <span class="term-link-choice-badge${sameFile ? ' linked' : ''}">${termSessEsc(badge)}</span>
+        </button>
+        ${sameFile ? `<button type="button" class="term-link-unlink" data-term-unlink-session="${termSessEsc(session.name)}" ${_termLinkPending ? 'disabled' : ''}>Unlink</button>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  async function termOpenLinkModal(ctx) {
+    const projectId = _termActiveProjectId();
+    if (!ctx || ctx.kind !== 'file' || !projectId) {
+      explorerToast('Open the file from a project, workspace, or Framework tab to link a terminal.', true);
+      return;
+    }
+    const workspaceId = _termWorkspaceId();
+    _termLinkModalState = {
+      ctx: {root: ctx.root, path: ctx.path, surface: ctx.surface || 'project'},
+      projectId,
+      workspaceId,
+      fileName: _termLinkedFileName(ctx.path),
+    };
+    _termLinkPending = false;
+    const modal = document.getElementById('termLinkModal');
+    const target = document.getElementById('termLinkTarget');
+    if (target) target.textContent = `${ctx.path} · ${ctx.root}`;
+    if (modal) modal.classList.add('active');
+    _termSetLinkStatus('Choose a new or existing terminal.');
+    _termRenderLinkModal();
+    if (!_termLinkEscHandler) {
+      _termLinkEscHandler = event => {
+        if (event.key === 'Escape') termCloseLinkModal();
+      };
+      document.addEventListener('keydown', _termLinkEscHandler);
+    }
+    await termRefreshAgentAvail(modal);
+    try { await _termRefreshSessionsForProjectId(projectId); } catch {}
+    if (!_termLinkModalState
+        || _termLinkModalState.projectId !== projectId
+        || _termLinkModalState.workspaceId !== workspaceId) return;
+    _termRenderLinkModal();
+  }
+  window.termOpenLinkModal = termOpenLinkModal;
+
+  function termCloseLinkModal() {
+    _termLinkModalState = null;
+    _termLinkPending = false;
+    document.getElementById('termLinkModal')?.classList.remove('active');
+    if (_termLinkEscHandler) {
+      document.removeEventListener('keydown', _termLinkEscHandler);
+      _termLinkEscHandler = null;
+    }
+  }
+  window.termCloseLinkModal = termCloseLinkModal;
+
+  async function _termSaveLinkedFile(session, linkedFile) {
+    const state = _termLinkModalState;
+    const logical = session && session.logical_name;
+    if (!state || !logical) throw new Error('This terminal has no saved session identity.');
+    const label = linkedFile ? state.fileName : null;
+    const response = await fetch('/api/term/sessions/metadata', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        project_id: state.projectId,
+        workspace: state.workspaceId,
+        name: logical,
+        label,
+        linked_file: linkedFile,
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || response.statusText || 'link failed');
+    const updated = body.session || {};
+    termSessions = (termSessions || []).map(row => row.name === session.name
+      ? {...row, label: updated.label || null, linked_file: updated.linked_file || null}
+      : row);
+    _termSessionsCache.set(_termSessionsKey(state.projectId, state.workspaceId), termSessions);
+    termRenderSessionList();
+    return updated;
+  }
+
+  async function termLinkExistingSession(sessionName) {
+    const state = _termLinkModalState;
+    const session = (termSessions || []).find(row => row.name === sessionName);
+    if (!state || !session || _termLinkPending) return;
+    _termLinkPending = true;
+    _termRenderLinkModal();
+    _termSetLinkStatus(`Linking ${state.fileName}…`);
+    try {
+      await _termSaveLinkedFile(session, {root: state.ctx.root, path: state.ctx.path});
+      const projectId = state.projectId;
+      const name = session.name;
+      termCloseLinkModal();
+      document.body.classList.add('term-open');
+      document.body.classList.remove('term-collapsed');
+      _termRememberVisibility(_termVisibilityKey(), true);
+      termAttach(name, projectId);
+      explorerToast(`Linked ${state.fileName} to ${_termSessionDisplay(session)}`);
+    } catch (error) {
+      _termLinkPending = false;
+      _termRenderLinkModal();
+      _termSetLinkStatus(error && error.message || 'Could not link terminal.', true);
+    }
+  }
+  window.termLinkExistingSession = termLinkExistingSession;
+
+  async function termUnlinkSession(sessionName) {
+    const session = (termSessions || []).find(row => row.name === sessionName);
+    if (!_termLinkModalState || !session || _termLinkPending) return;
+    _termLinkPending = true;
+    _termRenderLinkModal();
+    _termSetLinkStatus('Removing link…');
+    try {
+      await _termSaveLinkedFile(session, null);
+      _termLinkPending = false;
+      _termRenderLinkModal();
+      _termSetLinkStatus('Link removed.');
+    } catch (error) {
+      _termLinkPending = false;
+      _termRenderLinkModal();
+      _termSetLinkStatus(error && error.message || 'Could not remove link.', true);
+    }
+  }
+  window.termUnlinkSession = termUnlinkSession;
+
+  async function termCreateLinkedSession(kind, agent) {
+    const state = _termLinkModalState;
+    if (!state || _termLinkPending) return;
+    _termLinkPending = true;
+    _termRenderLinkModal();
+    _termSetLinkStatus(`Creating ${state.fileName}…`);
+    const modal = document.getElementById('termLinkModal');
+    if (modal) modal.querySelectorAll('.term-link-new button').forEach(button => { button.disabled = true; });
+    const created = await termSpawnSession(kind, {
+      startFresh: true,
+      agent,
+      name: state.fileName,
+    });
+    if (!created || _termLinkModalState !== state) {
+      if (_termLinkModalState === state) {
+        _termLinkPending = false;
+        _termRenderLinkModal();
+        if (modal) void termRefreshAgentAvail(modal);
+      }
+      return;
+    }
+    const session = (termSessions || []).find(row => row.name === created.name) || created;
+    try {
+      await _termSaveLinkedFile(session, {root: state.ctx.root, path: state.ctx.path});
+      termCloseLinkModal();
+      explorerToast(`Created ${state.fileName} and linked it`);
+    } catch (error) {
+      _termLinkPending = false;
+      _termRenderLinkModal();
+      if (modal) void termRefreshAgentAvail(modal);
+      _termSetLinkStatus(`Terminal created, but linking failed: ${error && error.message || error}`, true);
+    }
+  }
+  window.termCreateLinkedSession = termCreateLinkedSession;
+
+  document.getElementById('termLinkList')?.addEventListener('click', event => {
+    const unlink = event.target.closest('[data-term-unlink-session]');
+    if (unlink) {
+      event.preventDefault();
+      void termUnlinkSession(unlink.getAttribute('data-term-unlink-session'));
+      return;
+    }
+    const link = event.target.closest('[data-term-link-session]');
+    if (link) {
+      event.preventDefault();
+      void termLinkExistingSession(link.getAttribute('data-term-link-session'));
+    }
+  });
+
+  function _termMaybeSyncForFile(root, path) {
+    if (!_linkedTerminalSyncOn || _termLinkedNavigation) return;
+    const matches = (termSessions || []).filter(session =>
+      _termLinkedFileMatches(session.linked_file, root, path));
+    if (!matches.length) return;
+    const current = matches.find(session =>
+      session.name === termCurrentSession && termCurrentProjectId === _termActiveProjectId());
+    const target = current || matches[0];
+    if (!target) return;
+    const projectId = _termActiveProjectId();
+    if (!projectId) return;
+    document.body.classList.add('term-open');
+    document.body.classList.remove('term-collapsed');
+    _termRememberVisibility(_termVisibilityKey(), true);
+    if (current) return;
+    termAttach(target.name, projectId);
+  }
+
+  async function _termOpenLinkedFile(session) {
+    if (!_linkedTerminalSyncOn || _termLinkedNavigation) return;
+    const linked = _termLinkedFile(session && session.linked_file);
+    if (!linked || !currentProject) return;
+    _termLinkedNavigation = true;
+    try {
+      const repoRoot = typeof _activeRepoFileRoot === 'function'
+        ? _termNormalizeLinkedRoot(_activeRepoFileRoot()) : '';
+      if (currentRepo && repoRoot === linked.root) {
+        await openProjectFile(linked.path);
+      } else {
+        await openProjectDoc(linked.path, {root: linked.root});
+      }
+    } finally {
+      _termLinkedNavigation = false;
+    }
   }
 
   let _termAttachModalScope = null;
@@ -11609,7 +11914,7 @@
     termSpawnSession(kind, { startFresh: true, agent });
   }
 
-  async function termSpawnSession(kind, { startFresh = false, agent = null } = {}) {
+  async function termSpawnSession(kind, { startFresh = false, agent = null, name = null } = {}) {
     // Resolve the project id the new session belongs to. Framework views can
     // coexist with a stale currentProject from the previous tab, so check them first.
     let projectId = null;
@@ -11633,6 +11938,7 @@
           workspace: workspaceId,
           kind,
           agent,  // null → server resolves project override / global default
+          name,
           start_fresh: startFresh,
           // No explicit `auto`: the workspace's per-agent autopilot
           // setting decides (an explicit value here would override it).
@@ -11664,9 +11970,11 @@
         termRenderSessionList();
       }
       termAttach(created.name, projectId);
+      return created;
     } catch (e) {
       alert('Failed to create session: ' + e.message);
       termSetStatus('err', 'create failed');
+      return null;
     }
   }
 

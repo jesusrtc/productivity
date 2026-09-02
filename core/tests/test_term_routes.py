@@ -1335,6 +1335,65 @@ def test_session_metadata_label_is_persisted_and_returned(client, seed_project,
     assert pjson["sessions"][0]["summary"] == "Checking failing auth tests"
 
 
+def test_session_linked_file_is_durable_and_can_be_removed(client, seed_project,
+                                                            isolated_prefix,
+                                                            monorepo: Path) -> None:
+    seed_project("demo")
+    created = client.post("/api/term/sessions", json={
+        "project_id": "demo",
+        "kind": "claude",
+        "agent": "codex",
+        "name": "analysis.ipynb",
+        "start_fresh": True,
+    }).json()
+    linked_file = {
+        "root": str(monorepo / "projects" / "demo"),
+        "path": "notebooks/analysis.ipynb",
+    }
+
+    linked = client.patch("/api/term/sessions/metadata", json={
+        "project_id": "demo",
+        "name": created["logical_name"],
+        "label": "analysis.ipynb",
+        "linked_file": linked_file,
+    })
+    assert linked.status_code == 200, linked.text
+    assert linked.json()["session"]["linked_file"] == linked_file
+
+    rows = client.get("/api/term/sessions?project_id=demo").json()
+    assert rows[0]["label"] == "analysis.ipynb"
+    assert rows[0]["linked_file"] == linked_file
+
+    saved = client.get("/api/term/sessions/saved?project_id=demo").json()
+    assert saved[0]["linked_file"] == linked_file
+
+    unlinked = client.patch("/api/term/sessions/metadata", json={
+        "project_id": "demo",
+        "name": created["logical_name"],
+        "label": None,
+        "linked_file": None,
+    })
+    assert unlinked.status_code == 200, unlinked.text
+    assert "linked_file" not in unlinked.json()["session"]
+    assert "label" not in unlinked.json()["session"]
+
+
+def test_session_linked_file_rejects_empty_paths(client, seed_project,
+                                                  isolated_prefix) -> None:
+    seed_project("demo")
+    created = client.post("/api/term/sessions", json={
+        "project_id": "demo", "kind": "terminal",
+    }).json()
+
+    response = client.patch("/api/term/sessions/metadata", json={
+        "project_id": "demo",
+        "name": created["logical_name"],
+        "linked_file": {"root": "", "path": "analysis.ipynb"},
+    })
+    assert response.status_code == 400
+    assert "non-empty root and path" in response.json()["detail"]
+
+
 def test_paste_image_saves_under_project_and_returns_relative_path(client, seed_project,
                                                                    monorepo: Path) -> None:
     seed_project("demo")

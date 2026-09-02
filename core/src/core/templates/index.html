@@ -335,6 +335,40 @@
   </div>
 </div>
 
+<!-- Link one file to a new or existing project terminal. The file link is
+     durable; automatic file/terminal navigation is controlled separately by
+     the browser-local "Sync linked" switch in the project tab bar. -->
+<div class="modal-overlay" id="termLinkModal" onclick="if(event.target===this)termCloseLinkModal()">
+  <div class="form-modal term-link-modal" role="dialog" aria-modal="true" aria-labelledby="termLinkModalTitle">
+    <div class="fm-header">
+      <div class="term-link-heading">
+        <span class="fm-title" id="termLinkModalTitle">Link terminal</span>
+        <span class="term-link-target" id="termLinkTarget"></span>
+      </div>
+      <button class="fm-close" type="button" onclick="termCloseLinkModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="term-link-body">
+      <section class="term-link-section">
+        <div class="term-link-section-title">New terminal named after this file</div>
+        <div class="term-link-new" id="termLinkNew">
+          <button type="button" data-agent="claude" onclick="termCreateLinkedSession('claude','claude')"><span aria-hidden="true">&#x1F916;</span><span>Claude Code</span></button>
+          <button type="button" data-agent="codex" onclick="termCreateLinkedSession('claude','codex')"><span aria-hidden="true">&#x1F9E0;</span><span>Codex</span></button>
+          <button type="button" data-agent="copilot" onclick="termCreateLinkedSession('claude','copilot')"><span aria-hidden="true">&#x1F419;</span><span>Copilot</span></button>
+          <button type="button" onclick="termCreateLinkedSession('terminal')"><span aria-hidden="true">&#x1F4BB;</span><span>Terminal</span></button>
+        </div>
+      </section>
+      <section class="term-link-section">
+        <div class="term-link-section-title">Existing terminals in this project</div>
+        <div class="term-link-list" id="termLinkList"></div>
+      </section>
+    </div>
+    <div class="term-link-footer">
+      <span id="termLinkStatus" role="status" aria-live="polite">Choose a new or existing terminal.</span>
+      <button type="button" class="btn-cancel" onclick="termCloseLinkModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Diff popover -->
 <div class="diff-popover" id="diffPopover"></div>
 

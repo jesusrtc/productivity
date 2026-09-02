@@ -1499,6 +1499,9 @@ def _reconstruct_meta_entry(
                 entry["claude_session_id"] = s["claude_session_id"]
             if s.get("agent_session_id"):
                 entry["agent_session_id"] = s["agent_session_id"]
+            for key in ("label", "summary", "linked_file"):
+                if s.get(key):
+                    entry[key] = s[key]
             break
     return entry
 
@@ -2050,7 +2053,7 @@ def _sessions_for_root(
         logical = row.get("logical_name")
         saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
         if saved:
-            for key in ("label", "summary"):
+            for key in ("label", "summary", "linked_file"):
                 if saved.get(key):
                     row[key] = saved[key]
         rows.append(row)
@@ -2300,6 +2303,11 @@ class SessionOrder(BaseModel):
     order: list[str]  # logical_names in the desired order
 
 
+class LinkedFile(BaseModel):
+    root: str
+    path: str
+
+
 class SessionMetadata(BaseModel):
     project_id: str
     workspace: str | None = None
@@ -2308,6 +2316,9 @@ class SessionMetadata(BaseModel):
     name: str
     label: str | None = None
     summary: str | None = None
+    # A terminal has one primary file. Several terminals may independently
+    # point at the same file (for example, one Codex and one Copilot tab).
+    linked_file: LinkedFile | None = None
 
 
 class PastedImage(BaseModel):
@@ -2388,7 +2399,7 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
 
 @router.patch("/api/term/sessions/metadata")
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
-    """Persist a user-facing label/summary for a saved logical session."""
+    """Persist user-facing metadata for a saved logical session."""
     active_root = auth.request_root(request)
     root = _workspace_root_for(active_root, body.workspace)
     _require_project_access(request, active_root, root, body.project_id)
@@ -2419,6 +2430,20 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
             entry["summary"] = summary
         else:
             entry.pop("summary", None)
+    if "linked_file" in fields:
+        if body.linked_file is None:
+            entry.pop("linked_file", None)
+        else:
+            file_root = str(body.linked_file.root or "").strip()
+            file_path = str(body.linked_file.path or "").strip()
+            if not file_root or not file_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="linked_file requires non-empty root and path",
+                )
+            if len(file_root) > 4096 or len(file_path) > 4096:
+                raise HTTPException(status_code=400, detail="linked_file path is too long")
+            entry["linked_file"] = {"root": file_root, "path": file_path}
 
     data["sessions"] = sessions
     _save_project(root, body.project_id, data)
@@ -2436,6 +2461,11 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
                 meta[tmux_name]["summary"] = entry["summary"]
             else:
                 meta[tmux_name].pop("summary", None)
+        if "linked_file" in fields:
+            if entry.get("linked_file"):
+                meta[tmux_name]["linked_file"] = entry["linked_file"]
+            else:
+                meta[tmux_name].pop("linked_file", None)
         _save_meta(root, meta)
 
     log.info(
@@ -2820,7 +2850,7 @@ def create_session(body: NewSession, request: Request) -> dict:
                 info.get("logical_name") or preferred_sane
             )
             if saved:
-                for key in ("label", "summary"):
+                for key in ("label", "summary", "linked_file"):
                     if saved.get(key):
                         row[key] = saved[key]
         log.info(
@@ -3019,10 +3049,10 @@ def create_session(body: NewSession, request: Request) -> dict:
         _upsert_project_session(root, body.project_id, entry)
         saved = _project_session_by_name(root, body.project_id).get(logical)
         if saved:
-            for key in ("label", "summary"):
+            for key in ("label", "summary", "linked_file"):
                 if saved.get(key):
                     meta[tmux_name][key] = saved[key]
-            if saved.get("label") or saved.get("summary"):
+            if saved.get("label") or saved.get("summary") or saved.get("linked_file"):
                 _save_meta(root, meta)
         _invalidate_project_term_caches()
 

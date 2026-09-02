@@ -44,6 +44,8 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
     assert source.count('data-entry-kind="file"') >= 5
     assert "document.addEventListener('contextmenu'" in source
     assert "View Git history" in source
+    assert "Link terminal…" in source
+    assert "if (action === 'link-terminal') return termOpenLinkModal(ctx);" in source
     assert "New file here" in source
     assert "New folder here" in source
     assert "Rename" in source
@@ -55,8 +57,14 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
         "explorerDeleteModal",
         "explorerHistoryModal",
         "explorerHistoryFiles",
+        "termLinkModal",
+        "termLinkList",
     ):
         assert f'id="{element_id}"' in template
+
+    # Secondary click gains the terminal action; the existing double-click
+    # full-size document modal remains the file rows' dblclick behavior.
+    assert source.count("ondblclick=\"event.stopPropagation();openProjectDocModal") >= 5
 
 
 def test_notebook_creation_chooses_repository_folder_and_creates_notebook_kind() -> None:

@@ -287,9 +287,13 @@ def test_keep_alive_and_lid_awake_are_rendered_beside_focus_mode() -> None:
     render = source[start:end]
 
     assert render.index("keep-alive-toggle") < render.index("lid-awake-toggle")
+    assert render.index("keep-alive-toggle") < render.index("linked-terminal-sync-toggle")
+    assert render.index("linked-terminal-sync-toggle") < render.index("lid-awake-toggle")
     assert render.index("lid-awake-toggle") < render.index("focus-toggle")
     assert 'role="switch"' in render
     assert 'aria-checked="${keepAliveOn}"' in render
+    assert 'aria-checked="${_linkedTerminalSyncOn}"' in render
+    assert "toggleLinkedTerminalSync()" in render
     assert 'data-testid="lid-awake-toggle"' in render
     assert "15, 30, 60" in _focus_mode_source()
 

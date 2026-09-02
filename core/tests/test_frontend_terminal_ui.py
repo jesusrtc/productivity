@@ -752,7 +752,7 @@ function termStartPeriodicRefresh() { calls.push('refresh'); }
 def test_terminal_new_menu_hides_workspace_disabled_agents() -> None:
     refresh_agent_avail = _js_between(
         "let _agentAvail = null;",
-        "function termCreateNew(kind, agent)",
+        "// ─── File ↔ terminal links",
     )
     result = _run_node(
         """
@@ -804,6 +804,96 @@ def test_terminal_new_menu_opens_a_grouped_tmux_session_modal() -> None:
         "function termRenderAttachModal()",
         "async function termReloadAttachModal()",
     )
+
+
+def test_file_terminal_link_modal_offers_new_and_existing_sessions() -> None:
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert 'id="termLinkModal"' in html
+    assert 'id="termLinkNew"' in html
+    assert 'id="termLinkList"' in html
+    assert "termCreateLinkedSession('claude','claude')" in html
+    assert "termCreateLinkedSession('claude','codex')" in html
+    assert "termCreateLinkedSession('claude','copilot')" in html
+    assert "termCreateLinkedSession('terminal')" in html
+    assert ".form-modal.term-link-modal" in css
+    assert ".term-link-choice-badge.linked" in css
+    assert "async function termOpenLinkModal(ctx)" in source
+    assert "async function termLinkExistingSession(sessionName)" in source
+    assert "name: state.fileName" in source
+    assert "linked_file: linkedFile" in source
+
+
+def test_linked_file_identity_normalizes_only_the_root_suffix() -> None:
+    helpers = _js_between(
+        "function _termNormalizeLinkedRoot(value)",
+        "function _termSetLinkStatus(message, error = false)",
+    )
+    result = _run_node(helpers + """
+const linked = {root: '/workspace/project///', path: 'notebooks/analysis.ipynb'};
+process.stdout.write(JSON.stringify({
+  same: _termLinkedFileMatches(linked, '/workspace/project', 'notebooks/analysis.ipynb'),
+  differentFile: _termLinkedFileMatches(linked, '/workspace/project', 'notebooks/other.ipynb'),
+  differentRoot: _termLinkedFileMatches(linked, '/workspace/other', 'notebooks/analysis.ipynb'),
+  label: _termLinkedFileLabel(linked),
+  basename: _termLinkedFileName(linked.path),
+}));
+""")
+
+    assert result == {
+        "same": True,
+        "differentFile": False,
+        "differentRoot": False,
+        "label": "notebooks/analysis.ipynb",
+        "basename": "analysis.ipynb",
+    }
+
+
+def test_linked_file_sync_is_opt_in_and_reveals_the_terminal_panel() -> None:
+    sync_helper = _js_between(
+        "function _termMaybeSyncForFile(root, path)",
+        "async function _termOpenLinkedFile(session)",
+    )
+    result = _run_node("""
+const classes = new Set(['term-collapsed']);
+const document = {body: {classList: {
+  add(value) { classes.add(value); },
+  remove(value) { classes.delete(value); },
+}}};
+let _linkedTerminalSyncOn = false;
+let _termLinkedNavigation = false;
+let termCurrentSession = 'tmux-linked';
+let termCurrentProjectId = 'demo';
+let termSessions = [{name: 'tmux-linked', linked_file: {root: '/repo', path: 'a.ipynb'}}];
+let attaches = [];
+let remembered = [];
+function _termActiveProjectId() { return 'demo'; }
+function _termLinkedFileMatches(link, root, path) {
+  return link && link.root === root && link.path === path;
+}
+function _termRememberVisibility(key, shown) { remembered.push([key, shown]); }
+function _termVisibilityKey() { return 'demo-key'; }
+function termAttach(name, project) { attaches.push([name, project]); }
+""" + sync_helper + """
+_termMaybeSyncForFile('/repo', 'a.ipynb');
+const whileOff = {classes: [...classes], attaches: [...attaches]};
+_linkedTerminalSyncOn = true;
+_termMaybeSyncForFile('/repo', 'a.ipynb');
+const active = {classes: [...classes], attaches: [...attaches], remembered: [...remembered]};
+termCurrentSession = 'other';
+_termMaybeSyncForFile('/repo', 'a.ipynb');
+process.stdout.write(JSON.stringify({whileOff, active, finalAttaches: attaches}));
+""")
+
+    assert "term-collapsed" in result["whileOff"]["classes"]
+    assert result["whileOff"]["attaches"] == []
+    assert "term-open" in result["active"]["classes"]
+    assert "term-collapsed" not in result["active"]["classes"]
+    assert result["active"]["attaches"] == []
+    assert result["active"]["remembered"] == [["demo-key", True]]
+    assert result["finalAttaches"] == [["tmux-linked", "demo"]]
 
 
 def test_tmux_attach_modal_orders_current_project_unattached_sessions_first() -> None:
