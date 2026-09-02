@@ -1250,7 +1250,12 @@
     if (action === 'open') {
       const row = ctx.row;
       closeExplorerContextMenu();
-      if (row && row.isConnected) row.click();
+      if (ctx.kind === 'file') {
+        if (ctx.surface === 'repo') openProjectFile(ctx.path);
+        else openProjectDoc(ctx.path, {root: ctx.root});
+      } else if (row && row.isConnected) {
+        row.click();
+      }
       return;
     }
     if (action === 'copy-path') {
@@ -2974,7 +2979,7 @@
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
         const safeRoot = String(scopeRoot).replace(/'/g, "\\'");
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openProjectDoc('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openProjectDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
       });
       return nodeHtml;
     };
@@ -3540,7 +3545,7 @@
         else if (status) badge = '<span class="sidebar-badge modified"></span>';
         const cls = projectOpenFile === node.path ? ' active' : '';
         return `<li>
-          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openProjectFile('${node.path.replace(/'/g, "\\'")}')">
+          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openProjectFileFromFileClick('${node.path.replace(/'/g, "\\'")}')">
             ${badge}${symlinkMarker(node)}${fileIconHtml(node.name, node)}${node.name}
           </div>
         </li>`;
@@ -3555,10 +3560,18 @@
     arrow.classList.toggle('collapsed');
   }
 
+  function openProjectFileFromFileClick(filepath) {
+    // Only this explicit Files/Recently Updated entry point may drive the
+    // linked terminal. Generic opens are also used by refresh/restore flows.
+    _termCancelPendingLinkedFileOpen();
+    _termSyncFromFileClick(_activeRepoFileRoot(), filepath);
+    return openProjectFile(filepath);
+  }
+  window.openProjectFileFromFileClick = openProjectFileFromFileClick;
+
   async function openProjectFile(filepath) {
     if (!currentRepo) return;
     const fileRoot = _activeRepoFileRoot();
-    _termMaybeSyncForFile(fileRoot, filepath);
     projectOpenFile = filepath;
     projectEditMode = false;
     const content = document.getElementById('content');
@@ -4147,15 +4160,12 @@
     const disabled = cellCount > 0 ? '' : ' disabled';
     const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
     const codeLabel = codeHidden ? 'Show all code' : 'Hide all code';
-    const codeTitle = codeHidden
-      ? 'Show every code source'
-      : 'Hide code sources and show notebook outputs';
     return `<nav class="nb-jump-controls" aria-label="Notebook controls">
-      <button type="button" data-nb-jump="start" title="Go to the first cell" aria-label="Go to the first cell"${disabled}>↑ <span class="nb-jump-word">Start</span></button>
+      <button type="button" data-nb-jump="start" title="Go to first cell" aria-label="Go to first cell"${disabled}><span aria-hidden="true">↑</span></button>
       <span class="nb-jump-position" aria-live="polite">${label}</span>
-      <button type="button" data-nb-jump="end" title="Go to the last cell" aria-label="Go to the last cell"${disabled}><span class="nb-jump-word">End</span> ↓</button>
-      <button type="button" class="nb-jump-running" data-nb-jump-running title="Go to the running cell" aria-label="Go to the running cell" hidden><span class="nb-jump-running-dot" aria-hidden="true"></span><span class="nb-jump-word">Running</span></button>
-      <button type="button" data-nb-toggle-code title="${codeTitle}" aria-pressed="${codeHidden ? 'true' : 'false'}">${codeLabel}</button>
+      <button type="button" data-nb-jump="end" title="Go to last cell" aria-label="Go to last cell"${disabled}><span aria-hidden="true">↓</span></button>
+      <button type="button" class="nb-jump-running" data-nb-jump-running title="Go to running cell" aria-label="Go to running cell" hidden><span class="nb-jump-running-dot" aria-hidden="true"></span></button>
+      <button type="button" data-nb-toggle-code title="${codeLabel}" aria-label="${codeLabel}" aria-pressed="${codeHidden ? 'true' : 'false'}"><span aria-hidden="true">&lt;/&gt;</span></button>
       ${actionsHtml}
     </nav><div class="nb-jump-controls-spacer" aria-hidden="true"></div>`;
   }
@@ -4198,10 +4208,10 @@
       if (notebook) notebook.classList.toggle('nb-code-hidden', codeHidden);
       if (!codeHidden) _setNotebookCodePeek(notebook, null);
       if (codeToggle) {
-        codeToggle.textContent = codeHidden ? 'Show all code' : 'Hide all code';
-        codeToggle.title = codeHidden
-          ? 'Show every code source'
-          : 'Hide code sources and show notebook outputs';
+        const label = codeHidden ? 'Show all code' : 'Hide all code';
+        codeToggle.innerHTML = '<span aria-hidden="true">&lt;/&gt;</span>';
+        codeToggle.title = label;
+        codeToggle.setAttribute('aria-label', label);
         codeToggle.setAttribute('aria-pressed', codeHidden ? 'true' : 'false');
       }
     }
@@ -5046,19 +5056,30 @@
     return `${String(workspaceId || '')}::${String(relPath || '')}`;
   }
 
+  function _nbRunAllPresentation(state, restartFirst) {
+    if (!state || state.restartFirst !== restartFirst) {
+      return restartFirst
+        ? { label: 'Restart kernel and run all cells', html: '<span aria-hidden="true">↻▶</span>' }
+        : { label: 'Run all cells', html: '<span aria-hidden="true">▶▶</span>' };
+    }
+    if (state.phase === 'restarting') {
+      return { label: 'Restarting kernel', html: '<span aria-hidden="true">↻…</span>' };
+    }
+    const label = `Running cell ${state.current} of ${state.total}`;
+    const icon = restartFirst ? '↻▶' : '▶';
+    return {
+      label,
+      html: `<span aria-hidden="true">${icon}</span><span class="nb-toolbar-progress">${state.current}/${state.total}</span>`,
+    };
+  }
+
   function renderNbRunAllButtons(relPath, workspaceId, codeCellCount, kernelBusy = false) {
     const state = _nbRunAllState.get(_nbRunAllKey(relPath, workspaceId));
     const disabled = state || kernelBusy || codeCellCount < 1 ? ' disabled' : '';
-    const runLabel = state && !state.restartFirst
-      ? `▶ Running ${state.current}/${state.total}…`
-      : '▶ Run all';
-    const restartLabel = state && state.restartFirst
-      ? (state.phase === 'restarting'
-        ? '↻ Restarting…'
-        : `↻ Running ${state.current}/${state.total}…`)
-      : '↻ Restart & run all';
-    return `<button class="nb-run-all" type="button" title="Run every code cell from top to bottom"${disabled}>${runLabel}</button>
-      <button class="nb-restart-run-all" type="button" title="Restart the kernel, then run every code cell from top to bottom"${disabled}>${restartLabel}</button>`;
+    const run = _nbRunAllPresentation(state, false);
+    const restart = _nbRunAllPresentation(state, true);
+    return `<button class="nb-run-all" type="button" title="${run.label}" aria-label="${run.label}"${disabled}>${run.html}</button>
+      <button class="nb-restart-run-all" type="button" title="${restart.label}" aria-label="${restart.label}"${disabled}>${restart.html}</button>`;
   }
 
   function _syncNbRunAllButtons(container, state = null) {
@@ -5069,14 +5090,14 @@
     restartBtn.disabled = !!state;
     const restartOnlyBtn = container.querySelector('.nb-restart-kernel');
     if (restartOnlyBtn) restartOnlyBtn.disabled = !!state;
-    runBtn.textContent = state && !state.restartFirst
-      ? `▶ Running ${state.current}/${state.total}…`
-      : '▶ Run all';
-    restartBtn.textContent = state && state.restartFirst
-      ? (state.phase === 'restarting'
-        ? '↻ Restarting…'
-        : `↻ Running ${state.current}/${state.total}…`)
-      : '↻ Restart & run all';
+    const run = _nbRunAllPresentation(state, false);
+    const restart = _nbRunAllPresentation(state, true);
+    runBtn.innerHTML = run.html;
+    runBtn.title = run.label;
+    runBtn.setAttribute('aria-label', run.label);
+    restartBtn.innerHTML = restart.html;
+    restartBtn.title = restart.label;
+    restartBtn.setAttribute('aria-label', restart.label);
   }
 
   function _nbExecutionError(result) {
@@ -5181,8 +5202,10 @@
     if (!btn) return;
     btn.addEventListener('click', async () => {
       btn.disabled = true;
-      const original = btn.textContent;
-      btn.textContent = '■ Interrupting…';
+      const originalHtml = btn.innerHTML;
+      const originalTitle = btn.title;
+      btn.title = 'Interrupting kernel';
+      btn.setAttribute('aria-label', 'Interrupting kernel');
       try {
         const res = await fetch('/api/nb/session/interrupt', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5192,12 +5215,21 @@
           const data = await res.json().catch(() => ({}));
           throw new Error(data.detail || `interrupt failed (${res.status})`);
         }
-        btn.textContent = '✓ Interrupted';
+        btn.innerHTML = '<span aria-hidden="true">✓</span>';
+        btn.title = 'Kernel interrupted';
+        btn.setAttribute('aria-label', 'Kernel interrupted');
       } catch (err) {
         alert('Kernel interrupt failed: ' + (err.message || err));
-        btn.textContent = original;
+        btn.innerHTML = originalHtml;
+        btn.title = originalTitle;
+        btn.setAttribute('aria-label', originalTitle);
       } finally {
-        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1200);
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.title = originalTitle;
+          btn.setAttribute('aria-label', originalTitle);
+          btn.disabled = false;
+        }, 1200);
       }
     });
   }
@@ -5208,15 +5240,26 @@
     btn.addEventListener('click', async () => {
       if (!confirm('Restart the kernel for this notebook? All variables will be wiped. Cells stay; you re-run them on the new kernel.')) return;
       btn.disabled = true;
-      const originalText = btn.textContent;
-      btn.textContent = '↻ Restarting…';
+      const originalHtml = btn.innerHTML;
+      const originalTitle = btn.title;
+      btn.title = 'Restarting kernel';
+      btn.setAttribute('aria-label', 'Restarting kernel');
       try {
         await _requestNbKernelRestart(relPath, workspaceId);
-        btn.textContent = '✓ Kernel restarted';
-        setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 1500);
+        btn.innerHTML = '<span aria-hidden="true">✓</span>';
+        btn.title = 'Kernel restarted';
+        btn.setAttribute('aria-label', 'Kernel restarted');
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.title = originalTitle;
+          btn.setAttribute('aria-label', originalTitle);
+          btn.disabled = false;
+        }, 1500);
       } catch (err) {
         alert('Kernel restart failed: ' + (err.message || err));
-        btn.textContent = originalText;
+        btn.innerHTML = originalHtml;
+        btn.title = originalTitle;
+        btn.setAttribute('aria-label', originalTitle);
         btn.disabled = false;
       }
     });
@@ -6746,15 +6789,16 @@
         const sessionBadge = session
           ? `<span title="Dedicated kernel session pinned to this .ipynb file path; another notebook gets another kernel" class="nb-kernel-badge">${kernelLabel} · ${esc(session)}</span>`
           : '';
-        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" title="Configure this project's Python, libraries, CLI paths and environment">⚙ Runtime: ${esc(runtime.status || 'legacy')}</button>`;
+        const runtimeLabel = `Runtime: ${runtime.status || 'legacy'}`;
+        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" title="${escAttr(runtimeLabel)}" aria-label="${escAttr(runtimeLabel)}"><span aria-hidden="true">⚙</span></button>`;
         const notebookRunAllActive = _nbRunAllState.has(
           _nbRunAllKey(relPath, notebookWorkspace.workspaceId),
         );
         const restartBtnHtml = session
-          ? `<button class="nb-restart-kernel" type="button" title="Restart kernel (wipes variables, like Jupyter's Restart Kernel)"${notebookRunAllActive ? ' disabled' : ''}>↻ Restart kernel</button>`
+          ? `<button class="nb-restart-kernel" type="button" title="Restart kernel" aria-label="Restart kernel"${notebookRunAllActive ? ' disabled' : ''}><span aria-hidden="true">↻</span></button>`
           : '';
         const interruptBtnHtml = provider === 'local'
-          ? `<button class="nb-interrupt-kernel" type="button" title="Interrupt the currently running cell">■ Interrupt</button>`
+          ? `<button class="nb-interrupt-kernel" type="button" title="Interrupt kernel" aria-label="Interrupt kernel"><span aria-hidden="true">■</span></button>`
           : '';
         const runAllButtonsHtml = renderNbRunAllButtons(
           relPath,
@@ -6958,6 +7002,15 @@
     }
   }
 
+  function openProjectDocFromFileClick(filepath, {root = null} = {}) {
+    if (!currentProject) return;
+    const docRoot = root || currentProject.path;
+    _termCancelPendingLinkedFileOpen();
+    _termSyncFromFileClick(docRoot, filepath);
+    return openProjectDoc(filepath, {root});
+  }
+  window.openProjectDocFromFileClick = openProjectDocFromFileClick;
+
   async function openProjectDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentProject) return;
     _clearNbNavigation();
@@ -6970,7 +7023,6 @@
       return openProjectProxy(name);
     }
     const docRoot = root || (preserveScroll && _projDocRoot) || currentProject.path;
-    _termMaybeSyncForFile(docRoot, filepath);
     _projDocRoot = docRoot;
     _contextSubView = 'document';
     _projDocPath = filepath;
@@ -8498,7 +8550,7 @@
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
             const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openProjectDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
@@ -14487,7 +14539,7 @@
       } else if (hasUnseen) {
         dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openProjectDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }

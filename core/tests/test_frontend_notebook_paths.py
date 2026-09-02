@@ -400,10 +400,18 @@ process.stdout.write(JSON.stringify({
     assert "notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot" in source
     assert "running || _resolveNotebookPosition" not in source
     assert "jump(_notebookRunningCell(notebook), 'start')" in source
+    assert '<span aria-hidden="true">&lt;/&gt;</span>' in source
+    assert 'class="nb-jump-word"' not in source
     assert ".nb-jump-controls" in css
     assert "position:fixed" in css
-    assert "top:var(--nb-jump-top, 102px)" in css
-    assert "right:24px" in css
+    assert "top:var(--nb-jump-top, 88px)" in css
+    assert "left:max(var(--sidebar-width), 150px); right:0" in css
+    assert "width:auto; max-width:none" in css
+    assert "border-radius:0" in css
+    assert "box-shadow:none" in css
+    assert "body.sidebar-collapsed .nb-jump-controls { left:0; }" in css
+    assert "right:var(--term-width)" in css
+    assert "right:24px" not in css
     assert ".nb-jump-controls-spacer" in css
     assert "bottom:22px" not in css
     assert ".nb-container.nb-code-hidden" in css
@@ -412,7 +420,7 @@ process.stdout.write(JSON.stringify({
     assert ":not(.nb-code-peek) > .nb-cell-edit-wrap" in css
     assert ".nb-output-code-toggle { display:inline-flex; }" in css
     assert ".nb-cell-no-outputs" in css
-    assert "scroll-margin-top: calc(var(--nb-jump-top, 102px) + 100px)" in css
+    assert "scroll-margin-top: calc(var(--nb-jump-top, 88px) + 100px)" in css
 
 
 def test_hidden_notebook_code_keeps_pins_plus_one_transient_slot() -> None:
@@ -647,7 +655,8 @@ async function fetch(url, options) {
 }
 function button(name) {
   return {
-    name, disabled: false, textContent: '',
+    name, disabled: false, textContent: '', innerHTML: '', title: '', attrs: {},
+    setAttribute(key, value) { this.attrs[key] = value; },
     addEventListener(event, fn) { listeners[`${name}:${event}`] = fn; },
   };
 }
