@@ -12,6 +12,7 @@ NODE = shutil.which("node")
 ROOT = Path(__file__).resolve().parents[2]
 LAB_APP = ROOT / "core/src/core/static/js/lab-app.js"
 LAB_SHELL_CSS = ROOT / "core/src/core/static/css/lab-shell.css"
+INDEX_HTML = ROOT / "core/src/core/templates/index.html"
 
 
 def _run_node(script: str) -> dict:
@@ -423,6 +424,76 @@ process.stdout.write(JSON.stringify({
     assert "scroll-margin-top: calc(var(--nb-jump-top, 88px) + 100px)" in css
 
 
+def test_notebook_toolbar_tooltip_is_immediate_and_toggle_state_is_visible() -> None:
+    helpers = _js_between(
+        "function _nbToolbarTooltipElement()",
+        "function _renderNbJumpControls(cellCount, codeHidden = false, actionsHtml = '')",
+    )
+    result = _run_node(
+        """
+const attrs = {'data-nb-tooltip': 'Code hidden — show all code'};
+const anchor = {
+  getAttribute(name) { return attrs[name] || null; },
+  setAttribute(name, value) { attrs[name] = value; },
+  removeAttribute(name) { delete attrs[name]; },
+  getBoundingClientRect() {
+    return {left: 100, right: 142, top: 125, bottom: 165, width: 42, height: 40};
+  },
+};
+const tooltip = {
+  hidden: true, textContent: '', style: {}, _nbAnchor: null,
+  getBoundingClientRect() { return {width: 180, height: 28}; },
+};
+const document = {getElementById(id) {
+  return id === 'nbToolbarTooltip' ? tooltip : null;
+}};
+const window = {innerWidth: 900, innerHeight: 700};
+"""
+        + helpers
+        + """
+_nbShowToolbarTooltip(anchor);
+const shown = {
+  hidden: tooltip.hidden,
+  textContent: tooltip.textContent,
+  style: tooltip.style,
+  describedBy: attrs['aria-describedby'],
+};
+_nbHideToolbarTooltip();
+process.stdout.write(JSON.stringify({
+  shown,
+  hiddenAfterLeave: tooltip.hidden,
+  textAfterLeave: tooltip.textContent,
+  describedByAfterLeave: attrs['aria-describedby'] || null,
+}));
+"""
+    )
+
+    assert result["shown"] == {
+        "hidden": False,
+        "textContent": "Code hidden — show all code",
+        "style": {"left": "31px", "top": "171px"},
+        "describedBy": "nbToolbarTooltip",
+    }
+    assert result["hiddenAfterLeave"] is True
+    assert result["textAfterLeave"] == ""
+    assert result["describedByAfterLeave"] is None
+
+    source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    toolbar = _js_between(
+        "function _renderNbJumpControls(cellCount, codeHidden = false, actionsHtml = '')",
+        "let _nbNavigationCleanup = null",
+    )
+    assert 'data-nb-tooltip="Go to first cell"' in toolbar
+    assert " title=" not in toolbar
+    assert "button.addEventListener('pointerenter'" in source
+    assert "button.addEventListener('focus'" in source
+    assert '[data-nb-toggle-code][aria-pressed="true"]' in css
+    assert "box-shadow:inset 0 -2px 0 #58a6ff" in css
+    assert 'id="nbToolbarTooltip" role="tooltip" hidden' in html
+
+
 def test_hidden_notebook_code_keeps_pins_plus_one_transient_slot() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
@@ -645,6 +716,10 @@ const localStorage = {removeItem(key) { removedDrafts.push(key); }};
 function confirm() { return true; }
 function alert(message) { alerts.push(String(message)); }
 async function openProjectDoc(path, options) { opened.push({path, options}); }
+function _nbSetToolbarButtonLabel(button, label) {
+  button.setAttribute('data-nb-tooltip', label);
+  button.setAttribute('aria-label', label);
+}
 function response(data) {
   return {ok: true, status: 200, async json() { return data; }};
 }

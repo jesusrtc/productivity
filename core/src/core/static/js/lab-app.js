@@ -4156,16 +4156,83 @@
       || running[0] || null;
   }
 
+  function _nbToolbarTooltipElement() {
+    return document.getElementById('nbToolbarTooltip');
+  }
+
+  function _nbHideToolbarTooltip() {
+    const tooltip = _nbToolbarTooltipElement();
+    if (!tooltip) return;
+    const anchor = tooltip._nbAnchor;
+    if (anchor && anchor.removeAttribute) anchor.removeAttribute('aria-describedby');
+    tooltip._nbAnchor = null;
+    tooltip.hidden = true;
+    tooltip.textContent = '';
+  }
+
+  function _nbShowToolbarTooltip(anchor) {
+    const tooltip = _nbToolbarTooltipElement();
+    const label = anchor && anchor.getAttribute('data-nb-tooltip');
+    if (!tooltip || !label) {
+      _nbHideToolbarTooltip();
+      return;
+    }
+    if (tooltip._nbAnchor && tooltip._nbAnchor !== anchor) {
+      tooltip._nbAnchor.removeAttribute('aria-describedby');
+    }
+    // Native `title` tooltips wait for a dwell timer. Render this fixed
+    // tooltip synchronously so pointer and keyboard users get the label as
+    // soon as they reach an icon, without being clipped by the toolbar.
+    tooltip._nbAnchor = anchor;
+    tooltip.textContent = label;
+    tooltip.hidden = false;
+    tooltip.style.left = '0px';
+    tooltip.style.top = '0px';
+    anchor.setAttribute('aria-describedby', 'nbToolbarTooltip');
+    const anchorRect = anchor.getBoundingClientRect();
+    const tipRect = tooltip.getBoundingClientRect();
+    const gap = 6;
+    const centered = ((anchorRect.left + anchorRect.right) / 2) - (tipRect.width / 2);
+    const left = Math.max(gap, Math.min(centered, window.innerWidth - tipRect.width - gap));
+    let top = anchorRect.bottom + gap;
+    if (top + tipRect.height > window.innerHeight - gap) {
+      top = Math.max(gap, anchorRect.top - tipRect.height - gap);
+    }
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function _nbSetToolbarButtonLabel(button, label) {
+    if (!button) return;
+    button.setAttribute('data-nb-tooltip', label);
+    button.setAttribute('aria-label', label);
+    const tooltip = _nbToolbarTooltipElement();
+    if (tooltip && !tooltip.hidden && tooltip._nbAnchor === button) {
+      _nbShowToolbarTooltip(button);
+    }
+  }
+
+  function _bindNbToolbarTooltips(controls) {
+    if (!controls) return;
+    controls.querySelectorAll('button[data-nb-tooltip]').forEach((button) => {
+      button.addEventListener('pointerenter', () => _nbShowToolbarTooltip(button));
+      button.addEventListener('pointerleave', _nbHideToolbarTooltip);
+      button.addEventListener('focus', () => _nbShowToolbarTooltip(button));
+      button.addEventListener('blur', _nbHideToolbarTooltip);
+      button.addEventListener('click', _nbHideToolbarTooltip);
+    });
+  }
+
   function _renderNbJumpControls(cellCount, codeHidden = false, actionsHtml = '') {
     const disabled = cellCount > 0 ? '' : ' disabled';
     const label = cellCount > 0 ? `1 / ${cellCount}` : '0 / 0';
-    const codeLabel = codeHidden ? 'Show all code' : 'Hide all code';
+    const codeLabel = codeHidden ? 'Code hidden — show all code' : 'Code visible — hide all code';
     return `<nav class="nb-jump-controls" aria-label="Notebook controls">
-      <button type="button" data-nb-jump="start" title="Go to first cell" aria-label="Go to first cell"${disabled}><span aria-hidden="true">↑</span></button>
+      <button type="button" data-nb-jump="start" data-nb-tooltip="Go to first cell" aria-label="Go to first cell"${disabled}><span aria-hidden="true">↑</span></button>
       <span class="nb-jump-position" aria-live="polite">${label}</span>
-      <button type="button" data-nb-jump="end" title="Go to last cell" aria-label="Go to last cell"${disabled}><span aria-hidden="true">↓</span></button>
-      <button type="button" class="nb-jump-running" data-nb-jump-running title="Go to running cell" aria-label="Go to running cell" hidden><span class="nb-jump-running-dot" aria-hidden="true"></span></button>
-      <button type="button" data-nb-toggle-code title="${codeLabel}" aria-label="${codeLabel}" aria-pressed="${codeHidden ? 'true' : 'false'}"><span aria-hidden="true">&lt;/&gt;</span></button>
+      <button type="button" data-nb-jump="end" data-nb-tooltip="Go to last cell" aria-label="Go to last cell"${disabled}><span aria-hidden="true">↓</span></button>
+      <button type="button" class="nb-jump-running" data-nb-jump-running data-nb-tooltip="Go to running cell" aria-label="Go to running cell" hidden><span class="nb-jump-running-dot" aria-hidden="true"></span></button>
+      <button type="button" data-nb-toggle-code data-nb-tooltip="${codeLabel}" aria-label="${codeLabel}" aria-pressed="${codeHidden ? 'true' : 'false'}"><span aria-hidden="true">&lt;/&gt;</span></button>
       ${actionsHtml}
     </nav><div class="nb-jump-controls-spacer" aria-hidden="true"></div>`;
   }
@@ -4174,6 +4241,7 @@
   let _nbNavigationRefreshRunning = null;
   function _clearNbNavigation() {
     if (_nbNavigationCleanup) _nbNavigationCleanup();
+    _nbHideToolbarTooltip();
     _nbNavigationCleanup = null;
     _nbNavigationRefreshRunning = null;
   }
@@ -4208,10 +4276,9 @@
       if (notebook) notebook.classList.toggle('nb-code-hidden', codeHidden);
       if (!codeHidden) _setNotebookCodePeek(notebook, null);
       if (codeToggle) {
-        const label = codeHidden ? 'Show all code' : 'Hide all code';
+        const label = codeHidden ? 'Code hidden — show all code' : 'Code visible — hide all code';
         codeToggle.innerHTML = '<span aria-hidden="true">&lt;/&gt;</span>';
-        codeToggle.title = label;
-        codeToggle.setAttribute('aria-label', label);
+        _nbSetToolbarButtonLabel(codeToggle, label);
         codeToggle.setAttribute('aria-pressed', codeHidden ? 'true' : 'false');
       }
     }
@@ -4243,12 +4310,12 @@
       if (!running) return;
       const idx = cells.indexOf(running);
       const suffix = idx >= 0 ? ` ${idx + 1} of ${cells.length}` : '';
-      runningButton.title = `Go to running cell${suffix}`;
-      runningButton.setAttribute('aria-label', `Go to running cell${suffix}`);
+      _nbSetToolbarButtonLabel(runningButton, `Go to running cell${suffix}`);
     }
 
     applyCodeHidden(codeHidden);
     refreshRunningControl();
+    _bindNbToolbarTooltips(controls);
     _nbNavigationRefreshRunning = refreshRunningControl;
     if (controls) {
       const start = controls.querySelector('[data-nb-jump="start"]');
@@ -5078,8 +5145,8 @@
     const disabled = state || kernelBusy || codeCellCount < 1 ? ' disabled' : '';
     const run = _nbRunAllPresentation(state, false);
     const restart = _nbRunAllPresentation(state, true);
-    return `<button class="nb-run-all" type="button" title="${run.label}" aria-label="${run.label}"${disabled}>${run.html}</button>
-      <button class="nb-restart-run-all" type="button" title="${restart.label}" aria-label="${restart.label}"${disabled}>${restart.html}</button>`;
+    return `<button class="nb-run-all" type="button" data-nb-tooltip="${run.label}" aria-label="${run.label}"${disabled}>${run.html}</button>
+      <button class="nb-restart-run-all" type="button" data-nb-tooltip="${restart.label}" aria-label="${restart.label}"${disabled}>${restart.html}</button>`;
   }
 
   function _syncNbRunAllButtons(container, state = null) {
@@ -5093,11 +5160,9 @@
     const run = _nbRunAllPresentation(state, false);
     const restart = _nbRunAllPresentation(state, true);
     runBtn.innerHTML = run.html;
-    runBtn.title = run.label;
-    runBtn.setAttribute('aria-label', run.label);
+    _nbSetToolbarButtonLabel(runBtn, run.label);
     restartBtn.innerHTML = restart.html;
-    restartBtn.title = restart.label;
-    restartBtn.setAttribute('aria-label', restart.label);
+    _nbSetToolbarButtonLabel(restartBtn, restart.label);
   }
 
   function _nbExecutionError(result) {
@@ -5203,9 +5268,8 @@
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       const originalHtml = btn.innerHTML;
-      const originalTitle = btn.title;
-      btn.title = 'Interrupting kernel';
-      btn.setAttribute('aria-label', 'Interrupting kernel');
+      const originalLabel = btn.getAttribute('data-nb-tooltip') || 'Interrupt kernel';
+      _nbSetToolbarButtonLabel(btn, 'Interrupting kernel');
       try {
         const res = await fetch('/api/nb/session/interrupt', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -5216,18 +5280,15 @@
           throw new Error(data.detail || `interrupt failed (${res.status})`);
         }
         btn.innerHTML = '<span aria-hidden="true">✓</span>';
-        btn.title = 'Kernel interrupted';
-        btn.setAttribute('aria-label', 'Kernel interrupted');
+        _nbSetToolbarButtonLabel(btn, 'Kernel interrupted');
       } catch (err) {
         alert('Kernel interrupt failed: ' + (err.message || err));
         btn.innerHTML = originalHtml;
-        btn.title = originalTitle;
-        btn.setAttribute('aria-label', originalTitle);
+        _nbSetToolbarButtonLabel(btn, originalLabel);
       } finally {
         setTimeout(() => {
           btn.innerHTML = originalHtml;
-          btn.title = originalTitle;
-          btn.setAttribute('aria-label', originalTitle);
+          _nbSetToolbarButtonLabel(btn, originalLabel);
           btn.disabled = false;
         }, 1200);
       }
@@ -5241,25 +5302,21 @@
       if (!confirm('Restart the kernel for this notebook? All variables will be wiped. Cells stay; you re-run them on the new kernel.')) return;
       btn.disabled = true;
       const originalHtml = btn.innerHTML;
-      const originalTitle = btn.title;
-      btn.title = 'Restarting kernel';
-      btn.setAttribute('aria-label', 'Restarting kernel');
+      const originalLabel = btn.getAttribute('data-nb-tooltip') || 'Restart kernel';
+      _nbSetToolbarButtonLabel(btn, 'Restarting kernel');
       try {
         await _requestNbKernelRestart(relPath, workspaceId);
         btn.innerHTML = '<span aria-hidden="true">✓</span>';
-        btn.title = 'Kernel restarted';
-        btn.setAttribute('aria-label', 'Kernel restarted');
+        _nbSetToolbarButtonLabel(btn, 'Kernel restarted');
         setTimeout(() => {
           btn.innerHTML = originalHtml;
-          btn.title = originalTitle;
-          btn.setAttribute('aria-label', originalTitle);
+          _nbSetToolbarButtonLabel(btn, originalLabel);
           btn.disabled = false;
         }, 1500);
       } catch (err) {
         alert('Kernel restart failed: ' + (err.message || err));
         btn.innerHTML = originalHtml;
-        btn.title = originalTitle;
-        btn.setAttribute('aria-label', originalTitle);
+        _nbSetToolbarButtonLabel(btn, originalLabel);
         btn.disabled = false;
       }
     });
@@ -6791,15 +6848,15 @@
           ? `<span title="Dedicated kernel session pinned to this .ipynb file path; another notebook gets another kernel" class="nb-kernel-badge">${kernelLabel} · ${esc(session)}</span>`
           : '';
         const runtimeLabel = `Runtime: ${runtime.status || 'legacy'}`;
-        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" title="${escAttr(runtimeLabel)}" aria-label="${escAttr(runtimeLabel)}"><span aria-hidden="true">⚙</span></button>`;
+        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" data-nb-tooltip="${escAttr(runtimeLabel)}" aria-label="${escAttr(runtimeLabel)}"><span aria-hidden="true">⚙</span></button>`;
         const notebookRunAllActive = _nbRunAllState.has(
           _nbRunAllKey(relPath, notebookWorkspace.workspaceId),
         );
         const restartBtnHtml = session
-          ? `<button class="nb-restart-kernel" type="button" title="Restart kernel" aria-label="Restart kernel"${notebookRunAllActive ? ' disabled' : ''}><span aria-hidden="true">↻</span></button>`
+          ? `<button class="nb-restart-kernel" type="button" data-nb-tooltip="Restart kernel" aria-label="Restart kernel"${notebookRunAllActive ? ' disabled' : ''}><span aria-hidden="true">↻</span></button>`
           : '';
         const interruptBtnHtml = provider === 'local'
-          ? `<button class="nb-interrupt-kernel" type="button" title="Interrupt kernel" aria-label="Interrupt kernel"><span aria-hidden="true">■</span></button>`
+          ? `<button class="nb-interrupt-kernel" type="button" data-nb-tooltip="Interrupt kernel" aria-label="Interrupt kernel"><span aria-hidden="true">■</span></button>`
           : '';
         const runAllButtonsHtml = renderNbRunAllButtons(
           relPath,
