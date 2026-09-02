@@ -65,4 +65,5 @@
 - [Existing tmux attachment uses a grouped alias](lab-terminal-attach-uses-grouped-alias.md) — + New imports by session name without nesting; closing the Lab alias leaves the original session running
 - [Terminal attach picker groups live sessions](terminal-attach-picker-groups-sessions.md) — modal groups by project/client state, pins current-project unattached sessions first, and captures the target scope
 - [Linked file terminals separate links from sync](linked-file-terminals-separate-links-from-sync.md) — secondary-click creates durable file/session links; the browser-local Sync linked switch alone controls bidirectional navigation
+- [Files section exposes file creation](files-section-exposes-create-action.md) — every Files header has a visible ＋ File action at its current root; secondary-click still creates within specific folders
 - [Sidebar sections sort independently](sidebar-section-sort-modes-are-independent.md) — Recently updated and Files persist separate Updated/Name/Type sort modes; keep folders first and make narrow controls readable

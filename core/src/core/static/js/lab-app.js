@@ -1135,11 +1135,28 @@
     return _workspaceRelativeNotebookPathOrNull(root, '__lab_notebook_probe__.ipynb') !== null;
   }
 
-  function _sidebarFilesTitle(root) {
-    const create = _canCreateExecutableNotebook(root)
+  function openNewFileAtRoot(root, surface = 'project') {
+    const fileRoot = String(root || '').trim();
+    if (!fileRoot) {
+      explorerToast('No file root is available.', true);
+      return;
+    }
+    openExplorerEntryDialog('create-file', {
+      kind: 'folder',
+      path: '',
+      root: fileRoot,
+      surface: surface === 'repo' ? 'repo' : 'project',
+    });
+  }
+  window.openNewFileAtRoot = openNewFileAtRoot;
+
+  function _sidebarFilesTitle(root, surface = 'project') {
+    const safeSurface = surface === 'repo' ? 'repo' : 'project';
+    const createFile = `<button class="sidebar-title-action" type="button" data-new-file-root="${escAttr(root || '')}" data-new-file-surface="${safeSurface}" onclick="event.stopPropagation();openNewFileAtRoot(this.dataset.newFileRoot,this.dataset.newFileSurface)" title="Create a file at this Files root">＋ File</button>`;
+    const createNotebook = _canCreateExecutableNotebook(root)
       ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
       : '';
-    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${create}</span></div>`;
+    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div>`;
   }
 
   function _explorerContextFromRow(row) {
@@ -3493,8 +3510,7 @@
       symlinkLegendHtml() +
       _sidebarWorktreeScopeStartHtml(baseRoot) +
       _sidebarRecentSectionHtml(recentFiles, projectOpenFile, fileRoot, {resolved: true}) +
-      '<div class="sidebar-create"><button onclick="openCreateModal()">+ New File</button></div>' +
-      _sidebarFilesTitle(fileRoot) +
+      _sidebarFilesTitle(fileRoot, 'repo') +
       '<ul class="tree-node">' + renderTreeNodes(sortedFiles, changedFiles) + '</ul>' +
       _sidebarWorktreeScopeEndHtml(baseRoot);
   }

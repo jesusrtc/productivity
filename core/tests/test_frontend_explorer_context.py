@@ -97,6 +97,58 @@ process.stdout.write(JSON.stringify(_notebookFoldersByRoot.get('/repo')));
     assert result == ["", "notebooks", "research", "research/2026"]
 
 
+def test_files_section_has_visible_new_file_action_for_every_file_root() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+
+    assert "function openNewFileAtRoot(root, surface = 'project')" in source
+    assert 'data-new-file-root="${escAttr(root || \'\')}"' in source
+    assert '>＋ File</button>' in source
+    assert "_sidebarFilesTitle(fileRoot, 'repo')" in source
+    assert source.count("_sidebarFilesTitle(fileRoot)") >= 3
+
+    helper = _between(
+        "function openNewFileAtRoot(root, surface = 'project')",
+        "function _sidebarFilesTitle(root, surface = 'project')",
+    )
+    result = _run_node("""
+let opened = null;
+let toast = null;
+const window = {};
+function openExplorerEntryDialog(action, ctx) { opened = {action, ctx}; }
+function explorerToast(message, error) { toast = {message, error}; }
+""" + helper + """
+openNewFileAtRoot('/workspace/repo', 'repo');
+const repo = opened;
+opened = null;
+openNewFileAtRoot('/workspace/project');
+const project = opened;
+openNewFileAtRoot('');
+process.stdout.write(JSON.stringify({repo, project, toast}));
+""")
+
+    assert result == {
+        "repo": {
+            "action": "create-file",
+            "ctx": {
+                "kind": "folder",
+                "path": "",
+                "root": "/workspace/repo",
+                "surface": "repo",
+            },
+        },
+        "project": {
+            "action": "create-file",
+            "ctx": {
+                "kind": "folder",
+                "path": "",
+                "root": "/workspace/project",
+                "surface": "project",
+            },
+        },
+        "toast": {"message": "No file root is available.", "error": True},
+    }
+
+
 def test_explorer_folder_and_active_path_helpers() -> None:
     helpers = _between(
         "function _explorerParentForCreate(ctx)",
