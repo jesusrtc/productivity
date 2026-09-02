@@ -5,9 +5,10 @@ prevent a Mac from sleeping after its lid closes.  This route deliberately
 uses macOS's system setting instead, authenticated through sudo with a password
 stored by the backend in the user's encrypted macOS Keychain.
 
-The privileged helper reads a user-owned deadline file once per second.  That
-keeps renewal cheap (only the deadline changes), survives a Lab server restart,
-and guarantees that the helper restores normal sleep when the deadline expires.
+The privileged helper reads a user-owned deadline file once per second and
+samples macOS thermal pressure.  That keeps renewal cheap (only the deadline
+changes), survives a Lab server restart, and guarantees that the helper
+restores normal sleep when the deadline expires or the Mac starts getting hot.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -36,11 +38,19 @@ _KEYCHAIN_TIMEOUT_S = 15
 _KEYCHAIN_SERVICE = "com.neurona.lab.lid-awake"
 _KEYCHAIN_LABEL = "Lab Lid Awake"
 _SUCCESS_MARKER = "__LAB_LID_AWAKE_STARTED__"
+_THERMAL_JXA = (
+    'ObjC.import("Foundation"); '
+    'Number($.NSProcessInfo.processInfo.thermalState)'
+)
+_THERMAL_POLL_SECONDS = 5
+_THERMAL_FAIR_SAMPLES = 3
+_THERMAL_PROBE_FAILURES = 3
 _LOCK = threading.Lock()
 
 
 class LidAwakeRequest(BaseModel):
-    minutes: Literal[15, 30, 60]
+    minutes: Literal[15, 30, 60] | None = None
+    until: str | None = None
     password: SecretStr | None = None
 
 
@@ -53,6 +63,7 @@ def _is_supported() -> bool:
     return (
         sys.platform == "darwin"
         and Path("/usr/bin/pmset").is_file()
+        and Path("/usr/bin/osascript").is_file()
         and Path("/usr/bin/security").is_file()
         and Path("/usr/bin/script").is_file()
         and Path("/usr/bin/sudo").is_file()
@@ -241,19 +252,93 @@ def _status(*, now: int | None = None) -> dict:
     }
 
 
-def _timer_helper_command(deadline_file: Path) -> str:
-    """Return the fixed command that sudo runs as root."""
+def _deadline_for_request(body: LidAwakeRequest, *, now: int | None = None) -> int:
+    """Resolve either a fixed duration or the next local occurrence of HH:MM."""
+    if (body.minutes is None) == (body.until is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Choose either 15, 30, or 60 minutes, or an until time.",
+        )
+
+    current = int(time.time() if now is None else now)
+    if body.minutes is not None:
+        return current + body.minutes * 60
+
+    until = (body.until or "").strip()
+    try:
+        hour_text, minute_text = until.split(":", maxsplit=1)
+        if len(hour_text) != 2 or len(minute_text) != 2:
+            raise ValueError
+        hour = int(hour_text)
+        minute = int(minute_text)
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            raise ValueError
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Until time must use 24-hour HH:MM format, for example 17:00.",
+        ) from exc
+
+    local_now = datetime.fromtimestamp(current)
+    candidate = local_now.replace(
+        hour=hour, minute=minute, second=0, microsecond=0,
+    )
+    if candidate.timestamp() <= current:
+        candidate += timedelta(days=1)
+    return int(candidate.timestamp())
+
+
+def _timer_watcher_loop(
+    deadline_file: Path,
+    *,
+    thermal_probe: str | None = None,
+    restore_command: str = "/usr/bin/pmset -a disablesleep 0",
+    sleep_command: str = "/bin/sleep 1",
+) -> str:
+    """Build the detached deadline and thermal-pressure watcher."""
     path = shlex.quote(str(deadline_file))
-    loop = (
-        "trap '/usr/bin/pmset -a disablesleep 0' EXIT HUP INT TERM\n"
+    probe = thermal_probe or (
+        "/usr/bin/osascript -l JavaScript "
+        f"-e {shlex.quote(_THERMAL_JXA)} 2>/dev/null"
+    )
+    cleanup = f"/bin/rm -f -- {path}; {restore_command}"
+    return (
+        f"trap {shlex.quote(cleanup)} EXIT HUP INT TERM\n"
+        f"thermal_ticks={_THERMAL_POLL_SECONDS}\n"
+        "fair_samples=0\n"
+        "probe_failures=0\n"
         "while :; do\n"
         f"  deadline=$(/bin/cat {path} 2>/dev/null) || break\n"
         "  case \"$deadline\" in ''|*[!0-9]*) break ;; esac\n"
         "  now=$(/bin/date +%s)\n"
         "  [ \"$deadline\" -gt \"$now\" ] || break\n"
-        "  /bin/sleep 1\n"
+        "  thermal_ticks=$((thermal_ticks + 1))\n"
+        f"  if [ \"$thermal_ticks\" -ge {_THERMAL_POLL_SECONDS} ]; then\n"
+        "    thermal_ticks=0\n"
+        f"    thermal_state=$({probe})\n"
+        "    case \"$thermal_state\" in\n"
+        "      0) fair_samples=0; probe_failures=0 ;;\n"
+        "      1)\n"
+        "        probe_failures=0\n"
+        "        fair_samples=$((fair_samples + 1))\n"
+        f"        [ \"$fair_samples\" -lt {_THERMAL_FAIR_SAMPLES} ] || break\n"
+        "        ;;\n"
+        "      2|3) break ;;\n"
+        "      *)\n"
+        "        fair_samples=0\n"
+        "        probe_failures=$((probe_failures + 1))\n"
+        f"        [ \"$probe_failures\" -lt {_THERMAL_PROBE_FAILURES} ] || break\n"
+        "        ;;\n"
+        "    esac\n"
+        "  fi\n"
+        f"  {sleep_command}\n"
         "done\n"
     )
+
+
+def _timer_helper_command(deadline_file: Path) -> str:
+    """Return the fixed command that sudo runs as root."""
+    loop = _timer_watcher_loop(deadline_file)
     # pmset runs in the foreground, then the small deadline watcher detaches.
     # A fixed marker is printed only after both steps succeed, so the caller
     # does not mistake a sudo or pmset failure for a running timer.
@@ -312,10 +397,12 @@ def start_lid_awake(body: LidAwakeRequest, request: Request) -> dict:
     auth.require_admin(request)
     if not _is_supported():
         raise HTTPException(status_code=501, detail="Lid Awake is available only on macOS.")
-    if body.minutes not in _ALLOWED_MINUTES:  # defense in depth for direct calls
+    if body.minutes is not None and body.minutes not in _ALLOWED_MINUTES:
+        # Defense in depth for direct calls that bypass Pydantic.
         raise HTTPException(status_code=400, detail="Choose 15, 30, or 60 minutes.")
 
     with _LOCK:
+        deadline = _deadline_for_request(body)
         current_status = _status()
         was_active = current_status["active"]
         supplied_password = body.password.get_secret_value() if body.password else None
@@ -334,7 +421,6 @@ def start_lid_awake(body: LidAwakeRequest, request: Request) -> dict:
                 status_code=400,
                 detail={"message": message, "password_saved": False},
             )
-        deadline = int(time.time()) + body.minutes * 60
         try:
             _write_deadline(deadline)
         except OSError as exc:

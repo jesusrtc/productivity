@@ -5414,6 +5414,7 @@
   const FOCUS_MODE_KEY = 'labFocusMode';
   const KEEP_ALIVE_KEY = 'labKeepAlive';
   const LID_AWAKE_DURATIONS = [15, 30, 60];
+  const LID_AWAKE_DEFAULT_UNTIL = '17:00';
   const FOCUS_ZOOM_MIN = 0.5;
   const FOCUS_ZOOM_MAX = 3;
   const FOCUS_ZOOM_SENSITIVITY = 0.01;
@@ -5428,6 +5429,7 @@
   let _lidAwakeError = '';
   let _lidAwakePasswordSaved = false;
   let _lidAwakeEditingPassword = false;
+  let _lidAwakeUntilTime = LID_AWAKE_DEFAULT_UNTIL;
 
   function _lidAwakeIsActive() {
     return _lidAwakeDeadlineMs > Date.now();
@@ -5475,6 +5477,15 @@
     const durationButtons = LID_AWAKE_DURATIONS.map(minutes =>
       `<button type="button" role="menuitem" onclick="event.stopPropagation(); setLidAwake(${minutes})"${disabled}>${verb} ${minutes} min</button>`
     ).join('');
+    const untilVerb = active ? 'Renew' : 'Start';
+    const untilControl = `
+      <div class="lid-awake-until">
+        <label for="lidAwakeUntilTime">Until
+          <input id="lidAwakeUntilTime" type="time" step="60" value="${escAttr(_lidAwakeUntilTime)}" oninput="updateLidAwakeUntilTime(this.value)"${disabled}>
+        </label>
+        <button type="button" role="menuitem" class="lid-awake-until-button" onclick="event.stopPropagation(); setLidAwakeUntil()"${disabled}>${untilVerb} until ${esc(_lidAwakeUntilTime || 'time')}</button>
+        <span>Past times mean tomorrow.</span>
+      </div>`;
     const current = active
       ? `<div class="lid-awake-current"><span class="lid-awake-dot"></span><span id="lidAwakeMenuCountdown">${_formatLidAwakeRemaining(_lidAwakeDeadlineMs - Date.now())} remaining</span></div>`
       : '';
@@ -5498,7 +5509,7 @@
       : (_lidAwakeBusy
         ? `<div class="lid-awake-note">${needsPassword ? 'Checking password…' : 'Using saved password…'}</div>`
         : (active
-          ? '<div class="lid-awake-note">Choose a duration to reset the timer from now.</div>'
+          ? '<div class="lid-awake-note">Choose a duration or an until time to reset the timer.</div>'
           : `<div class="lid-awake-note">${needsPassword
             ? 'After a successful start, the password is encrypted in macOS Keychain—not browser storage.'
             : 'Keeps this Mac running with the lid closed. The browser never receives the saved password.'}</div>`));
@@ -5507,7 +5518,9 @@
       ${current}
       ${authentication}
       <div class="lid-awake-durations">${durationButtons}</div>
+      ${untilControl}
       ${cancel}
+      <div class="lid-awake-safety">Thermal safety is always on.</div>
       ${message}`;
 
     const rect = button.getBoundingClientRect();
@@ -5576,8 +5589,18 @@
   }
   window.editLidAwakePassword = editLidAwakePassword;
 
-  async function setLidAwake(minutes) {
-    if (_lidAwakeBusy || !LID_AWAKE_DURATIONS.includes(Number(minutes))) return;
+  function updateLidAwakeUntilTime(value) {
+    _lidAwakeUntilTime = String(value || '');
+    const button = document.querySelector('.lid-awake-until-button');
+    if (button) {
+      const verb = _lidAwakeIsActive() ? 'Renew' : 'Start';
+      button.textContent = `${verb} until ${_lidAwakeUntilTime || 'time'}`;
+    }
+  }
+  window.updateLidAwakeUntilTime = updateLidAwakeUntilTime;
+
+  async function _startLidAwake(schedule) {
+    if (_lidAwakeBusy) return;
     let password = null;
     if (!_lidAwakeIsActive()
         && (!_lidAwakePasswordSaved || _lidAwakeEditingPassword)) {
@@ -5598,7 +5621,7 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          minutes: Number(minutes),
+          ...schedule,
           ...(password !== null ? {password} : {}),
         }),
       });
@@ -5637,7 +5660,23 @@
       else _renderLidAwakeMenu();
     }
   }
+
+  function setLidAwake(minutes) {
+    const normalized = Number(minutes);
+    if (!LID_AWAKE_DURATIONS.includes(normalized)) return Promise.resolve();
+    return _startLidAwake({minutes: normalized});
+  }
   window.setLidAwake = setLidAwake;
+
+  function setLidAwakeUntil() {
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(_lidAwakeUntilTime)) {
+      _lidAwakeError = 'Choose a valid until time.';
+      _renderLidAwakeMenu();
+      return Promise.resolve();
+    }
+    return _startLidAwake({until: _lidAwakeUntilTime});
+  }
+  window.setLidAwakeUntil = setLidAwakeUntil;
 
   async function forgetLidAwakePassword() {
     if (_lidAwakeBusy || _lidAwakeIsActive()) return;

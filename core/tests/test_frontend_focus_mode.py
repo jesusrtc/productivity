@@ -107,6 +107,7 @@ const document = {
     return Promise.resolve();
   },
   addEventListener(type, fn) { events[type] = fn; },
+  getElementById() { return null; },
   querySelector() { return null; },
 };
 const localStorage = {
@@ -337,6 +338,39 @@ def test_lid_awake_keeps_saved_password_out_of_browser_storage() -> None:
     assert "LID_AWAKE_AUTH_KEY" not in source
     assert "localStorage.setItem(LID_AWAKE" not in source
     assert "localStorage.setItem('password'" not in source
+
+
+def test_lid_awake_offers_thermal_safe_until_time_defaulting_to_1700() -> None:
+    source = _focus_mode_source()
+
+    assert "const LID_AWAKE_DEFAULT_UNTIL = '17:00'" in source
+    assert 'id="lidAwakeUntilTime" type="time"' in source
+    assert "Past times mean tomorrow." in source
+    assert "Thermal safety is always on." in source
+    assert "setLidAwakeUntil" in source
+
+
+def test_lid_awake_until_posts_local_clock_time() -> None:
+    result = _run_node(_harness("""
+let posted = null;
+_lidAwakePasswordSaved = true;
+window.fetch = async (_url, options) => {
+  posted = JSON.parse(options.body);
+  return {
+    ok: true,
+    json: async () => ({
+      supported: true,
+      active: true,
+      deadline: Math.floor(Date.now() / 1000) + 3600,
+      password_saved: true,
+    }),
+  };
+};
+await setLidAwakeUntil();
+process.stdout.write(JSON.stringify(posted));
+"""))
+
+    assert result == {"until": "17:00"}
 
 
 def test_focus_mode_degrades_gracefully_without_browser_apis() -> None:

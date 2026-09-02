@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import subprocess
 import time
+from datetime import datetime, timedelta
 
+import pytest
 from fastapi import HTTPException
 
 from core.routes import power
@@ -83,6 +85,64 @@ def test_lid_awake_rejects_other_durations(client, monkeypatch, tmp_path) -> Non
     assert response.status_code == 422
 
 
+def test_lid_awake_accepts_local_until_time(client, monkeypatch, tmp_path) -> None:
+    deadline_file, starts, _saved = _configure_supported_timer(
+        monkeypatch, tmp_path,
+    )
+    local_now = datetime(2026, 9, 1, 16, 30)
+    now = int(local_now.timestamp())
+    monkeypatch.setattr(power.time, "time", lambda: now)
+
+    response = client.post(
+        "/api/power/lid-awake",
+        json={"until": "17:00", "password": "until-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["remaining_seconds"] == 30 * 60
+    assert int(deadline_file.read_text()) == int(
+        local_now.replace(hour=17, minute=0).timestamp()
+    )
+    assert starts == ["until-secret"]
+
+
+def test_past_until_time_means_next_local_day() -> None:
+    local_now = datetime(2026, 9, 1, 17, 30)
+    body = power.LidAwakeRequest(until="17:00")
+
+    deadline = power._deadline_for_request(
+        body, now=int(local_now.timestamp()),
+    )
+
+    expected = (local_now + timedelta(days=1)).replace(
+        hour=17, minute=0, second=0, microsecond=0,
+    )
+    assert deadline == int(expected.timestamp())
+
+
+def test_lid_awake_requires_one_valid_schedule(
+    client, monkeypatch, tmp_path,
+) -> None:
+    _configure_supported_timer(monkeypatch, tmp_path)
+
+    missing = client.post(
+        "/api/power/lid-awake", json={"password": "secret"},
+    )
+    both = client.post(
+        "/api/power/lid-awake",
+        json={"minutes": 15, "until": "17:00", "password": "secret"},
+    )
+    invalid = client.post(
+        "/api/power/lid-awake",
+        json={"until": "25:90", "password": "secret"},
+    )
+
+    assert missing.status_code == 400
+    assert both.status_code == 400
+    assert invalid.status_code == 400
+    assert "17:00" in invalid.json()["detail"]
+
+
 def test_lid_awake_clears_deadline_and_password_after_auth_failure(
     client, monkeypatch, tmp_path,
 ) -> None:
@@ -133,11 +193,61 @@ def test_privileged_timer_uses_pmset_and_a_deadline_watcher(tmp_path) -> None:
     command = power._timer_helper_command(tmp_path / "deadline with spaces")
     assert command.startswith("/usr/bin/pmset -a disablesleep 1;")
     assert "/usr/bin/pmset -a disablesleep 0" in command
+    assert "/usr/bin/osascript -l JavaScript" in command
+    assert "NSProcessInfo.processInfo.thermalState" in command
+    assert "fair_samples" in command
+    assert "probe_failures" in command
+    assert "/bin/rm -f --" in command
     assert "/bin/cat" in command
     assert "/bin/sleep 1" in command
     assert "/usr/bin/nohup /bin/sh -c" in command
     assert power._SUCCESS_MARKER in command
     assert subprocess.run(["/bin/sh", "-n", "-c", command]).returncode == 0
+
+
+def test_thermal_watcher_turns_lid_awake_off_after_sustained_warmth(
+    tmp_path,
+) -> None:
+    deadline_file = tmp_path / "deadline"
+    restored_file = tmp_path / "restored"
+    deadline_file.write_text(f"{int(time.time()) + 60}\n")
+    loop = power._timer_watcher_loop(
+        deadline_file,
+        thermal_probe="/usr/bin/printf 1",
+        restore_command=f"/usr/bin/touch {restored_file}",
+        sleep_command=":",
+    )
+
+    proc = subprocess.run(
+        ["/bin/sh", "-c", loop], capture_output=True, text=True, timeout=2,
+    )
+
+    assert proc.returncode == 0
+    assert restored_file.exists()
+    assert not deadline_file.exists()
+
+
+@pytest.mark.parametrize("thermal_output", ["2", "unavailable"])
+def test_thermal_watcher_fails_closed_for_heat_or_unreadable_sensor(
+    tmp_path, thermal_output,
+) -> None:
+    deadline_file = tmp_path / f"deadline-{thermal_output}"
+    restored_file = tmp_path / f"restored-{thermal_output}"
+    deadline_file.write_text(f"{int(time.time()) + 60}\n")
+    loop = power._timer_watcher_loop(
+        deadline_file,
+        thermal_probe=f"/usr/bin/printf {thermal_output}",
+        restore_command=f"/usr/bin/touch {restored_file}",
+        sleep_command=":",
+    )
+
+    proc = subprocess.run(
+        ["/bin/sh", "-c", loop], capture_output=True, text=True, timeout=2,
+    )
+
+    assert proc.returncode == 0
+    assert restored_file.exists()
+    assert not deadline_file.exists()
 
 
 def test_privileged_timer_passes_password_only_through_stdin(monkeypatch, tmp_path) -> None:
