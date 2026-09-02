@@ -55,6 +55,7 @@
 - [Built-in Jupyter tab needs no server config](built-in-jupyter-tab-needs-no-server-config.md) — every project gets a first-class Jupyter tab backed by Lab's shared notebook runtime; never self-proxy Lab's port through `servers.json`
 - [Live notebook agent/human contract](live-notebook-agent-human-contract.md) — agent cell edits and Jupyter outputs are visible live; humans share the kernel and can edit, rerun, and interrupt
 - [Notebook reruns hide stale output before scrolling](notebook-reruns-hide-stale-output-before-scrolling.md) — on idle→running, hide the prior rich output immediately and focus the code/header; centering a tall stale chart makes live execution look already finished
+- [Notebook hide-code uses fixed pin slots](notebook-hide-code-pin-slots.md) — pinned and running code stays visible; pins are fixed slots plus one accordion-style transient cell
 - [Notebook reading position uses stable cell IDs](notebook-reading-position-navigation.md) — restore large notebooks to the last-read stable cell, with workspace-scoped storage, index fallback, running-cell priority, and floating Start/End controls
 - [Notebook tabs follow their owning workspace](notebook-tabs-follow-owning-workspace.md) — cross-workspace notebook paths, APIs, replay state, events, and deep links must use the project tab's workspace identity
 - [Live notebook streaming requires Lab's executor](live-notebook-streaming-requires-lab-executor.md) — raw Jupyter execution bypasses actor/timer/output events; agents must use `lab notebook exec`

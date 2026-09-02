@@ -3747,6 +3747,10 @@
     return `<button class="nb-output-code-toggle" type="button" data-nb-peek-code aria-expanded="false" title="Show the code that produced this output">Show code</button>`;
   }
 
+  function _renderNbPinCodeButton() {
+    return `<button class="nb-code-pin" type="button" data-nb-pin-code aria-pressed="false" title="Keep this code visible while code is hidden">Pin code</button>`;
+  }
+
   function renderNotebookCell(cell, status, index = null) {
     const statusCls = status && status !== 'unchanged' ? ` nb-${status}` : '';
     const statusLabel = status && status !== 'unchanged'
@@ -3796,8 +3800,8 @@
     const cellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
     const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
     const cellTypeAttr = ` data-cell-type="${escAttr(String(cell.cell_type || 'cell'))}"`;
-    const codePeekHeader = cell.cell_type === 'code' && outputsHtml
-      ? `<div class="nb-cell-actions nb-code-peek-header-actions">${_renderNbPeekCodeButton()}</div>`
+    const codePeekHeader = cell.cell_type === 'code'
+      ? `<div class="nb-cell-actions nb-code-peek-header-actions">${_renderNbPinCodeButton()}${outputsHtml ? _renderNbPeekCodeButton() : ''}</div>`
       : '';
     return `<div class="nb-cell${statusCls}${outputStateCls}"${indexAttr}${cellIdAttr}${cellTypeAttr}>
       <div class="nb-cell-header">
@@ -3996,6 +4000,57 @@
     catch (_) {}
   }
 
+  function _notebookPinnedCodeKey(scope, path) {
+    return 'nb-pinned-code:' + String(scope || '') + '|' + String(path || '');
+  }
+  function _readNotebookPinnedCode(scope, path) {
+    try {
+      const raw = localStorage.getItem(_notebookPinnedCodeKey(scope, path));
+      const saved = raw ? JSON.parse(raw) : [];
+      return Array.isArray(saved)
+        ? saved.filter(key => typeof key === 'string' && key.length > 0)
+        : [];
+    } catch (_) { return []; }
+  }
+  function _notebookCellPinKey(cell) {
+    if (!cell) return '';
+    const cellId = cell.getAttribute('data-cell-id');
+    if (cellId) return 'id:' + cellId;
+    const index = cell.getAttribute('data-cell-index');
+    return index != null && index !== '' && index !== 'new' ? 'index:' + index : '';
+  }
+  function _setNotebookCodePinned(scope, path, cell, pinned) {
+    const key = _notebookCellPinKey(cell);
+    if (!key) return false;
+    const saved = new Set(_readNotebookPinnedCode(scope, path));
+    if (pinned) saved.add(key);
+    else saved.delete(key);
+    try {
+      const storageKey = _notebookPinnedCodeKey(scope, path);
+      if (saved.size) localStorage.setItem(storageKey, JSON.stringify(Array.from(saved)));
+      else localStorage.removeItem(storageKey);
+    } catch (_) {}
+    return saved.has(key);
+  }
+  function _syncNotebookCodePinCell(cell, pinned) {
+    if (!cell) return;
+    cell.classList.toggle('nb-code-pinned', !!pinned);
+    cell.querySelectorAll('[data-nb-pin-code]').forEach((button) => {
+      button.textContent = pinned ? 'Unpin code' : 'Pin code';
+      button.title = pinned
+        ? 'Remove this fixed code slot'
+        : 'Keep this code visible while code is hidden';
+      button.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+    });
+  }
+  function _applyNotebookCodePins(notebook, scope, path) {
+    if (!notebook) return;
+    const saved = new Set(_readNotebookPinnedCode(scope, path));
+    notebook.querySelectorAll('.nb-cell[data-cell-type="code"]').forEach((cell) => {
+      _syncNotebookCodePinCell(cell, saved.has(_notebookCellPinKey(cell)));
+    });
+  }
+
   function _setNotebookCodePeek(notebook, target) {
     if (!notebook) return null;
     const wasOpen = !!(target && target.classList.contains('nb-code-peek'));
@@ -4100,6 +4155,8 @@
     const runningButton = controls && controls.querySelector('[data-nb-jump-running]');
     let codeHidden = _isNotebookCodeHidden(scope, path);
 
+    _applyNotebookCodePins(notebook, scope, path);
+
     let frame = null;
     let active = true;
     function navigableCells() {
@@ -4109,6 +4166,7 @@
         || cell.classList.contains('nb-cell-has-outputs')
         || cell.classList.contains('nb-cell-pending')
         || cell.classList.contains('nb-cell-running')
+        || cell.classList.contains('nb-code-pinned')
       ));
       return visible.length ? visible : cells;
     }
@@ -4189,6 +4247,26 @@
       });
     }
     if (notebook) {
+      notebook.querySelectorAll('[data-nb-pin-code]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const cell = button.closest('.nb-cell[data-cell-type="code"]');
+          if (!cell) return;
+          const wasPeek = cell.classList.contains('nb-code-peek');
+          const pinned = _setNotebookCodePinned(
+            scope, path, cell, !cell.classList.contains('nb-code-pinned'),
+          );
+          _syncNotebookCodePinCell(cell, pinned);
+          // Unpinning a fixed cell turns it into the one transient open slot.
+          // If it was already that slot, keep it open; otherwise replace the
+          // prior transient peek so unpinned cells remain accordion-like.
+          if (!pinned && codeHidden && !wasPeek) {
+            _setNotebookCodePeek(notebook, cell);
+          }
+          record(cell);
+        });
+      });
       notebook.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
         button.addEventListener('click', (event) => {
           event.preventDefault();
@@ -4399,6 +4477,7 @@
         <div class="nb-cell-actions">
           <span class="nb-cell-busy" style="display:none">running…</span>
           <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
+          ${clientPending ? '' : _renderNbPinCodeButton()}
           ${outputsHtml ? _renderNbPeekCodeButton() : ''}
           <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)"${serverBusyAttr}>▶ Run</button>
           <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}"${serverBusyAttr}>✕</button>

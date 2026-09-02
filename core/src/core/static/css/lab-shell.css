@@ -1012,6 +1012,10 @@
     font:11px/1.35 ui-monospace,monospace; cursor:pointer; white-space:nowrap;
   }
   .nb-output-code-toggle:hover { color:var(--accent); border-color:var(--accent); }
+  .nb-code-pin[aria-pressed="true"] {
+    color:#d2a8ff; border-color:rgba(163,113,247,.7);
+    background:rgba(163,113,247,.12);
+  }
   .nb-output-code-actions {
     justify-content:flex-end; padding:4px 12px; border-bottom:1px solid var(--border);
     background:var(--bg-secondary);
@@ -1084,21 +1088,23 @@
   }
   /* Output-only mode keeps markdown and rich results while collapsing code
      sources, cell action headers, empty committed code cells, and inserters.
-     Draft/running cells remain fully visible so active work never vanishes. */
+     Draft/running cells and user-pinned cells remain fully visible. Pins are
+     fixed slots; one additional .nb-code-peek cell is the transient slot. */
   .nb-container.nb-code-hidden .nb-output-code-toggle { display:inline-flex; }
   .nb-container.nb-code-hidden .nb-output-code-actions { display:flex; }
   .nb-container.nb-code-hidden > .nb-cell.nb-cell-pending .nb-output-code-toggle,
   .nb-container.nb-code-hidden > .nb-cell.nb-cell-running .nb-output-code-toggle { display:none; }
+  .nb-container.nb-code-hidden > .nb-cell.nb-code-pinned [data-nb-peek-code] { display:none; }
   .nb-container.nb-code-hidden .nb-cell-del { display:none; }
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-peek) > .nb-cell-header,
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-peek) > .nb-source,
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-peek) > .nb-cell-edit-wrap {
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-cell-header,
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-source,
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-cell-edit-wrap {
     display:none;
   }
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"].nb-cell-no-outputs:not(.nb-cell-pending):not(.nb-cell-running),
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"].nb-cell-no-outputs:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned),
   .nb-container.nb-code-hidden > .nb-cell-inserter { display:none; }
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"] > .nb-outputs { border-top:0; }
-  .nb-container.nb-code-hidden > .nb-cell.nb-code-peek > .nb-outputs { border-top:1px solid var(--border); }
+  .nb-container.nb-code-hidden > .nb-cell:is(.nb-code-pinned, .nb-code-peek) > .nb-outputs { border-top:1px solid var(--border); }
   .nb-runtime-dialog { width:min(860px, calc(100vw - 32px)); max-height:calc(100vh - 40px); padding:0; border:1px solid var(--border); border-radius:10px; background:var(--bg-primary); color:var(--text-primary); box-shadow:0 24px 80px rgba(0,0,0,.55); }
   .nb-runtime-dialog::backdrop { background:rgba(0,0,0,.58); backdrop-filter:blur(2px); }
   .nb-runtime-card { padding:20px; overflow:auto; max-height:calc(100vh - 80px); }

@@ -413,6 +413,116 @@ process.stdout.write(JSON.stringify({
     assert "scroll-margin-top: calc(var(--nb-jump-top, 102px) + 100px)" in css
 
 
+def test_hidden_notebook_code_keeps_pins_plus_one_transient_slot() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    css = LAB_SHELL_CSS.read_text(encoding="utf-8")
+    helpers = _js_between(
+        "function _notebookPinnedCodeKey(scope, path)",
+        "function _notebookCommittedCells(container)",
+    )
+    result = _run_node(
+        """
+const values = new Map();
+const localStorage = {
+  getItem(key) { return values.has(key) ? values.get(key) : null; },
+  setItem(key, value) { values.set(key, String(value)); },
+  removeItem(key) { values.delete(key); },
+};
+"""
+        + helpers
+        + """
+function fakeButton(kind) {
+  const attrs = new Map();
+  return {
+    kind, textContent: kind === 'pin' ? 'Pin code' : 'Show code', title: '',
+    setAttribute(name, value) { attrs.set(name, String(value)); },
+    getAttribute(name) { return attrs.get(name) || null; },
+  };
+}
+function fakeCell(id) {
+  const classes = new Set();
+  const pin = fakeButton('pin');
+  const peek = fakeButton('peek');
+  return {
+    id, pin, peek,
+    getAttribute(name) {
+      if (name === 'data-cell-id') return id;
+      if (name === 'data-cell-index') return id.slice(-1);
+      return null;
+    },
+    classList: {
+      contains(name) { return classes.has(name); },
+      add(name) { classes.add(name); },
+      remove(name) { classes.delete(name); },
+      toggle(name, force) {
+        if (force === undefined ? !classes.has(name) : force) classes.add(name);
+        else classes.delete(name);
+      },
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-nb-pin-code]') return [pin];
+      if (selector === '[data-nb-peek-code]') return [peek];
+      return [];
+    },
+  };
+}
+const first = fakeCell('cell-1');
+const second = fakeCell('cell-2');
+const third = fakeCell('cell-3');
+const fourth = fakeCell('cell-4');
+const cells = [first, second, third, fourth];
+const notebook = {
+  querySelectorAll(selector) {
+    if (selector === '.nb-cell[data-cell-type="code"]') return cells;
+    if (selector === '.nb-cell.nb-code-peek') {
+      return cells.filter(cell => cell.classList.contains('nb-code-peek'));
+    }
+    if (selector === '[data-nb-peek-code]') return cells.map(cell => cell.peek);
+    return [];
+  },
+};
+const scope = 'workspace-a';
+const path = 'projects/demo/large.ipynb';
+_setNotebookCodePinned(scope, path, first, true);
+_setNotebookCodePinned(scope, path, second, true);
+_applyNotebookCodePins(notebook, scope, path);
+_setNotebookCodePeek(notebook, third);
+const afterThird = {
+  third: third.classList.contains('nb-code-peek'),
+  fourth: fourth.classList.contains('nb-code-peek'),
+};
+_setNotebookCodePeek(notebook, fourth);
+process.stdout.write(JSON.stringify({
+  saved: _readNotebookPinnedCode(scope, path),
+  otherScope: _readNotebookPinnedCode('workspace-b', path),
+  pinned: [first, second, third, fourth].map(cell => cell.classList.contains('nb-code-pinned')),
+  afterThird,
+  afterFourth: {
+    third: third.classList.contains('nb-code-peek'),
+    fourth: fourth.classList.contains('nb-code-peek'),
+    label: fourth.peek.textContent,
+  },
+  pinLabels: [first.pin.textContent, second.pin.textContent, third.pin.textContent],
+}));
+"""
+    )
+
+    assert result == {
+        "saved": ["id:cell-1", "id:cell-2"],
+        "otherScope": [],
+        "pinned": [True, True, False, False],
+        "afterThird": {"third": True, "fourth": False},
+        "afterFourth": {"third": False, "fourth": True, "label": "Hide code"},
+        "pinLabels": ["Unpin code", "Unpin code", "Pin code"],
+    }
+    assert "data-nb-pin-code" in source
+    assert "_applyNotebookCodePins(notebook, scope, path)" in source
+    assert "!cell.classList.contains('nb-code-pinned')" in source
+    assert ":not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek)" in css
+    assert ".nb-cell.nb-code-pinned [data-nb-peek-code]" in css
+    assert ".nb-cell:is(.nb-code-pinned, .nb-code-peek) > .nb-outputs" in css
+
+
 def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     open_block = _js_between(
@@ -543,6 +653,9 @@ function _renderNbOutput(output) {
 }
 function _renderNbPeekCodeButton() {
   return '<button data-nb-peek-code>Show code</button>';
+}
+function _renderNbPinCodeButton() {
+  return '<button data-nb-pin-code>Pin code</button>';
 }
 function _isOutputCollapsed() { return false; }
 function _isCellSeen() { return true; }
