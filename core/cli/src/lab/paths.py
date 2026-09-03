@@ -240,9 +240,7 @@ def client_env_value(framework_root: Path, wanted_key: str) -> str | None:
     expanded.  ``LAB_ENV_FILE`` keeps tests and unusual installations able to
     point at a different file.
     """
-    configured_path = os.environ.get("LAB_ENV_FILE")
-    path = (Path(configured_path).expanduser() if configured_path
-            else framework_root.expanduser().resolve() / ".env")
+    path = client_env_file(framework_root)
     if not path.is_file():
         return None
     try:
@@ -263,6 +261,61 @@ def client_env_value(framework_root: Path, wanted_key: str) -> str | None:
             text = text[1:-1]
         return text or None
     return None
+
+
+def client_env_file(framework_root: Path) -> Path:
+    """Return the local client configuration file used by Lab."""
+    configured_path = os.environ.get("LAB_ENV_FILE")
+    return (Path(configured_path).expanduser() if configured_path
+            else framework_root.expanduser().resolve() / ".env")
+
+
+def set_client_env_value(framework_root: Path, key: str, value: str) -> Path:
+    """Persist one literal value in the client checkout's local ``.env``.
+
+    Existing comments, blank lines, and unrelated settings are preserved. A
+    JSON string is valid dotenv syntax for paths and safely quotes whitespace.
+    """
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
+        raise ValueError("client environment key must use uppercase letters, digits, and underscores")
+    path = client_env_file(framework_root)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+        existing_mode = path.stat().st_mode & 0o777 if path.is_file() else None
+    except OSError as exc:
+        raise ValueError(f"could not read client configuration: {exc}") from exc
+    replacement = f"{key}={json.dumps(value)}"
+    updated: list[str] = []
+    replaced = False
+    for raw in lines:
+        candidate = raw.strip()
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        found_key, separator, _found_value = candidate.partition("=")
+        if separator == "=" and found_key.strip() == key:
+            if not replaced:
+                updated.append(replacement)
+                replaced = True
+            continue
+        updated.append(raw)
+    if not replaced:
+        if updated and updated[-1]:
+            updated.append("")
+        updated.append(replacement)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+        if existing_mode is not None:
+            temporary.chmod(existing_mode)
+        temporary.replace(path)
+    except OSError as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValueError(f"could not save client configuration: {exc}") from exc
+    return path
 
 
 def client_env_server_port(framework_root: Path) -> int | None:

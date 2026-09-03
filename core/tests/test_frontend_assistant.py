@@ -56,8 +56,30 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
 
 def test_assistant_repo_tabs_include_tasks_and_meeting_notes() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
+    assert 'data-assistant-section="overview"' in source
     assert 'data-assistant-section="tasks"' in source
     assert 'data-assistant-section="meetings"' in source
     assert "AssistantView.setSection('tasks')" in source
     assert "AssistantView.setSection('meetings')" in source
     assert 'data-assistant-section="tasks-1"' not in source
+
+
+def test_assistant_is_configurable_from_home_admin() -> None:
+    source = LAB_APP.read_text(encoding="utf-8")
+    assert 'class="s-section admin-access-section assistant-config-section"' in source
+    assert 'id="adminAssistantPath"' in source
+    assert "function adminSaveAssistant" in source
+    assert "'/api/assistant/config'" in source
+    assert "ASSISTANT_ROOT = data.root" in source
+
+
+def test_assistant_reuses_project_sidebar_and_has_overview() -> None:
+    app = LAB_APP.read_text(encoding="utf-8")
+    view = ASSISTANT_APP.read_text(encoding="utf-8")
+    assert "_sidebarActivateFileConfig();" in app
+    assert "if (ASSISTANT_ROOT) _refreshProjectSidebar();" in app
+    assert "function assistantSectionShell" in app
+    assert "function renderOverview" in view
+    assert "Recently updated" in view
+    assert "Assistant folder" in view
+    assert "renderSidebar()" not in view

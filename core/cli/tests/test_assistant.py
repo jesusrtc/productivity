@@ -22,6 +22,23 @@ def test_assistant_root_reads_client_env(monkeypatch, tmp_path: Path) -> None:
     assert paths.assistant_root(tmp_path) == Path("/tmp/my assistant").resolve()
 
 
+def test_client_env_value_can_be_updated_without_losing_other_settings(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "client.env"
+    env_file.write_text("# Local settings\nLAB_PORT=8080\nLAB_ASSISTANT_HOME=/old\n", encoding="utf-8")
+    env_file.chmod(0o600)
+    monkeypatch.setenv("LAB_ENV_FILE", str(env_file))
+
+    paths.set_client_env_value(tmp_path, "LAB_ASSISTANT_HOME", "/tmp/my assistant")
+
+    assert env_file.read_text(encoding="utf-8") == (
+        '# Local settings\nLAB_PORT=8080\nLAB_ASSISTANT_HOME="/tmp/my assistant"\n'
+    )
+    assert paths.client_env_value(tmp_path, "LAB_ASSISTANT_HOME") == "/tmp/my assistant"
+    assert env_file.stat().st_mode & 0o777 == 0o600
+
+
 def test_assistant_init_and_task_lifecycle(monkeypatch, tmp_path: Path, monorepo: Path) -> None:
     root = _configure(monkeypatch, tmp_path)
     paths.register_workspace(monorepo, name="Test", workspace_id="test", active=True)

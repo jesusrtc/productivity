@@ -36,6 +36,48 @@ def test_assistant_unconfigured(client, monkeypatch) -> None:
     assert response.json()["configured"] is False
 
 
+def test_assistant_folder_can_be_configured_and_initialized_from_home(
+    client, monkeypatch, tmp_path: Path,
+) -> None:
+    target = tmp_path / "selected-assistant"
+    env_file = tmp_path / "client.env"
+    monkeypatch.delenv("LAB_ASSISTANT_HOME", raising=False)
+    monkeypatch.setenv("LAB_ENV_FILE", str(env_file))
+
+    response = client.put(
+        "/api/assistant/config",
+        json={"path": str(target), "create": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["root"] == str(target.resolve())
+    assert response.json()["initialized"] is True
+    assert (target / "AGENTS.md").is_file()
+    assert (target / "README.md").is_file()
+    assert f'LAB_ASSISTANT_HOME="{target.resolve()}"' in env_file.read_text(encoding="utf-8")
+    assert client.get("/api/assistant").json()["root"] == str(target.resolve())
+    files = client.get("/api/project-files", params={"path": str(target)})
+    assert files.status_code == 200, files.text
+    assert {row["path"] for row in files.json()} >= {"AGENTS.md", "README.md"}
+    created = client.post(
+        "/api/project-entry",
+        json={"path": str(target), "parent": "", "name": "notes.md", "kind": "file"},
+    )
+    assert created.status_code == 200, created.text
+    assert (target / "notes.md").is_file()
+
+
+def test_assistant_folder_rejects_framework_checkout(client, monkeypatch) -> None:
+    monkeypatch.delenv("LAB_ASSISTANT_HOME", raising=False)
+    framework = Path(__file__).resolve().parents[2]
+    response = client.put(
+        "/api/assistant/config",
+        json={"path": str(framework), "create": True},
+    )
+    assert response.status_code == 400
+    assert "outside the Lab framework" in response.json()["detail"]
+
+
 def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo: Path) -> None:
     root, task = _seed(monkeypatch, tmp_path, monorepo)
     metadata, task_body = assistant_db.read_markdown(task)

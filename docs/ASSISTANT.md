@@ -6,13 +6,18 @@ behavior as project tabs. The UI belongs to Lab; the data does not.
 
 ## Configure the database
 
-Set one absolute path in the Lab checkout's untracked `.env`:
+Open **Home → Admin → Assistant**, enter an absolute folder path, and choose
+**Use folder**. Lab creates the folder when needed, initializes its Markdown
+contract, saves the selection in the checkout's untracked `.env`, and starts
+using it immediately.
+
+The equivalent configuration is:
 
 ```dotenv
 LAB_ASSISTANT_HOME=/absolute/path/to/assistant
 ```
 
-Restart Lab after changing it, then initialize the directory:
+When configuring by hand, restart Lab and initialize the directory:
 
 ```bash
 lab assistant init
@@ -100,6 +105,13 @@ task opens a document-browser modal with the main task and each first-class
 subtask in the left rail. Every Markdown heading in the modal has buttons for
 copying that section as Slack-friendly Markdown or Google Docs-friendly rich
 text.
+
+The Assistant tab opens on **Overview**. Like a normal project, it has the
+standard **Recently updated** and **Files** sidebar rooted at the selected
+Assistant folder. Overview summarizes open work, mapped projects, and recently
+changed files; **Tasks** and **Meeting notes** remain dedicated subtabs. Files
+open in Lab's normal Markdown/code/notebook viewer while the Assistant terminal
+stays associated with the global Assistant project.
 
 The first image referenced by a task is also shown in its expanded preview.
 Project-owned images stay in their mapped project and are served only after the

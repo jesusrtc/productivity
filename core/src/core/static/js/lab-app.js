@@ -6316,7 +6316,8 @@
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      const assistantSection = window.AssistantView ? window.AssistantView.section() : 'tasks';
+      const assistantSection = _projDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'overview');
+      html += `<button class="repo-tab${assistantSection === 'overview' ? ' active' : ''}" data-assistant-section="overview" onclick="AssistantView.setSection('overview')" style="font-weight:600">&#x1F4CB; Overview</button>`;
       html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
       html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
     } else if (isSelf) {
@@ -7104,6 +7105,9 @@
     _projDocRoot = docRoot;
     _contextSubView = 'document';
     _projDocPath = filepath;
+    if (document.body.classList.contains('assistant-active')) {
+      window.LAB_ASSISTANT_DOCUMENT_OPEN = true;
+    }
     if (filepath.toLowerCase().endsWith('.ipynb')) {
       setLastProjectNotebook(currentProject.path, filepath);
     }
@@ -8206,6 +8210,10 @@
   }
 
   function showProjectDashboard() {
+    if (document.body.classList.contains('assistant-active') && window.AssistantView) {
+      window.AssistantView.setSection('overview');
+      return;
+    }
     _contextSubView = 'overview';
     currentRepo = null;
     currentRepoInProject = null;
@@ -8420,6 +8428,7 @@
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const projectPath = currentProject.path;
+    const isAssistant = document.body.classList.contains('assistant-active');
     await _sidebarEnsureWorktrees(projectPath);
     const fileRoot = _sidebarScopedRoot(projectPath);
     if (_data && _data.fileRoot !== fileRoot) _data = null;
@@ -8529,8 +8538,9 @@
       // instead of dropping it and waiting for openProjectDoc to re-add it,
       // which made the selection blink.
       const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
-      const dashActive = !activePath ? ' active' : '';
-      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; Dashboard</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'overview')) ? ' active' : '';
+      const dashboardLabel = isAssistant ? 'Overview' : 'Dashboard';
+      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(projectPath);
       sbHtml += _sidebarWorktreePickerHtml(projectPath);
@@ -8670,16 +8680,20 @@
           const activeCls = activePath === f.path ? ' active' : '';
           sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
         });
-      } else {
+      } else if (!isAssistant) {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       }
       // Workspace-declared projections take precedence (migration step 5):
       // each row shows its true origin instead of the vague "(shared)".
       // Workspaces without workspace.json projections keep the legacy rows.
-      const wsProjHtml = _wsProjectionMetaHtml(await loadWorkspaceProjections());
+      const wsProjHtml = isAssistant ? '' : _wsProjectionMetaHtml(await loadWorkspaceProjections());
       let sharedClaudeFid = null;
       let sharedCodeFid = null;
-      if (wsProjHtml) {
+      if (isAssistant) {
+        // The Assistant folder is client-global and self-contained. Do not
+        // append instructions or code from whichever workspace happens to be
+        // active; its own AGENTS.md and files are already in the tree above.
+      } else if (wsProjHtml) {
         sbHtml += wsProjHtml;
       } else {
       // Shared projects/CLAUDE.md — auto-loaded for every project
@@ -9423,7 +9437,7 @@
   const WORKSPACE_ROOT = window.LAB_WORKSPACE_ROOT || '';  // active workspace; may differ from framework root
   const ASSISTANT_PROJECT_ID = '__assistant__';
   const ASSISTANT_WORKSPACE_ID = '__assistant__';
-  const ASSISTANT_ROOT = window.LAB_ASSISTANT_ROOT || '';
+  let ASSISTANT_ROOT = window.LAB_ASSISTANT_ROOT || '';
 
   // Workspace view: one management surface per registered workspace. The
   // selected workspace id travels in the URL and requests; no global switch.
@@ -9681,6 +9695,7 @@
     initAssistant(initialParams.get('task') || '', {
       subview: initialParams.get('subview') || '',
       meeting: initialParams.get('meeting') || '',
+      project: initialParams.get('assistant_project') || '',
     });
   } else if (urlView === 'productivity') {
     initSelf();
@@ -9712,8 +9727,8 @@
     // hitting the server (browser timer throttling made them poll ~1/min
     // forever, including tabs whose project no longer existed).
     if (document.hidden) return;
-    if (document.body.classList.contains('assistant-active')) return;
     if (!currentProject || !currentProject.is_project) return;
+    if (!currentProject.path) return;
     if (currentRepo) return;
     if (_projDocEditing) return;
     const projectPath = currentProject.path;
@@ -9751,6 +9766,7 @@
       if (_lastProjectMtime && mtime > _lastProjectMtime) {
         const isSelf = document.body.classList.contains('self-active');
         const isWorkspaceView = document.body.classList.contains('workspace-active');
+        const isAssistant = document.body.classList.contains('assistant-active');
         if (_projDocPath) {
           // Refresh the doc AND the sidebar — files added/removed in
           // the project (e.g. a new HTML under tmp/) need to appear in
@@ -9769,6 +9785,9 @@
           selfPopulateSidebar();
         } else if (isWorkspaceView) {
           workspacePopulateSidebar();
+        } else if (isAssistant) {
+          _refreshProjectSidebar({preserveScroll: true});
+          if (window.AssistantView) window.AssistantView.refresh();
         } else {
           showProjectInfo({preserveScroll: true});
         }
@@ -13636,7 +13655,9 @@
       return;
     }
     _swapViewState();
-    _contextSubView = 'overview';
+    const section = opts.subview === 'meetings' ? 'meetings'
+      : (opts.subview === 'tasks' || taskPath ? 'tasks' : 'overview');
+    _contextSubView = section;
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.delete('project');
@@ -13646,16 +13667,21 @@
       url.searchParams.delete('tail');
       url.searchParams.delete('workspace');
       url.searchParams.set('view', 'assistant');
-      if (opts.subview === 'meetings') {
+      if (section === 'meetings') {
         url.searchParams.set('subview', 'meetings');
         url.searchParams.delete('task');
         if (opts.meeting) url.searchParams.set('meeting', opts.meeting);
         else url.searchParams.delete('meeting');
-      } else {
-        url.searchParams.delete('subview');
+      } else if (section === 'tasks') {
+        url.searchParams.set('subview', 'tasks');
         url.searchParams.delete('meeting');
         if (taskPath) url.searchParams.set('task', taskPath);
         else url.searchParams.delete('task');
+      } else {
+        url.searchParams.delete('subview');
+        url.searchParams.delete('task');
+        url.searchParams.delete('meeting');
+        url.searchParams.delete('assistant_project');
       }
       history.pushState({nav: 'assistant', task: taskPath, meeting: opts.meeting || ''}, '', url.pathname + url.search + url.hash);
     }
@@ -14673,23 +14699,43 @@
       workspace_id: ASSISTANT_WORKSPACE_ID,
       workspace: ASSISTANT_WORKSPACE_ID,
     };
+    _sidebarActivateFileConfig();
     _projDocPath = null;
-    _contextSubView = 'overview';
+    _projDocRoot = null;
+    window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
+    const section = options.subview === 'meetings' ? 'meetings'
+      : (options.subview === 'tasks' || initialTask ? 'tasks' : 'overview');
+    _contextSubView = section;
     const diffTabs = document.getElementById('diffTabs');
     if (diffTabs) diffTabs.style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
     if (typeof projTabsRender === 'function') projTabsRender();
-    renderRepoTabs();
     if (window.AssistantView) window.AssistantView.init({
-      section: options.subview === 'meetings' ? 'meetings' : 'tasks',
+      section,
       task: initialTask,
       meeting: options.meeting || '',
       project: options.project || '',
     });
+    renderRepoTabs();
+    _sidebarApplyForView();
+    if (ASSISTANT_ROOT) _refreshProjectSidebar();
     afterPageQuiet(() => {
       if (ASSISTANT_ROOT && !UI_CHECK) termOpenForAssistant();
     });
   }
+
+  function assistantSectionShell(section) {
+    if (!document.body.classList.contains('assistant-active')) return;
+    _contextSubView = section === 'overview' ? 'overview' : section;
+    _projDocPath = null;
+    _projDocRoot = null;
+    window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
+    currentRepo = null;
+    renderRepoTabs();
+    _sidebarApplyForView();
+    if (ASSISTANT_ROOT) _refreshProjectSidebar({preserveScroll: true});
+  }
+  window.assistantSectionShell = assistantSectionShell;
 
   // ─── Productivity self-view (file tree sidebar + Lab framework workbench) ───
 
@@ -14978,6 +15024,16 @@
             </form>
             <div class="admin-user-status" id="adminWorkspaceStatus"></div>
           </div>
+          <div class="s-section admin-access-section assistant-config-section">
+            <h2>Assistant</h2>
+            <p class="ws-muted">Choose the one client-global folder that stores Assistant tasks, notes, instructions, and terminal state. It must live outside the Lab framework checkout.</p>
+            <form class="admin-access-toolbar admin-assistant-form" onsubmit="return adminSaveAssistant(event)">
+              <label>Folder<input id="adminAssistantPath" required placeholder="/absolute/path/to/assistant"></label>
+              <button class="refresh-btn" type="submit">Use folder</button>
+              <button class="refresh-btn" id="adminAssistantOpen" type="button" disabled>Open Assistant</button>
+            </form>
+            <div class="admin-user-status" id="adminAssistantStatus">Loading Assistant configuration…</div>
+          </div>
           <div class="s-section" id="dashKpis"></div>
           <div class="s-section" id="dashServers"><h2>Servers</h2><div class="srv-empty">Loading servers…</div></div>
           <div class="s-section" id="dashTerms"><h2>Terminals</h2><div class="term-empty">Loading terminal sessions…</div></div>
@@ -15010,6 +15066,7 @@
     if (!UI_CHECK) dashStartPolling();
     dashPollTick();
     adminLoadAccess();
+    adminLoadAssistant();
     adminRefreshLogs('errors.log');
   }
   window.selfShowAdmin = selfShowAdmin;
@@ -15143,6 +15200,69 @@
     return false;
   }
   window.adminAddWorkspace = adminAddWorkspace;
+
+  function adminAssistantSummary(data) {
+    if (!data || !data.configured) return 'Not configured. Choose a folder to initialize the Assistant database.';
+    if (!data.exists) return 'The configured folder is unavailable. Choose it again or select a new folder.';
+    const open = (data.tasks || []).filter(task => task.status !== 'done').length;
+    return `Using this folder · ${(data.projects || []).length} project${(data.projects || []).length === 1 ? '' : 's'} · ${open} open task${open === 1 ? '' : 's'}`;
+  }
+
+  async function adminLoadAssistant() {
+    const input = document.getElementById('adminAssistantPath');
+    const status = document.getElementById('adminAssistantStatus');
+    const open = document.getElementById('adminAssistantOpen');
+    try {
+      const response = await fetch('/api/assistant');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'Could not load Assistant configuration');
+      if (input) input.value = data.root || '';
+      if (status) status.textContent = adminAssistantSummary(data);
+      if (open) {
+        open.disabled = !data.exists;
+        open.onclick = () => goToAssistant('', {});
+      }
+    } catch (e) {
+      if (status) status.textContent = e.message || String(e);
+    }
+  }
+  window.adminLoadAssistant = adminLoadAssistant;
+
+  async function adminSaveAssistant(event) {
+    if (event) event.preventDefault();
+    const input = document.getElementById('adminAssistantPath');
+    const status = document.getElementById('adminAssistantStatus');
+    const submit = event && event.submitter;
+    const oldRoot = ASSISTANT_ROOT;
+    if (status) status.textContent = 'Initializing Assistant folder…';
+    if (submit) submit.disabled = true;
+    try {
+      const response = await fetch('/api/assistant/config', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: input ? input.value.trim() : '', create: true}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'Could not configure Assistant');
+      ASSISTANT_ROOT = data.root || '';
+      window.LAB_ASSISTANT_ROOT = ASSISTANT_ROOT;
+      if (oldRoot) _projectSidebarCache.delete(oldRoot);
+      if (ASSISTANT_ROOT) _projectSidebarCache.delete(ASSISTANT_ROOT);
+      if (input) input.value = ASSISTANT_ROOT;
+      if (status) status.textContent = adminAssistantSummary(data);
+      const open = document.getElementById('adminAssistantOpen');
+      if (open) {
+        open.disabled = false;
+        open.onclick = () => goToAssistant('', {});
+      }
+    } catch (e) {
+      if (status) status.textContent = e.message || String(e);
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+    return false;
+  }
+  window.adminSaveAssistant = adminSaveAssistant;
 
   function _adminLogLabel(file) {
     return String(file || 'errors.log').replace(/\.log$/i, '');
@@ -16690,7 +16810,12 @@
             if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
             else workspacePopulateSidebar();
           } else if (document.body.classList.contains('assistant-active')) {
-            if (window.AssistantView) window.AssistantView.refresh();
+            if (_projDocPath) {
+              openProjectDoc(_projDocPath, {preserveScroll: true});
+            } else if (window.AssistantView) {
+              window.AssistantView.refresh();
+            }
+            if (ASSISTANT_ROOT) _refreshProjectSidebar({preserveScroll: true});
           } else if (currentProject && currentProject.is_project
                      && !currentRepo && !_projDocEditing) {
             const liveNotebook = _currentOpenNotebookRelPath();

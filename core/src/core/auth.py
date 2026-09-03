@@ -569,6 +569,21 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
             scoped_root = paths.find_framework_root().expanduser().resolve()
         except Exception:
             scoped_root = None
+    # The Assistant database is intentionally outside both the framework and
+    # registered workspaces. Admin-only explorer requests still need the
+    # selected folder as their authorization root so the standard project
+    # sidebar can read and manage its files without opening arbitrary paths.
+    if resource and is_admin(row):
+        try:
+            candidate = Path(resource).expanduser().resolve()
+            assistant = paths.assistant_root()
+            assistant = assistant.expanduser().resolve() if assistant else None
+            if assistant is not None and (
+                candidate == assistant or assistant in candidate.parents
+            ):
+                scoped_root = assistant
+        except (OSError, RuntimeError):
+            pass
     if scoped_root is not None:
         request.state.auth_workspace_root = scoped_root
 

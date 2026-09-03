@@ -3,7 +3,8 @@
 
   const state = {
     data: null,
-    section: 'tasks',
+    files: [],
+    section: 'overview',
     selectedTaskPath: '',
     selectedSubtaskPath: '',
     selectedMeetingPath: '',
@@ -195,8 +196,8 @@
   }
 
   function setSection(section, options = {}) {
-    state.section = section === 'meetings' ? 'meetings' : 'tasks';
-    state.view = isTaskSection() ? 'all_open' : 'meetings';
+    state.section = ['overview', 'tasks', 'meetings'].includes(section) ? section : 'overview';
+    state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
     if (isTaskSection() && !projectRows().some(project => project.id === state.project)) {
@@ -207,21 +208,20 @@
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
-      else {
-        url.searchParams.delete('subview');
+      else if (state.section === 'tasks') {
+        url.searchParams.set('subview', 'tasks');
         if (state.project) url.searchParams.set('assistant_project', state.project);
+      } else {
+        url.searchParams.delete('subview');
+        url.searchParams.delete('assistant_project');
       }
-      url.searchParams.delete(state.section === 'meetings' ? 'task' : 'meeting');
+      if (state.section !== 'tasks') url.searchParams.delete('task');
+      if (state.section !== 'meetings') url.searchParams.delete('meeting');
       history.pushState({nav: 'assistant', subview: state.section}, '', url.pathname + url.search + url.hash);
     }
+    if (window.assistantSectionShell) window.assistantSectionShell(state.section);
     syncSectionTabs();
     render();
-  }
-
-  function renderSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    if (!sidebar) return;
-    sidebar.innerHTML = '';
   }
 
   function progressLabel(done, total, noun = 'subtasks') {
@@ -260,14 +260,86 @@
   function renderSetup(content) {
     const root = state.data && state.data.root;
     const message = !state.data || !state.data.configured
-      ? 'Set LAB_ASSISTANT_HOME in this Lab checkout’s .env, then restart Lab.'
-      : 'Create the configured directory, then run lab assistant init.';
+      ? 'Choose the Assistant folder from Home → Admin.'
+      : 'Open Home → Admin and choose an available Assistant folder.';
     content.innerHTML = `<div class="assistant-setup">
       <span class="assistant-kicker">Global workspace</span>
       <h1>Assistant needs a database</h1>
       <p>${e(message)}</p>
-      ${root ? `<code>${e(root)}</code>` : '<code>LAB_ASSISTANT_HOME=/absolute/path/to/assistant</code>'}
+      ${root ? `<code>${e(root)}</code>` : '<code>Home → Admin → Assistant</code>'}
     </div>`;
+  }
+
+  function openTaskCount() {
+    return countWhere(tasks(), task => task.status !== 'done');
+  }
+
+  function recentFiles() {
+    return [...state.files]
+      .filter(file => file && file.type !== 'dir' && file.path && !file.path.startsWith('.lab/'))
+      .sort((left, right) => Number(right.mtime || 0) - Number(left.mtime || 0))
+      .slice(0, 10);
+  }
+
+  function updatedLabel(seconds) {
+    const time = Number(seconds || 0) * 1000;
+    if (!Number.isFinite(time) || time <= 0) return '';
+    const elapsed = Math.max(0, Date.now() - time);
+    if (elapsed < 60000) return 'just now';
+    if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)}m ago`;
+    if (elapsed < 86400000) return `${Math.floor(elapsed / 3600000)}h ago`;
+    if (elapsed < 7 * 86400000) return `${Math.floor(elapsed / 86400000)}d ago`;
+    return displayDate(new Date(time).toISOString());
+  }
+
+  function renderOverview(content) {
+    const open = openTaskCount();
+    const active = countWhere(tasks(), task => task.status === 'in_progress');
+    const review = countWhere(tasks(), hasReview);
+    const urgent = countWhere(tasks(), task => task.status !== 'done' && task.priority === 'P0');
+    const recent = recentFiles();
+    const projects = projectRows();
+    content.innerHTML = `<div class="assistant-shell assistant-overview-shell">
+      <header class="assistant-overview-hero">
+        <div><span class="assistant-kicker">Client-global project</span><h1>Assistant</h1><p>Tasks, notes, and agent-ready context across every Lab workspace.</p></div>
+        <button type="button" class="refresh-btn" id="assistantOverviewTasks">Open tasks</button>
+      </header>
+      <div class="assistant-overview-stats">
+        <div><strong>${open}</strong><span>Open tasks</span></div>
+        <div><strong>${active}</strong><span>In progress</span></div>
+        <div><strong>${review}</strong><span>Ready to review</span></div>
+        <div><strong>${urgent}</strong><span>P0</span></div>
+      </div>
+      <div class="assistant-overview-grid">
+        <section class="assistant-overview-card">
+          <header><h2>Recently updated</h2><span>${recent.length}</span></header>
+          <div class="assistant-recent-files">${recent.length ? recent.map(file => `<button type="button" data-assistant-file="${e(file.path)}"><span><b>${e(file.path.split('/').pop())}</b><small>${e(file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : 'Assistant root')}</small></span><time>${e(updatedLabel(file.mtime))}</time></button>`).join('') : '<p class="assistant-overview-empty">No files yet.</p>'}</div>
+        </section>
+        <section class="assistant-overview-card">
+          <header><h2>Projects</h2><span>${projects.length}</span></header>
+          <div class="assistant-overview-projects">${projects.length ? projects.map(project => {
+            const rows = tasks().filter(task => task.project === project.id);
+            const pending = countWhere(rows, task => task.status !== 'done');
+            return `<button type="button" data-assistant-overview-project="${e(project.id)}"><span><b>${e(project.name || project.id)}</b><small>${e(project.workspace || 'Unmapped workspace')}</small></span><strong>${pending} open</strong></button>`;
+          }).join('') : '<p class="assistant-overview-empty">No mapped projects yet.</p>'}</div>
+        </section>
+      </div>
+      <section class="assistant-root-card"><span>Assistant folder</span><code>${e(state.data.root || '')}</code><small>Managed from Home → Admin. New terminals and all file views use this location.</small></section>
+    </div>`;
+    document.getElementById('assistantOverviewTasks')?.addEventListener('click', () => setSection('tasks'));
+    content.querySelectorAll('[data-assistant-file]').forEach(button => {
+      button.addEventListener('click', () => {
+        if (window.openProjectDocFromFileClick) {
+          window.openProjectDocFromFileClick(button.dataset.assistantFile, {root: state.data.root});
+        }
+      });
+    });
+    content.querySelectorAll('[data-assistant-overview-project]').forEach(button => {
+      button.addEventListener('click', () => {
+        state.project = button.dataset.assistantOverviewProject;
+        setSection('tasks');
+      });
+    });
   }
 
   function projectRows() {
@@ -371,12 +443,16 @@
 
   function render() {
     if (!document.body.classList.contains('assistant-active')) return;
-    renderSidebar();
+    if (window.LAB_ASSISTANT_DOCUMENT_OPEN) return;
     syncSectionTabs();
     const content = document.getElementById('content');
     if (!content) return;
     if (!state.data || !state.data.configured || !state.data.exists) {
       renderSetup(content);
+      return;
+    }
+    if (state.section === 'overview') {
+      renderOverview(content);
       return;
     }
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
@@ -481,7 +557,7 @@
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (kind === 'task') {
-        url.searchParams.delete('subview');
+        url.searchParams.set('subview', 'tasks');
         if (state.project) url.searchParams.set('assistant_project', state.project);
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
@@ -787,6 +863,13 @@
       if (!response.ok) throw new Error(data.detail || response.statusText);
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       state.data = data;
+      if (data.exists && data.root) {
+        const filesResponse = await fetch('/api/project-files?path=' + encodeURIComponent(data.root));
+        state.files = filesResponse.ok ? await filesResponse.json() : [];
+      } else {
+        state.files = [];
+      }
+      if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       if (options.task !== undefined) state.selectedTaskPath = options.task || '';
       if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
       if (options.project !== undefined) state.project = options.project || '';
@@ -808,11 +891,11 @@
 
   function init(initial = '') {
     const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
-    state.section = options.section === 'meetings' ? 'meetings' : 'tasks';
+    state.section = ['overview', 'tasks', 'meetings'].includes(options.section) ? options.section : 'overview';
     state.selectedTaskPath = options.task || '';
     state.selectedSubtaskPath = '';
     state.selectedMeetingPath = options.meeting || '';
-    state.view = isTaskSection() ? 'all_open' : 'meetings';
+    state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
     state.project = options.project || new URL(window.location).searchParams.get('assistant_project') || '';

@@ -288,6 +288,16 @@ def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
             return True
     except Exception:
         pass
+    # The global Assistant database is a client-selected, admin-only project
+    # root. Its sidebar uses the same recent/Git endpoints as normal projects.
+    try:
+        from lab import paths as lab_paths
+
+        assistant = lab_paths.assistant_root()
+        if assistant is not None and _inside(resolved, assistant.resolve()):
+            return True
+    except Exception:
+        pass
     try:
         for proj in get_registered_repos(active_root):
             candidates = [proj.get("path"), *(proj.get("repos") or [])]

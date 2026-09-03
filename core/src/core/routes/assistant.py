@@ -1,12 +1,14 @@
-"""Read-only API for the client-owned global Assistant task database."""
+"""API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from lab import assistant as assistant_db
 from lab import paths
@@ -77,6 +79,51 @@ def _task_sort_key(task: dict) -> tuple:
         priority_order.get(str(task.get("priority")), 99),
         -float(task.get("mtime") or 0),
     )
+
+
+class AssistantConfigBody(BaseModel):
+    path: str
+    create: bool = True
+
+
+def _validate_config_root(raw: str) -> Path:
+    if not raw.strip():
+        raise HTTPException(status_code=400, detail="Assistant folder is required")
+    source = Path(raw.strip()).expanduser()
+    if not source.is_absolute():
+        raise HTTPException(status_code=400, detail="Assistant folder must be an absolute path")
+    try:
+        target = source.resolve()
+        framework = paths.find_framework_root().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid Assistant folder: {exc}") from exc
+    if target == framework or framework in target.parents or target in framework.parents:
+        raise HTTPException(
+            status_code=400,
+            detail="Assistant data must live outside the Lab framework checkout",
+        )
+    return target
+
+
+@router.put("/config")
+def configure_assistant(body: AssistantConfigBody, request: Request) -> dict:
+    """Select and initialize the one client-global Assistant folder."""
+    auth.require_admin(request)
+    target = _validate_config_root(body.path)
+    if target.exists() and not target.is_dir():
+        raise HTTPException(status_code=400, detail="Assistant path is not a folder")
+    if not target.exists() and not body.create:
+        raise HTTPException(status_code=404, detail="Assistant folder does not exist")
+    try:
+        assistant_db.initialize(target)
+        paths.set_client_env_value(
+            paths.find_framework_root(), "LAB_ASSISTANT_HOME", str(target),
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not configure Assistant: {exc}") from exc
+    # Make the selection effective for this process as well as future starts.
+    os.environ["LAB_ASSISTANT_HOME"] = str(target)
+    return get_assistant(request)
 
 
 @router.get("")
