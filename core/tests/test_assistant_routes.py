@@ -41,7 +41,7 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     metadata, task_body = assistant_db.read_markdown(task)
     assistant_db.write_markdown(
         task,
-        metadata,
+        {**metadata, "group": "Launch operations", "tldr": "A concise launch TLDR."},
         task_body + "\n# Generate content\n\n![Launch thumbnail](chart.png)\n\nLaunch email.\n",
     )
     response = client.get("/api/assistant")
@@ -50,6 +50,8 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert body["root"] == str(root)
     assert body["projects"][0]["id"] == "demo"
     assert body["tasks"][0]["title"] == "Write launch update"
+    assert body["tasks"][0]["group"] == "Launch operations"
+    assert body["tasks"][0]["tldr"] == "A concise launch TLDR."
     assert "body" not in body["tasks"][0]
     assert body["tasks"][0]["subtasks_total"] == 0
     assert body["tasks"][0]["subtasks_done"] == 0
@@ -65,6 +67,7 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     )
     assert detail.status_code == 200, detail.text
     assert detail.json()["metadata"]["priority"] == "P0"
+    assert detail.json()["subtasks"] == []
     assert "# Context" in detail.json()["body"]
 
 
@@ -127,9 +130,19 @@ def test_assistant_first_class_subtasks_are_summarized_and_have_detail(
     assert child["status"] == "ready_to_review"
     assert child["document_backed"] is True
     assert child["summary"] == "The agent drafted the announcement. Hello subscribers."
+    assert child["tldr"] == child["summary"]
     assert child["has_generated_content"] is True
     assert "body" not in child
     assert "body" not in row["subtasks"][0]
+
+    task_detail = client.get(
+        "/api/assistant/task",
+        params={"path": str(task.relative_to(root))},
+    )
+    assert task_detail.status_code == 200, task_detail.text
+    assert task_detail.json()["subtasks"][0]["path"] == str(subtask.relative_to(root))
+    assert task_detail.json()["subtasks"][0]["tldr"] == "The agent drafted the announcement. Hello subscribers."
+    assert "body" not in task_detail.json()["subtasks"][0]
 
     detail = client.get(
         "/api/assistant/subtask",

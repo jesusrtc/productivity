@@ -118,10 +118,12 @@ def get_assistant(request: Request) -> dict:
                 child_body = str(item.pop("body", ""))
                 if item.get("document_backed"):
                     item["summary"] = _summary(child_body)
+                    item["tldr"] = str(item.get("tldr") or item["summary"])
                     item["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(child_body))
                 children.append(item)
             row[key] = children
         row["summary"] = _summary(body)
+        row["tldr"] = str(row.get("tldr") or row["summary"])
         row["preview_image"] = _first_image(body)
         row["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(body))
         tasks.append(row)
@@ -187,11 +189,25 @@ def get_task(path: str, request: Request) -> dict:
     project: dict = {}
     if project_source.is_file():
         project, _ = assistant_db.read_markdown(project_source)
+    subtasks = []
+    parent_id = str(metadata.get("id") or source.stem)
+    for child in assistant_db.iter_subtasks(root):
+        if str(child.get("project")) != project_id or str(child.get("parent")) != parent_id:
+            continue
+        item = dict(child)
+        child_body = str(item.pop("body", ""))
+        item["summary"] = _summary(child_body)
+        item["tldr"] = str(item.get("tldr") or item["summary"])
+        item["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(child_body))
+        subtasks.append(item)
+    subtasks.sort(key=_task_sort_key)
     return {
         "path": str(source.relative_to(root)),
         "metadata": metadata,
         "project": project,
         "body": body,
+        "tldr": str(metadata.get("tldr") or _summary(body)),
+        "subtasks": subtasks,
     }
 
 
@@ -210,6 +226,7 @@ def get_meeting(path: str, request: Request) -> dict:
         "metadata": metadata,
         "project": project,
         "body": body,
+        "tldr": str(metadata.get("tldr") or _summary(body)),
     }
 
 
@@ -228,6 +245,7 @@ def get_subtask(path: str, request: Request) -> dict:
         "metadata": metadata,
         "project": project,
         "body": body,
+        "tldr": str(metadata.get("tldr") or _summary(body)),
     }
 
 

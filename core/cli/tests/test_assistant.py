@@ -53,6 +53,13 @@ def test_assistant_init_and_task_lifecycle(monkeypatch, tmp_path: Path, monorepo
     assert rows[0]["subtasks_total"] == 0
     assert rows[0]["subtasks_done"] == 0
 
+    for field, value in (("group", "Launch operations"), ("tldr", "Prepare the launch communication.")):
+        changed = runner.invoke(main, ["assistant", "set", task_id, field, value])
+        assert changed.exit_code == 0, changed.output
+    _source, changed_metadata, _body = assistant.find_task(root, task_id)
+    assert changed_metadata["group"] == "Launch operations"
+    assert changed_metadata["tldr"] == "Prepare the launch communication."
+
     source, metadata, body = assistant.find_task(root, task_id)
     assistant.write_markdown(source, metadata, body + "\n- [ ] Legacy follow-up.\n")
     result = runner.invoke(main, ["assistant", "done", task_id])

@@ -84,15 +84,22 @@ checkboxes remain supported for older tasks.
 `lab assistant done` refuses to complete the parent while any checkbox or
 first-class subtask is incomplete.
 
+Tasks may set `group` to an internal project or workstream within their mapped
+Lab project, and `tldr` to the one-sentence summary shown in the list and modal.
+Use `lab assistant set <task-id> group "Release operations"` and the same form
+for `tldr` so frontmatter remains CLI-managed.
+
 Tasks and subtasks may use `waiting_on`, `waiting_since`, `follow_up_at`,
 `last_follow_up_at`, and `follow_up_channel` for explicit follow-up routing.
 Agent-produced work moves to `ready_to_review`; `reviewer`,
 `review_requested_at`, and `executor` record the review handoff.
 
-The Tasks and Meeting notes tabs use compact lists. A single click expands a
-short preview; a double click opens the complete Markdown document in a modal.
-Every Markdown heading in the modal has buttons for copying that section as
-Slack-friendly Markdown or Google Docs-friendly rich text.
+The Tasks tab first selects exactly one mapped Lab project, then groups its
+tasks by their internal `group`. Clicking a group reveals its tasks; clicking a
+task opens a document-browser modal with the main task and each first-class
+subtask in the left rail. Every Markdown heading in the modal has buttons for
+copying that section as Slack-friendly Markdown or Google Docs-friendly rich
+text.
 
 The first image referenced by a task is also shown in its expanded preview.
 Project-owned images stay in their mapped project and are served only after the
@@ -120,9 +127,10 @@ including a completed/total count in the list.
 - `ready_to_review`: agent-produced work is ready for human review
 - `done`: complete, with an outcome recorded in `# Result`
 
-Priorities run from `P0` (urgent) through `P3` (someday/maybe). Lab exposes
-three comparison views: a flat filter strip, an attention-grouped Focus queue,
-and a project ledger. Their shared Focus order is P0, ready to review, in
-progress, follow-up due, blocked, inbox, then the remaining work ordered P1
-through P3. Waiting tasks use a `Nudge` action to open copy-ready follow-up
-content; Lab does not send it or record a message as sent.
+Priorities run from `P0` (urgent) through `P3` (someday/maybe). Each Lab-project
+selector shows the unique number of open tasks needing attention because they
+are P0, in progress, ready to review (directly or through a subtask), or due
+within three calendar days. This due-soon window is provisional. Secondary
+status and priority filters apply only inside the selected Lab project. Waiting
+tasks use a `Nudge` action to open copy-ready follow-up content; Lab does not
+send it or record a message as sent.

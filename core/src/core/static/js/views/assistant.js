@@ -3,20 +3,23 @@
 
   const state = {
     data: null,
-    section: 'tasks-1',
+    section: 'tasks',
     selectedTaskPath: '',
     selectedSubtaskPath: '',
     selectedMeetingPath: '',
-    view: 'focus',
+    view: 'all_open',
     status: '',
     priority: '',
     project: '',
     search: '',
+    expandedGroups: new Set(),
+    modalRoot: null,
+    modalCurrent: null,
+    modalKind: '',
     request: 0,
     modalRequest: 0,
     poll: null,
     searchTimer: null,
-    clickTimer: null,
   };
 
   const e = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -49,7 +52,7 @@
   }
 
   function isTaskSection() {
-    return state.section !== 'meetings';
+    return state.section === 'tasks';
   }
 
   function taskChildren(task) {
@@ -80,6 +83,25 @@
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     return localDayValue(task.follow_up_at) <= today.getTime();
+  }
+
+  function isDueSoon(task) {
+    if (task.status === 'done' || !task.due) return false;
+    const due = localDayValue(task.due);
+    if (!Number.isFinite(due)) return false;
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    end.setDate(end.getDate() + 3);
+    return due <= end.getTime();
+  }
+
+  function needsAttention(task) {
+    return task.status !== 'done' && (
+      task.priority === 'P0'
+      || task.status === 'in_progress'
+      || hasReview(task)
+      || isDueSoon(task)
+    );
   }
 
   function attentionBucket(task) {
@@ -128,7 +150,7 @@
       if (state.priority && task.priority !== state.priority) return false;
       if (state.project && task.project !== state.project) return false;
       if (needle) {
-        const haystack = [task.title, task.summary, task.project_name, task.project, task.workspace]
+        const haystack = [task.title, task.tldr, task.summary, task.group, task.project_name, task.project, task.workspace]
           .join(' ').toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
@@ -173,16 +195,22 @@
   }
 
   function setSection(section, options = {}) {
-    state.section = ['tasks-2', 'tasks-3', 'meetings'].includes(section) ? section : 'tasks-1';
-    state.view = isTaskSection() ? 'focus' : 'meetings';
+    state.section = section === 'meetings' ? 'meetings' : 'tasks';
+    state.view = isTaskSection() ? 'all_open' : 'meetings';
     state.status = '';
     state.priority = '';
+    if (isTaskSection() && !projectRows().some(project => project.id === state.project)) {
+      const available = projectRows();
+      state.project = available.length ? available[0].id : '';
+    }
     if (!options.history) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
-      else if (state.section === 'tasks-2' || state.section === 'tasks-3') url.searchParams.set('subview', state.section);
-      else url.searchParams.delete('subview');
+      else {
+        url.searchParams.delete('subview');
+        if (state.project) url.searchParams.set('assistant_project', state.project);
+      }
       url.searchParams.delete(state.section === 'meetings' ? 'task' : 'meeting');
       history.pushState({nav: 'assistant', subview: state.section}, '', url.pathname + url.search + url.hash);
     }
@@ -201,65 +229,31 @@
     return `${done}/${total} ${noun}`;
   }
 
-  function checklist(items) {
-    if (!items || !items.length) return '';
-    return `<ul class="assistant-subtasks">${items.map(item => `
-      <li class="${item.done ? 'done' : ''}${item.path === state.selectedSubtaskPath ? ' selected' : ''}">
-        ${item.path ? `<button type="button" class="assistant-subtask-row" data-assistant-subtask="${e(item.path)}" title="Double-click to open subtask">
-          <span class="assistant-subtask-check" aria-hidden="true">${item.done ? '✓' : ''}</span>
-          <span>${e(item.title)}</span><small class="status-${e(item.status || 'inbox')}">${e(labelStatus(item.status))}</small>
-        </button>` : `<div class="assistant-subtask-row legacy">
-          <span class="assistant-subtask-check" aria-hidden="true">${item.done ? '✓' : ''}</span>
-          <span>${e(item.title)}</span><small>${item.done ? 'Done' : 'Open'}</small>
-        </div>`}
-      </li>`).join('')}</ul>`;
-  }
-
   function taskCard(task) {
     const selected = task.path === state.selectedTaskPath;
     const due = task.due ? `<span class="assistant-task-due">Due ${e(displayDate(task.due))}</span>` : '';
     const progress = progressLabel(task.subtasks_done, task.subtasks_total);
-    const children = taskChildren(task);
     const reviews = reviewCount(task);
-    const projectChip = `<span class="assistant-project-chip">${e(task.project_name || task.project)}</span>`;
-    const previewImage = task.preview_image && task.preview_image.src
-      ? `<img class="assistant-preview-image" src="${e(documentImageUrl(task.path, task.preview_image.src))}" alt="${e(task.preview_image.alt || '')}" loading="lazy">`
-      : '';
+    const tldr = task.tldr || task.summary || 'No TLDR yet.';
     return `<article class="assistant-list-item${selected ? ' selected' : ''}" data-assistant-entry-wrap="${e(task.path)}">
-      <div role="button" tabindex="0" class="assistant-compact-row" data-assistant-task="${e(task.path)}" data-testid="assistant-task-row" aria-expanded="${selected}">
-        <span class="assistant-row-main"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><strong>${e(task.title)}</strong></span>
-        <span class="assistant-row-meta">${projectChip}${reviews ? `<span class="assistant-review-count">${reviews} to review</span>` : ''}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${task.status === 'waiting' ? `<button type="button" class="assistant-nudge" data-assistant-nudge="${e(task.path)}">Nudge</button>` : ''}${due}</span>
+      <div role="button" tabindex="0" class="assistant-compact-row assistant-task-row" data-assistant-task="${e(task.path)}" data-testid="assistant-task-row" aria-label="Open ${e(task.title)}">
+        <span class="assistant-task-branch" aria-hidden="true"></span>
+        <span class="assistant-row-content">
+          <span class="assistant-row-title"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><strong>${e(task.title)}</strong></span>
+          <span class="assistant-row-tldr"><b>TLDR</b>${e(tldr)}</span>
+        </span>
+        <span class="assistant-row-meta">${reviews ? `<span class="assistant-review-count">${reviews} to review</span>` : ''}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${task.status === 'waiting' ? `<button type="button" class="assistant-nudge" data-assistant-nudge="${e(task.path)}">Nudge</button>` : ''}${due}</span>
       </div>
-      ${selected ? `<div class="assistant-inline-preview" data-testid="assistant-task-preview">
-        <div class="assistant-preview-top"><div class="assistant-detail-badges"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span></div>${due}<span class="assistant-open-hint">Double-click to open</span></div>
-        <h2>${e(task.title)}</h2>
-        <div class="assistant-task-project">${e(task.project_name || task.project)}${task.workspace ? ` · ${e(task.workspace)}` : ''}</div>
-        ${task.waiting_on ? `<p class="assistant-waiting-on"><span>Waiting on</span> ${e(task.waiting_on)}${task.follow_up_at ? ` · Follow up ${e(displayDate(task.follow_up_at))}` : ''}</p>` : ''}
-        ${task.summary ? `<p class="assistant-task-summary">${e(task.summary)}</p>` : ''}
-        ${previewImage}
-        ${task.subtasks_total ? `<div class="assistant-subtask-head"><strong>Subtasks</strong><span>${e(progress)}</span></div>${checklist(children)}` : ''}
-        ${task.has_generated_content ? `<button type="button" class="assistant-generate-content" data-assistant-generate="${e(task.path)}">Generate content</button>` : ''}
-      </div>` : ''}
     </article>`;
   }
 
   function meetingCard(meeting) {
-    const selected = meeting.path === state.selectedMeetingPath;
     const actionProgress = progressLabel(meeting.action_items_done, meeting.action_items_total, 'actions');
-    const attendees = Array.isArray(meeting.attendees) ? meeting.attendees.join(', ') : '';
-    return `<article class="assistant-list-item${selected ? ' selected' : ''}" data-assistant-entry-wrap="${e(meeting.path)}">
-      <button type="button" class="assistant-compact-row" data-assistant-meeting="${e(meeting.path)}" data-testid="assistant-meeting-row" aria-expanded="${selected}">
+    return `<article class="assistant-list-item${meeting.path === state.selectedMeetingPath ? ' selected' : ''}" data-assistant-entry-wrap="${e(meeting.path)}">
+      <button type="button" class="assistant-compact-row" data-assistant-meeting="${e(meeting.path)}" data-testid="assistant-meeting-row">
         <span class="assistant-row-main"><span class="assistant-meeting-date">${e(displayDate(meeting.date))}</span><strong>${e(meeting.title)}</strong></span>
         <span class="assistant-row-meta">${actionProgress ? `<span class="assistant-progress-label">${e(actionProgress)}</span>` : ''}<span class="assistant-task-project">${e(meeting.project_name || meeting.project)}</span></span>
       </button>
-      ${selected ? `<div class="assistant-inline-preview" data-testid="assistant-meeting-preview">
-        <div class="assistant-preview-top"><span class="assistant-meeting-date full">${e(displayDate(meeting.date))}</span><span class="assistant-open-hint">Double-click to open</span></div>
-        <h2>${e(meeting.title)}</h2>
-        <div class="assistant-task-project">${e(meeting.project_name || meeting.project)}${meeting.workspace ? ` · ${e(meeting.workspace)}` : ''}</div>
-        ${attendees ? `<p class="assistant-attendees"><span>With</span> ${e(attendees)}</p>` : ''}
-        ${meeting.summary ? `<p class="assistant-task-summary">${e(meeting.summary)}</p>` : ''}
-        ${meeting.action_items_total ? `<div class="assistant-subtask-head"><strong>Action items</strong><span>${e(actionProgress)}</span></div>${checklist(meeting.action_items)}` : ''}
-      </div>` : ''}
     </article>`;
   }
 
@@ -276,30 +270,31 @@
     </div>`;
   }
 
-  function viewMatches(task, view) {
-    if (view === 'p0') return task.priority === 'P0' && task.status !== 'done';
-    if (view === 'in_progress') return task.status === 'in_progress';
-    if (view === 'ready_to_review') return task.status !== 'done' && hasReview(task);
-    if (view === 'waiting') return needsFollowUp(task);
-    if (view === 'inbox') return task.status === 'inbox';
-    if (view === 'recent') return isRecentDone(task);
-    return task.status !== 'done';
+  function projectRows() {
+    const projects = [...((state.data && state.data.projects) || [])];
+    return projects.sort((left, right) => {
+      const leftCount = countWhere(tasks(), task => task.project === left.id && needsAttention(task));
+      const rightCount = countWhere(tasks(), task => task.project === right.id && needsAttention(task));
+      return rightCount - leftCount || String(left.name || left.id).localeCompare(String(right.name || right.id));
+    });
   }
 
-  function scopedTasks() {
-    return tasks().filter(task => !state.project || task.project === state.project);
+  function attentionBreakdown(rows) {
+    return [
+      [countWhere(rows, task => task.status !== 'done' && task.priority === 'P0'), 'P0'],
+      [countWhere(rows, task => task.status === 'in_progress'), 'active'],
+      [countWhere(rows, task => task.status !== 'done' && hasReview(task)), 'review'],
+      [countWhere(rows, isDueSoon), 'due soon'],
+    ].filter(item => item[0]).map(item => `${item[0]} ${item[1]}`).join(' · ') || 'No attention items';
   }
 
-  function quickViews() {
-    const source = scopedTasks();
-    const definitions = [
-      ['focus', 'Focus'], ['p0', 'P0'], ['in_progress', 'In progress'],
-      ['ready_to_review', 'Ready to review'], ['waiting', 'Follow up'],
-      ['inbox', 'Inbox'], ['recent', 'Recently completed'],
-    ];
-    return `<nav class="assistant-quick-views" aria-label="Task views">${definitions.map(([key, label]) => {
-      const count = countWhere(source, task => viewMatches(task, key));
-      return `<button type="button" class="${state.view === key ? 'active' : ''}" data-assistant-view="${e(key)}"><span>${e(label)}</span><small>${count}</small></button>`;
+  function labProjectNav() {
+    return `<nav class="assistant-lab-projects" aria-label="Lab projects">${projectRows().map(project => {
+      const rows = tasks().filter(task => task.project === project.id);
+      const count = countWhere(rows, needsAttention);
+      return `<button type="button" class="${state.project === project.id ? 'active' : ''}" data-assistant-project="${e(project.id)}" title="${e(attentionBreakdown(rows))}">
+        <span class="assistant-lab-project-name">${e(project.name || project.id)}</span><small>${count}</small>
+      </button>`;
     }).join('')}</nav>`;
   }
 
@@ -314,9 +309,9 @@
     </select>`;
   }
 
-  function filterBar(rows, options = {}) {
+  function filterBar(rows) {
     const isTasks = isTaskSection();
-    const advanced = isTasks && options.advanced ? `
+    const advanced = isTasks ? `
       <select id="assistantStatus" aria-label="Filter by status">
         <option value="">Any status</option>
         ${(state.data.statuses || []).map(status => `<option value="${e(status)}"${state.status === status ? ' selected' : ''}>${e(labelStatus(status))}</option>`).join('')}
@@ -327,7 +322,7 @@
       </select>` : '';
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
-      ${projectSelect(isTasks ? tasks() : meetings())}${advanced}
+      ${isTasks ? '' : projectSelect(meetings())}${advanced}
       <span class="assistant-filter-count">${rows.length} ${isTasks ? 'task' : 'note'}${rows.length === 1 ? '' : 's'}</span>
     </div>`;
   }
@@ -336,59 +331,32 @@
     return '<div class="assistant-empty">No tasks match this view.</div>';
   }
 
-  function renderTasksOne(rows) {
-    return `${quickViews()}${filterBar(rows, {advanced: true})}
-      <section class="assistant-list assistant-list-single" aria-label="Tasks proposal 1" data-testid="assistant-list">
-        ${rows.length ? rows.map(taskCard).join('') : emptyTasks()}
-      </section>`;
+  function internalGroup(task) {
+    return String(task.group || 'Ungrouped');
   }
 
-  function taskGroup(task) {
-    if (task.priority === 'P0') return 'p0';
-    if (hasReview(task)) return 'ready_to_review';
-    if (task.status === 'in_progress') return 'in_progress';
-    if (task.status === 'waiting') return 'waiting';
-    if (task.status === 'blocked') return 'blocked';
-    if (task.status === 'inbox') return 'inbox';
-    return 'up_next';
+  function internalGroupKey(name) {
+    return `${state.project}:${name}`;
   }
 
-  function renderTasksTwo(rows) {
-    const groups = [
-      ['p0', 'P0'], ['ready_to_review', 'Ready to review'],
-      ['in_progress', 'In progress'], ['waiting', 'Follow up'],
-      ['blocked', 'Blocked'], ['inbox', 'Inbox'], ['up_next', 'Up next'],
-    ];
-    const sections = groups.map(([key, label]) => {
-      const items = rows.filter(task => taskGroup(task) === key);
-      if (!items.length) return '';
-      return `<section class="assistant-queue-group" data-assistant-queue="${e(key)}">
-        <header><h2>${e(label)}</h2><span>${items.length}</span></header>
-        <div class="assistant-list">${items.map(taskCard).join('')}</div>
+  function renderTasks(rows) {
+    const names = [...new Set(rows.map(internalGroup))].sort((left, right) => left.localeCompare(right));
+    const groups = names.map(name => {
+      const items = rows.filter(task => internalGroup(task) === name);
+      const key = internalGroupKey(name);
+      const expanded = state.expandedGroups.has(key);
+      const attention = countWhere(items, needsAttention);
+      return `<section class="assistant-internal-project${expanded ? ' expanded' : ''}" data-assistant-group-wrap="${e(key)}">
+        <button type="button" class="assistant-group-header" data-assistant-group="${e(key)}" aria-expanded="${expanded}">
+          <span class="assistant-group-badge">PROJECT</span>
+          <span class="assistant-group-name"><strong>${e(name)}</strong><small>${items.length} task${items.length === 1 ? '' : 's'}${attention ? ` · ${attention} attention` : ''}</small></span>
+          <span class="assistant-group-summary">${e(attentionBreakdown(items))}</span>
+          <span class="assistant-group-chevron" aria-hidden="true">›</span>
+        </button>
+        ${expanded ? `<div class="assistant-group-tasks">${items.map(taskCard).join('')}</div>` : ''}
       </section>`;
     }).join('');
-    return `${filterBar(rows)}<div class="assistant-focus-queue" data-testid="assistant-list">${sections || emptyTasks()}</div>`;
-  }
-
-  function projectAttention(rows) {
-    const p0 = countWhere(rows, task => task.priority === 'P0' && task.status !== 'done');
-    const review = countWhere(rows, hasReview);
-    const waiting = countWhere(rows, task => task.status === 'waiting');
-    return [[p0, 'P0'], [review, 'review'], [waiting, 'waiting']]
-      .filter(item => item[0]).map(item => `${item[0]} ${item[1]}`).join(' · ') || `${rows.length} open`;
-  }
-
-  function renderTasksThree(rows) {
-    const projects = state.data && state.data.projects || [];
-    const sections = projects.map(project => {
-      const items = rows.filter(task => task.project === project.id);
-      if (!items.length) return '';
-      return `<section class="assistant-project-ledger" data-assistant-project-group="${e(project.id)}">
-        <header><div><h2>${e(project.name || project.id)}</h2><span>${e(project.workspace || '')}</span></div><small>${e(projectAttention(items))}</small></header>
-        <div class="assistant-list">${items.map(taskCard).join('')}</div>
-      </section>`;
-    }).join('');
-    return `${quickViews()}${filterBar(rows)}<div class="assistant-ledgers" data-testid="assistant-list">${sections || emptyTasks()}</div>`;
+    return `${labProjectNav()}${filterBar(rows)}<div class="assistant-internal-projects" data-testid="assistant-list">${groups || emptyTasks()}</div>`;
   }
 
   function renderMeetings(rows) {
@@ -412,13 +380,12 @@
       return;
     }
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
-    const proposal = state.section === 'tasks-1' ? 'Proposal 1 · Filter strip'
-      : state.section === 'tasks-2' ? 'Proposal 2 · Focus queue'
-      : state.section === 'tasks-3' ? 'Proposal 3 · Project ledger' : 'Global Assistant';
+    const project = projectRows().find(item => item.id === state.project);
+    const proposal = isTaskSection()
+      ? `Lab project · ${project ? project.name || project.id : 'Tasks'}`
+      : 'Global Assistant';
     const title = isTaskSection() ? 'Tasks' : 'Meeting notes';
-    const body = state.section === 'tasks-1' ? renderTasksOne(rows)
-      : state.section === 'tasks-2' ? renderTasksTwo(rows)
-      : state.section === 'tasks-3' ? renderTasksThree(rows) : renderMeetings(rows);
+    const body = isTaskSection() ? renderTasks(rows) : renderMeetings(rows);
     content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
         <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1></div>
@@ -428,6 +395,17 @@
     document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
       button.addEventListener('click', () => setView(button.dataset.assistantView));
+    });
+    content.querySelectorAll('[data-assistant-project]').forEach(button => {
+      button.addEventListener('click', () => selectProject(button.dataset.assistantProject));
+    });
+    content.querySelectorAll('[data-assistant-group]').forEach(button => {
+      button.addEventListener('click', () => {
+        const key = button.dataset.assistantGroup;
+        if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
+        else state.expandedGroups.add(key);
+        render();
+      });
     });
     const search = document.getElementById('assistantSearch');
     search?.addEventListener('input', () => {
@@ -444,12 +422,12 @@
     });
     document.getElementById('assistantStatus')?.addEventListener('change', event => {
       state.status = event.target.value;
-      state.view = state.status || 'focus';
+      state.view = state.status || 'all_open';
       render();
     });
     document.getElementById('assistantPriority')?.addEventListener('change', event => {
       state.priority = event.target.value;
-      state.view = state.priority === 'P0' ? 'p0' : 'focus';
+      state.view = state.priority === 'P0' ? 'p0' : 'all_open';
       render();
     });
     document.getElementById('assistantProject')?.addEventListener('change', event => {
@@ -458,13 +436,6 @@
     });
     content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
     content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
-    content.querySelectorAll('[data-assistant-subtask]').forEach(button => bindSubtask(button));
-    content.querySelectorAll('[data-assistant-generate]').forEach(button => {
-      button.addEventListener('click', event => {
-        event.stopPropagation();
-        openDocumentModal('task', button.dataset.assistantGenerate, 'Generate content');
-      });
-    });
     content.querySelectorAll('[data-assistant-nudge]').forEach(button => {
       button.addEventListener('click', event => {
         event.stopPropagation();
@@ -474,18 +445,24 @@
     });
   }
 
+  function selectProject(projectId) {
+    if (!projectId || projectId === state.project) return;
+    state.project = projectId;
+    state.selectedTaskPath = '';
+    state.expandedGroups.clear();
+    const url = new URL(window.location);
+    url.searchParams.set('view', 'assistant');
+    url.searchParams.set('assistant_project', projectId);
+    url.searchParams.delete('task');
+    history.pushState({nav: 'assistant', assistant_project: projectId}, '', url.pathname + url.search + url.hash);
+    render();
+  }
+
   function bindRow(button, kind) {
     const attribute = kind === 'task' ? 'assistantTask' : 'assistantMeeting';
     const path = button.dataset[attribute];
     button.addEventListener('click', event => {
-      if (event.target.closest('[data-assistant-nudge], [data-assistant-subtask]')) return;
-      clearTimeout(state.clickTimer);
-      state.clickTimer = setTimeout(() => selectEntry(kind, path, true), 190);
-    });
-    button.addEventListener('dblclick', event => {
-      if (event.target.closest('[data-assistant-nudge], [data-assistant-subtask]')) return;
-      event.preventDefault();
-      clearTimeout(state.clickTimer);
+      if (event.target.closest('[data-assistant-nudge]')) return;
       selectEntry(kind, path, true);
       openDocumentModal(kind, path);
     });
@@ -497,32 +474,6 @@
     });
   }
 
-  function bindSubtask(button) {
-    const path = button.dataset.assistantSubtask;
-    button.addEventListener('click', event => {
-      event.stopPropagation();
-      clearTimeout(state.clickTimer);
-      state.clickTimer = setTimeout(() => {
-        state.selectedSubtaskPath = path;
-        render();
-      }, 190);
-    });
-    button.addEventListener('dblclick', event => {
-      event.preventDefault();
-      event.stopPropagation();
-      clearTimeout(state.clickTimer);
-      state.selectedSubtaskPath = path;
-      openDocumentModal('subtask', path);
-    });
-    button.addEventListener('keydown', event => {
-      if (event.key !== 'Enter') return;
-      event.preventDefault();
-      event.stopPropagation();
-      state.selectedSubtaskPath = path;
-      openDocumentModal('subtask', path);
-    });
-  }
-
   function selectEntry(kind, path, push) {
     if (kind === 'task') state.selectedTaskPath = path || '';
     else state.selectedMeetingPath = path || '';
@@ -530,11 +481,8 @@
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (kind === 'task') {
-        if (state.section === 'tasks-2' || state.section === 'tasks-3') {
-          url.searchParams.set('subview', state.section);
-        } else {
-          url.searchParams.delete('subview');
-        }
+        url.searchParams.delete('subview');
+        if (state.project) url.searchParams.set('assistant_project', state.project);
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
       } else {
@@ -554,8 +502,11 @@
     overlay.id = 'assistantDocumentModal';
     overlay.className = 'modal-overlay assistant-document-overlay';
     overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
-      <header class="assistant-modal-header"><div><span class="assistant-kicker" id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></header>
-      <div class="assistant-modal-body" id="assistantModalBody"><div class="loading">Loading…</div></div>
+      <header class="assistant-modal-header">
+        <div class="assistant-modal-heading"><span class="assistant-kicker" id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
+        <div class="assistant-modal-actions"><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
+      </header>
+      <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
     </section>`;
     overlay.addEventListener('click', event => { if (event.target === overlay) closeDocumentModal(); });
     overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
@@ -568,24 +519,42 @@
     if (overlay) overlay.classList.remove('active');
   }
 
+  async function fetchDocument(kind, path) {
+    const endpoint = kind === 'task' ? '/api/assistant/task?path='
+      : kind === 'subtask' ? '/api/assistant/subtask?path=' : '/api/assistant/meeting?path=';
+    const response = await fetch(endpoint + encodeURIComponent(path));
+    const detail = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(detail.detail || response.statusText);
+    return detail;
+  }
+
   async function openDocumentModal(kind, path, focusHeading = '') {
     const overlay = ensureModal();
     const title = document.getElementById('assistantModalTitle');
     const label = document.getElementById('assistantModalKind');
-    const host = document.getElementById('assistantModalBody');
-    label.textContent = kind === 'task' ? 'Task' : kind === 'subtask' ? 'Subtask' : 'Meeting note';
+    const host = document.getElementById('assistantModalDocument');
+    const nav = document.getElementById('assistantDocumentNav');
+    label.textContent = kind === 'meeting' ? 'Meeting note' : 'Task documents';
     title.textContent = 'Loading…';
     host.innerHTML = '<div class="loading">Loading document…</div>';
+    nav.innerHTML = '';
     overlay.classList.add('active');
     const request = ++state.modalRequest;
     try {
-      const endpoint = kind === 'task' ? '/api/assistant/task?path='
-        : kind === 'subtask' ? '/api/assistant/subtask?path=' : '/api/assistant/meeting?path=';
-      const response = await fetch(endpoint + encodeURIComponent(path));
-      const detail = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(detail.detail || response.statusText);
+      const detail = await fetchDocument(kind, path);
       if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
-      await renderDocument(detail, kind, focusHeading);
+      if (kind === 'subtask') {
+        const metadata = detail.metadata || {};
+        const parent = tasks().find(task => task.project === metadata.project && task.id === metadata.parent);
+        state.modalRoot = parent ? await fetchDocument('task', parent.path) : detail;
+        state.modalKind = parent ? 'task' : 'subtask';
+      } else {
+        state.modalRoot = detail;
+        state.modalKind = kind === 'meeting' ? 'meeting' : 'task';
+      }
+      if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
+      state.modalCurrent = detail;
+      await renderModal(focusHeading);
     } catch (error) {
       if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
     }
@@ -613,7 +582,7 @@
     const project = detail.project || {};
     const rows = kind !== 'meeting' ? [
       ['Status', labelStatus(metadata.status)], ['Priority', metadata.priority],
-      ['Project', project.name || metadata.project], ['Workspace', project.workspace],
+      ['Lab project', project.name || metadata.project], ['Group', metadata.group], ['Workspace', project.workspace],
       ['Parent', metadata.parent], ['Due', metadata.due], ['Owner', metadata.owner],
       ['Waiting on', metadata.waiting_on], ['Follow up', metadata.follow_up_at],
       ['Updated', displayDate(metadata.updated)],
@@ -626,20 +595,68 @@
     return rows.filter(row => row[1]).map(([key, value]) => `<div><span>${e(key)}</span><strong>${e(value)}</strong></div>`).join('');
   }
 
-  async function renderDocument(detail, kind, focusHeading = '') {
+  function modalDocumentButton(detail, label, kind) {
+    const metadata = detail.metadata || detail || {};
+    const selected = state.modalCurrent && state.modalCurrent.path === detail.path;
+    return `<button type="button" class="assistant-document-nav-item${selected ? ' active' : ''}" data-assistant-modal-document="${e(detail.path)}" data-assistant-modal-kind="${e(kind)}">
+      <span class="assistant-document-type">MD</span><span><strong>${e(label)}</strong><small>${e(metadata.title || metadata.id || '')}</small></span>${metadata.status ? `<i class="status-${e(metadata.status)}">${e(labelStatus(metadata.status))}</i>` : ''}
+    </button>`;
+  }
+
+  async function selectModalDocument(kind, path, focusHeading = '') {
+    const request = ++state.modalRequest;
+    const host = document.getElementById('assistantModalDocument');
+    host.innerHTML = '<div class="loading">Loading document…</div>';
+    try {
+      const detail = kind === 'task' && state.modalRoot && state.modalRoot.path === path
+        ? state.modalRoot : await fetchDocument(kind, path);
+      if (request !== state.modalRequest) return;
+      state.modalCurrent = detail;
+      await renderModal(focusHeading);
+    } catch (error) {
+      if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
+    }
+  }
+
+  async function renderModal(focusHeading = '') {
+    const root = state.modalRoot || state.modalCurrent;
+    const detail = state.modalCurrent || root;
+    const rootMetadata = root.metadata || {};
+    const title = document.getElementById('assistantModalTitle');
+    const label = document.getElementById('assistantModalKind');
+    const nav = document.getElementById('assistantDocumentNav');
+    title.textContent = rootMetadata.title || rootMetadata.id || (state.modalKind === 'meeting' ? 'Meeting note' : 'Task');
+    label.textContent = state.modalKind === 'meeting' ? 'Meeting note' : state.modalKind === 'subtask' ? 'Subtask' : 'Task documents';
+    if (state.modalKind === 'task' && Array.isArray(root.subtasks)) {
+      nav.innerHTML = `<div class="assistant-document-nav-label">Documents</div>${modalDocumentButton(root, 'Main task', 'task')}${root.subtasks.map(child => modalDocumentButton(child, 'Subtask', 'subtask')).join('')}`;
+    } else {
+      nav.innerHTML = `<div class="assistant-document-nav-label">Document</div>${modalDocumentButton(root, state.modalKind === 'meeting' ? 'Meeting note' : 'Subtask', state.modalKind)}`;
+    }
+    nav.querySelectorAll('[data-assistant-modal-document]').forEach(button => {
+      button.addEventListener('click', () => selectModalDocument(button.dataset.assistantModalKind, button.dataset.assistantModalDocument));
+    });
+    const detailKind = state.modalKind === 'meeting' ? 'meeting'
+      : state.modalKind === 'subtask' ? 'subtask' : (detail.path === root.path ? 'task' : 'subtask');
+    await renderDocumentPane(detail, detailKind, focusHeading);
+  }
+
+  async function renderDocumentPane(detail, kind, focusHeading = '') {
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     const body = detail.body || '';
     const markdown = window.marked ? window.marked.parse(body) : `<pre>${e(body)}</pre>`;
     const metadata = detail.metadata || {};
     const project = detail.project || {};
-    const title = document.getElementById('assistantModalTitle');
-    const host = document.getElementById('assistantModalBody');
-    title.textContent = metadata.title || metadata.id || (kind === 'task' ? 'Task' : 'Meeting note');
+    const host = document.getElementById('assistantModalDocument');
     const badges = kind !== 'meeting'
       ? `<div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>`
       : `<div class="assistant-detail-badges"><span class="assistant-meeting-date full">${e(displayDate(metadata.date))}</span></div>`;
-    host.innerHTML = `<div class="assistant-document-toolbar">
-      ${badges}<div class="assistant-detail-actions"><button type="button" class="refresh-btn" id="assistantCopyDocument">Copy Markdown</button></div>
+    const tldr = detail.tldr || metadata.tldr || '';
+    const isMainTask = kind === 'task' && state.modalRoot && detail.path === state.modalRoot.path;
+    const progress = isMainTask && Array.isArray(state.modalRoot.subtasks)
+      ? progressLabel(countWhere(state.modalRoot.subtasks, item => item.status === 'done'), state.modalRoot.subtasks.length)
+      : '';
+    host.innerHTML = `<div class="assistant-document-title">
+      <div>${badges}<h1>${e(metadata.title || metadata.id || 'Document')}</h1>${tldr ? `<p><b>TLDR</b>${e(tldr)}</p>` : ''}</div>${progress ? `<span>${e(progress)}</span>` : ''}
     </div>
     <div class="assistant-meta">${documentMeta(detail, kind)}</div>
     ${project.project_path ? `<div class="assistant-path"><span>Project path</span><code>${e(project.project_path)}</code></div>` : ''}
@@ -647,7 +664,8 @@
     const markdownHost = document.getElementById('assistantModalMarkdown');
     rewriteImages(markdownHost, detail.path);
     addCopyButtons(markdownHost, body, detail.path);
-    document.getElementById('assistantCopyDocument')?.addEventListener('click', event => copyPlain(body, event.currentTarget));
+    document.getElementById('assistantCopyPlain').onclick = event => copyPlain(body, event.currentTarget);
+    document.getElementById('assistantCopyRich').onclick = event => copyRich(body, detail.path, event.currentTarget);
     if (focusHeading) {
       const target = Array.from(markdownHost.querySelectorAll('h1, h2, h3'))
         .find(heading => heading.firstChild && heading.firstChild.textContent.trim() === focusHeading);
@@ -771,6 +789,16 @@
       state.data = data;
       if (options.task !== undefined) state.selectedTaskPath = options.task || '';
       if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
+      if (options.project !== undefined) state.project = options.project || '';
+      const selected = tasks().find(task => task.path === state.selectedTaskPath);
+      if (selected) {
+        state.project = selected.project;
+        state.expandedGroups.add(`${selected.project}:${internalGroup(selected)}`);
+      }
+      const available = projectRows();
+      if (!available.some(project => project.id === state.project)) {
+        state.project = available.length ? available[0].id : '';
+      }
       render();
     } catch (error) {
       const content = document.getElementById('content');
@@ -780,16 +808,17 @@
 
   function init(initial = '') {
     const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
-    state.section = ['tasks-2', 'tasks-3', 'meetings'].includes(options.section) ? options.section : 'tasks-1';
+    state.section = options.section === 'meetings' ? 'meetings' : 'tasks';
     state.selectedTaskPath = options.task || '';
     state.selectedSubtaskPath = '';
     state.selectedMeetingPath = options.meeting || '';
-    state.view = isTaskSection() ? 'focus' : 'meetings';
+    state.view = isTaskSection() ? 'all_open' : 'meetings';
     state.status = '';
     state.priority = '';
-    state.project = '';
+    state.project = options.project || new URL(window.location).searchParams.get('assistant_project') || '';
     state.search = '';
-    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath});
+    state.expandedGroups.clear();
+    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, project: state.project});
     if (!state.poll) {
       state.poll = setInterval(() => {
         if (document.body.classList.contains('assistant-active') && !document.hidden) refresh();

@@ -10,6 +10,8 @@ from lab import paths
 
 EDITABLE_FIELDS = (
     "title",
+    "group",
+    "tldr",
     "status",
     "priority",
     "due",

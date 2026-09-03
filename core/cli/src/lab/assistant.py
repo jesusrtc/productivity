@@ -87,10 +87,13 @@ The body may describe project-specific context that future agents should read.
 
 Each task lives at `projects/<project>/tasks/<task-id>.md`. Required metadata:
 `id`, `title`, `status`, `priority`, `project`, `created`, and `updated`.
-Optional metadata: `due`, `owner`, `waiting_on`, `waiting_since`, `follow_up_at`,
+Optional metadata: `group`, `tldr`, `due`, `owner`, `waiting_on`, `waiting_since`, `follow_up_at`,
 `last_follow_up_at`, `follow_up_channel`, `reviewer`, `review_requested_at`,
 `executor`, `depends_on`, and `tags`. Create new child work as first-class
 subtasks. Legacy Markdown checkbox items remain readable for older task files.
+
+`group` is the internal project or workstream shown inside the mapped Lab
+project. `tldr` is the concise summary rendered in task lists and modals.
 
 Each first-class subtask lives at
 `projects/<project>/subtasks/<subtask-id>.md`. Its required metadata is `id`,
