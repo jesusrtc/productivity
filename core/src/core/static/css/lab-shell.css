@@ -1004,21 +1004,9 @@
     margin-left: auto;            /* push to the right edge of the toggle row */
     padding: 1px 8px;             /* smaller — sits inside the toggle bar */
   }
-  .nb-output-code-toggle,
-  .nb-output-code-actions { display:none; }
-  .nb-output-code-toggle {
-    align-items:center; background:transparent; border:1px solid var(--border);
-    color:var(--text-secondary); padding:1px 8px; border-radius:3px;
-    font:11px/1.35 ui-monospace,monospace; cursor:pointer; white-space:nowrap;
-  }
-  .nb-output-code-toggle:hover { color:var(--accent); border-color:var(--accent); }
   .nb-code-pin[aria-pressed="true"] {
     color:#d2a8ff; border-color:rgba(163,113,247,.7);
     background:rgba(163,113,247,.12);
-  }
-  .nb-output-code-actions {
-    justify-content:flex-end; padding:4px 12px; border-bottom:1px solid var(--border);
-    background:var(--bg-secondary);
   }
   .nb-outputs-toggle { display: flex; align-items: center; gap: 6px; }
   .nb-notebook-header { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
@@ -1125,12 +1113,7 @@
   /* Output-only mode keeps markdown and rich results while collapsing code
      sources, cell action headers, empty committed code cells, and inserters.
      Draft/running cells and user-pinned cells remain fully visible. Pins are
-     fixed slots; one additional .nb-code-peek cell is the transient slot. */
-  .nb-container.nb-code-hidden .nb-output-code-toggle { display:inline-flex; }
-  .nb-container.nb-code-hidden .nb-output-code-actions { display:flex; }
-  .nb-container.nb-code-hidden > .nb-cell.nb-cell-pending .nb-output-code-toggle,
-  .nb-container.nb-code-hidden > .nb-cell.nb-cell-running .nb-output-code-toggle { display:none; }
-  .nb-container.nb-code-hidden > .nb-cell.nb-code-pinned [data-nb-peek-code] { display:none; }
+     fixed slots; the active .nb-code-peek cell is the transient slot. */
   .nb-container.nb-code-hidden .nb-cell-del { display:none; }
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-cell-header,
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-source,

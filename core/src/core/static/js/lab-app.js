@@ -3778,10 +3778,6 @@
     return `<div class="nb-output${stderrCls}"${attrs}>${esc(o.content || '')}</div>`;
   }
 
-  function _renderNbPeekCodeButton() {
-    return `<button class="nb-output-code-toggle" type="button" data-nb-peek-code aria-expanded="false" title="Show the code that produced this output">Show code</button>`;
-  }
-
   function _renderNbPinCodeButton() {
     return `<button class="nb-code-pin" type="button" data-nb-pin-code aria-pressed="false" title="Keep this code visible while code is hidden">Pin code</button>`;
   }
@@ -3822,11 +3818,7 @@
     let outputsHtml = '';
     if (cell.outputs && cell.outputs.length > 0) {
       const outs = cell.outputs.map(_renderNbOutput).join('');
-      const codeActions = cell.cell_type === 'code'
-        ? `<div class="nb-output-code-actions">${_renderNbPeekCodeButton()}</div>`
-        : '';
       outputsHtml = `<div class="nb-outputs">
-        ${codeActions}
         ${outs}
       </div>`;
     }
@@ -3835,8 +3827,8 @@
     const cellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
     const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
     const cellTypeAttr = ` data-cell-type="${escAttr(String(cell.cell_type || 'cell'))}"`;
-    const codePeekHeader = cell.cell_type === 'code'
-      ? `<div class="nb-cell-actions nb-code-peek-header-actions">${_renderNbPinCodeButton()}${outputsHtml ? _renderNbPeekCodeButton() : ''}</div>`
+    const codeHeaderActions = cell.cell_type === 'code'
+      ? `<div class="nb-cell-actions">${_renderNbPinCodeButton()}</div>`
       : '';
     return `<div class="nb-cell${statusCls}${outputStateCls}"${indexAttr}${cellIdAttr}${cellTypeAttr}>
       <div class="nb-cell-header">
@@ -3845,7 +3837,7 @@
         ${actorBadge}
         ${timingBadge}
         ${statusLabel}
-        ${codePeekHeader}
+        ${codeHeaderActions}
       </div>
       ${bodyHtml}
       ${outputsHtml}
@@ -4086,25 +4078,45 @@
     });
   }
 
+  // The active cell is browser-session state, not another persistent pin.
+  // Remember its stable id so live notebook re-renders keep the user's
+  // selection while pinned and running cells continue to occupy fixed slots.
+  let _nbActiveCodeCell = null;
+  function _rememberNotebookActiveCodeCell(scope, path, cell) {
+    const key = _notebookCellPinKey(cell);
+    if (!key) return null;
+    _nbActiveCodeCell = {
+      scope: String(scope || ''),
+      path: String(path || ''),
+      key,
+    };
+    return cell;
+  }
+  function _restoreNotebookActiveCodeCell(notebook, scope, path) {
+    if (!notebook || !_nbActiveCodeCell
+        || _nbActiveCodeCell.scope !== String(scope || '')
+        || _nbActiveCodeCell.path !== String(path || '')) return null;
+    return Array.from(notebook.querySelectorAll('.nb-cell[data-cell-type="code"]'))
+      .find(cell => _notebookCellPinKey(cell) === _nbActiveCodeCell.key) || null;
+  }
+
   function _setNotebookCodePeek(notebook, target) {
     if (!notebook) return null;
-    const wasOpen = !!(target && target.classList.contains('nb-code-peek'));
     notebook.querySelectorAll('.nb-cell.nb-code-peek').forEach((cell) => {
       cell.classList.remove('nb-code-peek');
     });
-    notebook.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
-      button.textContent = 'Show code';
-      button.title = 'Show the code that produced this output';
-      button.setAttribute('aria-expanded', 'false');
-    });
-    if (!target || wasOpen) return null;
+    if (!target) return null;
     target.classList.add('nb-code-peek');
-    target.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
-      button.textContent = 'Hide code';
-      button.title = 'Hide this cell code';
-      button.setAttribute('aria-expanded', 'true');
-    });
     return target;
+  }
+
+  function _activateNotebookCodeCell(notebook, eventTarget, scope, path, reveal) {
+    if (!notebook || !eventTarget || typeof eventTarget.closest !== 'function') return null;
+    const cell = eventTarget.closest('.nb-cell[data-cell-type="code"]');
+    if (!cell) return null;
+    _rememberNotebookActiveCodeCell(scope, path, cell);
+    if (reveal) _setNotebookCodePeek(notebook, cell);
+    return cell;
   }
 
   function _notebookCommittedCells(container) {
@@ -4274,7 +4286,14 @@
     function applyCodeHidden(hidden) {
       codeHidden = !!hidden;
       if (notebook) notebook.classList.toggle('nb-code-hidden', codeHidden);
-      if (!codeHidden) _setNotebookCodePeek(notebook, null);
+      if (codeHidden) {
+        _setNotebookCodePeek(
+          notebook,
+          _restoreNotebookActiveCodeCell(notebook, scope, path),
+        );
+      } else {
+        _setNotebookCodePeek(notebook, null);
+      }
       if (codeToggle) {
         const label = codeHidden ? 'Code hidden — show all code' : 'Code visible — hide all code';
         codeToggle.innerHTML = '<span aria-hidden="true">&lt;/&gt;</span>';
@@ -4346,7 +4365,16 @@
         });
       });
     }
+    let activateCodeCell = null;
     if (notebook) {
+      activateCodeCell = (event) => {
+        const cell = _activateNotebookCodeCell(
+          notebook, event.target, scope, path, codeHidden,
+        );
+        if (cell) record(cell);
+      };
+      notebook.addEventListener('click', activateCodeCell);
+      notebook.addEventListener('focusin', activateCodeCell);
       notebook.querySelectorAll('[data-nb-pin-code]').forEach((button) => {
         button.addEventListener('click', (event) => {
           event.preventDefault();
@@ -4365,21 +4393,6 @@
             _setNotebookCodePeek(notebook, cell);
           }
           record(cell);
-        });
-      });
-      notebook.querySelectorAll('[data-nb-peek-code]').forEach((button) => {
-        button.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (!codeHidden) return;
-          const cell = button.closest('.nb-cell[data-cell-type="code"]');
-          if (!cell) return;
-          const expanded = _setNotebookCodePeek(notebook, cell);
-          requestAnimationFrame(() => {
-            if (!active || !expanded) return;
-            expanded.scrollIntoView({ behavior: 'auto', block: 'start' });
-            record(expanded);
-          });
         });
       });
     }
@@ -4420,6 +4433,10 @@
       if (frame != null) cancelAnimationFrame(frame);
       window.removeEventListener('scroll', scheduleRecord);
       window.removeEventListener('resize', scheduleRecord);
+      if (notebook && activateCodeCell) {
+        notebook.removeEventListener('click', activateCodeCell);
+        notebook.removeEventListener('focusin', activateCodeCell);
+      }
     };
     return { recordCurrent };
   }
@@ -4509,7 +4526,6 @@
         <div class="nb-outputs-toggle" title="Click to ${collapsed ? 'show' : 'hide'} output">
           <span class="nb-outputs-caret">${collapsed ? '▶' : '▼'}</span> Output${summary}
           <button class="nb-outputs-copy" type="button" title="Copy output to clipboard">⧉ copy</button>
-          ${_renderNbPeekCodeButton()}
         </div>
         <div class="nb-outputs-body">${outs}</div>
       </div>`;
@@ -4578,7 +4594,6 @@
           <span class="nb-cell-busy" style="display:none">running…</span>
           <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
           ${clientPending ? '' : _renderNbPinCodeButton()}
-          ${outputsHtml ? _renderNbPeekCodeButton() : ''}
           <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)"${serverBusyAttr}>▶ Run</button>
           <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}"${serverBusyAttr}>✕</button>
         </div>
@@ -4834,7 +4849,7 @@
     if (toggle && !isPending) {
       toggle.addEventListener('click', (e) => {
         // Output action buttons should not also fold the output panel.
-        if (e.target.closest('.nb-outputs-copy, [data-nb-peek-code]')) return;
+        if (e.target.closest('.nb-outputs-copy')) return;
         const nowCollapsed = !outputsWrap.classList.contains('nb-outputs-collapsed');
         outputsWrap.classList.toggle('nb-outputs-collapsed', nowCollapsed);
         const caret = toggle.querySelector('.nb-outputs-caret');

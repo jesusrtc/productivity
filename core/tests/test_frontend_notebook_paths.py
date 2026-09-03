@@ -263,7 +263,7 @@ process.stdout.write(JSON.stringify({saved, other, codeHidden, otherCodeHidden})
         "otherCodeHidden": False,
     }
     peek_helper = _js_between(
-        "function _setNotebookCodePeek(notebook, target)",
+        "function _notebookCellPinKey(cell)",
         "function _notebookCommittedCells(container)",
     )
     peek_result = _run_node(
@@ -271,25 +271,16 @@ process.stdout.write(JSON.stringify({saved, other, codeHidden, otherCodeHidden})
         + """
 function fakeCell(id) {
   const classes = new Set();
-  function fakeButton() {
-    const attrs = new Map([['aria-expanded', 'false']]);
-    return {
-      textContent: 'Show code', title: '',
-      setAttribute(name, value) { attrs.set(name, String(value)); },
-      getAttribute(name) { return attrs.get(name) || null; },
-    };
-  }
-  const headerButton = fakeButton();
-  const outputButton = fakeButton();
   return {
-    id, headerButton, outputButton,
+    id,
+    getAttribute(name) {
+      if (name === 'data-cell-id') return id;
+      return null;
+    },
     classList: {
       contains(name) { return classes.has(name); },
       add(name) { classes.add(name); },
       remove(name) { classes.delete(name); },
-    },
-    querySelectorAll(selector) {
-      return selector === '[data-nb-peek-code]' ? [headerButton, outputButton] : [];
     },
   };
 }
@@ -300,54 +291,56 @@ const notebook = {
     if (selector === '.nb-cell.nb-code-peek') {
       return [first, second].filter(cell => cell.classList.contains('nb-code-peek'));
     }
-    if (selector === '[data-nb-peek-code]') {
-      return [first.headerButton, first.outputButton, second.headerButton, second.outputButton];
-    }
+    if (selector === '.nb-cell[data-cell-type="code"]') return [first, second];
     return [];
   },
 };
-const firstOpen = _setNotebookCodePeek(notebook, first);
+const firstTarget = {closest() { return first; }};
+const secondTarget = {closest() { return second; }};
+const firstOpen = _activateNotebookCodeCell(
+  notebook, firstTarget, 'workspace-a', 'projects/demo/large.ipynb', true,
+);
 const afterFirst = {
   open: firstOpen && firstOpen.id,
   first: first.classList.contains('nb-code-peek'),
   second: second.classList.contains('nb-code-peek'),
-  headerLabel: first.headerButton.textContent,
-  outputLabel: first.outputButton.textContent,
-  expanded: first.outputButton.getAttribute('aria-expanded'),
 };
-const secondOpen = _setNotebookCodePeek(notebook, second);
+const secondOpen = _activateNotebookCodeCell(
+  notebook, secondTarget, 'workspace-a', 'projects/demo/large.ipynb', true,
+);
 const afterSecond = {
   open: secondOpen && secondOpen.id,
   first: first.classList.contains('nb-code-peek'),
   second: second.classList.contains('nb-code-peek'),
-  firstLabel: first.headerButton.textContent,
-  secondHeaderLabel: second.headerButton.textContent,
-  secondOutputLabel: second.outputButton.textContent,
 };
-const closed = _setNotebookCodePeek(notebook, second);
+const sameOpen = _activateNotebookCodeCell(
+  notebook, secondTarget, 'workspace-a', 'projects/demo/large.ipynb', true,
+);
 process.stdout.write(JSON.stringify({
   afterFirst,
   afterSecond,
-  closed: closed && closed.id,
+  sameOpen: sameOpen && sameOpen.id,
   anyOpen: first.classList.contains('nb-code-peek') || second.classList.contains('nb-code-peek'),
-  secondExpanded: second.outputButton.getAttribute('aria-expanded'),
+  restored: _restoreNotebookActiveCodeCell(
+    notebook, 'workspace-a', 'projects/demo/large.ipynb',
+  ).id,
+  otherScope: _restoreNotebookActiveCodeCell(
+    notebook, 'workspace-b', 'projects/demo/large.ipynb',
+  ),
 }));
 """
     )
     assert peek_result == {
         "afterFirst": {
             "open": "first", "first": True, "second": False,
-            "headerLabel": "Hide code", "outputLabel": "Hide code",
-            "expanded": "true",
         },
         "afterSecond": {
             "open": "second", "first": False, "second": True,
-            "firstLabel": "Show code", "secondHeaderLabel": "Hide code",
-            "secondOutputLabel": "Hide code",
         },
-        "closed": None,
-        "anyOpen": False,
-        "secondExpanded": "false",
+        "sameOpen": "second",
+        "anyOpen": True,
+        "restored": "second",
+        "otherScope": None,
     }
     position_helpers = _js_between(
         "function _notebookCommittedCells(container)",
@@ -392,9 +385,10 @@ process.stdout.write(JSON.stringify({
     assert 'data-nb-jump="end"' in source
     assert "data-nb-jump-running" in source
     assert "data-nb-toggle-code" in source
-    assert "data-nb-peek-code" in source
-    assert "nb-code-peek-header-actions" in source
-    assert "_setNotebookCodePeek(notebook, cell)" in source
+    assert "data-nb-peek-code" not in source
+    assert "_activateNotebookCodeCell(" in source
+    assert "notebook.addEventListener('click', activateCodeCell)" in source
+    assert "notebook.addEventListener('focusin', activateCodeCell)" in source
     assert "_setNotebookCodeHidden(scope, path, codeHidden)" in source
     assert 'data-cell-type="code"' in source
     assert "_bindNbNavigation(" in source
@@ -419,7 +413,7 @@ process.stdout.write(JSON.stringify({
     assert ".nb-jump-controls .nb-jump-running" in css
     assert ".nb-container.nb-code-hidden .nb-cell-del { display:none; }" in css
     assert ":not(.nb-code-peek) > .nb-cell-edit-wrap" in css
-    assert ".nb-output-code-toggle { display:inline-flex; }" in css
+    assert ".nb-output-code-toggle" not in css
     assert ".nb-cell-no-outputs" in css
     assert "scroll-margin-top: calc(var(--nb-jump-top, 88px) + 100px)" in css
 
@@ -515,7 +509,7 @@ const localStorage = {
 function fakeButton(kind) {
   const attrs = new Map();
   return {
-    kind, textContent: kind === 'pin' ? 'Pin code' : 'Show code', title: '',
+    kind, textContent: 'Pin code', title: '',
     setAttribute(name, value) { attrs.set(name, String(value)); },
     getAttribute(name) { return attrs.get(name) || null; },
   };
@@ -523,9 +517,8 @@ function fakeButton(kind) {
 function fakeCell(id) {
   const classes = new Set();
   const pin = fakeButton('pin');
-  const peek = fakeButton('peek');
   return {
-    id, pin, peek,
+    id, pin,
     getAttribute(name) {
       if (name === 'data-cell-id') return id;
       if (name === 'data-cell-index') return id.slice(-1);
@@ -542,7 +535,6 @@ function fakeCell(id) {
     },
     querySelectorAll(selector) {
       if (selector === '[data-nb-pin-code]') return [pin];
-      if (selector === '[data-nb-peek-code]') return [peek];
       return [];
     },
   };
@@ -558,7 +550,6 @@ const notebook = {
     if (selector === '.nb-cell.nb-code-peek') {
       return cells.filter(cell => cell.classList.contains('nb-code-peek'));
     }
-    if (selector === '[data-nb-peek-code]') return cells.map(cell => cell.peek);
     return [];
   },
 };
@@ -581,7 +572,6 @@ process.stdout.write(JSON.stringify({
   afterFourth: {
     third: third.classList.contains('nb-code-peek'),
     fourth: fourth.classList.contains('nb-code-peek'),
-    label: fourth.peek.textContent,
   },
   pinLabels: [first.pin.textContent, second.pin.textContent, third.pin.textContent],
 }));
@@ -593,14 +583,13 @@ process.stdout.write(JSON.stringify({
         "otherScope": [],
         "pinned": [True, True, False, False],
         "afterThird": {"third": True, "fourth": False},
-        "afterFourth": {"third": False, "fourth": True, "label": "Hide code"},
+        "afterFourth": {"third": False, "fourth": True},
         "pinLabels": ["Unpin code", "Unpin code", "Pin code"],
     }
     assert "data-nb-pin-code" in source
     assert "_applyNotebookCodePins(notebook, scope, path)" in source
     assert "!cell.classList.contains('nb-code-pinned')" in source
     assert ":not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek)" in css
-    assert ".nb-cell.nb-code-pinned [data-nb-peek-code]" in css
     assert ".nb-cell:is(.nb-code-pinned, .nb-code-peek) > .nb-outputs" in css
 
 
@@ -838,9 +827,6 @@ function _highlightCellSource(value) { return esc(value); }
 function _renderNbOutput(output) {
   return `<div class="nb-output">${esc(output.content || '')}</div>`;
 }
-function _renderNbPeekCodeButton() {
-  return '<button data-nb-peek-code>Show code</button>';
-}
 function _renderNbPinCodeButton() {
   return '<button data-nb-pin-code>Pin code</button>';
 }
@@ -877,7 +863,7 @@ process.stdout.write(JSON.stringify({html}));
     assert 'readonly aria-busy="true"' in html
     assert 'data-queue-pos="1"' in html
     assert html.count(" disabled") == 2
-    assert "data-nb-peek-code" in html
+    assert "data-nb-peek-code" not in html
     assert "first\n" in html
 
 
