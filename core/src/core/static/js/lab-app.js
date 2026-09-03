@@ -6316,8 +6316,10 @@
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      const assistantSection = window.AssistantView ? window.AssistantView.section() : 'tasks';
-      html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
+      const assistantSection = window.AssistantView ? window.AssistantView.section() : 'tasks-1';
+      html += `<button class="repo-tab${assistantSection === 'tasks-1' ? ' active' : ''}" data-assistant-section="tasks-1" onclick="AssistantView.setSection('tasks-1')" style="font-weight:600">&#x2726; Tasks 1</button>`;
+      html += `<button class="repo-tab${assistantSection === 'tasks-2' ? ' active' : ''}" data-assistant-section="tasks-2" onclick="AssistantView.setSection('tasks-2')">Tasks 2</button>`;
+      html += `<button class="repo-tab${assistantSection === 'tasks-3' ? ' active' : ''}" data-assistant-section="tasks-3" onclick="AssistantView.setSection('tasks-3')">Tasks 3</button>`;
       html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
     } else if (isSelf) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
@@ -13652,7 +13654,8 @@
         if (opts.meeting) url.searchParams.set('meeting', opts.meeting);
         else url.searchParams.delete('meeting');
       } else {
-        url.searchParams.delete('subview');
+        if (opts.subview === 'tasks-2' || opts.subview === 'tasks-3') url.searchParams.set('subview', opts.subview);
+        else url.searchParams.delete('subview');
         url.searchParams.delete('meeting');
         if (taskPath) url.searchParams.set('task', taskPath);
         else url.searchParams.delete('task');
@@ -14680,7 +14683,7 @@
     if (typeof projTabsRender === 'function') projTabsRender();
     renderRepoTabs();
     if (window.AssistantView) window.AssistantView.init({
-      section: options.subview === 'meetings' ? 'meetings' : 'tasks',
+      section: ['tasks-2', 'tasks-3', 'meetings'].includes(options.subview) ? options.subview : 'tasks-1',
       task: initialTask,
       meeting: options.meeting || '',
     });

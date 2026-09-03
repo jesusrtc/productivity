@@ -8,6 +8,23 @@ from lab import assistant as assistant_db
 from lab import paths
 
 
+EDITABLE_FIELDS = (
+    "title",
+    "status",
+    "priority",
+    "due",
+    "owner",
+    "waiting_on",
+    "waiting_since",
+    "follow_up_at",
+    "last_follow_up_at",
+    "follow_up_channel",
+    "reviewer",
+    "review_requested_at",
+    "executor",
+)
+
+
 def _root() -> Path:
     try:
         return assistant_db.configured_root()
@@ -159,7 +176,7 @@ def show_task(task_id: str) -> None:
 
 @assistant_group.command("set")
 @click.argument("task_id")
-@click.argument("field", type=click.Choice(("title", "status", "priority", "due", "owner")))
+@click.argument("field", type=click.Choice(EDITABLE_FIELDS))
 @click.argument("value")
 def set_task(task_id: str, field: str, value: str) -> None:
     normalized: object = None if value.lower() in {"none", "null", ""} else value
@@ -178,6 +195,114 @@ def done_task(task_id: str) -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{task_id}  done  ({source})")
+
+
+@assistant_group.group("subtask")
+def subtask_group() -> None:
+    """Manage first-class Markdown subtasks in the Assistant database."""
+
+
+@subtask_group.command("add")
+@click.argument("title")
+@click.option("--parent", "parent_id", required=True)
+@click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
+@click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
+@click.option("--due", default=None)
+@click.option("--owner", default=None)
+@click.option("--tag", "tags", multiple=True)
+def add_subtask(
+    title: str,
+    parent_id: str,
+    priority: str,
+    status: str,
+    due: str | None,
+    owner: str | None,
+    tags: tuple[str, ...],
+) -> None:
+    try:
+        source = assistant_db.create_subtask(
+            _root(),
+            title,
+            parent=parent_id,
+            priority=priority,
+            status=status,
+            due=due,
+            owner=owner,
+            tags=list(tags),
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    metadata, _ = assistant_db.read_markdown(source)
+    click.echo(f"{metadata['id']}  {source}")
+
+
+@subtask_group.command("ls")
+@click.option("--parent", "parent_id", default=None)
+@click.option("--status", default="open", help="open or one exact lifecycle status")
+@click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default=None)
+@click.option("--project", "project_id", default=None)
+def list_subtasks(
+    parent_id: str | None,
+    status: str,
+    priority: str | None,
+    project_id: str | None,
+) -> None:
+    if status != "open" and status not in assistant_db.STATUSES:
+        raise click.ClickException(f"unknown status {status!r}")
+    rows = []
+    for subtask in assistant_db.iter_subtasks(_root()):
+        if status == "open" and subtask["status"] == "done":
+            continue
+        if status != "open" and subtask["status"] != status:
+            continue
+        if priority and subtask["priority"] != priority:
+            continue
+        if project_id and subtask["project"] != project_id:
+            continue
+        if parent_id and subtask["parent"] != parent_id:
+            continue
+        rows.append(subtask)
+    if not rows:
+        click.echo("no Assistant subtasks")
+        return
+    for subtask in rows:
+        click.echo(
+            f"{subtask['id']}  {subtask['status']:<15} {subtask['priority']}  "
+            f"{subtask['project']:<18} {subtask['parent']}  {subtask['title']}"
+        )
+
+
+@subtask_group.command("show")
+@click.argument("subtask_id")
+def show_subtask(subtask_id: str) -> None:
+    try:
+        source, _metadata, _body = assistant_db.find_subtask(_root(), subtask_id)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(source.read_text(encoding="utf-8"))
+
+
+@subtask_group.command("set")
+@click.argument("subtask_id")
+@click.argument("field", type=click.Choice(EDITABLE_FIELDS))
+@click.argument("value")
+def set_subtask(subtask_id: str, field: str, value: str) -> None:
+    normalized: object = None if value.lower() in {"none", "null", ""} else value
+    try:
+        source = assistant_db.update_subtask(_root(), subtask_id, field, normalized)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"{subtask_id}.{field} = {normalized!r}  ({source})")
+
+
+@subtask_group.command("done")
+@click.argument("subtask_id")
+def done_subtask(subtask_id: str) -> None:
+    try:
+        source = assistant_db.update_subtask(_root(), subtask_id, "status", "done")
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"{subtask_id}  done  ({source})")
 
 
 @assistant_group.group("meeting")

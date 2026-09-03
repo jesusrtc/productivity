@@ -1,9 +1,9 @@
 """Filesystem contract for the client-owned global Assistant database.
 
 The database is intentionally Markdown-first.  Project mappings live in
-``projects/<id>/project.md`` and each task is one Markdown file under that
-project's ``tasks/`` directory.  This module contains the small shared parser
-used by both the CLI and Lab's read-only Assistant UI.
+``projects/<id>/project.md``; tasks and their first-class subtasks are separate
+Markdown files.  This module contains the small shared parser used by both the
+CLI and Lab's read-only Assistant UI.
 """
 from __future__ import annotations
 
@@ -16,7 +16,15 @@ from typing import Any, Iterator
 from lab import paths
 
 
-STATUSES = ("inbox", "ready", "in_progress", "waiting", "blocked", "done")
+STATUSES = (
+    "inbox",
+    "ready",
+    "in_progress",
+    "waiting",
+    "blocked",
+    "ready_to_review",
+    "done",
+)
 PRIORITIES = ("P0", "P1", "P2", "P3")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -47,11 +55,16 @@ whenever the user asks you to add, update, complete, or save work here.
 lab assistant path
 lab assistant project ls
 lab assistant project add <id> --name <name> --workspace <workspace-id> --path <absolute-project-path>
-lab assistant add "Task title" --project <id> [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked]
+lab assistant add "Task title" --project <id> [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked|ready_to_review]
 lab assistant ls [--status open|<status>] [--priority P0] [--project <id>]
 lab assistant show <task-id>
 lab assistant set <task-id> <field> <value>
 lab assistant done <task-id>
+lab assistant subtask add "Subtask title" --parent <task-id> [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked|ready_to_review]
+lab assistant subtask ls [--parent <task-id>] [--status open|<status>]
+lab assistant subtask show <subtask-id>
+lab assistant subtask set <subtask-id> <field> <value>
+lab assistant subtask done <subtask-id>
 lab assistant meeting add "Meeting title" --project <id> [--date YYYY-MM-DD] [--attendee NAME]
 lab assistant meeting ls [--project <id>]
 lab assistant meeting show <meeting-id>
@@ -74,8 +87,18 @@ The body may describe project-specific context that future agents should read.
 
 Each task lives at `projects/<project>/tasks/<task-id>.md`. Required metadata:
 `id`, `title`, `status`, `priority`, `project`, `created`, and `updated`.
-Optional metadata: `due`, `owner`, `depends_on`, and `tags`. Markdown checkbox
-items are subtasks. Complete every subtask before marking its parent task done.
+Optional metadata: `due`, `owner`, `waiting_on`, `waiting_since`, `follow_up_at`,
+`last_follow_up_at`, `follow_up_channel`, `reviewer`, `review_requested_at`,
+`executor`, `depends_on`, and `tags`. Create new child work as first-class
+subtasks. Legacy Markdown checkbox items remain readable for older task files.
+
+Each first-class subtask lives at
+`projects/<project>/subtasks/<subtask-id>.md`. Its required metadata is `id`,
+`title`, `status`, `priority`, `project`, `parent`, `created`, and `updated`;
+`due`, `owner`, `waiting_on`, `waiting_since`, `follow_up_at`,
+`last_follow_up_at`, `follow_up_channel`, `reviewer`, `review_requested_at`,
+`executor`, and `tags` are optional. Complete every checkbox and first-class
+subtask before marking its parent task done.
 
 Lifecycle:
 
@@ -84,6 +107,7 @@ Lifecycle:
 - `in_progress` — actively being worked
 - `waiting` — waiting on time or an external response
 - `blocked` — cannot progress; explain why under `# Blocker`
+- `ready_to_review` — agent-produced work is ready for human review
 - `done` — actually complete; set `completed` as well
 
 P0 is urgent, P1 is important, P2 is normal, and P3 is someday/maybe.
@@ -133,6 +157,7 @@ This is the client-owned global database for Lab's Assistant tab.
 - `projects/<id>/project.md` maps an Assistant project to a Lab workspace and
   an absolute project path.
 - `projects/<id>/tasks/*.md` contains one task per Markdown file.
+- `projects/<id>/subtasks/*.md` contains one first-class subtask per Markdown file.
 - `projects/<id>/meetings/*.md` contains one meeting note per Markdown file.
 - `.lab/` contains Lab-managed terminal/runtime state and may be ignored by
   version control.
@@ -239,6 +264,10 @@ def iter_projects(root: Path) -> Iterator[dict[str, Any]]:
 def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
     project_rows = projects if projects is not None else list(iter_projects(root))
     by_id = {str(row["id"]): row for row in project_rows}
+    first_class_by_parent: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for subtask in iter_subtasks(root, project_rows):
+        key = (str(subtask["project"]), str(subtask["parent"]))
+        first_class_by_parent.setdefault(key, []).append(subtask)
     for project_id, project in by_id.items():
         task_dir = root / "projects" / project_id / "tasks"
         if not task_dir.is_dir():
@@ -246,7 +275,9 @@ def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iter
         for source in sorted(task_dir.glob("*.md")):
             metadata, body = read_markdown(source)
             task_id = str(metadata.get("id") or source.stem)
-            subtasks = extract_subtasks(body)
+            legacy_subtasks = extract_subtasks(body)
+            first_class_subtasks = first_class_by_parent.get((project_id, task_id), [])
+            subtasks = [*legacy_subtasks, *first_class_subtasks]
             yield {
                 **metadata,
                 "id": task_id,
@@ -260,6 +291,8 @@ def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iter
                 "project_path": project.get("project_path"),
                 "body": body,
                 "subtasks": subtasks,
+                "legacy_subtasks": legacy_subtasks,
+                "first_class_subtasks": first_class_subtasks,
                 "subtasks_done": sum(1 for item in subtasks if item["status"] == "done"),
                 "subtasks_total": len(subtasks),
                 "path": str(source.relative_to(root)),
@@ -268,7 +301,7 @@ def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iter
 
 
 def extract_subtasks(body: str) -> list[dict[str, Any]]:
-    """Return Markdown checklist items as the task's visible subtasks."""
+    """Return legacy Markdown checklist items as the task's visible subtasks."""
     items: list[dict[str, Any]] = []
     for raw in body.splitlines():
         match = _CHECKBOX_RE.match(raw)
@@ -281,6 +314,41 @@ def extract_subtasks(body: str) -> list[dict[str, Any]]:
             "done": done,
         })
     return items
+
+
+def iter_subtasks(
+    root: Path,
+    projects: list[dict[str, Any]] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield first-class subtask documents with their project routing context."""
+    project_rows = projects if projects is not None else list(iter_projects(root))
+    by_id = {str(row["id"]): row for row in project_rows}
+    for project_id, project in by_id.items():
+        subtask_dir = root / "projects" / project_id / "subtasks"
+        if not subtask_dir.is_dir():
+            continue
+        for source in sorted(subtask_dir.glob("*.md")):
+            metadata, body = read_markdown(source)
+            subtask_id = str(metadata.get("id") or source.stem)
+            status = str(metadata.get("status") or "inbox")
+            yield {
+                **metadata,
+                "id": subtask_id,
+                "title": str(metadata.get("title") or subtask_id),
+                "status": status,
+                "priority": str(metadata.get("priority") or "P2"),
+                "project": project_id,
+                "parent": str(metadata.get("parent") or ""),
+                "project_name": project.get("name") or project_id,
+                "workspace": project.get("workspace"),
+                "workspace_path": project.get("workspace_path"),
+                "project_path": project.get("project_path"),
+                "body": body,
+                "done": status == "done",
+                "document_backed": True,
+                "path": str(source.relative_to(root)),
+                "mtime": source.stat().st_mtime,
+            }
 
 
 def iter_meetings(root: Path, projects: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
@@ -325,6 +393,19 @@ def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
     return matches[0]
 
 
+def find_subtask(root: Path, subtask_id: str) -> tuple[Path, dict[str, Any], str]:
+    matches: list[tuple[Path, dict[str, Any], str]] = []
+    for source in (root / "projects").glob("*/subtasks/*.md"):
+        metadata, body = read_markdown(source)
+        if str(metadata.get("id") or source.stem) == subtask_id:
+            matches.append((source, metadata, body))
+    if not matches:
+        raise ValueError(f"subtask {subtask_id!r} not found")
+    if len(matches) > 1:
+        raise ValueError(f"subtask id {subtask_id!r} is not unique")
+    return matches[0]
+
+
 def find_meeting(root: Path, meeting_id: str) -> tuple[Path, dict[str, Any], str]:
     matches: list[tuple[Path, dict[str, Any], str]] = []
     for source in (root / "projects").glob("*/meetings/*.md"):
@@ -363,6 +444,7 @@ def create_project(
         "updated": timestamp,
     }, f"# {name}\n\nProject context and routing notes.\n")
     (pdir / "tasks").mkdir(exist_ok=True)
+    (pdir / "subtasks").mkdir(exist_ok=True)
     (pdir / "meetings").mkdir(exist_ok=True)
     return source
 
@@ -409,10 +491,67 @@ def create_task(
         "depends_on": [],
         "tags": tags or [],
     }
+    if status == "ready_to_review":
+        metadata["review_requested_at"] = timestamp
     write_markdown(
         source,
         metadata,
-        "# Context\n\nDescribe why this task exists.\n\n# Next actions\n\n- [ ] Define the next concrete action.\n",
+        "# Context\n\nDescribe why this task exists.\n\n# Next actions\n\n"
+        "Add document-backed subtasks with `lab assistant subtask add`.\n",
+    )
+    return source
+
+
+def create_subtask(
+    root: Path,
+    title: str,
+    *,
+    parent: str,
+    priority: str = "P2",
+    status: str = "inbox",
+    due: str | None = None,
+    owner: str | None = None,
+    tags: list[str] | None = None,
+) -> Path:
+    if priority not in PRIORITIES:
+        raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
+    if status not in STATUSES or status == "done":
+        raise ValueError(f"new subtask status must be one of: {', '.join(STATUSES[:-1])}")
+    parent_source, parent_metadata, _parent_body = find_task(root, parent)
+    project_id = str(parent_metadata.get("project") or parent_source.parent.parent.name)
+    pdir = project_dir(root, project_id)
+    if not (pdir / "project.md").is_file():
+        raise ValueError(f"Assistant project {project_id!r} not found")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    base_id = f"{stamp}-{slugify(title)}"
+    subtask_id = base_id
+    subtask_dir = pdir / "subtasks"
+    source = subtask_dir / f"{subtask_id}.md"
+    suffix = 2
+    while source.exists():
+        subtask_id = f"{base_id}-{suffix}"
+        source = subtask_dir / f"{subtask_id}.md"
+        suffix += 1
+    timestamp = now_iso()
+    metadata: dict[str, Any] = {
+        "id": subtask_id,
+        "title": title,
+        "status": status,
+        "priority": priority,
+        "project": project_id,
+        "parent": parent,
+        "created": timestamp,
+        "updated": timestamp,
+        "due": due,
+        "owner": owner,
+        "tags": tags or [],
+    }
+    if status == "ready_to_review":
+        metadata["review_requested_at"] = timestamp
+    write_markdown(
+        source,
+        metadata,
+        "# Context\n\nDescribe the concrete outcome for this subtask.\n\n# Result\n",
     )
     return source
 
@@ -470,12 +609,20 @@ def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
     if field == "priority" and value not in PRIORITIES:
         raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
     if field == "status" and value == "done":
-        incomplete = [item for item in extract_subtasks(body) if item["status"] != "done"]
+        legacy_incomplete = [item for item in extract_subtasks(body) if item["status"] != "done"]
+        project_id = str(metadata.get("project") or source.parent.parent.name)
+        first_class_incomplete = [
+            item for item in iter_subtasks(root)
+            if item["project"] == project_id
+            and item["parent"] == task_id
+            and item["status"] != "done"
+        ]
+        incomplete = [*legacy_incomplete, *first_class_incomplete]
         if incomplete:
             suffix = "s" if len(incomplete) != 1 else ""
             raise ValueError(
                 f"task has {len(incomplete)} incomplete subtask{suffix}; "
-                "complete every checkbox before marking it done"
+                "complete every checkbox and first-class subtask before marking it done"
             )
     metadata[field] = value
     metadata["updated"] = now_iso()
@@ -484,5 +631,30 @@ def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
             metadata["completed"] = now_iso()
         else:
             metadata.pop("completed", None)
+        if value == "waiting" and not metadata.get("waiting_since"):
+            metadata["waiting_since"] = now_iso()
+        if value == "ready_to_review" and not metadata.get("review_requested_at"):
+            metadata["review_requested_at"] = now_iso()
+    write_markdown(source, metadata, body)
+    return source
+
+
+def update_subtask(root: Path, subtask_id: str, field: str, value: Any) -> Path:
+    source, metadata, body = find_subtask(root, subtask_id)
+    if field == "status" and value not in STATUSES:
+        raise ValueError(f"status must be one of: {', '.join(STATUSES)}")
+    if field == "priority" and value not in PRIORITIES:
+        raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
+    metadata[field] = value
+    metadata["updated"] = now_iso()
+    if field == "status":
+        if value == "done":
+            metadata["completed"] = now_iso()
+        else:
+            metadata.pop("completed", None)
+        if value == "waiting" and not metadata.get("waiting_since"):
+            metadata["waiting_since"] = now_iso()
+        if value == "ready_to_review" and not metadata.get("review_requested_at"):
+            metadata["review_requested_at"] = now_iso()
     write_markdown(source, metadata, body)
     return source

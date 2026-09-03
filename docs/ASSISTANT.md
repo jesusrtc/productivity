@@ -35,6 +35,8 @@ assistant/
       project.md
       tasks/
         <task-id>.md
+      subtasks/
+        <subtask-id>.md
       meetings/
         <meeting-id>.md
   .lab/
@@ -65,15 +67,27 @@ lab assistant add "Prepare launch note" --project launch --priority P1 --status 
 lab assistant ls --status open
 lab assistant set <task-id> status in_progress
 lab assistant done <task-id>
+lab assistant subtask add "Draft launch email" --parent <task-id> \
+  --priority P1 --status in_progress
+lab assistant subtask ls --parent <task-id>
+lab assistant subtask set <subtask-id> status ready_to_review
+lab assistant subtask done <subtask-id>
 lab assistant meeting add "Weekly review" --project launch --date 2026-09-03 \
   --attendee "Maya" --attendee "Leo"
 lab assistant meeting ls --project launch
 ```
 
-Edit task Markdown directly for context, decisions, checklists, and outputs.
-Markdown checkboxes in a task are treated as subtasks and shown with individual
-open/done state. `lab assistant done` refuses to complete the parent while any
-checkbox is still open.
+Edit task and subtask Markdown directly for context, decisions, and outputs.
+First-class subtasks are separate documents with their own lifecycle, priority,
+owner, due date, and body. New child work should use them; legacy Markdown
+checkboxes remain supported for older tasks.
+`lab assistant done` refuses to complete the parent while any checkbox or
+first-class subtask is incomplete.
+
+Tasks and subtasks may use `waiting_on`, `waiting_since`, `follow_up_at`,
+`last_follow_up_at`, and `follow_up_channel` for explicit follow-up routing.
+Agent-produced work moves to `ready_to_review`; `reviewer`,
+`review_requested_at`, and `executor` record the review handoff.
 
 The Tasks and Meeting notes tabs use compact lists. A single click expands a
 short preview; a double click opens the complete Markdown document in a modal.
@@ -103,8 +117,12 @@ including a completed/total count in the list.
 - `in_progress`: actively being handled
 - `waiting`: awaiting time or an external response
 - `blocked`: unable to proceed; the task body should explain why
+- `ready_to_review`: agent-produced work is ready for human review
 - `done`: complete, with an outcome recorded in `# Result`
 
-Priorities run from `P0` (urgent) through `P3` (someday/maybe). The first UI
-includes search, exact status and priority filters, project grouping, open and
-in-progress views, P0, and recently completed tasks.
+Priorities run from `P0` (urgent) through `P3` (someday/maybe). Lab exposes
+three comparison views: a flat filter strip, an attention-grouped Focus queue,
+and a project ledger. Their shared Focus order is P0, ready to review, in
+progress, follow-up due, blocked, inbox, then the remaining work ordered P1
+through P3. Waiting tasks use a `Nudge` action to open copy-ready follow-up
+content; Lab does not send it or record a message as sent.

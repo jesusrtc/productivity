@@ -2099,6 +2099,8 @@
   .assistant-priority.p1 { color:var(--yellow); }
   .assistant-status { color:var(--text-secondary); font-weight:650; }
   .assistant-status.status-in_progress { color:var(--accent); }
+  .assistant-status.status-ready_to_review { border-color:color-mix(in srgb,#a78bfa 62%,var(--border)); background:color-mix(in srgb,#8b5cf6 12%,transparent); color:#b9a4ff; }
+  .assistant-status.status-waiting { color:var(--yellow); }
   .assistant-status.status-blocked { color:var(--red); }
   .assistant-status.status-done { color:var(--green); }
   .assistant-task-due { margin-left:auto; color:var(--text-dim); font-size:10px; }
@@ -2178,6 +2180,54 @@
   .assistant-modal-body .assistant-meta, .assistant-modal-body .assistant-path, .assistant-modal-body .assistant-document-toolbar { max-width:850px; margin-left:auto; margin-right:auto; }
   .assistant-content-target { scroll-margin-top:16px; padding:8px 10px; border-radius:7px; background:color-mix(in srgb,var(--accent) 10%,transparent); }
   .assistant-copy-actions button.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
+
+  /* Assistant UI proposals deliberately use the whole canvas. The project
+     tree is still available in project views, but it is visual noise here. */
+  body.assistant-active .sidebar,
+  body.assistant-active .sidebar-resizer,
+  body.assistant-active .sidebar-toggle { display:none !important; }
+  body.assistant-active .main { margin-left:0; }
+  .assistant-shell { max-width:1180px; }
+  .assistant-quick-views { display:flex; align-items:stretch; gap:3px; margin:0 0 9px; padding:3px; overflow-x:auto; border:1px solid var(--border); border-radius:8px; background:color-mix(in srgb,var(--bg-secondary) 76%,var(--bg-primary)); scrollbar-width:thin; }
+  .assistant-quick-views button { min-width:max-content; display:flex; align-items:center; gap:8px; padding:7px 10px; border:0; border-radius:5px; background:transparent; color:var(--text-secondary); font:600 11px/1.2 inherit; cursor:pointer; }
+  .assistant-quick-views button:hover { color:var(--text-primary); background:var(--tree-hover); }
+  .assistant-quick-views button.active { color:var(--text-primary); background:var(--bg-tertiary); box-shadow:inset 0 0 0 1px var(--border); }
+  .assistant-quick-views small { min-width:19px; padding:1px 5px; border-radius:9px; background:var(--bg-primary); color:var(--text-dim); font-size:9px; text-align:center; }
+  .assistant-quick-views.compact { width:max-content; max-width:100%; }
+  .assistant-layout-tasks-1 .assistant-filters,
+  .assistant-layout-tasks-3 .assistant-filters,
+  .assistant-layout-meetings .assistant-filters { border-radius:8px 8px 0 0; }
+  .assistant-compact-row:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  .assistant-review-count { padding:2px 7px; border:1px solid color-mix(in srgb,#a78bfa 55%,var(--border)); border-radius:10px; background:color-mix(in srgb,#8b5cf6 10%,transparent); color:#b9a4ff; font-size:9px; font-weight:700; white-space:nowrap; }
+  .assistant-nudge { padding:3px 8px; border:1px solid color-mix(in srgb,var(--yellow) 55%,var(--border)); border-radius:5px; background:color-mix(in srgb,var(--yellow) 8%,transparent); color:var(--yellow); font:650 10px/1.2 inherit; cursor:pointer; }
+  .assistant-nudge:hover { background:color-mix(in srgb,var(--yellow) 16%,transparent); color:var(--text-primary); }
+  .assistant-waiting-on { max-width:760px; margin:10px 0 0; color:var(--text-secondary); font-size:11px; }
+  .assistant-waiting-on span { margin-right:4px; color:var(--yellow); font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+  .assistant-subtasks li { display:block; min-height:27px; padding:0; }
+  .assistant-subtask-row { width:100%; min-height:29px; display:grid; grid-template-columns:16px minmax(0,1fr) auto; align-items:center; gap:7px; padding:4px 7px; border:1px solid transparent; border-radius:5px; background:transparent; color:inherit; font:inherit; text-align:left; }
+  button.assistant-subtask-row { cursor:pointer; }
+  button.assistant-subtask-row:hover { border-color:var(--border); background:var(--bg-tertiary); color:var(--text-primary); }
+  .assistant-subtask-row > span:nth-child(2) { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .assistant-subtasks li.done .assistant-subtask-row > span:nth-child(2) { text-decoration:line-through; }
+  .assistant-subtasks li.selected .assistant-subtask-row { border-color:color-mix(in srgb,var(--accent) 55%,var(--border)); background:color-mix(in srgb,var(--accent) 8%,transparent); }
+  .assistant-subtask-row .status-ready_to_review { color:#b9a4ff; }
+  .assistant-focus-queue { display:grid; gap:18px; }
+  .assistant-queue-group { overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); }
+  .assistant-queue-group > header { min-height:38px; display:flex; align-items:center; justify-content:space-between; padding:8px 13px; border-bottom:1px solid var(--border); background:var(--bg-secondary); }
+  .assistant-queue-group > header h2 { margin:0; color:var(--text-secondary); font-size:11px; font-weight:750; letter-spacing:.07em; text-transform:uppercase; }
+  .assistant-queue-group > header span { min-width:22px; padding:1px 6px; border-radius:10px; background:var(--bg-tertiary); color:var(--text-dim); font-size:9px; text-align:center; }
+  .assistant-focus-queue .assistant-list,
+  .assistant-ledgers .assistant-list { max-height:none; overflow:visible; border:0; background:transparent; }
+  .assistant-queue-group[data-assistant-queue="p0"] > header { box-shadow:inset 3px 0 0 var(--red); }
+  .assistant-queue-group[data-assistant-queue="ready_to_review"] > header { box-shadow:inset 3px 0 0 #8b5cf6; }
+  .assistant-ledgers { display:grid; gap:14px; }
+  .assistant-project-ledger { overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); }
+  .assistant-project-ledger > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--bg-secondary) 78%,var(--bg-primary)); }
+  .assistant-project-ledger > header div { min-width:0; display:flex; align-items:baseline; gap:9px; }
+  .assistant-project-ledger > header h2 { margin:0; color:var(--text-primary); font-size:14px; }
+  .assistant-project-ledger > header span,
+  .assistant-project-ledger > header small { color:var(--text-dim); font-size:10px; }
+  .assistant-project-ledger > header small { white-space:nowrap; }
   @media (max-width: 1000px) {
     .assistant-workarea { grid-template-columns:minmax(240px,330px) minmax(360px,1fr); }
     .assistant-metrics { grid-template-columns:repeat(2,1fr); }
@@ -2189,7 +2239,10 @@
     .assistant-compact-row { align-items:flex-start; gap:8px; }
     .assistant-row-meta { flex-wrap:wrap; }
     .assistant-progress-label { display:none; }
+    .assistant-project-chip { display:none; }
     .assistant-inline-preview { padding-left:20px; }
+    .assistant-project-ledger > header { align-items:flex-start; }
+    .assistant-project-ledger > header div { align-items:flex-start; flex-direction:column; gap:2px; }
     .assistant-document-overlay { padding:8px; }
     .assistant-document-modal { width:100%; height:94vh; }
   }

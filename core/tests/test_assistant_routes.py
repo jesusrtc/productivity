@@ -51,7 +51,7 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert body["projects"][0]["id"] == "demo"
     assert body["tasks"][0]["title"] == "Write launch update"
     assert "body" not in body["tasks"][0]
-    assert body["tasks"][0]["subtasks_total"] == 1
+    assert body["tasks"][0]["subtasks_total"] == 0
     assert body["tasks"][0]["subtasks_done"] == 0
     assert body["tasks"][0]["has_generated_content"] is True
     assert body["tasks"][0]["preview_image"] == {
@@ -101,6 +101,45 @@ def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, 
     assert "# Highlights" in detail.json()["body"]
 
 
+def test_assistant_first_class_subtasks_are_summarized_and_have_detail(
+    client, monkeypatch, tmp_path: Path, monorepo: Path,
+) -> None:
+    root, task = _seed(monkeypatch, tmp_path, monorepo)
+    task_metadata, _ = assistant_db.read_markdown(task)
+    subtask = assistant_db.create_subtask(
+        root,
+        "Review the generated announcement",
+        parent=str(task_metadata["id"]),
+        priority="P1",
+        status="ready_to_review",
+    )
+    metadata, _ = assistant_db.read_markdown(subtask)
+    assistant_db.write_markdown(
+        subtask,
+        metadata,
+        "# Context\n\nThe agent drafted the announcement.\n\n# Generate content\n\nHello subscribers.\n",
+    )
+
+    response = client.get("/api/assistant")
+    assert response.status_code == 200, response.text
+    row = response.json()["tasks"][0]
+    child = row["first_class_subtasks"][0]
+    assert child["status"] == "ready_to_review"
+    assert child["document_backed"] is True
+    assert child["summary"] == "The agent drafted the announcement. Hello subscribers."
+    assert child["has_generated_content"] is True
+    assert "body" not in child
+    assert "body" not in row["subtasks"][0]
+
+    detail = client.get(
+        "/api/assistant/subtask",
+        params={"path": str(subtask.relative_to(root))},
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["metadata"]["parent"] == task_metadata["id"]
+    assert "# Generate content" in detail.json()["body"]
+
+
 def test_assistant_asset_allows_mapped_project_file(
     client, monkeypatch, tmp_path: Path, monorepo: Path,
 ) -> None:
@@ -118,4 +157,15 @@ def test_assistant_asset_allows_mapped_project_file(
 def test_assistant_task_path_rejects_traversal(client, monkeypatch, tmp_path: Path, monorepo: Path) -> None:
     _seed(monkeypatch, tmp_path, monorepo)
     response = client.get("/api/assistant/task", params={"path": "../secret.md"})
+    assert response.status_code == 400
+
+
+def test_assistant_subtask_path_rejects_task_document(
+    client, monkeypatch, tmp_path: Path, monorepo: Path,
+) -> None:
+    root, task = _seed(monkeypatch, tmp_path, monorepo)
+    response = client.get(
+        "/api/assistant/subtask",
+        params={"path": str(task.relative_to(root))},
+    )
     assert response.status_code == 400

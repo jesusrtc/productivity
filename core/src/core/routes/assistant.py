@@ -64,11 +64,12 @@ def _first_image(body: str) -> dict[str, str] | None:
 def _task_sort_key(task: dict) -> tuple:
     status_order = {
         "in_progress": 0,
-        "ready": 1,
-        "inbox": 2,
-        "blocked": 3,
-        "waiting": 4,
-        "done": 5,
+        "ready_to_review": 1,
+        "ready": 2,
+        "inbox": 3,
+        "blocked": 4,
+        "waiting": 5,
+        "done": 6,
     }
     priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
     return (
@@ -110,6 +111,16 @@ def get_assistant(request: Request) -> dict:
     for task in assistant_db.iter_tasks(root, projects):
         row = dict(task)
         body = str(row.pop("body", ""))
+        for key in ("subtasks", "first_class_subtasks"):
+            children = []
+            for child in row.get(key) or []:
+                item = dict(child)
+                child_body = str(item.pop("body", ""))
+                if item.get("document_backed"):
+                    item["summary"] = _summary(child_body)
+                    item["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(child_body))
+                children.append(item)
+            row[key] = children
         row["summary"] = _summary(body)
         row["preview_image"] = _first_image(body)
         row["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(body))
@@ -158,6 +169,10 @@ def _safe_task_path(root: Path, relative: str) -> Path:
     return _safe_markdown_path(root, relative, "tasks")
 
 
+def _safe_subtask_path(root: Path, relative: str) -> Path:
+    return _safe_markdown_path(root, relative, "subtasks")
+
+
 def _safe_meeting_path(root: Path, relative: str) -> Path:
     return _safe_markdown_path(root, relative, "meetings")
 
@@ -184,6 +199,24 @@ def get_task(path: str, request: Request) -> dict:
 def get_meeting(path: str, request: Request) -> dict:
     root = _require_root(request)
     source = _safe_meeting_path(root, path)
+    metadata, body = assistant_db.read_markdown(source)
+    project_id = str(metadata.get("project") or source.parent.parent.name)
+    project_source = root / "projects" / project_id / "project.md"
+    project: dict = {}
+    if project_source.is_file():
+        project, _ = assistant_db.read_markdown(project_source)
+    return {
+        "path": str(source.relative_to(root)),
+        "metadata": metadata,
+        "project": project,
+        "body": body,
+    }
+
+
+@router.get("/subtask")
+def get_subtask(path: str, request: Request) -> dict:
+    root = _require_root(request)
+    source = _safe_subtask_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
     project_id = str(metadata.get("project") or source.parent.parent.name)
     project_source = root / "projects" / project_id / "project.md"
