@@ -6307,6 +6307,7 @@
 
     let html = '';
     const isSelf = document.body.classList.contains('self-active');
+    const isAssistant = document.body.classList.contains('assistant-active');
     const isWorkspace = document.body.classList.contains('workspace-active');
     const proxyOpen = typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/');
     const notebookOpen = _contextSubView === 'notebooks'
@@ -6314,7 +6315,9 @@
     const overviewActive = _contextSubView === 'overview' && !_projDocPath && !currentRepo && !proxyOpen;
     const codeSearchActive = _contextSubView === 'code-search';
 
-    if (isSelf) {
+    if (isAssistant) {
+      html += `<button class="repo-tab active" onclick="AssistantView.refresh()" style="font-weight:600">&#x2726; Tasks</button>`;
+    } else if (isSelf) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
       for (const ws of (workspaceCatalog || [])) {
@@ -6334,7 +6337,7 @@
     // the same inline iframe view as the sidebar Servers entry. The list
     // comes from the sidebar payload cache; on a cold load it's empty until
     // _refreshProjectSidebar fetches project-info and re-calls us.
-    if (!isSelf && !isWorkspace && currentProject.is_project) {
+    if (!isSelf && !isAssistant && !isWorkspace && currentProject.is_project) {
       const cached = _projectSidebarCache.get(currentProject.path);
       const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
       proxies.forEach(p => {
@@ -9347,6 +9350,7 @@
 
   function _termWorkspaceId() {
     if (document.body.classList.contains('self-active')) return null;
+    if (document.body.classList.contains('assistant-active')) return ASSISTANT_WORKSPACE_ID;
     return _projectWorkspaceId(currentProject);
   }
 
@@ -9415,6 +9419,9 @@
   const SELF_PROJECT_ID = '__self__';
   const SELF_REPO_PATH = window.LAB_MONOREPO_ROOT || '';  // populated by index.html
   const WORKSPACE_ROOT = window.LAB_WORKSPACE_ROOT || '';  // active workspace; may differ from framework root
+  const ASSISTANT_PROJECT_ID = '__assistant__';
+  const ASSISTANT_WORKSPACE_ID = '__assistant__';
+  const ASSISTANT_ROOT = window.LAB_ASSISTANT_ROOT || '';
 
   // Workspace view: one management surface per registered workspace. The
   // selected workspace id travels in the URL and requests; no global switch.
@@ -9668,6 +9675,8 @@
   const urlCerebroPath = initialParams.get('path') || '';
   if (urlView === 'cerebro') {
     initCerebro(urlCerebroPath);
+  } else if (urlView === 'assistant') {
+    initAssistant(initialParams.get('task') || '');
   } else if (urlView === 'productivity') {
     initSelf();
     if (initialParams.get('subview') === 'admin') selfShowAdmin();
@@ -9698,6 +9707,7 @@
     // hitting the server (browser timer throttling made them poll ~1/min
     // forever, including tabs whose project no longer existed).
     if (document.hidden) return;
+    if (document.body.classList.contains('assistant-active')) return;
     if (!currentProject || !currentProject.is_project) return;
     if (currentRepo) return;
     if (_projDocEditing) return;
@@ -9837,6 +9847,7 @@
   function _termActiveProjectId() {
     if (document.body.classList.contains('cerebro-active')) return CEREBRO_PROJECT_ID;
     if (document.body.classList.contains('self-active')) return SELF_PROJECT_ID;
+    if (document.body.classList.contains('assistant-active')) return ASSISTANT_PROJECT_ID;
     if (currentProject && currentProject.is_project) return currentProject.name;
     return null;
   }
@@ -9979,6 +9990,7 @@
     const el = document.getElementById('projectTabs');
     if (!el) return;
     const selfActive = document.body.classList.contains('self-active');
+    const assistantActive = document.body.classList.contains('assistant-active');
     const workspaceActive = document.body.classList.contains('workspace-active');
     const activeProjectPath = document.body.classList.contains('project-active') && currentProject
       ? currentProject.path : null;
@@ -10013,6 +10025,9 @@
     let html = LAB_IS_ADMIN ? `
       <div class="proj-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_PROJECT_ID}" role="tab" title="Framework home">
         <span class="label">&#x1F3E0; Home</span>
+      </div>
+      <div class="proj-tab assistant-tab${assistantActive ? ' active' : ''}" data-kind="assistant" data-key="${ASSISTANT_PROJECT_ID}" role="tab" title="Global Assistant tasks">
+        <span class="label">&#x2726; Assistant</span>
       </div>` : '';
     html += workspaceTabs.map(ws => {
       const active = activeWorkspaceId === ws.id ? ' active' : '';
@@ -10044,6 +10059,7 @@
         const kind = node.getAttribute('data-kind');
         const key = node.getAttribute('data-key');
         if (kind === 'productivity') { goToProductivity(); return; }
+        if (kind === 'assistant') { goToAssistant(); return; }
         if (kind === 'workspace') { goToWorkspace(key); return; }
         if (kind === 'project' && key) goToProject(key);
       });
@@ -10422,6 +10438,7 @@
       let pid = null;
       if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
       else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
+      else if (document.body.classList.contains('assistant-active')) pid = ASSISTANT_PROJECT_ID;
       else if (currentProject && currentProject.is_project) pid = currentProject.name;
       if (!pid) return;
       const prev = termCurrentSession;
@@ -10507,6 +10524,7 @@
   function _termVisibilityKey() {
     if (document.body.classList.contains('cerebro-active')) return _TERM_VIS_KEY_PREFIX + 'cerebro';
     if (document.body.classList.contains('self-active')) return _TERM_VIS_KEY_PREFIX + 'self';
+    if (document.body.classList.contains('assistant-active')) return _TERM_VIS_KEY_PREFIX + 'assistant';
     if (document.body.classList.contains('workspace-active')) return _TERM_VIS_KEY_PREFIX + 'workspace';
     if (currentProject && currentProject.is_project) return _TERM_VIS_KEY_PREFIX + 'project:' + currentProject.name;
     return _TERM_VIS_KEY_PREFIX + 'unknown';
@@ -10544,6 +10562,7 @@
   function _sidebarViewSuffix() {
     if (document.body.classList.contains('cerebro-active')) return 'cerebro';
     if (document.body.classList.contains('self-active')) return 'self';
+    if (document.body.classList.contains('assistant-active')) return 'assistant';
     if (document.body.classList.contains('workspace-active')) return 'workspace';
     if (currentProject && currentProject.is_project) {
       // Server (proxy) views get their own namespace so they can default
@@ -11420,6 +11439,7 @@
     let projectId = null;
     if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
     else if (document.body.classList.contains('self-active')) projectId = SELF_PROJECT_ID;
+    else if (document.body.classList.contains('assistant-active')) projectId = ASSISTANT_PROJECT_ID;
     else if (currentProject && currentProject.is_project) projectId = currentProject.name;
     if (!projectId) return;
     // Suspend the periodic refresh while the POST is in flight: otherwise a
@@ -11862,6 +11882,9 @@
     const projectId = String(row && row.project_id || '');
     if (!projectId) return 'Unassigned';
     if (projectId === SELF_PROJECT_ID) return 'Framework';
+    // Keep pseudo-project matching self-contained: terminal helper tests run
+    // this function without evaluating the full application constant block.
+    if (projectId === '__assistant__') return 'Assistant';
     if (projectId === CEREBRO_PROJECT_ID) return 'Cerebro';
     if (projectId === WORKSPACE_PROJECT_ID) return 'Workspace';
     return String(row.project_name || projectId);
@@ -12140,6 +12163,8 @@
       projectId = CEREBRO_PROJECT_ID;
     } else if (document.body.classList.contains('self-active')) {
       projectId = SELF_PROJECT_ID;
+    } else if (document.body.classList.contains('assistant-active')) {
+      projectId = ASSISTANT_PROJECT_ID;
     } else if (currentProject && currentProject.is_project) {
       projectId = currentProject.name;
     }
@@ -12176,7 +12201,7 @@
       // name after the previous session died).
       _termClearDead(created.name);
       // Framework pseudo-projects use the project-id-aware helper.
-      if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID) {
+      if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === ASSISTANT_PROJECT_ID) {
         await termRefreshSessionsByProjectId(projectId);
       } else {
         await termRefreshSessions(projectId);
@@ -12212,7 +12237,7 @@
     await termSetAutoSpawnEnabled(projectId, false, workspaceId);
     if (projectId !== _termActiveProjectId()
         || (typeof _termWorkspaceId === 'function' && workspaceId !== _termWorkspaceId())) return;
-    if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID) await termRefreshSessionsByProjectId(projectId);
+    if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === '__assistant__') await termRefreshSessionsByProjectId(projectId);
     else if (projectId) await termRefreshSessions(projectId);
     if (!_termIsScopeActive(projectId)) return;
     if (termSessions.length > 0) termAttach(termSessions[0].name, projectId);
@@ -13090,7 +13115,7 @@
       description: 'Opening project dashboard...',
       repos: [],
     };
-    document.body.classList.remove('cerebro-active', 'self-active', 'workspace-active', 'has-diff-tabs');
+    document.body.classList.remove('cerebro-active', 'self-active', 'assistant-active', 'workspace-active', 'has-diff-tabs');
     document.body.classList.add('project-active');
     document.getElementById('diffTabs').style.display = 'none';
     paintProjectShell();
@@ -13116,7 +13141,7 @@
         }
       }
     });
-  } else if (urlView === 'cerebro' || urlView === 'productivity' || urlView === 'workspace' || urlView === 'code-search' || urlView === 'logs') {
+  } else if (urlView === 'cerebro' || urlView === 'assistant' || urlView === 'productivity' || urlView === 'workspace' || urlView === 'code-search' || urlView === 'logs') {
     // These views handle their own initialization above.
   } else {
     // No explicit target means the framework-owned Productivity home.
@@ -13150,7 +13175,7 @@
   function _swapViewState() {
     if (typeof termDetach === 'function') termDetach(true);
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'workspace-active',
+      'cerebro-active', 'self-active', 'assistant-active', 'workspace-active',
       'project-active', 'has-diff-tabs',
     );
     currentProject = null;
@@ -13598,6 +13623,32 @@
     else if (opts.subview === 'code-search') showScopedCodeSearch();
   }
 
+  async function goToAssistant(taskPath = '', opts = {}) {
+    if (!LAB_IS_ADMIN) {
+      const data = await fetchWorkspaceCatalog();
+      const first = (data.workspaces || [])[0];
+      if (first) goToWorkspace(first.id, opts);
+      return;
+    }
+    _swapViewState();
+    _contextSubView = 'overview';
+    if (!opts.replace) {
+      const url = new URL(window.location);
+      url.searchParams.delete('project');
+      url.searchParams.delete('repo');
+      url.searchParams.delete('path');
+      url.searchParams.delete('file');
+      url.searchParams.delete('tail');
+      url.searchParams.delete('workspace');
+      url.searchParams.delete('subview');
+      url.searchParams.set('view', 'assistant');
+      if (taskPath) url.searchParams.set('task', taskPath);
+      else url.searchParams.delete('task');
+      history.pushState({nav: 'assistant', task: taskPath}, '', url.pathname + url.search + url.hash);
+    }
+    initAssistant(taskPath);
+  }
+
   function goToWorkspace(workspaceId, opts = {}) {
     // Backwards compatibility for the old goToWorkspace({replace:true}) form.
     if (workspaceId && typeof workspaceId === 'object') {
@@ -13651,6 +13702,8 @@
       goToProject(project, {replace: true});
     } else if (view === 'cerebro') {
       goToCerebro(cerebroPath, {replace: true});
+    } else if (view === 'assistant') {
+      goToAssistant(params.get('task') || '', {replace: true});
     } else if (view === 'productivity') {
       goToProductivity({replace: true, subview: params.get('subview') || null});
     } else if (view === 'workspace') {
@@ -14572,6 +14625,49 @@
     if (typeof _refreshProjectSidebar === 'function') _refreshProjectSidebar({preserveScroll: true});
   }
 
+  // ─── Client-global Assistant view ───
+
+  async function termOpenForAssistant() {
+    if (!_termIsScopeActive(ASSISTANT_PROJECT_ID)) return;
+    document.body.classList.add('term-open');
+    _termApplyRememberedVisibility();
+    if (await _termTryWarmOpen(ASSISTANT_PROJECT_ID)) {
+      termStartPeriodicRefresh();
+      return;
+    }
+    await _termRestoreSessionsForProject(ASSISTANT_PROJECT_ID);
+    termStartPeriodicRefresh();
+  }
+
+  function initAssistant(initialTask = '') {
+    if (!LAB_IS_ADMIN) {
+      goToProductivity({replace: true});
+      return;
+    }
+    document.body.classList.remove('cerebro-active', 'self-active', 'workspace-active', 'project-active');
+    document.body.classList.add('assistant-active');
+    document.title = 'Assistant';
+    currentProject = {
+      name: ASSISTANT_PROJECT_ID,
+      path: ASSISTANT_ROOT,
+      is_project: true,
+      repos: [],
+      workspace_id: ASSISTANT_WORKSPACE_ID,
+      workspace: ASSISTANT_WORKSPACE_ID,
+    };
+    _projDocPath = null;
+    _contextSubView = 'overview';
+    const diffTabs = document.getElementById('diffTabs');
+    if (diffTabs) diffTabs.style.display = 'none';
+    document.body.classList.remove('has-diff-tabs');
+    if (typeof projTabsRender === 'function') projTabsRender();
+    renderRepoTabs();
+    if (window.AssistantView) window.AssistantView.init(initialTask);
+    afterPageQuiet(() => {
+      if (ASSISTANT_ROOT && !UI_CHECK) termOpenForAssistant();
+    });
+  }
+
   // ─── Productivity self-view (file tree sidebar + Lab framework workbench) ───
 
   async function initSelf() {
@@ -15400,7 +15496,7 @@
     // The initial `?view=…` dispatch calls us directly without
     // _swapViewState, so strip mutually exclusive view classes here.
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'project-active',
+      'cerebro-active', 'self-active', 'assistant-active', 'project-active',
     );
     document.body.classList.add('workspace-active');
     document.title = 'Workspace';
@@ -16570,6 +16666,8 @@
                      && !currentRepo && !_projDocEditing) {
             if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
             else workspacePopulateSidebar();
+          } else if (document.body.classList.contains('assistant-active')) {
+            if (window.AssistantView) window.AssistantView.refresh();
           } else if (currentProject && currentProject.is_project
                      && !currentRepo && !_projDocEditing) {
             const liveNotebook = _currentOpenNotebookRelPath();

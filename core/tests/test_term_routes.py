@@ -232,6 +232,32 @@ def test_create_terminal_session(client, seed_project, isolated_prefix) -> None:
     assert body["claude_session_id"] is None
 
 
+def test_create_terminal_session_for_global_assistant(
+    client, isolated_prefix, monkeypatch, tmp_path: Path,
+) -> None:
+    assistant_root = tmp_path / "assistant-db"
+    assistant_root.mkdir()
+    monkeypatch.setenv("LAB_ASSISTANT_HOME", str(assistant_root))
+
+    response = client.post("/api/term/sessions", json={
+        "project_id": "__assistant__",
+        "workspace": "__assistant__",
+        "kind": "terminal",
+    })
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["project_id"] == "__assistant__"
+    assert body["cwd"] == str(assistant_root)
+    assert (assistant_root / ".lab" / "project.json").is_file()
+    listed = client.get("/api/term/sessions", params={
+        "project_id": "__assistant__",
+        "workspace": "__assistant__",
+    })
+    assert listed.status_code == 200, listed.text
+    assert [row["name"] for row in listed.json()] == [body["name"]]
+
+
 def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
     client,
     seed_project,

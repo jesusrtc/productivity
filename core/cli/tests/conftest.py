@@ -8,11 +8,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A developer shell that exports LAB_WORKSPACE would otherwise point
     tests at their real workspace (it wins over LAB_ROOT in
     find_workspace_root). Same guard as core/tests/conftest.py."""
     monkeypatch.delenv("LAB_WORKSPACE", raising=False)
+    # Client-global .env settings (notably LAB_ASSISTANT_HOME) must not leak
+    # real user paths into isolated tests. Individual parser tests override it.
+    monkeypatch.setenv("LAB_ENV_FILE", str(tmp_path / "missing-client.env"))
 
 
 @pytest.fixture()

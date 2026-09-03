@@ -411,6 +411,7 @@ def request_index(request: Request) -> dict[str, Any]:
 
 _ADMIN_PREFIXES = (
     "/api/admin/",
+    "/api/assistant",
     "/api/cerebro/",
     "/api/code-search/",
     "/api/git/",
@@ -433,7 +434,7 @@ _GLOBAL_USER_ENDPOINTS = {
     "/api/auth/me",
     "/api/auth/logout",
 }
-_PSEUDO_ADMIN_RE = re.compile(r"__(?:self|cerebro|logs|cs_[^/]+)__")
+_PSEUDO_ADMIN_RE = re.compile(r"__(?:self|assistant|cerebro|logs|cs_[^/]+)__")
 
 
 def _is_admin_only_request(request: Request) -> bool:

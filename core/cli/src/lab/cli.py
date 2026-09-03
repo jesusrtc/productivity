@@ -3,6 +3,7 @@ from __future__ import annotations
 import click
 
 from lab.commands.agents import agents_group
+from lab.commands.assistant import assistant_group
 from lab.commands.app import app_group
 from lab.commands.artifact import artifact_group
 from lab.commands.config import config_group
@@ -27,6 +28,7 @@ def main() -> None:
 
 
 main.add_command(project_group)
+main.add_command(assistant_group)
 main.add_command(config_group)
 main.add_command(agents_group)
 main.add_command(app_group)

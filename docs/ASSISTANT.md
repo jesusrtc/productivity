@@ -1,0 +1,83 @@
+# Assistant task workspace
+
+Lab's Assistant tab is a client-global view of work that agents should handle.
+It is pinned immediately after Home and uses the same persistent terminal
+behavior as project tabs. The UI belongs to Lab; the data does not.
+
+## Configure the database
+
+Set one absolute path in the Lab checkout's untracked `.env`:
+
+```dotenv
+LAB_ASSISTANT_HOME=/absolute/path/to/assistant
+```
+
+Restart Lab after changing it, then initialize the directory:
+
+```bash
+lab assistant init
+```
+
+`LAB_ASSISTANT_HOME` may also be passed as a process environment override. A
+single configured directory is shared by every workspace and project visible
+to that Lab client.
+
+## Data layout
+
+The database is Markdown-first and safe to inspect or version separately:
+
+```text
+assistant/
+  AGENTS.md
+  README.md
+  projects/
+    <assistant-project-id>/
+      project.md
+      tasks/
+        <task-id>.md
+  .lab/
+    project.json
+```
+
+`project.md` maps an Assistant grouping to an exact registered Lab workspace
+and project path. A task file contains JSON-compatible YAML frontmatter plus an
+ordinary Markdown body. Lab reads these files directly; there is no hidden
+task database and no copy of a project's artifacts.
+
+Images may be referenced from a task with a relative path or with an absolute
+path inside its mapped workspace/project. Lab renders the original file through
+an authenticated local endpoint.
+
+## Terminal workflow
+
+The Assistant tab opens a persistent terminal rooted at the configured
+database. Agents begin with the generated `AGENTS.md`, which defines the task
+format and completion rules. Use the CLI for metadata changes:
+
+```bash
+lab assistant path
+lab assistant project ls
+lab assistant project add launch --name "Launch" --workspace local \
+  --path /absolute/path/to/workspace/projects/launch
+lab assistant add "Prepare launch note" --project launch --priority P1 --status ready
+lab assistant ls --status open
+lab assistant set <task-id> status in_progress
+lab assistant done <task-id>
+```
+
+Edit task Markdown directly for context, decisions, checklists, and outputs.
+Every Markdown heading in the rendered task has buttons for copying that
+section as Slack-friendly Markdown or Google Docs-friendly rich text.
+
+## Initial lifecycle
+
+- `inbox`: captured, but not clarified
+- `ready`: actionable
+- `in_progress`: actively being handled
+- `waiting`: awaiting time or an external response
+- `blocked`: unable to proceed; the task body should explain why
+- `done`: complete, with an outcome recorded in `# Result`
+
+Priorities run from `P0` (urgent) through `P3` (someday/maybe). The first UI
+includes search, exact status and priority filters, project grouping, open and
+in-progress views, P0, and recently completed tasks.

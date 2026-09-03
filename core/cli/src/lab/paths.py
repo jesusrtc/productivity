@@ -232,8 +232,14 @@ def configured_server_port(root: Path, default: int = 3333) -> int:
     return value if 1 <= value <= 65535 else default
 
 
-def client_env_server_port(framework_root: Path) -> int | None:
-    """Return ``LAB_PORT`` from the client checkout's local ``.env`` file."""
+def client_env_value(framework_root: Path, wanted_key: str) -> str | None:
+    """Return one literal value from the client checkout's local ``.env``.
+
+    This intentionally parses only simple ``KEY=value`` lines.  Lab's client
+    file is configuration, not a shell script, so values are never executed or
+    expanded.  ``LAB_ENV_FILE`` keeps tests and unusual installations able to
+    point at a different file.
+    """
     configured_path = os.environ.get("LAB_ENV_FILE")
     path = (Path(configured_path).expanduser() if configured_path
             else framework_root.expanduser().resolve() / ".env")
@@ -250,17 +256,45 @@ def client_env_server_port(framework_root: Path) -> int | None:
         if line.startswith("export "):
             line = line[7:].lstrip()
         key, separator, value = line.partition("=")
-        if separator != "=" or key.strip() != "LAB_PORT":
+        if separator != "=" or key.strip() != wanted_key:
             continue
         text = value.strip()
         if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
             text = text[1:-1]
-        try:
-            port = int(text)
-        except ValueError:
-            return None
-        return port if 1 <= port <= 65535 else None
+        return text or None
     return None
+
+
+def client_env_server_port(framework_root: Path) -> int | None:
+    """Return ``LAB_PORT`` from the client checkout's local ``.env`` file."""
+    text = client_env_value(framework_root, "LAB_PORT")
+    if text is None:
+        return None
+    try:
+        port = int(text)
+    except ValueError:
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
+def assistant_root(framework_root: Path | None = None) -> Path | None:
+    """Return the client-owned global Assistant database directory.
+
+    ``LAB_ASSISTANT_HOME`` is a one-run override.  Otherwise the path is read
+    from the framework checkout's uncommitted ``.env``.  There is deliberately
+    no workspace fallback: one client has one Assistant database regardless of
+    which workspace is active.
+    """
+    raw = os.environ.get("LAB_ASSISTANT_HOME")
+    if not raw:
+        try:
+            framework = framework_root or find_framework_root()
+        except MonorepoNotFound:
+            return None
+        raw = client_env_value(framework, "LAB_ASSISTANT_HOME")
+    if not raw:
+        return None
+    return Path(raw).expanduser().resolve()
 
 
 def sessions_file(root: Path) -> Path:

@@ -69,6 +69,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 import yaml
 
+from lab import paths as lab_paths
 from lab import settings as lab_settings
 from lab import tmux_sockets
 
@@ -158,8 +159,10 @@ def _workspace_label_from_registry(resolved_root: Path) -> str | None:
     picked up without a server restart.
     """
     try:
-        from lab import paths
-        data = paths.read_workspace_registry()
+        assistant = lab_paths.assistant_root()
+        if assistant is not None and assistant == resolved_root:
+            return "assistant"
+        data = lab_paths.read_workspace_registry()
     except Exception:
         return None
     for row in data.get("workspaces") or []:
@@ -295,9 +298,8 @@ def _known_workspaces(active_root: Path | None) -> list[dict]:
     registry is a small TOML file and can change out-of-process (``lab
     workspace add`` et al.) without a server restart.
     """
-    from lab import paths
     try:
-        data = paths.read_workspace_registry()
+        data = lab_paths.read_workspace_registry()
     except Exception:
         data = {}
     rows: list[dict] = []
@@ -322,6 +324,16 @@ def _known_workspaces(active_root: Path | None) -> list[dict]:
             resolved = active_root
         if str(resolved) not in seen:
             rows.insert(0, {"id": resolved.name, "path": resolved})
+            seen.add(str(resolved))
+    # A client owns one Assistant database across every workspace. Treat it
+    # as a terminal-only pseudo-workspace without registering it as a normal
+    # Workspace tab.
+    try:
+        assistant = lab_paths.assistant_root()
+    except Exception:
+        assistant = None
+    if assistant is not None and assistant.is_dir() and str(assistant) not in seen:
+        rows.append({"id": ASSISTANT_WORKSPACE_ID, "path": assistant})
     return rows
 
 
@@ -350,6 +362,8 @@ def _require_root_access(connection: Request | WebSocket, active_root: Path, roo
 def _require_project_access(
     connection: Request | WebSocket, active_root: Path, root: Path, project_id: str | None,
 ) -> dict:
+    if project_id == ASSISTANT_PROJECT_ID:
+        return auth.require_admin(connection)
     user = _require_root_access(connection, active_root, root)
     if project_id in {SELF_PROJECT_ID, CEREBRO_PROJECT_ID, LOGS_PROJECT_ID} or _cs_repo_name(project_id or ""):
         if not auth.is_admin(user):
@@ -440,12 +454,15 @@ def _tmux_child_env() -> dict[str, str]:
 #  * __self__    — the Lab framework checkout itself   (cwd = repo root)
 #  * __logs__    — the embedded logs view              (cwd = logs/)
 #  * __workspace__ — the active workspace view         (cwd = workspace root)
+#  * __assistant__ — the client-owned global task database
 # They behave like regular projects for terminal lifecycle and durable session
 # state; each view decides independently whether its topbar tab is closable.
 CEREBRO_PROJECT_ID = "__cerebro__"
 SELF_PROJECT_ID = "__self__"
 LOGS_PROJECT_ID = "__logs__"
 WORKSPACE_PROJECT_ID = "__workspace__"
+ASSISTANT_PROJECT_ID = "__assistant__"
+ASSISTANT_WORKSPACE_ID = "__assistant__"
 # Per-repo pseudo project for the Code Search tab. The id is
 # ``__cs_<repo>__`` where ``<repo>`` is a directory name under
 # ``repositories/``. Used so each Code-Search repo has its own scoped
@@ -481,6 +498,8 @@ def _project_json(root: Path, project_id: str) -> Path:
         return root / "content" / ".logs-project.json"
     if project_id == WORKSPACE_PROJECT_ID:
         return root / "content" / ".workspace-project.json"
+    if project_id == ASSISTANT_PROJECT_ID:
+        return root / ".lab" / "project.json"
     return root / "projects" / project_id / "project.json"
 
 
@@ -491,11 +510,14 @@ def _project_cwd(root: Path, project_id: str) -> Path:
     - ``__self__``        → monorepo root (so claude sees apps/, docs/, etc.)
     - ``__logs__``        → logs/
     - ``__workspace__``   → the active workspace root (Workspace tab terminal)
+    - ``__assistant__``   → the client-owned Assistant database root
     - ``__cs_<repo>__``   → repositories/<repo> (Code Search per-repo terminal)
     """
     if project_id == CEREBRO_PROJECT_ID:
         return (root / "content").resolve()
     if project_id == WORKSPACE_PROJECT_ID:
+        return root.resolve()
+    if project_id == ASSISTANT_PROJECT_ID:
         return root.resolve()
     if project_id == SELF_PROJECT_ID:
         from lab import paths
@@ -571,6 +593,7 @@ def _load_project(root: Path, project_id: str) -> dict | None:
             SELF_PROJECT_ID,
             LOGS_PROJECT_ID,
             WORKSPACE_PROJECT_ID,
+            ASSISTANT_PROJECT_ID,
         ):
             return {}
         return None

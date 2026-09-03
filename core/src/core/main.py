@@ -22,6 +22,7 @@ from core import auth, config
 from lab import paths as lab_paths
 from core.routes import auth as auth_route
 from core.routes import appstate as appstate_route
+from core.routes import assistant as assistant_route
 from core.routes import cerebro as cerebro_route
 from core.routes import code_search as code_search_route
 from core.routes import diff as diff_route
@@ -493,6 +494,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(auth_route.router)
+    app.include_router(assistant_route.router)
     app.include_router(appstate_route.router)
     app.include_router(index_route.router)
     app.include_router(project_route.router)
@@ -545,6 +547,13 @@ def create_app() -> FastAPI:
             return {
                 "INITIAL_VIEW": "productivity",
                 "INITIAL_BODY_CLASS": "self-active",
+                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_IS_REPO": False,
+            }
+        if view == "assistant":
+            return {
+                "INITIAL_VIEW": "assistant",
+                "INITIAL_BODY_CLASS": "assistant-active",
                 "INITIAL_PROJECT_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
@@ -602,6 +611,7 @@ def create_app() -> FastAPI:
     _index_asset_files = (
         _TEMPLATES_DIR / "index.html",
         _STATIC_DIR / "js" / "lab-app.js",
+        _STATIC_DIR / "js" / "views" / "assistant.js",
         _STATIC_DIR / "css" / "lab-shell.css",
         _STATIC_DIR / "js" / "lib" / "error-report.js",
     )
@@ -623,6 +633,7 @@ def create_app() -> FastAPI:
                 shell_root = allowed_root
         workspace_root = str(shell_root)
         framework_root = str(lab_paths.find_framework_root()) if admin else ""
+        assistant_root = lab_paths.assistant_root() if admin else None
         mtime = _index_cache["mtime"]
         now = time.monotonic()
         if now >= _index_cache["check_after"]:
@@ -635,6 +646,7 @@ def create_app() -> FastAPI:
         key = (
             workspace_root,
             framework_root,
+            str(assistant_root or ""),
             user["username"],
             user["role"],
             state["INITIAL_VIEW"],
@@ -651,6 +663,7 @@ def create_app() -> FastAPI:
             html = templates.get_template("index.html").render(
                 MONOREPO_ROOT=framework_root,
                 WORKSPACE_ROOT=workspace_root,
+                ASSISTANT_ROOT=str(assistant_root or ""),
                 USER=auth.public_user(user),
                 IS_ADMIN=admin,
                 ASSET_V=asset_v,

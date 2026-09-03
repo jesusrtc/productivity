@@ -683,6 +683,7 @@
 <script>
   window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};
   window.LAB_WORKSPACE_ROOT = {{ WORKSPACE_ROOT | tojson }};
+  window.LAB_ASSISTANT_ROOT = {{ ASSISTANT_ROOT | tojson }};
   window.LAB_USER = {{ USER | tojson }};
   window.LAB_IS_ADMIN = {{ IS_ADMIN | tojson }};
 </script>
@@ -733,9 +734,14 @@
     }
     function loadLabApp() {
       installLabAmdShim();
-      var s = document.createElement('script');
-      s.src = '/static/js/lab-app.js?v={{ ASSET_V }}';
-      document.head.appendChild(s);
+      var assistant = document.createElement('script');
+      assistant.src = '/static/js/views/assistant.js?v={{ ASSET_V }}';
+      assistant.onload = function () {
+        var s = document.createElement('script');
+        s.src = '/static/js/lab-app.js?v={{ ASSET_V }}';
+        document.head.appendChild(s);
+      };
+      document.head.appendChild(assistant);
     }
     if (document.readyState === 'complete') {
       setTimeout(loadLabApp, 500);
