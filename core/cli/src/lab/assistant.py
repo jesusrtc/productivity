@@ -106,6 +106,7 @@ Use ordinary Markdown. Prefer these sections when relevant:
 # Notes
 # Output: Slack
 # Output: Google Docs
+# Generate content
 # Result
 ```
 
@@ -113,6 +114,10 @@ Lab adds copy buttons to every level-one through level-three heading. Use a
 single section for each independently copyable artifact. Reference images with
 a path relative to the task file or an absolute path inside the mapped
 workspace or project; Lab renders them without moving the asset.
+
+Use `# Generate content` for a prepared email, announcement, or other manual
+communication. Lab surfaces it from the task preview and offers formatted and
+plain-text copy actions; sending remains a deliberate step outside Lab.
 
 When work finishes, record the outcome and important artifact paths under
 `# Result`, then run `lab assistant done <task-id>`. Do not mark a task done

@@ -184,17 +184,23 @@
     const selected = task.path === state.selectedTaskPath;
     const due = task.due ? `<span class="assistant-task-due">Due ${e(displayDate(task.due))}</span>` : '';
     const progress = progressLabel(task.subtasks_done, task.subtasks_total);
+    const projectChip = `<span class="assistant-project-chip">${e(task.project_name || task.project)}</span>`;
+    const previewImage = task.preview_image && task.preview_image.src
+      ? `<img class="assistant-preview-image" src="${e(documentImageUrl(task.path, task.preview_image.src))}" alt="${e(task.preview_image.alt || '')}" loading="lazy">`
+      : '';
     return `<article class="assistant-list-item${selected ? ' selected' : ''}" data-assistant-entry-wrap="${e(task.path)}">
       <button type="button" class="assistant-compact-row" data-assistant-task="${e(task.path)}" data-testid="assistant-task-row" aria-expanded="${selected}">
         <span class="assistant-row-main"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><strong>${e(task.title)}</strong></span>
-        <span class="assistant-row-meta">${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${due}</span>
+        <span class="assistant-row-meta">${projectChip}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${due}</span>
       </button>
       ${selected ? `<div class="assistant-inline-preview" data-testid="assistant-task-preview">
         <div class="assistant-preview-top"><div class="assistant-detail-badges"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span></div>${due}<span class="assistant-open-hint">Double-click to open</span></div>
         <h2>${e(task.title)}</h2>
         <div class="assistant-task-project">${e(task.project_name || task.project)}${task.workspace ? ` · ${e(task.workspace)}` : ''}</div>
         ${task.summary ? `<p class="assistant-task-summary">${e(task.summary)}</p>` : ''}
+        ${previewImage}
         ${task.subtasks_total ? `<div class="assistant-subtask-head"><strong>Subtasks</strong><span>${e(progress)}</span></div>${checklist(task.subtasks)}` : ''}
+        ${task.has_generated_content ? `<button type="button" class="assistant-generate-content" data-assistant-generate="${e(task.path)}">Generate content</button>` : ''}
       </div>` : ''}
     </article>`;
   }
@@ -296,6 +302,12 @@
     });
     content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
     content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
+    content.querySelectorAll('[data-assistant-generate]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        openDocumentModal('task', button.dataset.assistantGenerate, 'Generate content');
+      });
+    });
   }
 
   function bindRow(button, kind) {
@@ -354,7 +366,7 @@
     if (overlay) overlay.classList.remove('active');
   }
 
-  async function openDocumentModal(kind, path) {
+  async function openDocumentModal(kind, path, focusHeading = '') {
     const overlay = ensureModal();
     const title = document.getElementById('assistantModalTitle');
     const label = document.getElementById('assistantModalKind');
@@ -370,7 +382,7 @@
       const detail = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(detail.detail || response.statusText);
       if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
-      await renderDocument(detail, kind);
+      await renderDocument(detail, kind, focusHeading);
     } catch (error) {
       if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
     }
@@ -378,6 +390,11 @@
 
   function localImageUrl(documentPath, src) {
     return '/api/assistant/asset?task=' + encodeURIComponent(documentPath) + '&src=' + encodeURIComponent(src);
+  }
+
+  function documentImageUrl(documentPath, src) {
+    if (!src || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return src;
+    return localImageUrl(documentPath, src);
   }
 
   function rewriteImages(host, documentPath) {
@@ -404,7 +421,7 @@
     return rows.filter(row => row[1]).map(([key, value]) => `<div><span>${e(key)}</span><strong>${e(value)}</strong></div>`).join('');
   }
 
-  async function renderDocument(detail, kind) {
+  async function renderDocument(detail, kind, focusHeading = '') {
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     const body = detail.body || '';
     const markdown = window.marked ? window.marked.parse(body) : `<pre>${e(body)}</pre>`;
@@ -417,7 +434,7 @@
       ? `<div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>`
       : `<div class="assistant-detail-badges"><span class="assistant-meeting-date full">${e(displayDate(metadata.date))}</span></div>`;
     host.innerHTML = `<div class="assistant-document-toolbar">
-      ${badges}<div class="assistant-detail-actions">${project.project_path ? '<button type="button" class="refresh-btn" id="assistantOpenProject">Open project</button>' : ''}<button type="button" class="refresh-btn" id="assistantCopyDocument">Copy Markdown</button></div>
+      ${badges}<div class="assistant-detail-actions"><button type="button" class="refresh-btn" id="assistantCopyDocument">Copy Markdown</button></div>
     </div>
     <div class="assistant-meta">${documentMeta(detail, kind)}</div>
     ${project.project_path ? `<div class="assistant-path"><span>Project path</span><code>${e(project.project_path)}</code></div>` : ''}
@@ -426,10 +443,14 @@
     rewriteImages(markdownHost, detail.path);
     addCopyButtons(markdownHost, body, detail.path);
     document.getElementById('assistantCopyDocument')?.addEventListener('click', event => copyPlain(body, event.currentTarget));
-    document.getElementById('assistantOpenProject')?.addEventListener('click', () => {
-      closeDocumentModal();
-      if (project.project_path && typeof window.goToProject === 'function') window.goToProject(project.project_path);
-    });
+    if (focusHeading) {
+      const target = Array.from(markdownHost.querySelectorAll('h1, h2, h3'))
+        .find(heading => heading.firstChild && heading.firstChild.textContent.trim() === focusHeading);
+      if (target) {
+        target.classList.add('assistant-content-target');
+        requestAnimationFrame(() => target.scrollIntoView({block: 'start'}));
+      }
+    }
   }
 
   function markdownSection(body, headingText, level) {
@@ -446,12 +467,34 @@
     return lines.slice(start, end).join('\n').trim();
   }
 
+  function markdownSectionBody(body, headingText, level) {
+    const section = markdownSection(body, headingText, level);
+    return section.split('\n').slice(1).join('\n').trim();
+  }
+
   function addCopyButtons(host, body, documentPath) {
     host.querySelectorAll('h1, h2, h3').forEach(heading => {
       const level = Number(heading.tagName.slice(1));
       const headingText = heading.textContent.trim();
       const actions = document.createElement('span');
       actions.className = 'assistant-copy-actions';
+      if (headingText.toLowerCase() === 'generate content') {
+        const generated = markdownSectionBody(body, headingText, level);
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'primary';
+        copy.textContent = 'Copy content';
+        copy.title = 'Copy formatted content and embedded images for email or another app';
+        copy.addEventListener('click', () => copyRich(generated, documentPath, copy));
+        const plain = document.createElement('button');
+        plain.type = 'button';
+        plain.textContent = 'Plain text';
+        plain.title = 'Copy the generated Markdown as plain text';
+        plain.addEventListener('click', () => copyPlain(generated, plain));
+        actions.append(copy, plain);
+        heading.appendChild(actions);
+        return;
+      }
       const slack = document.createElement('button');
       slack.type = 'button';
       slack.textContent = 'Slack';

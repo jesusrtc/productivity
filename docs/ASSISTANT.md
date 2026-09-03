@@ -80,6 +80,15 @@ short preview; a double click opens the complete Markdown document in a modal.
 Every Markdown heading in the modal has buttons for copying that section as
 Slack-friendly Markdown or Google Docs-friendly rich text.
 
+The first image referenced by a task is also shown in its expanded preview.
+Project-owned images stay in their mapped project and are served only after the
+asset path is checked against the Assistant/project/workspace roots.
+
+A task section named `# Generate content` adds a matching action to the expanded
+preview. It opens that section in the modal with `Copy content` (formatted,
+including embedded images) and `Plain text` actions. Lab never sends the content
+or completes the task; those remain explicit manual steps.
+
 ## Meeting notes
 
 Meeting notes live below their mapped project in `meetings/`. New notes use a

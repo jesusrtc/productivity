@@ -36,6 +36,11 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "slack.textContent = 'Slack'" in source
     assert "gdoc.textContent = 'GDoc'" in source
     assert "/api/assistant/asset" in source
+    assert 'data-assistant-generate=' in source
+    assert "copy.textContent = 'Copy content'" in source
+    assert "plain.textContent = 'Plain text'" in source
+    assert "assistant-preview-image" in source
+    assert "Open project" not in source
 
 
 def test_assistant_repo_tabs_include_tasks_and_meeting_notes() -> None:

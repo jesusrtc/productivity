@@ -49,6 +49,7 @@
 - [Client server port comes from .env](client-server-port-config.md) — `make run/start` uses checkout-local `.env`, then workspace `lab.toml`; ambient inherited `LAB_PORT` must not override the next start
 - [Assistant tasks are client-global Markdown](assistant-task-database-is-client-global.md) — one `LAB_ASSISTANT_HOME` per Lab client, outside framework/workspaces; Lab renders it and Assistant terminals manage Markdown through `lab assistant`
 - [Assistant progressive disclosure and meetings](assistant-progressive-disclosure-and-meetings.md) — compact rows expand on click, full documents open on double-click, subtasks gate completion, and meeting notes are first-class
+- [Assistant project artifacts and copy-ready content](assistant-project-artifacts-and-copy-content.md) — map exact Lab projects without direct navigation; preview project-owned images and copy prepared communications manually
 - [Framework updates restart in place](framework-update-restarts-in-place.md) — admin update pulls `origin/main` serially, exec-restarts, and reloads only after a new boot ID
 - [Notebook runtimes preserve venv Python paths](notebook-runtime-preserve-venv-python-path.md) — make interpreter paths absolute without resolving venv symlinks, or kernels lose the venv's ipykernel and client packages
 - [Quiet Jupyter polls are not execution timeouts](notebook-kernel-quiet-polls-are-not-timeouts.md) — `get_iopub_msg` may be empty for many one-second polls while client CLIs run; enforce only the overall monotonic deadline

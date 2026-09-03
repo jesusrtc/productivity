@@ -38,6 +38,12 @@ def test_assistant_unconfigured(client, monkeypatch) -> None:
 
 def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo: Path) -> None:
     root, task = _seed(monkeypatch, tmp_path, monorepo)
+    metadata, task_body = assistant_db.read_markdown(task)
+    assistant_db.write_markdown(
+        task,
+        metadata,
+        task_body + "\n# Generate content\n\n![Launch thumbnail](chart.png)\n\nLaunch email.\n",
+    )
     response = client.get("/api/assistant")
     assert response.status_code == 200, response.text
     body = response.json()
@@ -47,6 +53,11 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert "body" not in body["tasks"][0]
     assert body["tasks"][0]["subtasks_total"] == 1
     assert body["tasks"][0]["subtasks_done"] == 0
+    assert body["tasks"][0]["has_generated_content"] is True
+    assert body["tasks"][0]["preview_image"] == {
+        "alt": "Launch thumbnail",
+        "src": "chart.png",
+    }
 
     detail = client.get(
         "/api/assistant/task",

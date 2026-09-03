@@ -1,6 +1,7 @@
 """Read-only API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,6 +15,9 @@ from core import auth
 
 
 router = APIRouter(prefix="/api/assistant")
+
+_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^\s)]+)(?:\s+['\"][^)]*['\"])?\)")
+_GENERATE_CONTENT_RE = re.compile(r"(?im)^#{1,3}\s+generate content\s*$")
 
 
 def _root() -> Path | None:
@@ -40,7 +44,7 @@ def _summary(body: str, limit: int = 180) -> str:
     parts: list[str] = []
     for raw in body.splitlines():
         line = raw.strip()
-        if not line or line.startswith("#") or line.startswith("```"):
+        if not line or line.startswith("#") or line.startswith("```") or line.startswith("!["):
             continue
         line = line.removeprefix("- [ ] ").removeprefix("- [x] ").removeprefix("- ")
         parts.append(line)
@@ -48,6 +52,13 @@ def _summary(body: str, limit: int = 180) -> str:
             break
     text = " ".join(parts)
     return text[:limit].rstrip() + ("…" if len(text) > limit else "")
+
+
+def _first_image(body: str) -> dict[str, str] | None:
+    match = _IMAGE_RE.search(body)
+    if not match:
+        return None
+    return {"alt": match.group(1).strip(), "src": match.group(2).strip()}
 
 
 def _task_sort_key(task: dict) -> tuple:
@@ -100,6 +111,8 @@ def get_assistant(request: Request) -> dict:
         row = dict(task)
         body = str(row.pop("body", ""))
         row["summary"] = _summary(body)
+        row["preview_image"] = _first_image(body)
+        row["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(body))
         tasks.append(row)
     tasks.sort(key=_task_sort_key)
     meetings = []
