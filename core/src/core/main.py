@@ -409,6 +409,10 @@ class _ImmutableStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The CLI reads this owner-only capability file before making local
+    # notebook requests. Creating it at startup keeps automation independent
+    # from browser cookies and UI account passwords.
+    auth.ensure_local_cli_token()
     root = config.monorepo_root()
     broadcaster = WsBroadcaster()
     loop = asyncio.get_running_loop()

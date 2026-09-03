@@ -100,7 +100,10 @@ The lab server (default `:3333`, overridable via `make start PORT=NNNN`) exposes
 lab notebook exec projects/<id>/notebooks/<name>.ipynb --code 'print(1+1)'
 ```
 
-The command discovers the active server and streams state through Lab while it waits. The endpoint below remains available to API clients; resolve its actual URL from any shell via `$(scripts/lab-url.sh)` so you never hardcode the port.
+The command discovers the active server, authenticates with Lab's private local
+CLI token, and streams state through Lab while it waits. The endpoint below
+remains available to API clients; resolve its actual URL from any shell via
+`$(scripts/lab-url.sh)` so you never hardcode the port.
 
 ### Endpoint — `POST /api/nb/exec`
 
@@ -123,10 +126,17 @@ Behavior:
 ### From Claude Code
 
 ```bash
+token="$(tr -d '\n' < "${LAB_HOME:-$HOME/.lab}/local-cli-token")"
 curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
+  -H "Authorization: Bearer ${token}" \
   -H 'Content-Type: application/json' \
   -d '{"path":"projects/<id>/notebooks/scratch.ipynb","code":"import pandas as pd; pd.__version__"}' | jq .
+unset token
 ```
+
+Lab creates that token with mode `0600` when the server starts. It is accepted
+only over loopback and only for `/api/nb/*`; never commit, log, or share it.
+Prefer `lab notebook exec` unless you are implementing an API client.
 
 Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=projects/<id>/notebooks/scratch.ipynb`.
 

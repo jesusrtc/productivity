@@ -64,6 +64,7 @@
 - [Notebook actions use the docked navigation toolbar](notebook-actions-use-fixed-toolbar.md) — use immediate custom labels and visible pressed states for icons in the full-width, always-visible top toolbar; leave All notebooks in the header
 - [Notebook tabs follow their owning workspace](notebook-tabs-follow-owning-workspace.md) — cross-workspace notebook paths, APIs, replay state, events, and deep links must use the project tab's workspace identity
 - [Live notebook streaming requires Lab's executor](live-notebook-streaming-requires-lab-executor.md) — raw Jupyter execution bypasses actor/timer/output events; agents must use `lab notebook exec`
+- [Local notebook CLI uses a bearer capability](local-notebook-cli-auth.md) — owner-only token, loopback `/api/nb` scope, and normal workspace resolution; never add header-only cookie bypasses
 - [Client issues can use diagnostic scripts](client-issue-diagnostic-scripts.md) — for issues occurring in the user's client environment, provide a focused script they can run there and bring back its output for evidence-based diagnosis
 - [Lab terminals use bounded rolling tmux sockets](lab-terminal-rolling-tmux-sockets.md) — active + at most one drain; exact socket affinity for old sessions; no background watcher or PTY byte-path discovery
 - [Existing tmux attachment uses a grouped alias](lab-terminal-attach-uses-grouped-alias.md) — + New imports by session name without nesting; closing the Lab alias leaves the original session running

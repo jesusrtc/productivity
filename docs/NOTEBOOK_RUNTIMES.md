@@ -106,9 +106,9 @@ agent run is active and are not mistaken for the source actually executing.
 ## Agent workflow
 
 Agents should use the `lab` command from either the workspace root or a project
-directory. It discovers the running Lab server, authenticates, resolves the
-notebook against the selected workspace, and routes the cell through the same
-live executor as the browser:
+directory. It discovers the running Lab server, authenticates with an
+owner-readable local CLI token, resolves the notebook against the selected
+workspace, and routes the cell through the same live executor as the browser:
 
 ```bash
 lab notebook exec projects/acme/notebooks/analysis.ipynb \
@@ -129,14 +129,23 @@ event publisher, so the UI can only discover the final file afterward.
 For API clients, the equivalent lower-level request is:
 
 ```bash
+token="$(tr -d '\n' < "${LAB_HOME:-$HOME/.lab}/local-cli-token")"
 curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
+  -H "Authorization: Bearer ${token}" \
   -H 'Content-Type: application/json' \
   -d '{
     "path":"projects/acme/notebooks/analysis.ipynb",
     "actor":"agent",
     "code":"from client_sdk import load_table\nprint(load_table())"
   }'
+unset token
 ```
+
+Lab creates `local-cli-token` with mode `0600` at server startup. The bearer is
+accepted only from a loopback connection and only on `/api/nb` and its child
+routes. Treat it as a local capability: do not commit, log, or share it. Remote
+API clients continue to authenticate through `/api/auth/login` and use the
+returned session cookie.
 
 If the notebook's project is not in the server process's active workspace,
 include its registered workspace id in the JSON body, for example

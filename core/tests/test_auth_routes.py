@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from core import auth
 from lab import paths
@@ -45,6 +48,116 @@ def test_login_is_required_and_seed_passwords_are_sha256(client) -> None:
     assert users["admin"]["password_sha256"] == auth.password_sha256("admin")
     assert "password" not in users["admin"]
     assert _login(client, "jesus", "jesus").status_code == 401
+
+
+def test_local_cli_bearer_is_secret_endpoint_scoped_and_loopback_only(
+    monorepo: Path,
+) -> None:
+    from core.main import create_app
+
+    app = create_app()
+    with TestClient(app, client=("127.0.0.1", 50000)) as local_client:
+        token_path = paths.local_cli_token_file()
+        token = paths.read_local_cli_token()
+        assert token is not None
+        assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+        headers = {"Authorization": f"Bearer {token}"}
+
+        allowed = local_client.get(
+            "/api/nb/session",
+            params={"path": "projects/demo/analysis.ipynb"},
+            headers=headers,
+        )
+        denied_elsewhere = local_client.get("/api/projects", headers=headers)
+        denied_bad_token = local_client.get(
+            "/api/nb/session",
+            params={"path": "projects/demo/analysis.ipynb"},
+            headers={"Authorization": "Bearer wrong-token-value-that-is-long-enough"},
+        )
+        denied_legacy_header = local_client.get(
+            "/api/nb/session",
+            params={"path": "projects/demo/analysis.ipynb"},
+            headers={"X-Lab-Local-Automation": "1"},
+        )
+
+    with TestClient(app, client=("10.0.0.8", 50000)) as remote_client:
+        denied_remote = remote_client.get(
+            "/api/nb/session",
+            params={"path": "projects/demo/analysis.ipynb"},
+            headers=headers,
+        )
+
+    assert allowed.status_code == 200, allowed.text
+    assert denied_elsewhere.status_code == 401
+    assert denied_bad_token.status_code == 401
+    assert denied_legacy_header.status_code == 401
+    assert denied_remote.status_code == 401
+
+
+def test_local_cli_bearer_preserves_requested_workspace_scope(
+    monorepo: Path, tmp_path: Path,
+) -> None:
+    from core.main import create_app
+
+    _workspace(monorepo, "demo")
+    paths.register_workspace(monorepo, name="Main", active=True)
+    other = tmp_path / "other"
+    _workspace(other, "demo")
+    (other / "projects" / "demo" / "runtime.json").write_text(
+        json.dumps({"mode": "local"}), encoding="utf-8",
+    )
+    notebook = other / "projects" / "demo" / "analysis.ipynb"
+    notebook.write_text(json.dumps({
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [{
+            "id": "cell-one",
+            "cell_type": "code",
+            "metadata": {},
+            "source": ["print(1)"],
+            "execution_count": None,
+            "outputs": [],
+        }],
+    }), encoding="utf-8")
+    paths.register_workspace(other, name="Other", active=False)
+
+    app = create_app()
+    with TestClient(app, client=("127.0.0.1", 50000)) as local_client:
+        token = paths.read_local_cli_token()
+        assert token is not None
+        headers = {"Authorization": f"Bearer {token}"}
+        selected = local_client.get(
+            "/api/nb/session",
+            params={
+                "path": "projects/demo/analysis.ipynb",
+                "workspace": "other",
+            },
+            headers=headers,
+        )
+        deleted = local_client.post(
+            "/api/nb/cell/delete",
+            json={
+                "path": "projects/demo/analysis.ipynb",
+                "workspace": "other",
+                "cell_id": "cell-one",
+            },
+            headers=headers,
+        )
+        unknown = local_client.get(
+            "/api/nb/session",
+            params={
+                "path": "projects/demo/analysis.ipynb",
+                "workspace": "missing",
+            },
+            headers=headers,
+        )
+
+    assert selected.status_code == 200, selected.text
+    assert selected.json()["provider"] == "local"
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["remaining_cells"] == 0
+    assert unknown.status_code == 404
 
 
 def test_version_one_store_is_replaced_by_the_builtin_admin(client) -> None:

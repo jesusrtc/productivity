@@ -6,6 +6,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
+from lab import paths
 from lab.cli import main
 
 
@@ -46,6 +47,9 @@ def test_notebook_exec_posts_agent_cell_through_live_api(
         },
     )
     monkeypatch.setattr("lab.commands.notebook.server_port", lambda _root: "8080")
+    token_path = paths.local_cli_token_file()
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text("local-notebook-token-with-at-least-32-characters\n")
     opener = _Opener()
     monkeypatch.setattr(
         "lab.commands.notebook.urllib.request.build_opener",
@@ -62,12 +66,12 @@ def test_notebook_exec_posts_agent_cell_through_live_api(
     assert "watch the open Jupyter tab for live output" in result.output
     assert '"lab_actor": "agent"' in result.output
     assert [request.full_url for request in opener.requests] == [
-        "http://localhost:8080/api/auth/login",
         "http://localhost:8080/api/nb/exec",
     ]
-    login = json.loads(opener.requests[0].data)
-    assert login == {"username": "admin", "password": "admin"}
-    payload = json.loads(opener.requests[1].data)
+    assert opener.requests[0].get_header("Authorization") == (
+        "Bearer local-notebook-token-with-at-least-32-characters"
+    )
+    payload = json.loads(opener.requests[0].data)
     assert payload == {
         "path": "projects/demo/agent-demo.ipynb",
         "workspace": "local",

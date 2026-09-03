@@ -26,6 +26,23 @@ def workspaces_file() -> Path:
     return global_config_dir() / "workspaces.toml"
 
 
+def local_cli_token_file() -> Path:
+    """Return the owner-readable bearer token shared by Lab and its CLI."""
+    return global_config_dir() / "local-cli-token"
+
+
+def read_local_cli_token() -> str | None:
+    """Read the local CLI bearer token without creating or rotating it."""
+    target = local_cli_token_file()
+    try:
+        token = target.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if len(token) < 32 or any(char.isspace() for char in token):
+        return None
+    return token
+
+
 def toml_str(value: str) -> str:
     # TOML basic strings accept JSON-style escaping for this subset.
     return json.dumps(value)

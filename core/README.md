@@ -43,6 +43,13 @@ recorded in the active workspace at `.lab/state/server.port` on startup.
 Any tool/script/doc snippet that needs to call the server should resolve the
 URL via `scripts/lab-url.sh` rather than hardcoding `localhost:3333`.
 
+Local notebook automation should use `lab notebook exec`. At server startup,
+Lab creates an owner-readable bearer token at
+`$LAB_HOME/local-cli-token` (default `~/.lab/local-cli-token`); the CLI uses it
+automatically instead of copying a browser cookie or embedding an account
+password. The server accepts that token only from loopback and only for
+`/api/nb` routes. Remote clients use the normal `/api/auth/login` session flow.
+
 ## Endpoints
 
 SPA shell (gdiff-style):

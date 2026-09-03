@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import click
 
@@ -52,12 +53,16 @@ def _json_request(
     *,
     method: str,
     body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
+    request_headers = dict(headers or {})
+    if data is not None:
+        request_headers.setdefault("Content-Type", "application/json")
     request = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"} if data is not None else {},
+        headers=request_headers,
         method=method,
     )
     try:
@@ -75,6 +80,20 @@ def _json_request(
     if not isinstance(parsed, dict):
         raise click.ClickException(f"Lab API returned an unexpected response from {url}")
     return parsed
+
+
+def _local_cli_headers(url: str) -> dict[str, str] | None:
+    """Return local bearer auth when the target is definitely loopback."""
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return None
+    if host not in {"localhost", "127.0.0.1", "::1"}:
+        return None
+    token = paths.read_local_cli_token()
+    if token is None:
+        return None
+    return {"Authorization": f"Bearer {token}"}
 
 
 @click.group(name="notebook")
@@ -120,12 +139,16 @@ def exec_cell(path: str, code: str | None, code_file: Path | None,
 
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    _json_request(
-        opener,
-        url + "/api/auth/login",
-        method="POST",
-        body={"username": username, "password": password},
-    )
+    local_headers = _local_cli_headers(url)
+    if local_headers is None:
+        # Compatibility for remote Lab servers and for a pre-upgrade local
+        # server that has not created the capability file yet.
+        _json_request(
+            opener,
+            url + "/api/auth/login",
+            method="POST",
+            body={"username": username, "password": password},
+        )
     payload: dict[str, Any] = {
         "path": relative,
         "actor": actor,
@@ -146,5 +169,6 @@ def exec_cell(path: str, code: str | None, code_file: Path | None,
         url + "/api/nb/exec",
         method="POST",
         body=payload,
+        headers=local_headers,
     )
     click.echo(json.dumps(result, indent=2, ensure_ascii=False))

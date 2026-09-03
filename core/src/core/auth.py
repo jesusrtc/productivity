@@ -26,6 +26,8 @@ SESSION_MAX_AGE = 30 * 24 * 60 * 60
 HOME_WORKSPACE = "__home__"
 STORE_VERSION = 2
 BUILTIN_ADMIN_USERNAME = "admin"
+_LOCAL_CLI_API_PREFIXES = ("/api/nb",)
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
 
 _LOCK = threading.RLock()
 _USERNAME_RE = re.compile(r"^[a-z0-9._-]{1,40}$")
@@ -37,6 +39,59 @@ _SEED_USERS = (
 def auth_file() -> Path:
     """Global auth state; permissions span the global workspace registry."""
     return paths.global_config_dir() / "auth.json"
+
+
+def ensure_local_cli_token() -> str:
+    """Create the local CLI bearer token once and keep it owner-readable."""
+    with _LOCK:
+        target = paths.local_cli_token_file()
+        token = paths.read_local_cli_token()
+        if token is not None:
+            try:
+                target.chmod(0o600)
+            except OSError:
+                pass
+            return token
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(32)
+        temporary = target.with_name(
+            f".{target.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
+        )
+        try:
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(token + "\n")
+            os.replace(temporary, target)
+            target.chmod(0o600)
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return token
+
+
+def is_local_cli_request(request: Request) -> bool:
+    """Authenticate an owner-local bearer token on explicitly allowed APIs."""
+    path = request.url.path
+    if not any(path == prefix or path.startswith(prefix + "/")
+               for prefix in _LOCAL_CLI_API_PREFIXES):
+        return False
+    client = request.client
+    host = str(client.host if client else "").split("%", 1)[0].lower()
+    if host not in _LOOPBACK_HOSTS:
+        return False
+    authorization = request.headers.get("authorization") or ""
+    scheme, separator, presented = authorization.partition(" ")
+    if separator != " " or scheme.lower() != "bearer" or not presented:
+        return False
+    expected = ensure_local_cli_token()
+    return hmac.compare_digest(presented.strip(), expected)
 
 
 def password_sha256(password: str) -> str:
@@ -550,7 +605,8 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
     ):
         return await call_next(request)
 
-    row = user_from_connection(request)
+    local_cli = is_local_cli_request(request)
+    row = get_user(BUILTIN_ADMIN_USERNAME) if local_cli else user_from_connection(request)
     if row is None:
         if path == "/" or not path.startswith("/api/"):
             target = request.url.path
@@ -559,6 +615,7 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
             return RedirectResponse(url="/login?next=" + quote(target, safe=""), status_code=303)
         return JSONResponse({"detail": "login required"}, status_code=401)
     request.state.auth_user = row
+    request.state.auth_method = "local_cli" if local_cli else "session"
 
     workspace, resource, pseudo = await _request_scope(request)
     owner = workspace_id_for_path(resource) if resource else None
@@ -586,6 +643,12 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
             pass
     if scoped_root is not None:
         request.state.auth_workspace_root = scoped_root
+
+    # A local CLI request names its workspace explicitly when it is not using
+    # the server's active one. Never silently execute against the active root
+    # when that id is stale or misspelled.
+    if local_cli and workspace and scoped_root is None:
+        return JSONResponse({"detail": "workspace not found"}, status_code=404)
 
     if is_admin(row):
         return await call_next(request)
