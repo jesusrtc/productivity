@@ -20,6 +20,7 @@ STATUSES = ("inbox", "ready", "in_progress", "waiting", "blocked", "done")
 PRIORITIES = ("P0", "P1", "P2", "P3")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_CHECKBOX_RE = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$")
 
 
 AGENTS_TEMPLATE = """# Assistant task database
@@ -51,6 +52,9 @@ lab assistant ls [--status open|<status>] [--priority P0] [--project <id>]
 lab assistant show <task-id>
 lab assistant set <task-id> <field> <value>
 lab assistant done <task-id>
+lab assistant meeting add "Meeting title" --project <id> [--date YYYY-MM-DD] [--attendee NAME]
+lab assistant meeting ls [--project <id>]
+lab assistant meeting show <meeting-id>
 ```
 
 Use the commands for metadata changes. Edit the task Markdown body directly to
@@ -70,7 +74,8 @@ The body may describe project-specific context that future agents should read.
 
 Each task lives at `projects/<project>/tasks/<task-id>.md`. Required metadata:
 `id`, `title`, `status`, `priority`, `project`, `created`, and `updated`.
-Optional metadata: `due`, `owner`, `depends_on`, and `tags`.
+Optional metadata: `due`, `owner`, `depends_on`, and `tags`. Markdown checkbox
+items are subtasks. Complete every subtask before marking its parent task done.
 
 Lifecycle:
 
@@ -82,6 +87,14 @@ Lifecycle:
 - `done` — actually complete; set `completed` as well
 
 P0 is urgent, P1 is important, P2 is normal, and P3 is someday/maybe.
+
+## Meeting files
+
+Meeting notes live at `projects/<project>/meetings/<meeting-id>.md`. Their
+frontmatter includes `id`, `title`, `project`, `date`, `attendees`, `created`,
+`updated`, and `tags`. Use one section each for `# Summary`, `# Highlights`,
+`# Action items`, and `# Notes`; action-item checkboxes appear as individually
+tracked follow-ups in Lab.
 
 ## Body conventions
 
@@ -115,6 +128,7 @@ This is the client-owned global database for Lab's Assistant tab.
 - `projects/<id>/project.md` maps an Assistant project to a Lab workspace and
   an absolute project path.
 - `projects/<id>/tasks/*.md` contains one task per Markdown file.
+- `projects/<id>/meetings/*.md` contains one meeting note per Markdown file.
 - `.lab/` contains Lab-managed terminal/runtime state and may be ignored by
   version control.
 
@@ -227,6 +241,7 @@ def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iter
         for source in sorted(task_dir.glob("*.md")):
             metadata, body = read_markdown(source)
             task_id = str(metadata.get("id") or source.stem)
+            subtasks = extract_subtasks(body)
             yield {
                 **metadata,
                 "id": task_id,
@@ -239,6 +254,54 @@ def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iter
                 "workspace_path": project.get("workspace_path"),
                 "project_path": project.get("project_path"),
                 "body": body,
+                "subtasks": subtasks,
+                "subtasks_done": sum(1 for item in subtasks if item["status"] == "done"),
+                "subtasks_total": len(subtasks),
+                "path": str(source.relative_to(root)),
+                "mtime": source.stat().st_mtime,
+            }
+
+
+def extract_subtasks(body: str) -> list[dict[str, Any]]:
+    """Return Markdown checklist items as the task's visible subtasks."""
+    items: list[dict[str, Any]] = []
+    for raw in body.splitlines():
+        match = _CHECKBOX_RE.match(raw)
+        if not match:
+            continue
+        done = match.group(1).lower() == "x"
+        items.append({
+            "title": match.group(2).strip(),
+            "status": "done" if done else "open",
+            "done": done,
+        })
+    return items
+
+
+def iter_meetings(root: Path, projects: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
+    project_rows = projects if projects is not None else list(iter_projects(root))
+    by_id = {str(row["id"]): row for row in project_rows}
+    for project_id, project in by_id.items():
+        meeting_dir = root / "projects" / project_id / "meetings"
+        if not meeting_dir.is_dir():
+            continue
+        for source in sorted(meeting_dir.glob("*.md")):
+            metadata, body = read_markdown(source)
+            meeting_id = str(metadata.get("id") or source.stem)
+            actions = extract_subtasks(body)
+            yield {
+                **metadata,
+                "id": meeting_id,
+                "title": str(metadata.get("title") or meeting_id),
+                "project": project_id,
+                "project_name": project.get("name") or project_id,
+                "workspace": project.get("workspace"),
+                "workspace_path": project.get("workspace_path"),
+                "project_path": project.get("project_path"),
+                "body": body,
+                "action_items": actions,
+                "action_items_done": sum(1 for item in actions if item["status"] == "done"),
+                "action_items_total": len(actions),
                 "path": str(source.relative_to(root)),
                 "mtime": source.stat().st_mtime,
             }
@@ -254,6 +317,19 @@ def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
         raise ValueError(f"task {task_id!r} not found")
     if len(matches) > 1:
         raise ValueError(f"task id {task_id!r} is not unique")
+    return matches[0]
+
+
+def find_meeting(root: Path, meeting_id: str) -> tuple[Path, dict[str, Any], str]:
+    matches: list[tuple[Path, dict[str, Any], str]] = []
+    for source in (root / "projects").glob("*/meetings/*.md"):
+        metadata, body = read_markdown(source)
+        if str(metadata.get("id") or source.stem) == meeting_id:
+            matches.append((source, metadata, body))
+    if not matches:
+        raise ValueError(f"meeting {meeting_id!r} not found")
+    if len(matches) > 1:
+        raise ValueError(f"meeting id {meeting_id!r} is not unique")
     return matches[0]
 
 
@@ -282,6 +358,7 @@ def create_project(
         "updated": timestamp,
     }, f"# {name}\n\nProject context and routing notes.\n")
     (pdir / "tasks").mkdir(exist_ok=True)
+    (pdir / "meetings").mkdir(exist_ok=True)
     return source
 
 
@@ -335,12 +412,66 @@ def create_task(
     return source
 
 
+def create_meeting(
+    root: Path,
+    title: str,
+    *,
+    project_id: str,
+    date: str | None = None,
+    attendees: list[str] | None = None,
+    tags: list[str] | None = None,
+) -> Path:
+    pdir = project_dir(root, project_id)
+    if not (pdir / "project.md").is_file():
+        raise ValueError(f"Assistant project {project_id!r} not found")
+    meeting_date = date or datetime.now().astimezone().date().isoformat()
+    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    base_id = f"{stamp}-{slugify(title)}"
+    meeting_id = base_id
+    meeting_dir = pdir / "meetings"
+    source = meeting_dir / f"{meeting_id}.md"
+    suffix = 2
+    while source.exists():
+        meeting_id = f"{base_id}-{suffix}"
+        source = meeting_dir / f"{meeting_id}.md"
+        suffix += 1
+    timestamp = now_iso()
+    metadata: dict[str, Any] = {
+        "id": meeting_id,
+        "title": title,
+        "project": project_id,
+        "date": meeting_date,
+        "attendees": attendees or [],
+        "created": timestamp,
+        "updated": timestamp,
+        "tags": tags or [],
+    }
+    write_markdown(
+        source,
+        metadata,
+        "# Summary\n\nCapture the decision or outcome in a few sentences.\n\n"
+        "# Highlights\n\n- Add the most useful discussion points.\n\n"
+        "# Action items\n\n## For me\n\n- [ ] Add a personal follow-up.\n\n"
+        "## Other action items\n\n- [ ] Add an owner and follow-up.\n\n"
+        "# Notes\n\nAdd supporting notes, links, and context.\n",
+    )
+    return source
+
+
 def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
     source, metadata, body = find_task(root, task_id)
     if field == "status" and value not in STATUSES:
         raise ValueError(f"status must be one of: {', '.join(STATUSES)}")
     if field == "priority" and value not in PRIORITIES:
         raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
+    if field == "status" and value == "done":
+        incomplete = [item for item in extract_subtasks(body) if item["status"] != "done"]
+        if incomplete:
+            suffix = "s" if len(incomplete) != 1 else ""
+            raise ValueError(
+                f"task has {len(incomplete)} incomplete subtask{suffix}; "
+                "complete every checkbox before marking it done"
+            )
     metadata[field] = value
     metadata["updated"] = now_iso()
     if field == "status":

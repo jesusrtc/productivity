@@ -6316,7 +6316,9 @@
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      html += `<button class="repo-tab active" onclick="AssistantView.refresh()" style="font-weight:600">&#x2726; Tasks</button>`;
+      const assistantSection = window.AssistantView ? window.AssistantView.section() : 'tasks';
+      html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
+      html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
     } else if (isSelf) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
@@ -9676,7 +9678,10 @@
   if (urlView === 'cerebro') {
     initCerebro(urlCerebroPath);
   } else if (urlView === 'assistant') {
-    initAssistant(initialParams.get('task') || '');
+    initAssistant(initialParams.get('task') || '', {
+      subview: initialParams.get('subview') || '',
+      meeting: initialParams.get('meeting') || '',
+    });
   } else if (urlView === 'productivity') {
     initSelf();
     if (initialParams.get('subview') === 'admin') selfShowAdmin();
@@ -13640,13 +13645,21 @@
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
       url.searchParams.delete('workspace');
-      url.searchParams.delete('subview');
       url.searchParams.set('view', 'assistant');
-      if (taskPath) url.searchParams.set('task', taskPath);
-      else url.searchParams.delete('task');
-      history.pushState({nav: 'assistant', task: taskPath}, '', url.pathname + url.search + url.hash);
+      if (opts.subview === 'meetings') {
+        url.searchParams.set('subview', 'meetings');
+        url.searchParams.delete('task');
+        if (opts.meeting) url.searchParams.set('meeting', opts.meeting);
+        else url.searchParams.delete('meeting');
+      } else {
+        url.searchParams.delete('subview');
+        url.searchParams.delete('meeting');
+        if (taskPath) url.searchParams.set('task', taskPath);
+        else url.searchParams.delete('task');
+      }
+      history.pushState({nav: 'assistant', task: taskPath, meeting: opts.meeting || ''}, '', url.pathname + url.search + url.hash);
     }
-    initAssistant(taskPath);
+    initAssistant(taskPath, opts);
   }
 
   function goToWorkspace(workspaceId, opts = {}) {
@@ -13703,7 +13716,11 @@
     } else if (view === 'cerebro') {
       goToCerebro(cerebroPath, {replace: true});
     } else if (view === 'assistant') {
-      goToAssistant(params.get('task') || '', {replace: true});
+      goToAssistant(params.get('task') || '', {
+        replace: true,
+        subview: params.get('subview') || '',
+        meeting: params.get('meeting') || '',
+      });
     } else if (view === 'productivity') {
       goToProductivity({replace: true, subview: params.get('subview') || null});
     } else if (view === 'workspace') {
@@ -14639,7 +14656,7 @@
     termStartPeriodicRefresh();
   }
 
-  function initAssistant(initialTask = '') {
+  function initAssistant(initialTask = '', options = {}) {
     if (!LAB_IS_ADMIN) {
       goToProductivity({replace: true});
       return;
@@ -14662,7 +14679,11 @@
     document.body.classList.remove('has-diff-tabs');
     if (typeof projTabsRender === 'function') projTabsRender();
     renderRepoTabs();
-    if (window.AssistantView) window.AssistantView.init(initialTask);
+    if (window.AssistantView) window.AssistantView.init({
+      section: options.subview === 'meetings' ? 'meetings' : 'tasks',
+      task: initialTask,
+      meeting: options.meeting || '',
+    });
     afterPageQuiet(() => {
       if (ASSISTANT_ROOT && !UI_CHECK) termOpenForAssistant();
     });

@@ -35,6 +35,8 @@ assistant/
       project.md
       tasks/
         <task-id>.md
+      meetings/
+        <meeting-id>.md
   .lab/
     project.json
 ```
@@ -63,11 +65,27 @@ lab assistant add "Prepare launch note" --project launch --priority P1 --status 
 lab assistant ls --status open
 lab assistant set <task-id> status in_progress
 lab assistant done <task-id>
+lab assistant meeting add "Weekly review" --project launch --date 2026-09-03 \
+  --attendee "Maya" --attendee "Leo"
+lab assistant meeting ls --project launch
 ```
 
 Edit task Markdown directly for context, decisions, checklists, and outputs.
-Every Markdown heading in the rendered task has buttons for copying that
-section as Slack-friendly Markdown or Google Docs-friendly rich text.
+Markdown checkboxes in a task are treated as subtasks and shown with individual
+open/done state. `lab assistant done` refuses to complete the parent while any
+checkbox is still open.
+
+The Tasks and Meeting notes tabs use compact lists. A single click expands a
+short preview; a double click opens the complete Markdown document in a modal.
+Every Markdown heading in the modal has buttons for copying that section as
+Slack-friendly Markdown or Google Docs-friendly rich text.
+
+## Meeting notes
+
+Meeting notes live below their mapped project in `meetings/`. New notes use a
+stable structure: `# Summary`, `# Highlights`, `# Action items`, and `# Notes`.
+Checkboxes under Action items are surfaced as individually tracked follow-ups,
+including a completed/total count in the list.
 
 ## Initial lifecycle
 

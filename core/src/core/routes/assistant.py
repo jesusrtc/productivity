@@ -78,6 +78,7 @@ def get_assistant(request: Request) -> dict:
             "root": None,
             "projects": [],
             "tasks": [],
+            "meetings": [],
             "statuses": list(assistant_db.STATUSES),
             "priorities": list(assistant_db.PRIORITIES),
         }
@@ -88,6 +89,7 @@ def get_assistant(request: Request) -> dict:
             "root": str(root),
             "projects": [],
             "tasks": [],
+            "meetings": [],
             "statuses": list(assistant_db.STATUSES),
             "priorities": list(assistant_db.PRIORITIES),
         }
@@ -100,6 +102,16 @@ def get_assistant(request: Request) -> dict:
         row["summary"] = _summary(body)
         tasks.append(row)
     tasks.sort(key=_task_sort_key)
+    meetings = []
+    for meeting in assistant_db.iter_meetings(root, projects):
+        row = dict(meeting)
+        body = str(row.pop("body", ""))
+        row["summary"] = _summary(body)
+        meetings.append(row)
+    meetings.sort(
+        key=lambda row: (str(row.get("date") or ""), float(row.get("mtime") or 0)),
+        reverse=True,
+    )
     return {
         "configured": True,
         "exists": True,
@@ -107,27 +119,58 @@ def get_assistant(request: Request) -> dict:
         "root": str(root),
         "projects": projects,
         "tasks": tasks,
+        "meetings": meetings,
         "statuses": list(assistant_db.STATUSES),
         "priorities": list(assistant_db.PRIORITIES),
     }
 
 
-def _safe_task_path(root: Path, relative: str) -> Path:
+def _safe_markdown_path(root: Path, relative: str, collection: str | None = None) -> Path:
     rel = Path(relative)
     if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".md":
-        raise HTTPException(status_code=400, detail="invalid task path")
+        raise HTTPException(status_code=400, detail="invalid Assistant document path")
+    if len(rel.parts) != 4 or rel.parts[0] != "projects":
+        raise HTTPException(status_code=400, detail="invalid Assistant document path")
+    if collection and rel.parts[-2] != collection:
+        raise HTTPException(status_code=400, detail=f"invalid {collection} path")
     target = (root / rel).resolve()
     if root.resolve() not in target.parents:
-        raise HTTPException(status_code=400, detail="task path escapes Assistant database")
+        raise HTTPException(status_code=400, detail="document path escapes Assistant database")
     if not target.is_file():
-        raise HTTPException(status_code=404, detail="task not found")
+        raise HTTPException(status_code=404, detail="Assistant document not found")
     return target
+
+
+def _safe_task_path(root: Path, relative: str) -> Path:
+    return _safe_markdown_path(root, relative, "tasks")
+
+
+def _safe_meeting_path(root: Path, relative: str) -> Path:
+    return _safe_markdown_path(root, relative, "meetings")
 
 
 @router.get("/task")
 def get_task(path: str, request: Request) -> dict:
     root = _require_root(request)
     source = _safe_task_path(root, path)
+    metadata, body = assistant_db.read_markdown(source)
+    project_id = str(metadata.get("project") or source.parent.parent.name)
+    project_source = root / "projects" / project_id / "project.md"
+    project: dict = {}
+    if project_source.is_file():
+        project, _ = assistant_db.read_markdown(project_source)
+    return {
+        "path": str(source.relative_to(root)),
+        "metadata": metadata,
+        "project": project,
+        "body": body,
+    }
+
+
+@router.get("/meeting")
+def get_meeting(path: str, request: Request) -> dict:
+    root = _require_root(request)
+    source = _safe_meeting_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
     project_id = str(metadata.get("project") or source.parent.parent.name)
     project_source = root / "projects" / project_id / "project.md"
@@ -170,7 +213,7 @@ def _allowed_asset_roots(root: Path, task_path: Path) -> list[Path]:
 @router.get("/asset")
 def get_asset(task: str, src: str, request: Request):
     root = _require_root(request)
-    task_path = _safe_task_path(root, task)
+    task_path = _safe_markdown_path(root, task)
     parsed = urlparse(src)
     if parsed.scheme or parsed.netloc:
         raise HTTPException(status_code=400, detail="remote assets are loaded directly")

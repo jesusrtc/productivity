@@ -178,3 +178,64 @@ def done_task(task_id: str) -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{task_id}  done  ({source})")
+
+
+@assistant_group.group("meeting")
+def meeting_group() -> None:
+    """Manage structured meeting notes in the Assistant database."""
+
+
+@meeting_group.command("add")
+@click.argument("title")
+@click.option("--project", "project_id", required=True)
+@click.option("--date", default=None, help="Meeting date in YYYY-MM-DD format")
+@click.option("--attendee", "attendees", multiple=True)
+@click.option("--tag", "tags", multiple=True)
+def add_meeting(
+    title: str,
+    project_id: str,
+    date: str | None,
+    attendees: tuple[str, ...],
+    tags: tuple[str, ...],
+) -> None:
+    try:
+        source = assistant_db.create_meeting(
+            _root(),
+            title,
+            project_id=project_id,
+            date=date,
+            attendees=list(attendees),
+            tags=list(tags),
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    metadata, _ = assistant_db.read_markdown(source)
+    click.echo(f"{metadata['id']}  {source}")
+
+
+@meeting_group.command("ls")
+@click.option("--project", "project_id", default=None)
+def list_meetings(project_id: str | None) -> None:
+    rows = [
+        meeting for meeting in assistant_db.iter_meetings(_root())
+        if not project_id or meeting["project"] == project_id
+    ]
+    if not rows:
+        click.echo("no Assistant meeting notes")
+        return
+    rows.sort(key=lambda row: (str(row.get("date") or ""), float(row.get("mtime") or 0)), reverse=True)
+    for meeting in rows:
+        click.echo(
+            f"{meeting['id']}  {meeting.get('date') or '--':<10} "
+            f"{meeting['project']:<18} {meeting['title']}"
+        )
+
+
+@meeting_group.command("show")
+@click.argument("meeting_id")
+def show_meeting(meeting_id: str) -> None:
+    try:
+        source, _metadata, _body = assistant_db.find_meeting(_root(), meeting_id)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(source.read_text(encoding="utf-8"))

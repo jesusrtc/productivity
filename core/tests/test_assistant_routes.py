@@ -45,6 +45,8 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert body["projects"][0]["id"] == "demo"
     assert body["tasks"][0]["title"] == "Write launch update"
     assert "body" not in body["tasks"][0]
+    assert body["tasks"][0]["subtasks_total"] == 1
+    assert body["tasks"][0]["subtasks_done"] == 0
 
     detail = client.get(
         "/api/assistant/task",
@@ -53,6 +55,39 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert detail.status_code == 200, detail.text
     assert detail.json()["metadata"]["priority"] == "P0"
     assert "# Context" in detail.json()["body"]
+
+
+def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo: Path) -> None:
+    root, _task = _seed(monkeypatch, tmp_path, monorepo)
+    meeting = assistant_db.create_meeting(
+        root,
+        "Weekly product review",
+        project_id="demo",
+        date="2026-09-03",
+        attendees=["Maya", "Leo"],
+    )
+    metadata, body = assistant_db.read_markdown(meeting)
+    assistant_db.write_markdown(
+        meeting,
+        metadata,
+        body.replace("- [ ] Add a personal follow-up.", "- [x] Share experiment results."),
+    )
+
+    response = client.get("/api/assistant")
+    assert response.status_code == 200, response.text
+    row = response.json()["meetings"][0]
+    assert row["title"] == "Weekly product review"
+    assert row["action_items_total"] == 2
+    assert row["action_items_done"] == 1
+    assert "body" not in row
+
+    detail = client.get(
+        "/api/assistant/meeting",
+        params={"path": str(meeting.relative_to(root))},
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["metadata"]["attendees"] == ["Maya", "Leo"]
+    assert "# Highlights" in detail.json()["body"]
 
 
 def test_assistant_asset_allows_mapped_project_file(

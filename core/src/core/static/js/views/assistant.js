@@ -3,15 +3,19 @@
 
   const state = {
     data: null,
-    selectedPath: '',
-    detail: null,
+    section: 'tasks',
+    selectedTaskPath: '',
+    selectedMeetingPath: '',
     view: 'open',
     status: 'open',
     priority: '',
     project: '',
     search: '',
     request: 0,
+    modalRequest: 0,
     poll: null,
+    searchTimer: null,
+    clickTimer: null,
   };
 
   const e = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -24,7 +28,10 @@
 
   function displayDate(value) {
     if (!value) return '';
-    const date = new Date(value);
+    const plain = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const date = plain
+      ? new Date(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3]))
+      : new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     return new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'}).format(date);
   }
@@ -36,10 +43,17 @@
     return Number.isFinite(time) && Date.now() - time <= 7 * 86400000;
   }
 
+  function tasks() {
+    return state.data && Array.isArray(state.data.tasks) ? state.data.tasks : [];
+  }
+
+  function meetings() {
+    return state.data && Array.isArray(state.data.meetings) ? state.data.meetings : [];
+  }
+
   function filteredTasks() {
-    const tasks = state.data && Array.isArray(state.data.tasks) ? state.data.tasks : [];
     const needle = state.search.trim().toLowerCase();
-    return tasks.filter(task => {
+    return tasks().filter(task => {
       if (state.view === 'recent' && !isRecentDone(task)) return false;
       if (state.view === 'p0' && task.priority !== 'P0') return false;
       if (state.view === 'in_progress' && task.status !== 'in_progress') return false;
@@ -57,37 +71,85 @@
     });
   }
 
+  function filteredMeetings() {
+    const needle = state.search.trim().toLowerCase();
+    return meetings().filter(meeting => {
+      if (state.view === 'meeting_actions'
+          && !(meeting.action_items_total > meeting.action_items_done)) return false;
+      if (state.project && meeting.project !== state.project) return false;
+      if (needle) {
+        const haystack = [
+          meeting.title, meeting.summary, meeting.project_name, meeting.project,
+          meeting.workspace, ...(meeting.attendees || []),
+        ].join(' ').toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  }
+
+  function countWhere(rows, predicate) {
+    return rows.filter(predicate).length;
+  }
+
   function setView(view) {
     state.view = view;
-    state.status = view === 'recent' ? '' : 'open';
-    state.priority = view === 'p0' ? 'P0' : '';
+    if (state.section === 'tasks') {
+      state.status = view === 'recent' ? '' : 'open';
+      state.priority = view === 'p0' ? 'P0' : '';
+    }
     render();
   }
 
-  function countWhere(predicate) {
-    const tasks = state.data && state.data.tasks || [];
-    return tasks.filter(predicate).length;
+  function syncSectionTabs() {
+    document.querySelectorAll('#repoTabs [data-assistant-section]').forEach(button => {
+      button.classList.toggle('active', button.dataset.assistantSection === state.section);
+    });
+  }
+
+  function setSection(section, options = {}) {
+    state.section = section === 'meetings' ? 'meetings' : 'tasks';
+    state.view = state.section === 'tasks' ? 'open' : 'meetings';
+    state.status = state.section === 'tasks' ? 'open' : '';
+    state.priority = '';
+    state.search = '';
+    if (!options.history) {
+      const url = new URL(window.location);
+      url.searchParams.set('view', 'assistant');
+      if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
+      else url.searchParams.delete('subview');
+      url.searchParams.delete(state.section === 'meetings' ? 'task' : 'meeting');
+      history.pushState({nav: 'assistant', subview: state.section}, '', url.pathname + url.search + url.hash);
+    }
+    syncSectionTabs();
+    render();
   }
 
   function renderSidebar() {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     const projects = state.data && state.data.projects || [];
-    const viewRows = [
-      ['open', 'Open', countWhere(task => task.status !== 'done')],
-      ['in_progress', 'In progress', countWhere(task => task.status === 'in_progress')],
-      ['p0', 'P0', countWhere(task => task.priority === 'P0' && task.status !== 'done')],
-      ['recent', 'Recently completed', countWhere(isRecentDone)],
-    ];
+    const source = state.section === 'tasks' ? tasks() : meetings();
+    const viewRows = state.section === 'tasks'
+      ? [
+          ['open', 'Open', countWhere(tasks(), task => task.status !== 'done')],
+          ['in_progress', 'In progress', countWhere(tasks(), task => task.status === 'in_progress')],
+          ['p0', 'P0', countWhere(tasks(), task => task.priority === 'P0' && task.status !== 'done')],
+          ['recent', 'Recently completed', countWhere(tasks(), isRecentDone)],
+        ]
+      : [
+          ['meetings', 'All notes', meetings().length],
+          ['meeting_actions', 'Open action items', countWhere(meetings(), meeting => meeting.action_items_total > meeting.action_items_done)],
+        ];
     let html = '<div class="sidebar-title">Views</div>';
     html += viewRows.map(([key, label, count]) => `
       <button type="button" class="assistant-side-row${state.view === key ? ' active' : ''}" data-assistant-view="${e(key)}">
         <span>${e(label)}</span><span class="assistant-side-count">${count}</span>
       </button>`).join('');
     html += '<div class="sidebar-title">Projects</div>';
-    html += `<button type="button" class="assistant-side-row${!state.project ? ' active-project' : ''}" data-assistant-project=""><span>All projects</span><span class="assistant-side-count">${(state.data && state.data.tasks || []).length}</span></button>`;
+    html += `<button type="button" class="assistant-side-row${!state.project ? ' active-project' : ''}" data-assistant-project=""><span>All projects</span><span class="assistant-side-count">${source.length}</span></button>`;
     html += projects.map(project => {
-      const count = countWhere(task => task.project === project.id && task.status !== 'done');
+      const count = countWhere(source, row => row.project === project.id);
       return `<button type="button" class="assistant-side-row${state.project === project.id ? ' active-project' : ''}" data-assistant-project="${e(project.id)}" title="${e(project.project_path || '')}"><span>${e(project.name || project.id)}</span><span class="assistant-side-count">${count}</span></button>`;
     }).join('');
     html += '<div class="sidebar-title">Database</div>';
@@ -104,28 +166,66 @@
     });
   }
 
+  function progressLabel(done, total, noun = 'subtasks') {
+    if (!total) return '';
+    return `${done}/${total} ${noun}`;
+  }
+
+  function checklist(items) {
+    if (!items || !items.length) return '';
+    return `<ul class="assistant-subtasks">${items.map(item => `
+      <li class="${item.done ? 'done' : ''}">
+        <span class="assistant-subtask-check" aria-hidden="true">${item.done ? '✓' : ''}</span>
+        <span>${e(item.title)}</span><small>${item.done ? 'Done' : 'Open'}</small>
+      </li>`).join('')}</ul>`;
+  }
+
   function taskCard(task) {
-    const selected = task.path === state.selectedPath ? ' selected' : '';
+    const selected = task.path === state.selectedTaskPath;
     const due = task.due ? `<span class="assistant-task-due">Due ${e(displayDate(task.due))}</span>` : '';
-    return `<button type="button" class="assistant-task-card${selected}" data-assistant-task="${e(task.path)}">
-      <div class="assistant-task-card-top">
-        <span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span>
-        <span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>
-        ${due}
-      </div>
-      <strong>${e(task.title)}</strong>
-      <span class="assistant-task-project">${e(task.project_name || task.project)}${task.workspace ? ` · ${e(task.workspace)}` : ''}</span>
-      ${task.summary ? `<span class="assistant-task-summary">${e(task.summary)}</span>` : ''}
-    </button>`;
+    const progress = progressLabel(task.subtasks_done, task.subtasks_total);
+    return `<article class="assistant-list-item${selected ? ' selected' : ''}" data-assistant-entry-wrap="${e(task.path)}">
+      <button type="button" class="assistant-compact-row" data-assistant-task="${e(task.path)}" data-testid="assistant-task-row" aria-expanded="${selected}">
+        <span class="assistant-row-main"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><strong>${e(task.title)}</strong></span>
+        <span class="assistant-row-meta">${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${due}</span>
+      </button>
+      ${selected ? `<div class="assistant-inline-preview" data-testid="assistant-task-preview">
+        <div class="assistant-preview-top"><div class="assistant-detail-badges"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span></div>${due}<span class="assistant-open-hint">Double-click to open</span></div>
+        <h2>${e(task.title)}</h2>
+        <div class="assistant-task-project">${e(task.project_name || task.project)}${task.workspace ? ` · ${e(task.workspace)}` : ''}</div>
+        ${task.summary ? `<p class="assistant-task-summary">${e(task.summary)}</p>` : ''}
+        ${task.subtasks_total ? `<div class="assistant-subtask-head"><strong>Subtasks</strong><span>${e(progress)}</span></div>${checklist(task.subtasks)}` : ''}
+      </div>` : ''}
+    </article>`;
+  }
+
+  function meetingCard(meeting) {
+    const selected = meeting.path === state.selectedMeetingPath;
+    const actionProgress = progressLabel(meeting.action_items_done, meeting.action_items_total, 'actions');
+    const attendees = Array.isArray(meeting.attendees) ? meeting.attendees.join(', ') : '';
+    return `<article class="assistant-list-item${selected ? ' selected' : ''}" data-assistant-entry-wrap="${e(meeting.path)}">
+      <button type="button" class="assistant-compact-row" data-assistant-meeting="${e(meeting.path)}" data-testid="assistant-meeting-row" aria-expanded="${selected}">
+        <span class="assistant-row-main"><span class="assistant-meeting-date">${e(displayDate(meeting.date))}</span><strong>${e(meeting.title)}</strong></span>
+        <span class="assistant-row-meta">${actionProgress ? `<span class="assistant-progress-label">${e(actionProgress)}</span>` : ''}<span class="assistant-task-project">${e(meeting.project_name || meeting.project)}</span></span>
+      </button>
+      ${selected ? `<div class="assistant-inline-preview" data-testid="assistant-meeting-preview">
+        <div class="assistant-preview-top"><span class="assistant-meeting-date full">${e(displayDate(meeting.date))}</span><span class="assistant-open-hint">Double-click to open</span></div>
+        <h2>${e(meeting.title)}</h2>
+        <div class="assistant-task-project">${e(meeting.project_name || meeting.project)}${meeting.workspace ? ` · ${e(meeting.workspace)}` : ''}</div>
+        ${attendees ? `<p class="assistant-attendees"><span>With</span> ${e(attendees)}</p>` : ''}
+        ${meeting.summary ? `<p class="assistant-task-summary">${e(meeting.summary)}</p>` : ''}
+        ${meeting.action_items_total ? `<div class="assistant-subtask-head"><strong>Action items</strong><span>${e(actionProgress)}</span></div>${checklist(meeting.action_items)}` : ''}
+      </div>` : ''}
+    </article>`;
   }
 
   function renderSetup(content) {
     const root = state.data && state.data.root;
     const message = !state.data || !state.data.configured
       ? 'Set LAB_ASSISTANT_HOME in this Lab checkout’s .env, then restart Lab.'
-      : `Create the configured directory, then run lab assistant init.`;
+      : 'Create the configured directory, then run lab assistant init.';
     content.innerHTML = `<div class="assistant-setup">
-      <span class="assistant-kicker">Global task workspace</span>
+      <span class="assistant-kicker">Global workspace</span>
       <h1>Assistant needs a database</h1>
       <p>${e(message)}</p>
       ${root ? `<code>${e(root)}</code>` : '<code>LAB_ASSISTANT_HOME=/absolute/path/to/assistant</code>'}
@@ -135,53 +235,40 @@
   function render() {
     if (!document.body.classList.contains('assistant-active')) return;
     renderSidebar();
+    syncSectionTabs();
     const content = document.getElementById('content');
     if (!content) return;
     if (!state.data || !state.data.configured || !state.data.exists) {
       renderSetup(content);
       return;
     }
-    const tasks = filteredTasks();
-    if (!tasks.some(task => task.path === state.selectedPath)) {
-      state.selectedPath = tasks[0] ? tasks[0].path : '';
-      state.detail = null;
-    }
-    const openCount = countWhere(task => task.status !== 'done');
-    const inProgress = countWhere(task => task.status === 'in_progress');
-    const blocked = countWhere(task => task.status === 'blocked');
-    const p0 = countWhere(task => task.priority === 'P0' && task.status !== 'done');
-    content.innerHTML = `<div class="assistant-shell">
+    const isTasks = state.section === 'tasks';
+    const rows = isTasks ? filteredTasks() : filteredMeetings();
+    const title = isTasks ? 'Tasks' : 'Meeting notes';
+    const noun = isTasks ? 'task' : 'note';
+    const controls = isTasks ? `
+      <select id="assistantStatus" aria-label="Filter by status">
+        <option value="open"${state.status === 'open' ? ' selected' : ''}>Open statuses</option>
+        <option value=""${state.status === '' ? ' selected' : ''}>All statuses</option>
+        ${(state.data.statuses || []).map(status => `<option value="${e(status)}"${state.status === status ? ' selected' : ''}>${e(labelStatus(status))}</option>`).join('')}
+      </select>
+      <select id="assistantPriority" aria-label="Filter by priority">
+        <option value="">All priorities</option>
+        ${(state.data.priorities || []).map(priority => `<option value="${e(priority)}"${state.priority === priority ? ' selected' : ''}>${e(priority)}</option>`).join('')}
+      </select>` : '';
+    content.innerHTML = `<div class="assistant-shell assistant-minimal-shell">
       <header class="assistant-head">
-        <div><span class="assistant-kicker">Global task workspace</span><h1>Assistant</h1></div>
+        <div><span class="assistant-kicker">Global Assistant</span><h1>${title}</h1></div>
         <button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button>
       </header>
-      <div class="assistant-metrics">
-        <div><span>Open</span><strong>${openCount}</strong></div>
-        <div><span>In progress</span><strong>${inProgress}</strong></div>
-        <div><span>Blocked</span><strong>${blocked}</strong></div>
-        <div><span>P0</span><strong>${p0}</strong></div>
-      </div>
       <div class="assistant-filters">
-        <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search tasks…" aria-label="Search Assistant tasks">
-        <select id="assistantStatus" aria-label="Filter by status">
-          <option value="open"${state.status === 'open' ? ' selected' : ''}>Open statuses</option>
-          <option value=""${state.status === '' ? ' selected' : ''}>All statuses</option>
-          ${(state.data.statuses || []).map(status => `<option value="${e(status)}"${state.status === status ? ' selected' : ''}>${e(labelStatus(status))}</option>`).join('')}
-        </select>
-        <select id="assistantPriority" aria-label="Filter by priority">
-          <option value="">All priorities</option>
-          ${(state.data.priorities || []).map(priority => `<option value="${e(priority)}"${state.priority === priority ? ' selected' : ''}>${e(priority)}</option>`).join('')}
-        </select>
-        <span class="assistant-filter-count">${tasks.length} task${tasks.length === 1 ? '' : 's'}</span>
+        <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
+        ${controls}
+        <span class="assistant-filter-count">${rows.length} ${noun}${rows.length === 1 ? '' : 's'}</span>
       </div>
-      <div class="assistant-workarea">
-        <section class="assistant-list" aria-label="Tasks">
-          ${tasks.length ? tasks.map(taskCard).join('') : '<div class="assistant-empty">No tasks match these filters.</div>'}
-        </section>
-        <article class="assistant-detail" id="assistantDetail">
-          ${state.selectedPath ? '<div class="loading">Loading task…</div>' : '<div class="assistant-empty assistant-empty-detail">Select a task to see its context and outputs.</div>'}
-        </article>
-      </div>
+      <section class="assistant-list assistant-list-single" aria-label="${title}" data-testid="assistant-list">
+        ${rows.length ? rows.map(isTasks ? taskCard : meetingCard).join('') : `<div class="assistant-empty">No ${noun}s match these filters.</div>`}
+      </section>
     </div>`;
     document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
     const search = document.getElementById('assistantSearch');
@@ -207,93 +294,140 @@
       state.view = state.priority === 'P0' ? 'p0' : '';
       render();
     });
-    content.querySelectorAll('[data-assistant-task]').forEach(button => {
-      button.addEventListener('click', () => selectTask(button.dataset.assistantTask, true));
-    });
-    if (state.selectedPath) loadDetail(state.selectedPath);
+    content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
+    content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
   }
 
-  async function selectTask(path, push) {
-    state.selectedPath = path || '';
-    state.detail = null;
+  function bindRow(button, kind) {
+    const attribute = kind === 'task' ? 'assistantTask' : 'assistantMeeting';
+    const path = button.dataset[attribute];
+    button.addEventListener('click', () => {
+      clearTimeout(state.clickTimer);
+      state.clickTimer = setTimeout(() => selectEntry(kind, path, true), 190);
+    });
+    button.addEventListener('dblclick', event => {
+      event.preventDefault();
+      clearTimeout(state.clickTimer);
+      selectEntry(kind, path, true);
+      openDocumentModal(kind, path);
+    });
+  }
+
+  function selectEntry(kind, path, push) {
+    if (kind === 'task') state.selectedTaskPath = path || '';
+    else state.selectedMeetingPath = path || '';
     if (push) {
       const url = new URL(window.location);
-      if (state.selectedPath) url.searchParams.set('task', state.selectedPath);
-      else url.searchParams.delete('task');
-      history.pushState({nav: 'assistant', task: state.selectedPath}, '', url.pathname + url.search + url.hash);
+      url.searchParams.set('view', 'assistant');
+      if (kind === 'task') {
+        url.searchParams.delete('subview');
+        url.searchParams.delete('meeting');
+        if (path) url.searchParams.set('task', path);
+      } else {
+        url.searchParams.set('subview', 'meetings');
+        url.searchParams.delete('task');
+        if (path) url.searchParams.set('meeting', path);
+      }
+      history.pushState({nav: 'assistant', [kind]: path}, '', url.pathname + url.search + url.hash);
     }
     render();
   }
 
-  function localImageUrl(taskPath, src) {
-    return '/api/assistant/asset?task=' + encodeURIComponent(taskPath) + '&src=' + encodeURIComponent(src);
+  function ensureModal() {
+    let overlay = document.getElementById('assistantDocumentModal');
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.id = 'assistantDocumentModal';
+    overlay.className = 'modal-overlay assistant-document-overlay';
+    overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
+      <header class="assistant-modal-header"><div><span class="assistant-kicker" id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></header>
+      <div class="assistant-modal-body" id="assistantModalBody"><div class="loading">Loading…</div></div>
+    </section>`;
+    overlay.addEventListener('click', event => { if (event.target === overlay) closeDocumentModal(); });
+    overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
+    document.body.appendChild(overlay);
+    return overlay;
   }
 
-  function rewriteImages(host, taskPath) {
-    host.querySelectorAll('img').forEach(img => {
-      const src = img.getAttribute('src') || '';
-      if (!src || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return;
-      img.src = localImageUrl(taskPath, src);
-    });
+  function closeDocumentModal() {
+    const overlay = document.getElementById('assistantDocumentModal');
+    if (overlay) overlay.classList.remove('active');
   }
 
-  function projectMeta(detail) {
-    const metadata = detail.metadata || {};
-    const project = detail.project || {};
-    const rows = [
-      ['Status', labelStatus(metadata.status)],
-      ['Priority', metadata.priority],
-      ['Project', project.name || metadata.project],
-      ['Workspace', project.workspace],
-      ['Due', metadata.due],
-      ['Owner', metadata.owner],
-      ['Updated', displayDate(metadata.updated)],
-    ].filter(row => row[1]);
-    return rows.map(([key, value]) => `<div><span>${e(key)}</span><strong>${e(value)}</strong></div>`).join('');
-  }
-
-  async function loadDetail(path) {
-    const request = ++state.request;
+  async function openDocumentModal(kind, path) {
+    const overlay = ensureModal();
+    const title = document.getElementById('assistantModalTitle');
+    const label = document.getElementById('assistantModalKind');
+    const host = document.getElementById('assistantModalBody');
+    label.textContent = kind === 'task' ? 'Task' : 'Meeting note';
+    title.textContent = 'Loading…';
+    host.innerHTML = '<div class="loading">Loading document…</div>';
+    overlay.classList.add('active');
+    const request = ++state.modalRequest;
     try {
-      const response = await fetch('/api/assistant/task?path=' + encodeURIComponent(path));
+      const endpoint = kind === 'task' ? '/api/assistant/task?path=' : '/api/assistant/meeting?path=';
+      const response = await fetch(endpoint + encodeURIComponent(path));
       const detail = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(detail.detail || response.statusText);
-      if (request !== state.request || path !== state.selectedPath || !document.body.classList.contains('assistant-active')) return;
-      state.detail = detail;
-      await renderDetail(detail);
+      if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
+      await renderDocument(detail, kind);
     } catch (error) {
-      const host = document.getElementById('assistantDetail');
-      if (host && request === state.request) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
+      if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
     }
   }
 
-  async function renderDetail(detail) {
-    const host = document.getElementById('assistantDetail');
-    if (!host) return;
+  function localImageUrl(documentPath, src) {
+    return '/api/assistant/asset?task=' + encodeURIComponent(documentPath) + '&src=' + encodeURIComponent(src);
+  }
+
+  function rewriteImages(host, documentPath) {
+    host.querySelectorAll('img').forEach(img => {
+      const src = img.getAttribute('src') || '';
+      if (!src || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return;
+      img.src = localImageUrl(documentPath, src);
+    });
+  }
+
+  function documentMeta(detail, kind) {
+    const metadata = detail.metadata || {};
+    const project = detail.project || {};
+    const rows = kind === 'task' ? [
+      ['Status', labelStatus(metadata.status)], ['Priority', metadata.priority],
+      ['Project', project.name || metadata.project], ['Workspace', project.workspace],
+      ['Due', metadata.due], ['Owner', metadata.owner], ['Updated', displayDate(metadata.updated)],
+    ] : [
+      ['Date', metadata.date], ['Project', project.name || metadata.project],
+      ['Workspace', project.workspace],
+      ['Attendees', Array.isArray(metadata.attendees) ? metadata.attendees.join(', ') : metadata.attendees],
+      ['Updated', displayDate(metadata.updated)],
+    ];
+    return rows.filter(row => row[1]).map(([key, value]) => `<div><span>${e(key)}</span><strong>${e(value)}</strong></div>`).join('');
+  }
+
+  async function renderDocument(detail, kind) {
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     const body = detail.body || '';
     const markdown = window.marked ? window.marked.parse(body) : `<pre>${e(body)}</pre>`;
     const metadata = detail.metadata || {};
     const project = detail.project || {};
-    host.innerHTML = `<div class="assistant-detail-head">
-      <div>
-        <div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>
-        <h2>${e(metadata.title || metadata.id || 'Task')}</h2>
-        <code>${e(metadata.id || '')}</code>
-      </div>
-      <div class="assistant-detail-actions">
-        ${project.project_path ? '<button type="button" class="refresh-btn" id="assistantOpenProject">Open project</button>' : ''}
-        <button type="button" class="refresh-btn" id="assistantCopyTask">Copy Markdown</button>
-      </div>
+    const title = document.getElementById('assistantModalTitle');
+    const host = document.getElementById('assistantModalBody');
+    title.textContent = metadata.title || metadata.id || (kind === 'task' ? 'Task' : 'Meeting note');
+    const badges = kind === 'task'
+      ? `<div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>`
+      : `<div class="assistant-detail-badges"><span class="assistant-meeting-date full">${e(displayDate(metadata.date))}</span></div>`;
+    host.innerHTML = `<div class="assistant-document-toolbar">
+      ${badges}<div class="assistant-detail-actions">${project.project_path ? '<button type="button" class="refresh-btn" id="assistantOpenProject">Open project</button>' : ''}<button type="button" class="refresh-btn" id="assistantCopyDocument">Copy Markdown</button></div>
     </div>
-    <div class="assistant-meta">${projectMeta(detail)}</div>
+    <div class="assistant-meta">${documentMeta(detail, kind)}</div>
     ${project.project_path ? `<div class="assistant-path"><span>Project path</span><code>${e(project.project_path)}</code></div>` : ''}
-    <div class="nb-markdown assistant-markdown" id="assistantMarkdown">${markdown}</div>`;
-    const markdownHost = document.getElementById('assistantMarkdown');
+    <div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
+    const markdownHost = document.getElementById('assistantModalMarkdown');
     rewriteImages(markdownHost, detail.path);
     addCopyButtons(markdownHost, body, detail.path);
-    document.getElementById('assistantCopyTask')?.addEventListener('click', event => copyPlain(body, event.currentTarget));
+    document.getElementById('assistantCopyDocument')?.addEventListener('click', event => copyPlain(body, event.currentTarget));
     document.getElementById('assistantOpenProject')?.addEventListener('click', () => {
+      closeDocumentModal();
       if (project.project_path && typeof window.goToProject === 'function') window.goToProject(project.project_path);
     });
   }
@@ -301,7 +435,7 @@
   function markdownSection(body, headingText, level) {
     const lines = body.split('\n');
     const prefix = '#'.repeat(level) + ' ';
-    let start = lines.findIndex(line => line.trimStart().startsWith(prefix)
+    const start = lines.findIndex(line => line.trimStart().startsWith(prefix)
       && line.replace(/^\s*#+\s+/, '').trim() === headingText);
     if (start < 0) return '';
     let end = lines.length;
@@ -312,22 +446,22 @@
     return lines.slice(start, end).join('\n').trim();
   }
 
-  function addCopyButtons(host, body, taskPath) {
+  function addCopyButtons(host, body, documentPath) {
     host.querySelectorAll('h1, h2, h3').forEach(heading => {
       const level = Number(heading.tagName.slice(1));
-      const title = heading.textContent.trim();
+      const headingText = heading.textContent.trim();
       const actions = document.createElement('span');
       actions.className = 'assistant-copy-actions';
       const slack = document.createElement('button');
       slack.type = 'button';
       slack.textContent = 'Slack';
       slack.title = 'Copy this Markdown section';
-      slack.addEventListener('click', () => copyPlain(markdownSection(body, title, level), slack));
+      slack.addEventListener('click', () => copyPlain(markdownSection(body, headingText, level), slack));
       const gdoc = document.createElement('button');
       gdoc.type = 'button';
       gdoc.textContent = 'GDoc';
       gdoc.title = 'Copy this section as formatted rich text';
-      gdoc.addEventListener('click', () => copyRich(markdownSection(body, title, level), taskPath, gdoc));
+      gdoc.addEventListener('click', () => copyRich(markdownSection(body, headingText, level), documentPath, gdoc));
       actions.append(slack, gdoc);
       heading.appendChild(actions);
     });
@@ -344,12 +478,12 @@
     setTimeout(() => { button.textContent = original; }, 1200);
   }
 
-  async function copyRich(markdown, taskPath, button) {
+  async function copyRich(markdown, documentPath, button) {
     const original = button.textContent;
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     const container = document.createElement('div');
     container.innerHTML = window.marked ? window.marked.parse(markdown) : `<pre>${e(markdown)}</pre>`;
-    rewriteImages(container, taskPath);
+    rewriteImages(container, documentPath);
     await Promise.all(Array.from(container.querySelectorAll('img')).map(async img => {
       try {
         const response = await fetch(img.src);
@@ -361,9 +495,7 @@
         });
       } catch (_) {}
     }));
-    container.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node => {
-      node.style.fontFamily = 'Arial, sans-serif';
-    });
+    container.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node => { node.style.fontFamily = 'Arial, sans-serif'; });
     container.querySelectorAll('p,li,td,th').forEach(node => {
       node.style.fontFamily = 'Arial, sans-serif';
       node.style.fontSize = '11pt';
@@ -389,7 +521,8 @@
       if (!response.ok) throw new Error(data.detail || response.statusText);
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       state.data = data;
-      if (options.task !== undefined) state.selectedPath = options.task || '';
+      if (options.task !== undefined) state.selectedTaskPath = options.task || '';
+      if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
       render();
     } catch (error) {
       const content = document.getElementById('content');
@@ -397,15 +530,17 @@
     }
   }
 
-  function init(taskPath) {
-    state.selectedPath = taskPath || '';
-    state.detail = null;
-    state.view = 'open';
-    state.status = 'open';
+  function init(initial = '') {
+    const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
+    state.section = options.section === 'meetings' ? 'meetings' : 'tasks';
+    state.selectedTaskPath = options.task || '';
+    state.selectedMeetingPath = options.meeting || '';
+    state.view = state.section === 'tasks' ? 'open' : 'meetings';
+    state.status = state.section === 'tasks' ? 'open' : '';
     state.priority = '';
     state.project = '';
     state.search = '';
-    refresh({task: state.selectedPath});
+    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath});
     if (!state.poll) {
       state.poll = setInterval(() => {
         if (document.body.classList.contains('assistant-active') && !document.hidden) refresh();
@@ -413,5 +548,22 @@
     }
   }
 
-  window.AssistantView = {init, refresh, selectTask};
+  document.addEventListener('keydown', event => {
+    const overlay = document.getElementById('assistantDocumentModal');
+    if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeDocumentModal();
+    }
+  });
+
+  window.AssistantView = {
+    init,
+    refresh,
+    setSection,
+    section: () => state.section,
+    selectTask: path => selectEntry('task', path, true),
+    openDocument: openDocumentModal,
+    closeDocument: closeDocumentModal,
+  };
 })();
