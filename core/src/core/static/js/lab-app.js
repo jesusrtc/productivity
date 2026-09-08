@@ -10836,6 +10836,7 @@
     return ok;
   }
 
+  let _termDragState = null;
   let _termDragLogical = null;    // logical_name of pill being dragged
   let _termReorderPending = false; // suspends periodic refresh right after a reorder
   let _termGroupMenuOutside = null;
@@ -11460,6 +11461,7 @@
   }
 
   function _termShowSessionTooltip(anchor) {
+    if (_termDragState) { _termHideSessionTooltip(); return; }
     const tooltip = document.getElementById('termSessionTooltip');
     const raw = anchor && anchor.getAttribute('data-tooltip');
     if (!tooltip || !raw) {
@@ -11549,6 +11551,10 @@
   }
 
   function termRenderSessionList() {
+    if (_termDragState) {
+      if (_termDragState.scope === _termGroupScopeKey()) return;
+      _termFinishDrag(false);
+    }
     const el = document.getElementById('termSessionList');
     if (!el) return;
     _termHideSessionTooltip();
@@ -11698,68 +11704,169 @@
     termWireSessionDnD(el);
   }
 
-  function termWireSessionDnD(container) {
-    container.querySelectorAll('[data-order-token]').forEach(item => {
-      item.addEventListener('dragstart', (e) => {
-        _termDragLogical = item.getAttribute('data-order-token');
-        item.classList.add('dragging');
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', _termDragLogical || '');
-        }
-      });
-      item.addEventListener('dragend', () => {
-        item.classList.remove('dragging');
-        container.querySelectorAll('[data-order-token].drop-before, [data-order-token].drop-after')
-          .forEach(node => node.classList.remove('drop-before', 'drop-after'));
-        _termDragLogical = null;
-      });
-      item.addEventListener('dragover', (e) => {
-        const destination = item.getAttribute('data-order-token');
-        if (!_termDragLogical || _termDragLogical === destination) return;
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        container.querySelectorAll('[data-order-token].drop-before, [data-order-token].drop-after')
-          .forEach(node => node.classList.remove('drop-before', 'drop-after'));
-        const rect = item.getBoundingClientRect();
-        const before = termSessionOrientation === 'horizontal'
-          ? (e.clientX - rect.left) < rect.width / 2
-          : (e.clientY - rect.top) < rect.height / 2;
-        item.classList.add(before ? 'drop-before' : 'drop-after');
-      });
-      item.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        const src = _termDragLogical;
-        const dst = item.getAttribute('data-order-token');
-        container.querySelectorAll('[data-order-token].drop-before, [data-order-token].drop-after')
-          .forEach(node => node.classList.remove('drop-before', 'drop-after'));
-        if (!src || !dst || src === dst) return;
-        const rect = item.getBoundingClientRect();
-        const before = termSessionOrientation === 'horizontal'
-          ? (e.clientX - rect.left) < rect.width / 2
-          : (e.clientY - rect.top) < rect.height / 2;
-        await termReorderItems(src, dst, before);
-      });
-    });
+  // One move plan is used by the preview and by the committed drop.
+  function _termPlanItemMove(state, srcToken, dstToken, placeBefore, groupId) {
+    const next = _termNormalizeGroupState(state);
+    const order = _termReconcileGroupOrder(next);
+    if (!order.includes(srcToken) || srcToken === dstToken) return null;
+    if (dstToken && !order.includes(dstToken)) return null;
+    order.splice(order.indexOf(srcToken), 1);
+    const index = dstToken ? order.indexOf(dstToken) + (placeBefore ? 0 : 1) : order.length;
+    order.splice(index, 0, srcToken);
+    next.order = order;
+    next.membership = {};
+    if (srcToken.startsWith('s:')) {
+      const destinationGroup = groupId === undefined
+        ? (dstToken?.startsWith('s:') ? next.tabMembership[dstToken.slice(2)] : '') : groupId;
+      if (destinationGroup && next.tabGroups.some(group => group.id === destinationGroup)) {
+        next.tabMembership[srcToken.slice(2)] = destinationGroup;
+      } else delete next.tabMembership[srcToken.slice(2)];
+    }
+    return next;
   }
 
-  async function termReorderItems(srcToken, dstToken, placeBefore) {
-    const groupState = _termReadGroupState();
-    const current = _termReconcileGroupOrder(groupState);
-    const si = current.indexOf(srcToken);
-    if (si === -1) return;
-    current.splice(si, 1);
-    let di = current.indexOf(dstToken);
-    if (di === -1) di = current.length;
-    if (!placeBefore) di += 1;
-    current.splice(di, 0, srcToken);
-    groupState.order = current;
-    if (srcToken.startsWith('s:')) {
-      const destinationGroup = dstToken.startsWith('s:') && groupState.tabMembership[dstToken.slice(2)];
-      if (destinationGroup) groupState.tabMembership[srcToken.slice(2)] = destinationGroup;
-      else delete groupState.tabMembership[srcToken.slice(2)];
+  function _termClearDropPreview() {
+    const drag = _termDragState;
+    if (!drag) return;
+    drag.preview?.remove();
+    drag.hint?.remove();
+    drag.source.classList.remove('term-drag-source');
+    drag.container.querySelectorAll('.term-drop-group').forEach(node => node.classList.remove('term-drop-group'));
+    drag.expanded?.setAttribute('hidden', '');
+    drag.expanded = null;
+    drag.target = null;
+  }
+
+  function _termFinishDrag(render = true) {
+    _termClearDropPreview();
+    _termDragState?.source.classList.remove('dragging');
+    _termDragState = null;
+    _termDragLogical = null;
+    if (render) termRenderSessionList();
+  }
+
+  function _termPreviewDrop(target, event) {
+    const drag = _termDragState;
+    if (!drag || drag.scope !== _termGroupScopeKey()) return;
+    const plan = _termPlanItemMove(drag.state, _termDragLogical, target.token, target.before, target.groupId);
+    if (!plan) { _termClearDropPreview(); return; }
+    // Leaving the placeholder under the pointer in place avoids jitter as the
+    // surrounding tabs make room. No storage or server writes happen here.
+    const signature = JSON.stringify([target.token, target.before, target.groupId]);
+    if (drag.target?.signature === signature) return;
+    _termClearDropPreview();
+    drag.target = {...target, signature};
+    const group = drag.state.tabGroups.find(item => item.id === target.groupId);
+    const groupNode = target.parent.closest('.term-tab-group');
+    if (groupNode) {
+      groupNode.classList.add('term-drop-group');
+      const children = groupNode.querySelector('.term-tab-group-tabs');
+      if (children.hidden) { children.hidden = false; drag.expanded = children; }
     }
-    groupState.membership = {};
+    const preview = drag.source.cloneNode(true);
+    preview.removeAttribute('id');
+    for (const attribute of [...preview.attributes]) {
+      if (attribute.name.startsWith('data-')) preview.removeAttribute(attribute.name);
+    }
+    preview.classList.remove('dragging', 'active', 'recent', 'dead');
+    preview.classList.add('term-drop-preview');
+    preview.setAttribute('draggable', 'false');
+    preview.setAttribute('aria-hidden', 'true');
+    preview.setAttribute('tabindex', '-1');
+    preview.style.setProperty('--term-drop-color', group?.color || 'var(--accent)');
+    target.parent.insertBefore(preview, target.beforeNode);
+    drag.preview = preview;
+    drag.source.classList.add('term-drag-source');
+    const hint = document.createElement('div');
+    hint.className = 'term-drag-hint';
+    hint.setAttribute('role', 'status');
+    const session = termSessions.find(item => `s:${item.logical_name}` === _termDragLogical);
+    const label = session ? _termSessionDisplay(session) : 'Divider';
+    hint.textContent = `${label} → ${group ? group.name : 'Ungrouped tabs'}`;
+    document.body.appendChild(hint);
+    hint.style.left = `${Math.max(8, Math.min(event.clientX + 16, window.innerWidth - hint.offsetWidth - 8))}px`;
+    hint.style.top = `${Math.max(8, Math.min(event.clientY + 18, window.innerHeight - hint.offsetHeight - 8))}px`;
+    drag.hint = hint;
+  }
+
+  function termWireSessionDnD(container) {
+    container.querySelectorAll('[data-order-token]').forEach(item => {
+      item.addEventListener('dragstart', (event) => {
+        _termFinishDrag(false);
+        _termHideSessionTooltip();
+        termCloseGroupMenu();
+        _termDragLogical = item.getAttribute('data-order-token');
+        _termDragState = {source: item, container, scope: _termGroupScopeKey(), state: _termReadGroupState()};
+        item.classList.add('dragging');
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', _termDragLogical || '');
+        }
+      });
+      item.addEventListener('dragend', () => _termFinishDrag());
+    });
+    container.ondragover = event => {
+      const drag = _termDragState;
+      if (!drag || drag.scope !== _termGroupScopeKey()) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      if (event.target.closest('.term-drop-preview')) return;
+      const item = event.target.closest('[data-order-token]');
+      const groupNode = event.target.closest('.term-tab-group');
+      const groupId = groupNode?.querySelector('[data-tab-group]')?.dataset.tabGroup || '';
+      let target;
+      if (item && item !== drag.source) {
+        const rect = item.getBoundingClientRect();
+        const e = event;
+        const before = termSessionOrientation === 'horizontal'
+          ? (e.clientX - rect.left) < rect.width / 2
+          : (e.clientY - rect.top) < rect.height / 2;
+        target = {token: item.dataset.orderToken, before, groupId,
+          parent: item.parentElement, beforeNode: before ? item : item.nextSibling};
+      } else if (groupNode && _termDragLogical.startsWith('s:')) {
+        // Group labels are drop targets too, including collapsed groups.
+        const children = groupNode.querySelector('.term-tab-group-tabs');
+        const tokens = [...children.querySelectorAll('[data-order-token]')].filter(node => node !== drag.source);
+        const last = tokens[tokens.length - 1];
+        if (!last) { _termClearDropPreview(); return; }
+        target = {token: last.dataset.orderToken, before: false, groupId, parent: children, beforeNode: null};
+      } else if (!item) {
+        target = {token: null, before: false, groupId: '', parent: container,
+          beforeNode: document.getElementById('termNewBtn')};
+      }
+      if (target) _termPreviewDrop(target, event);
+      // Keep the rail usable when the intended position starts offscreen.
+      const rect = container.getBoundingClientRect();
+      if (termSessionOrientation === 'horizontal') {
+        if (event.clientX < rect.left + 24) container.scrollLeft -= 12;
+        else if (event.clientX > rect.right - 24) container.scrollLeft += 12;
+      } else {
+        if (event.clientY < rect.top + 24) container.scrollTop -= 12;
+        else if (event.clientY > rect.bottom - 24) container.scrollTop += 12;
+      }
+    };
+    container.ondragleave = event => {
+      const rect = container.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX >= rect.right
+          || event.clientY < rect.top || event.clientY >= rect.bottom) _termClearDropPreview();
+    };
+    container.ondrop = async event => {
+      const drag = _termDragState;
+      if (!drag) return;
+      event.preventDefault();
+      const target = drag.target;
+      const src = _termDragLogical;
+      const sameScope = drag.scope === _termGroupScopeKey();
+      _termFinishDrag(false);
+      if (sameScope && target) await termReorderItems(src, target.token, target.before, target.groupId);
+      else termRenderSessionList();
+    };
+  }
+
+  async function termReorderItems(srcToken, dstToken, placeBefore, groupId) {
+    const groupState = _termPlanItemMove(_termReadGroupState(), srcToken, dstToken, placeBefore, groupId);
+    if (!groupState) { termRenderSessionList(); return; }
+    const current = groupState.order;
     _termWriteGroupState(groupState);
 
     // Reorder termSessions to match so the next render picks it up.

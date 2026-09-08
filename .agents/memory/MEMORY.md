@@ -24,6 +24,7 @@
 - [Terminal tmux names hide workspace identity](terminal-tmux-names-hide-workspace.md) — current names are `neurona-<project>-<tab>-<hash6>`; ownership stays in hash/runtime metadata and old names remain discoverable
 - [Terminal tab dividers are browser-local](terminal-tab-groups-are-browser-local.md) — draggable colored lines are locally persisted navigation chrome scoped to each terminal surface
 - [Terminal bar settings and context actions](terminal-bar-settings-and-context-actions.md) — one settings modal, New after the tabs, context-menu groups/dividers/close, and confirmed Kill all in a Danger zone
+- [Terminal drag previews before drop](terminal-drag-previews-before-drop.md) — visible insertion space and group highlight before release; hover never persists a move, and cancel restores the rail
 - [Terminal New menu options are project-scoped](terminal-new-menu-options-are-project-scoped.md) — settings checkboxes narrow the New menu per workspace/project, including plain Terminal and Attach
 - [Terminal tabs avoid stale provider titles](terminal-tabs-use-agent-session-names.md) — manual labels win; provider titles yield to the logical name once a conversation has follow-ups
 - [Terminal session metadata stays off the global poll](terminal-session-metadata-hot-path.md) — unscoped/attach scans skip agent details; Codex cache coverage includes unresolved TTYs

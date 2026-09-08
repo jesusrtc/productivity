@@ -2489,3 +2489,10 @@
   .assistant-document-title h1 { font-size:23px; }
   .assistant-task-row { min-height:48px; }
 }
+
+  /* Native drag keeps its source node mounted while a copy previews the drop. */
+  .term-sessions .term-drag-source { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden; opacity: 0 !important; pointer-events: none; }
+  .term-sessions .sess.term-drop-preview { border: 2px dashed var(--term-drop-color, var(--accent)); background: color-mix(in srgb, var(--term-drop-color, var(--accent)) 18%, var(--bg-secondary)); color: var(--text-primary); opacity: .85; }
+  .term-sessions .term-divider.term-drop-preview { outline: 2px dashed var(--accent); }
+  .term-drop-group { outline: 2px solid var(--term-group-color); outline-offset: 3px; border-radius: 4px; }
+  .term-drag-hint { position: fixed; z-index: 1100; max-width: min(320px, 80vw); padding: 7px 10px; border: 1px solid var(--accent); border-radius: 5px; color: var(--text-primary); background: var(--bg-secondary); box-shadow: 0 4px 16px #0008; font-size: 12px; pointer-events: none; }

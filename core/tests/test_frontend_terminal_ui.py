@@ -322,7 +322,7 @@ def test_terminal_tabs_support_colored_dividers() -> None:
     assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
     assert "function termCreateDivider(sessionName = termCurrentSession, position" in source
     assert "function _termReconcileGroupOrder(state)" in source
-    assert "function termReorderItems(srcToken, dstToken, placeBefore)" in source
+    assert "function termReorderItems(srcToken, dstToken, placeBefore, groupId)" in source
     assert "function termAssignSessionGroup" not in source
     assert "function termToggleGroup" not in source
     assert "function termRenameGroup" not in source
@@ -619,7 +619,8 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSu
     assert "-webkit-line-clamp: 2" in css
 
 
-def test_terminal_custom_tooltip_opens_synchronously_without_native_title() -> None:
+@pytest.mark.parametrize("dragging", [False, True])
+def test_terminal_custom_tooltip_opens_synchronously_without_native_title(dragging: bool) -> None:
     tooltip_helpers = _js_between(
         "function _termContextRowsHtml(context)",
         "function _termSessionPillHtml(s, index)",
@@ -648,12 +649,16 @@ const document = {getElementById(id) {
 }};
 const window = {innerWidth: 900, innerHeight: 700};
 function termSessEsc(value) { return String(value); }
-""" + tooltip_helpers + """
+""" + "const _termDragState = " + ("{}" if dragging else "null") + ";\n" + tooltip_helpers + """
 _termShowSessionTooltip(anchor);
 process.stdout.write(JSON.stringify(tooltip));
 """
     )
 
+    if dragging:
+        assert result["hidden"] is True
+        assert result["innerHTML"] == ""
+        return
     assert result["hidden"] is False
     assert "term-session-tooltip-label\">Requests" in result["innerHTML"]
     assert "Old request" in result["innerHTML"]
@@ -2542,3 +2547,31 @@ console.log(JSON.stringify({defaults,saved,visible,other,otherVisible,otherWorks
     assert result['emptyState'] is True
     assert result['original'] == ['codex', 'terminal', 'attach']
     assert result['untouched'] == all_options
+
+
+@pytest.mark.parametrize('destination,before,group_id,expected_order,expected_group', [
+    ('s:b', True, 'build', ['s:a','s:b','s:c','g:line'], 'build'),
+    ('s:c', False, 'build', ['s:b','s:c','s:a','g:line'], 'build'),
+    (None, False, '', ['s:b','s:c','g:line','s:a'], None),
+    ('g:line', True, 'build', ['s:b','s:c','s:a','g:line'], 'build'),
+])
+def test_drag_preview_plan_matches_order_and_group_without_writing(destination, before, group_id, expected_order, expected_group) -> None:
+    normalize = _js_between('  function _termNormalizeGroupState(raw)', '  function _termReadGroupState()')
+    reconcile = _js_between('  function _termReconcileGroupOrder(state)', '  function termCreateDivider(')
+    plan = _js_between('  function _termPlanItemMove(', '  function _termClearDropPreview()')
+    result = _run_node(r'''
+const _TERM_GROUP_COLORS = ['#58a6ff'];
+const termSessions = ['a','b','c'].map(logical_name => ({logical_name}));
+const original = {groups:[{id:'line',color:'#58a6ff'}],order:['s:a','s:b','s:c','g:line'],membership:{},
+  tabGroups:[{id:'build',name:'Build',color:'#58a6ff',collapsed:true}],tabMembership:{b:'build',c:'build'}};
+const beforeState = JSON.stringify(original);
+''' + normalize + reconcile + plan + f'''
+const planned = _termPlanItemMove(original, 's:a', {json.dumps(destination)}, {json.dumps(before)}, {json.dumps(group_id)});
+console.log(JSON.stringify({{planned,unchanged:beforeState===JSON.stringify(original),
+  invalid:_termPlanItemMove(original,'s:missing','s:b',true,'build')}}));
+''')
+    assert result['unchanged'] is True
+    assert result['invalid'] is None
+    assert result['planned']['order'] == expected_order
+    assert result['planned']['tabMembership'].get('a') == expected_group
+    assert result['planned']['tabGroups'][0]['collapsed'] is True
