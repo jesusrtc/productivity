@@ -14,3 +14,12 @@ the five-proposal UI instructions.
   `lab assistant subtask add "Title" --parent <task-id> --project <child-project>`.
   `parent_project` identifies the parent’s project; legacy children default it
   to their own project. Parent completion includes cross-project children.
+
+## Follow-up: five sizing proposals from the restored baseline
+
+The user then requested five proposals from this original design. Provide native
+Tasks 1–5 as sizing-only profiles: Balanced, Compact, Large text, Wide cards, and
+Reading. All use the same project/group/task layout and single-click document
+modal. A 1–5 switcher inside the modal changes sizing without changing its selected
+document. Preserve filters and expanded groups while comparing. This authorizes
+comparison tabs, not the previously rejected alternative layouts.

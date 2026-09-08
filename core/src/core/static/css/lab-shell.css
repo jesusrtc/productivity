@@ -2474,3 +2474,38 @@
   .assistant-document-title h1 { font-size:23px; }
   .assistant-task-row { min-height:58px; }
 }
+
+/* Five sizing proposals share the original hierarchy and document modal. */
+[data-assistant-sizing] { --as-row:58px; --as-row-pad:8px; --as-title:16px; --as-summary:13px; --as-nav:290px; --as-card-pad:8px; --as-card-gap:5px; --as-card-title:15px; --as-icon:26px; --as-pane-pad:22px 28px 40px; --as-document:15px; --as-heading:27px; --as-meta:13px; --as-meta-pad:7px 10px; --as-group:52px; --as-width:1380px; }
+[data-assistant-sizing="tasks-2"] { --as-row:48px; --as-row-pad:5px; --as-summary:12px; --as-nav:270px; --as-card-pad:5px; --as-card-gap:3px; --as-icon:22px; --as-pane-pad:18px 22px 30px; --as-meta-pad:5px 8px; --as-group:44px; }
+[data-assistant-sizing="tasks-3"] { --as-row:68px; --as-row-pad:10px; --as-title:19px; --as-summary:15px; --as-nav:330px; --as-card-pad:9px; --as-card-title:18px; --as-icon:28px; --as-document:17px; --as-heading:31px; --as-meta:15px; --as-group:58px; }
+[data-assistant-sizing="tasks-4"] { --as-row:56px; --as-row-pad:7px; --as-title:17px; --as-nav:380px; --as-card-pad:7px; --as-card-title:16px; --as-pane-pad:22px 26px 40px; --as-width:1500px; }
+[data-assistant-sizing="tasks-5"] { --as-row:62px; --as-row-pad:9px; --as-title:17px; --as-summary:14px; --as-card-title:16px; --as-pane-pad:28px 42px 50px; --as-document:18px; --as-heading:30px; --as-meta:14px; --as-meta-pad:6px 9px; }
+.assistant-sizing-caption { margin:7px 0 0; color:var(--text-secondary); font-size:13px; line-height:1.45; }
+[data-assistant-sizing] .assistant-group-header { min-height:var(--as-group); }
+[data-assistant-sizing] .assistant-task-row { min-height:var(--as-row); padding-top:var(--as-row-pad); padding-bottom:var(--as-row-pad); }
+[data-assistant-sizing] .assistant-row-title strong { font-size:var(--as-title); }
+[data-assistant-sizing] .assistant-row-tldr { font-size:var(--as-summary); }
+[data-assistant-sizing] .assistant-document-modal { width:min(var(--as-width),96vw); }
+[data-assistant-sizing] .assistant-modal-body { grid-template-columns:var(--as-nav) minmax(0,1fr); }
+[data-assistant-sizing] .assistant-document-nav-item { min-height:0; grid-template-columns:var(--as-icon) minmax(0,1fr); padding:var(--as-card-pad); margin-bottom:var(--as-card-gap); }
+[data-assistant-sizing] .assistant-document-nav-item small { font-size:var(--as-card-title); }
+[data-assistant-sizing] .assistant-document-type { width:var(--as-icon); height:var(--as-icon); }
+[data-assistant-sizing] .assistant-document-pane { padding:var(--as-pane-pad); }
+[data-assistant-sizing] .assistant-document-title h1 { font-size:var(--as-heading); }
+[data-assistant-sizing] .assistant-document-pane .assistant-markdown { font-size:var(--as-document); }
+[data-assistant-sizing] .assistant-document-pane .assistant-meta > div { padding:var(--as-meta-pad); }
+[data-assistant-sizing] .assistant-document-pane .assistant-meta strong { font-size:var(--as-meta); }
+.assistant-sizing-switcher { display:flex; flex-shrink:0; gap:3px; padding-right:8px; border-right:1px solid var(--border); }
+.assistant-sizing-switcher[hidden] { display:none; }
+.assistant-sizing-switcher button { min-width:29px; height:30px; padding:3px 7px; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-secondary); font-size:12px; cursor:pointer; }
+.assistant-sizing-switcher button[aria-pressed="true"] { color:var(--accent); border-color:var(--accent); background:var(--bg-tertiary); }
+@media (max-width:1000px) { [data-assistant-sizing] .assistant-modal-header { flex-wrap:wrap; gap:9px; } }
+@media (max-width:760px) {
+  [data-assistant-sizing] .assistant-modal-body { grid-template-columns:minmax(0,1fr); }
+  [data-assistant-sizing] .assistant-document-modal { width:100%; }
+  [data-assistant-sizing] .assistant-document-pane { padding:18px 16px 30px; }
+  [data-assistant-sizing] .assistant-document-title h1 { font-size:min(var(--as-heading),25px); }
+  [data-assistant-sizing] .assistant-task-row { flex-wrap:wrap; }
+  [data-assistant-sizing] .assistant-row-content { flex-basis:65%; }
+}

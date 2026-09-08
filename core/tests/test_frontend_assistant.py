@@ -57,11 +57,18 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
 def test_assistant_repo_tabs_include_tasks_and_meeting_notes() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     assert 'data-assistant-section="overview"' in source
-    assert 'data-assistant-section="tasks"' in source
+    assert "window.AssistantView?.taskSizes" in source
+    assert "Tasks ${index + 1}" in source
     assert 'data-assistant-section="meetings"' in source
-    assert "AssistantView.setSection('tasks')" in source
+    assert "AssistantView.setSection('${size.id}')" in source
     assert "AssistantView.setSection('meetings')" in source
-    assert 'data-assistant-section="tasks-1"' not in source
+    view = ASSISTANT_APP.read_text(encoding="utf-8")
+    for number in range(1, 6):
+        assert f"id: 'tasks-{number}'" in view
+    assert 'data-assistant-size="${size.id}"' in view
+    assert "function renderTasks(rows)" in view
+    assert "assistant-internal-projects" in view
+    assert "assistant-proposal-split" not in view
 
 
 def test_assistant_is_configurable_from_home_admin() -> None:

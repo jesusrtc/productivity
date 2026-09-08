@@ -6360,7 +6360,9 @@
     if (isAssistant) {
       const assistantSection = _projDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'overview');
       html += `<button class="repo-tab${assistantSection === 'overview' ? ' active' : ''}" data-assistant-section="overview" onclick="AssistantView.setSection('overview')" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
+      for (const [index, size] of (window.AssistantView?.taskSizes || []).entries()) {
+        html += `<button class="repo-tab${assistantSection === size.id ? ' active' : ''}" data-assistant-section="${size.id}" onclick="AssistantView.setSection('${size.id}')" title="${escAttr(size.name)}" style="font-weight:600">&#x2726; Tasks ${index + 1}</button>`;
+      }
       html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
     } else if (isSelf) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
@@ -13700,7 +13702,7 @@
     }
     _swapViewState();
     const section = opts.subview === 'meetings' ? 'meetings'
-      : (opts.subview === 'tasks' || /^tasks-[1-5]$/.test(opts.subview || '') || taskPath ? 'tasks' : 'overview');
+      : (/^tasks-[1-5]$/.test(opts.subview || '') ? opts.subview : (opts.subview === 'tasks' || taskPath ? 'tasks-1' : 'overview'));
     _contextSubView = section;
     if (!opts.replace) {
       const url = new URL(window.location);
@@ -13716,8 +13718,8 @@
         url.searchParams.delete('task');
         if (opts.meeting) url.searchParams.set('meeting', opts.meeting);
         else url.searchParams.delete('meeting');
-      } else if (section === 'tasks') {
-        url.searchParams.set('subview', 'tasks');
+      } else if (/^tasks-[1-5]$/.test(section)) {
+        url.searchParams.set('subview', section);
         url.searchParams.delete('meeting');
         if (taskPath) url.searchParams.set('task', taskPath);
         else url.searchParams.delete('task');
@@ -14748,7 +14750,7 @@
     _projDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
     const section = options.subview === 'meetings' ? 'meetings'
-      : (options.subview === 'tasks' || /^tasks-[1-5]$/.test(options.subview || '') || initialTask ? 'tasks' : 'overview');
+      : (/^tasks-[1-5]$/.test(options.subview || '') ? options.subview : (options.subview === 'tasks' || initialTask ? 'tasks-1' : 'overview'));
     _contextSubView = section;
     const diffTabs = document.getElementById('diffTabs');
     if (diffTabs) diffTabs.style.display = 'none';
