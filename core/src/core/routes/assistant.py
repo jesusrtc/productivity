@@ -239,7 +239,7 @@ def get_task(path: str, request: Request) -> dict:
     subtasks = []
     parent_id = str(metadata.get("id") or source.stem)
     for child in assistant_db.iter_subtasks(root):
-        if str(child.get("project")) != project_id or str(child.get("parent")) != parent_id:
+        if str(child.get("parent_project") or child.get("project")) != project_id or str(child.get("parent")) != parent_id:
             continue
         item = dict(child)
         child_body = str(item.pop("body", ""))

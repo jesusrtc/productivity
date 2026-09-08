@@ -207,6 +207,7 @@ def subtask_group() -> None:
 @subtask_group.command("add")
 @click.argument("title")
 @click.option("--parent", "parent_id", required=True)
+@click.option("--project", "project_id", default=None, help="Owning project; defaults to the parent task project.")
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
 @click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
 @click.option("--due", default=None)
@@ -215,6 +216,7 @@ def subtask_group() -> None:
 def add_subtask(
     title: str,
     parent_id: str,
+    project_id: str | None,
     priority: str,
     status: str,
     due: str | None,
@@ -226,6 +228,7 @@ def add_subtask(
             _root(),
             title,
             parent=parent_id,
+            project=project_id,
             priority=priority,
             status=status,
             due=due,

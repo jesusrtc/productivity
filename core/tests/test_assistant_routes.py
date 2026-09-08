@@ -224,3 +224,25 @@ def test_assistant_subtask_path_rejects_task_document(
         params={"path": str(task.relative_to(root))},
     )
     assert response.status_code == 400
+
+
+def test_cross_project_subtask_is_in_parent_list_and_document(
+    client, monkeypatch, tmp_path: Path, monorepo: Path,
+) -> None:
+    root, task = _seed(monkeypatch, tmp_path, monorepo)
+    other_path = monorepo / "projects" / "video"
+    other_path.mkdir(parents=True)
+    assistant_db.create_project(root, "video", name="Video", workspace="local",
+                                workspace_path=monorepo, project_path=other_path)
+    metadata, _ = assistant_db.read_markdown(task)
+    child = assistant_db.create_subtask(root, "Record explainer", parent=metadata["id"], project="video")
+    listed = client.get("/api/assistant").json()["tasks"][0]
+    assert listed["subtasks_total"] == 1
+    assert listed["subtasks"][0]["project"] == "video"
+    detail = client.get("/api/assistant/task", params={"path": str(task.relative_to(root))})
+    assert detail.status_code == 200
+    assert detail.json()["subtasks"][0]["path"] == str(child.relative_to(root))
+    child_detail = client.get("/api/assistant/subtask", params={"path": str(child.relative_to(root))})
+    assert child_detail.status_code == 200
+    assert child_detail.json()["project"]["id"] == "video"
+    assert child_detail.json()["metadata"]["parent_project"] == "demo"

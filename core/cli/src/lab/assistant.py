@@ -60,7 +60,7 @@ lab assistant ls [--status open|<status>] [--priority P0] [--project <id>]
 lab assistant show <task-id>
 lab assistant set <task-id> <field> <value>
 lab assistant done <task-id>
-lab assistant subtask add "Subtask title" --parent <task-id> [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked|ready_to_review]
+lab assistant subtask add "Subtask title" --parent <task-id> [--project <id>] [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked|ready_to_review]
 lab assistant subtask ls [--parent <task-id>] [--status open|<status>]
 lab assistant subtask show <subtask-id>
 lab assistant subtask set <subtask-id> <field> <value>
@@ -102,6 +102,10 @@ Each first-class subtask lives at
 `last_follow_up_at`, `follow_up_channel`, `reviewer`, `review_requested_at`,
 `executor`, and `tags` are optional. Complete every checkbox and first-class
 subtask before marking its parent task done.
+
+Subtasks may belong to another mapped project: add `--project <id>` when creating
+one. `parent_project` records the parent task project independently of the child
+project. Legacy subtasks without it use their own project for the parent link.
 
 Lifecycle:
 
@@ -269,7 +273,7 @@ def iter_tasks(root: Path, projects: list[dict[str, Any]] | None = None) -> Iter
     by_id = {str(row["id"]): row for row in project_rows}
     first_class_by_parent: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for subtask in iter_subtasks(root, project_rows):
-        key = (str(subtask["project"]), str(subtask["parent"]))
+        key = (str(subtask.get("parent_project") or subtask["project"]), str(subtask["parent"]))
         first_class_by_parent.setdefault(key, []).append(subtask)
     for project_id, project in by_id.items():
         task_dir = root / "projects" / project_id / "tasks"
@@ -510,6 +514,7 @@ def create_subtask(
     title: str,
     *,
     parent: str,
+    project: str | None = None,
     priority: str = "P2",
     status: str = "inbox",
     due: str | None = None,
@@ -521,7 +526,8 @@ def create_subtask(
     if status not in STATUSES or status == "done":
         raise ValueError(f"new subtask status must be one of: {', '.join(STATUSES[:-1])}")
     parent_source, parent_metadata, _parent_body = find_task(root, parent)
-    project_id = str(parent_metadata.get("project") or parent_source.parent.parent.name)
+    parent_project = str(parent_metadata.get("project") or parent_source.parent.parent.name)
+    project_id = project or parent_project
     pdir = project_dir(root, project_id)
     if not (pdir / "project.md").is_file():
         raise ValueError(f"Assistant project {project_id!r} not found")
@@ -543,6 +549,7 @@ def create_subtask(
         "priority": priority,
         "project": project_id,
         "parent": parent,
+        "parent_project": parent_project,
         "created": timestamp,
         "updated": timestamp,
         "due": due,
@@ -616,7 +623,7 @@ def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
         project_id = str(metadata.get("project") or source.parent.parent.name)
         first_class_incomplete = [
             item for item in iter_subtasks(root)
-            if item["project"] == project_id
+            if (item.get("parent_project") or item["project"]) == project_id
             and item["parent"] == task_id
             and item["status"] != "done"
         ]

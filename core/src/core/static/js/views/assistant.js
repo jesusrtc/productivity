@@ -14,6 +14,11 @@
     project: '',
     search: '',
     expandedGroups: new Set(),
+    expandedTasks: new Set(),
+    previewPath: '',
+    previewKind: 'task',
+    previewDetail: null,
+    previewRequest: 0,
     modalRoot: null,
     modalCurrent: null,
     modalKind: '',
@@ -52,8 +57,21 @@
     return state.data && Array.isArray(state.data.tasks) ? state.data.tasks : [];
   }
 
+  const taskLayouts = [
+    {id: 'tasks-1', name: 'Compact list', description: 'A readable task queue with details beside it.'},
+    {id: 'tasks-2', name: 'Living outline', description: 'Expand tasks and subtasks across your projects.'},
+    {id: 'tasks-3', name: 'Focus queue', description: 'Urgent work and review decisions come first.'},
+    {id: 'tasks-4', name: 'Flow board', description: 'Follow work by status, with subtasks inside each outcome.'},
+    {id: 'tasks-5', name: 'Task notebook', description: 'A compact index and a full task document.'},
+  ];
+
+  function normalizeSection(section) {
+    if (section === 'tasks') return 'tasks-1';
+    return ['overview', 'meetings', ...taskLayouts.map(layout => layout.id)].includes(section) ? section : 'overview';
+  }
+
   function isTaskSection() {
-    return state.section === 'tasks';
+    return taskLayouts.some(layout => layout.id === state.section);
   }
 
   function taskChildren(task) {
@@ -149,9 +167,9 @@
       if (state.view === 'all_open' && task.status === 'done') return false;
       if (state.status && task.status !== state.status) return false;
       if (state.priority && task.priority !== state.priority) return false;
-      if (state.project && task.project !== state.project) return false;
+      if (state.project && task.project !== state.project && !taskChildren(task).some(child => child.project === state.project)) return false;
       if (needle) {
-        const haystack = [task.title, task.tldr, task.summary, task.group, task.project_name, task.project, task.workspace]
+        const haystack = [task.title, task.tldr, task.summary, task.group, task.project_name, task.project, task.workspace, ...taskChildren(task).flatMap(child => [child.title, child.project, child.project_name])]
           .join(' ').toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
@@ -196,26 +214,23 @@
   }
 
   function setSection(section, options = {}) {
-    state.section = ['overview', 'tasks', 'meetings'].includes(section) ? section : 'overview';
+    state.section = normalizeSection(section);
     state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
-    if (isTaskSection() && !projectRows().some(project => project.id === state.project)) {
-      const available = projectRows();
-      state.project = available.length ? available[0].id : '';
-    }
     if (!options.history) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
-      else if (state.section === 'tasks') {
-        url.searchParams.set('subview', 'tasks');
+      else if (isTaskSection()) {
+        url.searchParams.set('subview', state.section);
         if (state.project) url.searchParams.set('assistant_project', state.project);
       } else {
         url.searchParams.delete('subview');
         url.searchParams.delete('assistant_project');
       }
-      if (state.section !== 'tasks') url.searchParams.delete('task');
+      if (!isTaskSection()) url.searchParams.delete('task');
+      if (!state.project) url.searchParams.delete('assistant_project');
       if (state.section !== 'meetings') url.searchParams.delete('meeting');
       history.pushState({nav: 'assistant', subview: state.section}, '', url.pathname + url.search + url.hash);
     }
@@ -394,7 +409,7 @@
       </select>` : '';
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
-      ${isTasks ? '' : projectSelect(meetings())}${advanced}
+      ${projectSelect(isTasks ? tasks() : meetings())}${advanced}
       <span class="assistant-filter-count">${rows.length} ${isTasks ? 'task' : 'note'}${rows.length === 1 ? '' : 's'}</span>
     </div>`;
   }
@@ -411,24 +426,100 @@
     return `${state.project}:${name}`;
   }
 
+  function taskProjectName(task) {
+    return task.project_name || projectRows().find(project => project.id === task.project)?.name || task.project || 'Unassigned';
+  }
+
+  function proposalRow(task, kind = 'task', parent = null) {
+    const path = task.path || parent?.path || '';
+    const documentKind = task.path ? kind : 'task';
+    const children = kind === 'task' ? taskChildren(task) : [];
+    const expanded = state.expandedTasks.has(path);
+    const title = task.title || task.text || task.id;
+    const project = taskProjectName(task.project ? task : parent || task);
+    const status = task.status || (task.done ? 'done' : 'ready');
+    return `<div class="assistant-proposal-row${state.previewPath === path ? ' selected' : ''}" data-testid="assistant-task-row">
+      ${children.length ? `<button type="button" class="assistant-proposal-toggle" data-assistant-expand="${e(path)}" aria-expanded="${expanded}" aria-label="${expanded ? 'Collapse' : 'Expand'} ${e(title)}">${expanded ? '▾' : '▸'}</button>` : '<span class="assistant-proposal-dot" aria-hidden="true">·</span>'}
+      <button type="button" class="assistant-proposal-title" data-assistant-preview="${e(path)}" data-assistant-kind="${documentKind}"><strong>${e(title)}</strong>${kind === 'task' && state.section === 'tasks-1' ? `<small>${e(task.tldr || task.summary || '')}</small>` : ''}</button>
+      <span class="assistant-proposal-project">${e(project)}</span>
+      <span class="assistant-status status-${e(status)}">${e(labelStatus(status))}</span>
+      ${children.length ? `<span class="assistant-proposal-count">${e(progressLabel(task.subtasks_done, task.subtasks_total))}</span>` : ''}
+    </div>${expanded && children.length ? `<div class="assistant-proposal-children">${children.map(child => proposalRow(child, 'subtask', task)).join('')}</div>` : ''}`;
+  }
+
+  function previewTask() {
+    for (const task of tasks()) {
+      if (task.path === state.previewPath) return {task, kind: 'task'};
+      const child = taskChildren(task).find(item => item.path && item.path === state.previewPath);
+      if (child) return {task: child, kind: 'subtask', parent: task};
+    }
+    return null;
+  }
+
+  function proposalDetail() {
+    const selected = previewTask();
+    if (!selected) return '<aside class="assistant-proposal-detail"><p>Select a task to read its details.</p></aside>';
+    const {task, kind, parent} = selected;
+    const detail = state.previewDetail?.path === task.path ? state.previewDetail : null;
+    const children = kind === 'task' ? taskChildren(task) : [];
+    const markdown = detail ? (window.marked ? window.marked.parse(detail.body || '') : `<pre>${e(detail.body || '')}</pre>`) : '<p class="assistant-proposal-loading">Loading document…</p>';
+    return `<aside class="assistant-proposal-detail" aria-label="Selected task details">
+      ${parent ? `<button type="button" class="assistant-proposal-parent" data-assistant-preview="${e(parent.path)}" data-assistant-kind="task">↑ ${e(parent.title)}</button>` : ''}
+      <div class="assistant-proposal-detail-meta"><span>${e(taskProjectName(task.project ? task : parent || task))}</span><span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span><span>${e(task.priority || 'P2')}</span></div>
+      <h2>${e(task.title)}</h2>
+      <p class="assistant-proposal-summary">${e(task.tldr || task.summary || '')}</p>
+      <button type="button" class="assistant-proposal-open" data-assistant-full="${e(task.path)}" data-assistant-kind="${kind}">Open full document ↗</button>
+      ${children.length ? `<h3>Subtasks <small>${e(progressLabel(task.subtasks_done, task.subtasks_total))}</small></h3><div class="assistant-proposal-detail-children">${children.map(child => proposalRow(child, 'subtask', task)).join('')}</div>` : ''}
+      <div class="nb-markdown assistant-markdown assistant-proposal-document" data-preview-document="${e(task.path)}">${markdown}</div>
+    </aside>`;
+  }
+
   function renderTasks(rows) {
-    const names = [...new Set(rows.map(internalGroup))].sort((left, right) => left.localeCompare(right));
-    const groups = names.map(name => {
-      const items = rows.filter(task => internalGroup(task) === name);
-      const key = internalGroupKey(name);
-      const expanded = state.expandedGroups.has(key);
-      const attention = countWhere(items, needsAttention);
-      return `<section class="assistant-internal-project${expanded ? ' expanded' : ''}" data-assistant-group-wrap="${e(key)}">
-        <button type="button" class="assistant-group-header" data-assistant-group="${e(key)}" aria-expanded="${expanded}">
-          <span class="assistant-group-badge">PROJECT</span>
-          <span class="assistant-group-name"><strong>${e(name)}</strong><small>${items.length} task${items.length === 1 ? '' : 's'}${attention ? ` · ${attention} attention` : ''}</small></span>
-          <span class="assistant-group-summary">${e(attentionBreakdown(items))}</span>
-          <span class="assistant-group-chevron" aria-hidden="true">›</span>
-        </button>
-        ${expanded ? `<div class="assistant-group-tasks">${items.map(taskCard).join('')}</div>` : ''}
-      </section>`;
-    }).join('');
-    return `${labProjectNav()}${filterBar(rows)}<div class="assistant-internal-projects" data-testid="assistant-list">${groups || emptyTasks()}</div>`;
+    if (!previewTask() || !rows.some(task => task.path === state.previewPath || taskChildren(task).some(child => child.path === state.previewPath))) {
+      state.previewPath = rows[0]?.path || '';
+      state.previewKind = 'task';
+    }
+    let list = '';
+    if (state.section === 'tasks-3') {
+      const labels = ['Urgent · P0', 'Ready for your review', 'In progress', 'Follow up', 'Blocked', 'Inbox', 'Up next'];
+      list = [...labels, 'Completed'].map((label, index) => {
+        const items = rows.filter(task => attentionBucket(task) === (index === 7 ? 99 : index));
+        return items.length ? `<section class="assistant-proposal-focus-group"><h2>${e(label)} <small>${items.length}</small></h2>${items.map(task => proposalRow(task)).join('')}</section>` : '';
+      }).join('');
+    } else if (state.section === 'tasks-4') {
+      const columns = [
+        ['Ready', ['inbox', 'ready']], ['In progress', ['in_progress']],
+        ['Waiting / blocked', ['waiting', 'blocked']], ['Review / done', ['ready_to_review', 'done']],
+      ];
+      list = `<div class="assistant-proposal-board">${columns.map(([label, statuses]) => {
+        const items = rows.filter(task => statuses.includes(task.status));
+        return `<section class="assistant-proposal-column"><h2>${e(label)} <small>${items.length}</small></h2>${items.map(task => `<article class="assistant-proposal-ticket">${proposalRow(task)}</article>`).join('') || '<p class="assistant-proposal-loading">No tasks</p>'}</section>`;
+      }).join('')}</div>`;
+    } else {
+      list = rows.map(task => proposalRow(task)).join('');
+    }
+    const detail = proposalDetail();
+    const layout = state.section === 'tasks-4' ? `${list}<div class="assistant-proposal-board-detail">${detail}</div>`
+      : `<div class="assistant-proposal-split"><section class="assistant-proposal-list" data-testid="assistant-list">${list || emptyTasks()}</section>${detail}</div>`;
+    return `${filterBar(rows)}<div class="assistant-proposal-content">${layout}</div>`;
+  }
+
+  async function loadProposalDetail() {
+    const selected = previewTask();
+    if (!selected || state.previewDetail?.path === selected.task.path) return;
+    const request = ++state.previewRequest;
+    const path = selected.task.path;
+    try {
+      const detail = await fetchDocument(selected.kind, path);
+      if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
+      if (request !== state.previewRequest || state.previewPath !== path || !isTaskSection()) return;
+      state.previewDetail = detail;
+      render();
+    } catch (error) {
+      if (request !== state.previewRequest || state.previewPath !== path) return;
+      const host = document.querySelector('[data-preview-document]');
+      if (host) host.textContent = 'Could not load document: ' + (error.message || error);
+    }
   }
 
   function renderMeetings(rows) {
@@ -456,19 +547,44 @@
       return;
     }
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
-    const project = projectRows().find(item => item.id === state.project);
-    const proposal = isTaskSection()
-      ? `Lab project · ${project ? project.name || project.id : 'Tasks'}`
-      : 'Global Assistant';
-    const title = isTaskSection() ? 'Tasks' : 'Meeting notes';
+    const layout = taskLayouts.find(item => item.id === state.section);
+    const proposal = layout ? `Global tasks · ${state.project ? taskProjectName({project: state.project}) : 'All projects'}` : 'Global Assistant';
+    const title = layout ? layout.name : 'Meeting notes';
     const body = isTaskSection() ? renderTasks(rows) : renderMeetings(rows);
     content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
-        <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1></div>
+        <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1>${layout ? `<p class="assistant-proposal-description">${e(layout.description)}</p>` : ''}</div>
         <button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button>
       </header>${body}
     </div>`;
-    document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
+    document.getElementById('assistantRefresh')?.addEventListener('click', () => {
+      state.previewDetail = null;
+      refresh();
+    });
+    content.querySelectorAll('[data-assistant-expand]').forEach(button => {
+      button.addEventListener('click', () => {
+        const path = button.dataset.assistantExpand;
+        if (state.expandedTasks.has(path)) state.expandedTasks.delete(path);
+        else state.expandedTasks.add(path);
+        render();
+      });
+    });
+    content.querySelectorAll('[data-assistant-preview]').forEach(button => {
+      button.addEventListener('click', () => {
+        state.previewPath = button.dataset.assistantPreview;
+        state.previewKind = button.dataset.assistantKind;
+        render();
+      });
+    });
+    content.querySelectorAll('[data-assistant-full]').forEach(button => {
+      button.addEventListener('click', () => openDocumentModal(button.dataset.assistantKind, button.dataset.assistantFull));
+    });
+    const previewHost = content.querySelector('[data-preview-document]');
+    if (previewHost && state.previewDetail?.path === previewHost.dataset.previewDocument) {
+      rewriteImages(previewHost, state.previewDetail.path);
+      addCopyButtons(previewHost, state.previewDetail.body || '', state.previewDetail.path);
+    }
+    if (isTaskSection()) loadProposalDetail();
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
       button.addEventListener('click', () => setView(button.dataset.assistantView));
     });
@@ -498,12 +614,12 @@
     });
     document.getElementById('assistantStatus')?.addEventListener('change', event => {
       state.status = event.target.value;
-      state.view = state.status || 'all_open';
+      state.view = state.status ? 'all' : 'all_open';
       render();
     });
     document.getElementById('assistantPriority')?.addEventListener('change', event => {
       state.priority = event.target.value;
-      state.view = state.priority === 'P0' ? 'p0' : 'all_open';
+      state.view = state.status ? 'all' : 'all_open';
       render();
     });
     document.getElementById('assistantProject')?.addEventListener('change', event => {
@@ -557,7 +673,7 @@
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (kind === 'task') {
-        url.searchParams.set('subview', 'tasks');
+        url.searchParams.set('subview', isTaskSection() ? state.section : 'tasks-1');
         if (state.project) url.searchParams.set('assistant_project', state.project);
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
@@ -621,7 +737,7 @@
       if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
       if (kind === 'subtask') {
         const metadata = detail.metadata || {};
-        const parent = tasks().find(task => task.project === metadata.project && task.id === metadata.parent);
+        const parent = tasks().find(task => task.id === metadata.parent && task.project === (metadata.parent_project || metadata.project));
         state.modalRoot = parent ? await fetchDocument('task', parent.path) : detail;
         state.modalKind = parent ? 'task' : 'subtask';
       } else {
@@ -675,7 +791,7 @@
     const metadata = detail.metadata || detail || {};
     const selected = state.modalCurrent && state.modalCurrent.path === detail.path;
     return `<button type="button" class="assistant-document-nav-item${selected ? ' active' : ''}" data-assistant-modal-document="${e(detail.path)}" data-assistant-modal-kind="${e(kind)}">
-      <span class="assistant-document-type">MD</span><span><strong>${e(label)}</strong><small>${e(metadata.title || metadata.id || '')}</small></span>${metadata.status ? `<i class="status-${e(metadata.status)}">${e(labelStatus(metadata.status))}</i>` : ''}
+      <span class="assistant-document-type">MD</span><span><strong>${e(metadata.title || metadata.id || '')}</strong><small>${e(label)}</small></span>${metadata.status ? `<i class="status-${e(metadata.status)}">${e(labelStatus(metadata.status))}</i>` : ''}
     </button>`;
   }
 
@@ -875,13 +991,12 @@
       if (options.project !== undefined) state.project = options.project || '';
       const selected = tasks().find(task => task.path === state.selectedTaskPath);
       if (selected) {
-        state.project = selected.project;
         state.expandedGroups.add(`${selected.project}:${internalGroup(selected)}`);
       }
       const available = projectRows();
-      if (!available.some(project => project.id === state.project)) {
-        state.project = available.length ? available[0].id : '';
-      }
+      if (state.project && !available.some(project => project.id === state.project)) state.project = '';
+      const currentPreview = tasks().flatMap(task => [task, ...taskChildren(task)]).find(task => task.path === state.previewPath);
+      if (state.previewDetail && currentPreview && currentPreview.updated !== state.previewDetail.metadata?.updated) state.previewDetail = null;
       render();
     } catch (error) {
       const content = document.getElementById('content');
@@ -891,7 +1006,7 @@
 
   function init(initial = '') {
     const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
-    state.section = ['overview', 'tasks', 'meetings'].includes(options.section) ? options.section : 'overview';
+    state.section = normalizeSection(options.section);
     state.selectedTaskPath = options.task || '';
     state.selectedSubtaskPath = '';
     state.selectedMeetingPath = options.meeting || '';
@@ -901,6 +1016,8 @@
     state.project = options.project || new URL(window.location).searchParams.get('assistant_project') || '';
     state.search = '';
     state.expandedGroups.clear();
+    state.previewPath = options.task || '';
+    state.previewDetail = null;
     refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, project: state.project});
     if (!state.poll) {
       state.poll = setInterval(() => {
@@ -919,6 +1036,7 @@
   });
 
   window.AssistantView = {
+    taskLayouts,
     init,
     refresh,
     setSection,

@@ -262,3 +262,35 @@ def test_assistant_ready_to_review_task_and_invalid_subtask_parent(
     ])
     assert invalid.exit_code != 0
     assert "task 'missing-task' not found" in invalid.output
+
+
+def test_subtask_can_belong_to_another_project_and_still_gate_parent(
+    monkeypatch, tmp_path: Path, monorepo: Path,
+) -> None:
+    root = _configure(monkeypatch, tmp_path)
+    assistant.initialize(root)
+    for project_id in ("alpha", "beta"):
+        project_path = monorepo / "projects" / project_id
+        project_path.mkdir(parents=True)
+        assistant.create_project(root, project_id, name=project_id, workspace="test",
+                                 workspace_path=monorepo, project_path=project_path)
+    parent_path = assistant.create_task(root, "Cross-project release", project_id="alpha")
+    parent, _ = assistant.read_markdown(parent_path)
+    runner = CliRunner()
+    result = runner.invoke(main, ["assistant", "subtask", "add", "Record video",
+                                 "--parent", parent["id"], "--project", "beta"])
+    assert result.exit_code == 0, result.output
+    child_id = result.output.split()[0]
+    child_path, child, _ = assistant.find_subtask(root, child_id)
+    assert child_path.parent == root / "projects" / "beta" / "subtasks"
+    assert child["project"] == "beta"
+    assert child["parent_project"] == "alpha"
+    row = next(assistant.iter_tasks(root))
+    assert row["subtasks_total"] == 1
+    assert row["subtasks"][0]["project"] == "beta"
+    blocked = runner.invoke(main, ["assistant", "done", parent["id"]])
+    assert blocked.exit_code != 0
+    assert "1 incomplete subtask" in blocked.output
+    assert runner.invoke(main, ["assistant", "subtask", "done", child_id]).exit_code == 0
+    assert runner.invoke(main, ["assistant", "done", parent["id"]]).exit_code == 0
+    assert next(assistant.iter_tasks(root))["subtasks_done"] == 1
