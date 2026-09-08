@@ -8,7 +8,7 @@ when the user moves away.
 Persist recent timestamps as browser-local navigation state, scoped by
 workspace plus project/pseudo-project. The highlight window is also
 browser-local, defaults to 60 minutes, and uses preset choices in the terminal
-header: 15m, 30m, 1h, 3h, 6h, 12h, or 24h. Persist the user's marker color
+settings modal: 15m, 30m, 1h, 3h, 6h, 12h, or 24h. Persist the user's marker color
 there too; the native color input deliberately allows any six-digit hex color.
 
 Keep the selected tab's existing blue treatment. Inactive recent tabs get only

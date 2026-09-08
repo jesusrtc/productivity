@@ -4,8 +4,11 @@ Colored terminal-tab dividers are navigation chrome. Persist them in browser
 storage, scoped by workspace plus Home/workspace/project terminal surface; do
 not write them into project or workspace metadata.
 
-A divider is only a draggable colored line in the session order. It has no
-name, count, fold state, container chrome, active-header marker, or per-tab
-stripe. Clicking the line opens its color/delete menu, and `+ Divider` inserts
-one immediately before the active terminal tab. Do not restore group UI or
-per-tab group-assignment buttons; terminal tabs are renamed by double-click.
+A divider is a draggable colored line in the session order. Clicking or
+secondary-clicking the line opens its color/delete menu. Secondary-clicking
+a tab adds a divider above/below it (before/after in horizontal mode).
+
+As requested on 2026-09-08, named collapsible groups now coexist with dividers.
+Their `tabGroups` and `tabMembership` fields share the same scoped browser
+storage, separately from legacy divider migration fields. Tabs can be renamed
+by double-click or through the context menu.

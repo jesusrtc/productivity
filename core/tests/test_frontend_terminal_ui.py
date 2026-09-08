@@ -36,13 +36,18 @@ def _js_between(start_marker: str, end_marker: str) -> str:
     return src[start:end]
 
 
-def test_terminal_close_button_is_wired_to_persistent_close_handler() -> None:
+def test_terminal_actions_live_in_settings_and_context_menus() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
-
-    assert 'id="termKillBtn"' in html
-    assert 'onclick="termKillCurrent()"' in html
-    assert ">Close</button>" in html
-    assert "keep it closed after reload" in html
+    source = LAB_APP.read_text(encoding="utf-8")
+    header = html.split('<div class="term-header">')[1].split('<div class="term-stage">')[0]
+    assert 'id="termSettingsBtn"' in header
+    for old in ('termKillBtn', 'termKillAllBtn', 'termNewBtn', 'termCreateDividerBtn', 'termRecentSettingsBtn'):
+        assert old not in header
+    assert 'id="termDangerTitle">Danger zone' in html
+    assert 'onclick="termKillAll()"' in html
+    assert "row('close', 'Close tab', true)" in source
+    assert "el.innerHTML = html + _termNewButtonHtml()" in source
+    assert "el.innerHTML = _termNewButtonHtml()" in source
 
 
 def test_framework_top_tab_is_labeled_home() -> None:
@@ -50,6 +55,75 @@ def test_framework_top_tab_is_labeled_home() -> None:
 
     assert '<span class="label">&#x1F3E0; Home</span>' in source
     assert 'document.title = \'Home\'' in source
+
+
+@pytest.mark.parametrize("mode", ["success", "cancel", "failure", "settings_failure", "navigate"])
+def test_kill_all_preserves_project_scope_and_reports_failures(mode: str) -> None:
+    handler = _js_between("  const _termKillAllPending", "  async function termCopyAttachCmd")
+    result = _run_node(r"""
+const mode = MODE;
+const calls = [], alerts = [], statuses = [];
+let workspace = 'ssd one';
+let termSessions = [{name: 'one'}, {name: 'two'}];
+const currentProject = {name: 'demo'};
+const button = {disabled: false};
+const document = {getElementById: () => button};
+const _termActiveProjectId = () => 'demo';
+const _termWorkspaceId = () => workspace;
+const _termSessionsKey = (pid, ws) => ws + '::' + pid;
+const _workspaceQuery = ws => '&workspace=' + encodeURIComponent(ws);
+const _projectDisplayName = () => 'Demo';
+const confirm = () => mode !== 'cancel';
+const alert = msg => alerts.push(msg);
+const _termSessionsCache = new Map([['ssd one::demo', termSessions]]);
+const termDetach = () => calls.push('detach');
+const _termEvictCache = (name, pid) => calls.push(['evict', name, pid]);
+const termRenderSessionList = () => calls.push('render');
+const termShowEmpty = () => calls.push('empty');
+const termSetStatus = (...args) => statuses.push(args);
+const _termRefreshSessionsForProjectId = async pid => calls.push(['refresh', pid]);
+const projTabsRefresh = () => calls.push('tabs');
+const fetch = async (url, options) => {
+  calls.push([options.method, url, options.body && JSON.parse(options.body)]);
+  if (options.method === 'POST') return {ok: mode !== 'settings_failure'};
+  if (mode === 'navigate') { workspace = 'other'; termSessions = [{name: 'other-session'}]; }
+  return {ok: mode !== 'failure', json: async () => mode === 'failure'
+    ? {detail: 'Permission denied'} : {killed: ['one', 'two', 'unlisted']}};
+};
+""".replace("MODE", json.dumps(mode)) + handler + r"""
+(async () => {
+  await termKillAll();
+  console.log(JSON.stringify({calls, alerts, statuses, termSessions,
+    disabled: button.disabled, pending: _termKillAllPending.size,
+    cached: _termSessionsCache.has('ssd one::demo')}));
+})();
+""")
+    assert not result["disabled"]
+    assert result["pending"] == 0
+    requests = [c for c in result["calls"] if isinstance(c, list) and c[0] in {"POST", "DELETE"}]
+    if mode == "cancel":
+        assert result["calls"] == []
+        return
+    assert requests[0][2] == {"project_id": "demo", "enabled": False, "workspace": "ssd one"}
+    if mode == "settings_failure":
+        assert len(requests) == 1
+        assert "detach" not in result["calls"]
+    else:
+        assert requests[1][:2] == ["DELETE", "/api/term/sessions/project/demo?purge=true&workspace=ssd%20one"]
+    if mode in {"failure", "settings_failure"}:
+        assert result["alerts"]
+        assert "empty" not in result["calls"]
+        assert result["cached"]
+    elif mode == "navigate":
+        assert result["termSessions"] == [{"name": "other-session"}]
+        assert "empty" not in result["calls"]
+        assert ["refresh", "demo"] not in result["calls"]
+    else:
+        assert result["termSessions"] == []
+        assert "empty" in result["calls"]
+        assert ["evict", "unlisted", "demo"] in result["calls"]
+        assert not result["cached"]
+        assert not result["alerts"]
 
 
 def test_sidebar_tree_indentation_has_no_depth_cap() -> None:
@@ -83,8 +157,8 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert 'aria-orientation="vertical"' in html
     assert 'id="termActiveSession"' in html
     assert 'ondblclick="termRenameCurrent()"' in html
-    assert 'onclick="termToggleSessionOrientation()"' in html
-    assert 'onclick="termToggleSessionDetail()"' in html
+    assert 'id="termOrientationSelect"' in html
+    assert 'id="termDetailSelect"' in html
     assert ".term-stage { display: flex; flex: 1;" in css
     assert ".term-sessions { display: flex; flex-direction: column;" in css
     assert "width: 62px" in css
@@ -107,8 +181,8 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert 'id="termRecentSettingsBtn"' in html
-    assert 'onclick="termToggleRecentSettings(event)"' in html
+    assert 'id="termSettingsModal"' in html
+    assert 'onclick="termOpenSettings()"' in html
     assert '<select id="termRecentMinutes"' in html
     assert 'onchange="termSetRecentMinutes(this.value)"' in html
     assert '<option value="15">15 minutes</option>' in html
@@ -128,13 +202,13 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     assert ".term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0" in css
     assert ".term-panel.term-sessions-horizontal .term-sessions .sess.recent:not(.active)" not in css
     assert "var(--term-recent-color, var(--green))" in css
-    assert ".term-recent-btn-swatch" in css
+    assert ".term-recent-color-control" in css
 
 
 def test_terminal_recent_activity_is_scoped_persisted_and_expires() -> None:
     recent_helpers = _js_between(
         "function _termNormalizeRecentMinutes(value)",
-        "let _termRecentSettingsOutside",
+        "function termCloseRecentSettings()",
     )
     result = _run_node(
         """
@@ -238,15 +312,15 @@ def test_terminal_tabs_support_colored_dividers() -> None:
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert 'id="termCreateDividerBtn"' in html
-    assert 'onclick="termCreateDivider()"' in html
+    assert 'id="termCreateDividerBtn"' not in html
+    assert "Add divider ${horizontal" in source
     assert 'id="termCreateGroupBtn"' not in html
     assert 'id="termGroupBtn"' not in html
     assert 'id="termRenameBtn"' not in html
     assert 'ondblclick="termRenameCurrent()"' in html
     assert 'id="termGroupMenu"' in html
     assert "const _TERM_GROUPS_KEY = 'labTermGroups-v1'" in source
-    assert "function termCreateDivider(sessionName = termCurrentSession)" in source
+    assert "function termCreateDivider(sessionName = termCurrentSession, position" in source
     assert "function _termReconcileGroupOrder(state)" in source
     assert "function termReorderItems(srcToken, dstToken, placeBefore)" in source
     assert "function termAssignSessionGroup" not in source
@@ -1251,7 +1325,7 @@ async function fetch(input, opts = {}) {
   }
   return {ok: true, json: async () => ({})};
 }
-""" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
 
 (async () => {
   await termOpenForProject('demo');
@@ -1333,7 +1407,7 @@ async function termSpawnSession() { rendered.push('spawn'); }
 async function fetch() {
   throw new Error('stale warm open must not fetch');
 }
-""" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
 
 (async () => {
   await termOpenForProject('alpha');
@@ -1415,7 +1489,7 @@ async function fetch(input, opts = {}) {
   return {ok: true, json: async () => ({})};
 }
 console.info = () => {};
-""" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
 
 (async () => {
   await termOpenForProject('demo');
@@ -1637,7 +1711,7 @@ async function fetch(input) {
   fetchCalls.push(String(input));
   return {ok: true, json: async () => []};
 }
-""" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
 
 (async () => {
   await termOpenForProject('alpha');
@@ -2321,3 +2395,99 @@ process.stdout.write(JSON.stringify({
         "alpha": "alpha-pane",
         "beta": "beta-pane",
     }
+
+
+def test_named_groups_preserve_dividers_membership_and_workspace_scope() -> None:
+    helpers = _js_between('function _termGroupScopeKey()', 'function _termSessionDisplay(s)')
+    result = _run_node(r'''
+const stored = {};
+const localStorage = {getItem: key => stored[key] || null, setItem: (key, value) => stored[key] = value};
+const document = {getElementById: () => null, removeEventListener() {}};
+let workspace = 'one';
+const _termWorkspaceId = () => workspace;
+const _termActiveProjectId = () => 'demo';
+const _termSessionsKey = (project, ws) => ws + '::' + project;
+const _TERM_GROUPS_KEY = 'groups', _TERM_GROUP_COLORS = ['#58a6ff'];
+let _termGroupMenuOutside = null;
+const termSessions = [{name:'first',logical_name:'a'}, {name:'second',logical_name:'b'}, {name:'third',logical_name:'c'}];
+const _termSessionMeta = name => termSessions.find(s => s.name === name);
+const termRenderSessionList = () => {};
+const prompt = () => 'Build';
+''' + helpers + r'''
+termCreateDivider('second', 'after');
+const divider = _termReadGroupState().groups[0].id;
+const initial = _termReadGroupState().order;
+termAssignTabGroup('first', 'new');
+const id = _termReadGroupState().tabGroups[0].id;
+termAssignTabGroup('second', id);
+termUpdateTabGroup(id, 'toggle');
+termUpdateTabGroup(id, 'color:#ff0000');
+const grouped = _termReadGroupState();
+workspace = 'two';
+const other = _termReadGroupState();
+workspace = 'one';
+termUpdateTabGroup(id, 'ungroup');
+const ungrouped = _termReadGroupState();
+console.log(JSON.stringify({initial, divider, grouped, other, ungrouped}));
+''')
+    assert result['initial'] == ['s:a', 's:b', 'g:' + result['divider'], 's:c']
+    assert result['grouped']['tabMembership']['a'] == result['grouped']['tabMembership']['b']
+    assert result['grouped']['tabGroups'][0]['collapsed'] is True
+    assert result['grouped']['tabGroups'][0]['color'] == '#ff0000'
+    assert result['grouped']['order'][0:2] == ['s:a', 's:b']
+    assert result['other']['tabGroups'] == []
+    assert result['ungrouped']['tabMembership'] == {}
+    assert result['ungrouped']['tabGroups'] == []
+    assert result['ungrouped']['groups'][0]['id'] == result['divider']
+
+
+@pytest.mark.parametrize('mode', ['background', 'group', 'cancel', 'failure', 'settings_failure', 'navigate'])
+def test_context_close_targets_only_requested_tabs_and_keeps_scope(mode: str) -> None:
+    helpers = _js_between('  const _termCloseTabsPending', '  function _termSessionDisplay(s)')
+    result = _run_node(r'''
+const mode = MODE;
+let workspace = 'one', termCurrentSession = 'active';
+let termSessions = [{name:'active'}, {name:'background'}];
+const calls = [], alerts = [];
+const _termWorkspaceId = () => workspace;
+const _termActiveProjectId = () => 'demo';
+const _termSessionsKey = (pid, ws) => ws + '::' + pid;
+const _workspaceQuery = ws => '&workspace=' + ws;
+const confirm = () => mode !== 'cancel';
+const alert = msg => alerts.push(msg);
+const _termSessionsCache = new Map();
+const termDetach = () => {calls.push('detach'); termCurrentSession = null;};
+const _termEvictCache = name => calls.push(['evict', name]);
+const _termRefreshSessionsForProjectId = async pid => {calls.push('refresh'); termSessions = [];};
+const termAttach = name => calls.push(['attach', name]);
+const termShowEmpty = () => calls.push('empty');
+const termSetStatus = () => {};
+const fetch = async (url, options) => {
+  calls.push([options.method, url, options.body && JSON.parse(options.body)]);
+  if (mode === 'navigate' && options.method === 'DELETE') workspace = 'two';
+  return {ok: !(mode === 'failure' && options.method === 'DELETE') && !(mode === 'settings_failure' && options.method === 'POST'), json: async () => ({detail:'denied'})};
+};
+'''.replace('MODE', json.dumps(mode)) + helpers + r'''
+(async () => {
+const ok = await termCloseTabs(mode === 'group' ? ['active', 'background'] : ['background']);
+console.log(JSON.stringify({ok, calls, alerts, termCurrentSession, pending: _termCloseTabsPending.size}));
+})();
+''')
+    requests = [c for c in result['calls'] if isinstance(c, list) and c[0] in {'POST', 'DELETE'}]
+    assert result['pending'] == 0
+    if mode == 'cancel':
+        assert result['calls'] == []
+        return
+    assert requests[0][2] == {'project_id': 'demo', 'workspace': 'one', 'enabled': False}
+    deletes = [c for c in requests if c[0] == 'DELETE']
+    if mode == 'settings_failure':
+        assert deletes == []
+    else:
+        expected = ['active', 'background'] if mode == 'group' else ['background']
+        assert [c[1] for c in deletes] == [f'/api/term/sessions/{name}?purge=true&workspace=one' for name in expected]
+    assert ('detach' in result['calls']) == (mode == 'group')
+    if mode == 'navigate':
+        assert 'refresh' not in result['calls']
+        assert 'empty' not in result['calls']
+    assert bool(result['alerts']) == (mode in {'failure', 'settings_failure'})
+    assert result['ok'] == (mode not in {'failure', 'settings_failure'})

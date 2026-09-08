@@ -9521,8 +9521,8 @@
     if (localStorage.getItem(_TERM_SESSION_ORIENTATION_KEY) === 'horizontal') {
       termSessionOrientation = 'horizontal';
     }
-    if (localStorage.getItem(_TERM_SESSION_DETAIL_KEY) === 'full') {
-      termSessionDetail = 'full';
+    if (['full', 'text'].includes(localStorage.getItem(_TERM_SESSION_DETAIL_KEY))) {
+      termSessionDetail = localStorage.getItem(_TERM_SESSION_DETAIL_KEY);
     }
     const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
     if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
@@ -9611,36 +9611,50 @@
     termRenderSessionList();
   }
 
-  let _termRecentSettingsOutside = null;
-  function termCloseRecentSettings() {
-    const el = document.getElementById('termRecentSettings');
-    if (el) el.classList.remove('open');
-    if (_termRecentSettingsOutside) {
-      document.removeEventListener('click', _termRecentSettingsOutside);
-      _termRecentSettingsOutside = null;
-    }
+  function termCloseRecentSettings() { termCloseSettings(); }
+
+  let _termSettingsReturnFocus = null;
+  function termOpenSettings() {
+    termCloseGroupMenu();
+    document.getElementById('termNewPicker')?.classList.remove('open');
+    _termSettingsReturnFocus = document.activeElement;
+    _termApplyRecentSettings();
+    document.getElementById('termOrientationSelect').value = termSessionOrientation;
+    document.getElementById('termDetailSelect').value = termSessionDetail;
+    document.getElementById('termSettingsModal').classList.add('active');
+    document.getElementById('termOrientationSelect').focus();
   }
 
-  function termToggleRecentSettings(ev) {
-    if (ev) ev.stopPropagation();
-    const el = document.getElementById('termRecentSettings');
-    if (!el) return;
-    const opening = !el.classList.contains('open');
-    termCloseRecentSettings();
-    if (!opening) return;
-    document.getElementById('termNewPicker')?.classList.remove('open');
-    _termApplyRecentSettings();
-    el.classList.add('open');
-    _termRecentSettingsOutside = (event) => {
-      if (!el.contains(event.target) && event.target.id !== 'termRecentSettingsBtn') {
-        termCloseRecentSettings();
-      }
-    };
-    setTimeout(() => {
-      if (_termRecentSettingsOutside) document.addEventListener('click', _termRecentSettingsOutside);
-      const select = document.getElementById('termRecentMinutes');
-      if (select) select.focus();
-    }, 0);
+  function termCloseSettings() {
+    const modal = document.getElementById('termSettingsModal');
+    if (!modal?.classList.contains('active')) return;
+    modal.classList.remove('active');
+    _termSettingsReturnFocus?.focus();
+  }
+
+  document.addEventListener('keydown', event => {
+    const modal = document.getElementById('termSettingsModal');
+    if (event.key === 'Escape') {
+      termCloseSettings();
+      termCloseGroupMenu();
+      document.getElementById('termNewPicker')?.classList.remove('open');
+    }
+    if (event.key !== 'Tab' || !modal?.classList.contains('active')) return;
+    const controls = [...modal.querySelectorAll('button:not(:disabled), select, input')];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+
+  function termSetSessionView(setting, value) {
+    if (setting === 'orientation' && ['vertical', 'horizontal'].includes(value)) {
+      termSessionOrientation = value;
+      try { localStorage.setItem(_TERM_SESSION_ORIENTATION_KEY, value); } catch {}
+    } else if (setting === 'detail' && ['compact', 'full', 'text'].includes(value)) {
+      termSessionDetail = value;
+      try { localStorage.setItem(_TERM_SESSION_DETAIL_KEY, value); } catch {}
+    }
+    _termApplySessionView();
   }
 
   function _termApplySessionView(refit = true) {
@@ -9649,10 +9663,11 @@
     const orientationBtn = document.getElementById('termOrientationBtn');
     const detailBtn = document.getElementById('termDetailBtn');
     const horizontal = termSessionOrientation === 'horizontal';
-    const full = termSessionDetail === 'full';
+    const full = termSessionDetail !== 'compact';
     if (panel) {
       panel.classList.toggle('term-sessions-horizontal', horizontal);
       panel.classList.toggle('term-sessions-full', full);
+      panel.classList.toggle('term-sessions-text', termSessionDetail === 'text');
     }
     if (sessionList) sessionList.setAttribute('aria-orientation', horizontal ? 'horizontal' : 'vertical');
     if (orientationBtn) {
@@ -10452,6 +10467,8 @@
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
     const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId, workspaceId);
     if (!_termIsScopeActive(projectId)) return;
+    if (_termKillAllPending.has(_termSessionsKey(projectId, workspaceId))
+        || _termCloseTabsPending.has(_termSessionsKey(projectId, workspaceId))) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
@@ -10856,14 +10873,24 @@
         if (logical && validIds.has(groupId)) membership[String(logical)] = groupId;
       });
     }
-    return {groups, order, membership};
+    const tabGroups = [];
+    for (const candidate of (Array.isArray(raw?.tabGroups) ? raw.tabGroups : [])) {
+      const id = String(candidate?.id || '').slice(0, 80);
+      if (!id || tabGroups.some(group => group.id === id)) continue;
+      tabGroups.push({id, name: String(candidate.name || 'Group').slice(0, 80),
+        color: /^#[0-9a-f]{6}$/i.test(candidate.color || '') ? candidate.color : _TERM_GROUP_COLORS[0],
+        collapsed: candidate.collapsed === true});
+    }
+    const tabMembership = Object.fromEntries(Object.entries(raw?.tabMembership || {})
+      .filter(([logical, id]) => logical && tabGroups.some(group => group.id === id)));
+    return {groups, order, membership, tabGroups, tabMembership};
   }
 
   function _termReadGroupState() {
     try {
       const all = JSON.parse(localStorage.getItem(_TERM_GROUPS_KEY) || '{}');
       return _termNormalizeGroupState(all && all[_termGroupScopeKey()]);
-    } catch { return {groups: [], order: [], membership: {}}; }
+    } catch { return _termNormalizeGroupState(null); }
   }
 
   function _termWriteGroupState(state) {
@@ -10923,7 +10950,7 @@
     return order;
   }
 
-  function termCreateDivider(sessionName = termCurrentSession) {
+  function termCreateDivider(sessionName = termCurrentSession, position = 'before') {
     const logical = _termSessionLogical(sessionName);
     const state = _termReadGroupState();
     const id = `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -10934,7 +10961,7 @@
     const order = _termReconcileGroupOrder(state).filter(token => token !== `g:${id}`);
     const activeToken = logical ? `s:${logical}` : '';
     const activeIndex = activeToken ? order.indexOf(activeToken) : -1;
-    order.splice(activeIndex >= 0 ? activeIndex : order.length, 0, `g:${id}`);
+    order.splice(activeIndex >= 0 ? activeIndex + (position === 'after' ? 1 : 0) : order.length, 0, `g:${id}`);
     state.order = order;
     state.membership = {};
     _termWriteGroupState(state);
@@ -10976,15 +11003,27 @@
     const menu = document.getElementById('termGroupMenu');
     if (!menu || !anchor) return;
     termCloseGroupMenu();
+    const scope = _termGroupScopeKey();
     menu.innerHTML = html;
     menu.hidden = false;
+    menu.onkeydown = event => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const buttons = [...menu.querySelectorAll('[data-action]')];
+      const index = buttons.indexOf(document.activeElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+        : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    };
     menu.querySelectorAll('[data-action]').forEach(button => {
       button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (scope !== _termGroupScopeKey()) { termCloseGroupMenu(); return; }
         onAction(button.getAttribute('data-action'), button);
       });
     });
+    menu.querySelector('[data-action]')?.focus();
     const rect = anchor.getBoundingClientRect();
     const bounds = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - bounds.width - 8))}px`;
@@ -11012,6 +11051,150 @@
         if (action === 'delete') termDeleteDivider(groupId);
         else if (action.startsWith('color:')) termSetDividerColor(groupId, action.slice(6));
       });
+  }
+
+  function _termNewButtonHtml() {
+    return '<button id="termNewBtn" class="term-new-tab" onclick="termToggleNewPicker(event)" title="New terminal tab" aria-label="New terminal tab"><span aria-hidden="true">＋</span><span class="term-new-label"> New</span></button>';
+  }
+
+  function termAssignTabGroup(sessionName, groupId) {
+    const logical = _termSessionLogical(sessionName);
+    if (!logical) return;
+    const state = _termReadGroupState();
+    if (groupId === 'new') {
+      const name = prompt('Group name', 'New group');
+      if (!name?.trim()) return;
+      groupId = `tabs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+      state.tabGroups.push({id: groupId, name: name.trim().slice(0, 80),
+        color: _TERM_GROUP_COLORS[state.tabGroups.length % _TERM_GROUP_COLORS.length], collapsed: false});
+    }
+    if (groupId && !state.tabGroups.some(group => group.id === groupId)) return;
+    if (groupId) state.tabMembership[logical] = groupId;
+    else delete state.tabMembership[logical];
+    // Keep members adjacent in the underlying drag order too.
+    const current = _termReconcileGroupOrder(state);
+    const originalIndex = current.indexOf(`s:${logical}`);
+    const order = current.filter(token => token !== `s:${logical}`);
+    const peers = order.filter(token => token.startsWith('s:') && state.tabMembership[token.slice(2)] === groupId);
+    const index = groupId ? (peers.length ? order.indexOf(peers[peers.length - 1]) + 1 : Math.max(0, originalIndex)) : order.length;
+    order.splice(index, 0, `s:${logical}`);
+    state.order = order;
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termUpdateTabGroup(groupId, action) {
+    const state = _termReadGroupState();
+    const group = state.tabGroups.find(item => item.id === groupId);
+    if (!group) return;
+    if (action === 'toggle') group.collapsed = !group.collapsed;
+    else if (action === 'rename') {
+      const name = prompt('Group name', group.name);
+      if (!name?.trim()) return;
+      group.name = name.trim().slice(0, 80);
+    } else if (action.startsWith('color:')) {
+      const color = action.slice(6);
+      if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+      group.color = color;
+    } else if (action === 'ungroup') {
+      state.tabGroups = state.tabGroups.filter(item => item.id !== groupId);
+      state.tabMembership = Object.fromEntries(Object.entries(state.tabMembership).filter(([, id]) => id !== groupId));
+    }
+    _termWriteGroupState(state);
+    termCloseGroupMenu();
+    termRenderSessionList();
+  }
+
+  function termOpenTabMenu(sessionName, anchor) {
+    const state = _termReadGroupState();
+    const logical = _termSessionLogical(sessionName);
+    const membership = state.tabMembership[logical];
+    const horizontal = termSessionOrientation === 'horizontal';
+    const row = (action, label, danger = false) => `<button role="menuitem" class="term-group-menu-row${danger ? ' danger' : ''}" data-action="${termSessEsc(action)}">${termSessEsc(label)}</button>`;
+    _termShowGroupMenu(anchor,
+      row('rename', 'Rename tab…') + row('new', 'Add to new group…') +
+      state.tabGroups.filter(group => group.id !== membership).map(group => row(`group:${group.id}`, `Move to ${group.name}`)).join('') +
+      (membership ? row('ungroup', 'Remove from group') : '') + '<hr>' +
+      row('before', `Add divider ${horizontal ? 'before' : 'above'}`) + row('after', `Add divider ${horizontal ? 'after' : 'below'}`) + '<hr>' +
+      row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
+        termCloseGroupMenu();
+        if (action === 'rename') termRenameSession(sessionName);
+        else if (action === 'new') termAssignTabGroup(sessionName, 'new');
+        else if (action.startsWith('group:')) termAssignTabGroup(sessionName, action.slice(6));
+        else if (action === 'ungroup') termAssignTabGroup(sessionName, null);
+        else if (action === 'before' || action === 'after') termCreateDivider(sessionName, action);
+        else if (action === 'close') void termCloseTabs([sessionName]);
+        else if (action === 'close-group') void termCloseTabGroup(membership);
+      });
+  }
+
+  function termOpenTabGroupMenu(groupId, anchor) {
+    const group = _termReadGroupState().tabGroups.find(item => item.id === groupId);
+    if (!group) return;
+    const colors = _TERM_GROUP_COLORS.map(color => `<button type="button" class="term-group-color${color === group.color ? ' selected' : ''}" style="--term-group-color:${color}" data-action="color:${color}" aria-label="Use ${color}"></button>`).join('');
+    _termShowGroupMenu(anchor, `<div class="term-group-menu-title">${termSessEsc(group.name)}</div>
+      <div class="term-group-colors">${colors}</div>
+      <button role="menuitem" class="term-group-menu-row" data-action="rename">Rename group…</button>
+      <button role="menuitem" class="term-group-menu-row" data-action="toggle">${group.collapsed ? 'Expand' : 'Collapse'} group</button>
+      <button role="menuitem" class="term-group-menu-row" data-action="ungroup">Ungroup tabs</button>
+      <hr><button role="menuitem" class="term-group-menu-row danger" data-action="close">Close group…</button>`, action => {
+        if (action === 'close') { termCloseGroupMenu(); void termCloseTabGroup(groupId); }
+        else termUpdateTabGroup(groupId, action);
+      });
+  }
+
+  async function termCloseTabGroup(groupId) {
+    const state = _termReadGroupState();
+    const group = state.tabGroups.find(item => item.id === groupId);
+    if (!group) return;
+    const names = termSessions.filter(session => state.tabMembership[session.logical_name] === groupId).map(session => session.name);
+    const scope = _termGroupScopeKey();
+    if (await termCloseTabs(names, group.name) && scope === _termGroupScopeKey()) termUpdateTabGroup(groupId, 'ungroup');
+  }
+
+  const _termCloseTabsPending = new Set();
+  async function termCloseTabs(names, groupName = '') {
+    const projectId = _termActiveProjectId(), workspaceId = _termWorkspaceId();
+    const scope = _termSessionsKey(projectId, workspaceId);
+    if (!projectId || !names.length || _termCloseTabsPending.has(scope)) return false;
+    const label = groupName ? `group "${groupName}" (${names.length} tabs)` : 'this terminal tab';
+    if (!confirm(`Close ${label}? Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
+    const isActive = () => projectId === _termActiveProjectId() && workspaceId === _termWorkspaceId();
+    _termCloseTabsPending.add(scope);
+    const failures = [];
+    try {
+      const setting = await fetch('/api/ui/term-autospawn', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: projectId, workspace: workspaceId, enabled: false})});
+      if (!setting.ok) throw new Error('Could not disable automatic session spawning.');
+      for (const name of names) {
+        try {
+          const response = await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true' + _workspaceQuery(workspaceId), {method: 'DELETE'});
+          if (!response.ok) {
+            const result = await response.json().catch(() => ({}));
+            throw new Error(result.detail || response.statusText || 'Request failed');
+          }
+          if (isActive() && termCurrentSession === name) termDetach();
+          _termEvictCache(name, projectId);
+        } catch (error) { failures.push(`${name}: ${error.message}`); }
+      }
+      _termSessionsCache.delete(scope);
+      if (failures.length) throw new Error(failures.join('\n'));
+      return true;
+    } catch (error) {
+      alert('Could not close all selected tabs: ' + error.message);
+      return false;
+    } finally {
+      _termCloseTabsPending.delete(scope);
+      if (isActive()) {
+        await _termRefreshSessionsForProjectId(projectId);
+        if (isActive() && !termCurrentSession) {
+          if (termSessions.length) termAttach(termSessions[0].name, projectId);
+          else { termShowEmpty(); termSetStatus('idle', 'no session — click + New'); }
+        }
+      }
+      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+    }
   }
 
   function _termSessionDisplay(s) {
@@ -11331,7 +11514,7 @@
     _termHideSessionTooltip();
     _termRenderActiveSessionHeader();
     if (!termSessions || termSessions.length === 0) {
-      el.innerHTML = '';
+      el.innerHTML = _termNewButtonHtml();
       return;
     }
     const groupState = _termReadGroupState();
@@ -11345,6 +11528,36 @@
       termSessions.map((session, index) => [session.logical_name, {session, index}])
     );
     const groupsById = new Map(groupState.groups.map(group => [group.id, group]));
+    const dividerOwners = new Map();
+    order.forEach((token, index) => {
+      if (!token.startsWith('g:')) return;
+      const before = order.slice(0, index).reverse().find(item => item.startsWith('s:'));
+      const after = order.slice(index + 1).find(item => item.startsWith('s:'));
+      const owner = before && groupState.tabMembership[before.slice(2)];
+      if (owner && after && groupState.tabMembership[after.slice(2)] === owner) dividerOwners.set(token, owner);
+    });
+    const dividerHtml = divider => `<div class="term-divider" draggable="true" data-order-token="${termSessEsc(`g:${divider.id}`)}" data-term-group-trigger data-divider-options="${termSessEsc(divider.id)}" role="button" tabindex="0" aria-label="Colored terminal tab divider" title="Click to change color · Drag to move divider" style="--term-divider-color:${termSessEsc(divider.color)}"></div>`;
+    const renderedGroups = new Set();
+    const renderRow = row => {
+      const groupId = groupState.tabMembership[row.session.logical_name];
+      const group = groupState.tabGroups.find(item => item.id === groupId);
+      if (!group) return _termSessionPillHtml(row.session, row.index);
+      if (renderedGroups.has(groupId)) return '';
+      renderedGroups.add(groupId);
+      const members = order.filter(token => token.startsWith('s:') && groupState.tabMembership[token.slice(2)] === groupId)
+        .map(token => sessionsByLogical.get(token.slice(2))).filter(Boolean);
+      const active = members.some(item => item.session.name === termCurrentSession);
+      const contents = order.map(token => {
+        if (dividerOwners.get(token) === groupId) return dividerHtml(groupsById.get(token.slice(2)));
+        if (!token.startsWith('s:') || groupState.tabMembership[token.slice(2)] !== groupId) return '';
+        const member = sessionsByLogical.get(token.slice(2));
+        return member ? _termSessionPillHtml(member.session, member.index) : '';
+      }).join('');
+      return `<div class="term-tab-group" style="--term-group-color:${termSessEsc(group.color)}">
+        <button class="term-tab-group-label${active ? ' has-active' : ''}" data-tab-group="${termSessEsc(group.id)}" aria-expanded="${!group.collapsed}" title="${termSessEsc(group.name)} · Right-click for group options">${group.collapsed ? '▸' : '▾'} <span>${termSessEsc(group.name)}</span><small>${members.length}</small></button>
+        <div class="term-tab-group-tabs" ${group.collapsed ? 'hidden' : ''}>${contents}</div>
+      </div>`;
+    };
     let html = '';
     let currentDivider = null;
     let currentRows = [];
@@ -11355,13 +11568,14 @@
       html += `<div class="term-divider-section" data-divider-id="${termSessEsc(divider.id)}">
         <div class="term-divider" draggable="true" data-order-token="${termSessEsc(`g:${divider.id}`)}" data-term-group-trigger data-divider-options="${termSessEsc(divider.id)}" role="button" tabindex="0" aria-label="Colored terminal tab divider" title="Click to change color · Drag to move divider" style="--term-divider-color:${termSessEsc(divider.color)}">
         </div>
-        <div class="term-divider-tabs">${rows.map(row => _termSessionPillHtml(row.session, row.index)).join('')}</div>
+        <div class="term-divider-tabs">${rows.map(renderRow).join('')}</div>
       </div>`;
       currentDivider = null;
       currentRows = [];
     };
     order.forEach(token => {
       if (token.startsWith('g:')) {
+        if (dividerOwners.has(token)) return;
         flushDivider();
         currentDivider = groupsById.get(token.slice(2)) || null;
         return;
@@ -11369,15 +11583,27 @@
       const row = sessionsByLogical.get(token.slice(2));
       if (!row) return;
       if (currentDivider) currentRows.push(row);
-      else html += _termSessionPillHtml(row.session, row.index);
+      else html += renderRow(row);
     });
     flushDivider();
-    el.innerHTML = html;
+    el.innerHTML = html + _termNewButtonHtml();
+    el.querySelectorAll('[data-tab-group]').forEach(node => {
+      node.addEventListener('click', () => termUpdateTabGroup(node.dataset.tabGroup, 'toggle'));
+      node.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        termOpenTabGroupMenu(node.dataset.tabGroup, node);
+      });
+    });
     el.querySelectorAll('.sess').forEach(node => {
       node.addEventListener('pointerenter', () => _termShowSessionTooltip(node));
       node.addEventListener('pointerleave', _termScheduleSessionTooltipHide);
       node.addEventListener('focus', () => _termShowSessionTooltip(node));
       node.addEventListener('blur', _termScheduleSessionTooltipHide);
+      node.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        _termHideSessionTooltip();
+        termOpenTabMenu(node.getAttribute('data-name'), node);
+      });
       node.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -11488,6 +11714,11 @@
     if (!placeBefore) di += 1;
     current.splice(di, 0, srcToken);
     groupState.order = current;
+    if (srcToken.startsWith('s:')) {
+      const destinationGroup = dstToken.startsWith('s:') && groupState.tabMembership[dstToken.slice(2)];
+      if (destinationGroup) groupState.tabMembership[srcToken.slice(2)] = destinationGroup;
+      else delete groupState.tabMembership[srcToken.slice(2)];
+    }
     groupState.membership = {};
     _termWriteGroupState(groupState);
 
@@ -11550,6 +11781,9 @@
     // never flashes as a clickable choice during the network round-trip.
     await termRefreshAgentAvail(el);
     el.classList.add('open');
+    const rect = document.getElementById('termNewBtn').getBoundingClientRect();
+    el.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - el.offsetWidth - 8))}px`;
+    el.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - el.offsetHeight - 8))}px`;
     // One-shot outside-click listener to dismiss.
     const off = (e) => {
       if (!el.contains(e.target) && e.target.id !== 'termNewBtn') {
@@ -12313,6 +12547,56 @@
     else { termShowEmpty(); termSetStatus('idle', 'no session — click + New'); }
   }
 
+  const _termKillAllPending = new Set();
+  async function termKillAll() {
+    const projectId = _termActiveProjectId();
+    const workspaceId = _termWorkspaceId();
+    const scopeKey = _termSessionsKey(projectId, workspaceId);
+    if (!projectId || _termKillAllPending.has(scopeKey)) return;
+    const label = currentProject && currentProject.name === projectId
+      ? _projectDisplayName(currentProject) : dashTermGroupLabel(projectId);
+    if (!confirm(`Kill all terminal sessions for "${label}"? Running work will stop and sessions will stay closed after reload. Attached external sessions will only be detached from Lab.`)) return;
+    const isActive = () => projectId === _termActiveProjectId() && workspaceId === _termWorkspaceId();
+    const names = new Set((termSessions || []).map(s => s.name));
+    _termKillAllPending.add(scopeKey);
+    const button = document.getElementById('termKillAllBtn');
+    if (button) button.disabled = true;
+    try {
+      // Disable automatic spawning before terminating anything, including
+      // recovery triggered by another open view when the sessions disappear.
+      const setting = await fetch('/api/ui/term-autospawn', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: projectId, enabled: false, workspace: workspaceId}),
+      });
+      if (!setting.ok) throw new Error('Could not disable automatic session spawning.');
+      if (isActive()) termDetach();
+      for (const name of names) _termEvictCache(name, projectId);
+      const response = await fetch('/api/term/sessions/project/' + encodeURIComponent(projectId)
+        + '?purge=true' + _workspaceQuery(workspaceId), {method: 'DELETE'});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || response.statusText || 'Request failed');
+      for (const name of result.killed || []) _termEvictCache(name, projectId);
+      _termSessionsCache.delete(scopeKey);
+      if (!isActive()) return;
+      termSessions = [];
+      termRenderSessionList();
+      termShowEmpty();
+      termSetStatus('idle', 'all sessions closed — click + New');
+      await _termRefreshSessionsForProjectId(projectId);
+    } catch (error) {
+      alert('Failed to kill all sessions: ' + error.message);
+      if (isActive()) {
+        await _termRefreshSessionsForProjectId(projectId);
+        if (isActive()) termSetStatus('err', 'could not close all sessions');
+      }
+    } finally {
+      _termKillAllPending.delete(scopeKey);
+      if (button) button.disabled = false;
+      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+    }
+  }
+
   async function termCopyAttachCmd() {
     // Prefer the currently-attached session; fall back to the first
     // session in the pill list so the button still works while disconnected.
@@ -12675,6 +12959,8 @@
   const TERM_AUTO_RESTORE_MIN_GAP_MS = 20000;
   async function _termSessionGone(name, projectId) {
     if (!_termIsScopeActive(projectId)) return;
+    if (_termKillAllPending.has(_termSessionsKey(projectId))
+        || _termCloseTabsPending.has(_termSessionsKey(projectId))) return;
     const now = Date.now();
     if (now - (_termAutoRestoreAt[name] || 0) < TERM_AUTO_RESTORE_MIN_GAP_MS) {
       _termMarkDead(name, 'session keeps ending: ' + name, projectId);
