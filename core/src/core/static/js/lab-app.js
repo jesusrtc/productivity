@@ -234,7 +234,7 @@
     blocks.forEach(code => { code.dataset.mermaidState = 'pending'; });
     try {
       if (!_mermaidReady) {
-        _mermaidReady = loadScriptOnce('/static/vendor/mermaid@11.17.2/mermaid.min.js')
+        _mermaidReady = loadScriptOnce('/static/vendor/mermaid@11.17.2/mermaid.lab.min.js')
           .then(() => window.mermaid.initialize({
             startOnLoad: false, theme: 'dark', securityLevel: 'strict',
             suppressErrorRendering: true,
