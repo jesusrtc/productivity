@@ -225,6 +225,48 @@
     return loadScriptOnce('/static/vendor/marked@12.0.1/marked.min.js');
   }
 
+  let _mermaidReady;
+  let _mermaidId = 0;
+  async function renderMermaidBlocks(root) {
+    const blocks = Array.from(root.querySelectorAll('pre > code.language-mermaid'))
+      .filter(code => !code.dataset.mermaidState);
+    if (!blocks.length) return;
+    blocks.forEach(code => { code.dataset.mermaidState = 'pending'; });
+    try {
+      if (!_mermaidReady) {
+        _mermaidReady = loadScriptOnce('/static/vendor/mermaid@11.17.2/mermaid.min.js')
+          .then(() => window.mermaid.initialize({
+            startOnLoad: false, theme: 'dark', securityLevel: 'strict',
+            suppressErrorRendering: true,
+          }));
+      }
+      await _mermaidReady;
+    } catch (error) {
+      blocks.forEach(code => { delete code.dataset.mermaidState; });
+      console.warn('Could not load Mermaid', error);
+      return;
+    }
+    for (const code of blocks) {
+      if (!code.isConnected) continue;
+      try {
+        const { svg } = await window.mermaid.render(`lab-mermaid-${++_mermaidId}`, code.textContent);
+        if (!code.isConnected) continue;
+        const diagram = document.createElement('div');
+        diagram.className = 'lab-mermaid';
+        diagram.style.cssText = 'overflow:auto;margin:16px 0;text-align:center';
+        diagram.innerHTML = svg;
+        code.parentElement.replaceWith(diagram);
+      } catch (error) {
+        code.dataset.mermaidState = 'error';
+        const notice = document.createElement('div');
+        notice.style.cssText = 'color:var(--text-secondary);font-size:13px';
+        notice.textContent = 'Could not render Mermaid diagram. Check the syntax below.';
+        code.parentElement.before(notice);
+        console.warn('Could not render Mermaid diagram', error);
+      }
+    }
+  }
+
   function ensureHighlight() {
     if (window.hljs && window.hljs.getLanguage && window.hljs.getLanguage('scala')) {
       return Promise.resolve();
@@ -7634,6 +7676,7 @@
       const docBody = container.querySelector('#projDocBody');
       if (docBody) {
         _projComments.forEach(c => { if (c.text) highlightCommentInNode(docBody, c.text, c.id); });
+        renderMermaidBlocks(docBody);
       }
     }
 
@@ -13398,9 +13441,10 @@
       }
 
       content.innerHTML = `<div class="project-content" style="padding:24px;max-width:900px">${header}${rendered}</div>`;
+      if (isMd) renderMermaidBlocks(content);
       if (isCsv) cerebroAttachCSVFilter();
       if (window.hljs) {
-        content.querySelectorAll('pre code').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
+        content.querySelectorAll('pre code:not(.language-mermaid)').forEach(el => { try { window.hljs.highlightElement(el); } catch {} });
       }
     } catch (e) {
       content.innerHTML = `<div class="no-repo"><p>Error: ${esc(e.message || e)}</p></div>`;

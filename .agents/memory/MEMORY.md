@@ -1,5 +1,7 @@
 # Memory index
 
+- [Markdown Mermaid rendering](markdown-mermaid-rendering.md) — file views render fenced Mermaid after mounting; marked alone only emits source
+
 - [Lab UI runs as installed Chrome PWA](lab-ui-runs-as-installed-chrome-pwa.md) — same-origin `window.open` is frameless (no URL bar); prefer cross-origin/direct URLs for pop-outs
 - [Cover letters: no weaknesses](feedback-cover-letter-no-weaknesses.md) — in CV project, keep gaps in fit.md only; close on strengths, never name missing skills
 - [Console communication: be plain](console-communication-be-plain.md) — plain, short, jargon-free console messages; user dislikes dense technical recaps
