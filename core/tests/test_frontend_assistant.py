@@ -28,7 +28,7 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "Any priority" in source
     assert "Nudge" in source
     assert "Lab projects" in source
-    assert "assistant-proposal-split" in source
+    assert "assistant-internal-projects" in source
     assert "data-assistant-group" in source
     assert "attentionBreakdown" in source
     assert "needsAttention" in source
@@ -57,16 +57,11 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
 def test_assistant_repo_tabs_include_tasks_and_meeting_notes() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     assert 'data-assistant-section="overview"' in source
-    assert "window.AssistantView?.taskLayouts" in source
-    assert "Tasks ${index + 1}" in source
+    assert 'data-assistant-section="tasks"' in source
     assert 'data-assistant-section="meetings"' in source
-    assert "AssistantView.setSection('${layout.id}')" in source
+    assert "AssistantView.setSection('tasks')" in source
     assert "AssistantView.setSection('meetings')" in source
-    view = ASSISTANT_APP.read_text(encoding="utf-8")
-    for number in range(1, 6):
-        assert f"id: 'tasks-{number}'" in view
-    assert "normalizeSection(options.section)" in view
-    assert "state.project = available.length ? available[0].id" not in view
+    assert 'data-assistant-section="tasks-1"' not in source
 
 
 def test_assistant_is_configurable_from_home_admin() -> None:
