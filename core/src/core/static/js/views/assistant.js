@@ -52,30 +52,8 @@
     return state.data && Array.isArray(state.data.tasks) ? state.data.tasks : [];
   }
 
-  const taskSizes = [
-    {id: 'tasks-1', name: 'Balanced', description: 'The restored design and current proportions.'},
-    {id: 'tasks-2', name: 'Compact', description: 'Tighter cards and rows, with readable task text.'},
-    {id: 'tasks-3', name: 'Large text', description: 'Larger titles and labels throughout the same layout.'},
-    {id: 'tasks-4', name: 'Wide cards', description: 'Wider document cards so task titles wrap less.'},
-    {id: 'tasks-5', name: 'Reading', description: 'More room and larger text inside the document.'},
-  ];
-
-  function normalizeSection(section) {
-    if (section === 'tasks') return 'tasks-1';
-    return ['overview', 'meetings', ...taskSizes.map(size => size.id)].includes(section) ? section : 'overview';
-  }
-
   function isTaskSection() {
-    return taskSizes.some(size => size.id === state.section);
-  }
-
-  function applyModalSizing() {
-    const overlay = document.getElementById('assistantDocumentModal');
-    if (!overlay) return;
-    overlay.dataset.assistantSizing = isTaskSection() ? state.section : 'tasks-1';
-    overlay.querySelectorAll('[data-assistant-size]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.assistantSize === state.section));
-    });
+    return state.section === 'tasks';
   }
 
   function taskChildren(task) {
@@ -218,14 +196,10 @@
   }
 
   function setSection(section, options = {}) {
-    const wasTasks = isTaskSection();
-    state.section = normalizeSection(section);
-    if (!(wasTasks && isTaskSection())) {
-      state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
-      state.status = '';
-      state.priority = '';
-    }
-    applyModalSizing();
+    state.section = ['overview', 'tasks', 'meetings'].includes(section) ? section : 'overview';
+    state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
+    state.status = '';
+    state.priority = '';
     if (isTaskSection() && !projectRows().some(project => project.id === state.project)) {
       const available = projectRows();
       state.project = available.length ? available[0].id : '';
@@ -234,14 +208,14 @@
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
-      else if (isTaskSection()) {
-        url.searchParams.set('subview', state.section);
+      else if (state.section === 'tasks') {
+        url.searchParams.set('subview', 'tasks');
         if (state.project) url.searchParams.set('assistant_project', state.project);
       } else {
         url.searchParams.delete('subview');
         url.searchParams.delete('assistant_project');
       }
-      if (!isTaskSection()) url.searchParams.delete('task');
+      if (state.section !== 'tasks') url.searchParams.delete('task');
       if (state.section !== 'meetings') url.searchParams.delete('meeting');
       history.pushState({nav: 'assistant', subview: state.section}, '', url.pathname + url.search + url.hash);
     }
@@ -487,11 +461,10 @@
       ? `Lab project · ${project ? project.name || project.id : 'Tasks'}`
       : 'Global Assistant';
     const title = isTaskSection() ? 'Tasks' : 'Meeting notes';
-    const size = taskSizes.find(item => item.id === state.section);
     const body = isTaskSection() ? renderTasks(rows) : renderMeetings(rows);
-    content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${isTaskSection() ? 'tasks' : e(state.section)}"${size ? ` data-assistant-sizing="${size.id}"` : ''}>
+    content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
-        <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1>${size ? `<p class="assistant-sizing-caption">${e(size.name)} · ${e(size.description)}</p>` : ''}</div>
+        <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1></div>
         <button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button>
       </header>${body}
     </div>`;
@@ -584,7 +557,7 @@
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       if (kind === 'task') {
-        url.searchParams.set('subview', isTaskSection() ? state.section : 'tasks-1');
+        url.searchParams.set('subview', 'tasks');
         if (state.project) url.searchParams.set('assistant_project', state.project);
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
@@ -600,24 +573,20 @@
 
   function ensureModal() {
     let overlay = document.getElementById('assistantDocumentModal');
-    if (overlay) { applyModalSizing(); return overlay; }
+    if (overlay) return overlay;
     overlay = document.createElement('div');
     overlay.id = 'assistantDocumentModal';
     overlay.className = 'modal-overlay assistant-document-overlay';
     overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
       <header class="assistant-modal-header">
         <div class="assistant-modal-heading"><span class="assistant-kicker" id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
-        <div class="assistant-modal-actions"><nav class="assistant-sizing-switcher" aria-label="Task sizing proposals">${taskSizes.map((size, index) => `<button type="button" data-assistant-size="${size.id}" title="${e(size.name)}" aria-label="Proposal ${index + 1}: ${e(size.name)}">${index + 1}</button>`).join('')}</nav><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
+        <div class="assistant-modal-actions"><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
     </section>`;
     overlay.addEventListener('click', event => { if (event.target === overlay) closeDocumentModal(); });
     overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
     document.body.appendChild(overlay);
-    overlay.querySelectorAll('[data-assistant-size]').forEach(button => {
-      button.addEventListener('click', () => setSection(button.dataset.assistantSize));
-    });
-    applyModalSizing();
     return overlay;
   }
 
@@ -641,7 +610,6 @@
     const label = document.getElementById('assistantModalKind');
     const host = document.getElementById('assistantModalDocument');
     const nav = document.getElementById('assistantDocumentNav');
-    overlay.querySelector('.assistant-sizing-switcher').hidden = kind === 'meeting';
     label.textContent = kind === 'meeting' ? 'Meeting note' : 'Task documents';
     title.textContent = 'Loading…';
     host.innerHTML = '<div class="loading">Loading document…</div>';
@@ -923,7 +891,7 @@
 
   function init(initial = '') {
     const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
-    state.section = normalizeSection(options.section);
+    state.section = ['overview', 'tasks', 'meetings'].includes(options.section) ? options.section : 'overview';
     state.selectedTaskPath = options.task || '';
     state.selectedSubtaskPath = '';
     state.selectedMeetingPath = options.meeting || '';
@@ -951,7 +919,6 @@
   });
 
   window.AssistantView = {
-    taskSizes,
     init,
     refresh,
     setSection,
