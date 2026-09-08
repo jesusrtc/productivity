@@ -1909,6 +1909,10 @@
   .term-sessions-horizontal .term-tab-group-tabs { border-left: 0; border-bottom: 2px solid var(--term-group-color); padding-left: 0; padding-bottom: 3px; }
   .term-group-menu { max-height: calc(100vh - 16px); overflow-y: auto; }
   .term-group-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+  .term-new-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .term-settings-modal .term-new-options label { display: flex; flex-direction: row; align-items: center; gap: 7px; cursor: pointer; }
+  .term-new-options input { accent-color: var(--accent); }
+  .term-new-picker button[hidden] { display: none; }
   .term-new-picker.open { display: flex; flex-direction: column; gap: 2px; }
   .term-new-picker button { width: 100%; text-align: left; padding: 6px 10px; border-radius: 4px; }
   .term-new-picker .term-attach-open { margin-top: 4px; padding-top: 8px; border-top-color: var(--border); border-radius: 0 0 4px 4px; color: var(--accent); }

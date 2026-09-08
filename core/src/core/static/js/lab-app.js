@@ -9616,6 +9616,7 @@
     termCloseGroupMenu();
     document.getElementById('termNewPicker')?.classList.remove('open');
     _termSettingsReturnFocus = document.activeElement;
+    _termRenderNewOptionsSettings();
     _termApplyRecentSettings();
     document.getElementById('termOrientationSelect').value = termSessionOrientation;
     document.getElementById('termDetailSelect').value = termSessionDetail;
@@ -11051,6 +11052,47 @@
       });
   }
 
+  const _TERM_NEW_OPTIONS = ['claude', 'codex', 'copilot', 'terminal', 'attach'];
+  const _TERM_NEW_OPTIONS_KEY = 'labTermNewOptions-v1:';
+
+  function _termReadNewOptions(scope = _termGroupScopeKey()) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(_TERM_NEW_OPTIONS_KEY + scope));
+      if (Array.isArray(saved)) return _TERM_NEW_OPTIONS.filter(option => saved.includes(option));
+    } catch {}
+    return [..._TERM_NEW_OPTIONS];
+  }
+
+  function _termRenderNewOptionsSettings() {
+    const container = document.getElementById('termNewOptions');
+    if (!container) return;
+    container.dataset.scope = _termGroupScopeKey();
+    const enabled = new Set(_termReadNewOptions(container.dataset.scope));
+    container.querySelectorAll('input').forEach(input => { input.checked = enabled.has(input.value); });
+  }
+
+  function termSetNewOption(option, enabled) {
+    if (!_TERM_NEW_OPTIONS.includes(option)) return;
+    const scope = document.getElementById('termNewOptions')?.dataset.scope || _termGroupScopeKey();
+    const selected = new Set(_termReadNewOptions(scope));
+    if (enabled) selected.add(option);
+    else selected.delete(option);
+    try { localStorage.setItem(_TERM_NEW_OPTIONS_KEY + scope, JSON.stringify([...selected])); } catch {}
+    if (scope === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'), scope);
+  }
+
+  function _termApplyNewOptions(picker, scope = _termGroupScopeKey()) {
+    if (!picker) return;
+    const enabled = new Set(_termReadNewOptions(scope));
+    let visible = 0;
+    picker.querySelectorAll('[data-term-option]').forEach(button => {
+      button.hidden = !enabled.has(button.dataset.termOption) || button.dataset.workspaceHidden === 'true';
+      if (!button.hidden) visible += 1;
+    });
+    const empty = document.getElementById('termNewOptionsEmpty');
+    if (empty) empty.hidden = visible > 0;
+  }
+
   function _termNewButtonHtml() {
     return '<button id="termNewBtn" class="term-new-tab" onclick="termToggleNewPicker(event)" title="New terminal tab" aria-label="New terminal tab"><span aria-hidden="true">＋</span><span class="term-new-label"> New</span></button>';
   }
@@ -11777,7 +11819,10 @@
     termCloseRecentSettings();
     // Resolve workspace policy before revealing the menu so a disabled agent
     // never flashes as a clickable choice during the network round-trip.
+    const scope = _termGroupScopeKey();
     await termRefreshAgentAvail(el);
+    if (scope !== _termGroupScopeKey()) return;
+    _termApplyNewOptions(el, scope);
     el.classList.add('open');
     const rect = document.getElementById('termNewBtn').getBoundingClientRect();
     el.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - el.offsetWidth - 8))}px`;
@@ -11812,6 +11857,7 @@
     picker.querySelectorAll('button[data-agent]').forEach(btn => {
       const a = btn.dataset.agent;
       btn.hidden = !supported.has(a);
+      btn.dataset.workspaceHidden = String(btn.hidden);
       const ok = _agentAvail[a] !== false;
       btn.disabled = !ok;
       btn.style.opacity = ok ? '' : '0.45';

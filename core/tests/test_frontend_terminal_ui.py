@@ -2491,3 +2491,54 @@ console.log(JSON.stringify({ok, calls, alerts, termCurrentSession, pending: _ter
         assert 'empty' not in result['calls']
     assert bool(result['alerts']) == (mode in {'failure', 'settings_failure'})
     assert result['ok'] == (mode not in {'failure', 'settings_failure'})
+
+
+def test_new_menu_options_are_project_scoped_and_respect_workspace_policy() -> None:
+    helpers = _js_between('  const _TERM_NEW_OPTIONS =', '  function _termNewButtonHtml()')
+    result = _run_node(r'''
+const stored = {};
+const localStorage = {getItem: key => stored[key] || null, setItem: (key, value) => stored[key] = value};
+let scope = 'ssd::demo';
+const _termGroupScopeKey = () => scope;
+const choices = ['claude', 'codex', 'copilot', 'terminal', 'attach'];
+const inputs = choices.map(value => ({value, checked: false}));
+const container = {dataset: {}, querySelectorAll: () => inputs};
+const buttons = choices.map(termOption => ({dataset: {termOption}, hidden: false}));
+const picker = {querySelectorAll: () => buttons};
+const empty = {hidden: true};
+const document = {getElementById: id => ({termNewOptions: container, termNewPicker: picker, termNewOptionsEmpty: empty})[id]};
+''' + helpers + r'''
+const defaults = _termReadNewOptions();
+_termRenderNewOptionsSettings();
+for (const option of ['claude','copilot','attach']) termSetNewOption(option, false);
+const saved = _termReadNewOptions();
+const visible = buttons.filter(button => !button.hidden).map(button => button.dataset.termOption);
+scope = 'ssd::other';
+const other = _termReadNewOptions();
+_termApplyNewOptions(picker);
+const otherVisible = buttons.filter(button => !button.hidden).map(button => button.dataset.termOption);
+scope = 'local::demo';
+const otherWorkspace = _termReadNewOptions();
+scope = 'ssd::demo';
+buttons[1].dataset.workspaceHidden = 'true';
+_termApplyNewOptions(picker);
+const policyVisible = buttons.filter(button => !button.hidden).map(button => button.dataset.termOption);
+termSetNewOption('terminal', false);
+const emptyState = !empty.hidden;
+termSetNewOption('terminal', true);
+_termRenderNewOptionsSettings();
+const checked = inputs.filter(input => input.checked).map(input => input.value);
+// A still-open settings panel continues to save its captured project scope.
+scope = 'ssd::other';
+termSetNewOption('attach', true);
+console.log(JSON.stringify({defaults,saved,visible,other,otherVisible,otherWorkspace,policyVisible,emptyState,checked,
+  original: _termReadNewOptions('ssd::demo'), untouched: _termReadNewOptions()}));
+''')
+    all_options = ['claude', 'codex', 'copilot', 'terminal', 'attach']
+    assert result['defaults'] == all_options
+    assert result['saved'] == result['visible'] == result['checked'] == ['codex', 'terminal']
+    assert result['other'] == result['otherVisible'] == result['otherWorkspace'] == all_options
+    assert result['policyVisible'] == ['terminal']
+    assert result['emptyState'] is True
+    assert result['original'] == ['codex', 'terminal', 'attach']
+    assert result['untouched'] == all_options

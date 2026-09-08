@@ -278,6 +278,15 @@
         <label for="termOrientationSelect">Layout<select id="termOrientationSelect" onchange="termSetSessionView('orientation',this.value)"><option value="vertical">Vertical</option><option value="horizontal">Horizontal</option></select></label>
         <label for="termDetailSelect">Tab labels<select id="termDetailSelect" onchange="termSetSessionView('detail',this.value)"><option value="compact">Icons only</option><option value="full">Icons and text</option><option value="text">Text only</option></select></label>
       </div>
+      <h3 id="termNewOptionsTitle">Available terminals in + New</h3>
+      <p>Choose which options appear for this project. Workspace availability still applies.</p>
+      <div id="termNewOptions" class="term-new-options" role="group" aria-labelledby="termNewOptionsTitle">
+        <label><input type="checkbox" value="claude" onchange="termSetNewOption(this.value,this.checked)"> Claude Code</label>
+        <label><input type="checkbox" value="codex" onchange="termSetNewOption(this.value,this.checked)"> Codex</label>
+        <label><input type="checkbox" value="copilot" onchange="termSetNewOption(this.value,this.checked)"> Copilot</label>
+        <label><input type="checkbox" value="terminal" onchange="termSetNewOption(this.value,this.checked)"> Terminal</label>
+        <label><input type="checkbox" value="attach" onchange="termSetNewOption(this.value,this.checked)"> Attach tmux session</label>
+      </div>
       <h3>Recent tabs</h3>
         <label for="termRecentMinutes">
           <span>Recent window</span>
@@ -308,11 +317,12 @@
   </div>
 </div>
       <div class="term-new-picker" id="termNewPicker">
-        <button data-agent="claude" onclick="termCreateNew('claude','claude')" title="Claude Code — fresh session (--session-id + --permission-mode auto)">Claude Code</button>
-        <button data-agent="codex" onclick="termCreateNew('claude','codex')" title="OpenAI Codex CLI">Codex</button>
-        <button data-agent="copilot" onclick="termCreateNew('claude','copilot')" title="GitHub Copilot CLI">Copilot</button>
-        <button onclick="termCreateNew('terminal')" title="Plain $SHELL (bash / zsh)">Terminal</button>
-        <button class="term-attach-open" type="button" onclick="termOpenAttachModal(event)" title="Choose from live tmux sessions without stopping the original session">Attach tmux session&hellip;</button>
+        <button data-agent="claude" data-term-option="claude" onclick="termCreateNew('claude','claude')" title="Claude Code — fresh session (--session-id + --permission-mode auto)">Claude Code</button>
+        <button data-agent="codex" data-term-option="codex" onclick="termCreateNew('claude','codex')" title="OpenAI Codex CLI">Codex</button>
+        <button data-agent="copilot" data-term-option="copilot" onclick="termCreateNew('claude','copilot')" title="GitHub Copilot CLI">Copilot</button>
+        <button data-term-option="terminal" onclick="termCreateNew('terminal')" title="Plain $SHELL (bash / zsh)">Terminal</button>
+        <button data-term-option="attach" class="term-attach-open" type="button" onclick="termOpenAttachModal(event)" title="Choose from live tmux sessions without stopping the original session">Attach tmux session&hellip;</button>
+        <button id="termNewOptionsEmpty" hidden onclick="termOpenSettings()">Choose available terminals in Settings…</button>
       </div>
 
 <div class="nb-toolbar-tooltip" id="nbToolbarTooltip" role="tooltip" hidden></div>
