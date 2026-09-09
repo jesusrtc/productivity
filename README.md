@@ -29,8 +29,6 @@ The naming hierarchy is **Vault → Workspace → Terminal**. See [Naming and co
 - `core/cli/` - installable `lab` CLI.
 - `core/` - FastAPI/WS backend, UI assets, and framework-owned CLI.
 - `apps/` - reserved for vault/client apps; framework code should not live here.
-- `docs/framework-migration-changelog.md` - changelog and migration guide for older Lab versions.
 - `docs/productivity-framework-proposal.md` - vault/framework split proposal and migration plan.
-- `docs/superpowers/` - older specs and plans.
 
 Generated runtime state belongs in the active vault under `.lab/state/`; global config is limited to `~/.lab/vaults.toml`.

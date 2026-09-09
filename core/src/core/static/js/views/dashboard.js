@@ -172,7 +172,7 @@ function onSyncContent(btn) {
 
 async function onNewWorkspace() {
   const values = await modal("New workspace", [
-    { name: "id", label: "Workspace id (e.g. davi-vision)", type: "text", required: true },
+    { name: "id", label: "Workspace id (e.g. charts-vision)", type: "text", required: true },
     { name: "description", label: "Description", type: "textarea" },
     { name: "priority", label: "Priority", type: "select", options: ["", "P0", "P1", "P2", "P3"], value: "" },
     { name: "due", label: "Due (YYYY-MM-DD, optional)", type: "text" },

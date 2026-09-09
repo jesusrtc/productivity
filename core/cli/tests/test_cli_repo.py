@@ -23,12 +23,12 @@ def test_repo_ls_empty(monorepo: Path) -> None:
 
 
 def test_repo_ls_with_fake_repo(monorepo: Path) -> None:
-    (monorepo / "repositories" / "lipy-davi" / ".git").mkdir(parents=True)
+    (monorepo / "repositories" / "sample-charts" / ".git").mkdir(parents=True)
     runner = CliRunner()
     result = runner.invoke(main, ["repo", "ls"])
     assert result.exit_code == 0
-    assert "lipy-davi" in result.output
-    assert "davi" in result.output  # the prefix
+    assert "sample-charts" in result.output
+    assert "charts" in result.output  # the prefix
 
 
 def test_repo_pull_errors_without_list_or_only(monorepo: Path) -> None:
@@ -129,3 +129,15 @@ def test_repo_prefix_sets_new(monorepo: Path, tmp_path, monkeypatch) -> None:
     result = runner.invoke(main, ["repo", "prefix", "myrepo", "my"])
     assert result.exit_code == 0
     assert mp_mod.load_prefixes() == {"myrepo": "my"}
+
+
+def test_repo_pull_missing_clone_requires_explicit_git_setup(monorepo, monkeypatch):
+    import subprocess
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("missing repository must not trigger an implicit clone")
+
+    monkeypatch.setattr(subprocess, "run", unexpected)
+    result = CliRunner().invoke(main, ["repo", "pull", "--only", "example"])
+    assert result.exit_code != 0
+    assert "git clone <url> repositories/example" in result.output

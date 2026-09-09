@@ -64,12 +64,12 @@ def test_list_tasks_filter_by_tag_and_label(client, seed_workspace) -> None:
     a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, tags=["review"]),
-        _task_entry(2, labels=["lipy-davi"]),
+        _task_entry(2, labels=["sample-charts"]),
         _task_entry(3),
     ])
     r = client.get("/api/tasks?tag=review")
     assert {t["task_id"] for t in r.json()} == {1}
-    r = client.get("/api/tasks?label=lipy-davi")
+    r = client.get("/api/tasks?label=sample-charts")
     assert {t["task_id"] for t in r.json()} == {2}
 
 

@@ -198,7 +198,7 @@ async function workspaceEntries() {
 async function markdownRoute() {
   const candidates = [
     '.agents/memory/MEMORY.md',
-    'docs/EXPECTATIONS.md',
+    'docs/NAMING.md',
     'README.md',
   ];
   for (const path of candidates) {

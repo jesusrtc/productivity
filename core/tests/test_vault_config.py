@@ -20,8 +20,8 @@ def _valid_doc() -> dict:
     """The illustrative configuration from docs/vault-architecture.md."""
     return {
         "version": 1,
-        "id": "trust-safety",
-        "name": "Trust & Safety",
+        "id": "example-vault",
+        "name": "Example vault",
         "agents": {
             "supported": ["claude", "codex", "copilot"],
             "default": "codex",
@@ -39,7 +39,7 @@ def _valid_doc() -> dict:
         },
         "notebooks": {
             "enabled": True,
-            "provider": "darwin",
+            "provider": "local",
             "kernels": ["python3", "pyspark"],
             "mounts": [{"source": "code", "target": "code"}],
         },
@@ -140,7 +140,7 @@ def test_valid_file_round_trips(tmp_path: Path) -> None:
     result = load_vault_config(tmp_path)
     assert result["present"] is True
     assert result["valid"] is True
-    assert result["config"]["id"] == "trust-safety"
+    assert result["config"]["id"] == "example-vault"
 
 
 def test_supported_agents_defaults_to_every_known_agent(tmp_path: Path) -> None:

@@ -336,7 +336,7 @@ truly diverged into a new topic, start a new file with a new date/slug.
 
 | Request | Slug | Final path |
 |---|---|---|
-| "draft a cleanup plan for test-davi-vision" | `folder-cleanup-plan` | `tmp/2026-05-13-folder-cleanup-plan.html` |
+| "draft a cleanup plan for test-charts-vision" | `folder-cleanup-plan` | `tmp/2026-05-13-folder-cleanup-plan.html` |
 | "investigate the reaction 4xx spike" | `reaction-4xx-investigation` | `tmp/2026-05-13-reaction-4xx-investigation.html` |
 | "compare ingest options A vs B" | `ingest-options-comparison` | `tmp/2026-05-13-ingest-options-comparison.html` |
 | "what's the migration plan for the auth middleware" | `auth-middleware-migration` | `tmp/2026-05-13-auth-middleware-migration.html` |

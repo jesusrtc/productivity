@@ -147,7 +147,7 @@ Lab loads only from the active vault:
 
 Workspace worktrees can be created from `repositories/<repo>` into `workspaces/<id>/worktrees/<repo>-<branch>/`. The source clone stays in `repositories/`; the workspace gets the task-specific working copy.
 
-Vault app commands should be exposed through generic Lab commands, for example `lab app list`, `lab app run <name> -- <args>`, and later `lab app up <name>` for long-running dashboards. Avoid adding domain-specific commands like `lab darwin ...` to core unless the behavior is broadly useful to every vault.
+Vault app commands should be exposed through generic Lab commands, for example `lab app list`, `lab app run <name> -- <args>`, and later `lab app up <name>` for long-running dashboards. Keep domain-specific commands in vault-owned apps.
 
 ## UI Switching
 

@@ -864,9 +864,9 @@
   body.light-mode .nb-cell-edit-highlight { color: var(--text-primary); }
   .nb-cell-pending .nb-cell-header { background: linear-gradient(180deg, var(--bg-secondary), var(--bg-tertiary)); }
   .nb-cell-pending .nb-type::after { content: " · draft"; color: var(--text-dim); font-weight: normal; }
-  /* nb-cell-running is the server-side placeholder while Darwin is
+  /* nb-cell-running is the server-side placeholder while Jupyter is
      executing. Distinct label so it's obvious whether the cell is a
-     client-side draft (DRAFT) or actually in flight on Darwin (RUNNING). */
+     client-side draft (DRAFT) or actually in flight on Jupyter (RUNNING). */
   .nb-cell-running .nb-cell-header { background: linear-gradient(180deg, rgba(88,166,255,0.12), rgba(88,166,255,0.04)); }
   .nb-cell-running .nb-type::after { content: " · running"; color: #58a6ff; font-weight: 600; letter-spacing: 0.5px; }
   .nb-cell-running .nb-exec { color: #58a6ff; }

@@ -590,7 +590,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
     # notebooks larger than 5 MB (e.g. Plotly-heavy notebooks easily clear
     # that), which left the sidebar dot dark for exactly the notebooks
     # users were most likely to want a "running" indicator on. The tracker
-    # naturally clears on server restart — the Darwin subprocess also dies
+    # naturally clears on server restart — the Jupyter subprocess also dies
     # then, so the two stay consistent.
     from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 

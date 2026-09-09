@@ -61,7 +61,7 @@ def test_build_index_preserves_workspace_metadata(monorepo: Path, seed_workspace
     pdir = seed_workspace("beta")
     data = json.loads((pdir / "workspace.json").read_text())
     data["tags"] = ["backend"]
-    data["labels"] = ["lipy-davi"]
+    data["labels"] = ["sample-charts"]
     data["priority"] = "P1"
     data["due"] = "2026-05-01"
     (pdir / "workspace.json").write_text(json.dumps(data))
@@ -69,7 +69,7 @@ def test_build_index_preserves_workspace_metadata(monorepo: Path, seed_workspace
     idx = build_index(monorepo)
     p = idx["workspaces"][0]
     assert p["tags"] == ["backend"]
-    assert p["labels"] == ["lipy-davi"]
+    assert p["labels"] == ["sample-charts"]
     assert p["priority"] == "P1"
     assert p["due"] == "2026-05-01"
     assert p["path"] == "workspaces/beta"
@@ -115,10 +115,10 @@ def test_build_index_includes_prs_and_counts(monorepo: Path, seed_workspace) -> 
     pdir = seed_workspace("gamma")
     data = json.loads((pdir / "workspace.json").read_text())
     data["prs"] = [
-        {"mp": "lipy-davi", "status": "open", "title": "Add retries", "url": "https://x/1"},
-        {"mp": "lipy-davi", "status": "merged", "title": "Old fix", "url": "https://x/2"},
-        {"mp": "lipy-davi", "status": "closed", "title": "Stale", "url": "https://x/3"},
-        {"mp": "lipy-davi", "status": "open", "title": "Second open", "url": "https://x/4"},
+        {"mp": "sample-charts", "status": "open", "title": "Add retries", "url": "https://x/1"},
+        {"mp": "sample-charts", "status": "merged", "title": "Old fix", "url": "https://x/2"},
+        {"mp": "sample-charts", "status": "closed", "title": "Stale", "url": "https://x/3"},
+        {"mp": "sample-charts", "status": "open", "title": "Second open", "url": "https://x/4"},
     ]
     (pdir / "workspace.json").write_text(json.dumps(data))
 

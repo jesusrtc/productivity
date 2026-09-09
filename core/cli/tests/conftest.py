@@ -67,3 +67,16 @@ def seed_workspace(monorepo: Path):
         (pdir / "tasks.json").write_text(json.dumps({"next_id": 1, "tasks": []}, indent=2))
         return pdir
     return _create
+
+
+@pytest.fixture(autouse=True)
+def _isolated_repository_prefixes(monkeypatch, tmp_path_factory):
+    """Examples belong to fixtures, never to the shipped repository defaults."""
+    from lab import mp
+    config = tmp_path_factory.mktemp("prefix-config") / "repo-prefixes.json"
+    config.write_text(json.dumps({
+        "sample-charts": "charts", "sample-rules": "rules",
+        "sample-service": "service", "sample-guides": "im",
+        "document-review": "documents",
+    }))
+    monkeypatch.setattr(mp, "_CONFIG_FILE", config)

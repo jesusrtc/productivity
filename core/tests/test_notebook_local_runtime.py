@@ -171,7 +171,7 @@ def test_runtime_api_saves_workspace_owned_config(client, monorepo: Path) -> Non
     rel, workspace = _workspace_with_cli(monorepo)
     before = client.get(f"/api/nb/runtime?path={rel}")
     assert before.status_code == 200
-    assert before.json()["status"] == "legacy"
+    assert before.json()["status"] == "unconfigured"
 
     response = client.put("/api/nb/runtime", json={"path": rel, "spec": _existing_spec()})
     assert response.status_code == 200, response.text

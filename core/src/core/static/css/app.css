@@ -412,7 +412,7 @@ table.tasks .done { color: #aaa; text-decoration: line-through; }
 
 .nb-cell-pending { border-style: dashed; border-color: #c8d2e6; background: #fbfcff; }
 /* Server-side RUNNING placeholder (the nb_exec endpoint wrote it while
-   Darwin is executing). Distinct from .nb-cell-pending (client draft) —
+   Jupyter is executing). Distinct from .nb-cell-pending (client draft) —
    solid blue border, breathing glow that persists for the full duration
    of the run so the user always knows which cell is executing. */
 .nb-cell-running {

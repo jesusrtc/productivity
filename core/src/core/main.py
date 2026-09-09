@@ -372,7 +372,7 @@ async def _proxy_referer_rewrite(request: Request, call_next):
     m = _PROXY_REFERER_RE.match(referer)
     if not m:
         return await call_next(request)
-    mount = m.group(1)  # e.g. "/api/proxy/asta-gofundme-revamp/8080"
+    mount = m.group(1)  # e.g. "/api/proxy/sample-dashboard/8080"
     new_path = mount + path
     # Mutate the ASGI scope so downstream route matching sees the
     # rewritten path. `raw_path` is the bytes version used by Starlette

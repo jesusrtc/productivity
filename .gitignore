@@ -54,11 +54,5 @@ workspaces/*/.claude/settings.local.json
 # Centralized server + client error logs
 logs/
 
-# Trustim skill symlinks — recreated by `lab repo refresh-skills` on
-# every `lab repo pull`. They use absolute paths into
-# `repositories/trustim-investigation/skills/` so they're machine-
-# specific and don't belong in the tree.
-.claude/skills/investigation-*
-
 # Existing vaults may retain their pre-rename workspace directory.
 projects/

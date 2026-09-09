@@ -1,6 +1,6 @@
 # lab
 
-Unified CLI for the productivity monorepo. See `../../docs/superpowers/specs/2026-04-16-productivity-monorepo-design.md` for the design.
+CLI for Lab vaults, workspaces, tasks, and the local server. See `../../docs/NAMING.md` for the entity model.
 
 ## Dev
 

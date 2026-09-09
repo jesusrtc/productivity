@@ -1,5 +1,7 @@
 # Memory index
 
+- [Keep client-specific work out of Lab](framework-keeps-client-domain-out.md) — framework code, defaults, skills, docs, and examples stay general-purpose; notebooks require a configured local runtime.
+
 - [Markdown Mermaid rendering](markdown-mermaid-rendering.md) — file views render fenced Mermaid after mounting; marked alone only emits source
 
 - [Lab UI runs as installed Chrome PWA](lab-ui-runs-as-installed-chrome-pwa.md) — same-origin `window.open` is frameless (no URL bar); prefer cross-origin/direct URLs for pop-outs

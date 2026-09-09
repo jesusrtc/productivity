@@ -78,13 +78,13 @@ def test_find_monorepo_root_raises_when_not_in_repo(tmp_path: Path, monkeypatch:
 
 
 def test_workspace_dir_composes_path(monorepo: Path) -> None:
-    assert workspace_dir(monorepo, "davi-vision") == monorepo / "workspaces" / "davi-vision"
+    assert workspace_dir(monorepo, "charts-vision") == monorepo / "workspaces" / "charts-vision"
 
 
 def test_workspace_file_and_tasks_file(monorepo: Path) -> None:
-    pdir = monorepo / "workspaces" / "davi-vision"
-    assert workspace_file(monorepo, "davi-vision") == pdir / "workspace.json"
-    assert tasks_file(monorepo, "davi-vision") == pdir / "tasks.json"
+    pdir = monorepo / "workspaces" / "charts-vision"
+    assert workspace_file(monorepo, "charts-vision") == pdir / "workspace.json"
+    assert tasks_file(monorepo, "charts-vision") == pdir / "tasks.json"
 
 
 from lab.paths import WorkspaceNotFound, find_workspace_id_from_pwd

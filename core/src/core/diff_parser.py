@@ -459,7 +459,7 @@ def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
         # Legacy schema: repos = [<abs-path>, ...] (flat list of paths)
         #
         # ``dir`` from `lab workspace add` is the worktree's *basename* (e.g.
-        # "im-test-davi-vision"), meant to be relative to this workspace's
+        # "im-test-charts-vision"), meant to be relative to this workspace's
         # folder. We try that first, then fall back to monorepo-root for
         # older entries that stored a full "workspaces/…/…" path.
         repos: list[str] = []

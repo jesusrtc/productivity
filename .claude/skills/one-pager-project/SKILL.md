@@ -20,11 +20,6 @@ publish to Google Docs.** Local file only.
 
 - Audience is leadership / cross-fn / partner teams, goal is agreement
   on direction → **this skill**.
-- Audience is code reviewers / TRex iteration owners, goal is rule
-  design → `one-pager-asta`.
-- Audience is incident responders / engineers / leadership reading an
-  incident summary → `one-pager-investigation`.
-
 RFCs currently go through this skill. If RFCs need a separate format
 later, a dedicated `one-pager-rfc` skill can be split out.
 
@@ -79,9 +74,7 @@ Open Questions (optional)
 - **Short paragraphs (2–3 sentences max).** Bullets for requirements and
   lists.
 - **No code, schemas, regexes, or technical deep-dives.** If the reader
-  needs implementation detail, this is the wrong skill — use
-  `one-pager-asta` (for rules) or write a technical design doc
-  separately.
+  needs implementation detail, write a separate technical design doc.
 - **Plain text. No markdown headers / bold / tables.** Use simple
   structure: header lines without `#`, bullets as `- `. The output
   should read as well in a Slack paste as in a doc.

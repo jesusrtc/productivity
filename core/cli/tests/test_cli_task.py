@@ -73,14 +73,14 @@ def test_task_new_full_fields(monorepo: Path, seed_workspace) -> None:
     result = runner.invoke(main, [
         "task", "new", "Review", "--workspace", "alpha",
         "--priority", "P1", "--loe", "0.5", "--due", "2026-04-20",
-        "--tags", "review,meet", "--labels", "lipy-davi",
+        "--tags", "review,meet", "--labels", "sample-charts",
     ])
     assert result.exit_code == 0, result.output
     t = json.loads((monorepo / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["loe"] == 0.5
     assert t["due"] == "2026-04-20"
     assert t["tags"] == ["review", "meet"]
-    assert t["labels"] == ["lipy-davi"]
+    assert t["labels"] == ["sample-charts"]
 
 
 def test_task_new_next_id_increments(monorepo: Path, seed_workspace) -> None:
@@ -249,9 +249,9 @@ def test_task_ls_filter_by_tag(monorepo: Path, seed_workspace) -> None:
 def test_task_ls_filter_by_label(monorepo: Path, seed_workspace) -> None:
     seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "labeled", "--workspace", "alpha", "--priority", "P2", "--labels", "lipy-davi"])
+    runner.invoke(main, ["task", "new", "labeled", "--workspace", "alpha", "--priority", "P2", "--labels", "sample-charts"])
     runner.invoke(main, ["task", "new", "other", "--workspace", "alpha", "--priority", "P2"])
-    result = runner.invoke(main, ["task", "ls", "--label", "lipy-davi"])
+    result = runner.invoke(main, ["task", "ls", "--label", "sample-charts"])
     assert result.exit_code == 0
     assert "labeled" in result.output
     assert "other" not in result.output

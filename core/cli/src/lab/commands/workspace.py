@@ -131,23 +131,6 @@ def _parse_until_to_iso(spec: str) -> str:
     return dt.isoformat(timespec="seconds")
 
 
-def _ensure_mp_cloned(root: Path, mp: str) -> None:
-    """Best-effort clone of a single MP via `mint clone`. Silent on success,
-    verbose-ish on failure (the caller re-checks and raises if missing)."""
-    mp_root = root / "repositories"
-    mp_root.mkdir(exist_ok=True)
-    dest = mp_root / mp
-    if dest.is_dir() and (dest / ".git").exists():
-        return
-    proc = subprocess.run(
-        ["mint", "clone", mp],
-        cwd=str(mp_root), capture_output=True, text=True,
-    )
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout).strip().splitlines()[-3:]
-        click.echo(f"  (mint clone failed: {' | '.join(tail)})")
-
-
 _WORKSPACE_SETTABLE = {
     "description", "status", "priority", "due", "loe", "tags", "labels", "name",
     "agent", "model",
@@ -556,17 +539,11 @@ def add(workspace_id: str, mp: str, branch: str | None) -> None:
         raise click.ClickException(f"workspace {pid!r} not found")
 
     mp_dir = root / "repositories" / mp
-    # Missing MP clone? Try to bootstrap from repositories.list before
-    # bailing out. This makes `lab workspace add` Just Work for a fresh repo
-    # checkout — no "oh you forgot to run pull-repos" surprise.
     if not mp_dir.is_dir() or not (mp_dir / ".git").exists():
-        click.echo(f"repositories/{mp} not found — pulling first…")
-        _ensure_mp_cloned(root, mp)
-        if not mp_dir.is_dir() or not (mp_dir / ".git").exists():
-            raise click.ClickException(
-                f"MP {mp!r} still not at repositories/{mp} — check `repositories.list` "
-                f"and your mint auth, then try `lab repo pull --only {mp}` directly"
-            )
+        raise click.ClickException(
+            f"repository {mp!r} not found at {mp_dir}; "
+            f"clone it first with `git clone <url> repositories/{mp}`"
+        )
 
     prefix = mp_mod.prefix_for(mp)
     if not prefix:

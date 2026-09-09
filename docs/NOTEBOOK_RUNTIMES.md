@@ -171,4 +171,4 @@ The event phases are `started`, `execution-count`, `output`, `finished`,
 `interrupted`, and `failed`; nonterminal deltas carry the run sequence and
 stable cell id.
 
-Workspaces without `runtime.json` continue to use the existing Darwin provider.
+Workspaces without `runtime.json` can view notebooks. Configure and build a local runtime before executing cells.

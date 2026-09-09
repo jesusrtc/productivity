@@ -26,7 +26,7 @@ def prefix_for(mp: str) -> str | None:
 def objective_from(workspace_id: str) -> str:
     """Extract the objective portion of a workspace id by stripping any known prefix."""
     prefixes = load_prefixes()
-    # Longest-match first so `drools` wins over `d`
+    # Longest-match first so `rules` wins over `r`
     for mp, pfx in sorted(prefixes.items(), key=lambda kv: -len(kv[1])):
         if workspace_id == pfx:
             return workspace_id

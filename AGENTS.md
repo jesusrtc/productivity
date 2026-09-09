@@ -16,13 +16,10 @@ Use `lab`. Run `lab --help` for commands. Never hand-edit `workspace.json`, `tas
 - `scripts/` — framework helper scripts.
 - `.claude/agents/` — shared framework agents.
 
-## Darwin / notebooks
-
-`apps/darwin-runner` and `lab darwin` are **retired** (2026-05-11). For anything that touches Darwin — running Python/PySpark on a Jupyter kernel, Trino/Spark SQL, notebook runs, schedules, pod shell, DataApp, dbt — use the **`darwin-cli` Claude skill**. The on-disk command is `darwin` (LinkedIn's hosted notebook CLI / `go/darwin`). The full command index and examples live in `docs/DARWIN.md`; the authoritative reference is the skill at `~/.claude/skills/darwin-cli/`.
+## Notebooks
 
 **When the user wants a notebook run to show up live in the Lab UI**, do NOT
-hand-edit the `.ipynb` and launch Jupyter/ipykernel, and do not call
-`darwin code execute` directly. Use Lab's notebook executor so the cell appears
+bypass Lab with direct kernel execution. Use Lab's notebook executor so the cell appears
 as soon as it starts and its timer and outputs stream to every open view:
 
 ```bash
@@ -48,11 +45,12 @@ commands in this file must be `make` commands.
 
 ## On sending an update
 
-When the user (typically inside a `workspaces/<id>/`) asks to "send an update", "send a summary", or similar, write a markdown summary of what's been done to `content/updates/<yyyy-mm-dd>-summary.md` using today's date. One flat folder — no `linkedin/`, `personal/`, or other subdirectory split. If a file for today already exists, append a new section to it rather than overwriting. The folder is a user-curated knowledge artifact; we write the file, the user populates and consumes it.
+When the user (typically inside a `workspaces/<id>/`) asks to "send an update", "send a summary", or similar, write a markdown summary of what's been done to `content/updates/<yyyy-mm-dd>-summary.md` using today's date. Use one flat folder. If a file for today already exists, append a new section to it rather than overwriting. The folder is a user-curated knowledge artifact; we write the file, the user populates and consumes it.
 
-## Archetypes (no types)
+## Workspace conventions
 
-Workspaces are not labeled by archetype. If asked to investigate, draft from `content/skills/investigation/` (once it exists). For a one-pager, use `content/skills/one-pager/`. Pick based on the ask.
+Use the conventions and skills provided by the selected vault. Framework
+instructions do not prescribe a domain-specific workflow.
 
 
 ## Memory (repo-local — read at session start)

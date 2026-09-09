@@ -2,14 +2,13 @@
 
 This is the single execution/write path the UI and agents both use:
 
-    POST /api/nb/exec   { "path": "...rel.ipynb", "code": "...", "kernel": "python3" }
+    POST /api/nb/exec   { "path": "...rel.ipynb", "code": "..." }
 
 The endpoint:
 
 1. Validates that ``path`` is a vault-relative notebook path.
 2. Writes the created/modified cell with actor identity and a running marker.
-3. Executes on the configured local Jupyter kernel, or the legacy Darwin
-   provider when a workspace runtime has not been configured.
+3. Executes on the configured local Jupyter kernel.
 4. Streams ordered execution-count, text, rich-display, display-update, clear,
    error, and terminal events to every open Lab view.
 5. Atomically checkpoints partial output for restart recovery, then replaces the
@@ -21,13 +20,9 @@ in-memory replay snapshot to browsers that open or reconnect during a run.
 from __future__ import annotations
 
 import asyncio
-import base64
 import copy
-import hashlib
 import json
 import os
-import shlex
-import subprocess
 import tempfile
 import threading
 import time
@@ -44,7 +39,6 @@ from core.notebook_runtime import (
     RuntimeBuildError,
     RuntimeConfigError,
     active_runtime,
-    load_runtime_spec,
 )
 from core.state import NotebookExecutionEvent
 
@@ -68,23 +62,6 @@ def _safe_resolve(root: Path, rel: str) -> Path:
     if rroot not in target.parents and target != rroot:
         raise HTTPException(status_code=400, detail="path escapes monorepo")
     return target
-
-
-# ── Session naming ───────────────────────────────────────────────────────────
-# A deterministic 12-char hex digest of the relative path keeps the kernel
-# pinned to the file: same path → same Darwin session → same kernel state.
-
-def _session_for(rel_path: str) -> str:
-    digest = hashlib.sha1(rel_path.encode("utf-8")).hexdigest()[:12]
-    return f"lab-{digest}"
-
-
-def _configured_local(root: Path, rel_path: str) -> bool:
-    try:
-        spec = load_runtime_spec(root, rel_path)
-    except RuntimeConfigError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return spec is not None and spec.mode == "local"
 
 
 def _required_local_handle(root: Path, rel_path: str):
@@ -116,91 +93,13 @@ def _lock_for(target: Path) -> threading.Lock:
     return lock
 
 
-# ── content/code → Darwin sync ───────────────────────────────────────────────
-# Local `content/code/` is treated as a Python package the Darwin kernel can
-# import. On the first /api/nb/exec call per session we:
-#   1. install lipy-davi (best-effort), and
-#   2. prepend ~ to sys.path (parent of the `code` package)
-# so cells can do `from code.hello import greet` with no preamble. Edits to
-# files under content/code are diffed by mtime on each exec call, written
-# directly to the pod's filesystem at `~/code/...` via `darwin pod shell`,
-# and the corresponding modules are `importlib.reload()`-ed so cells pick
-# up new behavior without a kernel restart.
-#
-# We deliberately use `darwin pod shell` (writes to the kernel filesystem)
-# instead of `darwin file upload` (writes to the Jupyter Contents API
-# namespace, which the kernel cannot read from). They are separate stores
-# on Darwin pods.
-#
-# None of this runs when `content/code/` does not exist locally — existing
-# notebooks are unaffected.
-
-_CODE_REL = "content/code"
-_POD_CODE_DIR = "/home/jovyan/code"
-
-_bootstrapped: set[str] = set()
-_bootstrap_guard = threading.Lock()
-
-_mtime_cache: dict[str, float] = {}
-_mtime_guard = threading.Lock()
-
-
-def _code_dir(root: Path) -> Path:
-    return root / _CODE_REL
-
-
-def _list_code_files(root: Path) -> list[Path]:
-    code_dir = _code_dir(root)
-    if not code_dir.is_dir():
-        return []
-    return sorted(p for p in code_dir.rglob("*.py") if p.is_file())
-
-
-def _pod_dest_for(local: Path, code_dir: Path) -> str:
-    rel = local.relative_to(code_dir).as_posix()
-    return f"{_POD_CODE_DIR}/{rel}"
-
-
-def _module_for(local: Path, code_dir: Path) -> str | None:
-    """Map a local .py file to the dotted module name a cell would import.
-
-    ``content/code/hello.py``         → ``code.hello``
-    ``content/code/sub/util.py``      → ``code.sub.util``
-    ``content/code/__init__.py``      → ``code`` (the package itself)
-    ``content/code/sub/__init__.py``  → ``code.sub``
-    """
-    rel = local.relative_to(code_dir).with_suffix("")
-    parts = ["code"] + [p for p in rel.parts if p != "__init__"]
-    if not parts:
-        return None
-    return ".".join(parts)
-
-
-def _bootstrap_needed(session: str) -> bool:
-    with _bootstrap_guard:
-        if session in _bootstrapped:
-            return False
-        _bootstrapped.add(session)
-        return True
-
-
-def _bootstrap_unmark(session: str) -> None:
-    """Forget a session's bootstrap status so the next call retries.
-
-    Used when bootstrap exec itself failed — a transient Darwin error
-    shouldn't permanently lock out a session.
-    """
-    with _bootstrap_guard:
-        _bootstrapped.discard(session)
-
-
 # ── In-memory pending tracker ────────────────────────────────────────────────
 # The sidebar polls /api/workspace-files to decide which notebooks should show
 # a green "running" dot. We used to detect that by substring-scanning each
 # .ipynb on disk for `"lab_pending": true`, but Plotly-heavy notebooks easily
 # exceed any cheap size cap. Track the set of in-flight runs in memory: it's
 # O(1), survives no file races, and naturally clears on server restart (the
-# Darwin subprocess also dies on restart, so consistent).
+# Jupyter subprocess also dies on restart, so consistent).
 
 _pending_paths: dict[str, int] = {}
 _pending_guard = threading.Lock()
@@ -416,275 +315,6 @@ async def _publish_notebook_event(request: Request, payload: dict[str, Any]) -> 
     await request.app.state.ws_broadcaster.publish(NotebookExecutionEvent(payload))
 
 
-# ── Darwin invocation ────────────────────────────────────────────────────────
-
-class _DarwinError(Exception):
-    """Raised when the darwin CLI itself fails (auth, pod, missing binary)."""
-
-    def __init__(self, status_code: int, detail: str) -> None:
-        super().__init__(detail)
-        self.status_code = status_code
-        self.detail = detail
-
-
-async def _darwin_exec(
-    code: str, *, session: str, kernel: str | None, timeout: int
-) -> dict[str, Any]:
-    """Run ``darwin code execute`` and return the parsed JSON envelope.
-
-    Code is passed via a temp file (``--file``) so we never have to worry about
-    shell quoting for multi-line snippets, embedded quotes, or backslashes.
-
-    The subprocess runs in a thread (``asyncio.to_thread``) so a slow darwin
-    call — most notably the multi-minute wait when the kernel is dead — does
-    not block the FastAPI event loop. Without this, an unresponsive kernel
-    would stall every other request (including ``GET /``).
-    """
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as f:
-        f.write(code)
-        tmp = f.name
-    try:
-        cmd = ["darwin", "code", "execute", "--file", tmp, "--session", session]
-        if kernel:
-            cmd += ["--kernel", kernel]
-        if timeout:
-            cmd += ["--timeout", str(timeout)]
-        try:
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd, capture_output=True, text=True, timeout=timeout + 30,
-            )
-        except FileNotFoundError as exc:
-            raise _DarwinError(
-                503, "`darwin` CLI not found on PATH — install the darwin-cli plugin"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            raise _DarwinError(504, f"darwin timed out after {exc.timeout}s") from exc
-
-        if proc.returncode == 0:
-            try:
-                return json.loads(proc.stdout)
-            except json.JSONDecodeError as exc:
-                raise _DarwinError(
-                    502,
-                    "darwin returned non-JSON output (stdout: "
-                    + proc.stdout[:300] + ")",
-                ) from exc
-
-        # Exit 6 = KernelExecutionError — the kernel raised before finishing
-        # the cell (unimported magic, syntax error, etc.). Darwin emits a
-        # structured JSON envelope on stdout. Surface it as an nbformat
-        # 'error' output so the cell renders the failure inline (same big
-        # red block as a normal Python exception) instead of bubbling a
-        # 500 the user has to dig out of devtools.
-        if proc.returncode == 6:
-            try:
-                payload = json.loads(proc.stdout)
-            except json.JSONDecodeError:
-                payload = {
-                    "error": "KernelExecutionError",
-                    "message": (proc.stdout or proc.stderr or "")[:500],
-                }
-            ename = payload.get("error", "KernelExecutionError")
-            evalue = payload.get("message", "")
-            recovery = payload.get("recovery", "")
-            tb = [evalue] + ([recovery] if recovery else [])
-            return {
-                "output": "",
-                "kernel_id": None,
-                "execution_count": None,
-                "cell_outputs": [{
-                    "output_type": "error",
-                    "ename": ename,
-                    "evalue": evalue,
-                    "traceback": tb,
-                }],
-            }
-
-        # Map a few well-known exit codes to actionable messages. The CLI
-        # documents these in its skill; we lean on them so the UI can show
-        # something useful instead of "exit 2".
-        err_tail = (proc.stderr or proc.stdout or "")[-500:]
-        if proc.returncode == 2:
-            raise _DarwinError(401, "darwin auth expired — run `darwin auth setup`")
-        if proc.returncode == 5:
-            raise _DarwinError(503, "darwin pod not ready (cold start can take 2 min)")
-        if proc.returncode == 7:
-            raise _DarwinError(
-                503, "darwin kernel connection lost — run `darwin session clear`"
-            )
-        raise _DarwinError(
-            500, f"darwin failed (exit {proc.returncode}): {err_tail.strip()}"
-        )
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-
-
-# ── Bootstrap / push / reload helpers (content/code → pod) ───────────────────
-# Each helper runs hidden — its output never makes it into the user's
-# notebook cell. They share the same `--session` as the user's exec, so
-# sys.path and module-import state persist across calls on the same
-# kernel. Failures in push/bootstrap surface as _DarwinError so the
-# pending-cell error path in exec_cell handles them uniformly. Reload is
-# best-effort: if it fails the cell still runs (it'll just see stale
-# module state, which is no worse than not having the feature at all).
-
-_BOOTSTRAP_CODE = (
-    "import sys, pathlib, subprocess\n"
-    # sys.path points at the *parent* of the `code` package on the pod
-    # (Path.home(), since files are uploaded to {user}/code/... which
-    # resolves to /home/jovyan/{user}/code/...). Pointing at the
-    # package itself would make `import code` fall through to the
-    # stdlib `code` module — which exists, isn't a package, and breaks
-    # `from code.X import Y`.
-    "_parent = str(pathlib.Path.home())\n"
-    "if _parent not in sys.path:\n"
-    "    sys.path.insert(0, _parent)\n"
-    # Defensive: if anything imported the stdlib `code` module before
-    # the bootstrap ran, evict it so our package wins on the next
-    # import. Stdlib `code` has no __path__; our package does.
-    "_m = sys.modules.get('code')\n"
-    "if _m is not None and not hasattr(_m, '__path__'):\n"
-    "    del sys.modules['code']\n"
-    "try:\n"
-    "    import davi  # noqa: F401\n"
-    "except Exception:\n"
-    "    subprocess.run(\n"
-    "        [sys.executable, '-m', 'pip', 'install', '-q', 'lipy-davi'],\n"
-    "        check=False,\n"
-    "    )\n"
-)
-
-
-async def _exec_bootstrap(session: str, kernel: str | None) -> None:
-    """Run the one-shot setup on this kernel session.
-
-    Idempotent: re-running is harmless (sys.path check is a no-op,
-    lipy-davi install short-circuits when already present).
-    """
-    # Cold-pod + first-time `pip install lipy-davi` can easily take 5+ min;
-    # the bootstrap timeout has to absorb that or the user sees a useless
-    # "darwin timed out after 210s" on their first cell.
-    await _darwin_exec(
-        _BOOTSTRAP_CODE, session=session, kernel=kernel, timeout=900
-    )
-
-
-async def _push_code(root: Path) -> list[str]:
-    """Write any new/modified files under content/code/ to the pod's kernel
-    filesystem at ``/home/jovyan/code/``.
-
-    Returns the list of dotted module names that were re-uploaded — the
-    caller uses this to drive a hidden ``importlib.reload`` so cells
-    pick up the new code without a kernel restart.
-
-    On the first call for a process the mtime cache is empty, so every
-    file looks "new" and gets written once. Subsequent calls only push
-    files whose local mtime advanced since the last successful write.
-
-    Files are streamed via ``darwin pod shell`` + base64 to avoid shell
-    escaping pitfalls and to bypass the Jupyter Contents API (which is
-    a separate namespace from the kernel's filesystem on Darwin pods).
-    """
-    code_dir = _code_dir(root)
-    if not code_dir.is_dir():
-        return []
-    pushed_modules: list[str] = []
-    for local in _list_code_files(root):
-        key = str(local.resolve())
-        try:
-            mtime = local.stat().st_mtime
-            content = local.read_bytes()
-        except OSError:
-            continue
-        with _mtime_guard:
-            prev = _mtime_cache.get(key)
-        if prev is not None and mtime <= prev:
-            continue
-        dest = _pod_dest_for(local, code_dir)
-        parent = os.path.dirname(dest) or "/"
-        b64 = base64.b64encode(content).decode("ascii")
-        # echo … | base64 -d > dest. `mkdir -p` makes nested packages
-        # land in the right place. shlex-quote both the directory and the
-        # base64 blob so weird path chars + the `=` padding in base64 are
-        # passed literally.
-        bash = (
-            f"mkdir -p {shlex.quote(parent)} && "
-            f"printf '%s' {shlex.quote(b64)} | base64 -d > {shlex.quote(dest)}"
-        )
-        cmd = ["darwin", "pod", "shell", bash, "--timeout", "60"]
-        try:
-            proc = await asyncio.to_thread(
-                subprocess.run, cmd, capture_output=True, text=True, timeout=90,
-            )
-        except FileNotFoundError as exc:
-            raise _DarwinError(
-                503, "`darwin` CLI not found on PATH — install the darwin-cli plugin"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            raise _DarwinError(504, f"darwin pod shell timed out writing {dest}") from exc
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "")[-300:].strip()
-            raise _DarwinError(
-                502,
-                f"darwin pod shell failed writing {dest} (exit {proc.returncode}): {tail}",
-            )
-        with _mtime_guard:
-            _mtime_cache[key] = mtime
-        mod = _module_for(local, code_dir)
-        if mod:
-            pushed_modules.append(mod)
-    return pushed_modules
-
-
-async def _exec_reload(modules: list[str], session: str, kernel: str | None) -> None:
-    """Refresh the kernel's view of just-written modules. Best-effort.
-
-    Two things have to happen so the next ``from code.X import ...`` sees
-    fresh code:
-
-    1. ``importlib.invalidate_caches()`` — Python's path-based finder
-       caches per-directory listings the first time it scans them. A
-       file we just wrote with ``darwin pod shell`` won't be visible to
-       a subsequent import without this call.
-    2. If the module was already loaded, ``importlib.reload`` it so
-       references to the old code don't linger. On a write that adds a
-       new file (module not yet in ``sys.modules``), this step is a
-       no-op — invalidate_caches alone is sufficient.
-
-    Parents are processed before children so that, e.g., ``code``
-    reloads before ``code.hello``.
-
-    Silent on failure: if the reload exec errors, the next ``from code.X
-    import Y`` will still pick up new code thanks to invalidate_caches
-    on the next call. Not worth surfacing a non-fatal hiccup.
-    """
-    if not modules:
-        return
-    ordered = sorted(set(modules), key=lambda m: (m.count("."), m))
-    lines = [
-        "import importlib, sys",
-        "importlib.invalidate_caches()",
-    ]
-    for m in ordered:
-        lines.append(
-            f"if {m!r} in sys.modules:\n"
-            f"    try: importlib.reload(sys.modules[{m!r}])\n"
-            f"    except Exception: sys.modules.pop({m!r}, None)"
-        )
-    try:
-        await _darwin_exec(
-            "\n".join(lines), session=session, kernel=kernel, timeout=60
-        )
-    except _DarwinError:
-        pass
-
-
-# ── .ipynb read/append ───────────────────────────────────────────────────────
-
 def _empty_notebook() -> dict[str, Any]:
     return {
         "nbformat": 4,
@@ -692,7 +322,7 @@ def _empty_notebook() -> dict[str, Any]:
         "metadata": {
             "kernelspec": {
                 "name": "python3",
-                "display_name": "Python 3 (Darwin)",
+                "display_name": "Python 3",
                 "language": "python",
             },
             "language_info": {"name": "python"},
@@ -806,20 +436,14 @@ def _write_pending_cell(
     cell_index: int | None = None,
     insert_at: int | None = None,
     provider_label: str = "kernel",
-    provider: str = "darwin",
+    provider: str = "local",
     actor: str = "agent",
 ) -> tuple[int, str, str, float] | None:
-    """Write a "running" placeholder cell to disk BEFORE shelling out to
-    darwin.
+    """Write a running placeholder before executing in the notebook kernel.
 
-    Why: the darwin CLI call is synchronous and can take minutes for a
-    Trino query. Without this placeholder the .ipynb file doesn't change
-    until darwin returns, so the UI shows no feedback at all during the
-    run — the user can't even tell which cell is executing. By writing a
-    minimal placeholder first, the file watcher broadcasts the change
-    immediately and the open notebook view paints the new cell with the
-    ⏳ marker. When darwin returns we replace this same cell with the
-    real outputs.
+    The file watcher broadcasts this cell immediately so every open view
+    shows the run while the kernel is busy. Its final outputs replace the
+    placeholder when execution completes.
 
     Mode handling matches ``_write_code_cell`` (append / replace /
     insert). Returns the placeholder's index, or ``None`` if the
@@ -896,8 +520,7 @@ def _mark_pending_failed(
 ) -> None:
     """Convert the pending placeholder at ``idx`` into an error cell.
 
-    Called when darwin itself fails (auth expired, pod cold-starting,
-    CLI missing) — we'd otherwise leave a ⏳ cell hanging forever. The
+    Called when the configured kernel fails to start or respond — we'd otherwise leave a ⏳ cell hanging forever. The
     write triggers the watcher again so the UI sees the error promptly.
     """
     nb = _load_or_empty(target)
@@ -1038,12 +661,8 @@ def _replace_pending_cell(
 
 class ExecBody(BaseModel):
     path: str = Field(..., description="Notebook path relative to the monorepo root")
-    code: str = Field(..., description="Code to execute on the Darwin kernel")
-    kernel: str | None = Field(
-        default=None,
-        description="Darwin kernel type (python3, pyspark, spark-scala, r, python3-gpu)",
-    )
-    # No upper bound — long-running analytical queries (multi-stage Trino
+    code: str = Field(..., description="Code to execute on the configured Jupyter kernel")
+    # No upper bound — long-running analytical queries (multi-stage data
     # joins, full-window dashboards) can legitimately need 10+ minutes.
     # Default is 30 minutes so the common case works without explicit override.
     timeout: int = Field(default=1800, ge=1)
@@ -1077,20 +696,13 @@ def session_for(path: str, request: Request) -> dict:
     """Return the provider/session pinned to this notebook path."""
     root = auth.request_root(request)
     _safe_resolve(root, path)  # validate only
-    if _configured_local(root, path):
-        from core.notebook_kernel import session_name
+    from core.notebook_kernel import session_name
 
-        return {
-            "path": path,
-            "session": session_name(root, path),
-            "provider": "local",
-            "capabilities": ["execute", "restart", "interrupt"],
-        }
     return {
         "path": path,
-        "session": _session_for(path),
-        "provider": "darwin",
-        "capabilities": ["execute", "restart"],
+        "session": session_name(root, path),
+        "provider": "local",
+        "capabilities": ["execute", "restart", "interrupt"],
     }
 
 
@@ -1131,32 +743,28 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
       1. Write a ⏳ "running" placeholder cell at the target index. The
          file watcher broadcasts this write, and any open notebook view
          re-renders with the new pending cell within ~100 ms.
-      2. Execute in the configured local Jupyter runtime (or legacy Darwin),
+      2. Execute in the configured local Jupyter runtime,
          streaming accepted IOPub events over the shared WebSocket.
       3. Replace the placeholder cell with the kernel's final outputs. Same
          watcher broadcast → UI re-renders with the final result.
 
-    If the provider itself fails (runtime broken, auth expired, CLI missing),
+    If the runtime itself fails (broken environment or unavailable kernel),
     the placeholder is converted in place to an error cell so the user
     isn't left staring at a frozen ⏳.
 
     Always returns 200 with the new cell on success — even if the cell
     itself raised (Jupyter reports that as an ``error`` output, which
     still belongs in the notebook). The endpoint only 4xx/5xx's when the
-    darwin CLI cannot run.
+    configured kernel cannot run.
     """
     root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
     vault = auth.vault_id_for_root(root) or ""
-    local_handle = _required_local_handle(root, body.path) if _configured_local(root, body.path) else None
-    if local_handle is not None:
-        from core.notebook_kernel import session_name
+    local_handle = _required_local_handle(root, body.path)
+    from core.notebook_kernel import session_name
 
-        session = session_name(root, body.path)
-        provider = "local"
-    else:
-        session = _session_for(body.path)
-        provider = "darwin"
+    session = session_name(root, body.path)
+    provider = "local"
     if body.cell_index is not None and body.insert_at is not None:
         raise HTTPException(
             status_code=400,
@@ -1179,9 +787,9 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
 
     # Phase 1: write the pending placeholder so the UI sees a running
     # cell immediately. Pick the exec_count now so the placeholder shows
-    # the right [n] gutter; we'll overwrite later with Darwin's actual
+    # the right [n] gutter; we'll overwrite later with Jupyter's actual
     # count if it differs.
-    provider_label = "workspace kernel" if provider == "local" else "Darwin"
+    provider_label = "workspace kernel"
     # Count in-flight requests rather than keeping a boolean: queued cells in
     # the same notebook must keep the path marked active when an earlier cell
     # completes.
@@ -1204,7 +812,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
         raise
     if pending_result is None:
         # cell_index/insert_at was out of range — surface a 404 the same
-        # way the post-darwin path would. Doing this AFTER releasing the
+        # way the post-kernel path would. Doing this AFTER releasing the
         # lock avoids HTTPException unwinding through the lock.
         nb = _load_or_empty(target)
         cells = nb.get("cells", [])
@@ -1237,7 +845,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     )
     await _publish_notebook_event(request, {"phase": "started", **live_started})
 
-    # Phase 2: run darwin (slow). If it errors, mark the placeholder as
+    # Phase 2: run kernel (slow). If it errors, mark the placeholder as
     # failed so the UI shows the error instead of a stuck ⏳ cell.
     # Mark this path as "currently running" so the sidebar can show the
     # green pulse dot. Cleared in every exit path below.
@@ -1278,43 +886,16 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
         await _publish_notebook_event(request, payload)
 
     try:
-        if local_handle is not None:
-            from core.notebook_kernel import execute as execute_local
+        from core.notebook_kernel import execute as execute_local
 
-            result = await execute_local(
-                root,
-                body.path,
-                local_handle,
-                body.code,
-                body.timeout,
-                on_event=on_kernel_event,
-            )
-        else:
-            # Darwin-only compatibility bootstrap. Local runtimes expose
-            # workspace libraries directly through their configured Python/PATH.
-            if _code_dir(root).is_dir():
-                if _bootstrap_needed(session):
-                    try:
-                        await _exec_bootstrap(session, body.kernel)
-                    except _DarwinError:
-                        _bootstrap_unmark(session)
-                        raise
-                pushed_modules = await _push_code(root)
-                if pushed_modules:
-                    await _exec_reload(pushed_modules, session, body.kernel)
-
-            result = await _darwin_exec(
-                body.code, session=session, kernel=body.kernel, timeout=body.timeout
-            )
-    except _DarwinError as exc:
-        with _lock_for(target):
-            _mark_pending_failed(
-                target, pending_idx, run_id, type(exc).__name__, exc.detail
-            )
-        await publish_terminal("failed", exc.detail)
-        _live_remove(target, run_id)
-        _mark_done(target)
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        result = await execute_local(
+            root,
+            body.path,
+            local_handle,
+            body.code,
+            body.timeout,
+            on_event=on_kernel_event,
+        )
     except Exception as exc:
         from core.notebook_kernel import KernelExecutionError
 
@@ -1436,57 +1017,26 @@ class SessionRestartBody(BaseModel):
 
 @router.post("/api/nb/session/restart")
 async def session_restart(body: SessionRestartBody, request: Request) -> dict:
-    """Restart the local or Darwin kernel pinned to ``body.path``."""
+    """Restart the local Jupyter kernel pinned to ``body.path``."""
     root = auth.request_root(request)
     _safe_resolve(root, body.path)  # validate
-    if _configured_local(root, body.path):
-        handle = _required_local_handle(root, body.path)
-        from core.notebook_kernel import restart as restart_local, session_name
+    handle = _required_local_handle(root, body.path)
+    from core.notebook_kernel import restart as restart_local, session_name
 
-        try:
-            was_running = await restart_local(root, body.path, handle)
-        except Exception as exc:
-            from core.notebook_kernel import KernelExecutionError
-
-            if isinstance(exc, KernelExecutionError):
-                raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-            raise
-        return {
-            "path": body.path,
-            "session": session_name(root, body.path),
-            "provider": "local",
-            "restarted": was_running,
-        }
-
-    session = _session_for(body.path)
     try:
-        proc = await asyncio.to_thread(
-            subprocess.run,
-            ["darwin", "kernel", "restart", "--session", session],
-            capture_output=True, text=True, timeout=60,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="`darwin` CLI not found on PATH — install the darwin-cli plugin",
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail=f"darwin timed out after {exc.timeout}s") from exc
+        was_running = await restart_local(root, body.path, handle)
+    except Exception as exc:
+        from core.notebook_kernel import KernelExecutionError
 
-    if proc.returncode == 0:
-        return {"path": body.path, "session": session, "restarted": True}
-
-    err_tail = (proc.stderr or proc.stdout or "")[-500:]
-    if proc.returncode == 2:
-        raise HTTPException(status_code=401, detail="darwin auth expired — run `darwin auth setup`")
-    # Some pods report "no kernel running" with a non-zero exit but that's
-    # actually a no-op success for us — clearing what's already clear.
-    if "no kernel" in err_tail.lower() or "not found" in err_tail.lower():
-        return {"path": body.path, "session": session, "restarted": False, "note": "no running kernel — next run will start a fresh one"}
-    raise HTTPException(
-        status_code=500,
-        detail=f"darwin kernel restart failed (exit {proc.returncode}): {err_tail.strip()}",
-    )
+        if isinstance(exc, KernelExecutionError):
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise
+    return {
+        "path": body.path,
+        "session": session_name(root, body.path),
+        "provider": "local",
+        "restarted": was_running,
+    }
 
 
 @router.post("/api/nb/session/interrupt")
@@ -1494,8 +1044,6 @@ async def session_interrupt(body: SessionRestartBody, request: Request) -> dict:
     """Interrupt a currently running host-local notebook cell."""
     root = auth.request_root(request)
     _safe_resolve(root, body.path)
-    if not _configured_local(root, body.path):
-        raise HTTPException(status_code=400, detail="interrupt is currently available for local runtimes")
     handle = _required_local_handle(root, body.path)
     from core.notebook_kernel import interrupt as interrupt_local, session_name
 

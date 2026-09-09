@@ -15,12 +15,12 @@ def test_full_workspace_lifecycle(monorepo: Path) -> None:
     # Create two workspaces
     r = runner.invoke(main, ["workspace", "new", "inbox", "--desc", "Catch-all"])
     assert r.exit_code == 0, r.output
-    r = runner.invoke(main, ["workspace", "new", "davi-test", "--desc", "Test", "--priority", "P1"])
+    r = runner.invoke(main, ["workspace", "new", "charts-test", "--desc", "Test", "--priority", "P1"])
     assert r.exit_code == 0, r.output
 
-    # Add tasks to davi-test
+    # Add tasks to charts-test
     for i, (title, pri) in enumerate([("draft", "P1"), ("review", "P1"), ("ship", "P2")], start=1):
-        r = runner.invoke(main, ["task", "new", title, "--workspace", "davi-test", "--priority", pri])
+        r = runner.invoke(main, ["task", "new", title, "--workspace", "charts-test", "--priority", pri])
         assert r.exit_code == 0, r.output
 
     # Add a reminder to inbox
@@ -30,8 +30,8 @@ def test_full_workspace_lifecycle(monorepo: Path) -> None:
     assert r.exit_code == 0
 
     # Flip states
-    runner.invoke(main, ["task", "done", "1", "--workspace", "davi-test"])
-    runner.invoke(main, ["task", "block", "2", "waiting on Jesus", "--workspace", "davi-test"])
+    runner.invoke(main, ["task", "done", "1", "--workspace", "charts-test"])
+    runner.invoke(main, ["task", "block", "2", "waiting on Jesus", "--workspace", "charts-test"])
 
     # Cross-workspace ls
     r = runner.invoke(main, ["task", "ls"])
@@ -52,15 +52,15 @@ def test_full_workspace_lifecycle(monorepo: Path) -> None:
     assert "ship" not in r.output     # P2
     assert "email someone" not in r.output  # P3
 
-    # Archive davi-test
-    runner.invoke(main, ["workspace", "archive", "davi-test"])
+    # Archive charts-test
+    runner.invoke(main, ["workspace", "archive", "charts-test"])
     r = runner.invoke(main, ["workspace", "ls", "--status", "active"])
-    assert "davi-test" not in r.output
+    assert "charts-test" not in r.output
     assert "inbox" in r.output
 
     # Verify on-disk state
-    davi = json.loads((monorepo / "workspaces" / "davi-test" / "workspace.json").read_text())
-    assert davi["status"] == "archived"
-    tasks = json.loads((monorepo / "workspaces" / "davi-test" / "tasks.json").read_text())
+    charts = json.loads((monorepo / "workspaces" / "charts-test" / "workspace.json").read_text())
+    assert charts["status"] == "archived"
+    tasks = json.loads((monorepo / "workspaces" / "charts-test" / "tasks.json").read_text())
     statuses = {t["id"]: t["status"] for t in tasks["tasks"]}
     assert statuses == {1: "done", 2: "blocked", 3: "todo"}

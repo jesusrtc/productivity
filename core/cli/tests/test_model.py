@@ -15,12 +15,12 @@ def test_priority_enum_values() -> None:
 
 def test_workspace_from_dict_roundtrip() -> None:
     data = {
-        "id": "davi-vision",
-        "name": "DAVI Vision",
-        "description": "Reshape DAVI",
+        "id": "charts-vision",
+        "name": "Charts Vision",
+        "description": "Reshape Charts",
         "status": "active",
-        "tags": ["davi"],
-        "labels": ["lipy-davi"],
+        "tags": ["charts"],
+        "labels": ["sample-charts"],
         "priority": "P1",
         "loe": 10,
         "due": "2026-05-01",
@@ -36,7 +36,7 @@ def test_workspace_from_dict_roundtrip() -> None:
         "model": None,
     }
     p = Workspace.from_dict(data)
-    assert p.id == "davi-vision"
+    assert p.id == "charts-vision"
     assert p.status is WorkspaceStatus.active
     assert p.priority is Priority.P1
     assert p.to_dict() == data

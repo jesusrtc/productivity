@@ -72,7 +72,7 @@ class RuntimeCliCheck(BaseModel):
 
 class WorkspaceRuntimeSpec(BaseModel):
     version: int = Field(default=RUNTIME_VERSION, ge=1)
-    mode: Literal["local", "darwin"] = "local"
+    mode: Literal["local"] = "local"
     kind: Literal["managed", "existing"] = "managed"
     python: str = ""
     packages: list[str] = Field(default_factory=list)
@@ -553,9 +553,7 @@ def runtime_status(root: Path, rel_path: str) -> dict[str, Any]:
         pass
 
     if spec is None:
-        status = "legacy"
-    elif spec.mode == "darwin":
-        status = "darwin"
+        status = "unconfigured"
     elif active and active.get("status") == "ready" and active.get("fingerprint") == desired:
         status = "ready"
     elif last_build and last_build.get("status") == "broken" and last_build.get("fingerprint") == desired:

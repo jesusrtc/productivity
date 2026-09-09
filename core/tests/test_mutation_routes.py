@@ -218,7 +218,7 @@ def test_post_task_update_field(client, seed_workspace) -> None:
 def test_post_pr(client, seed_workspace) -> None:
     seed_workspace("alpha")
     r = client.post("/api/workspaces/alpha/prs", json={
-        "url": "https://example/pr/1", "mp": "lipy-davi", "title": "t", "status": "open",
+        "url": "https://example/pr/1", "mp": "sample-charts", "title": "t", "status": "open",
     })
     assert r.status_code == 200, r.text
     assert r.json()["prs"][0]["url"] == "https://example/pr/1"

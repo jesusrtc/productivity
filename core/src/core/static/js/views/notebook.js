@@ -37,7 +37,7 @@ function renderOutput(out) {
 
 function renderCell(cell, idx) {
   const isCode = cell.cell_type === "code";
-  // `lab_pending` is set by the nb_exec endpoint while a Darwin call is
+  // `lab_pending` is set by the nb_exec endpoint while a Jupyter call is
   // in flight (see routes/nb_exec.py:_write_pending_cell). It survives
   // the round-trip via parse_notebook -> cell.metadata. When present,
   // we paint the cell with the same running frame the in-UI editor
@@ -74,7 +74,7 @@ function renderCell(cell, idx) {
   }, header, body, outputsNode);
 }
 
-// A code cell rendered before Darwin returns, so the user sees the run land
+// A code cell rendered before Jupyter returns, so the user sees the run land
 // immediately instead of waiting for the (blocking) execute call to finish.
 // The watcher's WS broadcast will swap this for the real cell when the
 // on-disk .ipynb gets the new outputs.
@@ -91,7 +91,7 @@ function renderPendingCell(code) {
     h("div", { class: "nb-outputs" },
       h("div", { class: "nb-output nb-output-pending" },
         h("span", { class: "nb-spinner" }),
-        "Running on Darwin…",
+        "Running on Jupyter…",
       ),
     ),
   );
@@ -121,11 +121,11 @@ function renderEditor(path, onRun, cellsContainer) {
     const code = (textarea.value || "").trim();
     if (!code) return;
     button.disabled = true;
-    status.textContent = "Running on Darwin…";
+    status.textContent = "Running on Jupyter…";
     status.className = "nb-editor-status nb-editor-status-running";
 
     // Optimistic placeholder: show the code + spinner immediately so the
-    // user doesn't stare at the old outputs while darwin blocks. The
+    // user doesn't stare at the old outputs while kernel blocks. The
     // watcher will re-render the whole view once the .ipynb is written.
     let pending = null;
     if (cellsContainer) {
@@ -224,7 +224,7 @@ export async function render(parent, { params }) {
     h("div", { class: "nb-meta" },
       `Last updated: ${fmtMtime(nb.mtime)}`,
       session ? " · " : null,
-      session ? h("span", { class: "nb-session-badge", title: "Darwin kernel session pinned to this file" }, "kernel: " + session) : null,
+      session ? h("span", { class: "nb-session-badge", title: "Jupyter kernel session pinned to this file" }, "kernel: " + session) : null,
       notFound ? " · (new notebook)" : null,
     ),
     cellsContainer,
@@ -233,7 +233,7 @@ export async function render(parent, { params }) {
   activateNotebookScripts(parent);
 }
 
-// Browsers ignore <script> injected via innerHTML, so DAVI/Plotly cells that
+// Browsers ignore <script> injected via innerHTML, so Plotly cells that
 // emit <div> + <script> display_data pairs render blank. Walk the inserted
 // subtree and swap each dormant <script> for a freshly-created live one.
 // Also shim `require(["plotly"], fn)` (Jupyter's requirejs idiom) so Plotly

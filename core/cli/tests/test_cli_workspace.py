@@ -20,17 +20,17 @@ from lab.cli import main
 
 def test_workspace_new_creates_directory_and_files(monorepo: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["workspace", "new", "davi-vision", "--desc", "Reshape DAVI"])
+    result = runner.invoke(main, ["workspace", "new", "charts-vision", "--desc", "Reshape Charts"])
     assert result.exit_code == 0, result.output
-    pdir = monorepo / "workspaces" / "davi-vision"
+    pdir = monorepo / "workspaces" / "charts-vision"
     assert pdir.is_dir()
     assert (pdir / "docs").is_dir()
     assert (pdir / "notes").is_dir()
     assert (pdir / "assets").is_dir()
 
     workspace = json.loads((pdir / "workspace.json").read_text())
-    assert workspace["id"] == "davi-vision"
-    assert workspace["description"] == "Reshape DAVI"
+    assert workspace["id"] == "charts-vision"
+    assert workspace["description"] == "Reshape Charts"
     assert workspace["status"] == "active"
 
     tasks = json.loads((pdir / "tasks.json").read_text())
@@ -44,19 +44,19 @@ def test_workspace_new_creates_directory_and_files(monorepo: Path) -> None:
 def test_workspace_new_with_priority_due_tags_labels(monorepo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, [
-        "workspace", "new", "drools-rate",
+        "workspace", "new", "rules-rate",
         "--desc", "Rate limiter",
         "--priority", "P1",
         "--due", "2026-05-01",
         "--tags", "limits,abuse",
-        "--labels", "abuse-scoring-rules",
+        "--labels", "sample-rules",
     ])
     assert result.exit_code == 0, result.output
-    workspace = json.loads((monorepo / "workspaces" / "drools-rate" / "workspace.json").read_text())
+    workspace = json.loads((monorepo / "workspaces" / "rules-rate" / "workspace.json").read_text())
     assert workspace["priority"] == "P1"
     assert workspace["due"] == "2026-05-01"
     assert workspace["tags"] == ["limits", "abuse"]
-    assert workspace["labels"] == ["abuse-scoring-rules"]
+    assert workspace["labels"] == ["sample-rules"]
 
 
 def test_workspace_new_rejects_duplicate(monorepo: Path, seed_workspace) -> None:
@@ -306,10 +306,10 @@ def test_workspace_set_tags_and_labels_csv(monorepo: Path, seed_workspace) -> No
     seed_workspace("alpha")
     runner = CliRunner()
     runner.invoke(main, ["workspace", "set", "alpha", "tags", "a,b,c"])
-    runner.invoke(main, ["workspace", "set", "alpha", "labels", "lipy-davi"])
+    runner.invoke(main, ["workspace", "set", "alpha", "labels", "sample-charts"])
     data = json.loads((monorepo / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["tags"] == ["a", "b", "c"]
-    assert data["labels"] == ["lipy-davi"]
+    assert data["labels"] == ["sample-charts"]
 
 
 def test_workspace_archive(monorepo: Path, seed_workspace) -> None:
@@ -383,11 +383,11 @@ def test_workspace_ls_filter_by_label(monorepo: Path, seed_workspace) -> None:
     seed_workspace("alpha")
     beta = seed_workspace("beta")
     data = json.loads((beta / "workspace.json").read_text())
-    data["labels"] = ["lipy-davi"]
+    data["labels"] = ["sample-charts"]
     (beta / "workspace.json").write_text(json.dumps(data))
 
     runner = CliRunner()
-    result = runner.invoke(main, ["workspace", "ls", "--label", "lipy-davi"])
+    result = runner.invoke(main, ["workspace", "ls", "--label", "sample-charts"])
     assert result.exit_code == 0
     assert "beta" in result.output
     assert "alpha" not in result.output
@@ -422,34 +422,17 @@ def test_workspace_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None
 
 
 def test_workspace_add_missing_mp(monorepo, seed_workspace, monkeypatch) -> None:
-    """When the MP clone is missing, `workspace add` first tries `mint clone`.
-    If that fails (or is unavailable), the command should still error clearly.
-    We stub subprocess.run so mint looks like it ran + failed."""
-    seed_workspace("davi-test")
-
-    import subprocess as sp
-    real_run = sp.run
-
-    def fake_run(cmd, *a, **kw):
-        # Fail the mint clone; let everything else through (there won't be
-        # anything else reached because we raise right after the re-check).
-        if isinstance(cmd, list) and len(cmd) >= 2 and cmd[0] == "mint" and cmd[1] == "clone":
-            class R:
-                returncode = 1
-                stdout = ""
-                stderr = "clone unavailable in tests"
-            return R()
-        return real_run(cmd, *a, **kw)
-    monkeypatch.setattr(sp, "run", fake_run)
+    """Missing repositories report the explicit Git setup step."""
+    seed_workspace("charts-test")
 
     runner = CliRunner()
-    result = runner.invoke(main, ["workspace", "add", "davi-test", "lipy-davi"])
+    result = runner.invoke(main, ["workspace", "add", "charts-test", "sample-charts"])
     assert result.exit_code != 0
     assert "repositories" in result.output.lower() or "not found" in result.output.lower()
 
 
 def test_workspace_add_unknown_prefix(monorepo, seed_workspace, tmp_path, monkeypatch) -> None:
-    seed_workspace("davi-test")
+    seed_workspace("charts-test")
     # Create a fake MP dir that looks like a git repo
     mp_dir = monorepo / "repositories" / "some-mp"
     mp_dir.mkdir(parents=True)
@@ -460,7 +443,7 @@ def test_workspace_add_unknown_prefix(monorepo, seed_workspace, tmp_path, monkey
     monkeypatch.setattr(mp_mod, "_CONFIG_FILE", fake)
     mp_mod.save_prefixes({})
     runner = CliRunner()
-    result = runner.invoke(main, ["workspace", "add", "davi-test", "some-mp"])
+    result = runner.invoke(main, ["workspace", "add", "charts-test", "some-mp"])
     assert result.exit_code != 0
     assert "prefix" in result.output.lower()
 
@@ -548,7 +531,7 @@ def test_pr_add_and_ls(monorepo, seed_workspace) -> None:
     runner = CliRunner()
     r = runner.invoke(main, [
         "pr", "add", "https://example/pr/1", "--workspace", "alpha",
-        "--mp", "lipy-davi", "--title", "test pr",
+        "--mp", "sample-charts", "--title", "test pr",
     ])
     assert r.exit_code == 0, r.output
     r = runner.invoke(main, ["pr", "ls", "--workspace", "alpha"])
@@ -556,7 +539,7 @@ def test_pr_add_and_ls(monorepo, seed_workspace) -> None:
 
     data = json.loads((monorepo / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["prs"][0]["url"] == "https://example/pr/1"
-    assert data["prs"][0]["mp"] == "lipy-davi"
+    assert data["prs"][0]["mp"] == "sample-charts"
 
 
 def test_pr_rm(monorepo, seed_workspace) -> None:

@@ -20,7 +20,7 @@ from their vault. Neurona must not inject unexplained shared or META content
 into workspace trees.
 
 Notebook rendering is built into Neurona because `.ipynb` is a vault file
-format. Notebook execution is pluggable. Darwin, Jupyter, Spark, or another
+format. Notebook execution is pluggable. Jupyter, Spark, or another
 executor implements a versioned notebook-provider protocol and is selected by
 the vault.
 
@@ -28,19 +28,15 @@ All rendered vault files, including projected files and notebooks, update
 live when their canonical source changes. Unsaved edits are never silently
 overwritten.
 
-The behavior of the current embedded Darwin executor is recorded in
-[legacy/darwin-notebook-behavior.md](legacy/darwin-notebook-behavior.md) and is
-the parity checklist for extracting Darwin into a provider.
-
 ## Ownership boundary
 
 | Owner | Owns | Does not own |
 | --- | --- | --- |
 | Vault | Workspace shape, shared sources, projections, supported agents, workspace features, notebook provider selection, repository and runtime policy, file-tree presentation | Filesystem mutation machinery, terminal implementation, or security |
 | Workspace | Workspace files, workspace metadata, tasks, references, artifacts, PRs, worktree instances, and explicit workspace overrides | Copies of vault-owned source files |
-| Neurona | Vault rendering, vault editor, configuration validation, drift preview, file watching, live updates, terminal sessions, notebook storage/provider brokering, clipboard, server UI, indexing, and security | Agent conventions, Darwin behavior, workspace-tree mutation, or a mandatory workspace layout |
+| Neurona | Vault rendering, vault editor, configuration validation, drift preview, file watching, live updates, terminal sessions, notebook storage/provider brokering, clipboard, server UI, indexing, and security | Agent conventions, workspace-tree mutation, or a mandatory workspace layout |
 | User's agent | Applying projection changes to workspace trees — links, adapters, legacy adoption — guided by the switch prompt | Configuration schema, rendering, or removing files it cannot identify as projections |
-| Provider app | Execution semantics for one capability, such as Darwin notebook execution | Vault file ownership or UI policy |
+| Provider app | Execution semantics for one capability, such as Jupyter notebook execution | Vault file ownership or UI policy |
 | User preferences | Theme, tab order, open panels, and other personal display state | Vault-wide workspace conventions |
 
 ## Proposed vault structure
@@ -60,9 +56,9 @@ the parity checklist for extracting Darwin into a provider.
       notes/
   runtime/
   apps/
-    notebook-darwin/
+    notebook-local/
       lab-app.toml
-      bin/notebook-darwin
+      bin/notebook-local
   workspaces/
     example/
       workspace.json
@@ -97,8 +93,8 @@ Illustrative configuration:
 ```json
 {
   "version": 1,
-  "id": "trust-safety",
-  "name": "Trust & Safety",
+  "id": "example-vault",
+  "name": "Example vault",
   "agents": {
     "supported": ["claude", "codex", "copilot"],
     "default": "codex",
@@ -141,7 +137,7 @@ Illustrative configuration:
   },
   "notebooks": {
     "enabled": true,
-    "provider": "darwin",
+    "provider": "local",
     "kernels": ["python3", "pyspark"],
     "mounts": [
       {
@@ -244,7 +240,7 @@ Notebook support has four layers:
    nbformat persistence, session identity, and live file events.
 3. **Provider protocol:** versioned execution, lifecycle, health, kernel, and
    output-event contract.
-4. **Provider app:** Darwin, local Jupyter, remote Jupyter, Spark, or another
+4. **Provider app:** Local Jupyter, remote Jupyter, Spark, or another
    executor installed in the vault.
 
 ### Provider discovery
@@ -252,16 +248,16 @@ Notebook support has four layers:
 A vault app registers as a notebook provider:
 
 ```toml
-name = "notebook-darwin"
+name = "notebook-local"
 kind = "notebook-provider"
-provider_id = "darwin"
+provider_id = "local"
 protocol = 1
-command = "bin/notebook-darwin"
+command = "bin/notebook-local"
 ```
 
 Neurona communicates with providers out of process through a small JSON
 protocol. Provider dependencies and failures therefore do not contaminate the
-Neurona backend. `vault.json` references `"provider": "darwin"`; it does
+Neurona backend. `vault.json` references `"provider": "local"`; it does
 not repeat the provider command.
 
 ### Minimum provider contract
@@ -281,7 +277,7 @@ Execution events use standard notebook output shapes and MIME bundles:
 pending placeholder and final `.ipynb` write so all providers produce
 consistent files and live-update behavior.
 
-The UI reads provider capabilities rather than assuming Darwin:
+The UI reads provider capabilities rather than assuming Jupyter:
 
 - No provider: render, edit, and copy only.
 - Execute only: show Run but not Interrupt or Restart.
@@ -289,24 +285,6 @@ The UI reads provider capabilities rather than assuming Darwin:
 - Multiple kernels: show only kernels allowed by the vault.
 - Unhealthy provider: keep rendering the notebook and display actionable
   provider status.
-
-### Darwin extraction
-
-The current Darwin implementation remains in
-`core/src/core/routes/nb_exec.py` until extraction. During the refactor:
-
-1. Move generic locking, pending cells, nbformat persistence, and cell mutation
-   into the Neurona notebook service.
-2. Move Darwin CLI invocation, kernel lifecycle, exit-code mapping,
-   bootstrapping, and code synchronization into `apps/notebook-darwin/`.
-3. Make the current `/api/nb/exec` route a temporary compatibility adapter that
-   resolves the vault provider and delegates to the generic service.
-4. Remove Darwin-specific labels and unconditional controls from the UI.
-5. Validate the extracted provider against the legacy parity checklist.
-
-Do not keep a copied executable implementation under `legacy/`. That would
-create two sources that drift. The durable legacy behavior record is
-`docs/legacy/darwin-notebook-behavior.md`; Git history preserves the old source.
 
 ## Generic live file updates
 
@@ -337,7 +315,7 @@ The watcher emits a debounced, path-specific WebSocket event:
 ```json
 {
   "type": "file-changed",
-  "vault": "trust-safety",
+  "vault": "example-vault",
   "source": "agents/instructions.md",
   "aliases": [
     "workspaces/a/AGENTS.md",
@@ -441,7 +419,7 @@ remain the fallback for undeclared vaults.
    projections.
 6. Introduce canonical file identity and path-aware live updates.
 7. Add notebook-provider discovery and the generic notebook service.
-8. Extract Darwin into `apps/notebook-darwin/` and validate legacy parity.
+8. Validate notebook execution against the provider protocol.
 9. Move workspace scaffolding, skill imports, server profiles, and display
    rules into vault configuration; retire `lab agents sync` in favor of
    the agent switch prompt.
@@ -459,7 +437,7 @@ remain the fallback for undeclared vaults.
   the user's agent.
 - Agent support and defaults come from the vault.
 - Notebooks render with no execution provider installed.
-- Darwin behavior works through a provider with legacy parity.
+- Jupyter behavior works through a provider with the notebook protocol.
 - Any rendered vault file updates when its canonical source changes.
 - Workspace aliases update when their vault source changes.
 - Unsaved drafts are protected from external changes.

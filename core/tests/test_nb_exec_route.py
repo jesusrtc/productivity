@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -11,39 +10,27 @@ from core.routes import nb_exec as nb_exec_route
 from lab import paths
 
 
-def _fake_completed(stdout: str, *, returncode: int = 0, stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(
-        args=["darwin"], returncode=returncode, stdout=stdout, stderr=stderr,
-    )
+def _fake_result(stdout: str) -> dict:
+    return json.loads(stdout)
 
 
 @pytest.fixture()
-def patch_darwin(monkeypatch: pytest.MonkeyPatch):
-    """Patch ``subprocess.run`` inside the route module to return a canned
-    Darwin JSON envelope. Returns a holder so tests can read what was passed
-    to the CLI (verify --session, --kernel, --file etc.)."""
+def patch_kernel(monkeypatch: pytest.MonkeyPatch):
+    """Exercise the route's persistence and events with a local kernel double."""
+    from core import notebook_kernel
     calls: list[dict[str, Any]] = []
 
-    def fake_run(cmd, **kwargs):
-        # Capture the temp file's contents so tests can assert what code
-        # was actually shipped to darwin.
-        try:
-            tmp_path = cmd[cmd.index("--file") + 1]
-            code = Path(tmp_path).read_text(encoding="utf-8")
-        except (ValueError, IndexError, OSError):
-            code = ""
-        calls.append({"cmd": list(cmd), "code": code})
+    async def fake_run(root, path, handle, code, timeout, *, on_event=None):
+        calls.append({"session": notebook_kernel.session_name(root, path), "code": code})
         return fake_run.response
 
-    fake_run.response = _fake_completed(json.dumps({  # type: ignore[attr-defined]
-        "output": "42\n",
+    fake_run.response = {
         "kernel_id": "kid-1234",
         "execution_count": 1,
-        "cell_outputs": [
-            {"output_type": "stream", "name": "stdout", "text": "42\n"},
-        ],
-    }))
-    monkeypatch.setattr(nb_exec_route.subprocess, "run", fake_run)
+        "cell_outputs": [{"output_type": "stream", "name": "stdout", "text": "42\n"}],
+    }
+    monkeypatch.setattr(notebook_kernel, "execute", fake_run)
+    monkeypatch.setattr(nb_exec_route, "_required_local_handle", lambda *args: object())
     return fake_run, calls
 
 
@@ -55,8 +42,8 @@ def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> No
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["path"] == rel
-    assert body["session"].startswith("lab-")
-    assert len(body["session"]) == len("lab-") + 12
+    assert body["session"].startswith("local-")
+    assert len(body["session"]) == len("local-") + 12
 
     # Same path must always map to the same session id.
     r2 = client.get(f"/api/nb/session?path={rel}")
@@ -68,8 +55,8 @@ def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> No
     assert other.json()["session"] != body["session"]
 
 
-def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin) -> None:
-    _, calls = patch_darwin
+def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_kernel) -> None:
+    _, calls = patch_kernel
     rel = "workspaces/demo/notebooks/new.ipynb"
 
     r = client.post("/api/nb/exec", json={"path": rel, "code": "print(42)"})
@@ -90,22 +77,19 @@ def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin)
     assert "42" in cell["outputs"][0]["text"]
 
     # Response shape matches what the UI's renderer consumes.
-    assert body["session"].startswith("lab-")
+    assert body["session"].startswith("local-")
     assert body["kernel_id"] == "kid-1234"
     assert body["execution_count"] == 1
     assert body["cell"]["cell_type"] == "code"
     assert any("42" in o["content"] for o in body["cell"]["outputs"])
 
-    # Darwin was invoked with the pinned session and the code via --file.
     assert len(calls) == 1
-    cmd = calls[0]["cmd"]
-    assert cmd[0:3] == ["darwin", "code", "execute"]
-    assert "--session" in cmd
+    assert calls[0]["session"] == body["session"]
     assert calls[0]["code"] == "print(42)"
 
 
 def test_exec_and_live_replay_follow_explicit_owning_vault(
-    client, monorepo: Path, tmp_path: Path, patch_darwin
+    client, monorepo: Path, tmp_path: Path, patch_kernel
 ) -> None:
     """A workspace tab may belong to a vault other than the active shell."""
     paths.register_vault(
@@ -147,9 +131,9 @@ def test_exec_and_live_replay_follow_explicit_owning_vault(
     }
 
 def test_exec_appends_to_existing_notebook_and_pins_session(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
-    _, calls = patch_darwin
+    _, calls = patch_kernel
     rel = "workspaces/demo/notebooks/grow.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -174,16 +158,15 @@ def test_exec_appends_to_existing_notebook_and_pins_session(
     # Both runs used the SAME session — the per-file pin.
     sessions = []
     for entry in calls:
-        i = entry["cmd"].index("--session")
-        sessions.append(entry["cmd"][i + 1])
+        sessions.append(entry["session"])
     assert sessions[0] == sessions[1]
 
 
 def test_exec_error_cell_is_persisted_as_200(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
-    fake_run, _ = patch_darwin
-    fake_run.response = _fake_completed(json.dumps({
+    fake_run, _ = patch_kernel
+    fake_run.response = _fake_result(json.dumps({
         "output": "",
         "kernel_id": "kid-1234",
         "execution_count": 2,
@@ -201,51 +184,7 @@ def test_exec_error_cell_is_persisted_as_200(
     assert any(o["type"] == "error" for o in cell["outputs"])
 
 
-def test_exec_kernel_error_returns_200_with_error_cell(
-    client, monorepo: Path, patch_darwin
-) -> None:
-    """Exit 6 (KernelExecutionError) — e.g. ``%sql`` magic not imported —
-    must surface as an in-cell error output, not an HTTP 500. Otherwise the
-    user sees nothing in the UI and has to dig the failure out of devtools."""
-    fake_run, _ = patch_darwin
-    fake_run.response = _fake_completed(
-        json.dumps({
-            "error": "KernelExecutionError",
-            "message": "UsageError: Line magic function `%sql` not found.",
-            "recovery": "Check your code for errors.",
-            "exit_code": 6,
-        }),
-        returncode=6,
-    )
-    rel = "workspaces/demo/notebooks/kerr.ipynb"
-    r = client.post("/api/nb/exec", json={"path": rel, "code": "%sql SELECT 1"})
-
-    assert r.status_code == 200, r.text
-    cell = r.json()["cell"]
-    # Error output is the same shape parse_notebook produces for any other
-    # raised exception, so the FE renders it the same way.
-    assert any(o["type"] == "error" for o in cell["outputs"])
-    err_text = " ".join(o["content"] for o in cell["outputs"] if o["type"] == "error")
-    assert "%sql" in err_text
-    # And it's persisted on disk like any other run.
-    on_disk = json.loads((monorepo / rel).read_text())
-    assert on_disk["cells"][-1]["outputs"][0]["output_type"] == "error"
-
-
-def test_exec_maps_auth_failure_to_401(client, monorepo: Path, patch_darwin) -> None:
-    fake_run, _ = patch_darwin
-    fake_run.response = _fake_completed(
-        "", returncode=2, stderr="DVToken expired",
-    )
-    r = client.post(
-        "/api/nb/exec",
-        json={"path": "workspaces/demo/notebooks/q.ipynb", "code": "1"},
-    )
-    assert r.status_code == 401
-    assert "auth" in r.json()["detail"].lower()
-
-
-def test_exec_rejects_path_traversal(client, patch_darwin) -> None:
+def test_exec_rejects_path_traversal(client, patch_kernel) -> None:
     r = client.post(
         "/api/nb/exec",
         json={"path": "../etc/passwd.ipynb", "code": "1"},
@@ -253,7 +192,7 @@ def test_exec_rejects_path_traversal(client, patch_darwin) -> None:
     assert r.status_code == 400
 
 
-def test_exec_rejects_non_ipynb(client, patch_darwin) -> None:
+def test_exec_rejects_non_ipynb(client, patch_kernel) -> None:
     r = client.post(
         "/api/nb/exec",
         json={"path": "workspaces/demo/notes.txt", "code": "1"},
@@ -261,23 +200,10 @@ def test_exec_rejects_non_ipynb(client, patch_darwin) -> None:
     assert r.status_code == 400
 
 
-def test_exec_handles_missing_darwin_binary(client, monorepo: Path, monkeypatch) -> None:
-    def fake_run(*args, **kwargs):
-        raise FileNotFoundError("darwin: not found")
-
-    monkeypatch.setattr(nb_exec_route.subprocess, "run", fake_run)
-    r = client.post(
-        "/api/nb/exec",
-        json={"path": "workspaces/demo/notebooks/x.ipynb", "code": "1"},
-    )
-    assert r.status_code == 503
-    assert "darwin" in r.json()["detail"].lower()
-
-
 def test_exec_with_cell_index_replaces_in_place(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
-    fake_run, _ = patch_darwin
+    fake_run, _ = patch_kernel
     rel = "workspaces/demo/notebooks/inplace.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -292,7 +218,7 @@ def test_exec_with_cell_index_replaces_in_place(
              "source": ["y=2"], "outputs": []},
         ],
     }))
-    fake_run.response = _fake_completed(json.dumps({
+    fake_run.response = _fake_result(json.dumps({
         "output": "99\n",
         "kernel_id": "kid-1234",
         "execution_count": 7,
@@ -318,7 +244,7 @@ def test_exec_with_cell_index_replaces_in_place(
 
 
 def test_exec_with_out_of_range_cell_index_returns_404(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
     rel = "workspaces/demo/notebooks/short.ipynb"
     (monorepo / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -390,12 +316,12 @@ def test_delete_cell_out_of_range(client, monorepo: Path) -> None:
 
 
 def test_exec_insert_at_inserts_between_cells(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
     """``insert_at`` shifts existing cells down and lands the new cell at the
     given index — the wire used by the UI's hover-revealed `+` button between
     cells."""
-    fake_run, calls = patch_darwin
+    fake_run, calls = patch_kernel
     rel = "workspaces/demo/notebooks/insert.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -410,7 +336,7 @@ def test_exec_insert_at_inserts_between_cells(
              "source": ["c = 3"], "outputs": []},
         ],
     }))
-    fake_run.response = _fake_completed(json.dumps({
+    fake_run.response = _fake_result(json.dumps({
         "output": "", "kernel_id": "kid-1", "execution_count": 11,
         "cell_outputs": [{"output_type": "stream", "name": "stdout", "text": "ok\n"}],
     }))
@@ -430,10 +356,10 @@ def test_exec_insert_at_inserts_between_cells(
 
 
 def test_exec_insert_at_zero_prepends(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
     """``insert_at=0`` puts the new cell at the very top."""
-    fake_run, _ = patch_darwin
+    fake_run, _ = patch_kernel
     rel = "workspaces/demo/notebooks/prepend.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -444,7 +370,7 @@ def test_exec_insert_at_zero_prepends(
              "source": ["existing"], "outputs": []},
         ],
     }))
-    fake_run.response = _fake_completed(json.dumps({
+    fake_run.response = _fake_result(json.dumps({
         "output": "", "kernel_id": "k", "execution_count": 5, "cell_outputs": [],
     }))
     r = client.post("/api/nb/exec", json={
@@ -456,10 +382,10 @@ def test_exec_insert_at_zero_prepends(
 
 
 def test_exec_insert_at_end_equals_append(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
     """``insert_at == len(cells)`` is identical to a plain append."""
-    fake_run, _ = patch_darwin
+    fake_run, _ = patch_kernel
     rel = "workspaces/demo/notebooks/insert_end.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -470,7 +396,7 @@ def test_exec_insert_at_end_equals_append(
              "source": ["first"], "outputs": []},
         ],
     }))
-    fake_run.response = _fake_completed(json.dumps({
+    fake_run.response = _fake_result(json.dumps({
         "output": "", "kernel_id": "k", "execution_count": 2, "cell_outputs": [],
     }))
     r = client.post("/api/nb/exec", json={"path": rel, "code": "last", "insert_at": 1})
@@ -480,7 +406,7 @@ def test_exec_insert_at_end_equals_append(
 
 
 def test_exec_insert_at_out_of_range_returns_404(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
     rel = "workspaces/demo/notebooks/oob_insert.ipynb"
     target = monorepo / rel
@@ -494,7 +420,7 @@ def test_exec_insert_at_out_of_range_returns_404(
 
 
 def test_exec_rejects_cell_index_and_insert_at_together(
-    client, monorepo: Path, patch_darwin
+    client, monorepo: Path, patch_kernel
 ) -> None:
     """The two are mutually exclusive — server must reject the ambiguity."""
     rel = "workspaces/demo/notebooks/conflict.ipynb"
@@ -695,3 +621,30 @@ def test_pending_tracker_counts_queued_runs(tmp_path: Path) -> None:
     finally:
         nb_exec_route._mark_done(target)
     assert nb_exec_route.is_path_pending(target) is False
+
+
+@pytest.mark.parametrize("endpoint", ["exec", "session/restart", "session/interrupt"])
+def test_notebook_actions_require_a_configured_runtime(client, monorepo, endpoint):
+    rel = "workspaces/demo/notebooks/unconfigured.ipynb"
+    (monorepo / "workspaces/demo").mkdir(parents=True, exist_ok=True)
+    response = client.post(f"/api/nb/{endpoint}", json={"path": rel, "code": "print(1)"})
+    assert response.status_code == 409, response.text
+    assert "runtime" in response.json()["detail"]
+    assert not (monorepo / rel).exists()
+
+
+def test_kernel_failure_finishes_pending_cell(client, monorepo, monkeypatch, patch_kernel):
+    from core import notebook_kernel
+
+    async def fail(*args, **kwargs):
+        raise notebook_kernel.KernelExecutionError("kernel unavailable", status_code=503)
+
+    monkeypatch.setattr(notebook_kernel, "execute", fail)
+    rel = "workspaces/demo/notebooks/failure.ipynb"
+    response = client.post("/api/nb/exec", json={"path": rel, "code": "1"})
+    assert response.status_code == 503
+    cell = json.loads((monorepo / rel).read_text())["cells"][0]
+    assert cell["metadata"]["lab_pending"] is False
+    assert cell["outputs"][-1]["output_type"] == "error"
+    assert not nb_exec_route.is_path_pending(monorepo / rel)
+    assert client.get(f"/api/nb/live?path={rel}").json()["executions"] == []

@@ -5,7 +5,7 @@ Lab uses three distinct names:
 | Entity | Meaning | Example |
 | --- | --- | --- |
 | Vault | A named storage root containing workspaces, shared files, and settings. | Local or SSD |
-| Workspace | A persistent work area with its files, repositories, notebooks, and terminals. | Abuse monitoring |
+| Workspace | A persistent work area with its files, repositories, notebooks, and terminals. | Example workspace |
 | Terminal | A terminal running Codex, Claude, Copilot, or a shell. | Codex |
 
 A **tab** is a navigation control, not another storage entity. Closing a workspace tab does not delete its workspace. A terminal **session** describes the running process or resumable conversation. Home and Assistant are app-wide destinations. Assistant organizes tasks by workspace and task group; its database is independent of the vaults.
@@ -17,9 +17,9 @@ lab init ~/work/my-vault
 lab vault list
 lab vault use ~/work/my-vault
 lab vault current
-lab workspace new investigation
-lab workspace set investigation name "Abuse monitoring"
-lab task ls --workspace investigation
+lab workspace new example
+lab workspace set example name "Example workspace"
+lab task ls --workspace example
 ```
 
 `LAB_VAULT` selects the storage root. Its registry is `~/.lab/vaults.toml`, with `[[vaults]]` entries. A newly initialized vault has a `[vault]` section in `lab.toml`, a `workspaces/` directory, and optional shared `vault.json` configuration. Each work area has `workspaces/<id>/workspace.json`. Shared configuration uses `workspace` for the settings inherited by those work areas.

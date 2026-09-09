@@ -4522,7 +4522,7 @@
     opts = opts || {};
     // `opts.pending` is a client-side draft (Run button not yet sent).
     // `cell.metadata.lab_pending` is server-side: the nb_exec endpoint
-    // wrote a placeholder while the Darwin call is in flight. Both get
+    // wrote a placeholder while the Jupyter call is in flight. Both get
     // the same .nb-cell-pending visual frame so the user can't tell
     // which side started the run — the "[*]" gutter + running CSS look
     // identical.
@@ -4595,7 +4595,7 @@
     const rowsHint = Math.max(2, Math.min(20, source.split('\n').length));
     // Two distinct pending states with different visuals:
     //   nb-cell-pending → client-side DRAFT (typed but not sent yet)
-    //   nb-cell-running → server-side RUNNING (placeholder while Darwin
+    //   nb-cell-running → server-side RUNNING (placeholder while Jupyter
     //                     is executing). Persistent blue glow + "running"
     //                     label instead of dashed grey + "draft".
     const pendingCls = serverPending ? ' nb-cell-running' : (opts.pending ? ' nb-cell-pending' : '');
@@ -5048,14 +5048,13 @@
       editable: [], imports: [], cli_paths: [], cli_checks: [], environment: {},
       working_dir: '.', validation_code: '',
     };
-    const status = (runtime && runtime.status) || 'legacy';
+    const status = (runtime && runtime.status) || 'unconfigured';
     const activePython = runtime && runtime.active && runtime.active.python;
     return `<dialog class="nb-runtime-dialog">
       <form method="dialog" class="nb-runtime-card">
         <div class="nb-runtime-title"><div><strong>Workspace Runtime</strong><span>Shared by people and agents</span></div><button value="cancel" class="nb-runtime-close" title="Close">✕</button></div>
         <p class="nb-runtime-help">Choose the exact Python environment for this workspace. Libraries that invoke CLI commands inherit the configured CLI paths inside the Jupyter kernel.</p>
         <div class="nb-runtime-grid">
-          <label>Provider<select name="mode"><option value="local"${spec.mode === 'local' ? ' selected' : ''}>Local Jupyter</option><option value="darwin"${spec.mode === 'darwin' ? ' selected' : ''}>Darwin (legacy)</option></select></label>
           <label>Environment<select name="kind"><option value="managed"${spec.kind === 'managed' ? ' selected' : ''}>Managed by Lab</option><option value="existing"${spec.kind === 'existing' ? ' selected' : ''}>Existing Python</option></select></label>
           <label class="nb-runtime-span">Python version or executable<input name="python" value="${esc(spec.python || '')}" placeholder="3.12, python3, or /absolute/path/to/python"></label>
           <label>Working directory<input name="working_dir" value="${esc(spec.working_dir || '.')}" placeholder="."></label>
@@ -5101,7 +5100,7 @@
       if (!environment || Array.isArray(environment) || typeof environment !== 'object') throw new Error('Environment variables must be a JSON object');
       return {
         version: 1,
-        mode: dialog.querySelector('[name="mode"]').value,
+        mode: 'local',
         kind: dialog.querySelector('[name="kind"]').value,
         python: dialog.querySelector('[name="python"]').value.trim(),
         packages: lines('packages'), editable: lines('editable'), imports: lines('imports'),
@@ -5592,7 +5591,7 @@
   }
   window.renderNotebookHistoryDiff = renderNotebookHistoryDiff;
 
-  // Browsers never execute <script> tags injected via innerHTML; DAVI / Plotly
+  // Browsers never execute <script> tags injected via innerHTML; Plotly
   // notebook outputs bundle <script> blocks that populate an otherwise-empty
   // <div id="..."> — so without this helper, the chart area stays blank. Walk
   // the inserted notebook subtree, clone each <script> as a live element, and
@@ -6849,7 +6848,7 @@
         }
         const sessionInfo = sessRes.ok ? await sessRes.json() : {};
         const session = sessionInfo.session || '';
-        const provider = sessionInfo.provider || 'darwin';
+        const provider = sessionInfo.provider || 'local';
         const runtime = runtimeRes.ok ? await runtimeRes.json() : { status: 'unavailable', spec: null };
         // Fetch replay state after the durable notebook response. The live API
         // cross-checks each run against its on-disk marker, which makes this
@@ -6906,12 +6905,12 @@
         const updatedLabel = nb.mtime
           ? 'updated ' + new Date(nb.mtime * 1000).toLocaleString()
           : (notFound ? 'new notebook' : '');
-        const kernelLabel = provider === 'local' ? 'Workspace Jupyter kernel' : 'Remote Darwin kernel';
+        const kernelLabel = 'Workspace Jupyter kernel';
         const sessionBadge = session
           ? `<span title="Dedicated kernel session pinned to this .ipynb file path; another notebook gets another kernel" class="nb-kernel-badge">${kernelLabel} · ${esc(session)}</span>`
           : '';
-        const runtimeLabel = `Runtime: ${runtime.status || 'legacy'}`;
-        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" data-nb-tooltip="${escAttr(runtimeLabel)}" aria-label="${escAttr(runtimeLabel)}"><span aria-hidden="true">⚙</span></button>`;
+        const runtimeLabel = `Runtime: ${runtime.status || 'unconfigured'}`;
+        const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'unconfigured')}" type="button" data-nb-tooltip="${escAttr(runtimeLabel)}" aria-label="${escAttr(runtimeLabel)}"><span aria-hidden="true">⚙</span></button>`;
         const notebookRunAllActive = _nbRunAllState.has(
           _nbRunAllKey(relPath, notebookVault.vaultId),
         );
@@ -16391,7 +16390,7 @@
       '  },',
       '  "notebooks": {',
       '    "enabled": true,',
-      '    "provider": "darwin",',
+      '    "provider": "local",',
       '    "kernels": ["python3", "pyspark"],',
       '    "mounts": [{"source": "code", "target": "code"}]',
       '  },',
@@ -16415,7 +16414,7 @@
       '  supported agent.',
       '- "workspace.features" are the surfaces workspaces get; "workspace.mounts" are',
       '  shared sources linked into each workspace (e.g. skills -> .agents/skills).',
-      '- "notebooks" selects the executor ("darwin" is the only provider today).',
+      '- "notebooks" selects the executor ("local" uses the configured Jupyter runtime).',
       '- "display" holds UI hints: "autoOpen", "hide", "showProjectionOrigin".',
       '',
       'How to work:',

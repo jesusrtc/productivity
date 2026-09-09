@@ -148,8 +148,7 @@ install: ## create venvs + install lab/core CLIs (requires Python 3.11+; run `ma
 	@# `lab-server` + `gdiff` stay as muscle-memory aliases for the core server.
 	@ln -sf $(CURDIR)/core/core $(BIN_DIR)/lab-server
 	@ln -sf $(CURDIR)/core/core $(BIN_DIR)/gdiff
-	@# Clean up legacy shims from the pre-unification layout (incl. retired darwin-runner).
-	@rm -f $(BIN_DIR)/lab-backend $(BIN_DIR)/darwin-runner
+	@rm -f $(BIN_DIR)/lab-backend
 	@echo "Installed lab, core (aka lab-server / gdiff) → $(BIN_DIR)/"
 	@echo "Ensure $(BIN_DIR) is on your PATH."
 	@# Diagnostic: did another `lab` binary win? (Common culprit: miniconda
@@ -167,7 +166,7 @@ install: ## create venvs + install lab/core CLIs (requires Python 3.11+; run `ma
 	fi
 
 uninstall: ## remove installed binaries and venvs
-	@rm -f $(BIN_DIR)/lab $(BIN_DIR)/core $(BIN_DIR)/lab-server $(BIN_DIR)/lab-backend $(BIN_DIR)/gdiff $(BIN_DIR)/darwin-runner $(BIN_DIR)/darwin-backups $(BIN_DIR)/trustim-ir-cli
+	@rm -f $(BIN_DIR)/lab $(BIN_DIR)/core $(BIN_DIR)/lab-server $(BIN_DIR)/lab-backend $(BIN_DIR)/gdiff
 	@rm -rf $(LAB_VENV) $(CORE_VENV)
 	@echo "Uninstalled."
 
@@ -428,11 +427,11 @@ push: push-productivity push-content ## push both repos, then run `g push`
 	@/Users/jcortes/src/g/g.py push
 
 # One-shot first-time bootstrap: ensures a compatible Python (creating a
-# dedicated miniconda env if needed), installs venvs + CLI shims, clones
-# every repo in repositories.list (idempotent), and unifies agent context —
+# dedicated miniconda env if needed), installs venvs + CLI shims, updates
+# existing clones listed in repositories.list (idempotent), and unifies agent context —
 # making AGENTS.md canonical with CLAUDE.md / Copilot / memory symlinked to it
 # (see `lab agents sync`).
-setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python + install + clone repos + sync agents)
+setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python + install + update repos + sync agents)
 	@$(LAB_VENV)/bin/python -m lab agents sync || true
 	@echo
 	@echo "setup complete."
@@ -441,14 +440,14 @@ setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python 
 	@echo "                make start PORT=4444    (one-run override)"
 	@echo "  - worktrees:  lab workspace add <workspace> <mp>"
 
-pull-repos: ## clone/update repos listed in repositories.list
+pull-repos: ## update existing clones listed in repositories.list
 	@mkdir -p repositories
 	@test -f repositories.list || echo "(no repositories.list yet — create it with one repo name per line)"
 	@while read repo; do \
 		[ -z "$$repo" ] && continue; \
 		if [ ! -d repositories/$$repo ]; then \
-			echo "cloning $$repo..."; \
-			(cd repositories && mint clone $$repo 2>&1 | tail -3); \
+			echo "missing repositories/$$repo — clone it with git clone <url> repositories/$$repo"; \
+			continue; \
 		fi; \
 		echo "updating $$repo..."; \
 		default=$$(git -C repositories/$$repo remote show origin 2>/dev/null | awk '/HEAD branch/ {print $$NF}'); \
