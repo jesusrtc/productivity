@@ -7,8 +7,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project) -> None:
-    """Full loop: create project -> fs event -> watcher rebuild -> WS broadcast."""
+def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_workspace) -> None:
+    """Full loop: create workspace -> fs event -> watcher rebuild -> WS broadcast."""
     from core.main import create_app
 
     app = create_app()
@@ -17,11 +17,11 @@ def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project
         assert login.status_code == 200, login.text
         # Index starts empty
         r = client.get("/api/index")
-        assert r.json()["projects"] == []
+        assert r.json()["workspaces"] == []
 
         with client.websocket_connect("/ws") as ws:
-            # Simulate "lab project new" by creating the project.json directly.
-            seed_project("alpha")
+            # Simulate "lab workspace new" by creating the workspace.json directly.
+            seed_workspace("alpha")
             # Wait for debounce + rebuild
             time.sleep(0.5)
             msg = ws.receive_json()
@@ -29,5 +29,5 @@ def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project
 
         # Index reflects the change
         r = client.get("/api/index")
-        ids = [p["id"] for p in r.json()["projects"]]
+        ids = [p["id"] for p in r.json()["workspaces"]]
         assert ids == ["alpha"]

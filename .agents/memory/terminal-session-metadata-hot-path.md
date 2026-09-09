@@ -1,9 +1,9 @@
 # Terminal session metadata stays off the global poll
 
-`GET /api/term/sessions` without a project is polled every five seconds by
+`GET /api/term/sessions` without a workspace is polled every five seconds by
 the top tabs/dashboard, which do not consume provider titles, latest tasks,
 or captured-pane summaries. Keep agent enrichment disabled on that unscoped
-path (and the attach-picker scan); only project-scoped terminal lists need the
+path (and the attach-picker scan); only workspace-scoped terminal lists need the
 details.
 
 When caching Codex TTY-to-thread metadata, record every TTY inspected—not only

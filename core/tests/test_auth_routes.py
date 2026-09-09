@@ -10,10 +10,10 @@ from core import auth
 from lab import paths
 
 
-def _workspace(root: Path, project_id: str) -> None:
+def _vault(root: Path, workspace_id: str) -> None:
     (root / "content").mkdir(parents=True, exist_ok=True)
-    (root / "projects" / project_id).mkdir(parents=True, exist_ok=True)
-    (root / "lab.toml").write_text('[workspace]\nname = "test"\n', encoding="utf-8")
+    (root / "workspaces" / workspace_id).mkdir(parents=True, exist_ok=True)
+    (root / "lab.toml").write_text('[vault]\nname = "test"\n', encoding="utf-8")
 
 
 def _login(client, username: str, password: str):
@@ -21,14 +21,14 @@ def _login(client, username: str, password: str):
 
 
 def _create_user(
-    client, username: str, password: str, *, workspaces: list[str] | None = None,
+    client, username: str, password: str, *, vaults: list[str] | None = None,
 ):
     return client.post("/api/admin/users", json={
         "username": username,
         "name": username.title(),
         "role": "user",
         "password": password,
-        "workspaces": workspaces or [],
+        "vaults": vaults or [],
     })
 
 
@@ -36,7 +36,7 @@ def test_login_is_required_and_seed_passwords_are_sha256(client) -> None:
     client.post("/api/auth/logout")
 
     page = client.get("/", follow_redirects=False)
-    api = client.get("/api/workspaces")
+    api = client.get("/api/vaults")
 
     assert page.status_code == 303
     assert page.headers["location"].startswith("/login?next=")
@@ -65,25 +65,25 @@ def test_local_cli_bearer_is_secret_endpoint_scoped_and_loopback_only(
 
         allowed = local_client.get(
             "/api/nb/session",
-            params={"path": "projects/demo/analysis.ipynb"},
+            params={"path": "workspaces/demo/analysis.ipynb"},
             headers=headers,
         )
-        denied_elsewhere = local_client.get("/api/projects", headers=headers)
+        denied_elsewhere = local_client.get("/api/workspaces", headers=headers)
         denied_bad_token = local_client.get(
             "/api/nb/session",
-            params={"path": "projects/demo/analysis.ipynb"},
+            params={"path": "workspaces/demo/analysis.ipynb"},
             headers={"Authorization": "Bearer wrong-token-value-that-is-long-enough"},
         )
         denied_legacy_header = local_client.get(
             "/api/nb/session",
-            params={"path": "projects/demo/analysis.ipynb"},
+            params={"path": "workspaces/demo/analysis.ipynb"},
             headers={"X-Lab-Local-Automation": "1"},
         )
 
     with TestClient(app, client=("10.0.0.8", 50000)) as remote_client:
         denied_remote = remote_client.get(
             "/api/nb/session",
-            params={"path": "projects/demo/analysis.ipynb"},
+            params={"path": "workspaces/demo/analysis.ipynb"},
             headers=headers,
         )
 
@@ -94,19 +94,19 @@ def test_local_cli_bearer_is_secret_endpoint_scoped_and_loopback_only(
     assert denied_remote.status_code == 401
 
 
-def test_local_cli_bearer_preserves_requested_workspace_scope(
+def test_local_cli_bearer_preserves_requested_vault_scope(
     monorepo: Path, tmp_path: Path,
 ) -> None:
     from core.main import create_app
 
-    _workspace(monorepo, "demo")
-    paths.register_workspace(monorepo, name="Main", active=True)
+    _vault(monorepo, "demo")
+    paths.register_vault(monorepo, name="Main", active=True)
     other = tmp_path / "other"
-    _workspace(other, "demo")
-    (other / "projects" / "demo" / "runtime.json").write_text(
+    _vault(other, "demo")
+    (other / "workspaces" / "demo" / "runtime.json").write_text(
         json.dumps({"mode": "local"}), encoding="utf-8",
     )
-    notebook = other / "projects" / "demo" / "analysis.ipynb"
+    notebook = other / "workspaces" / "demo" / "analysis.ipynb"
     notebook.write_text(json.dumps({
         "nbformat": 4,
         "nbformat_minor": 5,
@@ -120,7 +120,7 @@ def test_local_cli_bearer_preserves_requested_workspace_scope(
             "outputs": [],
         }],
     }), encoding="utf-8")
-    paths.register_workspace(other, name="Other", active=False)
+    paths.register_vault(other, name="Other", active=False)
 
     app = create_app()
     with TestClient(app, client=("127.0.0.1", 50000)) as local_client:
@@ -130,16 +130,16 @@ def test_local_cli_bearer_preserves_requested_workspace_scope(
         selected = local_client.get(
             "/api/nb/session",
             params={
-                "path": "projects/demo/analysis.ipynb",
-                "workspace": "other",
+                "path": "workspaces/demo/analysis.ipynb",
+                "vault": "other",
             },
             headers=headers,
         )
         deleted = local_client.post(
             "/api/nb/cell/delete",
             json={
-                "path": "projects/demo/analysis.ipynb",
-                "workspace": "other",
+                "path": "workspaces/demo/analysis.ipynb",
+                "vault": "other",
                 "cell_id": "cell-one",
             },
             headers=headers,
@@ -147,8 +147,8 @@ def test_local_cli_bearer_preserves_requested_workspace_scope(
         unknown = local_client.get(
             "/api/nb/session",
             params={
-                "path": "projects/demo/analysis.ipynb",
-                "workspace": "missing",
+                "path": "workspaces/demo/analysis.ipynb",
+                "vault": "missing",
             },
             headers=headers,
         )
@@ -165,8 +165,8 @@ def test_version_one_store_is_replaced_by_the_builtin_admin(client) -> None:
         "version": 1,
         "secret": "legacy-secret",
         "users": [
-            {"username": "jesus", "name": "Jesus", "role": "admin", "password_sha256": "old", "workspaces": [], "disabled": False},
-            {"username": "cesar", "name": "Cesar", "role": "user", "password_sha256": "old", "workspaces": [], "disabled": False},
+            {"username": "jesus", "name": "Jesus", "role": "admin", "password_sha256": "old", "vaults": [], "disabled": False},
+            {"username": "cesar", "name": "Cesar", "role": "user", "password_sha256": "old", "vaults": [], "disabled": False},
         ],
     }), encoding="utf-8")
 
@@ -184,112 +184,112 @@ def test_builtin_admin_is_fixed(client) -> None:
     assert auth.authenticate("admin", "admin") is not None
 
 
-def test_admin_assigns_one_workspace_and_user_cannot_see_the_other(
+def test_admin_assigns_one_vault_and_user_cannot_see_the_other(
     client, monorepo: Path, tmp_path: Path,
 ) -> None:
-    _workspace(monorepo, "alpha")
+    _vault(monorepo, "alpha")
     other = tmp_path / "other"
-    _workspace(other, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
+    _vault(other, "beta")
+    paths.register_vault(monorepo, name="Main", active=True)
+    paths.register_vault(other, name="Other", active=False)
 
-    assigned = _create_user(client, "cesar", "cesar", workspaces=["main"])
+    assigned = _create_user(client, "cesar", "cesar", vaults=["main"])
     assert assigned.status_code == 200, assigned.text
     client.post("/api/auth/logout")
     assert _login(client, "Cesar", "cesar").status_code == 200
 
-    listing = client.get("/api/workspaces/projects")
-    denied = client.get("/api/workspace/config", params={"workspace": "other"})
+    listing = client.get("/api/vaults/workspaces")
+    denied = client.get("/api/vault/config", params={"vault": "other"})
     edited = client.patch(
-        "/api/workspaces/main/appearance",
-        json={"name": "Cesar workspace", "color": "#3fb950"},
+        "/api/vaults/main/appearance",
+        json={"name": "Cesar vault", "color": "#3fb950"},
     )
 
     assert listing.status_code == 200, listing.text
-    assert [row["id"] for row in listing.json()["workspaces"]] == ["main"]
+    assert [row["id"] for row in listing.json()["vaults"]] == ["main"]
     assert denied.status_code == 404
     assert edited.status_code == 200, edited.text
-    assert edited.json()["name"] == "Cesar workspace"
+    assert edited.json()["name"] == "Cesar vault"
 
 
-def test_project_routes_use_the_workspace_selected_by_the_page(
+def test_workspace_routes_use_the_vault_selected_by_the_page(
     client, monorepo: Path, tmp_path: Path,
 ) -> None:
-    _workspace(monorepo, "shared")
+    _vault(monorepo, "shared")
     other = tmp_path / "other"
-    _workspace(other, "shared")
-    (monorepo / "projects" / "shared" / "project.json").write_text(
+    _vault(other, "shared")
+    (monorepo / "workspaces" / "shared" / "workspace.json").write_text(
         json.dumps({"id": "shared", "name": "Main copy"}), encoding="utf-8",
     )
-    (other / "projects" / "shared" / "project.json").write_text(
+    (other / "workspaces" / "shared" / "workspace.json").write_text(
         json.dumps({"id": "shared", "name": "Other copy"}), encoding="utf-8",
     )
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
+    paths.register_vault(monorepo, name="Main", active=True)
+    paths.register_vault(other, name="Other", active=False)
     assert _create_user(
-        client, "cesar", "cesar", workspaces=["main", "other"],
+        client, "cesar", "cesar", vaults=["main", "other"],
     ).status_code == 200
     client.post("/api/auth/logout")
     assert _login(client, "cesar", "cesar").status_code == 200
 
     response = client.get(
-        "/api/projects/shared",
-        headers={"referer": f"http://testserver/?project={other / 'projects' / 'shared'}"},
+        "/api/workspaces/shared",
+        headers={"referer": f"http://testserver/?workspace={other / 'workspaces' / 'shared'}"},
     )
 
     assert response.status_code == 200, response.text
     assert response.json()["name"] == "Other copy"
 
 
-def test_user_terminal_access_is_workspace_scoped_and_home_is_admin_only(
+def test_user_terminal_access_is_vault_scoped_and_home_is_admin_only(
     client, monorepo: Path, tmp_path: Path, monkeypatch,
 ) -> None:
-    _workspace(monorepo, "alpha")
+    _vault(monorepo, "alpha")
     other = tmp_path / "other"
-    _workspace(other, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
-    assert _create_user(client, "miriam", "miriam", workspaces=["main"]).status_code == 200
+    _vault(other, "beta")
+    paths.register_vault(monorepo, name="Main", active=True)
+    paths.register_vault(other, name="Other", active=False)
+    assert _create_user(client, "miriam", "miriam", vaults=["main"]).status_code == 200
     client.post("/api/auth/logout")
     assert _login(client, "miriam", "miriam").status_code == 200
 
     from core.routes import term
-    monkeypatch.setattr(term, "_sessions_for_root", lambda root, project_id: [])
-    monkeypatch.setattr(term, "_get_project_sessions", lambda root, project_id: [])
+    monkeypatch.setattr(term, "_sessions_for_root", lambda root, workspace_id: [])
+    monkeypatch.setattr(term, "_get_workspace_sessions", lambda root, workspace_id: [])
 
-    allowed = client.get("/api/term/sessions", params={"project_id": "alpha", "workspace": "main"})
-    denied = client.get("/api/term/sessions", params={"project_id": "beta", "workspace": "other"})
-    home = client.get("/api/term/sessions", params={"project_id": "__self__"})
+    allowed = client.get("/api/term/sessions", params={"workspace_id": "alpha", "vault": "main"})
+    denied = client.get("/api/term/sessions", params={"workspace_id": "beta", "vault": "other"})
+    home = client.get("/api/term/sessions", params={"workspace_id": "__self__"})
 
     assert allowed.status_code == 200, allowed.text
     assert denied.status_code == 404
     assert home.status_code == 403
 
 
-def test_admin_can_register_workspace_and_grant_it_to_user(
+def test_admin_can_register_vault_and_grant_it_to_user(
     client, tmp_path: Path,
 ) -> None:
     root = tmp_path / "team-space"
-    _workspace(root, "demo")
+    _vault(root, "demo")
 
-    added = client.post("/api/workspaces", json={
+    added = client.post("/api/vaults", json={
         "path": str(root),
         "name": "Team Space",
         "create": False,
     })
-    workspace_id = added.json()["workspace"]["id"]
+    vault_id = added.json()["vault"]["id"]
     assert _create_user(client, "miriam", "miriam").status_code == 200
-    granted = client.patch("/api/admin/users/miriam", json={"workspaces": [workspace_id]})
+    granted = client.patch("/api/admin/users/miriam", json={"vaults": [vault_id]})
 
     assert added.status_code == 200, added.text
     assert granted.status_code == 200, granted.text
-    assert granted.json()["user"]["workspaces"] == [workspace_id]
+    assert granted.json()["user"]["vaults"] == [vault_id]
 
 
-def test_admin_can_create_a_new_empty_workspace(client, tmp_path: Path) -> None:
+def test_admin_can_create_a_new_empty_vault(client, tmp_path: Path) -> None:
     root = tmp_path / "brand-new"
 
-    response = client.post("/api/workspaces", json={
+    response = client.post("/api/vaults", json={
         "path": str(root),
         "name": "Brand New",
         "create": True,
@@ -297,8 +297,8 @@ def test_admin_can_create_a_new_empty_workspace(client, tmp_path: Path) -> None:
 
     assert response.status_code == 200, response.text
     assert (root / "lab.toml").is_file()
-    assert (root / "projects").is_dir()
-    assert not (root / "projects" / "example").exists()
+    assert (root / "workspaces").is_dir()
+    assert not (root / "workspaces" / "example").exists()
 
 
 def test_admin_can_change_password_and_old_session_is_invalidated(client) -> None:

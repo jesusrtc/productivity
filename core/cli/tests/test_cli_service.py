@@ -15,14 +15,14 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def test_start_invokes_make(monkeypatch, tmp_path: Path) -> None:
     called: list[dict] = []
-    workspace = tmp_path / "workspace"
+    vault = tmp_path / "vault"
     framework = tmp_path / "framework"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text("[workspace]\nname = \"workspace\"\n")
+    vault.mkdir()
+    (vault / "lab.toml").write_text("[vault]\nname = \"vault\"\n")
     framework.mkdir()
-    monkeypatch.setattr("lab.commands.service.paths.find_workspace_root", lambda: workspace)
+    monkeypatch.setattr("lab.commands.service.paths.find_vault_root", lambda: vault)
     monkeypatch.setattr("lab.commands.service.paths.find_framework_root", lambda: framework)
-    monkeypatch.setattr("lab.commands.service.paths.register_workspace", lambda *a, **k: {})
+    monkeypatch.setattr("lab.commands.service.paths.register_vault", lambda *a, **k: {})
 
     def fake_run(cmd, check, cwd=None, env=None):
         called.append({"cmd": cmd, "cwd": cwd, "env": env})
@@ -35,19 +35,19 @@ def test_start_invokes_make(monkeypatch, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert called and called[0]["cmd"][:2] == ["make", "start-bg"]
     assert called[0]["cwd"] == str(framework)
-    assert called[0]["env"]["LAB_WORKSPACE"] == str(workspace)
+    assert called[0]["env"]["LAB_VAULT"] == str(vault)
 
 
 def test_start_accepts_port(monkeypatch, tmp_path: Path) -> None:
     called: list[dict] = []
-    workspace = tmp_path / "workspace"
+    vault = tmp_path / "vault"
     framework = tmp_path / "framework"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text("[workspace]\nname = \"workspace\"\n")
+    vault.mkdir()
+    (vault / "lab.toml").write_text("[vault]\nname = \"vault\"\n")
     framework.mkdir()
-    monkeypatch.setattr("lab.commands.service.paths.find_workspace_root", lambda: workspace)
+    monkeypatch.setattr("lab.commands.service.paths.find_vault_root", lambda: vault)
     monkeypatch.setattr("lab.commands.service.paths.find_framework_root", lambda: framework)
-    monkeypatch.setattr("lab.commands.service.paths.register_workspace", lambda *a, **k: {})
+    monkeypatch.setattr("lab.commands.service.paths.register_vault", lambda *a, **k: {})
 
     def fake_run(cmd, check, cwd=None, env=None):
         called.append({"cmd": cmd, "cwd": cwd, "env": env})
@@ -62,10 +62,10 @@ def test_start_accepts_port(monkeypatch, tmp_path: Path) -> None:
     assert called[0]["env"]["LAB_PORT"] == "8090"
 
 
-def test_start_rejects_uninitialized_workspace(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    monkeypatch.setattr("lab.commands.service.paths.find_workspace_root", lambda: workspace)
+def test_start_rejects_uninitialized_vault(monkeypatch, tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    monkeypatch.setattr("lab.commands.service.paths.find_vault_root", lambda: vault)
 
     result = CliRunner().invoke(main, ["start"])
 
@@ -110,7 +110,7 @@ def test_open_respects_custom_port(monkeypatch) -> None:
     assert opened == ["http://localhost:4444/api/index"]
 
 
-def test_server_port_falls_back_to_running_active_workspace(
+def test_server_port_falls_back_to_running_active_vault(
     monkeypatch, tmp_path: Path
 ) -> None:
     current = tmp_path / "current"
@@ -120,43 +120,43 @@ def test_server_port_falls_back_to_running_active_workspace(
     (active / ".lab" / "state" / "server.port").write_text("8080\n")
     monkeypatch.delenv("LAB_PORT", raising=False)
     monkeypatch.setattr(
-        "lab.commands.service.paths.find_workspace_root", lambda: current,
+        "lab.commands.service.paths.find_vault_root", lambda: current,
     )
     monkeypatch.setattr(
-        "lab.commands.service.paths.active_workspace", lambda: active,
+        "lab.commands.service.paths.active_vault", lambda: active,
     )
 
     assert server_port() == "8080"
 
 
-def test_server_port_falls_back_to_workspace_lab_toml(
+def test_server_port_falls_back_to_vault_lab_toml(
     monkeypatch, tmp_path: Path,
 ) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text(
-        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "lab.toml").write_text(
+        '[vault]\nname = "vault"\n\n[server]\nport = 4545\n',
         encoding="utf-8",
     )
     monkeypatch.delenv("LAB_PORT", raising=False)
     monkeypatch.setenv("LAB_ENV_FILE", str(tmp_path / "missing.env"))
     monkeypatch.setattr(
-        "lab.commands.service.paths.find_workspace_root", lambda: workspace,
+        "lab.commands.service.paths.find_vault_root", lambda: vault,
     )
     monkeypatch.setattr(
-        "lab.commands.service.paths.active_workspace", lambda: None,
+        "lab.commands.service.paths.active_vault", lambda: None,
     )
 
     assert server_port() == "4545"
 
 
-def test_server_port_prefers_client_env_over_workspace_config(
+def test_server_port_prefers_client_env_over_vault_config(
     monkeypatch, tmp_path: Path,
 ) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text(
-        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "lab.toml").write_text(
+        '[vault]\nname = "vault"\n\n[server]\nport = 4545\n',
         encoding="utf-8",
     )
     client_env = tmp_path / "client.env"
@@ -164,24 +164,24 @@ def test_server_port_prefers_client_env_over_workspace_config(
     monkeypatch.delenv("LAB_PORT", raising=False)
     monkeypatch.setenv("LAB_ENV_FILE", str(client_env))
     monkeypatch.setattr(
-        "lab.commands.service.paths.find_workspace_root", lambda: workspace,
+        "lab.commands.service.paths.find_vault_root", lambda: vault,
     )
     monkeypatch.setattr(
-        "lab.commands.service.paths.active_workspace", lambda: None,
+        "lab.commands.service.paths.active_vault", lambda: None,
     )
 
     assert server_port() == "5656"
 
 
-def test_make_port_reads_active_workspace_lab_toml(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text(
-        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+def test_make_port_reads_active_vault_lab_toml(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "lab.toml").write_text(
+        '[vault]\nname = "vault"\n\n[server]\nport = 4545\n',
         encoding="utf-8",
     )
     env = os.environ.copy()
-    env["LAB_WORKSPACE"] = str(workspace)
+    env["LAB_VAULT"] = str(vault)
     env["LAB_HOME"] = str(tmp_path / "lab-home")
     env["LAB_ENV_FILE"] = str(tmp_path / "missing.env")
     # Lab terminals inherit the current server's port. That ambient runtime
@@ -195,17 +195,17 @@ def test_make_port_reads_active_workspace_lab_toml(tmp_path: Path) -> None:
     assert proc.stdout.strip() == "4545"
 
 
-def test_make_port_prefers_client_env_over_workspace_config(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "lab.toml").write_text(
-        '[workspace]\nname = "workspace"\n\n[server]\nport = 4545\n',
+def test_make_port_prefers_client_env_over_vault_config(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "lab.toml").write_text(
+        '[vault]\nname = "vault"\n\n[server]\nport = 4545\n',
         encoding="utf-8",
     )
     client_env = tmp_path / "client.env"
     client_env.write_text("LAB_PORT=5656\n", encoding="utf-8")
     env = os.environ.copy()
-    env["LAB_WORKSPACE"] = str(workspace)
+    env["LAB_VAULT"] = str(vault)
     env["LAB_HOME"] = str(tmp_path / "lab-home")
     env["LAB_ENV_FILE"] = str(client_env)
     env["LAB_PORT"] = "8080"

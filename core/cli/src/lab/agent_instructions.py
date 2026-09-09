@@ -10,8 +10,8 @@ use Lab's notebook executor so people can see the agent, running state, elapsed
 time, and output while the kernel is still busy:
 
 ```bash
-lab notebook exec projects/<project-id>/<path>.ipynb --code 'print("hello")'
-lab notebook exec projects/<project-id>/<path>.ipynb --cell-id <id> --file /tmp/cell.py
+lab notebook exec workspaces/<workspace-id>/<path>.ipynb --code 'print("hello")'
+lab notebook exec workspaces/<workspace-id>/<path>.ipynb --cell-id <id> --file /tmp/cell.py
 ```
 
 The command waits for the final result in the terminal, but the open Jupyter

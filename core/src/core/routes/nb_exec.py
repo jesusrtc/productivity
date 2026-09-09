@@ -6,10 +6,10 @@ This is the single execution/write path the UI and agents both use:
 
 The endpoint:
 
-1. Validates that ``path`` is a workspace-relative notebook path.
+1. Validates that ``path`` is a vault-relative notebook path.
 2. Writes the created/modified cell with actor identity and a running marker.
 3. Executes on the configured local Jupyter kernel, or the legacy Darwin
-   provider when a project runtime has not been configured.
+   provider when a workspace runtime has not been configured.
 4. Streams ordered execution-count, text, rich-display, display-update, clear,
    error, and terminal events to every open Lab view.
 5. Atomically checkpoints partial output for restart recovery, then replaces the
@@ -93,7 +93,7 @@ def _required_local_handle(root: Path, rel_path: str):
     except (RuntimeBuildError, RuntimeConfigError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if handle is None:
-        raise HTTPException(status_code=409, detail="project runtime is not configured for local execution")
+        raise HTTPException(status_code=409, detail="workspace runtime is not configured for local execution")
     return handle
 
 
@@ -195,7 +195,7 @@ def _bootstrap_unmark(session: str) -> None:
 
 
 # ── In-memory pending tracker ────────────────────────────────────────────────
-# The sidebar polls /api/project-files to decide which notebooks should show
+# The sidebar polls /api/workspace-files to decide which notebooks should show
 # a green "running" dot. We used to detect that by substring-scanning each
 # .ipynb on disk for `"lab_pending": true`, but Plotly-heavy notebooks easily
 # exceed any cheap size cap. Track the set of in-flight runs in memory: it's
@@ -255,7 +255,7 @@ def _live_start(
     target: Path,
     *,
     path: str,
-    workspace: str,
+    vault: str,
     run_id: str,
     cell_id: str,
     cell_index: int,
@@ -269,7 +269,7 @@ def _live_start(
     raw, parsed = _running_placeholder_output(provider_label)
     state = {
         "path": path,
-        "workspace": workspace,
+        "vault": vault,
         "run_id": run_id,
         "cell_id": cell_id,
         "cell_index": cell_index,
@@ -831,7 +831,7 @@ def _write_pending_cell(
         metadata = nb.setdefault("metadata", {})
         metadata["kernelspec"] = {
             "name": "python3",
-            "display_name": "Python 3 (Lab Project Runtime)",
+            "display_name": "Python 3 (Lab Workspace Runtime)",
             "language": "python",
         }
         metadata.setdefault("language_info", {"name": "python"})
@@ -1099,7 +1099,7 @@ def live_executions(path: str, request: Request) -> dict[str, Any]:
     """Return replayable in-flight state for reconnecting notebook views."""
     root = auth.request_root(request)
     target = _safe_resolve(root, path)
-    workspace = auth.workspace_id_for_root(root) or ""
+    vault = auth.vault_id_for_root(root) or ""
     snapshots = _live_snapshot(target)
     # A run stays in the registry for a few instructions after its final file
     # replacement while the terminal event is being broadcast. Cross-check the
@@ -1113,7 +1113,7 @@ def live_executions(path: str, request: Request) -> dict[str, Any]:
         }
     return {
         "path": path,
-        "workspace": workspace,
+        "vault": vault,
         "executions": [
             snapshot
             for snapshot in snapshots
@@ -1147,7 +1147,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     """
     root = auth.request_root(request)
     target = _safe_resolve(root, body.path)
-    workspace = auth.workspace_id_for_root(root) or ""
+    vault = auth.vault_id_for_root(root) or ""
     local_handle = _required_local_handle(root, body.path) if _configured_local(root, body.path) else None
     if local_handle is not None:
         from core.notebook_kernel import session_name
@@ -1181,7 +1181,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # cell immediately. Pick the exec_count now so the placeholder shows
     # the right [n] gutter; we'll overwrite later with Darwin's actual
     # count if it differs.
-    provider_label = "project kernel" if provider == "local" else "Darwin"
+    provider_label = "workspace kernel" if provider == "local" else "Darwin"
     # Count in-flight requests rather than keeping a boolean: queued cells in
     # the same notebook must keep the path marked active when an earlier cell
     # completes.
@@ -1224,7 +1224,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     live_started = _live_start(
         target,
         path=body.path,
-        workspace=workspace,
+        vault=vault,
         run_id=run_id,
         cell_id=cell_id,
         cell_index=pending_idx,
@@ -1262,7 +1262,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
         payload: dict[str, Any] = {
             "phase": phase,
             "path": body.path,
-            "workspace": workspace,
+            "vault": vault,
             "run_id": run_id,
             "cell_id": cell_id,
             "cell_index": next(
@@ -1291,7 +1291,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
             )
         else:
             # Darwin-only compatibility bootstrap. Local runtimes expose
-            # project libraries directly through their configured Python/PATH.
+            # workspace libraries directly through their configured Python/PATH.
             if _code_dir(root).is_dir():
                 if _bootstrap_needed(session):
                     try:
@@ -1419,7 +1419,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
 
     return {
         "path": body.path,
-        "workspace": workspace,
+        "vault": vault,
         "session": session,
         "provider": provider,
         "kernel_id": kernel_id,

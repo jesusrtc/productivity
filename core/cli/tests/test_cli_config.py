@@ -42,22 +42,22 @@ def test_config_rejects_unknown_key(monorepo: Path) -> None:
     assert "unknown setting" in r.output
 
 
-def test_resolve_agent_project_override_beats_global(monorepo: Path, seed_project) -> None:
-    seed_project("p")
+def test_resolve_agent_workspace_override_beats_global(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("p")
     runner = CliRunner()
     runner.invoke(main, ["config", "set", "defaultAgent", "codex"])
-    # No project override yet → inherits the global default.
+    # No workspace override yet → inherits the global default.
     assert settings.resolve_agent(monorepo, "p") == "codex"
-    # Project override wins.
-    runner.invoke(main, ["project", "set", "p", "agent", "claude"])
+    # Workspace override wins.
+    runner.invoke(main, ["workspace", "set", "p", "agent", "claude"])
     assert settings.resolve_agent(monorepo, "p") == "claude"
     # Clearing the override falls back to global again.
-    runner.invoke(main, ["project", "set", "p", "agent", "none"])
+    runner.invoke(main, ["workspace", "set", "p", "agent", "none"])
     assert settings.resolve_agent(monorepo, "p") == "codex"
 
 
-def test_resolve_agent_unknown_project_falls_back(monorepo: Path) -> None:
-    # A non-existent project id must never raise — just use the default.
+def test_resolve_agent_unknown_workspace_falls_back(monorepo: Path) -> None:
+    # A non-existent workspace id must never raise — just use the default.
     assert settings.resolve_agent(monorepo, "__missing__") == settings.DEFAULT_AGENT
     assert paths.config_file(monorepo) == monorepo / ".agents" / "config.json"
 

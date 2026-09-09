@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lab import naming
+
 import asyncio
 import json
 import logging
@@ -35,7 +37,7 @@ from core.routes import nb_exec as nb_exec_route
 from core.routes import nb_runtime as nb_runtime_route
 from core.routes import notebook as notebook_route
 from core.routes import power as power_route
-from core.routes import project as project_route
+from core.routes import workspace as workspace_route
 from core.routes import proxy as proxy_route
 from core.routes import search as search_route
 from core.routes import servers as servers_route
@@ -43,7 +45,7 @@ from core.routes import settings as settings_route
 from core.routes import task as task_route
 from core.routes import term as term_route
 from core.routes import ui as ui_route
-from core.routes import workspace as workspace_route
+from core.routes import vault as vault_route
 from core.routes import ws as ws_route
 from core.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
 from core.watcher import IndexWatcher
@@ -112,7 +114,7 @@ _log_file_handlers: list[logging.Handler] = []
 
 
 def _detach_file_logging() -> None:
-    """Remove and close Lab's workspace-local file handlers."""
+    """Remove and close Lab's vault-local file handlers."""
     root_logger = logging.getLogger()
     for h in _log_file_handlers:
         root_logger.removeHandler(h)
@@ -121,7 +123,7 @@ def _detach_file_logging() -> None:
 
 
 def _attach_file_logging(root: Path) -> Path:
-    """Attach split JSONL file handlers for one active workspace."""
+    """Attach split JSONL file handlers for one active vault."""
     _detach_file_logging()
     log_dir = lab_paths.logs_dir(root)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -167,22 +169,22 @@ def _write_port_file(root: Path) -> Path:
 
 
 def _remove_port_file(app: FastAPI) -> None:
-    port_file = getattr(app.state, "workspace_port_file", None)
+    port_file = getattr(app.state, "vault_port_file", None)
     if port_file is None:
         return
     try:
         Path(port_file).unlink(missing_ok=True)
     except OSError:
         pass
-    app.state.workspace_port_file = None
+    app.state.vault_port_file = None
 
 
-def _stop_workspace_runtime(app: FastAPI) -> None:
+def _stop_vault_runtime(app: FastAPI) -> None:
     cache = getattr(app.state, "index_cache", None)
     if cache is not None:
-        # Kernels are pinned to workspace-relative notebook paths. Shut them
-        # down before a workspace switch so no client process is orphaned and
-        # no session can accidentally cross workspace boundaries.
+        # Kernels are pinned to vault-relative notebook paths. Shut them
+        # down before a vault switch so no client process is orphaned and
+        # no session can accidentally cross vault boundaries.
         from core.notebook_kernel import shutdown_root
 
         shutdown_root(Path(cache.root))
@@ -194,7 +196,7 @@ def _stop_workspace_runtime(app: FastAPI) -> None:
     _detach_file_logging()
 
 
-def _start_workspace_runtime(app: FastAPI, root: Path, loop) -> None:
+def _start_vault_runtime(app: FastAPI, root: Path, loop) -> None:
     root = root.expanduser().resolve()
     _attach_file_logging(root)
     port_file = _write_port_file(root)
@@ -213,8 +215,8 @@ def _start_workspace_runtime(app: FastAPI, root: Path, loop) -> None:
 
     app.state.index_cache = cache
     app.state.index_watcher = watcher
-    app.state.workspace_root = root
-    app.state.workspace_port_file = port_file
+    app.state.vault_root = root
+    app.state.vault_port_file = port_file
 
 
 # ── Split-file filters ──────────────────────────────────────────────────────
@@ -325,7 +327,7 @@ async def _request_log_middleware(request: Request, call_next):
     return response
 
 
-# Captures the `/api/proxy/<project>/<name>` prefix from a Referer URL.
+# Captures the `/api/proxy/<workspace>/<name>` prefix from a Referer URL.
 # Used by the rewrite middleware below to forward absolute-path
 # sub-resource requests (e.g. `/api/data`, `/socket.io/...`) from a
 # proxied iframe back through the matching proxy mount.
@@ -346,7 +348,7 @@ _PROXY_REFERER_SKIP_PREFIXES = (
 async def _proxy_referer_rewrite(request: Request, call_next):
     """Re-route absolute-path requests from a proxy iframe.
 
-    When the page inside an `/api/proxy/<project>/<name>/` iframe makes
+    When the page inside an `/api/proxy/<workspace>/<name>/` iframe makes
     `fetch('/api/data')`, the browser sends it to the lab origin's
     root, which 404s. By inspecting `Referer` we can tell the request
     actually came from inside that iframe and silently rewrite the
@@ -417,22 +419,22 @@ async def lifespan(app: FastAPI):
     broadcaster = WsBroadcaster()
     loop = asyncio.get_running_loop()
     app.state.ws_broadcaster = broadcaster
-    app.state.workspace_switch_lock = threading.Lock()
+    app.state.vault_switch_lock = threading.Lock()
 
-    def switch_workspace(next_root: Path) -> None:
+    def switch_vault(next_root: Path) -> None:
         next_root = next_root.expanduser().resolve()
-        with app.state.workspace_switch_lock:
+        with app.state.vault_switch_lock:
             current = getattr(app.state, "index_cache", None)
             if current is not None and Path(current.root).resolve() == next_root:
                 return
-            _stop_workspace_runtime(app)
-            _start_workspace_runtime(app, next_root, loop)
+            _stop_vault_runtime(app)
+            _start_vault_runtime(app, next_root, loop)
 
-    app.state.switch_workspace = switch_workspace
-    _start_workspace_runtime(app, root, loop)
+    app.state.switch_vault = switch_vault
+    _start_vault_runtime(app, root, loop)
 
-    # Dev-server supervisor: re-resolves the active workspace root on every
-    # tick (via app.state.index_cache.root), so it survives `switch_workspace`
+    # Dev-server supervisor: re-resolves the active vault root on every
+    # tick (via app.state.index_cache.root), so it survives `switch_vault`
     # without needing to be restarted. Gated by LAB_SERVER_SUPERVISOR.
     servers_route.start_supervisor(app)
 
@@ -440,12 +442,12 @@ async def lifespan(app: FastAPI):
     try:
         from core.diff_parser import get_registered_repos
 
-        projects = get_registered_repos()
+        workspaces = get_registered_repos()
         port = config.port()
         print("\n  core server URLs:")
         print(f"  http://localhost:{port}/")
-        for proj in projects:
-            print(f"  http://localhost:{port}/?project={quote(proj['path'], safe='')}")
+        for workspace in workspaces:
+            print(f"  http://localhost:{port}/?workspace={quote(workspace['path'], safe='')}")
         print()
     except Exception:
         pass
@@ -454,7 +456,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         servers_route.stop_supervisor()
-        _stop_workspace_runtime(app)
+        _stop_vault_runtime(app)
 
 
 def create_app() -> FastAPI:
@@ -483,14 +485,14 @@ def create_app() -> FastAPI:
     # `/socket.io/...` from inside the iframe, it lands on the lab
     # origin's root — not under the proxy mount — and gets a 404. This
     # middleware inspects the `Referer` header and, if it points at a
-    # /api/proxy/<project>/<name>/ mount, rewrites the incoming path
+    # /api/proxy/<workspace>/<name>/ mount, rewrites the incoming path
     # to be under that mount. Lab UI's own requests (Referer == lab
     # root page, or no Referer) are unaffected.
     app.middleware("http")(_proxy_referer_rewrite)
 
     # Authentication is intentionally lightweight because Lab only listens on
     # localhost, but authorization is server-side: non-admin requests are
-    # constrained to their assigned workspace roots before route code runs.
+    # constrained to their assigned vault roots before route code runs.
     app.middleware("http")(auth.http_auth_middleware)
 
     @app.get("/api/ping")
@@ -501,7 +503,7 @@ def create_app() -> FastAPI:
     app.include_router(assistant_route.router)
     app.include_router(appstate_route.router)
     app.include_router(index_route.router)
-    app.include_router(project_route.router)
+    app.include_router(workspace_route.router)
     app.include_router(task_route.router)
     app.include_router(markdown_route.router)
     app.include_router(notebook_route.router)
@@ -516,7 +518,7 @@ def create_app() -> FastAPI:
     app.include_router(servers_route.router)
     app.include_router(cerebro_route.router)
     app.include_router(ui_route.router)
-    app.include_router(workspace_route.router)
+    app.include_router(vault_route.router)
     app.include_router(log_route.router)
     app.include_router(git_route.router)
     app.include_router(proxy_route.router)
@@ -544,64 +546,64 @@ def create_app() -> FastAPI:
     def _index_initial_state(request: Request) -> dict:
         params = request.query_params
         view = params.get("view") or ""
-        project = params.get("project") or ""
+        workspace = params.get("workspace") or ""
         repo = params.get("repo") or ""
 
         if view == "productivity":
             return {
                 "INITIAL_VIEW": "productivity",
                 "INITIAL_BODY_CLASS": "self-active",
-                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_WORKSPACE_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
         if view == "assistant":
             return {
                 "INITIAL_VIEW": "assistant",
                 "INITIAL_BODY_CLASS": "assistant-active",
-                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_WORKSPACE_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
-        if view == "workspace":
+        if view == "vault":
             return {
-                "INITIAL_VIEW": "workspace",
-                "INITIAL_BODY_CLASS": "workspace-active",
-                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_VIEW": "vault",
+                "INITIAL_BODY_CLASS": "vault-active",
+                "INITIAL_WORKSPACE_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
         if view == "cerebro":
             return {
                 "INITIAL_VIEW": "cerebro",
                 "INITIAL_BODY_CLASS": "cerebro-active",
-                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_WORKSPACE_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
         if view == "code-search":
             return {
                 "INITIAL_VIEW": "productivity",
                 "INITIAL_BODY_CLASS": "self-active",
-                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_WORKSPACE_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
         if view == "logs":
             return {
                 "INITIAL_VIEW": "productivity",
                 "INITIAL_BODY_CLASS": "self-active",
-                "INITIAL_PROJECT_NAME": "",
+                "INITIAL_WORKSPACE_NAME": "",
                 "INITIAL_IS_REPO": False,
             }
-        if project or repo:
-            target = (repo or project).rstrip("/")
-            name = Path(target).name or ("Repository" if repo else "Project")
+        if workspace or repo:
+            target = (repo or workspace).rstrip("/")
+            name = Path(target).name or ("Repository" if repo else "Workspace")
             return {
-                "INITIAL_VIEW": "repo" if repo else "project",
-                "INITIAL_BODY_CLASS": "project-active",
-                "INITIAL_PROJECT_NAME": name,
+                "INITIAL_VIEW": "repo" if repo else "workspace",
+                "INITIAL_BODY_CLASS": "workspace-active",
+                "INITIAL_WORKSPACE_NAME": name,
                 "INITIAL_IS_REPO": bool(repo),
             }
         return {
             "INITIAL_VIEW": "productivity",
             "INITIAL_BODY_CLASS": "self-active",
-            "INITIAL_PROJECT_NAME": "",
+            "INITIAL_WORKSPACE_NAME": "",
             "INITIAL_IS_REPO": False,
         }
 
@@ -627,15 +629,15 @@ def create_app() -> FastAPI:
         root = auth.request_root(request)
         shell_root = root
         if not admin:
-            requested_workspace = request.query_params.get("workspace")
-            resource = request.query_params.get("project") or request.query_params.get("repo")
+            requested_vault = request.query_params.get("vault")
+            resource = request.query_params.get("workspace") or request.query_params.get("repo")
             if resource:
-                requested_workspace = auth.workspace_id_for_path(resource)
-            requested_workspace = requested_workspace or auth.first_allowed_workspace(user)
-            allowed_root = auth.workspace_root_for_id(requested_workspace) if requested_workspace else None
+                requested_vault = auth.vault_id_for_path(resource)
+            requested_vault = requested_vault or auth.first_allowed_vault(user)
+            allowed_root = auth.vault_root_for_id(requested_vault) if requested_vault else None
             if allowed_root is not None:
                 shell_root = allowed_root
-        workspace_root = str(shell_root)
+        vault_root = str(shell_root)
         framework_root = str(lab_paths.find_framework_root()) if admin else ""
         assistant_root = lab_paths.assistant_root() if admin else None
         mtime = _index_cache["mtime"]
@@ -648,14 +650,14 @@ def create_app() -> FastAPI:
                 mtime = None
         state = _index_initial_state(request)
         key = (
-            workspace_root,
+            vault_root,
             framework_root,
             str(assistant_root or ""),
             user["username"],
             user["role"],
             state["INITIAL_VIEW"],
             state["INITIAL_BODY_CLASS"],
-            state["INITIAL_PROJECT_NAME"],
+            state["INITIAL_WORKSPACE_NAME"],
             state["INITIAL_IS_REPO"],
         )
         if mtime is None or _index_cache["mtime"] != mtime:
@@ -666,7 +668,7 @@ def create_app() -> FastAPI:
             asset_v = format(max(mtime) // 1_000_000, "x") if mtime else "0"
             html = templates.get_template("index.html").render(
                 MONOREPO_ROOT=framework_root,
-                WORKSPACE_ROOT=workspace_root,
+                VAULT_ROOT=vault_root,
                 ASSISTANT_ROOT=str(assistant_root or ""),
                 USER=auth.public_user(user),
                 IS_ADMIN=admin,
@@ -683,18 +685,19 @@ def create_app() -> FastAPI:
             headers={"Cache-Control": "no-cache"},
         )
 
-    @app.get("/p/{project_id}")
-    async def spa_project(request: Request, project_id: str):
-        """D3 URL: /p/<id> redirects to /?project=<abs path>.
+    @app.get("/p/{workspace_id}", include_in_schema=False)  # Saved legacy links.
+    @app.get("/w/{workspace_id}")
+    async def spa_workspace(request: Request, workspace_id: str):
+        """Workspace URL: /w/<id> redirects to /?workspace=<abs path>.
 
-        The source of truth remains ``?project=<abs path>`` (gdiff's existing
-        muscle memory); /p/<id> is sugar for project-id navigation.
+        The source of truth remains ``?workspace=<abs path>`` (gdiff's existing
+        muscle memory); /w/<id> is sugar for workspace-id navigation.
         """
         root = auth.request_root(request)
-        project_dir = (root / "projects" / project_id).resolve()
-        if not project_dir.is_dir():
-            raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
-        return RedirectResponse(url=f"/?project={quote(str(project_dir), safe='')}")
+        workspace_dir = (naming.workspaces_dir(root) / workspace_id).resolve()
+        if not workspace_dir.is_dir():
+            raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+        return RedirectResponse(url=f"/?workspace={quote(str(workspace_dir), safe='')}")
 
     @app.get("/view", response_class=HTMLResponse)
     async def view_markdown(request: Request, path: str):
@@ -730,7 +733,7 @@ def create_app() -> FastAPI:
         fm_html = ""
         if frontmatter:
             bits = []
-            for k in ("date", "type", "scope", "projects", "tags"):
+            for k in ("date", "type", "scope", "workspaces", "tags"):
                 if k in frontmatter:
                     v = frontmatter[k]
                     if isinstance(v, list):

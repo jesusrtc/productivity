@@ -10,32 +10,32 @@ import click
 from lab import paths
 
 
-def _ensure_workspace(root: Path) -> None:
+def _ensure_vault(root: Path) -> None:
     if not root.is_dir():
-        raise click.ClickException(f"workspace path not found: {root}")
+        raise click.ClickException(f"vault path not found: {root}")
     if not (root / "lab.toml").is_file() and not (root / "content").is_dir():
-        raise click.ClickException(f"{root} is not a Lab workspace; run `lab init {root}` first")
+        raise click.ClickException(f"{root} is not a Lab vault; run `lab init {root}` first")
 
 
-def server_port(workspace: Path | None = None) -> str:
+def server_port(vault: Path | None = None) -> str:
     """Resolve the lab server's port.
 
-    Precedence: LAB_PORT env var → workspace server port file (written by the
-    running server) → client ``.env`` → workspace ``lab.toml`` → ``3333``.
+    Precedence: LAB_PORT env var → vault server port file (written by the
+    running server) → client ``.env`` → vault ``lab.toml`` → ``3333``.
     Mirrors ``scripts/lab-url.sh`` so CLI + shell tools agree.
     """
     env = os.environ.get("LAB_PORT")
     if env:
         return env.strip()
     roots: list[Path] = []
-    if workspace is not None:
-        roots.append(workspace.expanduser().resolve())
+    if vault is not None:
+        roots.append(vault.expanduser().resolve())
     else:
         try:
-            roots.append(paths.find_workspace_root())
+            roots.append(paths.find_vault_root())
         except paths.MonorepoNotFound:
             pass
-    active = paths.active_workspace()
+    active = paths.active_vault()
     if active is not None and active not in roots:
         roots.append(active)
     for root in roots:
@@ -59,22 +59,22 @@ def server_port(workspace: Path | None = None) -> str:
 
 
 @click.command(name="start")
-@click.option("--workspace", "workspace_path", type=click.Path(path_type=Path),
-              default=None, help="Workspace to serve.")
+@click.option("--vault", "vault_path", type=click.Path(path_type=Path),
+              default=None, help="Vault to serve.")
 @click.option("--port", "-p", "port", type=int, default=None,
               help="Port for this server run.")
-def start(workspace_path: Path | None, port: int | None) -> None:
+def start(vault_path: Path | None, port: int | None) -> None:
     """Start the backend in the background."""
-    if workspace_path is not None:
-        workspace = workspace_path.expanduser().resolve()
+    if vault_path is not None:
+        vault = vault_path.expanduser().resolve()
     else:
-        workspace = paths.find_workspace_root()
-    _ensure_workspace(workspace)
-    paths.register_workspace(workspace, name=workspace.name, active=True)
+        vault = paths.find_vault_root()
+    _ensure_vault(vault)
+    paths.register_vault(vault, name=vault.name, active=True)
 
     framework = paths.find_framework_root()
     env = os.environ.copy()
-    env["LAB_WORKSPACE"] = str(workspace)
+    env["LAB_VAULT"] = str(vault)
     cmd = ["make", "start-bg"]
     if port is not None:
         env["LAB_PORT"] = str(port)

@@ -58,21 +58,21 @@ def test_framework_top_tab_is_labeled_home() -> None:
 
 
 @pytest.mark.parametrize("mode", ["success", "cancel", "failure", "settings_failure", "navigate"])
-def test_kill_all_preserves_project_scope_and_reports_failures(mode: str) -> None:
+def test_kill_all_preserves_workspace_scope_and_reports_failures(mode: str) -> None:
     handler = _js_between("  const _termKillAllPending", "  async function termCopyAttachCmd")
     result = _run_node(r"""
 const mode = MODE;
 const calls = [], alerts = [], statuses = [];
-let workspace = 'ssd one';
+let vault = 'ssd one';
 let termSessions = [{name: 'one'}, {name: 'two'}];
-const currentProject = {name: 'demo'};
+const currentWorkspace = {name: 'demo'};
 const button = {disabled: false};
 const document = {getElementById: () => button};
-const _termActiveProjectId = () => 'demo';
-const _termWorkspaceId = () => workspace;
+const _termActiveWorkspaceId = () => 'demo';
+const _termVaultId = () => vault;
 const _termSessionsKey = (pid, ws) => ws + '::' + pid;
-const _workspaceQuery = ws => '&workspace=' + encodeURIComponent(ws);
-const _projectDisplayName = () => 'Demo';
+const _vaultQuery = ws => '&vault=' + encodeURIComponent(ws);
+const _workspaceDisplayName = () => 'Demo';
 const confirm = () => mode !== 'cancel';
 const alert = msg => alerts.push(msg);
 const _termSessionsCache = new Map([['ssd one::demo', termSessions]]);
@@ -81,12 +81,12 @@ const _termEvictCache = (name, pid) => calls.push(['evict', name, pid]);
 const termRenderSessionList = () => calls.push('render');
 const termShowEmpty = () => calls.push('empty');
 const termSetStatus = (...args) => statuses.push(args);
-const _termRefreshSessionsForProjectId = async pid => calls.push(['refresh', pid]);
-const projTabsRefresh = () => calls.push('tabs');
+const _termRefreshSessionsForWorkspaceId = async pid => calls.push(['refresh', pid]);
+const workspaceTabsRefresh = () => calls.push('tabs');
 const fetch = async (url, options) => {
   calls.push([options.method, url, options.body && JSON.parse(options.body)]);
   if (options.method === 'POST') return {ok: mode !== 'settings_failure'};
-  if (mode === 'navigate') { workspace = 'other'; termSessions = [{name: 'other-session'}]; }
+  if (mode === 'navigate') { vault = 'other'; termSessions = [{name: 'other-session'}]; }
   return {ok: mode !== 'failure', json: async () => mode === 'failure'
     ? {detail: 'Permission denied'} : {killed: ['one', 'two', 'unlisted']}};
 };
@@ -104,12 +104,12 @@ const fetch = async (url, options) => {
     if mode == "cancel":
         assert result["calls"] == []
         return
-    assert requests[0][2] == {"project_id": "demo", "enabled": False, "workspace": "ssd one"}
+    assert requests[0][2] == {"workspace_id": "demo", "enabled": False, "vault": "ssd one"}
     if mode == "settings_failure":
         assert len(requests) == 1
         assert "detach" not in result["calls"]
     else:
-        assert requests[1][:2] == ["DELETE", "/api/term/sessions/project/demo?purge=true&workspace=ssd%20one"]
+        assert requests[1][:2] == ["DELETE", "/api/term/sessions/workspace/demo?purge=true&vault=ssd%20one"]
     if mode in {"failure", "settings_failure"}:
         assert result["alerts"]
         assert "empty" not in result["calls"]
@@ -138,13 +138,13 @@ def test_sidebar_tree_indentation_has_no_depth_cap() -> None:
     assert ".sidebar-folder-children .sidebar-folder-children.open::before" not in css
 
 
-def test_project_server_iframe_carries_its_workspace_in_the_mount_path() -> None:
+def test_workspace_server_iframe_carries_its_vault_in_the_mount_path() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert "function _proxyMountPath(projectId, name, workspaceId = null)" in source
-    assert "/api/workspace-proxy/${encodeURIComponent(workspaceId)}" in source
-    assert "_projectWorkspaceId(currentProject)" in source
-    assert "if (project.workspace) return project.workspace;" in source
+    assert "function _proxyMountPath(workspaceId, name, vaultId = null)" in source
+    assert "/api/vault-proxy/${encodeURIComponent(vaultId)}" in source
+    assert "_workspaceVaultId(currentWorkspace)" in source
+    assert "if (workspace.vault) return workspace.vault;" in source
 
 
 def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
@@ -192,11 +192,11 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     assert "const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes'" in source
     assert "const _TERM_RECENT_COLOR_KEY = 'labTermRecentColor'" in source
     assert "const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1'" in source
-    assert "function _termMarkRecent(projectId, sessionName" in source
+    assert "function _termMarkRecent(workspaceId, sessionName" in source
     assert "function _termSessionRecentMeta(session, now = Date.now())" in source
     assert "const recent = recentMeta ? ' recent' : '';" in source
-    assert "_termMarkRecent(prevProjectId, prev);" in source
-    assert "_termMarkRecent(projectId, name);" in source
+    assert "_termMarkRecent(prevWorkspaceId, prev);" in source
+    assert "_termMarkRecent(workspaceId, name);" in source
     assert ".term-sessions .sess.recent:not(.active)" in css
     assert ".term-sessions .sess.recent:not(.active)::after" not in css
     assert ".term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0" in css
@@ -223,7 +223,7 @@ const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
 let termRecentMinutes = 60;
 let termRecentColor = '#3fb950';
 let termRecentActivity = {};
-let workspace = 'ssd';
+let vault = 'ssd';
 let termSessions = [{name: 'tmux-codex', logical_name: 'codex'}];
 let renderCount = 0;
 function makeElement(value = '') {
@@ -246,9 +246,9 @@ const elements = {
   termPanel: makeElement(),
 };
 const document = {getElementById(id) { return elements[id] || null; }};
-function _termSessionsKey(project, workspaceId) { return workspaceId + '::' + project; }
-function _termActiveProjectId() { return 'demo'; }
-function _termWorkspaceId() { return workspace; }
+function _termSessionsKey(workspace, vaultId) { return vaultId + '::' + workspace; }
+function _termActiveWorkspaceId() { return 'demo'; }
+function _termVaultId() { return vault; }
 function termRenderSessionList() { renderCount += 1; }
 """ + recent_helpers + """
 const now = 10_000_000;
@@ -256,14 +256,14 @@ _termMarkRecent('demo', 'tmux-codex', 'ssd', now - 50 * 60 * 1000);
 const recentAt60 = _termSessionRecentMeta(termSessions[0], now);
 termRecentMinutes = 30;
 const recentAt30 = _termSessionRecentMeta(termSessions[0], now);
-workspace = 'other';
-const otherWorkspace = _termSessionRecentMeta(termSessions[0], now);
+vault = 'other';
+const otherVault = _termSessionRecentMeta(termSessions[0], now);
 termSetRecentMinutes(180);
 termSetRecentColor('#A371F7');
 process.stdout.write(JSON.stringify({
   recentAt60,
   recentAt30,
-  otherWorkspace,
+  otherVault,
   stored: JSON.parse(stored.recent),
   normalized: [
     _termNormalizeRecentMinutes(0),
@@ -291,7 +291,7 @@ process.stdout.write(JSON.stringify({
 
     assert result["recentAt60"]["label"] == "used 50m ago"
     assert result["recentAt30"] is None
-    assert result["otherWorkspace"] is None
+    assert result["otherVault"] is None
     assert result["stored"] == {"ssd::demo": {"codex": 7_000_000}}
     assert result["normalized"] == [15, 60, 1440, 60]
     assert result["normalizedColors"] == ["#abcdef", "#3fb950"]
@@ -362,9 +362,9 @@ const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7'];
 let _termGroupMenuOutside = null;
 let termSessions = [{name: 'tmux-one', logical_name: 'codex'}];
 let renderCount = 0;
-function _termSessionsKey(project, workspace) { return workspace + '::' + project; }
-function _termActiveProjectId() { return 'demo'; }
-function _termWorkspaceId() { return 'ssd'; }
+function _termSessionsKey(workspace, vault) { return vault + '::' + workspace; }
+function _termActiveWorkspaceId() { return 'demo'; }
+function _termVaultId() { return 'ssd'; }
 function _termSessionMeta(name) { return termSessions.find(item => item.name === name) || null; }
 function termRenderSessionList() { renderCount += 1; }
 function termSessEsc(value) { return String(value); }
@@ -407,9 +407,9 @@ let termSessions = [
   {name: 'tmux-two', logical_name: 'two'},
   {name: 'tmux-three', logical_name: 'three'},
 ];
-function _termSessionsKey(project, workspace) { return workspace + '::' + project; }
-function _termActiveProjectId() { return 'demo'; }
-function _termWorkspaceId() { return 'ssd'; }
+function _termSessionsKey(workspace, vault) { return vault + '::' + workspace; }
+function _termActiveWorkspaceId() { return 'demo'; }
+function _termVaultId() { return 'ssd'; }
 function _termSessionMeta(name) { return termSessions.find(item => item.name === name) || null; }
 function termRenderSessionList() {}
 function termSessEsc(value) { return String(value); }
@@ -438,7 +438,7 @@ def test_terminal_agent_activity_scraping_and_attention_ui_are_removed() -> None
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
 
     assert "/api/term/sessions/status" not in source
-    assert "/api/term/projects-attention" not in source
+    assert "/api/term/workspaces-attention" not in source
     assert "termStartStatusPolling" not in source
     assert ".term-sessions .sess .stat" not in css
 
@@ -525,8 +525,8 @@ const termSessions = [{
   ],
 }];
 let termCurrentSession = termSessions[0].name;
-let termCurrentProjectId = 'demo';
-function _termActiveProjectId() { return 'demo'; }
+let termCurrentWorkspaceId = 'demo';
+function _termActiveWorkspaceId() { return 'demo'; }
 function termSessEsc(value) { return String(value); }
 function prompt() { return null; }
 """ + header_helpers + """
@@ -584,8 +584,8 @@ const termSessions = [{
   ],
 }];
 let termCurrentSession = 'tmux-codex';
-let termCurrentProjectId = 'demo';
-function _termActiveProjectId() { return 'demo'; }
+let termCurrentWorkspaceId = 'demo';
+function _termActiveWorkspaceId() { return 'demo'; }
 function termSessEsc(value) { return String(value); }
 """ + header_helpers + """
 _termRenderActiveSessionHeader();
@@ -790,29 +790,29 @@ process.stdout.write(JSON.stringify({requests, objective}));
     }
 
 
-def test_workspace_view_opens_its_own_terminal_scope() -> None:
+def test_vault_view_opens_its_own_terminal_scope() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     term_open = _js_between(
-        "async function termOpenForWorkspace()",
-        "// ─── Workspace view",
+        "async function termOpenForVault()",
+        "// ─── Vault view",
     )
     result = _run_node(
         """
-const classes = new Set(['workspace-active']);
+const classes = new Set(['vault-active']);
 const calls = [];
-const WORKSPACE_PROJECT_ID = '__workspace__';
+const VAULT_WORKSPACE_ID = '__vault__';
 const document = {body: {classList: {
   add(value) { classes.add(value); },
   contains(value) { return classes.has(value); },
 }}};
-function _termIsScopeActive(pid) { return pid === WORKSPACE_PROJECT_ID; }
+function _termIsScopeActive(pid) { return pid === VAULT_WORKSPACE_ID; }
 function _termApplyRememberedVisibility() { calls.push('visibility'); }
 async function _termTryWarmOpen(pid) { calls.push('warm:' + pid); return false; }
-async function _termRestoreSessionsForProject(pid) { calls.push('restore:' + pid); }
+async function _termRestoreSessionsForWorkspace(pid) { calls.push('restore:' + pid); }
 function termStartPeriodicRefresh() { calls.push('refresh'); }
 """ + term_open + """
 (async () => {
-  await termOpenForWorkspace();
+  await termOpenForVault();
   process.stdout.write(JSON.stringify({calls, termOpen: classes.has('term-open')}));
 })().catch((err) => { console.error(err && err.stack || err); process.exit(1); });
 """
@@ -821,14 +821,14 @@ function termStartPeriodicRefresh() { calls.push('refresh'); }
     assert result["termOpen"] is True
     assert result["calls"] == [
         "visibility",
-        "warm:__workspace__",
-        "restore:__workspace__",
+        "warm:__vault__",
+        "restore:__vault__",
         "refresh",
     ]
-    assert "if (!UI_CHECK) termOpenForWorkspace();" in source
+    assert "if (!UI_CHECK) termOpenForVault();" in source
 
 
-def test_terminal_new_menu_hides_workspace_disabled_agents() -> None:
+def test_terminal_new_menu_hides_vault_disabled_agents() -> None:
     refresh_agent_avail = _js_between(
         "let _agentAvail = null;",
         "// ─── File ↔ terminal links",
@@ -839,7 +839,7 @@ const buttons = ['claude', 'codex', 'copilot'].map(agent => ({
   dataset: {agent}, hidden: false, disabled: false, style: {}, textContent: agent,
 }));
 const picker = {querySelectorAll() { return buttons; }};
-async function loadWorkspaceAgentPolicy() {
+async function loadVaultAgentPolicy() {
   return {supported: ['codex'], default: 'codex'};
 }
 async function fetch() {
@@ -872,11 +872,11 @@ def test_terminal_new_menu_opens_a_grouped_tmux_session_modal() -> None:
     assert 'id="termAttachList" onclick="termChooseAttachCandidate(event)"' in html
     assert 'id="termAttachName"' not in html
     assert ".form-modal.term-attach-modal" in css
-    assert ".term-attach-project.current" in css
+    assert ".term-attach-workspace.current" in css
     assert ".term-attach-badge.live" in css
     assert ".term-attach-row.has-tab:disabled" in css
     assert "/api/term/sessions/attachable?${query}" in source
-    assert "_termAttachModalScope = {projectId, workspaceId, projectLabel};" in source
+    assert "_termAttachModalScope = {workspaceId, vaultId, workspaceLabel};" in source
     assert "const heading = hasUiTab ? 'Attached in Lab' : 'Available to attach';" in source
     assert "const disabled = hasUiTab || _termAttachPendingName;" in source
     assert "Client attached" not in _js_between(
@@ -913,11 +913,11 @@ def test_linked_file_identity_normalizes_only_the_root_suffix() -> None:
         "function _termSetLinkStatus(message, error = false)",
     )
     result = _run_node(helpers + """
-const linked = {root: '/workspace/project///', path: 'notebooks/analysis.ipynb'};
+const linked = {root: '/vault/workspace///', path: 'notebooks/analysis.ipynb'};
 process.stdout.write(JSON.stringify({
-  same: _termLinkedFileMatches(linked, '/workspace/project', 'notebooks/analysis.ipynb'),
-  differentFile: _termLinkedFileMatches(linked, '/workspace/project', 'notebooks/other.ipynb'),
-  differentRoot: _termLinkedFileMatches(linked, '/workspace/other', 'notebooks/analysis.ipynb'),
+  same: _termLinkedFileMatches(linked, '/vault/workspace', 'notebooks/analysis.ipynb'),
+  differentFile: _termLinkedFileMatches(linked, '/vault/workspace', 'notebooks/other.ipynb'),
+  differentRoot: _termLinkedFileMatches(linked, '/vault/other', 'notebooks/analysis.ipynb'),
   label: _termLinkedFileLabel(linked),
   basename: _termLinkedFileName(linked.path),
   absolute: _termLinkedAbsolutePath(linked.root, linked.path),
@@ -931,7 +931,7 @@ process.stdout.write(JSON.stringify({
         "differentRoot": False,
         "label": "notebooks/analysis.ipynb",
         "basename": "analysis.ipynb",
-        "absolute": "/workspace/project/notebooks/analysis.ipynb",
+        "absolute": "/vault/workspace/notebooks/analysis.ipynb",
         "rootAbsolute": "/analysis.ipynb",
     }
 
@@ -949,17 +949,17 @@ const document = {body: {classList: {
 }}};
 let _linkedTerminalSyncOn = false;
 let termCurrentSession = 'tmux-linked';
-let termCurrentProjectId = 'demo';
+let termCurrentWorkspaceId = 'demo';
 let termSessions = [{name: 'tmux-linked', linked_file: {root: '/repo', path: 'a.ipynb'}}];
 let attaches = [];
 let remembered = [];
-function _termActiveProjectId() { return 'demo'; }
+function _termActiveWorkspaceId() { return 'demo'; }
 function _termLinkedFileMatches(link, root, path) {
   return link && link.root === root && link.path === path;
 }
 function _termRememberVisibility(key, shown) { remembered.push([key, shown]); }
 function _termVisibilityKey() { return 'demo-key'; }
-function termAttach(name, project) { attaches.push([name, project]); }
+function termAttach(name, workspace) { attaches.push([name, workspace]); }
 """ + sync_helper + """
 _termSyncFromFileClick('/repo', 'a.ipynb');
 const whileOff = {classes: [...classes], attaches: [...attaches]};
@@ -983,21 +983,21 @@ process.stdout.write(JSON.stringify({whileOff, active, finalAttaches: attaches})
 def test_linked_terminal_sync_only_runs_from_explicit_file_or_terminal_clicks() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     repo_open = _js_between(
-        "async function openProjectFile(filepath)",
-        "function renderProjectFileView(filepath, fileContent)",
+        "async function openWorkspaceFile(filepath)",
+        "function renderWorkspaceFileView(filepath, fileContent)",
     )
-    project_open = _js_between(
-        "async function openProjectDoc(filepath",
+    workspace_open = _js_between(
+        "async function openWorkspaceDoc(filepath",
         "function _proxyFromCachedSidebar(name)",
     )
 
     assert "_termSyncFromFileClick" not in repo_open
-    assert "_termSyncFromFileClick" not in project_open
+    assert "_termSyncFromFileClick" not in workspace_open
     assert source.count("_termSyncFromFileClick(") == 3
-    assert source.count("onclick=\"openProjectDocFromFileClick(") == 3
-    assert source.count("onclick=\"openProjectFileFromFileClick(") == 1
-    assert "if (ctx.surface === 'repo') openProjectFile(ctx.path);" in source
-    assert "else openProjectDoc(ctx.path, {root: ctx.root});" in source
+    assert source.count("onclick=\"openWorkspaceDocFromFileClick(") == 3
+    assert source.count("onclick=\"openWorkspaceFileFromFileClick(") == 1
+    assert "if (ctx.surface === 'repo') openWorkspaceFile(ctx.path);" in source
+    assert "else openWorkspaceDoc(ctx.path, {root: ctx.root});" in source
     assert "const request = ++_termLinkedNavigationSeq;" in source
     assert "if (request !== _termLinkedNavigationSeq) return;" in source
 
@@ -1044,37 +1044,37 @@ process.stdout.write(JSON.stringify({withRecent, filesFallback, missing}));
     }
 
 
-def test_tmux_attach_modal_orders_current_project_unattached_sessions_first() -> None:
+def test_tmux_attach_modal_orders_current_workspace_unattached_sessions_first() -> None:
     ordering = _js_between(
-        "function _termAttachProjectLabel(row)",
+        "function _termAttachWorkspaceLabel(row)",
         "function _termAttachAge(row)",
     )
     result = _run_node(
         """
-const SELF_PROJECT_ID = '__self__';
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const WORKSPACE_PROJECT_ID = '__workspace__';
+const SELF_WORKSPACE_ID = '__self__';
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const VAULT_WORKSPACE_ID = '__vault__';
 """ + ordering + """
-const scope = {projectId: 'demo', workspaceId: 'main'};
+const scope = {workspaceId: 'demo', vaultId: 'main'};
 const groups = _termAttachOrderedGroups([
-  {name: 'other-free', logical_name: 'free', project_id: 'other', project_name: 'Other', workspace: 'main', has_ui_tab: false, created: 40},
-  {name: 'demo-live', logical_name: 'live', project_id: 'demo', project_name: 'Demo', workspace: 'main', has_ui_tab: true, created: 50},
-  {name: 'demo-free-old', logical_name: 'free-old', project_id: 'demo', project_name: 'Demo', workspace: 'main', has_ui_tab: false, created: 10},
-  {name: 'demo-free-new', logical_name: 'free-new', project_id: 'demo', project_name: 'Demo', workspace: 'main', has_ui_tab: false, created: 30},
-  {name: 'loose', logical_name: 'loose', project_id: null, project_name: 'Unassigned', workspace: null, has_ui_tab: false, created: 99},
+  {name: 'other-free', logical_name: 'free', workspace_id: 'other', workspace_name: 'Other', vault: 'main', has_ui_tab: false, created: 40},
+  {name: 'demo-live', logical_name: 'live', workspace_id: 'demo', workspace_name: 'Demo', vault: 'main', has_ui_tab: true, created: 50},
+  {name: 'demo-free-old', logical_name: 'free-old', workspace_id: 'demo', workspace_name: 'Demo', vault: 'main', has_ui_tab: false, created: 10},
+  {name: 'demo-free-new', logical_name: 'free-new', workspace_id: 'demo', workspace_name: 'Demo', vault: 'main', has_ui_tab: false, created: 30},
+  {name: 'loose', logical_name: 'loose', workspace_id: null, workspace_name: 'Unassigned', vault: null, has_ui_tab: false, created: 99},
 ], scope);
 const filtered = _termAttachOrderedGroups(groups.flatMap(group => group.rows), scope, 'other');
 process.stdout.write(JSON.stringify({
-  projects: groups.map(group => group.projectName),
+  workspaces: groups.map(group => group.workspaceName),
   current: groups.map(group => group.current),
   demoRows: groups[0].rows.map(row => [row.name, row.has_ui_tab]),
-  filtered: filtered.map(group => group.projectName),
+  filtered: filtered.map(group => group.workspaceName),
 }));
 """
     )
 
     assert result == {
-        "projects": ["Demo", "Other", "Unassigned"],
+        "workspaces": ["Demo", "Other", "Unassigned"],
         "current": [True, False, False],
         "demoRows": [
             ["demo-free-new", False],
@@ -1085,7 +1085,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_tmux_attach_modal_selection_uses_captured_project_scope() -> None:
+def test_tmux_attach_modal_selection_uses_captured_workspace_scope() -> None:
     attach_existing = _js_between(
         "async function termAttachExisting(rawSessionName)",
         "function termCreateNew(kind, agent)",
@@ -1095,17 +1095,17 @@ def test_tmux_attach_modal_selection_uses_captured_project_scope() -> None:
 const calls = [];
 const attached = [];
 const statuses = [];
-let _termAttachModalScope = {projectId: 'demo', workspaceId: 'main', projectLabel: 'Demo'};
+let _termAttachModalScope = {workspaceId: 'demo', vaultId: 'main', workspaceLabel: 'Demo'};
 let _termAttachModalGeneration = 7;
 let _termAttachPendingName = null;
 let termSessions = [];
 const _termSessionsCache = {set(key, value) { calls.push('cache:' + key + ':' + value.length); }};
-function _termWorkspaceId() { return 'main'; }
-function _termActiveProjectId() { return 'demo'; }
+function _termVaultId() { return 'main'; }
+function _termActiveWorkspaceId() { return 'demo'; }
 function _termIsScopeActive(pid) { return pid === 'demo'; }
 function _termClearDead(name) { calls.push('clear:' + name); }
-async function _termRefreshSessionsForProjectId(pid) { calls.push('refresh:' + pid); return true; }
-function _termSessionsKey(pid, workspace) { return pid + ':' + workspace; }
+async function _termRefreshSessionsForWorkspaceId(pid) { calls.push('refresh:' + pid); return true; }
+function _termSessionsKey(pid, vault) { return pid + ':' + vault; }
 function termRenderSessionList() { calls.push('render'); }
 function termAttach(name, pid) { attached.push([name, pid]); }
 function termSetStatus(kind, message) { statuses.push([kind, message]); }
@@ -1119,7 +1119,7 @@ async function fetch(url, options) {
     json: async () => ({
       name: 'lab-demo-existing-work',
       logical_name: 'existing-work',
-      project_id: 'demo',
+      workspace_id: 'demo',
       kind: 'attached',
     }),
   };
@@ -1136,8 +1136,8 @@ async function fetch(url, options) {
     assert request["url"] == "/api/term/sessions/attach"
     assert request["options"]["method"] == "POST"
     assert request["body"] == {
-        "project_id": "demo",
-        "workspace": "main",
+        "workspace_id": "demo",
+        "vault": "main",
         "name": "existing-work",
     }
     assert result["attached"] == [["lab-demo-existing-work", "demo"]]
@@ -1153,26 +1153,26 @@ def test_attached_tmux_sessions_are_not_restored_as_plain_shells() -> None:
     assert "session && session.attach_command" in source
 
 
-def test_workspace_agents_card_writes_workspace_policy() -> None:
+def test_vault_agents_card_writes_vault_policy() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert "workspaceToggleAgent('${a}', this.checked, this)" in source
-    assert "fetch('/api/workspace/agents', {" in source
+    assert "vaultToggleAgent('${a}', this.checked, this)" in source
+    assert "fetch('/api/vault/agents', {" in source
     assert "Enabled agents appear in every <strong>+ New</strong> menu." in source
     assert "await termRefreshAgentAvail(el);" in source
 
 
-def test_workspace_projects_card_can_create_in_owning_workspace() -> None:
+def test_vault_workspaces_card_can_create_in_owning_vault() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert 'id="workspaceProjectModal"' in html
-    assert 'id="workspaceProjectForm"' in html
-    assert 'onclick="openWorkspaceProjectModal()">+ New project</button>' in source
-    assert "fetch('/api/projects', {" in source
-    assert "workspace: workspaceId" in source
-    assert "projectsList = workspaces.flatMap(row => row.project_rows || []);" in source
-    assert "goToProject(project.path);" in source
+    assert 'id="vaultWorkspaceModal"' in html
+    assert 'id="vaultWorkspaceForm"' in html
+    assert 'onclick="openVaultWorkspaceModal()">+ New workspace</button>' in source
+    assert "fetch('/api/workspaces', {" in source
+    assert "vault: vaultId" in source
+    assert "workspacesList = vaults.flatMap(row => row.workspace_rows || []);" in source
+    assert "goToWorkspace(workspace.path);" in source
 
 
 def test_productivity_view_uses_workbench_without_duplicate_hidden_ids() -> None:
@@ -1201,7 +1201,7 @@ const fetchCalls = [];
 const disabled = [];
 const confirmMessages = [];
 const refreshed = [];
-const refreshedByProject = [];
+const refreshedByWorkspace = [];
 const statuses = [];
 const attached = [];
 let detached = false;
@@ -1209,23 +1209,23 @@ let emptyShown = false;
 
 let termCurrentSession = 'lab-demo-claude';
 let termSessions = [];
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 
-function _termActiveProjectId() { return 'demo'; }
-function _termIsScopeActive(projectId) { return projectId === 'demo'; }
+function _termActiveWorkspaceId() { return 'demo'; }
+function _termIsScopeActive(workspaceId) { return workspaceId === 'demo'; }
 function confirm(msg) { confirmMessages.push(msg); return true; }
 function termDetach() { detached = true; termCurrentSession = null; }
-async function termSetAutoSpawnEnabled(projectId, enabled) {
-  disabled.push({projectId, enabled});
+async function termSetAutoSpawnEnabled(workspaceId, enabled) {
+  disabled.push({workspaceId, enabled});
 }
-async function termRefreshSessions(projectId) {
-  refreshed.push(projectId);
+async function termRefreshSessions(workspaceId) {
+  refreshed.push(workspaceId);
   termSessions = [];
 }
-async function termRefreshSessionsByProjectId(projectId) {
-  refreshedByProject.push(projectId);
+async function termRefreshSessionsByWorkspaceId(workspaceId) {
+  refreshedByWorkspace.push(workspaceId);
   termSessions = [];
 }
 function termAttach(name) { attached.push(name); }
@@ -1244,7 +1244,7 @@ async function fetch(input, opts = {}) {
     disabled,
     confirmMessages,
     refreshed,
-    refreshedByProject,
+    refreshedByWorkspace,
     statuses,
     attached,
     detached,
@@ -1262,9 +1262,9 @@ async function fetch(input, opts = {}) {
         "input": "/api/term/sessions/lab-demo-claude?purge=true",
         "method": "DELETE",
     } in result["fetchCalls"]
-    assert result["disabled"] == [{"projectId": "demo", "enabled": False}]
+    assert result["disabled"] == [{"workspaceId": "demo", "enabled": False}]
     assert result["refreshed"] == ["demo"]
-    assert result["refreshedByProject"] == []
+    assert result["refreshedByWorkspace"] == []
     assert result["attached"] == []
     assert result["emptyShown"] is True
     assert result["statuses"][-1] == {
@@ -1274,9 +1274,9 @@ async function fetch(input, opts = {}) {
     assert "stay closed after reload" in result["confirmMessages"][0]
 
 
-def test_project_open_does_not_autospawn_after_explicit_close() -> None:
-    term_open_for_project = _js_between(
-        "async function termOpenForProject(projectId)",
+def test_workspace_open_does_not_autospawn_after_explicit_close() -> None:
+    term_open_for_workspace = _js_between(
+        "async function termOpenForWorkspace(workspaceId)",
         "function termStartPeriodicRefresh()",
     )
     result = _run_node(
@@ -1314,12 +1314,12 @@ function termDetach() { detached = true; }
 function termShowEmpty() { emptyShown = true; }
 function termSetStatus(kind, text) { statuses.push({kind, text}); }
 function termStartPeriodicRefresh() {}
-async function termRefreshSessions(projectId) {
-  refreshed.push(projectId);
+async function termRefreshSessions(workspaceId) {
+  refreshed.push(workspaceId);
   termSessions = [];
 }
-async function termAutoSpawnEnabled(projectId) {
-  autoSpawnChecks.push(projectId);
+async function termAutoSpawnEnabled(workspaceId) {
+  autoSpawnChecks.push(workspaceId);
   return false;
 }
 async function termSpawnSession() { spawned = true; }
@@ -1330,10 +1330,10 @@ async function fetch(input, opts = {}) {
   }
   return {ok: true, json: async () => ({})};
 }
-""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_workspace + """
 
 (async () => {
-  await termOpenForProject('demo');
+  await termOpenForWorkspace('demo');
   process.stdout.write(JSON.stringify({
     fetchCalls,
     autoSpawnChecks,
@@ -1365,9 +1365,9 @@ async function fetch(input, opts = {}) {
     }
 
 
-def test_stale_warm_project_open_does_not_attach_previous_project_terminal() -> None:
-    term_open_for_project = _js_between(
-        "async function termOpenForProject(projectId)",
+def test_stale_warm_workspace_open_does_not_attach_previous_workspace_terminal() -> None:
+    term_open_for_workspace = _js_between(
+        "async function termOpenForWorkspace(workspaceId)",
         "function termStartPeriodicRefresh()",
     )
     result = _run_node(
@@ -1376,10 +1376,10 @@ const attached = [];
 const refreshed = [];
 const rendered = [];
 const classes = new Set();
-let activeProject = 'beta';
+let activeWorkspace = 'beta';
 let termSessions = [];
 const _termSessionsCache = new Map([
-  ['alpha', [{name: 'lab-alpha-claude', logical_name: 'claude', project_id: 'alpha'}]],
+  ['alpha', [{name: 'lab-alpha-claude', logical_name: 'claude', workspace_id: 'alpha'}]],
 ]);
 
 const document = {
@@ -1393,18 +1393,18 @@ const document = {
 };
 const localStorage = { getItem() { return null; } };
 
-function _termIsScopeActive(projectId) { return activeProject === projectId; }
+function _termIsScopeActive(workspaceId) { return activeWorkspace === workspaceId; }
 function termClose() { rendered.push('close'); }
 function _termApplyRememberedVisibility() { rendered.push('visibility'); }
 function termRenderSessionList() { rendered.push('sessions'); }
 function _termPickRestoreName() { return 'lab-alpha-claude'; }
-function termAttach(name, projectId) { attached.push({name, projectId}); }
+function termAttach(name, workspaceId) { attached.push({name, workspaceId}); }
 function termDetach() { rendered.push('detach'); }
 function termShowEmpty() { rendered.push('empty'); }
 function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
 function termStartPeriodicRefresh() { rendered.push('periodic'); }
-async function termRefreshSessions(projectId) {
-  refreshed.push(projectId);
+async function termRefreshSessions(workspaceId) {
+  refreshed.push(workspaceId);
   termSessions = [];
 }
 async function termAutoSpawnEnabled() { return true; }
@@ -1412,10 +1412,10 @@ async function termSpawnSession() { rendered.push('spawn'); }
 async function fetch() {
   throw new Error('stale warm open must not fetch');
 }
-""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_workspace + """
 
 (async () => {
-  await termOpenForProject('alpha');
+  await termOpenForWorkspace('alpha');
   process.stdout.write(JSON.stringify({
     attached,
     refreshed,
@@ -1435,9 +1435,9 @@ async function fetch() {
     assert result["termOpen"] is False
 
 
-def test_stale_warm_project_open_reconciles_before_attaching() -> None:
-    term_open_for_project = _js_between(
-        "async function termOpenForProject(projectId)",
+def test_stale_warm_workspace_open_reconciles_before_attaching() -> None:
+    term_open_for_workspace = _js_between(
+        "async function termOpenForWorkspace(workspaceId)",
         "function termStartPeriodicRefresh()",
     )
     result = _run_node(
@@ -1446,12 +1446,12 @@ const attached = [];
 const fetchCalls = [];
 const refreshed = [];
 const rendered = [];
-const classes = new Set(['project-active']);
-let activeProject = 'demo';
+const classes = new Set(['workspace-active']);
+let activeWorkspace = 'demo';
 let refreshCount = 0;
 let termSessions = [];
 const _termSessionsCache = new Map([
-  ['demo', [{name: 'lab-demo-codex-old', logical_name: 'codex', project_id: 'demo'}]],
+  ['demo', [{name: 'lab-demo-codex-old', logical_name: 'codex', workspace_id: 'demo'}]],
 ]);
 
 const document = {
@@ -1466,24 +1466,24 @@ const document = {
 const localStorage = { getItem() { return null; } };
 const location = {pathname: '/', search: '', hash: ''};
 
-function _termIsScopeActive(projectId) { return activeProject === projectId; }
+function _termIsScopeActive(workspaceId) { return activeWorkspace === workspaceId; }
 function termClose() { rendered.push('close'); }
 function _termApplyRememberedVisibility() { rendered.push('visibility'); }
 function termRenderSessionList() { rendered.push('sessions:' + termSessions.map(s => s.name).join(',')); }
 function _termPickRestoreName() { return termSessions[0] && termSessions[0].name; }
-function termAttach(name, projectId) { attached.push({name, projectId}); }
+function termAttach(name, workspaceId) { attached.push({name, workspaceId}); }
 function termDetach() { rendered.push('detach'); }
 function termShowEmpty() { rendered.push('empty'); }
 function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
 function termStartPeriodicRefresh() { rendered.push('periodic'); }
-async function termRefreshSessions(projectId) {
-  refreshed.push(projectId);
+async function termRefreshSessions(workspaceId) {
+  refreshed.push(workspaceId);
   refreshCount += 1;
   termSessions = refreshCount >= 2
-    ? [{name: 'lab-demo-codex', logical_name: 'codex', project_id: projectId}]
+    ? [{name: 'lab-demo-codex', logical_name: 'codex', workspace_id: workspaceId}]
     : [];
 }
-async function termRefreshSessionsByProjectId() { throw new Error('not pseudo'); }
+async function termRefreshSessionsByWorkspaceId() { throw new Error('not pseudo'); }
 async function termAutoSpawnEnabled() { return true; }
 async function termSpawnSession() { rendered.push('spawn'); }
 async function fetch(input, opts = {}) {
@@ -1494,10 +1494,10 @@ async function fetch(input, opts = {}) {
   return {ok: true, json: async () => ({})};
 }
 console.info = () => {};
-""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_workspace + """
 
 (async () => {
-  await termOpenForProject('demo');
+  await termOpenForWorkspace('demo');
   process.stdout.write(JSON.stringify({
     attached,
     fetchCalls,
@@ -1518,18 +1518,18 @@ console.info = () => {};
         "input": "/api/term/sessions",
         "method": "POST",
     } in result["fetchCalls"]
-    assert result["attached"] == [{"name": "lab-demo-codex", "projectId": "demo"}]
+    assert result["attached"] == [{"name": "lab-demo-codex", "workspaceId": "demo"}]
     assert "periodic" in result["rendered"]
 
 
 def test_cached_terminal_pane_is_not_warm_after_fast_park_window() -> None:
     cache_freshness = _js_between(
         "function _termCachedPaneIsFresh(cached)",
-        "  function _termIsScopeActive(projectId)",
+        "  function _termIsScopeActive(workspaceId)",
     )
     has_open_cached_pane = _js_between(
-        "function _termHasOpenCachedPane(projectId, name)",
-        "  async function _termTryWarmOpen(projectId)",
+        "function _termHasOpenCachedPane(workspaceId, name)",
+        "  async function _termTryWarmOpen(workspaceId)",
     )
     result = _run_node(
         """
@@ -1539,7 +1539,7 @@ const TERM_FAST_PARK_MS = 10 * 60 * 1000;
 let now = 1_000_000;
 
 Date.now = () => now;
-function _termCacheKey(projectId, name) { return `${projectId}::${name}`; }
+function _termCacheKey(workspaceId, name) { return `${workspaceId}::${name}`; }
 """ + cache_freshness + has_open_cached_pane + """
 
 _termCache.set(_termCacheKey('demo', 'claude'), {
@@ -1566,8 +1566,8 @@ process.stdout.write(JSON.stringify({fresh, stale, closed}));
 
 def test_term_attach_evicts_aged_open_cached_pane() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     term_attach = _js_between(
         "async function termAttach(name",
@@ -1584,17 +1584,17 @@ const TERM_FAST_PARK_MS = 10 * 60 * 1000;
 const _termCache = new Map();
 const termDeadSessions = new Set();
 const termReconnectAttempts = {};
-let activeProject = 'demo';
+let activeWorkspace = 'demo';
 let now = 1_000_000;
 let evicted = [];
 let ensureXtermCalls = 0;
 let remembered = [];
 
 let termSessions = [
-  {name: 'lab-demo-claude', logical_name: 'claude', project_id: 'demo'},
+  {name: 'lab-demo-claude', logical_name: 'claude', workspace_id: 'demo'},
 ];
 let termCurrentSession = null;
-let termCurrentProjectId = null;
+let termCurrentWorkspaceId = null;
 let termWS = null;
 let termXterm = null;
 let termFitAddon = null;
@@ -1607,9 +1607,9 @@ Date.now = () => now;
 const document = {getElementById() { return null; }};
 const location = {protocol: 'http:', host: 'localhost'};
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termRecallLast() { return null; }
-function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+function _termRememberLast(workspaceId, logicalName) { remembered.push({workspaceId, logicalName}); }
 async function ensureTerminalLibs() {}
 function termDetach() {}
 function termSetStatus() {}
@@ -1625,17 +1625,17 @@ function _termMakeContainer() { throw new Error('aged cache should not reach fre
 function _termDisableWebgl() {}
 function _termMarkDead() {}
 function _termShowPane() {}
-function _termEvictCache(name, projectId) {
-  evicted.push({name, projectId});
-  _termCache.delete(_termCacheKey(projectId, name));
+function _termEvictCache(name, workspaceId) {
+  evicted.push({name, workspaceId});
+  _termCache.delete(_termCacheKey(workspaceId, name));
 }
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 """ + helper_block + """
 
 _termCache.set(_termCacheKey('demo', 'lab-demo-claude'), {
-  projectId: 'demo',
+  workspaceId: 'demo',
   name: 'lab-demo-claude',
   ws: {readyState: WebSocket.OPEN},
   xterm: {id: 'cached'},
@@ -1662,17 +1662,17 @@ _termCache.set(_termCacheKey('demo', 'lab-demo-claude'), {
     )
 
     assert result == {
-        "evicted": [{"name": "lab-demo-claude", "projectId": "demo"}],
+        "evicted": [{"name": "lab-demo-claude", "workspaceId": "demo"}],
         "cacheSize": 0,
         "ensureXtermCalls": 1,
-        "remembered": [{"projectId": "demo", "logicalName": "claude"}],
+        "remembered": [{"workspaceId": "demo", "logicalName": "claude"}],
         "termCurrentSession": "lab-demo-claude",
     }
 
 
-def test_project_open_aborts_after_refresh_if_user_switches_projects() -> None:
-    term_open_for_project = _js_between(
-        "async function termOpenForProject(projectId)",
+def test_workspace_open_aborts_after_refresh_if_user_switches_workspaces() -> None:
+    term_open_for_workspace = _js_between(
+        "async function termOpenForWorkspace(workspaceId)",
         "function termStartPeriodicRefresh()",
     )
     result = _run_node(
@@ -1680,8 +1680,8 @@ def test_project_open_aborts_after_refresh_if_user_switches_projects() -> None:
 const attached = [];
 const fetchCalls = [];
 const rendered = [];
-const classes = new Set(['project-active']);
-let activeProject = 'alpha';
+const classes = new Set(['workspace-active']);
+let activeWorkspace = 'alpha';
 let termSessions = [];
 const _termSessionsCache = new Map();
 
@@ -1696,19 +1696,19 @@ const document = {
 };
 const localStorage = { getItem() { return null; } };
 
-function _termIsScopeActive(projectId) { return activeProject === projectId; }
+function _termIsScopeActive(workspaceId) { return activeWorkspace === workspaceId; }
 function termClose() { rendered.push('close'); }
 function _termApplyRememberedVisibility() { rendered.push('visibility'); }
 function termRenderSessionList() { rendered.push('sessions'); }
 function _termPickRestoreName() { return 'lab-alpha-claude'; }
-function termAttach(name, projectId) { attached.push({name, projectId}); }
+function termAttach(name, workspaceId) { attached.push({name, workspaceId}); }
 function termDetach() { rendered.push('detach'); }
 function termShowEmpty() { rendered.push('empty'); }
 function termSetStatus(kind, text) { rendered.push(kind + ':' + text); }
 function termStartPeriodicRefresh() { rendered.push('periodic'); }
-async function termRefreshSessions(projectId) {
-  termSessions = [{name: 'lab-alpha-claude', logical_name: 'claude', project_id: projectId}];
-  activeProject = 'beta';
+async function termRefreshSessions(workspaceId) {
+  termSessions = [{name: 'lab-alpha-claude', logical_name: 'claude', workspace_id: workspaceId}];
+  activeWorkspace = 'beta';
 }
 async function termAutoSpawnEnabled() { rendered.push('autospawn-check'); return true; }
 async function termSpawnSession() { rendered.push('spawn'); }
@@ -1716,10 +1716,10 @@ async function fetch(input) {
   fetchCalls.push(String(input));
   return {ok: true, json: async () => []};
 }
-""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_project + """
+""" + "const _termKillAllPending = new Set(); const _termCloseTabsPending = new Set(); function _termSessionsKey(pid) { return pid; }\n" + term_open_for_workspace + """
 
 (async () => {
-  await termOpenForProject('alpha');
+  await termOpenForWorkspace('alpha');
   process.stdout.write(JSON.stringify({
     attached,
     fetchCalls,
@@ -1739,10 +1739,10 @@ async function fetch(input) {
     assert result["termOpen"] is True
 
 
-def test_term_attach_rejects_inactive_project_scope_before_loading_assets() -> None:
+def test_term_attach_rejects_inactive_workspace_scope_before_loading_assets() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     term_attach = _js_between(
         "async function termAttach(name",
@@ -1753,16 +1753,16 @@ def test_term_attach_rejects_inactive_project_scope_before_loading_assets() -> N
 console.log = () => {};
 console.warn = () => {};
 
-let activeProject = 'beta';
+let activeWorkspace = 'beta';
 let termSessions = [
-  {name: 'lab-alpha-claude', logical_name: 'claude', project_id: 'alpha'},
+  {name: 'lab-alpha-claude', logical_name: 'claude', workspace_id: 'alpha'},
 ];
 let ensureCalls = 0;
 let detached = false;
 let remembered = [];
 
 let termCurrentSession = null;
-let termCurrentProjectId = null;
+let termCurrentWorkspaceId = null;
 let termWS = null;
 let termXterm = null;
 let termFitAddon = null;
@@ -1777,9 +1777,9 @@ const TERM_RECONNECT_BASE_MS = 800;
 const TERM_RECONNECT_CAP_MS = 30000;
 const WebSocket = {OPEN: 1};
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termRecallLast() { return null; }
-function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+function _termRememberLast(workspaceId, logicalName) { remembered.push({workspaceId, logicalName}); }
 async function ensureTerminalLibs() { ensureCalls += 1; }
 function termDetach() { detached = true; }
 function termSetStatus() {}
@@ -1794,10 +1794,10 @@ function _termMakeContainer() { return {classList: {add() {}}, style: {}}; }
 function _termDisableWebgl() {}
 function _termMarkDead() {}
 function termRefreshSessions() {}
-function termRefreshSessionsByProjectId() {}
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+function termRefreshSessionsByWorkspaceId() {}
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 const location = {protocol: 'http:', host: 'localhost'};
 """ + helper_block + term_attach + """
 
@@ -1808,7 +1808,7 @@ const location = {protocol: 'http:', host: 'localhost'};
     detached,
     remembered,
     termCurrentSession,
-    termCurrentProjectId,
+    termCurrentWorkspaceId,
   }));
 })().catch((err) => {
   console.error(err && err.stack || err);
@@ -1821,13 +1821,13 @@ const location = {protocol: 'http:', host: 'localhost'};
     assert result["detached"] is False
     assert result["remembered"] == []
     assert result["termCurrentSession"] is None
-    assert result["termCurrentProjectId"] is None
+    assert result["termCurrentWorkspaceId"] is None
 
 
 def test_soft_detach_removes_pending_pane_without_websocket() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     term_detach = _js_between(
         "function termDetach(soft = false)",
@@ -1837,7 +1837,7 @@ def test_soft_detach_removes_pending_pane_without_websocket() -> None:
         """
 console.log = () => {};
 
-let activeProject = 'demo';
+let activeWorkspace = 'demo';
 let termSessions = [];
 let disposed = false;
 let removed = false;
@@ -1857,7 +1857,7 @@ const document = {
 };
 
 let termCurrentSession = 'lab-demo-a';
-let termCurrentProjectId = 'demo';
+let termCurrentWorkspaceId = 'demo';
 let termWS = null;
 let termXterm = {dispose() { disposed = true; }};
 let termFitAddon = {id: 'fit'};
@@ -1867,12 +1867,12 @@ let termReconnectTimer = null;
 let termAttachRequestSeq = 0;
 const _termCache = new Map();
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termDisableWebgl() {}
 function _termEvictCache() { throw new Error('full eviction should not run for soft detach'); }
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 """ + helper_block + term_detach + """
 
 termDetach(true);
@@ -1882,7 +1882,7 @@ process.stdout.write(JSON.stringify({
   cacheSize: _termCache.size,
   paneDisplay: pane.style.display,
   termCurrentSession,
-  termCurrentProjectId,
+  termCurrentWorkspaceId,
   termWS,
   termXterm,
   termFitAddon,
@@ -1898,7 +1898,7 @@ process.stdout.write(JSON.stringify({
         "cacheSize": 0,
         "paneDisplay": "none",
         "termCurrentSession": None,
-        "termCurrentProjectId": None,
+        "termCurrentWorkspaceId": None,
         "termWS": None,
         "termXterm": None,
         "termFitAddon": None,
@@ -1907,10 +1907,10 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_same_project_attach_ignores_older_request_after_asset_load() -> None:
+def test_same_workspace_attach_ignores_older_request_after_asset_load() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     term_attach = _js_between(
         "async function termAttach(name",
@@ -1921,11 +1921,11 @@ def test_same_project_attach_ignores_older_request_after_asset_load() -> None:
 console.log = () => {};
 console.warn = () => {};
 
-let activeProject = 'demo';
+let activeWorkspace = 'demo';
 let termAttachRequestSeq = 0;
 let termSessions = [
-  {name: 'lab-demo-a', logical_name: 'a', project_id: 'demo'},
-  {name: 'lab-demo-b', logical_name: 'b', project_id: 'demo'},
+  {name: 'lab-demo-a', logical_name: 'a', workspace_id: 'demo'},
+  {name: 'lab-demo-b', logical_name: 'b', workspace_id: 'demo'},
 ];
 let ensureCalls = 0;
 const ensureResolvers = [];
@@ -1950,7 +1950,7 @@ const document = {
 };
 
 let termCurrentSession = null;
-let termCurrentProjectId = null;
+let termCurrentWorkspaceId = null;
 let termWS = null;
 let termXterm = null;
 let termFitAddon = null;
@@ -1965,17 +1965,17 @@ const TERM_RECONNECT_BASE_MS = 800;
 const TERM_RECONNECT_CAP_MS = 30000;
 const WebSocket = {OPEN: 1};
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termRecallLast() { return null; }
-function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+function _termRememberLast(workspaceId, logicalName) { remembered.push({workspaceId, logicalName}); }
 function ensureTerminalLibs() {
   ensureCalls += 1;
   return new Promise(resolve => ensureResolvers.push(resolve));
 }
 function termDetach(soft) {
-  detached.push({soft, beforeSession: termCurrentSession, beforeProject: termCurrentProjectId});
+  detached.push({soft, beforeSession: termCurrentSession, beforeWorkspace: termCurrentWorkspaceId});
   termCurrentSession = null;
-  termCurrentProjectId = null;
+  termCurrentWorkspaceId = null;
   termWS = null;
   termXterm = null;
   termFitAddon = null;
@@ -1993,14 +1993,14 @@ function _termMakeContainer() { throw new Error('cache hit should not create a f
 function _termDisableWebgl() {}
 function _termMarkDead() {}
 function termRefreshSessions() {}
-function termRefreshSessionsByProjectId() {}
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+function termRefreshSessionsByWorkspaceId() {}
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 const location = {protocol: 'http:', host: 'localhost'};
 
 _termCache.set('demo::lab-demo-a', {
-  projectId: 'demo',
+  workspaceId: 'demo',
   name: 'lab-demo-a',
   xterm: {id: 'xterm-a'},
   fitAddon: {fit() {}},
@@ -2008,7 +2008,7 @@ _termCache.set('demo::lab-demo-a', {
   container: paneA,
 });
 _termCache.set('demo::lab-demo-b', {
-  projectId: 'demo',
+  workspaceId: 'demo',
   name: 'lab-demo-b',
   xterm: {id: 'xterm-b'},
   fitAddon: {fit() {}},
@@ -2031,7 +2031,7 @@ _termCache.set('demo::lab-demo-b', {
     statuses,
     rendered,
     termCurrentSession,
-    termCurrentProjectId,
+    termCurrentWorkspaceId,
     activeXterm: termXterm && termXterm.id,
     paneADisplay: paneA.style.display,
     paneBDisplay: paneB.style.display,
@@ -2047,11 +2047,11 @@ _termCache.set('demo::lab-demo-b', {
 
     assert result["ensureCalls"] == 2
     assert result["detached"] == [
-        {"soft": True, "beforeSession": None, "beforeProject": None}
+        {"soft": True, "beforeSession": None, "beforeWorkspace": None}
     ]
-    assert result["remembered"] == [{"projectId": "demo", "logicalName": "b"}]
+    assert result["remembered"] == [{"workspaceId": "demo", "logicalName": "b"}]
     assert result["termCurrentSession"] == "lab-demo-b"
-    assert result["termCurrentProjectId"] == "demo"
+    assert result["termCurrentWorkspaceId"] == "demo"
     assert result["activeXterm"] == "xterm-b"
     assert result["paneADisplay"] == "none"
     assert result["paneBDisplay"] == "block"
@@ -2066,8 +2066,8 @@ _termCache.set('demo::lab-demo-b', {
 
 def test_clicking_active_terminal_cancels_pending_attach() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     term_attach = _js_between(
         "async function termAttach(name",
@@ -2078,11 +2078,11 @@ def test_clicking_active_terminal_cancels_pending_attach() -> None:
 console.log = () => {};
 console.warn = () => {};
 
-let activeProject = 'demo';
+let activeWorkspace = 'demo';
 let termAttachRequestSeq = 0;
 let termSessions = [
-  {name: 'lab-demo-a', logical_name: 'a', project_id: 'demo'},
-  {name: 'lab-demo-b', logical_name: 'b', project_id: 'demo'},
+  {name: 'lab-demo-a', logical_name: 'a', workspace_id: 'demo'},
+  {name: 'lab-demo-b', logical_name: 'b', workspace_id: 'demo'},
 ];
 let ensureCalls = 0;
 let detachCalls = 0;
@@ -2113,7 +2113,7 @@ const document = {
 };
 
 let termCurrentSession = 'lab-demo-b';
-let termCurrentProjectId = 'demo';
+let termCurrentWorkspaceId = 'demo';
 let termWS = {readyState: 1};
 let termXterm = {focus() { focused += 1; }};
 let termFitAddon = null;
@@ -2128,7 +2128,7 @@ const TERM_RECONNECT_BASE_MS = 800;
 const TERM_RECONNECT_CAP_MS = 30000;
 const WebSocket = {OPEN: 1};
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termRecallLast() { return null; }
 function _termRememberLast() {}
 function ensureTerminalLibs() {
@@ -2148,10 +2148,10 @@ function _termMakeContainer() { throw new Error('stale attach must not create a 
 function _termDisableWebgl() {}
 function _termMarkDead() {}
 function termRefreshSessions() {}
-function termRefreshSessionsByProjectId() {}
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+function termRefreshSessionsByWorkspaceId() {}
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 const location = {protocol: 'http:', host: 'localhost'};
 """ + helper_block + term_attach + """
 
@@ -2164,7 +2164,7 @@ const location = {protocol: 'http:', host: 'localhost'};
     ensureCalls,
     detachCalls,
     termCurrentSession,
-    termCurrentProjectId,
+    termCurrentWorkspaceId,
     paneADisplay: paneA.style.display,
     paneBDisplay: paneB.style.display,
     paneAHidden: paneA.attrs['aria-hidden'],
@@ -2181,7 +2181,7 @@ const location = {protocol: 'http:', host: 'localhost'};
         "ensureCalls": 1,
         "detachCalls": 0,
         "termCurrentSession": "lab-demo-b",
-        "termCurrentProjectId": "demo",
+        "termCurrentWorkspaceId": "demo",
         "paneADisplay": "none",
         "paneBDisplay": "block",
         "paneAHidden": "true",
@@ -2191,8 +2191,8 @@ const location = {protocol: 'http:', host: 'localhost'};
 
 def test_hidden_parked_xterm_cannot_send_input_to_active_terminal() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     term_detach = _js_between(
         "function termDetach(soft = false)",
@@ -2207,11 +2207,11 @@ def test_hidden_parked_xterm_cannot_send_input_to_active_terminal() -> None:
 console.log = () => {};
 console.warn = () => {};
 
-let activeProject = 'demo';
+let activeWorkspace = 'demo';
 let termAttachRequestSeq = 0;
 let termSessions = [
-  {name: 'lab-demo-a', logical_name: 'a', project_id: 'demo'},
-  {name: 'lab-demo-b', logical_name: 'b', project_id: 'demo'},
+  {name: 'lab-demo-a', logical_name: 'a', workspace_id: 'demo'},
+  {name: 'lab-demo-b', logical_name: 'b', workspace_id: 'demo'},
 ];
 let xtermSeq = 0;
 const panes = [];
@@ -2257,7 +2257,7 @@ function WebSocket(url) {
 WebSocket.OPEN = 1;
 
 let termCurrentSession = null;
-let termCurrentProjectId = null;
+let termCurrentWorkspaceId = null;
 let termWS = null;
 let termXterm = null;
 let termFitAddon = null;
@@ -2271,9 +2271,9 @@ const TERM_MAX_RECONNECT_ATTEMPTS = 3;
 const TERM_RECONNECT_BASE_MS = 800;
 const TERM_RECONNECT_CAP_MS = 30000;
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termRecallLast() { return null; }
-function _termRememberLast(projectId, logicalName) { remembered.push({projectId, logicalName}); }
+function _termRememberLast(workspaceId, logicalName) { remembered.push({workspaceId, logicalName}); }
 async function ensureTerminalLibs() {}
 function termSetStatus(kind, text) { statuses.push({kind, text}); }
 function termShowRecovery() {}
@@ -2285,7 +2285,7 @@ function _termEnableWebgl() {}
 function _termDisableWebgl() {}
 function _termMarkDead() {}
 function termRefreshSessions() {}
-function termRefreshSessionsByProjectId() {}
+function termRefreshSessionsByWorkspaceId() {}
 function _termEvictCache() { throw new Error('full eviction should not run'); }
 function termEnsureXterm() {
   const id = xtermSeq === 0 ? 'xterm-a' : 'xterm-b';
@@ -2310,9 +2310,9 @@ function _termMakeContainer() {
   panes.push(pane);
   return pane;
 }
-const CEREBRO_PROJECT_ID = '__cerebro__';
-const SELF_PROJECT_ID = '__self__';
-const LOGS_PROJECT_ID = '__logs__';
+const CEREBRO_WORKSPACE_ID = '__cerebro__';
+const SELF_WORKSPACE_ID = '__self__';
+const LOGS_WORKSPACE_ID = '__logs__';
 const location = {protocol: 'http:', host: 'localhost'};
 """ + helper_block + term_detach + term_attach + """
 
@@ -2344,15 +2344,15 @@ const location = {protocol: 'http:', host: 'localhost'};
     assert result["socketASent"] == []
     assert result["socketBSent"] == [{"type": "input", "data": "new-input"}]
     assert result["remembered"] == [
-        {"projectId": "demo", "logicalName": "a"},
-        {"projectId": "demo", "logicalName": "b"},
+        {"workspaceId": "demo", "logicalName": "a"},
+        {"workspaceId": "demo", "logicalName": "b"},
     ]
 
 
-def test_xterm_cache_lookup_is_project_scoped() -> None:
+def test_xterm_cache_lookup_is_workspace_scoped() -> None:
     helper_block = _js_between(
-        "function _termCacheKey(projectId, name)",
-        "  // ─── Project tabs",
+        "function _termCacheKey(workspaceId, name)",
+        "  // ─── Workspace tabs",
     )
     xterm_for = _js_between(
         "function _xtermFor(name",
@@ -2360,25 +2360,25 @@ def test_xterm_cache_lookup_is_project_scoped() -> None:
     )
     result = _run_node(
         """
-let activeProject = 'beta';
+let activeWorkspace = 'beta';
 let termSessions = [];
-let termCurrentProjectId = null;
+let termCurrentWorkspaceId = null;
 let termCurrentSession = null;
 let termXterm = null;
 const _termCache = new Map();
 const alphaXterm = {id: 'alpha-pane'};
 const betaXterm = {id: 'beta-pane'};
 
-function _termActiveProjectId() { return activeProject; }
+function _termActiveWorkspaceId() { return activeWorkspace; }
 """ + helper_block + xterm_for + """
 
 _termCache.set(_termCacheKey('alpha', 'lab-shared-claude'), {
-  projectId: 'alpha',
+  workspaceId: 'alpha',
   name: 'lab-shared-claude',
   xterm: alphaXterm,
 });
 _termCache.set(_termCacheKey('beta', 'lab-shared-claude'), {
-  projectId: 'beta',
+  workspaceId: 'beta',
   name: 'lab-shared-claude',
   xterm: betaXterm,
 });
@@ -2402,16 +2402,16 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_named_groups_preserve_dividers_membership_and_workspace_scope() -> None:
+def test_named_groups_preserve_dividers_membership_and_vault_scope() -> None:
     helpers = _js_between('function _termGroupScopeKey()', 'function _termSessionDisplay(s)')
     result = _run_node(r'''
 const stored = {};
 const localStorage = {getItem: key => stored[key] || null, setItem: (key, value) => stored[key] = value};
 const document = {getElementById: () => null, removeEventListener() {}};
-let workspace = 'one';
-const _termWorkspaceId = () => workspace;
-const _termActiveProjectId = () => 'demo';
-const _termSessionsKey = (project, ws) => ws + '::' + project;
+let vault = 'one';
+const _termVaultId = () => vault;
+const _termActiveWorkspaceId = () => 'demo';
+const _termSessionsKey = (workspace, ws) => ws + '::' + workspace;
 const _TERM_GROUPS_KEY = 'groups', _TERM_GROUP_COLORS = ['#58a6ff'];
 let _termGroupMenuOutside = null;
 const termSessions = [{name:'first',logical_name:'a'}, {name:'second',logical_name:'b'}, {name:'third',logical_name:'c'}];
@@ -2428,9 +2428,9 @@ termAssignTabGroup('second', id);
 termUpdateTabGroup(id, 'toggle');
 termUpdateTabGroup(id, 'color:#ff0000');
 const grouped = _termReadGroupState();
-workspace = 'two';
+vault = 'two';
 const other = _termReadGroupState();
-workspace = 'one';
+vault = 'one';
 termUpdateTabGroup(id, 'ungroup');
 const ungrouped = _termReadGroupState();
 console.log(JSON.stringify({initial, divider, grouped, other, ungrouped}));
@@ -2451,25 +2451,25 @@ def test_context_close_targets_only_requested_tabs_and_keeps_scope(mode: str) ->
     helpers = _js_between('  const _termCloseTabsPending', '  function _termSessionDisplay(s)')
     result = _run_node(r'''
 const mode = MODE;
-let workspace = 'one', termCurrentSession = 'active';
+let vault = 'one', termCurrentSession = 'active';
 let termSessions = [{name:'active'}, {name:'background'}];
 const calls = [], alerts = [];
-const _termWorkspaceId = () => workspace;
-const _termActiveProjectId = () => 'demo';
+const _termVaultId = () => vault;
+const _termActiveWorkspaceId = () => 'demo';
 const _termSessionsKey = (pid, ws) => ws + '::' + pid;
-const _workspaceQuery = ws => '&workspace=' + ws;
+const _vaultQuery = ws => '&vault=' + ws;
 const confirm = () => mode !== 'cancel';
 const alert = msg => alerts.push(msg);
 const _termSessionsCache = new Map();
 const termDetach = () => {calls.push('detach'); termCurrentSession = null;};
 const _termEvictCache = name => calls.push(['evict', name]);
-const _termRefreshSessionsForProjectId = async pid => {calls.push('refresh'); termSessions = [];};
+const _termRefreshSessionsForWorkspaceId = async pid => {calls.push('refresh'); termSessions = [];};
 const termAttach = name => calls.push(['attach', name]);
 const termShowEmpty = () => calls.push('empty');
 const termSetStatus = () => {};
 const fetch = async (url, options) => {
   calls.push([options.method, url, options.body && JSON.parse(options.body)]);
-  if (mode === 'navigate' && options.method === 'DELETE') workspace = 'two';
+  if (mode === 'navigate' && options.method === 'DELETE') vault = 'two';
   return {ok: !(mode === 'failure' && options.method === 'DELETE') && !(mode === 'settings_failure' && options.method === 'POST'), json: async () => ({detail:'denied'})};
 };
 '''.replace('MODE', json.dumps(mode)) + helpers + r'''
@@ -2483,13 +2483,13 @@ console.log(JSON.stringify({ok, calls, alerts, termCurrentSession, pending: _ter
     if mode == 'cancel':
         assert result['calls'] == []
         return
-    assert requests[0][2] == {'project_id': 'demo', 'workspace': 'one', 'enabled': False}
+    assert requests[0][2] == {'workspace_id': 'demo', 'vault': 'one', 'enabled': False}
     deletes = [c for c in requests if c[0] == 'DELETE']
     if mode == 'settings_failure':
         assert deletes == []
     else:
         expected = ['active', 'background'] if mode == 'group' else ['background']
-        assert [c[1] for c in deletes] == [f'/api/term/sessions/{name}?purge=true&workspace=one' for name in expected]
+        assert [c[1] for c in deletes] == [f'/api/term/sessions/{name}?purge=true&vault=one' for name in expected]
     assert ('detach' in result['calls']) == (mode == 'group')
     if mode == 'navigate':
         assert 'refresh' not in result['calls']
@@ -2498,7 +2498,7 @@ console.log(JSON.stringify({ok, calls, alerts, termCurrentSession, pending: _ter
     assert result['ok'] == (mode not in {'failure', 'settings_failure'})
 
 
-def test_new_menu_options_are_project_scoped_and_respect_workspace_policy() -> None:
+def test_new_menu_options_are_workspace_scoped_and_respect_vault_policy() -> None:
     helpers = _js_between('  const _TERM_NEW_OPTIONS =', '  function _termNewButtonHtml()')
     result = _run_node(r'''
 const stored = {};
@@ -2523,9 +2523,9 @@ const other = _termReadNewOptions();
 _termApplyNewOptions(picker);
 const otherVisible = buttons.filter(button => !button.hidden).map(button => button.dataset.termOption);
 scope = 'local::demo';
-const otherWorkspace = _termReadNewOptions();
+const otherVault = _termReadNewOptions();
 scope = 'ssd::demo';
-buttons[1].dataset.workspaceHidden = 'true';
+buttons[1].dataset.vaultHidden = 'true';
 _termApplyNewOptions(picker);
 const policyVisible = buttons.filter(button => !button.hidden).map(button => button.dataset.termOption);
 termSetNewOption('terminal', false);
@@ -2533,16 +2533,16 @@ const emptyState = !empty.hidden;
 termSetNewOption('terminal', true);
 _termRenderNewOptionsSettings();
 const checked = inputs.filter(input => input.checked).map(input => input.value);
-// A still-open settings panel continues to save its captured project scope.
+// A still-open settings panel continues to save its captured workspace scope.
 scope = 'ssd::other';
 termSetNewOption('attach', true);
-console.log(JSON.stringify({defaults,saved,visible,other,otherVisible,otherWorkspace,policyVisible,emptyState,checked,
+console.log(JSON.stringify({defaults,saved,visible,other,otherVisible,otherVault,policyVisible,emptyState,checked,
   original: _termReadNewOptions('ssd::demo'), untouched: _termReadNewOptions()}));
 ''')
     all_options = ['claude', 'codex', 'copilot', 'terminal', 'attach']
     assert result['defaults'] == all_options
     assert result['saved'] == result['visible'] == result['checked'] == ['codex', 'terminal']
-    assert result['other'] == result['otherVisible'] == result['otherWorkspace'] == all_options
+    assert result['other'] == result['otherVisible'] == result['otherVault'] == all_options
     assert result['policyVisible'] == ['terminal']
     assert result['emptyState'] is True
     assert result['original'] == ['codex', 'terminal', 'attach']

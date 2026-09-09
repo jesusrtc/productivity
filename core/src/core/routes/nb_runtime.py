@@ -1,4 +1,4 @@
-"""Project Runtime configuration and build endpoints for notebooks."""
+"""Workspace Runtime configuration and build endpoints for notebooks."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from core import auth
 from core.notebook_runtime import (
-    ProjectRuntimeSpec,
+    WorkspaceRuntimeSpec,
     RuntimeBuildError,
     RuntimeConfigError,
     build_runtime,
@@ -22,12 +22,12 @@ router = APIRouter()
 
 
 class RuntimeSaveBody(BaseModel):
-    path: str = Field(..., description="Notebook path relative to the workspace root")
-    spec: ProjectRuntimeSpec
+    path: str = Field(..., description="Notebook path relative to the vault root")
+    spec: WorkspaceRuntimeSpec
 
 
 class RuntimeBuildBody(BaseModel):
-    path: str = Field(..., description="Notebook path relative to the workspace root")
+    path: str = Field(..., description="Notebook path relative to the vault root")
 
 
 def _map_error(exc: Exception) -> HTTPException:

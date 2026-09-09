@@ -6,7 +6,7 @@ SPA doesn't need a client-side markdown library.
 
 The pre-existing ``/api/notebook?repo=...&path=...`` (in ``routes/diff.py``) is
 scoped to registered gdiff repos; this endpoint is for notebooks that live
-inside ``projects/<id>/notebooks/``.
+inside ``workspaces/<id>/notebooks/``.
 """
 from __future__ import annotations
 

@@ -5,7 +5,7 @@
 ls: ## list available make targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-][a-zA-Z0-9_-]*:.*##/ {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-port: ## print the effective server port (.env, then workspace lab.toml)
+port: ## print the effective server port (.env, then vault lab.toml)
 	@echo $(PORT)
 
 LAB_VENV := core/cli/.venv
@@ -13,7 +13,8 @@ CORE_VENV := core/.venv
 PYTEST_STUBS := $(CURDIR)/scripts/pytest-stubs
 BIN_DIR := $(HOME)/.local/bin
 PID_FILE := .lab-server.pid
-LAB_STATE_DIR := $(if $(LAB_WORKSPACE),$(LAB_WORKSPACE)/.lab/state,.lab/state)
+LAB_VAULT ?= $(LAB_WORKSPACE)
+LAB_STATE_DIR := $(if $(LAB_VAULT),$(LAB_VAULT)/.lab/state,.lab/state)
 PORT_FILE := $(LAB_STATE_DIR)/server.port
 APP_LOG_DIR := $(LAB_STATE_DIR)/logs
 BACKEND_LOG := $(APP_LOG_DIR)/backend.log
@@ -24,12 +25,12 @@ PROCESS_OUTPUT := /dev/null
 #   make start PORT=4444                      # canonical one-run override
 #   make start port=4444                      # lowercase muscle-memory alias
 #   client checkout .env LAB_PORT=4444       # persistent client setting
-#   active workspace lab.toml [server].port  # workspace fallback
+#   active vault lab.toml [server].port  # vault fallback
 # Do not read ambient LAB_PORT here: terminals inherit the currently running
 # server's port. scripts/lab-url.sh reads LAB_PORT from the .env file directly
 # so that inherited runtime value cannot override the next-start setting.
 # The chosen value is exported as LAB_PORT to the server subprocess and
-# recorded in the active workspace's $(PORT_FILE) on startup so other tools
+# recorded in the active vault's $(PORT_FILE) on startup so other tools
 # discover the actual running port without hardcoding.
 # Note: ports below 1024 (e.g. 80, 443) need root to bind on macOS/Linux.
 CONFIGURED_PORT := $(shell scripts/lab-url.sh --configured-port)
@@ -89,7 +90,7 @@ $(foreach _pair,$(MAKEOVERRIDES),\
 # Python bootstrap: we require >=3.11. Preference order (first hit wins):
 #   1. Standalone pythons on PATH (python3.13/12/11, then /opt/homebrew/bin/python3)
 #   2. A dedicated miniconda env created by `_ensure-python` — NOT base.
-# We deliberately skip miniconda base so this project never installs deps
+# We deliberately skip miniconda base so this workspace never installs deps
 # into the user's base conda env.
 CONDA_ENV_NAME    := productivity
 CONDA_BASE        := /opt/homebrew/Caskroom/miniconda/base
@@ -171,14 +172,14 @@ uninstall: ## remove installed binaries and venvs
 	@echo "Uninstalled."
 
 test: ## run isolated unit + integration tests for lab/core (skips @slow)
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests -v && \
-	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v
+	@env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests -v && \
+	 env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v
 
 test-fast: test ## alias for `make test` (skips @slow)
 
 test-integration: ## run isolated integration tests for backend endpoints + UI events
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests/test_integration_e2e.py -v && \
-	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest \
+	@env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests/test_integration_e2e.py -v && \
+	 env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest \
 		core/tests/test_integration_e2e.py \
 		core/tests/test_frontend_terminal_ui.py \
 		core/tests/test_frontend_logging.py \
@@ -189,11 +190,11 @@ test-integration: ## run isolated integration tests for backend endpoints + UI e
 		-v
 
 test-slow: ## run only the @slow tests (latency budgets, reconnect storms)
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -m slow -o "addopts=-ra --cov=core --cov-report=term-missing"
+	@env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -m slow -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-all: ## run every isolated lab/core test, including @slow
-	@PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests -v && \
-	 PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
+	@env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(LAB_VENV)/bin/pytest core/cli/tests -v && \
+	 env -u LAB_VAULT -u LAB_WORKSPACE PYTHONPATH="$(PYTEST_STUBS)$${PYTHONPATH:+:$$PYTHONPATH}" $(CORE_VENV)/bin/pytest core/tests -v -o "addopts=-ra --cov=core --cov-report=term-missing"
 
 test-suite: test-all ## run all unit + integration tests in isolated fixtures
 
@@ -230,7 +231,7 @@ _stop-quiet:
 	@rm -f $(PID_FILE) $(PORT_FILE)
 
 # Background server. `make start` is always non-blocking — the server runs
-# detached, and the bound port is written to the active workspace's $(PORT_FILE) by the server on
+# detached, and the bound port is written to the active vault's $(PORT_FILE) by the server on
 # startup. App logs are written by core itself to exactly:
 # $(BACKEND_LOG), $(FRONTEND_LOG), and $(ERROR_LOG).
 #
@@ -238,7 +239,7 @@ _stop-quiet:
 # checkout can keep running on a different port for migration comparisons.
 #
 # The persistent client setting comes from `.env` → `LAB_PORT`, with the
-# active workspace's `lab.toml` → `[server].port` as fallback. PORT remains
+# active vault's `lab.toml` → `[server].port` as fallback. PORT remains
 # the one-run override.
 start: ## start server using .env (override once with PORT=NNNN)
 	@pids=$$(lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null); \
@@ -329,17 +330,17 @@ status: ## show server status and port holder
 check-ui: ## run UI smoke test script
 	@scripts/check-ui.sh
 
-# ─── All project dev servers + core, one shot ──────────────────────────────
-# The lab UI proxies into per-project dev servers declared in each
-# project.json's `proxies` list (see core/src/core/routes/proxy.py), but it
+# ─── All workspace dev servers + core, one shot ──────────────────────────────
+# The lab UI proxies into per-workspace dev servers declared in each
+# workspace.json's `proxies` list (see core/src/core/routes/proxy.py), but it
 # never starts them — you had to start each by hand. These targets do that:
-# core itself, plus the dev server for every project that currently has one
+# core itself, plus the dev server for every workspace that currently has one
 # wired up. Each is idempotent (skipped if its port is already bound) and
 # resume/CV already has its own make serve/stop, so we delegate to it.
-RESUME_DIR := projects/resume/CV
-PROGRAMMING_DIR := projects/programming/programming
+RESUME_DIR := workspaces/resume/CV
+PROGRAMMING_DIR := workspaces/programming/programming
 PROGRAMMING_PORT := 8002
-T_AND_R_DIR := projects/type-and-recall
+T_AND_R_DIR := workspaces/type-and-recall
 T_AND_R_PORT := 8003
 
 start-all: start ## start core (3333) + resume/programming/type-and-recall dev servers (8001/8002/8003)
@@ -438,7 +439,7 @@ setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python 
 	@echo "  - lab CLI:    $(BIN_DIR)/lab"
 	@echo "  - server:     make start              (configured port: $(CONFIGURED_PORT))"
 	@echo "                make start PORT=4444    (one-run override)"
-	@echo "  - worktrees:  lab project add <project> <mp>"
+	@echo "  - worktrees:  lab workspace add <workspace> <mp>"
 
 pull-repos: ## clone/update repos listed in repositories.list
 	@mkdir -p repositories

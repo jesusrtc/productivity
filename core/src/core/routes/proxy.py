@@ -1,6 +1,6 @@
-"""Per-project reverse-proxy for local dev servers.
+"""Per-workspace reverse-proxy for local dev servers.
 
-A project can declare one or more servers in its root `servers.json`:
+A workspace can declare one or more servers in its root `servers.json`:
 
     {"servers": [
       {
@@ -10,26 +10,26 @@ A project can declare one or more servers in its root `servers.json`:
       {"name": "api",      "port": 8000,        "path": "/docs"}
     ]}
 
-Legacy `project.json.proxies` declarations remain readable when there is no
+Legacy `workspace.json.proxies` declarations remain readable when there is no
 `servers.json`; saving from the Servers modal creates the standalone file.
 
 …and the lab server exposes each at:
 
-    HTTP : /api/workspace-proxy/<workspace>/<project_id>/<name>/<path>
-    WS   : /ws/workspace-proxy/<workspace>/<project_id>/<name>/<path>
+    HTTP : /api/vault-proxy/<vault>/<workspace_id>/<name>/<path>
+    WS   : /ws/vault-proxy/<vault>/<workspace_id>/<name>/<path>
 
 The older unscoped ``/api/proxy`` and ``/ws/proxy`` mounts remain available
-for bookmarks created before Lab supported simultaneous cross-workspace tabs.
+for bookmarks created before Lab supported simultaneous cross-vault tabs.
 
 so the frontend can mount the dev server inside an iframe alongside the
-project's terminal + notebooks, without the browser needing direct access
+workspace's terminal + notebooks, without the browser needing direct access
 to the target port. The lab server is the only network endpoint the user
 needs to reach.
 
 Notes & limitations:
 
 * Only ports explicitly declared in `servers.json` (or legacy
-  `project.json.proxies`) are reachable — there
+  `workspace.json.proxies`) are reachable — there
   is no open-ended `/proxy/foo/<arbitrary-host-and-port>` path. This is
   also why apps that hardcode absolute paths (e.g. `/static/foo.js`) need
   to be configured to run under a base path, OR rely on the
@@ -39,13 +39,13 @@ Notes & limitations:
 * Hop-by-hop headers (`connection`, `transfer-encoding`, …) are
   stripped per RFC 7230 §6.1.
 * `Set-Cookie` headers have their name prefixed with
-  ``lp_<project>_<name>__`` and their Path scoped to the proxy mount,
+  ``lp_<workspace>_<name>__`` and their Path scoped to the proxy mount,
   so cookies from two different proxied apps with the same cookie name
   don't collide on the lab origin.
 * WebSocket upgrade is forwarded bidirectionally so HMR / live-reload
   works (Vite, Next.js dev server, etc.).
 * Optional ``start_command`` / ``stop_command`` values must be ``make``
-  commands. They run from the project directory through explicit control
+  commands. They run from the workspace directory through explicit control
   endpoints; the start command is hosted in tmux so foreground dev servers
   remain alive after the request returns.
 * If the target port isn't listening, the HTTP endpoint returns a
@@ -53,6 +53,8 @@ Notes & limitations:
   opaque connection error.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import asyncio
 import logging
@@ -131,12 +133,12 @@ def _is_self_proxy(cfg: dict[str, Any], conn: Request | WebSocket) -> bool:
     return bool(server and server[0] and host == str(server[0]).lower().strip("[]"))
 
 
-def _self_proxy_response(project_id: str, name: str, cfg: dict[str, Any]) -> Response:
+def _self_proxy_response(workspace_id: str, name: str, cfg: dict[str, Any]) -> Response:
     html = (
         "<!doctype html><html><body style=\"font-family:ui-monospace,monospace;"
         "background:#0d1117;color:#c9d1d9;padding:32px;line-height:1.5\">"
         "<h2 style=\"color:#f78166;margin-top:0\">Proxy points at Lab itself</h2>"
-        f"<p>Proxy <b>{name}</b> in project <b>{project_id}</b> targets "
+        f"<p>Proxy <b>{name}</b> in workspace <b>{workspace_id}</b> targets "
         f"<code>{cfg['host']}:{cfg['port']}</code>, which is this Lab server.</p>"
         "<p style=\"color:#8b949e\">Change the proxy port to your dev server port "
         "or remove the proxy entry.</p>"
@@ -149,43 +151,43 @@ def _self_proxy_response(project_id: str, name: str, cfg: dict[str, Any]) -> Res
     )
 
 
-def _project_dir(root: Path, project_id: str) -> Path:
-    """Map a project id to its `projects/<id>/` folder."""
-    return root / "projects" / project_id
+def _workspace_dir(root: Path, workspace_id: str) -> Path:
+    """Map a workspace id to its `workspaces/<id>/` folder."""
+    return naming.workspaces_dir(root) / workspace_id
 
 
-def _existing_project_dir(root: Path, project_id: str) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id) or project_id in {".", ".."}:
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
-    project_dir = _project_dir(root, project_id)
-    if not project_dir.is_dir():
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
-    return project_dir
+def _existing_workspace_dir(root: Path, workspace_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", workspace_id) or workspace_id in {".", ".."}:
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    workspace_dir = _workspace_dir(root, workspace_id)
+    if not workspace_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    return workspace_dir
 
 
-def _read_server_config(root: Path, project_id: str) -> tuple[list[dict[str, Any]], str]:
-    project_dir = _existing_project_dir(root, project_id)
+def _read_server_config(root: Path, workspace_id: str) -> tuple[list[dict[str, Any]], str]:
+    workspace_dir = _existing_workspace_dir(root, workspace_id)
     try:
-        return server_config.read_server_config(project_dir)
+        return server_config.read_server_config(workspace_dir)
     except server_config.ServerConfigError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 def _load_proxy_config(
     root: Path,
-    project_id: str,
+    workspace_id: str,
     name: str,
     *,
     suppress_errors: bool = False,
 ) -> dict[str, Any] | None:
-    """Look up the named server in `servers.json` or legacy project metadata.
+    """Look up the named server in `servers.json` or legacy workspace metadata.
 
     Returns a dict with `host` (default ``localhost``), `port`, and
-    `path` (default ``/``) — or None when the project doesn't exist or
+    `path` (default ``/``) — or None when the workspace doesn't exist or
     has no proxy by that name.
     """
     try:
-        proxies, _source = _read_server_config(root, project_id)
+        proxies, _source = _read_server_config(root, workspace_id)
     except HTTPException:
         if suppress_errors:
             return None
@@ -197,10 +199,10 @@ def _load_proxy_config(
     return None
 
 
-def _list_proxies(root: Path, project_id: str) -> list[dict[str, Any]]:
-    """Return all configured proxies for a project (or empty list)."""
+def _list_proxies(root: Path, workspace_id: str) -> list[dict[str, Any]]:
+    """Return all configured proxies for a workspace (or empty list)."""
     try:
-        proxies, _source = _read_server_config(root, project_id)
+        proxies, _source = _read_server_config(root, workspace_id)
     except HTTPException as exc:
         if exc.status_code == 404:
             return []
@@ -222,15 +224,15 @@ def _parse_make_command(raw: str, field: str) -> list[str]:
     return argv
 
 
-def _proxy_control_session_name(root: Path, project_id: str, name: str) -> str:
-    return term_routes._tmux_name_for(project_id, f"server-{name}", root)
+def _proxy_control_session_name(root: Path, workspace_id: str, name: str) -> str:
+    return term_routes._tmux_name_for(workspace_id, f"server-{name}", root)
 
 
-def _run_make_command(argv: list[str], project_dir: Path) -> subprocess.CompletedProcess[str]:
+def _run_make_command(argv: list[str], workspace_dir: Path) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             argv,
-            cwd=str(project_dir),
+            cwd=str(workspace_dir),
             capture_output=True,
             text=True,
             timeout=20,
@@ -264,20 +266,20 @@ def _kill_proxy_control_session(session_name: str) -> None:
     )
 
 
-def _start_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
+def _start_proxy_server(root: Path, workspace_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
     start_argv = _parse_make_command(cfg.get("start_command", ""), "start command")
     if not term_routes._tmux_available():
         raise HTTPException(status_code=500, detail="tmux not installed. Run: brew install tmux")
-    project_dir = _project_dir(root, project_id)
-    if not project_dir.is_dir():
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    workspace_dir = _workspace_dir(root, workspace_id)
+    if not workspace_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
 
-    session_name = _proxy_control_session_name(root, project_id, cfg["name"])
+    session_name = _proxy_control_session_name(root, workspace_id, cfg["name"])
     was_running = term_routes._tmux_has_session(session_name)
     if was_running:
         stop_raw = str(cfg.get("stop_command") or "").strip()
         if stop_raw:
-            stop_proc = _run_make_command(_parse_make_command(stop_raw, "stop command"), project_dir)
+            stop_proc = _run_make_command(_parse_make_command(stop_raw, "stop command"), workspace_dir)
             if stop_proc.returncode != 0:
                 raise HTTPException(
                     status_code=409,
@@ -307,7 +309,7 @@ def _start_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dic
                 "-s",
                 session_name,
                 "-c",
-                str(project_dir),
+                str(workspace_dir),
                 command,
             ),
             capture_output=True,
@@ -326,14 +328,14 @@ def _start_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dic
     }
 
 
-def _stop_proxy_server(root: Path, project_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
-    project_dir = _project_dir(root, project_id)
-    if not project_dir.is_dir():
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+def _stop_proxy_server(root: Path, workspace_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    workspace_dir = _workspace_dir(root, workspace_id)
+    if not workspace_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
 
     stop_argv = _parse_make_command(cfg.get("stop_command", ""), "stop command")
-    session_name = _proxy_control_session_name(root, project_id, cfg["name"])
-    proc = _run_make_command(stop_argv, project_dir)
+    session_name = _proxy_control_session_name(root, workspace_id, cfg["name"])
+    proc = _run_make_command(stop_argv, workspace_dir)
     _kill_proxy_control_session(session_name)
     if proc.returncode != 0:
         raise HTTPException(
@@ -404,25 +406,25 @@ class ServerConfigBody(BaseModel):
     servers: list[dict[str, Any]]
 
 
-def _workspace_root(request: Request | WebSocket, workspace: str | None) -> Path:
+def _vault_root(request: Request | WebSocket, vault: str | None) -> Path:
     active_root = auth.request_root(request)
-    root = term_routes._workspace_root_for(active_root, workspace)
-    auth.require_workspace(request, term_routes._workspace_id_for_root(active_root, root))
+    root = term_routes._vault_root_for(active_root, vault)
+    auth.require_vault(request, term_routes._vault_id_for_root(active_root, root))
     return root
 
 
 @router.get("/api/server-config")
 def get_server_config(
-    request: Request, project_id: str, workspace: str | None = None,
+    request: Request, workspace_id: str, vault: str | None = None,
 ) -> dict[str, Any]:
     """Return the effective configuration and the file it came from."""
-    root = _workspace_root(request, workspace)
-    servers, source = _read_server_config(root, project_id)
+    root = _vault_root(request, vault)
+    servers, source = _read_server_config(root, workspace_id)
     return {
         "servers": servers,
         "source": source,
         "config_file": server_config.CONFIG_FILENAME,
-        "is_legacy": source in {"project.json", ".project.json"},
+        "is_legacy": source in {"workspace.json", "project.json", ".workspace.json", ".project.json"},
     }
 
 
@@ -430,14 +432,14 @@ def get_server_config(
 def put_server_config(
     body: ServerConfigBody,
     request: Request,
-    project_id: str,
-    workspace: str | None = None,
+    workspace_id: str,
+    vault: str | None = None,
 ) -> dict[str, Any]:
-    """Write the canonical ``servers.json`` for a project."""
-    root = _workspace_root(request, workspace)
-    project_dir = _existing_project_dir(root, project_id)
+    """Write the canonical ``servers.json`` for a workspace."""
+    root = _vault_root(request, vault)
+    workspace_dir = _existing_workspace_dir(root, workspace_id)
     try:
-        servers = server_config.write_server_config(project_dir, body.servers)
+        servers = server_config.write_server_config(workspace_dir, body.servers)
     except server_config.ServerConfigError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except OSError as exc:
@@ -453,70 +455,70 @@ def put_server_config(
 
 @router.get("/api/proxies")
 def list_proxies(
-    request: Request, project_id: str, workspace: str | None = None,
+    request: Request, workspace_id: str, vault: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List the effective servers declared for a project.
+    """List the effective servers declared for a workspace.
 
     Drives the sidebar 'Servers' section in the frontend.
     """
-    root = _workspace_root(request, workspace)
-    return _list_proxies(root, project_id)
+    root = _vault_root(request, vault)
+    return _list_proxies(root, workspace_id)
 
 
-@router.post("/api/proxies/{project_id}/{name}/{action}")
+@router.post("/api/proxies/{workspace_id}/{name}/{action}")
 def control_proxy_server(
-    project_id: str,
+    workspace_id: str,
     name: str,
     action: str,
     request: Request,
-    workspace: str | None = None,
+    vault: str | None = None,
 ) -> dict[str, Any]:
-    """Run a configured make command from the owning project directory."""
+    """Run a configured make command from the owning workspace directory."""
     if action not in {"start", "restart", "stop"}:
         raise HTTPException(status_code=404, detail=f"unknown proxy action {action!r}")
-    root = _workspace_root(request, workspace)
-    cfg = _load_proxy_config(root, project_id, name)
+    root = _vault_root(request, vault)
+    cfg = _load_proxy_config(root, workspace_id, name)
     if cfg is None:
         raise HTTPException(
             status_code=404,
-            detail=f"proxy {name!r} not declared in project {project_id!r}",
+            detail=f"proxy {name!r} not declared in workspace {workspace_id!r}",
         )
     if action == "stop":
-        return _stop_proxy_server(root, project_id, cfg)
-    return _start_proxy_server(root, project_id, cfg)
+        return _stop_proxy_server(root, workspace_id, cfg)
+    return _start_proxy_server(root, workspace_id, cfg)
 
 
-def _proxy_mount_path(workspace: str | None, project_id: str, name: str) -> str:
-    if workspace:
-        return "/api/workspace-proxy/{}/{}/{}/".format(
-            quote(workspace, safe=""), quote(project_id, safe=""), quote(name, safe=""),
+def _proxy_mount_path(vault: str | None, workspace_id: str, name: str) -> str:
+    if vault:
+        return "/api/vault-proxy/{}/{}/{}/".format(
+            quote(vault, safe=""), quote(workspace_id, safe=""), quote(name, safe=""),
         )
     return "/api/proxy/{}/{}/".format(
-        quote(project_id, safe=""), quote(name, safe=""),
+        quote(workspace_id, safe=""), quote(name, safe=""),
     )
 
 
 @router.api_route(
-    "/api/workspace-proxy/{workspace}/{project_id}/{name}/{path:path}",
+    "/api/vault-proxy/{vault}/{workspace_id}/{name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
 @router.api_route(
-    "/api/proxy/{project_id}/{name}/{path:path}",
+    "/api/proxy/{workspace_id}/{name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
 async def proxy_http(
-    project_id: str,
+    workspace_id: str,
     name: str,
     path: str,
     request: Request,
-    workspace: str | None = None,
+    vault: str | None = None,
 ):
-    root = _workspace_root(request, workspace)
-    cfg = _load_proxy_config(root, project_id, name)
+    root = _vault_root(request, vault)
+    cfg = _load_proxy_config(root, workspace_id, name)
     if cfg is None:
         raise HTTPException(
             status_code=404,
-            detail=f"proxy {name!r} not declared in project {project_id!r}",
+            detail=f"proxy {name!r} not declared in workspace {workspace_id!r}",
         )
     if cfg["port"] <= 0:
         raise HTTPException(
@@ -524,7 +526,7 @@ async def proxy_http(
             detail=f"proxy {name!r} has no port configured",
         )
     if _is_self_proxy(cfg, request):
-        return _self_proxy_response(project_id, name, cfg)
+        return _self_proxy_response(workspace_id, name, cfg)
 
     upstream = f"http://{cfg['host']}:{cfg['port']}/{path}"
     if request.url.query:
@@ -557,7 +559,7 @@ async def proxy_http(
             f"background:#0d1117;color:#c9d1d9;padding:32px;line-height:1.5\">"
             f"<h2 style=\"color:#f78166;margin-top:0\">Dev server not reachable</h2>"
             f"<p>Could not connect to <code>{cfg['host']}:{cfg['port']}</code> "
-            f"(proxy <b>{name}</b> in project <b>{project_id}</b>).</p>"
+            f"(proxy <b>{name}</b> in workspace <b>{workspace_id}</b>).</p>"
             f"<p style=\"color:#8b949e\">Start your dev server, then reload this view.</p>"
             f"</body></html>"
         )
@@ -577,7 +579,7 @@ async def proxy_http(
 
     # Inject <base href> into HTML so relative links and asset paths
     # land back at our mount point instead of the lab origin root.
-    mount = _proxy_mount_path(workspace, project_id, name)
+    mount = _proxy_mount_path(vault, workspace_id, name)
     content = upstream_resp.content
     media = upstream_resp.headers.get("content-type", "")
     if media.lower().startswith("text/html"):
@@ -590,9 +592,9 @@ async def proxy_http(
     # Re-attach Set-Cookie with a per-proxy name prefix + Path scoped to
     # the mount, so cookies from two proxied apps with the same name
     # don't clobber each other on the lab origin.
-    cookie_workspace = re.sub(r"[^A-Za-z0-9_-]", "_", workspace) if workspace else ""
-    cookie_scope = f"{cookie_workspace}_" if cookie_workspace else ""
-    cookie_prefix = f"lp_{cookie_scope}{project_id}_{name}__"
+    cookie_vault = re.sub(r"[^A-Za-z0-9_-]", "_", vault) if vault else ""
+    cookie_scope = f"{cookie_vault}_" if cookie_vault else ""
+    cookie_prefix = f"lp_{cookie_scope}{workspace_id}_{name}__"
     raw_cookies = upstream_resp.headers.get_list("set-cookie") \
         if hasattr(upstream_resp.headers, "get_list") else []
     if not raw_cookies and "set-cookie" in upstream_resp.headers:
@@ -607,14 +609,14 @@ async def proxy_http(
     return resp
 
 
-@router.websocket("/ws/workspace-proxy/{workspace}/{project_id}/{name}/{path:path}")
-@router.websocket("/ws/proxy/{project_id}/{name}/{path:path}")
+@router.websocket("/ws/vault-proxy/{vault}/{workspace_id}/{name}/{path:path}")
+@router.websocket("/ws/proxy/{workspace_id}/{name}/{path:path}")
 async def proxy_ws(
     websocket: WebSocket,
-    project_id: str,
+    workspace_id: str,
     name: str,
     path: str,
-    workspace: str | None = None,
+    vault: str | None = None,
 ):
     """Bidirectional WebSocket proxy.
 
@@ -622,14 +624,14 @@ async def proxy_ws(
     Closes both sides on either end disconnecting.
     """
     try:
-        root = _workspace_root(websocket, workspace)
+        root = _vault_root(websocket, vault)
     except HTTPException as exc:
         await websocket.close(code=4401 if exc.status_code == 401 else 4403)
         return
-    cfg = _load_proxy_config(root, project_id, name, suppress_errors=True)
+    cfg = _load_proxy_config(root, workspace_id, name, suppress_errors=True)
     path_info = (
-        f"/ws/workspace-proxy/{workspace}/{project_id}/{name}/{path}"
-        if workspace else f"/ws/proxy/{project_id}/{name}/{path}"
+        f"/ws/vault-proxy/{vault}/{workspace_id}/{name}/{path}"
+        if vault else f"/ws/proxy/{workspace_id}/{name}/{path}"
     )
     if cfg is None or cfg["port"] <= 0:
         log.warning(

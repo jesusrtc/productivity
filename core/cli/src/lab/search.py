@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lab import naming
+
 import json
 import re
 from pathlib import Path
@@ -29,22 +31,22 @@ def _matches(haystack: str | None, query_low: str) -> bool:
 
 
 def search(root: Path, query: str) -> dict:
-    """Grep-based search over content/. Returns {projects, tasks, docs}."""
+    """Grep-based search over content/. Returns {workspaces, tasks, docs}."""
     q = (query or "").strip()
     if not q:
-        return {"query": "", "projects": [], "tasks": [], "docs": []}
+        return {"query": "", "workspaces": [], "tasks": [], "docs": []}
     q_low = q.lower()
 
-    projects: list[dict] = []
+    workspaces: list[dict] = []
     tasks: list[dict] = []
     docs: list[dict] = []
 
-    projects_root = root / "projects"
-    if projects_root.is_dir():
-        for child in sorted(projects_root.iterdir()):
+    workspaces_root = naming.workspaces_dir(root)
+    if workspaces_root.is_dir():
+        for child in sorted(workspaces_root.iterdir()):
             if not child.is_dir():
                 continue
-            pjson = child / "project.json"
+            pjson = naming.workspace_metadata_file(child)
             tjson = child / "tasks.json"
             try:
                 p = storage.read_json(pjson)
@@ -56,14 +58,14 @@ def search(root: Path, query: str) -> dict:
                         or _matches(p.get("description"), q_low)
                         or any(_matches(t, q_low) for t in (p.get("tags") or []))
                         or any(_matches(l, q_low) for l in (p.get("labels") or []))):
-                    projects.append({
+                    workspaces.append({
                         "id": p.get("id", child.name),
                         "name": p.get("name", ""),
                         "description": p.get("description", ""),
                         "status": p.get("status", ""),
                         "snippet": _snippet(p.get("description") or p.get("name") or p.get("id", ""), q),
                     })
-                    if len(projects) >= MAX_RESULTS_PER_KIND:
+                    if len(workspaces) >= MAX_RESULTS_PER_KIND:
                         break
             try:
                 doc = storage.read_json(tjson)
@@ -75,7 +77,7 @@ def search(root: Path, query: str) -> dict:
                             or _matches(t.get("blocker"), q_low)
                             or any(_matches(tag, q_low) for tag in (t.get("tags") or []))):
                         tasks.append({
-                            "project_id": child.name,
+                            "workspace_id": child.name,
                             "task_id": t.get("id"),
                             "title": t.get("title", ""),
                             "status": t.get("status", ""),
@@ -103,7 +105,7 @@ def search(root: Path, query: str) -> dict:
 
     return {
         "query": q,
-        "projects": projects,
+        "workspaces": workspaces,
         "tasks": tasks,
         "docs": docs,
     }

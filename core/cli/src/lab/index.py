@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lab import naming
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,7 +12,7 @@ from lab import paths, storage
 Index = dict[str, Any]
 
 
-def _project_task_summary(tasks_doc: dict[str, Any]) -> dict[str, Any]:
+def _workspace_task_summary(tasks_doc: dict[str, Any]) -> dict[str, Any]:
     counts = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
     earliest_due: str | None = None
     for t in tasks_doc.get("tasks", []):
@@ -34,25 +36,25 @@ def _now_iso() -> str:
 
 
 def build_index(root: Path) -> Index:
-    """Walk projects/ and return the cached index shape.
+    """Walk workspaces/ and return the cached index shape.
 
-    Projects are sorted by id. Tasks are emitted flat (one per row) with
-    `project_id`, `task_id`, and path fields for cheap filtering.
+    Workspaces are sorted by id. Tasks are emitted flat (one per row) with
+    `workspace_id`, `task_id`, and path fields for cheap filtering.
     """
-    projects_root = root / "projects"
-    project_rows: list[dict[str, Any]] = []
+    workspaces_root = naming.workspaces_dir(root)
+    workspace_rows: list[dict[str, Any]] = []
     task_rows: list[dict[str, Any]] = []
 
-    if projects_root.is_dir():
-        for child in sorted(projects_root.iterdir()):
-            pjson = child / "project.json"
+    if workspaces_root.is_dir():
+        for child in sorted(workspaces_root.iterdir()):
+            pjson = naming.workspace_metadata_file(child)
             tjson = child / "tasks.json"
             if not pjson.is_file():
                 continue
 
             pdata = storage.read_json(pjson)
             tasks_doc = storage.read_json(tjson) if tjson.is_file() else {"tasks": []}
-            summary = _project_task_summary(tasks_doc)
+            summary = _workspace_task_summary(tasks_doc)
 
             prs = list(pdata.get("prs") or [])
             pr_counts = {"open": 0, "merged": 0, "closed": 0, "other": 0}
@@ -63,7 +65,7 @@ def build_index(root: Path) -> Index:
                 else:
                     pr_counts["other"] += 1
 
-            project_rows.append({
+            workspace_rows.append({
                 "id": pdata.get("id", child.name),
                 "name": pdata.get("name", child.name),
                 "description": pdata.get("description", ""),
@@ -76,7 +78,7 @@ def build_index(root: Path) -> Index:
                 "created": pdata.get("created"),
                 "updated": pdata.get("updated"),
                 "hold": pdata.get("hold") or None,
-                "path": f"projects/{child.name}",
+                "path": str(child.relative_to(root)),
                 "prs": prs,
                 "pr_counts": pr_counts,
                 **summary,
@@ -84,7 +86,7 @@ def build_index(root: Path) -> Index:
 
             for t in tasks_doc.get("tasks", []):
                 task_rows.append({
-                    "project_id": child.name,
+                    "workspace_id": child.name,
                     "task_id": t["id"],
                     "title": t.get("title", ""),
                     "status": t.get("status"),
@@ -98,18 +100,18 @@ def build_index(root: Path) -> Index:
                     "created": t.get("created"),
                     "updated": t.get("updated"),
                     "closed_at": t.get("closed_at"),
-                    "path": f"projects/{child.name}/tasks.json#{t['id']}",
+                    "path": f"{child.relative_to(root)}/tasks.json#{t['id']}",
                 })
 
-    # Include the __self__ pseudo-project so its tasks surface in global
-    # listings (due-soon, /api/tasks). Kept out of `projects` rows to
-    # avoid it appearing in project pickers.
+    # Include the __self__ pseudo-workspace so its tasks surface in global
+    # listings (due-soon, /api/tasks). Kept out of `workspaces` rows to
+    # avoid it appearing in workspace pickers.
     self_tasks = root / "content" / ".self-tasks.json"
     if self_tasks.is_file():
         doc = storage.read_json(self_tasks)
         for t in doc.get("tasks", []):
             task_rows.append({
-                "project_id": paths.SELF_PROJECT_ID,
+                "workspace_id": paths.SELF_WORKSPACE_ID,
                 "task_id": t["id"],
                 "title": t.get("title", ""),
                 "status": t.get("status"),
@@ -128,13 +130,13 @@ def build_index(root: Path) -> Index:
 
     return {
         "generated_at": _now_iso(),
-        "projects": project_rows,
+        "workspaces": workspace_rows,
         "tasks": task_rows,
     }
 
 
 def write_index(root: Path, data: Index) -> Path:
-    """Persist `data` to the workspace-local index cache."""
+    """Persist `data` to the vault-local index cache."""
     path = paths.index_file(root)
     storage.write_json(path, data)
     return path
@@ -143,10 +145,9 @@ def write_index(root: Path, data: Index) -> Path:
 def read_index(root: Path) -> Index:
     """Load the cached index from disk. Raises FileNotFoundError if absent.
 
-    During the workspace migration, read the legacy `content/.index.json` if
-    the new workspace-local cache has not been created yet.
+    During the vault migration, read the legacy `content/.index.json` if
+    the new vault-local cache has not been created yet.
     """
     path = paths.index_file(root)
-    if path.is_file():
-        return storage.read_json(path)
-    return storage.read_json(paths.legacy_index_file(root))
+    data = storage.read_json(path if path.is_file() else paths.legacy_index_file(root))
+    return naming.legacy_fields(data) if "projects" in data else data

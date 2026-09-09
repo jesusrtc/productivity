@@ -2,7 +2,7 @@
 name: backend-python-changes-require-server-restart
 description: The always-on Lab server serves static files from disk but keeps imported Python routes in memory, so backend source changes require a restart
 metadata:
-  type: project
+  type: workspace
 ---
 
 The launch-agent / `make start` Lab server does not run Uvicorn hot reload.

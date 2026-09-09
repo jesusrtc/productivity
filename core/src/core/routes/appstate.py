@@ -3,7 +3,7 @@
 GET /api/appstate/{key}   -> the stored JSON ({} when nothing saved yet)
 PUT /api/appstate/{key}   -> store the request body (must be JSON)
 
-Embedded apps served through the per-project proxy AND directly from their
+Embedded apps served through the per-workspace proxy AND directly from their
 own port are different browser origins, so localStorage fragments between
 them. This endpoint gives them one shared, server-side home for small
 state blobs. Files live under ``content/.appstate/<key>.json`` (content/

@@ -2,7 +2,7 @@
 name: focus-mode-trackpad-pinch-zoom
 description: "Focus mode reproduces Chrome trackpad pinch zoom while browser fullscreen suppresses native page zoom"
 metadata:
-  type: project
+  type: workspace
 ---
 
 Chrome exposes macOS trackpad pinch as a cancelable `Ctrl+wheel` gesture, but

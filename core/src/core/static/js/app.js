@@ -4,7 +4,7 @@ import { clear } from "./lib/dom.js";
 // Dynamic imports keep each view's code out of the initial bundle.
 const routes = [
   { pattern: /^\/?$/, loader: () => import("./views/dashboard.js") },
-  { pattern: /^\/p\/([^/]+)$/, loader: () => import("./views/project.js") },
+  { pattern: /^\/w\/([^/]+)$/, loader: () => import("./views/workspace.js") },
   { pattern: /^\/timeline$/, loader: () => import("./views/timeline.js") },
   { pattern: /^\/md$/, loader: () => import("./views/markdown.js") },
   { pattern: /^\/nb$/, loader: () => import("./views/notebook.js") },

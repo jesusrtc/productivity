@@ -15,12 +15,12 @@ def _git(cwd: Path, *args: str) -> None:
 
 
 @pytest.fixture()
-def git_workspace(monorepo: Path) -> Path:
+def git_vault(monorepo: Path) -> Path:
     """Turn the fixture monorepo into a real git repo with one modified and
-    one untracked file under a project."""
+    one untracked file under a workspace."""
     if shutil.which("git") is None:
         pytest.skip("git not available")
-    pdir = monorepo / "projects" / "demo" / "docs"
+    pdir = monorepo / "workspaces" / "demo" / "docs"
     pdir.mkdir(parents=True)
     (pdir / "readme.md").write_text("hello\n", encoding="utf-8")
     # conftest pre-creates an empty .git marker dir; init needs it gone
@@ -37,10 +37,10 @@ def git_workspace(monorepo: Path) -> Path:
     return monorepo
 
 
-def test_git_status_reports_modified_and_untracked(client, git_workspace: Path) -> None:
+def test_git_status_reports_modified_and_untracked(client, git_vault: Path) -> None:
     r = client.get(
         "/api/git-status",
-        params={"repo": str(git_workspace / "projects" / "demo")},
+        params={"repo": str(git_vault / "workspaces" / "demo")},
     )
 
     assert r.status_code == 200, r.text
@@ -49,8 +49,8 @@ def test_git_status_reports_modified_and_untracked(client, git_workspace: Path) 
     assert files.get("docs/untracked.md") == "U"
 
 
-def test_git_status_accepts_workspace_relative_path(client, git_workspace: Path) -> None:
-    r = client.get("/api/git-status", params={"repo": "projects/demo"})
+def test_git_status_accepts_vault_relative_path(client, git_vault: Path) -> None:
+    r = client.get("/api/git-status", params={"repo": "workspaces/demo"})
 
     assert r.status_code == 200, r.text
     assert r.json()["files"].get("docs/readme.md") == "M"
@@ -63,19 +63,19 @@ def test_git_status_non_repo_dir_is_empty(client, monorepo: Path) -> None:
     assert r.json() == {"files": {}, "ignored": []}
 
 
-def test_git_status_rejects_escape_outside_workspace(client, monorepo: Path, tmp_path: Path) -> None:
+def test_git_status_rejects_escape_outside_vault(client, monorepo: Path, tmp_path: Path) -> None:
     outside = tmp_path / "elsewhere"
     outside.mkdir()
 
-    for repo in (str(outside), "../", "projects/../.."):
+    for repo in (str(outside), "../", "workspaces/../.."):
         r = client.get("/api/git-status", params={"repo": repo})
         assert r.status_code == 400, f"{repo!r}: {r.status_code} {r.text}"
 
 
-def test_git_status_allows_registered_repo_outside_workspace(
+def test_git_status_allows_registered_repo_outside_vault(
     client, monorepo: Path, tmp_path: Path, monkeypatch
 ) -> None:
-    """Pinned tabs/views live outside the active workspace; anything the
+    """Pinned tabs/views live outside the active vault; anything the
     app's own repo registry lists must pass containment."""
     outside = tmp_path / "pinned-checkout"
     outside.mkdir()
@@ -85,7 +85,7 @@ def test_git_status_allows_registered_repo_outside_workspace(
     monkeypatch.setattr(
         diff_route,
         "get_registered_repos",
-        lambda root: [{"name": "pinned", "is_project": False,
+        lambda root: [{"name": "pinned", "is_workspace": False,
                        "path": str(outside), "repos": [str(outside)]}],
     )
 
@@ -95,23 +95,23 @@ def test_git_status_allows_registered_repo_outside_workspace(
     assert r.json() == {"files": {}, "ignored": []}
 
 
-def test_git_status_allows_project_in_another_registered_workspace(
+def test_git_status_allows_workspace_in_another_registered_vault(
     client, monorepo: Path, tmp_path: Path,
 ) -> None:
     from lab import paths as lab_paths
 
-    other = tmp_path / "other-workspace"
-    project = other / "projects" / "demo"
-    project.mkdir(parents=True)
-    lab_paths.write_workspace_registry({
+    other = tmp_path / "other-vault"
+    workspace = other / "workspaces" / "demo"
+    workspace.mkdir(parents=True)
+    lab_paths.write_vault_registry({
         "active": "fixture",
-        "workspaces": [
+        "vaults": [
             {"id": "fixture", "name": "Fixture", "path": str(monorepo)},
             {"id": "other", "name": "Other", "path": str(other)},
         ],
     })
 
-    r = client.get("/api/git-status", params={"repo": str(project)})
+    r = client.get("/api/git-status", params={"repo": str(workspace)})
 
     assert r.status_code == 200, r.text
     assert r.json() == {"files": {}, "ignored": []}
@@ -119,7 +119,7 @@ def test_git_status_allows_project_in_another_registered_workspace(
 
 def test_git_status_allows_framework_root(client, monorepo: Path) -> None:
     """The Productivity self-view is rooted at the framework checkout, which
-    lives outside the active workspace."""
+    lives outside the active vault."""
     from lab import paths as lab_paths
 
     r = client.get(

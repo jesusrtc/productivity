@@ -1,11 +1,13 @@
-"""Load and validate the optional ``workspace.json`` at a workspace root.
+"""Load and validate the optional ``vault.json`` at a vault root.
 
-Migration step 1 of docs/workspace-architecture.md: validation is advisory.
-A workspace without the file is fully valid; a workspace with a broken file
-keeps working while the problems are surfaced through the workspace routes so
-the Workspace tab can show them. Nothing here mutates project trees.
+Migration step 1 of docs/vault-architecture.md: validation is advisory.
+A vault without the file is fully valid; a vault with a broken file
+keeps working while the problems are surfaced through the vault routes so
+the Vault tab can show them. Nothing here mutates workspace trees.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import json
 import os
@@ -16,14 +18,14 @@ from typing import Any
 from lab.model import VALID_AGENTS
 
 PROJECTION_MODES = {"symlink", "adapter", "copy"}
-WORKSPACE_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+VAULT_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 _KNOWN_TOP_LEVEL = {
     "version",
     "id",
     "name",
     "agents",
-    "project",
+    "workspace",
     "notebooks",
     "display",
     "repositories",
@@ -31,8 +33,8 @@ _KNOWN_TOP_LEVEL = {
 }
 
 
-class WorkspaceConfigError(ValueError):
-    """Raised when a focused workspace-config update cannot be applied."""
+class VaultConfigError(ValueError):
+    """Raised when a focused vault-config update cannot be applied."""
 
 
 def _is_str_list(value: Any) -> bool:
@@ -74,12 +76,12 @@ def _check_mapping_entries(
                 warnings.append(f"{label}.when: {when!r} is not in agents.supported")
 
 
-def validate_workspace_config(cfg: Any) -> tuple[list[str], list[str]]:
-    """Return (errors, warnings) for a parsed workspace.json document."""
+def validate_vault_config(cfg: Any) -> tuple[list[str], list[str]]:
+    """Return (errors, warnings) for a parsed vault.json document."""
     errors: list[str] = []
     warnings: list[str] = []
     if not isinstance(cfg, dict):
-        return ["workspace.json must contain a JSON object"], warnings
+        return ["vault.json must contain a JSON object"], warnings
 
     for key in cfg:
         if key not in _KNOWN_TOP_LEVEL:
@@ -126,19 +128,19 @@ def validate_workspace_config(cfg: Any) -> tuple[list[str], list[str]]:
                     warnings=warnings,
                 )
 
-    project = cfg.get("project")
-    if project is not None:
-        if not isinstance(project, dict):
-            errors.append("project: must be an object")
+    workspace = cfg.get("workspace")
+    if workspace is not None:
+        if not isinstance(workspace, dict):
+            errors.append("workspace: must be an object")
         else:
-            if "template" in project and not isinstance(project["template"], str):
-                errors.append("project.template: must be a string")
-            if "features" in project and not _is_str_list(project["features"]):
-                errors.append("project.features: must be a list of strings")
-            if "mounts" in project:
+            if "template" in workspace and not isinstance(workspace["template"], str):
+                errors.append("workspace.template: must be a string")
+            if "features" in workspace and not _is_str_list(workspace["features"]):
+                errors.append("workspace.features: must be a list of strings")
+            if "mounts" in workspace:
                 _check_mapping_entries(
-                    project["mounts"],
-                    where="project.mounts",
+                    workspace["mounts"],
+                    where="workspace.mounts",
                     supported=supported,
                     require_mode=False,
                     errors=errors,
@@ -180,7 +182,7 @@ def validate_workspace_config(cfg: Any) -> tuple[list[str], list[str]]:
                 errors.append("display.showProjectionOrigin: must be a boolean")
             color = display.get("color")
             if color is not None and (
-                not isinstance(color, str) or not WORKSPACE_COLOR_RE.fullmatch(color)
+                not isinstance(color, str) or not VAULT_COLOR_RE.fullmatch(color)
             ):
                 errors.append("display.color: must be a six-digit hex color such as #58a6ff")
 
@@ -191,11 +193,11 @@ def validate_workspace_config(cfg: Any) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def load_workspace_config(root: Path) -> dict:
-    """Read and validate ``root/workspace.json``.
+def load_vault_config(root: Path) -> dict:
+    """Read and validate ``root/vault.json``.
 
     Returns ``{present, valid, config, errors, warnings}``. A missing file is
-    valid-and-absent; the file is optional until a workspace opts in.
+    valid-and-absent; the file is optional until a vault opts in.
     """
     out: dict[str, Any] = {
         "present": False,
@@ -204,14 +206,14 @@ def load_workspace_config(root: Path) -> dict:
         "errors": [],
         "warnings": [],
     }
-    path = root / "workspace.json"
+    path = naming.vault_config_file(root)
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return out
     except OSError as exc:
         out.update(present=True, valid=False)
-        out["errors"].append(f"workspace.json unreadable: {exc}")
+        out["errors"].append(f"vault.json unreadable: {exc}")
         return out
 
     out["present"] = True
@@ -219,10 +221,12 @@ def load_workspace_config(root: Path) -> dict:
         cfg = json.loads(raw)
     except json.JSONDecodeError as exc:
         out["valid"] = False
-        out["errors"].append(f"workspace.json is not valid JSON: {exc}")
+        out["errors"].append(f"vault.json is not valid JSON: {exc}")
         return out
 
-    errors, warnings = validate_workspace_config(cfg)
+    if path.name == naming.LEGACY_VAULT_FILE:
+        cfg = naming.legacy_fields(cfg)
+    errors, warnings = validate_vault_config(cfg)
     out["config"] = cfg if isinstance(cfg, dict) else None
     out["errors"] = errors
     out["warnings"] = warnings
@@ -230,21 +234,21 @@ def load_workspace_config(root: Path) -> dict:
     return out
 
 
-def summarize_workspace_config(root: Path) -> dict:
-    """`load_workspace_config` minus the parsed document — cheap payload for
+def summarize_vault_config(root: Path) -> dict:
+    """`load_vault_config` minus the parsed document — cheap payload for
     list endpoints that only need validity status."""
-    out = load_workspace_config(root)
+    out = load_vault_config(root)
     out.pop("config", None)
     return out
 
 
 def supported_agents(root: Path) -> list[str]:
-    """Effective agent availability for a workspace.
+    """Effective agent availability for a vault.
 
-    ``workspace.json``'s ``agents.supported`` filtered to known agents;
+    ``vault.json``'s ``agents.supported`` filtered to known agents;
     every known agent when the file is absent, broken, or lists nothing
     usable — availability must never dead-end the terminal UI."""
-    cfg = load_workspace_config(root)
+    cfg = load_vault_config(root)
     doc = cfg.get("config")
     agents = doc.get("agents") if isinstance(doc, dict) else None
     sup = agents.get("supported") if isinstance(agents, dict) else None
@@ -270,22 +274,22 @@ def update_supported_agents(
     normalized = [agent for agent in VALID_AGENTS if agent in supported]
     unknown = [agent for agent in supported if agent not in VALID_AGENTS]
     if unknown:
-        raise WorkspaceConfigError(
+        raise VaultConfigError(
             f"unknown agents: {', '.join(sorted(set(unknown)))}"
         )
     if not normalized:
-        raise WorkspaceConfigError("at least one agent must remain enabled")
+        raise VaultConfigError("at least one agent must remain enabled")
 
-    loaded = load_workspace_config(root)
+    loaded = load_vault_config(root)
     if loaded["present"] and loaded["config"] is None:
-        raise WorkspaceConfigError(
-            "workspace.json cannot be updated until its JSON is repaired"
+        raise VaultConfigError(
+            "vault.json cannot be updated until its JSON is repaired"
         )
     doc = dict(loaded["config"] or {"version": 1})
     current_agents = doc.get("agents")
     if current_agents is not None and not isinstance(current_agents, dict):
-        raise WorkspaceConfigError(
-            "workspace.json agents must be an object before it can be updated"
+        raise VaultConfigError(
+            "vault.json agents must be an object before it can be updated"
         )
     agents = dict(current_agents or {})
     agents["supported"] = normalized
@@ -295,49 +299,49 @@ def update_supported_agents(
         )
     doc["agents"] = agents
 
-    path = root / "workspace.json"
+    path = root / "vault.json"
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    return load_workspace_config(root)
+    return load_vault_config(root)
 
 
 def update_appearance(root: Path, name: str, color: str) -> dict:
-    """Persist the workspace's human label and restrained UI accent.
+    """Persist the vault's human label and restrained UI accent.
 
     The registry id remains the stable routing/session identity.  Appearance
-    belongs in ``workspace.json`` so it travels with the workspace itself.
+    belongs in ``vault.json`` so it travels with the vault itself.
     Broken JSON is never overwritten.
     """
     clean_name = name.strip()
     if not clean_name:
-        raise WorkspaceConfigError("workspace name / alias is required")
+        raise VaultConfigError("vault name / alias is required")
     if len(clean_name) > 80:
-        raise WorkspaceConfigError("workspace name / alias must be 80 characters or fewer")
+        raise VaultConfigError("vault name / alias must be 80 characters or fewer")
     clean_color = color.strip().lower()
-    if not WORKSPACE_COLOR_RE.fullmatch(clean_color):
-        raise WorkspaceConfigError(
-            "workspace color must be a six-digit hex color such as #58a6ff"
+    if not VAULT_COLOR_RE.fullmatch(clean_color):
+        raise VaultConfigError(
+            "vault color must be a six-digit hex color such as #58a6ff"
         )
 
-    loaded = load_workspace_config(root)
+    loaded = load_vault_config(root)
     if loaded["present"] and loaded["config"] is None:
-        raise WorkspaceConfigError(
-            "workspace.json cannot be updated until its JSON is repaired"
+        raise VaultConfigError(
+            "vault.json cannot be updated until its JSON is repaired"
         )
     doc = dict(loaded["config"] or {"version": 1})
     current_display = doc.get("display")
     if current_display is not None and not isinstance(current_display, dict):
-        raise WorkspaceConfigError(
-            "workspace.json display must be an object before it can be updated"
+        raise VaultConfigError(
+            "vault.json display must be an object before it can be updated"
         )
     display = dict(current_display or {})
     display["color"] = clean_color
     doc["name"] = clean_name
     doc["display"] = display
 
-    path = root / "workspace.json"
+    path = root / "vault.json"
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-    return load_workspace_config(root)
+    return load_vault_config(root)

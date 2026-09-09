@@ -25,19 +25,19 @@ def test_list_tasks_empty(client) -> None:
     assert r.json() == []
 
 
-def test_list_tasks_flattens_across_projects(client, seed_project) -> None:
-    a = seed_project("alpha")
-    b = seed_project("beta")
+def test_list_tasks_flattens_across_workspaces(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
+    b = seed_workspace("beta")
     _seed_tasks(a, [_task_entry(1, title="in-alpha")])
     _seed_tasks(b, [_task_entry(1, title="in-beta")])
     r = client.get("/api/tasks")
-    titles = [(t["project_id"], t["title"]) for t in r.json()]
+    titles = [(t["workspace_id"], t["title"]) for t in r.json()]
     assert ("alpha", "in-alpha") in titles
     assert ("beta", "in-beta") in titles
 
 
-def test_list_tasks_filter_by_status(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_filter_by_status(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, status="todo", title="t"),
         _task_entry(2, status="done", title="d", closed_at="2026-04-17T09:00:00-07:00"),
@@ -49,8 +49,8 @@ def test_list_tasks_filter_by_status(client, seed_project) -> None:
     assert [t["title"] for t in r.json()] == ["t"]
 
 
-def test_list_tasks_filter_by_priority(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_filter_by_priority(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, priority="P0"),
         _task_entry(2, priority="P1"),
@@ -60,8 +60,8 @@ def test_list_tasks_filter_by_priority(client, seed_project) -> None:
     assert {t["task_id"] for t in r.json()} == {1, 2}
 
 
-def test_list_tasks_filter_by_tag_and_label(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_filter_by_tag_and_label(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, tags=["review"]),
         _task_entry(2, labels=["lipy-davi"]),
@@ -73,8 +73,8 @@ def test_list_tasks_filter_by_tag_and_label(client, seed_project) -> None:
     assert {t["task_id"] for t in r.json()} == {2}
 
 
-def test_list_tasks_due(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_due(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     near = (date.today() + timedelta(days=3)).isoformat()
     far = (date.today() + timedelta(days=30)).isoformat()
     _seed_tasks(a, [

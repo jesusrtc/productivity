@@ -3,11 +3,11 @@ name: elevenlabs-expressive-settings-gotcha
 description: Forcing stability/style on ElevenLabs designed/cloned voices breaks pacing — verify timings before building video beats
 metadata:
   node_type: memory
-  type: project
+  type: workspace
   originSessionId: 08130d80-b355-4300-8a9c-483b3d03e665
 ---
 
-In the remotion project, `gen_audio.py --stability 0.35 --style 0.55` works well
+In the remotion workspace, `gen_audio.py --stability 0.35 --style 0.55` works well
 with the professional narrator voice BRIAN (XgQWNZcJ8SRkxXwwhPTo) but broke the
 designed voice "Jesus - Medium Prompt" (R2rxyBI0SWhoPwq16ESH): words stretched
 to ~2 s and multi-second pauses, which wrecked the whole kinetic-typography

@@ -8,10 +8,11 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A developer shell that exports LAB_WORKSPACE would otherwise point
-    tests at their real workspace (it wins over LAB_ROOT in
-    find_workspace_root). Same guard as core/tests/conftest.py."""
+def _isolate_vault_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A developer shell that exports LAB_VAULT would otherwise point
+    tests at their real vault (it wins over LAB_ROOT in
+    find_vault_root). Same guard as core/tests/conftest.py."""
+    monkeypatch.delenv("LAB_VAULT", raising=False)
     monkeypatch.delenv("LAB_WORKSPACE", raising=False)
     # Client-global .env settings (notably LAB_ASSISTANT_HOME) must not leak
     # real user paths into isolated tests. Individual parser tests override it.
@@ -22,18 +23,18 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a minimal monorepo layout under tmp_path and point `LAB_ROOT` at it."""
     root = tmp_path / "productivity"
-    (root / "projects").mkdir(parents=True)
+    (root / "workspaces").mkdir(parents=True)
     (root / "content" / "meetings").mkdir(parents=True)
     (root / "content" / "skills").mkdir()
-    # Canonical per-project CLAUDE.md target (tests symlink to this).
-    (root / "content" / "skills" / "project-CLAUDE.md").write_text(
-        "# shared project CLAUDE.md (test fixture)\n\n"
-        "Run `lab project status` for current state.\n"
+    # Canonical per-workspace CLAUDE.md target (tests symlink to this).
+    (root / "content" / "skills" / "workspace-CLAUDE.md").write_text(
+        "# shared workspace CLAUDE.md (test fixture)\n\n"
+        "Run `lab workspace status` for current state.\n"
     )
     # git repo marker so find_monorepo_root() works without running git
     (root / ".git").mkdir()
     (root / "CLAUDE.md").write_text("# monorepo test fixture\n")
-    monkeypatch.setenv("LAB_WORKSPACE", str(root))
+    monkeypatch.setenv("LAB_VAULT", str(root))
     monkeypatch.setenv("LAB_ROOT", str(root))
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home"))
     monkeypatch.chdir(root)
@@ -41,14 +42,14 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture()
-def seed_project(monorepo: Path):
-    """Factory to create a blank project under the fixture monorepo."""
-    def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "projects" / project_id
+def seed_workspace(monorepo: Path):
+    """Factory to create a blank workspace under the fixture monorepo."""
+    def _create(workspace_id: str = "demo", *, description: str = "") -> Path:
+        pdir = monorepo / "workspaces" / workspace_id
         pdir.mkdir(parents=True)
-        (pdir / "project.json").write_text(json.dumps({
-            "id": project_id,
-            "name": project_id,
+        (pdir / "workspace.json").write_text(json.dumps({
+            "id": workspace_id,
+            "name": workspace_id,
             "description": description,
             "status": "active",
             "tags": [],

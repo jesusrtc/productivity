@@ -28,22 +28,22 @@ class _Opener:
             body = {"authenticated": True}
         else:
             body = {
-                "path": "projects/demo/agent-demo.ipynb",
+                "path": "workspaces/demo/agent-demo.ipynb",
                 "cell": {"id": "cell-live", "metadata": {"lab_actor": "agent"}},
             }
         return _Response(json.dumps(body).encode("utf-8"))
 
 
 def test_notebook_exec_posts_agent_cell_through_live_api(
-    monorepo: Path, seed_project, monkeypatch
+    monorepo: Path, seed_workspace, monkeypatch
 ) -> None:
-    project = seed_project("demo")
-    monkeypatch.chdir(project)
+    workspace = seed_workspace("demo")
+    monkeypatch.chdir(workspace)
     monkeypatch.setattr(
-        "lab.commands.notebook.paths.read_workspace_registry",
+        "lab.commands.notebook.paths.read_vault_registry",
         lambda: {
             "active": "local",
-            "workspaces": [{"id": "local", "path": str(monorepo)}],
+            "vaults": [{"id": "local", "path": str(monorepo)}],
         },
     )
     monkeypatch.setattr("lab.commands.notebook.server_port", lambda _root: "8080")
@@ -73,8 +73,8 @@ def test_notebook_exec_posts_agent_cell_through_live_api(
     )
     payload = json.loads(opener.requests[0].data)
     assert payload == {
-        "path": "projects/demo/agent-demo.ipynb",
-        "workspace": "local",
+        "path": "workspaces/demo/agent-demo.ipynb",
+        "vault": "local",
         "actor": "agent",
         "timeout": 600,
         "code": "print('first', flush=True)",
@@ -83,13 +83,13 @@ def test_notebook_exec_posts_agent_cell_through_live_api(
 
 
 def test_notebook_exec_reads_multiline_source_file(
-    monorepo: Path, seed_project, monkeypatch, tmp_path: Path
+    monorepo: Path, seed_workspace, monkeypatch, tmp_path: Path
 ) -> None:
-    project = seed_project("demo")
-    monkeypatch.chdir(project)
+    workspace = seed_workspace("demo")
+    monkeypatch.chdir(workspace)
     monkeypatch.setattr(
-        "lab.commands.notebook.paths.read_workspace_registry",
-        lambda: {"active": None, "workspaces": []},
+        "lab.commands.notebook.paths.read_vault_registry",
+        lambda: {"active": None, "vaults": []},
     )
     opener = _Opener()
     monkeypatch.setattr(
@@ -108,10 +108,10 @@ def test_notebook_exec_reads_multiline_source_file(
     assert result.exit_code == 0, result.output
     payload = json.loads(opener.requests[1].data)
     assert payload["code"] == source.read_text(encoding="utf-8")
-    assert "workspace" not in payload
+    assert "vault" not in payload
 
 
-def test_notebook_exec_rejects_paths_outside_workspace(
+def test_notebook_exec_rejects_paths_outside_vault(
     monorepo: Path, monkeypatch, tmp_path: Path
 ) -> None:
     outside = tmp_path / "outside.ipynb"
@@ -120,4 +120,4 @@ def test_notebook_exec_rejects_paths_outside_workspace(
     ])
 
     assert result.exit_code != 0
-    assert "must live under workspace" in result.output
+    assert "must live under vault" in result.output

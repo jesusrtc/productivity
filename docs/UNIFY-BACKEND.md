@@ -8,11 +8,11 @@
 
 | Piece | Port | What it serves |
 |---|---|---|
-| `lab-backend` (FastAPI) | **3333** | `/` SPA shell · `/api/index` · `/api/projects[...]` · `/api/tasks[...]` · `/api/markdown` · `/api/search` · POST mutation routes · WS `/ws` |
-| `gdiff` (FastAPI) | **3334** | `/?project=<abs path>` → rich project track UI · `/api/project-info` · `/api/project-actions` (reads `tasks.json`) · `/api/project-onepager` · diff viewer · commit list · notebook rendering |
-| `lab` (CLI only) | — | `project/task/mp/pr/artifact/search/index/start/stop` — entry point for all writes |
+| `lab-backend` (FastAPI) | **3333** | `/` SPA shell · `/api/index` · `/api/workspaces[...]` · `/api/tasks[...]` · `/api/markdown` · `/api/search` · POST mutation routes · WS `/ws` |
+| `gdiff` (FastAPI) | **3334** | `/?workspace=<abs path>` → rich workspace track UI · `/api/workspace-info` · `/api/workspace-actions` (reads `tasks.json`) · `/api/workspace-onepager` · diff viewer · commit list · notebook rendering |
+| `lab` (CLI only) | — | `workspace/task/mp/pr/artifact/search/index/start/stop` — entry point for all writes |
 
-The UI feels split because clicking a project from the dashboard (:3333) opens a new tab on :3334. Back button and nav don't bridge the two.
+The UI feels split because clicking a workspace from the dashboard (:3333) opens a new tab on :3334. Back button and nav don't bridge the two.
 
 ---
 
@@ -33,7 +33,7 @@ Result:
 ### §A. Frontend shell — which HTML/JS drives the UI?
 
 - **A1.** Keep gdiff's existing `templates/index.html` (2530 lines, the rich layout) as the shell. Dashboard becomes a new "home" mode inside the same HTML, styled to match.
-- **A2.** Keep the SPA module-router (`#/`, `#/p/<id>`, `#/timeline`, …) and mount gdiff's project view as the content of `#/p/<id>`.
+- **A2.** Keep the SPA module-router (`#/`, `#/p/<id>`, `#/timeline`, …) and mount gdiff's workspace view as the content of `#/p/<id>`.
 - **A3.** Hybrid: gdiff's visual language (sidebar + main panel) at every route, but each route owns its own template fragment.
 
 My pick: **A1**. Reason: you said "la UI de gdiff no cambie mucho, es funcional". A2 means forking gdiff's HTML into pieces; A1 lets its existing layout absorb the dashboard + timeline + search.
@@ -60,19 +60,19 @@ Anything you'd drop: `_____`
 - [ ] `/api/index` + watcher + WS `/ws` (live dashboard refresh)
 - [ ] `/api/markdown` (generic md viewer — gdiff already renders md for one-pagers, check if there's duplication)
 - [ ] `/api/search` + `/search` view (grep across content/)
-- [ ] POST mutation routes (`/api/projects`, `/api/tasks`, `/api/tasks/{p}/{t}/status`, `/api/projects/{p}/prs`, `/api/projects/{p}/artifacts`)
-- [ ] Dashboard view (project grid + due-this-week strip)
+- [ ] POST mutation routes (`/api/workspaces`, `/api/tasks`, `/api/tasks/{p}/{t}/status`, `/api/workspaces/{p}/prs`, `/api/workspaces/{p}/artifacts`)
+- [ ] Dashboard view (workspace grid + due-this-week strip)
 - [ ] Timeline view (list bucketed by due + Gantt)
-- [ ] Cross-project `/api/tasks` flat list
+- [ ] Cross-workspace `/api/tasks` flat list
 - [ ] CORS middleware (only needed if you ever run a dev frontend on another port; skip if no)
 
 Anything you'd drop: `_____`
 
 ### §D. URL structure inside the unified backend
 
-- **D1.** Keep gdiff's `GET /?project=<abs path>`. Pro: no breakage for existing gdiff muscle memory. Con: URLs are long.
-- **D2.** Migrate to `GET /p/<id>` (SPA style). Pro: clean. Con: every gdiff JS call that reads `?project=` needs to change.
-- **D3.** Support both; `?project=` is the source of truth, `/p/<id>` is a redirect.
+- **D1.** Keep gdiff's `GET /?workspace=<abs path>`. Pro: no breakage for existing gdiff muscle memory. Con: URLs are long.
+- **D2.** Migrate to `GET /p/<id>` (SPA style). Pro: clean. Con: every gdiff JS call that reads `?workspace=` needs to change.
+- **D3.** Support both; `?workspace=` is the source of truth, `/p/<id>` is a redirect.
 
 My pick: **D3** — smallest change + clean URLs work.
 
@@ -97,7 +97,7 @@ Your answer: `_____`
 
 1. Create `apps/server/` (or rename `apps/backend/` → `apps/server/`) as the single FastAPI app. Starting point: copy gdiff's `server.py` in.
 2. Add `lab` as an editable dep to `apps/server/pyproject.toml` (already the pattern). Add `watchdog`, `markdown`, `pyyaml`, `jinja2` on top of gdiff's existing fastapi/uvicorn.
-3. Mount the existing routers from current `apps/backend/src/backend/routes/` (index, project, task, markdown, search, mutation, ws) into the gdiff-based app.
+3. Mount the existing routers from current `apps/backend/src/backend/routes/` (index, workspace, task, markdown, search, mutation, ws) into the gdiff-based app.
 4. Move the index cache + watcher lifecycle (`apps/backend/src/backend/main.py::lifespan`) into the unified app.
 5. Port everything to :3333. Drop :3334. Update `make start` to be single-target; remove `start-all`.
 6. Update `~/.local/bin/` symlinks — `lab-backend` goes away, `gdiff` becomes an alias for the unified backend (or just drop it, `lab start` is enough).
@@ -106,11 +106,11 @@ Your answer: `_____`
 ### Phase 2 — merge frontends
 
 8. Make `templates/index.html` (gdiff's) the served shell at `/`.
-9. Add a "Home" / "Dashboard" mode to gdiff's HTML: show the project grid + due-this-week strip using the same sidebar+main layout.
+9. Add a "Home" / "Dashboard" mode to gdiff's HTML: show the workspace grid + due-this-week strip using the same sidebar+main layout.
 10. Add a "Timeline" mode (list + Gantt). Same HTML, new panel content.
 11. Add a "Search" mode.
-12. Preserve gdiff's per-project view untouched — when `?project=<path>` or `/p/<id>` matches, render it as today.
-13. WS-based live refresh: when `index-updated` arrives, refresh only the currently visible panel (dashboard grid or project actions list).
+12. Preserve gdiff's per-workspace view untouched — when `?workspace=<path>` or `/p/<id>` matches, render it as today.
+13. WS-based live refresh: when `index-updated` arrives, refresh only the currently visible panel (dashboard grid or workspace actions list).
 
 ### Phase 3 — data-side cleanup
 
@@ -123,13 +123,13 @@ Your answer: `_____`
 17. Replace `prompt()` modal flows where they still exist.
 18. Inline task-field edit (click priority chip → edit).
 19. Search pagination.
-20. Keyboard shortcuts across the shell (j/k to navigate project cards, `/` to focus search, etc.).
+20. Keyboard shortcuts across the shell (j/k to navigate workspace cards, `/` to focus search, etc.).
 
 ---
 
 ## What stays out of this effort
 
-- Separate personal/client CLIs do not belong in the framework repo's `apps/` tree. `apps/` is now reserved for workspace-owned apps created inside a Lab workspace; framework code lives under `core/` and `core/cli/`.
+- Separate personal/client CLIs do not belong in the framework repo's `apps/` tree. `apps/` is now reserved for vault-owned apps created inside a Lab vault; framework code lives under `core/` and `core/cli/`.
 - `repositories/` + `make pull-repos` — works as-is.
 - `lab` CLI subcommands — no surface change.
 - Existing migrated content under `content/` — untouched.

@@ -2,7 +2,7 @@
 name: terminal-ws-half-open-after-tmux-attach-dies
 description: Server keeps the terminal WS open after its `tmux attach` child dies; clients only find out on next keystroke or via the 8s session poll
 metadata:
-  type: project
+  type: workspace
 ---
 
 When the server-side `tmux attach` PTY child exits (session killed, client

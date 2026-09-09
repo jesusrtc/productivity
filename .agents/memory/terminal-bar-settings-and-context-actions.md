@@ -8,6 +8,6 @@ scrolling rail so it cannot be clipped.
 
 Secondary-click tabs to rename, add dividers, create/join/leave named groups,
 or close a tab/group. Groups have colors and collapse/expand. Close actions must
-capture workspace/project and exact session names before awaiting requests;
+capture vault/workspace and exact session names before awaiting requests;
 closing a background tab must not detach the active terminal. Destructive UI
 checks use sample tabs and intercept mutations rather than killing real work.

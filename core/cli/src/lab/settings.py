@@ -1,9 +1,9 @@
 """Global lab/agent settings stored at ``.agents/config.json`` (committed).
 
-This is the single source of truth for the **default agent** a project terminal
+This is the single source of truth for the **default agent** a workspace terminal
 launches (Claude Code / Codex / Copilot), the **default model**, and the UI
-**theme**. A project may override ``agent``/``model`` in its ``project.json``
-(see ``lab.model.Project``); resolution is: project override → global config →
+**theme**. A workspace may override ``agent``/``model`` in its ``workspace.json``
+(see ``lab.model.Workspace``); resolution is: workspace override → global config →
 built-in default.
 
 The server reads/writes this module directly (no subprocess) — it already
@@ -22,8 +22,8 @@ VALID_THEMES = ("dark", "light")
 DEFAULT_AGENT = "claude"
 
 # Per-agent "autopilot" launch flags — the extra argv appended when a
-# workspace enables autopilot for that agent. Claude has always launched
-# with --permission-mode auto, so its workspace default is on; the others
+# vault enables autopilot for that agent. Claude has always launched
+# with --permission-mode auto, so its vault default is on; the others
 # are opt-in.
 AUTOPILOT_FLAGS: dict[str, tuple[str, ...]] = {
     "claude": ("--permission-mode", "auto"),
@@ -121,11 +121,11 @@ def set_value(root: Path, key: str, value: Any) -> dict[str, Any]:
     return update(root, {key: value})
 
 
-def _project_data(root: Path, project_id: str | None) -> dict[str, Any]:
-    if not project_id:
+def _workspace_data(root: Path, workspace_id: str | None) -> dict[str, Any]:
+    if not workspace_id:
         return {}
     try:
-        pjson = paths.project_file(root, project_id)
+        pjson = paths.workspace_file(root, workspace_id)
         if pjson.is_file():
             data = storage.read_json(pjson)
             if isinstance(data, dict):
@@ -135,23 +135,23 @@ def _project_data(root: Path, project_id: str | None) -> dict[str, Any]:
     return {}
 
 
-def resolve_agent(root: Path, project_id: str | None = None) -> str:
-    """Effective agent: project override → global default → built-in default."""
-    override = _project_data(root, project_id).get("agent")
+def resolve_agent(root: Path, workspace_id: str | None = None) -> str:
+    """Effective agent: workspace override → global default → built-in default."""
+    override = _workspace_data(root, workspace_id).get("agent")
     if override in VALID_AGENTS:
         return override
     glob = load(root).get("defaultAgent")
     return glob if glob in VALID_AGENTS else DEFAULT_AGENT
 
 
-def resolve_model(root: Path, project_id: str | None = None) -> str | None:
-    """Effective model: project override → global default → None."""
-    override = _project_data(root, project_id).get("model")
+def resolve_model(root: Path, workspace_id: str | None = None) -> str | None:
+    """Effective model: workspace override → global default → None."""
+    override = _workspace_data(root, workspace_id).get("model")
     if override:
         return str(override)
     return load(root).get("model")
 
 
 def resolve_autopilot(root: Path, agent: str) -> bool:
-    """Whether the workspace launches ``agent`` with its autopilot flag."""
+    """Whether the vault launches ``agent`` with its autopilot flag."""
     return bool(load(root).get("autopilot", {}).get(agent, False))

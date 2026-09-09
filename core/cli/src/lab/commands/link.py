@@ -1,14 +1,14 @@
 """``lab link`` — manage the ``links/`` folder of symlinks into other docs.
 
-A project's ``links/`` folder is a curated set of symlinks pointing at docs
-that live elsewhere in the monorepo — other projects' one-pagers, shared
+A workspace's ``links/`` folder is a curated set of symlinks pointing at docs
+that live elsewhere in the monorepo — other workspaces' one-pagers, shared
 wikis under ``content/wikis/``, meeting notes. The server already lists
 these in the file sidebar, so they read exactly like local docs without
 duplicating content.
 
 Example:
 
-    cd projects/foo
+    cd workspaces/foo
     lab link add ../bar/docs/one-pager.md            # -> links/one-pager.md
     lab link add content/wikis/platform.md           # -> links/platform.md
     lab link add ../bar/docs/vision.md --name vision # -> links/vision.md
@@ -21,11 +21,11 @@ from pathlib import Path
 import click
 
 from lab import paths
-from lab.commands._helpers import resolve_project_id as _resolve_project_id
+from lab.commands._helpers import resolve_workspace_id as _resolve_workspace_id
 
 
 def _links_dir(root: Path, pid: str) -> Path:
-    return paths.project_dir(root, pid) / "links"
+    return paths.workspace_dir(root, pid) / "links"
 
 
 def _resolve_target(root: Path, pdir: Path, target: str) -> Path:
@@ -47,22 +47,22 @@ def _resolve_target(root: Path, pdir: Path, target: str) -> Path:
 
 @click.group(name="link")
 def link_group() -> None:
-    """Manage the per-project ``links/`` folder of internal symlinks."""
+    """Manage the per-workspace ``links/`` folder of internal symlinks."""
 
 
 @link_group.command("add")
 @click.argument("target")
-@click.option("--project", "project_id", default=None,
-              help="Project id (defaults to the project of the current dir).")
+@click.option("--workspace", "workspace_id", default=None,
+              help="Workspace id (defaults to the workspace of the current dir).")
 @click.option("--name", default=None,
               help="Symlink filename under links/ (defaults to target basename).")
-def add(target: str, project_id: str | None, name: str | None) -> None:
-    """Create a symlink inside the project's ``links/`` folder."""
+def add(target: str, workspace_id: str | None, name: str | None) -> None:
+    """Create a symlink inside the workspace's ``links/`` folder."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pdir = paths.project_dir(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pdir = paths.workspace_dir(root, pid)
     if not pdir.is_dir():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
 
     src = _resolve_target(root, pdir, target)
     if not src.exists():
@@ -82,12 +82,12 @@ def add(target: str, project_id: str | None, name: str | None) -> None:
 
 
 @link_group.command("ls")
-@click.option("--project", "project_id", default=None,
-              help="Project id (defaults to the project of the current dir).")
-def ls(project_id: str | None) -> None:
-    """List the symlinks in the project's ``links/`` folder."""
+@click.option("--workspace", "workspace_id", default=None,
+              help="Workspace id (defaults to the workspace of the current dir).")
+def ls(workspace_id: str | None) -> None:
+    """List the symlinks in the workspace's ``links/`` folder."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     links = _links_dir(root, pid)
     if not links.is_dir():
         click.echo("(no links/ folder)")
@@ -107,12 +107,12 @@ def ls(project_id: str | None) -> None:
 
 @link_group.command("rm")
 @click.argument("name")
-@click.option("--project", "project_id", default=None,
-              help="Project id (defaults to the project of the current dir).")
-def rm(name: str, project_id: str | None) -> None:
-    """Remove a symlink from the project's ``links/`` folder."""
+@click.option("--workspace", "workspace_id", default=None,
+              help="Workspace id (defaults to the workspace of the current dir).")
+def rm(name: str, workspace_id: str | None) -> None:
+    """Remove a symlink from the workspace's ``links/`` folder."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     dest = _links_dir(root, pid) / name
     if not (dest.exists() or dest.is_symlink()):
         raise click.ClickException(f"no such link: links/{name}")

@@ -10,25 +10,25 @@ def test_assistant_is_permanent_tab_immediately_after_home() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     home = source.index("&#x1F3E0; Home")
     assistant = source.index("&#x2726; Assistant", home)
-    workspace_tabs = source.index("workspaceTabs.map", home)
-    assert home < assistant < workspace_tabs
+    vault_tabs = source.index("vaultTabs.map", home)
+    assert home < assistant < vault_tabs
 
 
 def test_assistant_navigation_and_terminal_are_global() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
-    assert "const ASSISTANT_PROJECT_ID = '__assistant__'" in source
     assert "const ASSISTANT_WORKSPACE_ID = '__assistant__'" in source
+    assert "const ASSISTANT_VAULT_ID = '__assistant__'" in source
     assert "function goToAssistant" in source
     assert "function termOpenForAssistant" in source
-    assert "workspace_id: ASSISTANT_WORKSPACE_ID" in source
+    assert "vault_id: ASSISTANT_VAULT_ID" in source
 
 
 def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     source = ASSISTANT_APP.read_text(encoding="utf-8")
     assert "Any priority" in source
     assert "Nudge" in source
-    assert "Lab projects" in source
-    assert "assistant-internal-projects" in source
+    assert "Lab workspaces" in source
+    assert "assistant-task-groups" in source
     assert "data-assistant-group" in source
     assert "attentionBreakdown" in source
     assert "needsAttention" in source
@@ -51,7 +51,7 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "/api/assistant/asset" in source
     assert "copy.textContent = 'Copy content'" in source
     assert "plain.textContent = 'Plain text'" in source
-    assert "Open project" not in source
+    assert "Open workspace" not in source
 
 
 def test_assistant_repo_tabs_include_tasks_and_meeting_notes() -> None:
@@ -73,11 +73,11 @@ def test_assistant_is_configurable_from_home_admin() -> None:
     assert "ASSISTANT_ROOT = data.root" in source
 
 
-def test_assistant_reuses_project_sidebar_and_has_overview() -> None:
+def test_assistant_reuses_workspace_sidebar_and_has_overview() -> None:
     app = LAB_APP.read_text(encoding="utf-8")
     view = ASSISTANT_APP.read_text(encoding="utf-8")
     assert "_sidebarActivateFileConfig();" in app
-    assert "if (ASSISTANT_ROOT) _refreshProjectSidebar();" in app
+    assert "if (ASSISTANT_ROOT) _refreshWorkspaceSidebar();" in app
     assert "function assistantSectionShell" in app
     assert "function renderOverview" in view
     assert "Recently updated" in view

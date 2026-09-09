@@ -1,10 +1,12 @@
-"""gdiff-absorbed routes: project-info, project-actions, diffs, commits, notebooks, files, comments.
+"""gdiff-absorbed routes: workspace-info, workspace-actions, diffs, commits, notebooks, files, comments.
 
 These came verbatim from apps/gdiff/server.py during the backend unification.
 They share the same FastAPI app as the `lab-backend` routers so the dashboard,
-per-project view, and CLI all run from a single process on :3333.
+per-workspace view, and CLI all run from a single process on :3333.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import json
 import mimetypes
@@ -44,15 +46,15 @@ router = APIRouter()
 # Nested Git roots still reset the budget below, but correctness must not
 # depend on whether a checkout uses a `.git` directory, a `.git` file, or
 # metadata that is unavailable to the server process.
-_PROJECT_SCAN_MAX_DEPTH = 16
-_PROJECT_SCAN_SKIP_DIRS = {
+_WORKSPACE_SCAN_MAX_DEPTH = 16
+_WORKSPACE_SCAN_SKIP_DIRS = {
     ".git", "__pycache__", "node_modules", ".venv", "venv",
     ".mypy_cache", ".pytest_cache", "build", "dist", ".tox", ".eggs",
     "skills", "worktrees",
 }
 
 
-def _project_scan_child_depth(directory: Path, depth: int) -> int:
+def _workspace_scan_child_depth(directory: Path, depth: int) -> int:
     """Give each nested Git checkout its own bounded scan-depth budget."""
     try:
         if (directory / ".git").exists():
@@ -84,30 +86,30 @@ def _monorepo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _resolve_project_path(path: str) -> Path:
-    """Accept either an absolute project path or a bare project id.
+def _resolve_workspace_path(path: str) -> Path:
+    """Accept either an absolute workspace path or a bare workspace id.
 
-    Bare ids are resolved to ``<monorepo>/projects/<id>``.
+    Bare ids are resolved to ``<monorepo>/workspaces/<id>``.
     """
     if path.startswith("/"):
         return Path(path)
-    return _monorepo_root() / "projects" / path
+    return naming.workspaces_dir(_monorepo_root()) / path
 
 
-def _read_project_info(project_path: Path) -> dict | None:
-    """Read project metadata. Prefer new ``project.json`` over legacy ``.project.json``."""
-    for name in ("project.json", ".project.json"):
-        candidate = project_path / name
+def _read_workspace_info(workspace_path: Path) -> dict | None:
+    """Read workspace metadata. Prefer new ``workspace.json`` over legacy ``.workspace.json``."""
+    for name in ("workspace.json", "project.json", ".workspace.json", ".project.json"):
+        candidate = workspace_path / name
         if candidate.is_file():
             try:
                 info = json.loads(candidate.read_text())
             except (json.JSONDecodeError, ValueError):
                 return None
-            config_path = project_path / server_config.CONFIG_FILENAME
+            config_path = workspace_path / server_config.CONFIG_FILENAME
             if config_path.is_file() and isinstance(info, dict):
                 info = dict(info)
                 try:
-                    servers, source = server_config.read_server_config(project_path)
+                    servers, source = server_config.read_server_config(workspace_path)
                     info["proxies"] = servers
                     info["server_config_source"] = source
                 except server_config.ServerConfigError as exc:
@@ -118,7 +120,7 @@ def _read_project_info(project_path: Path) -> dict | None:
     return None
 
 
-def _read_project_actions(project_path: Path) -> list[dict]:
+def _read_workspace_actions(workspace_path: Path) -> list[dict]:
     """Read action items.
 
     Prefers the new ``tasks.json`` schema:
@@ -130,7 +132,7 @@ def _read_project_actions(project_path: Path) -> list[dict]:
     Always returns a flat array in the legacy action shape (``text`` field
     derived from ``title``) so the existing UI consumes it unchanged.
     """
-    tasks_json = project_path / "tasks.json"
+    tasks_json = workspace_path / "tasks.json"
     if tasks_json.is_file():
         try:
             data = json.loads(tasks_json.read_text())
@@ -152,7 +154,7 @@ def _read_project_actions(project_path: Path) -> list[dict]:
                 })
             return actions
 
-    actions_json = project_path / "actions.json"
+    actions_json = workspace_path / "actions.json"
     if actions_json.is_file():
         try:
             data = json.loads(actions_json.read_text())
@@ -203,7 +205,7 @@ _GIT_STATUS_LETTER = {
 
 def _git_status_for_dir(key: str) -> dict:
     """Run ``git status --porcelain`` for directory ``key`` (any dir inside a
-    repo — usually a project folder) and map paths relative to that dir."""
+    repo — usually a workspace folder) and map paths relative to that dir."""
     empty = {"files": {}, "ignored": []}
     if not os.path.isdir(key):
         return empty
@@ -263,18 +265,18 @@ def _inside(path: Path, root: Path) -> bool:
 
 
 def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
-    """Containment for /api/git-status: the active workspace is always in
-    bounds; registered workspaces and the app's own pinned tabs/views are
+    """Containment for /api/git-status: the active vault is always in
+    bounds; registered vaults and the app's own pinned tabs/views are
     also valid because all of them can remain open simultaneously."""
     if _inside(resolved, active_root):
         return True
     try:
         from lab import paths as lab_paths
 
-        for workspace in lab_paths.read_workspace_registry().get("workspaces", []):
-            workspace_path = workspace.get("path") if isinstance(workspace, dict) else None
-            if workspace_path and _inside(
-                resolved, Path(str(workspace_path)).expanduser().resolve(),
+        for vault in lab_paths.read_vault_registry().get("vaults", []):
+            vault_path = vault.get("path") if isinstance(vault, dict) else None
+            if vault_path and _inside(
+                resolved, Path(str(vault_path)).expanduser().resolve(),
             ):
                 return True
     except Exception:
@@ -288,8 +290,8 @@ def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
             return True
     except Exception:
         pass
-    # The global Assistant database is a client-selected, admin-only project
-    # root. Its sidebar uses the same recent/Git endpoints as normal projects.
+    # The global Assistant database is a client-selected, admin-only workspace
+    # root. Its sidebar uses the same recent/Git endpoints as normal workspaces.
     try:
         from lab import paths as lab_paths
 
@@ -299,8 +301,8 @@ def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
     except Exception:
         pass
     try:
-        for proj in get_registered_repos(active_root):
-            candidates = [proj.get("path"), *(proj.get("repos") or [])]
+        for workspace in get_registered_repos(active_root):
+            candidates = [workspace.get("path"), *(workspace.get("repos") or [])]
             for c in candidates:
                 if c and _inside(resolved, Path(str(c)).expanduser().resolve()):
                     return True
@@ -319,11 +321,11 @@ def api_git_status(repo: str, request: Request):
     directory appears as a single entry covering everything under it.
     Non-repo directories return empty maps.
 
-    ``repo`` may be absolute (the sidebar passes the project's absolute
-    path) or workspace-relative. The resolved directory must sit inside
-    the active workspace, another registered workspace, or a location the
+    ``repo`` may be absolute (the sidebar passes the workspace's absolute
+    path) or vault-relative. The resolved directory must sit inside
+    the active vault, another registered vault, or a location the
     app itself registers (pinned tabs/views and their repos can live outside
-    a workspace). This endpoint must not disclose status for arbitrary
+    a vault). This endpoint must not disclose status for arbitrary
     directories on the machine.
     """
     root = auth.request_root(request)
@@ -333,7 +335,7 @@ def api_git_status(repo: str, request: Request):
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
     if not _git_status_dir_allowed(resolved, root):
-        raise HTTPException(status_code=400, detail="repo escapes workspace")
+        raise HTTPException(status_code=400, detail="repo escapes vault")
     key = str(resolved)
     now = time.time()
     hit = _GIT_STATUS_CACHE.get(key)
@@ -445,7 +447,7 @@ def api_sidebar_recent_files(repo: str, mode: str, request: Request):
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
     if not resolved.is_dir() or not _git_status_dir_allowed(resolved, root):
-        raise HTTPException(status_code=400, detail="repo escapes workspace")
+        raise HTTPException(status_code=400, detail="repo escapes vault")
     return _sidebar_git_recent_files(str(resolved), mode)
 
 
@@ -481,65 +483,65 @@ def api_tree(repo: str):
 
 @router.get("/api/repos")
 def api_repos(request: Request):
-    projects = get_registered_repos(auth.request_root(request))
+    workspaces = get_registered_repos(auth.request_root(request))
     result = []
-    for proj in projects:
+    for workspace in workspaces:
         repos = []
-        for repo_path in proj["repos"]:
+        for repo_path in workspace["repos"]:
             try:
                 branch = get_branch(repo_path)
             except Exception:
                 branch = "unknown"
             repos.append({"path": repo_path, "name": Path(repo_path).name, "branch": branch})
         result.append({
-            "name": proj["name"],
-            "display_name": proj.get("display_name", proj["name"]),
-            "is_project": proj["is_project"],
-            "path": proj["path"],
+            "name": workspace["name"],
+            "display_name": workspace.get("display_name", workspace["name"]),
+            "is_workspace": workspace["is_workspace"],
+            "path": workspace["path"],
             "repos": repos,
-            "tab_open": bool(proj.get("tab_open", False)),
+            "tab_open": bool(workspace.get("tab_open", False)),
         })
     return result
 
 
-@router.get("/api/project-info")
-def api_project_info(path: str):
-    project_path = _resolve_project_path(path)
-    info = _read_project_info(project_path)
+@router.get("/api/workspace-info")
+def api_workspace_info(path: str):
+    workspace_path = _resolve_workspace_path(path)
+    info = _read_workspace_info(workspace_path)
     if info is None:
-        raise HTTPException(status_code=404, detail="No project.json found")
+        raise HTTPException(status_code=404, detail="No workspace.json found")
     return info
 
 
-class ProjectInfoBody(BaseModel):
+class WorkspaceInfoBody(BaseModel):
     path: str
     data: dict
 
 
-@router.put("/api/project-info")
-def update_project_info(body: ProjectInfoBody):
-    project_path = _resolve_project_path(body.path)
-    target = project_path / "project.json"
+@router.put("/api/workspace-info")
+def update_workspace_info(body: WorkspaceInfoBody):
+    workspace_path = _resolve_workspace_path(body.path)
+    target = naming.workspace_metadata_file(workspace_path)
     if not target.is_file():
-        legacy = project_path / ".project.json"
+        legacy = workspace_path / ".workspace.json"
         if legacy.is_file():
             target = legacy
     if not target.is_file():
-        raise HTTPException(status_code=404, detail="No project.json found")
+        raise HTTPException(status_code=404, detail="No workspace.json found")
     target.write_text(json.dumps(body.data, indent=2) + "\n")
     return {"ok": True}
 
 
-@router.get("/api/project-actions")
-def api_project_actions(path: str):
-    project_path = _resolve_project_path(path)
-    return _read_project_actions(project_path)
+@router.get("/api/workspace-actions")
+def api_workspace_actions(path: str):
+    workspace_path = _resolve_workspace_path(path)
+    return _read_workspace_actions(workspace_path)
 
 
-@router.get("/api/project-alerts")
-def api_project_alerts(path: str):
-    project_path = _resolve_project_path(path)
-    alerts_json = project_path / "alerts.json"
+@router.get("/api/workspace-alerts")
+def api_workspace_alerts(path: str):
+    workspace_path = _resolve_workspace_path(path)
+    alerts_json = workspace_path / "alerts.json"
     if not alerts_json.is_file():
         return []
     try:
@@ -548,10 +550,10 @@ def api_project_alerts(path: str):
         return []
 
 
-@router.get("/api/project-artifacts")
-def api_project_artifacts(path: str):
-    project_path = _resolve_project_path(path)
-    artifacts_json = project_path / "artifacts.json"
+@router.get("/api/workspace-artifacts")
+def api_workspace_artifacts(path: str):
+    workspace_path = _resolve_workspace_path(path)
+    artifacts_json = workspace_path / "artifacts.json"
     if not artifacts_json.is_file():
         return []
     try:
@@ -560,25 +562,25 @@ def api_project_artifacts(path: str):
         return []
 
 
-@router.get("/api/project-onepager")
-def api_project_onepager(path: str):
-    project_path = _resolve_project_path(path)
+@router.get("/api/workspace-onepager")
+def api_workspace_onepager(path: str):
+    workspace_path = _resolve_workspace_path(path)
     for rel in ("docs/one-pager.md", "one-pager.md"):
-        candidate = project_path / rel
+        candidate = workspace_path / rel
         if candidate.is_file():
             return {"content": candidate.read_text()}
     return {"content": ""}
 
 
-@router.get("/api/project-files")
-def api_project_files(path: str, request: Request, include_dotfiles: bool = False):
-    """List all files in a project directory as a flat list with relative paths."""
-    project_path = Path(path)
-    if not project_path.is_dir():
+@router.get("/api/workspace-files")
+def api_workspace_files(path: str, request: Request, include_dotfiles: bool = False):
+    """List all files in a workspace directory as a flat list with relative paths."""
+    workspace_path = Path(path)
+    if not workspace_path.is_dir():
         return []
     IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
     # `worktrees/` is the dedicated subfolder for MP worktrees — each one is
-    # a full repo checkout, so listing them in the project's file sidebar
+    # a full repo checkout, so listing them in the workspace's file sidebar
     # would drown out docs/notes. Accessible via the Repositories panel +
     # diff tabs instead.
     files = []
@@ -593,7 +595,7 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
     from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 
     def scan(dir_path, depth=0):
-        if depth > _PROJECT_SCAN_MAX_DEPTH:
+        if depth > _WORKSPACE_SCAN_MAX_DEPTH:
             return
         try:
             children = sorted(dir_path.iterdir())
@@ -604,7 +606,7 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
                 continue
             child_is_symlink = child.is_symlink()
             if child.is_file():
-                rel = str(child.relative_to(project_path))
+                rel = str(child.relative_to(workspace_path))
                 ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
                 entry = {"name": rel, "path": rel, "type": ftype}
                 _with_symlink_fields(entry, child)
@@ -627,22 +629,22 @@ def api_project_files(path: str, request: Request, include_dotfiles: bool = Fals
                 files.append(entry)
             elif child.is_dir():
                 if child_is_symlink:
-                    rel = str(child.relative_to(project_path))
+                    rel = str(child.relative_to(workspace_path))
                     entry = {"name": rel, "path": rel, "type": "dir"}
                     _with_symlink_fields(entry, child)
                     files.append(entry)
-                if child.name not in _PROJECT_SCAN_SKIP_DIRS:
-                    scan(child, _project_scan_child_depth(child, depth))
+                if child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
+                    scan(child, _workspace_scan_child_depth(child, depth))
             elif child_is_symlink:
                 # Broken symlink: still surface the row so the sidebar can
                 # distinguish it from an absent file/folder.
-                rel = str(child.relative_to(project_path))
+                rel = str(child.relative_to(workspace_path))
                 entry = {"name": rel, "path": rel, "type": "file", "broken": True}
                 _with_symlink_fields(entry, child)
                 files.append(entry)
 
-    workspace_root = auth.request_root(request)
-    fsguard.guarded(workspace_root, scan, project_path)
+    vault_root = auth.request_root(request)
+    fsguard.guarded(vault_root, scan, workspace_path)
     return files
 
 
@@ -656,12 +658,12 @@ def api_sidebar_worktrees(
     """Return direct-child worktree scopes belonging to ``repo``.
 
     A shared worktree parent can contain checkouts from many repositories, so
-    scanning every child directory leaks unrelated projects into the picker.
+    scanning every child directory leaks unrelated workspaces into the picker.
     Ask Git for the active repository's registered worktrees instead. A direct
     child may either be the checkout itself or a branch wrapper containing the
-    checkout deeper below it. When ``repo`` points at a project nested inside a
+    checkout deeper below it. When ``repo`` points at a workspace nested inside a
     larger checkout, preserve that relative suffix for Git operations. An exact
-    Git ``scope`` wins over stale registered-project metadata, and pasting a
+    Git ``scope`` wins over stale registered-workspace metadata, and pasting a
     linked checkout as ``path`` is normalized to its containing folder.
     """
     try:
@@ -671,12 +673,12 @@ def api_sidebar_worktrees(
     if not parent.is_dir():
         raise HTTPException(status_code=404, detail="Worktree folder not found")
 
-    workspace_root = auth.request_root(request)
+    vault_root = auth.request_root(request)
 
     def repository_context() -> tuple[Path, Path, str]:
-        """Choose a live checkout without letting stale project data win.
+        """Choose a live checkout without letting stale workspace data win.
 
-        ``scope`` is the visible project/folder root. Prefer it only when it
+        ``scope`` is the visible workspace/folder root. Prefer it only when it
         has its own Git marker; otherwise a non-Git wrapper inside the Lab
         monorepo would accidentally resolve to the monorepo checkout instead
         of its registered nested repository.
@@ -698,25 +700,25 @@ def api_sidebar_worktrees(
             if key in seen:
                 continue
             seen.add(key)
-            if not _git_status_dir_allowed(candidate, workspace_root):
-                raise HTTPException(status_code=403, detail="Repository is outside the workspace")
+            if not _git_status_dir_allowed(candidate, vault_root):
+                raise HTTPException(status_code=403, detail="Repository is outside the vault")
             if not candidate.is_dir():
                 continue
             saw_directory = True
             if require_git_marker and not (candidate / ".git").exists():
                 continue
             try:
-                git_root, relative_project = _entry_git_context(candidate, candidate)
+                git_root, relative_workspace = _entry_git_context(candidate, candidate)
             except HTTPException as exc:
                 if exc.status_code == 404:
                     continue
                 raise
-            return candidate, git_root, relative_project
+            return candidate, git_root, relative_workspace
         if saw_directory:
             raise HTTPException(status_code=404, detail="This location is not in a Git repository")
         raise HTTPException(status_code=404, detail="Repository root not found")
 
-    base_root, git_root, relative_project = repository_context()
+    base_root, git_root, relative_workspace = repository_context()
 
     def list_worktrees() -> tuple[Path, list[dict[str, str]]]:
         try:
@@ -753,7 +755,7 @@ def api_sidebar_worktrees(
         if parent != primary_root and parent in worktree_roots:
             discovery_parent = parent.parent.resolve()
 
-        suffix = Path(relative_project)
+        suffix = Path(relative_workspace)
         rows: dict[str, dict[str, str]] = {}
         for worktree_root in worktree_roots:
             if worktree_root == primary_root:
@@ -782,24 +784,24 @@ def api_sidebar_worktrees(
             rows.values(), key=lambda row: row["name"].casefold(),
         )
 
-    resolved_parent, folders = fsguard.guarded(workspace_root, list_worktrees)
+    resolved_parent, folders = fsguard.guarded(vault_root, list_worktrees)
     return {"path": str(resolved_parent), "repo": str(base_root), "folders": folders}
 
 
-@router.get("/api/project-file")
-def api_project_file(path: str, file: str):
-    """Read a project-level file.
+@router.get("/api/workspace-file")
+def api_workspace_file(path: str, file: str):
+    """Read a workspace-level file.
 
     Security: path-traversal is enforced on the *input* ``file`` parameter
     (no absolute paths, no ``..`` segments). We deliberately do NOT reject
-    symlinks whose resolved target lives outside the project — the shared
-    ``CLAUDE.md`` in every project is a symlink to
-    ``content/skills/project-CLAUDE.md`` and we want it to read cleanly.
+    symlinks whose resolved target lives outside the workspace — the shared
+    ``CLAUDE.md`` in every workspace is a symlink to
+    ``content/skills/workspace-CLAUDE.md`` and we want it to read cleanly.
     """
     if file.startswith("/") or ".." in Path(file).parts:
         raise HTTPException(status_code=400, detail="Path traversal not allowed")
-    project_path = Path(path).resolve()
-    file_path = project_path / file  # no .resolve(): follow-through happens on I/O
+    workspace_path = Path(path).resolve()
+    file_path = workspace_path / file  # no .resolve(): follow-through happens on I/O
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     try:
@@ -809,11 +811,11 @@ def api_project_file(path: str, file: str):
     return {"content": content, "name": file}
 
 
-@router.get("/api/project-mtime")
-def api_project_mtime(path: str, request: Request):
-    """Return the latest mtime across files in a project directory.
+@router.get("/api/workspace-mtime")
+def api_workspace_mtime(path: str, request: Request):
+    """Return the latest mtime across files in a workspace directory.
 
-    The client polls this every second from the project / self view to decide
+    The client polls this every second from the workspace / self view to decide
     whether to refresh. The OLD implementation used ``rglob("*")`` with no
     skip-list and no depth cap, so on the self-view (``path = monorepo
     root``) it walked ``apps/*/.venv/``, ``repositories/``, and every
@@ -821,29 +823,29 @@ def api_project_mtime(path: str, request: Request):
     every 2 seconds. That was the "reload takes forever" regression.
 
     Fix: mirror the same skip-list + dotfile skip + bounded depth the sibling
-    ``/api/project-files`` already uses so the two endpoints agree on
-    "what counts as part of the project". Nested Git checkouts receive a
+    ``/api/workspace-files`` already uses so the two endpoints agree on
+    "what counts as part of the workspace". Nested Git checkouts receive a
     fresh depth budget. The general budget is also large enough for normal
     source trees even when nested Git metadata cannot be detected, while a
     hard cap still prevents an arbitrary directory chain from running away.
     On the self-view this drops the walk from ~25s to ~100ms.
     """
-    project_path = Path(path)
-    if not project_path.is_dir():
+    workspace_path = Path(path)
+    if not workspace_path.is_dir():
         # A missing directory is an expected steady state, not an error: a
-        # browser tab can outlive its project (deleted, or on an unplugged
+        # browser tab can outlive its workspace (deleted, or on an unplugged
         # external volume) and keep polling for days — as a 404 each poll
         # logged a WARNING, thousands of pure noise lines. ``null`` tells
         # the client "nothing to compare against"; old clients treat it as
         # a harmless no-op (``null > x`` is false).
         return {"mtime": None}
-    # Must stay in sync with api_project_files above — clients assume the
+    # Must stay in sync with api_workspace_files above — clients assume the
     # same tree shape (sidebar vs. mtime poll).
-    latest = project_path.stat().st_mtime
+    latest = workspace_path.stat().st_mtime
 
     def scan(dir_path: Path, depth: int) -> None:
         nonlocal latest
-        if depth > _PROJECT_SCAN_MAX_DEPTH:
+        if depth > _WORKSPACE_SCAN_MAX_DEPTH:
             return
         try:
             children = list(dir_path.iterdir())
@@ -855,44 +857,44 @@ def api_project_mtime(path: str, request: Request):
             try:
                 if child.is_file():
                     latest = max(latest, child.stat().st_mtime)
-                elif child.is_dir() and child.name not in _PROJECT_SCAN_SKIP_DIRS:
+                elif child.is_dir() and child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
                     latest = max(latest, child.stat().st_mtime)
-                    scan(child, _project_scan_child_depth(child, depth))
+                    scan(child, _workspace_scan_child_depth(child, depth))
             except OSError:
                 # Broken symlink / disappeared mid-walk — skip.
                 continue
 
-    workspace_root = auth.request_root(request)
-    fsguard.guarded(workspace_root, scan, project_path, 0)
+    vault_root = auth.request_root(request)
+    fsguard.guarded(vault_root, scan, workspace_path, 0)
     return {"mtime": latest}
 
 
-@router.get("/api/project-asset")
-def api_project_asset(path: str, file: str):
-    """Serve a static file (image, etc.) from a project directory. Same
-    input-only traversal check as ``/api/project-file``."""
+@router.get("/api/workspace-asset")
+def api_workspace_asset(path: str, file: str):
+    """Serve a static file (image, etc.) from a workspace directory. Same
+    input-only traversal check as ``/api/workspace-file``."""
     if file.startswith("/") or ".." in Path(file).parts:
         raise HTTPException(status_code=400, detail="Path traversal not allowed")
-    project_path = Path(path).resolve()
-    file_path = project_path / file
+    workspace_path = Path(path).resolve()
+    file_path = workspace_path / file
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     media_type, _ = mimetypes.guess_type(str(file_path))
     return FileResponse(file_path, media_type=media_type)
 
 
-class ProjectFileBody(BaseModel):
-    path: str  # project path
-    file: str  # file path relative to project
+class WorkspaceFileBody(BaseModel):
+    path: str  # workspace path
+    file: str  # file path relative to workspace
     content: str
 
 
-@router.put("/api/project-file")
-def update_project_file(body: ProjectFileBody):
-    """Save a project-level file."""
-    project_path = Path(body.path).resolve()
-    file_path = (project_path / body.file).resolve()
-    if not str(file_path).startswith(str(project_path)):
+@router.put("/api/workspace-file")
+def update_workspace_file(body: WorkspaceFileBody):
+    """Save a workspace-level file."""
+    workspace_path = Path(body.path).resolve()
+    file_path = (workspace_path / body.file).resolve()
+    if not str(file_path).startswith(str(workspace_path)):
         raise HTTPException(status_code=400, detail="Path traversal not allowed")
     if not file_path.parent.is_dir():
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -900,7 +902,7 @@ def update_project_file(body: ProjectFileBody):
     return {"ok": True}
 
 
-# ─── Project/workspace explorer operations ─────────────────────────────
+# ─── Workspace/vault explorer operations ─────────────────────────────
 
 _ENTRY_NAME_RE = re.compile(r"^[^/\\\x00]+$")
 _ENTRY_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
@@ -909,17 +911,17 @@ _ENTRY_DIFF_MAX_BYTES = 8 * 1024 * 1024
 
 
 def _entry_root(path: str, request: Request) -> Path:
-    """Resolve an explorer root and keep it inside the authorized workspace.
+    """Resolve an explorer root and keep it inside the authorized vault.
 
     The auth middleware scopes ``request_root`` from the absolute ``path`` in
-    the query/body, including cross-workspace tabs and the admin-only framework
+    the query/body, including cross-vault tabs and the admin-only framework
     overview. This explicit containment check prevents an absolute-path API
     call from turning the explorer operations into a general filesystem API.
     """
     root = Path(path).expanduser().resolve()
     scoped_root = auth.request_root(request).expanduser().resolve()
     if root != scoped_root and scoped_root not in root.parents:
-        raise HTTPException(status_code=403, detail="Path is outside the workspace")
+        raise HTTPException(status_code=403, detail="Path is outside the vault")
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="Explorer root not found")
     return root
@@ -947,20 +949,20 @@ def _validate_entry_name(name: str) -> str:
     return clean
 
 
-class ProjectEntryCreateBody(BaseModel):
+class WorkspaceEntryCreateBody(BaseModel):
     path: str
     parent: str = ""
     name: str
     kind: str = "file"
 
 
-class ProjectEntryRenameBody(BaseModel):
+class WorkspaceEntryRenameBody(BaseModel):
     path: str
     entry: str
     new_name: str
 
 
-class ProjectEntryDeleteBody(BaseModel):
+class WorkspaceEntryDeleteBody(BaseModel):
     path: str
     entry: str
 
@@ -982,8 +984,8 @@ def _new_notebook_document() -> dict:
     }
 
 
-@router.post("/api/project-entry")
-def create_project_entry(body: ProjectEntryCreateBody, request: Request):
+@router.post("/api/workspace-entry")
+def create_workspace_entry(body: WorkspaceEntryCreateBody, request: Request):
     root = _entry_root(body.path, request)
     name = _validate_entry_name(body.name)
     if body.kind not in {"file", "folder", "notebook"}:
@@ -1015,8 +1017,8 @@ def create_project_entry(body: ProjectEntryCreateBody, request: Request):
     return {"ok": True, "entry": str(target.relative_to(root)), "kind": body.kind}
 
 
-@router.patch("/api/project-entry")
-def rename_project_entry(body: ProjectEntryRenameBody, request: Request):
+@router.patch("/api/workspace-entry")
+def rename_workspace_entry(body: WorkspaceEntryRenameBody, request: Request):
     root = _entry_root(body.path, request)
     target = _entry_target(root, body.entry)
     new_name = _validate_entry_name(body.new_name)
@@ -1031,8 +1033,8 @@ def rename_project_entry(body: ProjectEntryRenameBody, request: Request):
     }
 
 
-@router.delete("/api/project-entry")
-def delete_project_entry(body: ProjectEntryDeleteBody, request: Request):
+@router.delete("/api/workspace-entry")
+def delete_workspace_entry(body: WorkspaceEntryDeleteBody, request: Request):
     root = _entry_root(body.path, request)
     target = _entry_target(root, body.entry)
 
@@ -1050,7 +1052,7 @@ def delete_project_entry(body: ProjectEntryDeleteBody, request: Request):
 
 
 def _entry_git_context(root: Path, target: Path) -> tuple[Path, str]:
-    # Discover Git from the selected entry, not the explorer root. A project can
+    # Discover Git from the selected entry, not the explorer root. A workspace can
     # contain another repository, and Git must choose the nearest enclosing
     # worktree exactly as it would when invoked beside the selected file.
     git_cwd = target if target.is_dir() else target.parent
@@ -1276,8 +1278,8 @@ def _entry_history_revision_files(
     return files, [str(item.get("filename", "")) for item in files]
 
 
-@router.get("/api/project-entry/history")
-def project_entry_history(
+@router.get("/api/workspace-entry/history")
+def workspace_entry_history(
     path: str,
     file: str,
     request: Request,
@@ -1340,8 +1342,8 @@ def project_entry_history(
     }
 
 
-@router.get("/api/project-entry/history-diff")
-def project_entry_history_diff(path: str, file: str, sha: str, request: Request):
+@router.get("/api/workspace-entry/history-diff")
+def workspace_entry_history_diff(path: str, file: str, sha: str, request: Request):
     if sha != _ENTRY_WORKTREE_SHA and not _ENTRY_SHA_RE.fullmatch(sha):
         raise HTTPException(status_code=400, detail="Invalid commit")
     root = _entry_root(path, request)
@@ -1381,8 +1383,8 @@ def project_entry_history_diff(path: str, file: str, sha: str, request: Request)
     }
 
 
-@router.get("/api/project-diff-file")
-def project_diff_file(path: str, file: str, request: Request):
+@router.get("/api/workspace-diff-file")
+def workspace_diff_file(path: str, file: str, request: Request):
     root = _entry_root(path, request)
     target = _entry_target(root, file)
     if not target.is_file():
@@ -1400,9 +1402,9 @@ def project_diff_file(path: str, file: str, request: Request):
     return {"file": file, "files": parse_unified_diff(raw), "raw": raw}
 
 
-@router.get("/api/project-comments")
-def api_project_comments(path: str):
-    """Read comments.json from project."""
+@router.get("/api/workspace-comments")
+def api_workspace_comments(path: str):
+    """Read comments.json from workspace."""
     comments_path = Path(path) / "comments.json"
     if not comments_path.is_file():
         return []
@@ -1413,22 +1415,22 @@ def api_project_comments(path: str):
 
 
 class CommentBody(BaseModel):
-    path: str            # project path (holds comments.json)
+    path: str            # workspace path (holds comments.json)
     file: str            # file the comment is on
     text: str            # selected text (doc) or line content (code)
     comment: str         # the user's note
     # Optional context for code/diff comments — all default to None so doc
     # comments continue to round-trip unchanged.
     kind: str | None = None        # 'doc' (default when absent) | 'code'
-    repo: str | None = None        # relative repo/worktree path within the project
+    repo: str | None = None        # relative repo/worktree path within the workspace
     scope: str | None = None       # 'uncommitted' | 'branch' | 'commit'
     sha: str | None = None         # commit SHA (only when scope='commit')
     line: int | None = None        # line number the comment targets
     side: str | None = None        # 'old' | 'new' (which side of the diff)
 
 
-@router.post("/api/project-comments")
-def add_project_comment(body: CommentBody):
+@router.post("/api/workspace-comments")
+def add_workspace_comment(body: CommentBody):
     """Add a comment to comments.json.
 
     Doc comments pass only the original fields (kind left unset). Code /
@@ -1464,8 +1466,8 @@ class CommentDeleteBody(BaseModel):
     comment_id: int
 
 
-@router.delete("/api/project-comments")
-def delete_project_comment(body: CommentDeleteBody):
+@router.delete("/api/workspace-comments")
+def delete_workspace_comment(body: CommentDeleteBody):
     """Delete (resolve) a comment."""
     comments_path = Path(body.path) / "comments.json"
     if not comments_path.is_file():
@@ -1482,18 +1484,18 @@ class ActionCompleteBody(BaseModel):
     artifacts: list[str] = []
 
 
-@router.post("/api/project-action-complete")
-def complete_project_action(body: ActionCompleteBody):
+@router.post("/api/workspace-action-complete")
+def complete_workspace_action(body: ActionCompleteBody):
     """Mark an action/task item as done with optional artifacts.
 
     Writes back to the new ``tasks.json`` schema when present; falls back
-    to the legacy ``actions.json`` array for older projects.
+    to the legacy ``actions.json`` array for older workspaces.
     """
     import datetime
 
-    project_path = _resolve_project_path(body.path)
+    workspace_path = _resolve_workspace_path(body.path)
 
-    tasks_path = project_path / "tasks.json"
+    tasks_path = workspace_path / "tasks.json"
     if tasks_path.is_file():
         data = json.loads(tasks_path.read_text())
         today = datetime.date.today().isoformat()
@@ -1509,7 +1511,7 @@ def complete_project_action(body: ActionCompleteBody):
             tasks_path.write_text(json.dumps(data, indent=2) + "\n")
             return {"ok": True}
 
-    actions_path = project_path / "actions.json"
+    actions_path = workspace_path / "actions.json"
     if not actions_path.is_file():
         raise HTTPException(status_code=404, detail="No tasks.json or actions.json found")
     actions = json.loads(actions_path.read_text())

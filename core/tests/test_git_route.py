@@ -151,7 +151,7 @@ def test_exec_restart_replaces_current_process_from_framework_root(monorepo) -> 
     execv.assert_called_once_with(sys.executable, [sys.executable, "-m", "core"])
 
 
-def test_make_stop_uses_requested_port_when_workspace_port_file_is_missing(tmp_path) -> None:
+def test_make_stop_uses_requested_port_when_vault_port_file_is_missing(tmp_path) -> None:
     root = Path(__file__).resolve().parents[2]
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -159,12 +159,12 @@ def test_make_stop_uses_requested_port_when_workspace_port_file_is_missing(tmp_p
     lsof = fake_bin / "lsof"
     lsof.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAB_LSOF_TRACE"\nexit 1\n')
     lsof.chmod(0o755)
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    vault = tmp_path / "vault"
+    vault.mkdir()
     env = os.environ.copy()
     env.update({
         "LAB_LSOF_TRACE": str(trace),
-        "LAB_WORKSPACE": str(workspace),
+        "LAB_VAULT": str(vault),
         "PATH": f"{fake_bin}:{env['PATH']}",
     })
 

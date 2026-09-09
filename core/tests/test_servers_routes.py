@@ -1,4 +1,4 @@
-"""Tests for /api/servers/* — per-project dev-server management.
+"""Tests for /api/servers/* — per-workspace dev-server management.
 
 These tests run against a per-test fake ``tmux`` binary on PATH (mirroring
 ``test_term_routes.py``'s ``_write_fake_tmux``) so the tmux side of the flow
@@ -174,9 +174,9 @@ def _write_server_makefile(pdir: Path, *, port: int | None = None,
 
 
 @pytest.fixture()
-def server_project(seed_project):
-    def _create(project_id: str = "webapp", **kwargs) -> Path:
-        pdir = seed_project(project_id)
+def server_workspace(seed_workspace):
+    def _create(workspace_id: str = "webapp", **kwargs) -> Path:
+        pdir = seed_workspace(workspace_id)
         _write_server_makefile(pdir, **kwargs)
         return pdir
     return _create
@@ -191,33 +191,33 @@ def _desired_state(root: Path) -> dict:
 
 @pytest.fixture()
 def ws(monorepo: Path) -> str:
-    """Register the fixture workspace under a stable id ("main"), the way
-    a real ``lab init``/``lab workspace`` flow would — so
-    ``/api/servers/<id>/...`` URLs read cleanly. Every single-workspace
+    """Register the fixture vault under a stable id ("main"), the way
+    a real ``lab init``/``lab vault`` flow would — so
+    ``/api/servers/<id>/...`` URLs read cleanly. Every single-vault
     test in this file keys off this id instead of the incidental fallback
-    (unregistered-workspace dirname) id."""
+    (unregistered-vault dirname) id."""
     from lab import paths
-    paths.register_workspace(monorepo, name="Main", active=True)
+    paths.register_vault(monorepo, name="Main", active=True)
     return "main"
 
 
-def _write_project_makefile(root: Path, project_id: str, **kwargs) -> Path:
-    pdir = root / "projects" / project_id
+def _write_workspace_makefile(root: Path, workspace_id: str, **kwargs) -> Path:
+    pdir = root / "workspaces" / workspace_id
     pdir.mkdir(parents=True, exist_ok=True)
     _write_server_makefile(pdir, **kwargs)
     return pdir
 
 
 @pytest.fixture()
-def second_workspace(ws: str, tmp_path: Path):
-    """A second registered workspace ("second"), independent of the
-    ``monorepo``/``ws`` one, for cross-workspace tests. Returns
-    ``(workspace_id, root)``."""
+def second_vault(ws: str, tmp_path: Path):
+    """A second registered vault ("second"), independent of the
+    ``monorepo``/``ws`` one, for cross-vault tests. Returns
+    ``(vault_id, root)``."""
     from lab import paths
     root = tmp_path / "second"
-    (root / "projects").mkdir(parents=True)
+    (root / "workspaces").mkdir(parents=True)
     (root / "content").mkdir(parents=True, exist_ok=True)
-    paths.register_workspace(root, name="Second", active=False)
+    paths.register_vault(root, name="Second", active=False)
     return "second", root
 
 
@@ -261,17 +261,17 @@ def test_parse_makefile_without_start_target() -> None:
 
 # ─── 1. Discovery ────────────────────────────────────────────────────────────
 
-def test_discovery_lists_project_with_server_makefile(client, server_project, isolated_tmux, ws) -> None:
+def test_discovery_lists_workspace_with_server_makefile(client, server_workspace, isolated_tmux, ws) -> None:
     # Obscure port: the health check now runs even for stopped servers (to
     # detect hand-started "external" ones), so a commonly-used dev port
     # would make this flaky whenever a real local server occupies it.
-    server_project("webapp", port=59173, with_stop=True)
+    server_workspace("webapp", port=59173, with_stop=True)
     r = client.get("/api/servers")
     assert r.status_code == 200, r.text
     servers = r.json()["servers"]
     assert len(servers) == 1
     row = servers[0]
-    assert row["project_id"] == "webapp"
+    assert row["workspace_id"] == "webapp"
     assert row["has_stop"] is True
     assert row["port"] == 59173
     assert row["health_url"] == "http://127.0.0.1:59173/"
@@ -281,19 +281,19 @@ def test_discovery_lists_project_with_server_makefile(client, server_project, is
     assert row["healthy"] is None
     assert row["restarts"] == 0
     assert row["session_name"].endswith("webapp-server")
-    assert row["workspace"] == ws
+    assert row["vault"] == ws
     assert row["session_created"] is None
-    assert row["path"].endswith(os.path.join("projects", "webapp"))
+    assert row["path"].endswith(os.path.join("workspaces", "webapp"))
 
 
-def test_discovery_excludes_project_without_makefile(client, seed_project, isolated_tmux) -> None:
-    seed_project("no-makefile")
+def test_discovery_excludes_workspace_without_makefile(client, seed_workspace, isolated_tmux) -> None:
+    seed_workspace("no-makefile")
     r = client.get("/api/servers")
     assert r.json()["servers"] == []
 
 
-def test_discovery_excludes_makefile_without_start_target(client, seed_project, isolated_tmux) -> None:
-    pdir = seed_project("stop-only")
+def test_discovery_excludes_makefile_without_start_target(client, seed_workspace, isolated_tmux) -> None:
+    pdir = seed_workspace("stop-only")
     (pdir / "Makefile").write_text("server-stop:\n\t@true\n")
     r = client.get("/api/servers")
     assert r.json()["servers"] == []
@@ -301,14 +301,14 @@ def test_discovery_excludes_makefile_without_start_target(client, seed_project, 
 
 # ─── 2. start ────────────────────────────────────────────────────────────────
 
-def test_start_creates_tmux_session_and_persists_desired(client, server_project, isolated_tmux, monorepo: Path, ws) -> None:
-    server_project("webapp")
+def test_start_creates_tmux_session_and_persists_desired(client, server_workspace, isolated_tmux, monorepo: Path, ws) -> None:
+    server_workspace("webapp")
     r = client.post(f"/api/servers/{ws}/webapp/start")
     assert r.status_code == 200, r.text
     row = r.json()
     assert row["desired"] == "running"
     assert row["status"] == "running"
-    assert row["workspace"] == ws
+    assert row["vault"] == ws
     assert isinstance(row["session_created"], int)
     session_name = row["session_name"]
     assert session_name == isolated_tmux + "webapp-server"
@@ -319,8 +319,8 @@ def test_start_creates_tmux_session_and_persists_desired(client, server_project,
     assert _desired_state(monorepo)["webapp"]["desired"] == "running"
 
 
-def test_start_idempotent_when_already_alive(client, server_project, isolated_tmux, ws) -> None:
-    server_project("webapp")
+def test_start_idempotent_when_already_alive(client, server_workspace, isolated_tmux, ws) -> None:
+    server_workspace("webapp")
     first = client.post(f"/api/servers/{ws}/webapp/start").json()
     again = client.post(f"/api/servers/{ws}/webapp/start").json()
     assert again["session_name"] == first["session_name"]
@@ -328,9 +328,9 @@ def test_start_idempotent_when_already_alive(client, server_project, isolated_tm
 
 
 def test_start_spawns_tmux_with_expected_argv_and_stripped_env(
-    client, server_project, isolated_tmux, monorepo: Path, monkeypatch: pytest.MonkeyPatch, ws,
+    client, server_workspace, isolated_tmux, monorepo: Path, monkeypatch: pytest.MonkeyPatch, ws,
 ) -> None:
-    server_project("webapp")
+    server_workspace("webapp")
     monkeypatch.setenv("TMUX", "/tmp/some-socket,1234,0")
     monkeypatch.setenv("TMUX_PANE", "%3")
 
@@ -343,29 +343,29 @@ def test_start_spawns_tmux_with_expected_argv_and_stripped_env(
     cmd = new_session_calls[0].args[0]
     kwargs = new_session_calls[0].kwargs
     assert cmd[-1] == "make server-start"
-    assert cmd[cmd.index("-c") + 1] == str(monorepo / "projects" / "webapp")
+    assert cmd[cmd.index("-c") + 1] == str(monorepo / "workspaces" / "webapp")
     assert "TMUX" not in kwargs["env"]
     assert "TMUX_PANE" not in kwargs["env"]
 
 
-def test_start_unknown_project_404(client, isolated_tmux, ws) -> None:
+def test_start_unknown_workspace_404(client, isolated_tmux, ws) -> None:
     r = client.post(f"/api/servers/{ws}/does-not-exist/start")
     assert r.status_code == 404
 
 
-def test_start_project_without_server_target_404(client, seed_project, isolated_tmux, ws) -> None:
-    seed_project("plain")
+def test_start_workspace_without_server_target_404(client, seed_workspace, isolated_tmux, ws) -> None:
+    seed_workspace("plain")
     r = client.post(f"/api/servers/{ws}/plain/start")
     assert r.status_code == 404
 
 
-def test_start_invalid_project_id_400(client, isolated_tmux, ws) -> None:
+def test_start_invalid_workspace_id_400(client, isolated_tmux, ws) -> None:
     r = client.post(f"/api/servers/{ws}/Not Valid!/start")
     assert r.status_code == 400
 
 
-def test_start_hard_tmux_failure_returns_409(client, server_project, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws) -> None:
-    server_project("webapp")
+def test_start_hard_tmux_failure_returns_409(client, server_workspace, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws) -> None:
+    server_workspace("webapp")
 
     class _Failed:
         returncode = 1
@@ -379,13 +379,13 @@ def test_start_hard_tmux_failure_returns_409(client, server_project, isolated_tm
 
 
 def test_start_uses_active_named_tmux_socket(
-    server_project,
+    server_workspace,
     monorepo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    project_dir = server_project("webapp")
+    workspace_dir = server_workspace("webapp")
     monkeypatch.setattr(
         servers_mod.term_routes, "_tmux_available", lambda: True
     )
@@ -406,19 +406,19 @@ def test_start_uses_active_named_tmux_socket(
 
     monkeypatch.setattr(servers_mod.subprocess, "run", fake_run)
 
-    servers_mod._spawn_server_session(monorepo, "webapp", project_dir)
+    servers_mod._spawn_server_session(monorepo, "webapp", workspace_dir)
 
     assert calls == [[
         "tmux", "-L", "lab-fresh", "new-session", "-d", "-s",
         servers_mod._session_name_for(monorepo, "webapp"),
-        "-c", str(project_dir), "make server-start",
+        "-c", str(workspace_dir), "make server-start",
     ]]
 
 
 # ─── 3. stop ─────────────────────────────────────────────────────────────────
 
-def test_stop_runs_server_stop_target_and_kills_session(client, server_project, isolated_tmux, monorepo: Path, ws) -> None:
-    pdir = server_project("webapp", with_stop=True, stop_recipe="touch stopped.marker")
+def test_stop_runs_server_stop_target_and_kills_session(client, server_workspace, isolated_tmux, monorepo: Path, ws) -> None:
+    pdir = server_workspace("webapp", with_stop=True, stop_recipe="touch stopped.marker")
     client.post(f"/api/servers/{ws}/webapp/start")
 
     r = client.post(f"/api/servers/{ws}/webapp/stop")
@@ -433,8 +433,8 @@ def test_stop_runs_server_stop_target_and_kills_session(client, server_project, 
     assert _desired_state(monorepo)["webapp"]["desired"] == "stopped"
 
 
-def test_stop_without_stop_target_just_kills_session(client, server_project, isolated_tmux, ws) -> None:
-    server_project("webapp", with_stop=False)
+def test_stop_without_stop_target_just_kills_session(client, server_workspace, isolated_tmux, ws) -> None:
+    server_workspace("webapp", with_stop=False)
     row = client.post(f"/api/servers/{ws}/webapp/start").json()
     assert row["has_stop"] is False
 
@@ -444,8 +444,8 @@ def test_stop_without_stop_target_just_kills_session(client, server_project, iso
                           capture_output=True).returncode != 0
 
 
-def test_stop_timeout_returns_504(client, server_project, isolated_tmux, ws) -> None:
-    server_project("webapp", with_stop=True)
+def test_stop_timeout_returns_504(client, server_workspace, isolated_tmux, ws) -> None:
+    server_workspace("webapp", with_stop=True)
     client.post(f"/api/servers/{ws}/webapp/start")
 
     real_run = subprocess.run
@@ -462,8 +462,8 @@ def test_stop_timeout_returns_504(client, server_project, isolated_tmux, ws) -> 
 
 # ─── 4. restart ──────────────────────────────────────────────────────────────
 
-def test_restart_returns_running_state_and_desired(client, server_project, isolated_tmux, ws) -> None:
-    server_project("webapp", with_stop=True)
+def test_restart_returns_running_state_and_desired(client, server_workspace, isolated_tmux, ws) -> None:
+    server_workspace("webapp", with_stop=True)
     client.post(f"/api/servers/{ws}/webapp/start")
 
     r = client.post(f"/api/servers/{ws}/webapp/restart")
@@ -473,8 +473,8 @@ def test_restart_returns_running_state_and_desired(client, server_project, isola
     assert row["status"] == "running"
 
 
-def test_restart_when_never_started(client, server_project, isolated_tmux, ws) -> None:
-    server_project("webapp", with_stop=True)
+def test_restart_when_never_started(client, server_workspace, isolated_tmux, ws) -> None:
+    server_workspace("webapp", with_stop=True)
     r = client.post(f"/api/servers/{ws}/webapp/restart")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "running"
@@ -482,20 +482,20 @@ def test_restart_when_never_started(client, server_project, isolated_tmux, ws) -
 
 # ─── 5. health ───────────────────────────────────────────────────────────────
 
-def test_health_reflected_in_get_servers(client, server_project, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws) -> None:
+def test_health_reflected_in_get_servers(client, server_workspace, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp", port=8006)
+    server_workspace("webapp", port=8006)
 
     monkeypatch.setattr(servers_mod, "_check_health", lambda *a, **kw: False)
     client.post(f"/api/servers/{ws}/webapp/start")
-    row = next(s for s in client.get("/api/servers").json()["servers"] if s["project_id"] == "webapp")
+    row = next(s for s in client.get("/api/servers").json()["servers"] if s["workspace_id"] == "webapp")
     assert row["healthy"] is False
     assert row["status"] in ("starting", "unhealthy")
 
     monkeypatch.setattr(servers_mod, "_check_health", lambda *a, **kw: True)
     servers_mod.supervisor_tick(Path(client.app.state.index_cache.root))
-    row = next(s for s in client.get("/api/servers").json()["servers"] if s["project_id"] == "webapp")
+    row = next(s for s in client.get("/api/servers").json()["servers"] if s["workspace_id"] == "webapp")
     assert row["healthy"] is True
     assert row["status"] == "running"
 
@@ -532,25 +532,25 @@ def test_check_health_connection_refused_is_unhealthy() -> None:
 # ─── 5b. external (hand-started) servers ────────────────────────────────────
 
 def test_port_answering_without_session_reports_external_with_url(
-    client, server_project, isolated_tmux, monkeypatch: pytest.MonkeyPatch,
+    client, server_workspace, isolated_tmux, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp", port=59173)
+    server_workspace("webapp", port=59173)
     monkeypatch.setattr(servers_mod, "_check_health", lambda *a, **kw: True)
 
-    row = next(s for s in client.get("/api/servers").json()["servers"] if s["project_id"] == "webapp")
+    row = next(s for s in client.get("/api/servers").json()["servers"] if s["workspace_id"] == "webapp")
     assert row["status"] == "external"
     assert row["healthy"] is True
     assert row["url"] == "http://localhost:59173/"
 
 
 def test_running_managed_server_reports_url(
-    client, server_project, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws,
+    client, server_workspace, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp", port=59173)
+    server_workspace("webapp", port=59173)
     monkeypatch.setattr(servers_mod, "_check_health", lambda *a, **kw: True)
 
     row = client.post(f"/api/servers/{ws}/webapp/start").json()
@@ -559,11 +559,11 @@ def test_running_managed_server_reports_url(
 
 
 def test_supervisor_never_restarts_external_server(
-    client, server_project, isolated_tmux, monorepo: Path, monkeypatch: pytest.MonkeyPatch,
+    client, server_workspace, isolated_tmux, monorepo: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp", port=59173)
+    server_workspace("webapp", port=59173)
     # Desired running but no lab session — and the port answers (someone
     # started it by hand). Spawning on the busy port would crash-loop.
     servers_mod.set_desired(monorepo, "webapp", "running")
@@ -574,7 +574,7 @@ def test_supervisor_never_restarts_external_server(
     session_name = servers_mod._session_name_for(monorepo, "webapp")
     assert subprocess.run(["tmux", "has-session", "-t", session_name],
                           capture_output=True).returncode != 0
-    row = next(s for s in client.get("/api/servers").json()["servers"] if s["project_id"] == "webapp")
+    row = next(s for s in client.get("/api/servers").json()["servers"] if s["workspace_id"] == "webapp")
     assert row["status"] == "external"
     assert row["restarts"] == 0
 
@@ -582,11 +582,11 @@ def test_supervisor_never_restarts_external_server(
 # ─── 6. supervisor_tick ──────────────────────────────────────────────────────
 
 def test_supervisor_tick_restarts_dead_session_when_desired_running(
-    client, server_project, isolated_tmux, monorepo: Path, ws,
+    client, server_workspace, isolated_tmux, monorepo: Path, ws,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp")
+    server_workspace("webapp")
     client.post(f"/api/servers/{ws}/webapp/start")
     session_name = servers_mod._session_name_for(monorepo, "webapp")
 
@@ -598,16 +598,16 @@ def test_supervisor_tick_restarts_dead_session_when_desired_running(
 
     assert subprocess.run(["tmux", "has-session", "-t", session_name],
                           capture_output=True).returncode == 0
-    row = next(s for s in client.get("/api/servers").json()["servers"] if s["project_id"] == "webapp")
+    row = next(s for s in client.get("/api/servers").json()["servers"] if s["workspace_id"] == "webapp")
     assert row["restarts"] == 1
 
 
-def test_supervisor_tick_leaves_desired_stopped_project_alone(
-    client, server_project, isolated_tmux, monorepo: Path, ws,
+def test_supervisor_tick_leaves_desired_stopped_workspace_alone(
+    client, server_workspace, isolated_tmux, monorepo: Path, ws,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp")
+    server_workspace("webapp")
     client.post(f"/api/servers/{ws}/webapp/start")
     client.post(f"/api/servers/{ws}/webapp/stop")
     session_name = servers_mod._session_name_for(monorepo, "webapp")
@@ -618,18 +618,18 @@ def test_supervisor_tick_leaves_desired_stopped_project_alone(
 
     assert subprocess.run(["tmux", "has-session", "-t", session_name],
                           capture_output=True).returncode != 0
-    row = next(s for s in client.get("/api/servers").json()["servers"] if s["project_id"] == "webapp")
+    row = next(s for s in client.get("/api/servers").json()["servers"] if s["workspace_id"] == "webapp")
     assert row["desired"] == "stopped"
     assert row["status"] == "stopped"
     assert row["restarts"] == 0
 
 
 def test_supervisor_backs_off_after_repeated_restart_failures(
-    client, server_project, isolated_tmux, monorepo: Path, monkeypatch: pytest.MonkeyPatch, ws,
+    client, server_workspace, isolated_tmux, monorepo: Path, monkeypatch: pytest.MonkeyPatch, ws,
 ) -> None:
     import core.routes.servers as servers_mod
 
-    server_project("webapp")
+    server_workspace("webapp")
     client.post(f"/api/servers/{ws}/webapp/start")
     session_name = servers_mod._session_name_for(monorepo, "webapp")
     subprocess.run(["tmux", "kill-session", "-t", session_name], capture_output=True)
@@ -655,8 +655,8 @@ def test_supervisor_backs_off_after_repeated_restart_failures(
 
 # ─── 7. kill-integration ─────────────────────────────────────────────────────
 
-def test_kill_session_marks_server_desired_stopped(client, server_project, isolated_tmux, monorepo: Path, ws) -> None:
-    server_project("webapp")
+def test_kill_session_marks_server_desired_stopped(client, server_workspace, isolated_tmux, monorepo: Path, ws) -> None:
+    server_workspace("webapp")
     row = client.post(f"/api/servers/{ws}/webapp/start").json()
     session_name = row["session_name"]
 
@@ -672,100 +672,100 @@ def test_kill_session_marks_server_desired_stopped(client, server_project, isola
     assert _desired_state(monorepo)["webapp"]["desired"] == "stopped"
 
 
-def test_kill_project_sessions_marks_server_desired_stopped(client, server_project, isolated_tmux, monorepo: Path, ws) -> None:
-    server_project("webapp")
+def test_kill_workspace_sessions_marks_server_desired_stopped(client, server_workspace, isolated_tmux, monorepo: Path, ws) -> None:
+    server_workspace("webapp")
     client.post(f"/api/servers/{ws}/webapp/start")
     client.get("/api/term/sessions")  # populate the runtime registry
 
-    r = client.delete("/api/term/sessions/project/webapp")
+    r = client.delete("/api/term/sessions/workspace/webapp")
     assert r.status_code == 200
 
     assert _desired_state(monorepo)["webapp"]["desired"] == "stopped"
 
 
-# ─── 8. multi-workspace ──────────────────────────────────────────────────────
+# ─── 8. multi-vault ──────────────────────────────────────────────────────
 
-def test_cross_workspace_discovery_tags_each_row_with_its_workspace(
-    client, server_project, second_workspace, isolated_tmux, ws,
+def test_cross_vault_discovery_tags_each_row_with_its_vault(
+    client, server_workspace, second_vault, isolated_tmux, ws,
 ) -> None:
-    server_project("webapp", port=59174)
-    ws2_id, ws2_root = second_workspace
-    _write_project_makefile(ws2_root, "otherapp", port=59175)
+    server_workspace("webapp", port=59174)
+    ws2_id, ws2_root = second_vault
+    _write_workspace_makefile(ws2_root, "otherapp", port=59175)
 
     r = client.get("/api/servers")
     assert r.status_code == 200, r.text
     servers = r.json()["servers"]
-    by_pid = {s["project_id"]: s for s in servers}
+    by_pid = {s["workspace_id"]: s for s in servers}
     assert set(by_pid) == {"webapp", "otherapp"}
-    assert by_pid["webapp"]["workspace"] == ws
-    assert by_pid["otherapp"]["workspace"] == ws2_id
-    # Sorted by (workspace, project_id).
-    assert [s["project_id"] for s in servers] == sorted(
-        by_pid, key=lambda p: (by_pid[p]["workspace"], p)
+    assert by_pid["webapp"]["vault"] == ws
+    assert by_pid["otherapp"]["vault"] == ws2_id
+    # Sorted by (vault, workspace_id).
+    assert [s["workspace_id"] for s in servers] == sorted(
+        by_pid, key=lambda p: (by_pid[p]["vault"], p)
     )
 
 
-def test_action_routes_to_the_correct_workspace_root(
-    client, server_project, second_workspace, isolated_tmux, monorepo: Path, ws,
+def test_action_routes_to_the_correct_vault_root(
+    client, server_workspace, second_vault, isolated_tmux, monorepo: Path, ws,
 ) -> None:
-    """Starting a project in the SECOND workspace must spawn its session
-    and persist desired-state under that workspace's own root — never the
-    active workspace's, even though the active workspace also has a
+    """Starting a workspace in the SECOND vault must spawn its session
+    and persist desired-state under that vault's own root — never the
+    active vault's, even though the active vault also has a
     same-named .lab/state directory."""
-    server_project("webapp")
-    ws2_id, ws2_root = second_workspace
-    _write_project_makefile(ws2_root, "otherapp")
+    server_workspace("webapp")
+    ws2_id, ws2_root = second_vault
+    _write_workspace_makefile(ws2_root, "otherapp")
 
     r = client.post(f"/api/servers/{ws2_id}/otherapp/start")
     assert r.status_code == 200, r.text
     row = r.json()
-    assert row["workspace"] == ws2_id
+    assert row["vault"] == ws2_id
     assert row["status"] == "running"
 
     assert _desired_state(ws2_root)["otherapp"]["desired"] == "running"
-    # The active ("main") workspace's own state file is untouched.
+    # The active ("main") vault's own state file is untouched.
     assert _desired_state(monorepo) == {}
 
-    # And the two workspaces' /api/servers rows don't cross-contaminate.
+    # And the two vaults' /api/servers rows don't cross-contaminate.
     servers = client.get("/api/servers").json()["servers"]
-    other_row = next(s for s in servers if s["project_id"] == "otherapp")
-    main_row = next(s for s in servers if s["project_id"] == "webapp")
-    assert other_row["workspace"] == ws2_id
+    other_row = next(s for s in servers if s["workspace_id"] == "otherapp")
+    main_row = next(s for s in servers if s["workspace_id"] == "webapp")
+    assert other_row["vault"] == ws2_id
     assert other_row["status"] == "running"
-    assert main_row["workspace"] == ws
+    assert main_row["vault"] == ws
     assert main_row["status"] == "stopped"
 
 
-def test_start_unknown_workspace_404(client, server_project, isolated_tmux, ws) -> None:
-    server_project("webapp")
-    r = client.post(f"/api/servers/does-not-exist-workspace/webapp/start")
+def test_start_unknown_vault_404(client, server_workspace, isolated_tmux, ws) -> None:
+    server_workspace("webapp")
+    r = client.post(f"/api/servers/does-not-exist-vault/webapp/start")
     assert r.status_code == 404
 
 
-def test_start_workspace_path_missing_404(
+def test_start_vault_path_missing_404(
     client, ws, isolated_tmux, tmp_path: Path,
 ) -> None:
     from lab import paths
 
-    ghost = tmp_path / "ghost-workspace"
-    paths.register_workspace(ghost, name="Ghost", active=False)
+    ghost = tmp_path / "ghost-vault"
+    paths.register_vault(ghost, name="Ghost", active=False)
 
     r = client.post("/api/servers/ghost/webapp/start")
     assert r.status_code == 404
 
 
-def test_supervisor_reconciles_every_registered_workspace(
-    client, server_project, second_workspace, isolated_tmux, monorepo: Path, ws,
+def test_supervisor_reconciles_every_registered_vault(
+    client, server_workspace, second_vault, isolated_tmux, monorepo: Path, ws,
 ) -> None:
-    """The supervisor loop ticks every registered workspace, not just the
+    """The supervisor loop ticks every registered vault, not just the
     active one — reproduced here by driving supervisor_tick() over
-    _known_workspaces() the same way core.routes.servers._supervisor_loop
+    _known_vaults() the same way core.routes.servers._supervisor_loop
     does, without spinning up the actual background thread."""
     import core.routes.servers as servers_mod
 
-    server_project("webapp")
-    ws2_id, ws2_root = second_workspace
-    _write_project_makefile(ws2_root, "otherapp")
+    server_workspace("webapp")
+    ws2_id, ws2_root = second_vault
+    _write_workspace_makefile(ws2_root, "otherapp")
 
     client.post(f"/api/servers/{ws}/webapp/start")
     client.post(f"/api/servers/{ws2_id}/otherapp/start")
@@ -777,25 +777,25 @@ def test_supervisor_reconciles_every_registered_workspace(
     assert subprocess.run(["tmux", "has-session", "-t", name1], capture_output=True).returncode != 0
     assert subprocess.run(["tmux", "has-session", "-t", name2], capture_output=True).returncode != 0
 
-    for w in servers_mod._known_workspaces(monorepo):
+    for w in servers_mod._known_vaults(monorepo):
         servers_mod.supervisor_tick(w["path"])
 
     assert subprocess.run(["tmux", "has-session", "-t", name1], capture_output=True).returncode == 0
     assert subprocess.run(["tmux", "has-session", "-t", name2], capture_output=True).returncode == 0
 
 
-def test_discovery_skips_workspace_fsguard_reports_unavailable(
-    client, server_project, second_workspace, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws,
+def test_discovery_skips_vault_fsguard_reports_unavailable(
+    client, server_workspace, second_vault, isolated_tmux, monkeypatch: pytest.MonkeyPatch, ws,
 ) -> None:
-    """A registered workspace whose volume is stalled (fsguard 503) must not
+    """A registered vault whose volume is stalled (fsguard 503) must not
     blank the whole /api/servers response — mirrors
-    core.routes.workspace's list_workspace_projects per-workspace
+    core.routes.vault's list_vault_workspaces per-vault
     degradation test."""
     import core.routes.servers as servers_mod
 
-    server_project("webapp")
-    ws2_id, ws2_root = second_workspace
-    _write_project_makefile(ws2_root, "otherapp")
+    server_workspace("webapp")
+    ws2_id, ws2_root = second_vault
+    _write_workspace_makefile(ws2_root, "otherapp")
     ws2_resolved = ws2_root.resolve()
 
     real_guarded = servers_mod.fsguard.guarded
@@ -810,4 +810,4 @@ def test_discovery_skips_workspace_fsguard_reports_unavailable(
     r = client.get("/api/servers")
     assert r.status_code == 200, r.text
     servers = r.json()["servers"]
-    assert [s["project_id"] for s in servers] == ["webapp"]
+    assert [s["workspace_id"] for s in servers] == ["webapp"]

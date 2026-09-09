@@ -1,4 +1,4 @@
-"""Read and write project-local ``servers.json`` declarations."""
+"""Read and write workspace-local ``servers.json`` declarations."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ _SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class ServerConfigError(ValueError):
-    """Raised when a project server document cannot be used safely."""
+    """Raised when a workspace server document cannot be used safely."""
 
 
 def _make_command(value: Any, field: str, index: int) -> str:
@@ -91,9 +91,9 @@ def normalize_servers(entries: Any, *, strict: bool = True) -> list[dict[str, An
     return normalized
 
 
-def read_server_config(project_dir: Path) -> tuple[list[dict[str, Any]], str]:
-    """Read ``servers.json`` first, falling back to legacy project metadata."""
-    config_path = project_dir / CONFIG_FILENAME
+def read_server_config(workspace_dir: Path) -> tuple[list[dict[str, Any]], str]:
+    """Read ``servers.json`` first, falling back to legacy workspace metadata."""
+    config_path = workspace_dir / CONFIG_FILENAME
     if config_path.is_file():
         try:
             document = json.loads(config_path.read_text())
@@ -104,24 +104,24 @@ def read_server_config(project_dir: Path) -> tuple[list[dict[str, Any]], str]:
         )
         return normalize_servers(entries), CONFIG_FILENAME
 
-    for project_name in ("project.json", ".project.json"):
-        project_path = project_dir / project_name
-        if not project_path.is_file():
+    for workspace_name in ("workspace.json", "project.json", ".workspace.json", ".project.json"):
+        workspace_path = workspace_dir / workspace_name
+        if not workspace_path.is_file():
             continue
         try:
-            project = json.loads(project_path.read_text())
+            workspace = json.loads(workspace_path.read_text())
         except (OSError, json.JSONDecodeError, ValueError):
-            return [], project_name
-        entries = project.get("proxies", []) if isinstance(project, dict) else []
-        return normalize_servers(entries or [], strict=False), project_name
+            return [], workspace_name
+        entries = workspace.get("proxies", []) if isinstance(workspace, dict) else []
+        return normalize_servers(entries or [], strict=False), workspace_name
     return [], "none"
 
 
-def write_server_config(project_dir: Path, entries: Any) -> list[dict[str, Any]]:
-    """Validate and write the canonical project-local server document."""
+def write_server_config(workspace_dir: Path, entries: Any) -> list[dict[str, Any]]:
+    """Validate and write the canonical workspace-local server document."""
     servers = normalize_servers(entries)
-    target = project_dir / CONFIG_FILENAME
-    temporary = project_dir / f".{CONFIG_FILENAME}.tmp"
+    target = workspace_dir / CONFIG_FILENAME
+    temporary = workspace_dir / f".{CONFIG_FILENAME}.tmp"
     temporary.write_text(json.dumps({"servers": servers}, indent=2) + "\n")
     temporary.replace(target)
     return servers

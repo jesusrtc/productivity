@@ -13,21 +13,21 @@ from lab.commands.notebook import notebook_group
 from lab.commands.ref import ref_group
 from lab.commands.repo import repo_group
 from lab.commands.pr import pr_group
-from lab.commands.project import project_group
+from lab.commands.workspace import workspace_group
 from lab.commands.search import search_cmd
 from lab.commands.service import open_cmd, start, stop
 from lab.commands.task import task_group
 from lab.commands.terminal import terminal_group
-from lab.commands.workspace import init_cmd, workspace_group
+from lab.commands.vault import init_cmd, vault_group
 
 
 @click.group()
 @click.version_option(package_name="lab")
 def main() -> None:
-    """CLI for Lab workspaces and the local Lab server."""
+    """CLI for Lab vaults and the local Lab server."""
 
 
-main.add_command(project_group)
+main.add_command(workspace_group)
 main.add_command(assistant_group)
 main.add_command(config_group)
 main.add_command(agents_group)
@@ -43,7 +43,7 @@ main.add_command(index_group)
 main.add_command(repo_group)
 main.add_command(search_cmd)
 main.add_command(init_cmd)
-main.add_command(workspace_group)
+main.add_command(vault_group)
 main.add_command(start)
 main.add_command(stop)
 main.add_command(open_cmd)

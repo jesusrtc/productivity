@@ -1,15 +1,15 @@
-# Per-project dev servers
+# Per-workspace dev servers
 
 Lab has two connected layers for local development servers:
 
-- A project-root `servers.json` declares the tabs, proxy destinations, and
-  optional Start/Stop commands shown in the project's Servers modal.
-- A conventional Makefile lets Lab supervise a project's main dev-server
+- A workspace-root `servers.json` declares the tabs, proxy destinations, and
+  optional Start/Stop commands shown in the workspace's Servers modal.
+- A conventional Makefile lets Lab supervise a workspace's main dev-server
   process from the dashboard and keep it alive.
 
 ## Server tabs and proxies: `servers.json`
 
-Lab automatically reads `servers.json` from the root of each project. This is
+Lab automatically reads `servers.json` from the root of each workspace. This is
 the preferred place for agents and humans to configure local dev-server tabs,
 proxying, and lifecycle commands.
 
@@ -39,18 +39,18 @@ The Servers modal reads this file every time it opens. **Create servers.json**
 writes a valid empty template (`{"servers": []}`) for an agent to fill. Use
 **Reload file** if the agent edits it while the modal is already open.
 
-For compatibility, Lab reads `project.json.proxies` only when `servers.json`
+For compatibility, Lab reads `workspace.json.proxies` only when `servers.json`
 does not exist. The first save from the modal creates `servers.json` and makes
-it the source of truth without modifying `project.json`.
+it the source of truth without modifying `workspace.json`.
 
 ## Managed server process: Makefile
 
-A project can ask Lab to manage its main dev server (start it, keep it alive,
+A workspace can ask Lab to manage its main dev server (start it, keep it alive,
 show its status) instead of you doing it by hand in a terminal.
 
 ### Opt in: add a Makefile
 
-Drop a `Makefile` at the root of `projects/<id>/` with a `server-start`
+Drop a `Makefile` at the root of `workspaces/<id>/` with a `server-start`
 target. That's the only requirement — Lab discovers it automatically.
 
 ```make
@@ -74,7 +74,7 @@ server-stop:
 ### How it runs
 
 Starting a server spawns a detached tmux session named like a terminal tab
-(`neurona-<project>-server-<hash>`) running `make server-start`. The workspace
+(`neurona-<workspace>-server-<hash>`) running `make server-start`. The vault
 is deliberately omitted from the visible name but remains part of the
 collision-resistant hash. It shows up in the normal terminal UI as a "server"
 tab — `tmux attach` works on it like any other session. Stopping runs
@@ -87,13 +87,13 @@ target their original socket. See [Terminal transport](TERMINALS.md).
 
 ### Health and auto-restart
 
-A background supervisor checks every project every ~10s (`LAB_SERVER_SUPERVISOR_INTERVAL`):
+A background supervisor checks every workspace every ~10s (`LAB_SERVER_SUPERVISOR_INTERVAL`):
 liveness via `tmux has-session`, and — if a health URL is configured — an
 HTTP GET with a ~2s timeout. Any HTTP response (even a 4xx/5xx) counts as
 healthy; connection refused/timeout does not.
 
-Each project has a **desired state** (`running` or `stopped`), saved at the
-workspace-level `.lab/state/servers.json` (distinct from a project's proxy
+Each workspace has a **desired state** (`running` or `stopped`), saved at the
+vault-level `.lab/state/servers.json` (distinct from a workspace's proxy
 configuration file). If desired is `running` and the session died, or its
 health check fails for two ticks in a row, the supervisor restarts it. After
 3 failed restarts in a row it backs off to at most one attempt per minute.
@@ -107,41 +107,41 @@ the server by hand, outside Lab), it shows up as **external**: visible on
 the dashboard with an Open link, never auto-restarted. Stopping it runs
 `server-stop`, which cleans up the stray if the target covers it.
 
-### Every registered workspace, not just the active one
+### Every registered vault, not just the active one
 
-Servers aren't scoped to whichever workspace you currently have open. The
-dashboard (and the supervisor) cover every workspace listed in `lab
-workspace list` (`~/.lab/workspaces.toml`) at once — start one project's
-server in workspace A and another's in workspace B, and both show up
+Servers aren't scoped to whichever vault you currently have open. The
+dashboard (and the supervisor) cover every vault listed in `lab
+vault list` (`~/.lab/vaults.toml`) at once — start one workspace's
+server in vault A and another's in vault B, and both show up
 together, both get health-checked and auto-restarted on their own. A
-workspace whose disk is unplugged or unreachable is just skipped for that
+vault whose disk is unplugged or unreachable is just skipped for that
 poll; everything else keeps working.
 
-Each workspace keeps its own `.lab/state/servers.json` (desired state) and
-its own tmux sessions — nothing about a project in one workspace touches
+Each vault keeps its own `.lab/state/servers.json` (desired state) and
+its own tmux sessions — nothing about a workspace in one vault touches
 another.
 
 ### API
 
-- `GET /api/servers` — every discovered project across every registered
-  workspace, sorted by workspace then project. Each row carries
-  `project_id`, `workspace` (which registered workspace it belongs to),
+- `GET /api/servers` — every discovered workspace across every registered
+  vault, sorted by vault then workspace. Each row carries
+  `workspace_id`, `vault` (which registered vault it belongs to),
   `path`, `port`, `health_url`, `desired`, `status` (`stopped` /
   `starting` / `running` / `unhealthy` / `external`), `healthy`, `url`
   (non-null whenever the server is actually listening — what the
   dashboard's Open button uses), `session_name`, `session_created` (when
   the tmux session started, or `null` if it's not running), `attach_command`,
   and `restarts`.
-- `POST /api/servers/{workspace}/{project_id}/start` / `.../stop` /
-  `.../restart` — `{workspace}` is the id from `lab workspace list`. A
-  workspace id that doesn't exist, or whose path isn't reachable right
+- `POST /api/servers/{vault}/{workspace_id}/start` / `.../stop` /
+  `.../restart` — `{vault}` is the id from `lab vault list`. A
+  vault id that doesn't exist, or whose path isn't reachable right
   now, gives a 404 with a clear message.
-- `GET /api/server-config?project_id=<id>&workspace=<workspace>` — effective
-  proxy definitions and their source (`servers.json` or legacy project
+- `GET /api/server-config?workspace_id=<id>&vault=<vault>` — effective
+  proxy definitions and their source (`servers.json` or legacy workspace
   metadata).
-- `PUT /api/server-config?project_id=<id>&workspace=<workspace>` — validate and
-  write the project's canonical `servers.json`.
-- `/api/workspace-proxy/{workspace}/{project_id}/{name}/…` — workspace-scoped
-  HTTP mount used by embedded server tabs. The workspace stays in the path so
+- `PUT /api/server-config?workspace_id=<id>&vault=<vault>` — validate and
+  write the workspace's canonical `servers.json`.
+- `/api/vault-proxy/{vault}/{workspace_id}/{name}/…` — vault-scoped
+  HTTP mount used by embedded server tabs. The vault stays in the path so
   relative assets keep the correct scope; legacy `/api/proxy/…` URLs remain
   available for old bookmarks.

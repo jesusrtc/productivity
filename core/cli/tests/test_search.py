@@ -8,27 +8,27 @@ from lab.search import search
 
 def test_search_empty_query(monorepo: Path) -> None:
     r = search(monorepo, "")
-    assert r == {"query": "", "projects": [], "tasks": [], "docs": []}
+    assert r == {"query": "", "workspaces": [], "tasks": [], "docs": []}
 
 
-def test_search_matches_project_description(monorepo: Path, seed_project) -> None:
-    seed_project("alpha", description="This contains the keyword BANANA")
+def test_search_matches_workspace_description(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha", description="This contains the keyword BANANA")
     r = search(monorepo, "banana")
-    assert len(r["projects"]) == 1
-    assert r["projects"][0]["id"] == "alpha"
+    assert len(r["workspaces"]) == 1
+    assert r["workspaces"][0]["id"] == "alpha"
 
 
-def test_search_matches_project_tags(monorepo: Path, seed_project) -> None:
-    alpha = seed_project("alpha")
-    data = json.loads((alpha / "project.json").read_text())
+def test_search_matches_workspace_tags(monorepo: Path, seed_workspace) -> None:
+    alpha = seed_workspace("alpha")
+    data = json.loads((alpha / "workspace.json").read_text())
     data["tags"] = ["fruit-basket"]
-    (alpha / "project.json").write_text(json.dumps(data))
+    (alpha / "workspace.json").write_text(json.dumps(data))
     r = search(monorepo, "fruit")
-    assert len(r["projects"]) == 1
+    assert len(r["workspaces"]) == 1
 
 
-def test_search_matches_task_title(monorepo: Path, seed_project) -> None:
-    pdir = seed_project("alpha")
+def test_search_matches_task_title(monorepo: Path, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
     (pdir / "tasks.json").write_text(json.dumps({
         "next_id": 2,
         "tasks": [{
@@ -53,9 +53,9 @@ def test_search_matches_md_docs(monorepo: Path) -> None:
     assert "banana logistics" in r["docs"][0]["snippet"].lower()
 
 
-def test_search_no_match(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_search_no_match(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     r = search(monorepo, "xyzzy-unlikely-string")
-    assert r["projects"] == []
+    assert r["workspaces"] == []
     assert r["tasks"] == []
     assert r["docs"] == []

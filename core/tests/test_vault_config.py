@@ -5,19 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from core.workspace_config import (
-    WorkspaceConfigError,
-    load_workspace_config,
+from core.vault_config import (
+    VaultConfigError,
+    load_vault_config,
     supported_agents,
     update_appearance,
     update_supported_agents,
-    validate_workspace_config,
+    validate_vault_config,
 )
 from lab.model import VALID_AGENTS
 
 
 def _valid_doc() -> dict:
-    """The illustrative configuration from docs/workspace-architecture.md."""
+    """The illustrative configuration from docs/vault-architecture.md."""
     return {
         "version": 1,
         "id": "trust-safety",
@@ -30,8 +30,8 @@ def _valid_doc() -> dict:
                 {"source": "agents/instructions.md", "target": "CLAUDE.md", "mode": "symlink", "when": "claude"},
             ],
         },
-        "project": {
-            "template": "templates/project",
+        "workspace": {
+            "template": "templates/workspace",
             "features": ["tasks", "docs", "notebooks"],
             "mounts": [
                 {"source": "skills", "target": ".agents/skills", "mode": "symlink"},
@@ -53,10 +53,10 @@ def _valid_doc() -> dict:
     }
 
 
-# ── validate_workspace_config ────────────────────────────────────────────────
+# ── validate_vault_config ────────────────────────────────────────────────
 
 def test_doc_example_is_valid() -> None:
-    errors, warnings = validate_workspace_config(_valid_doc())
+    errors, warnings = validate_vault_config(_valid_doc())
     assert errors == []
     assert warnings == []
 
@@ -64,14 +64,14 @@ def test_doc_example_is_valid() -> None:
 def test_missing_version_is_error() -> None:
     doc = _valid_doc()
     del doc["version"]
-    errors, _ = validate_workspace_config(doc)
+    errors, _ = validate_vault_config(doc)
     assert any("version" in e for e in errors)
 
 
 def test_newer_version_is_warning_not_error() -> None:
     doc = _valid_doc()
     doc["version"] = 2
-    errors, warnings = validate_workspace_config(doc)
+    errors, warnings = validate_vault_config(doc)
     assert errors == []
     assert any("version" in w for w in warnings)
 
@@ -79,7 +79,7 @@ def test_newer_version_is_warning_not_error() -> None:
 def test_unknown_top_level_key_is_warning() -> None:
     doc = _valid_doc()
     doc["future_field"] = {"x": 1}
-    errors, warnings = validate_workspace_config(doc)
+    errors, warnings = validate_vault_config(doc)
     assert errors == []
     assert any("future_field" in w for w in warnings)
 
@@ -87,57 +87,57 @@ def test_unknown_top_level_key_is_warning() -> None:
 def test_bad_projection_mode_is_error() -> None:
     doc = _valid_doc()
     doc["agents"]["projections"][0]["mode"] = "hardlink"
-    errors, _ = validate_workspace_config(doc)
+    errors, _ = validate_vault_config(doc)
     assert any("mode" in e and "hardlink" in e for e in errors)
 
 
 def test_projection_missing_target_is_error() -> None:
     doc = _valid_doc()
     del doc["agents"]["projections"][0]["target"]
-    errors, _ = validate_workspace_config(doc)
+    errors, _ = validate_vault_config(doc)
     assert any("target" in e for e in errors)
 
 
 def test_default_agent_not_in_supported_is_error() -> None:
     doc = _valid_doc()
     doc["agents"]["default"] = "gemini"
-    errors, _ = validate_workspace_config(doc)
+    errors, _ = validate_vault_config(doc)
     assert any("agents.default" in e for e in errors)
 
 
 def test_when_agent_not_in_supported_is_warning() -> None:
     doc = _valid_doc()
     doc["agents"]["projections"][1]["when"] = "gemini"
-    errors, warnings = validate_workspace_config(doc)
+    errors, warnings = validate_vault_config(doc)
     assert errors == []
     assert any("when" in w for w in warnings)
 
 
 def test_non_object_document_is_error() -> None:
-    errors, _ = validate_workspace_config(["not", "an", "object"])
+    errors, _ = validate_vault_config(["not", "an", "object"])
     assert errors
 
 
-# ── load_workspace_config ────────────────────────────────────────────────────
+# ── load_vault_config ────────────────────────────────────────────────────
 
 def test_missing_file_is_absent_and_valid(tmp_path: Path) -> None:
-    result = load_workspace_config(tmp_path)
+    result = load_vault_config(tmp_path)
     assert result["present"] is False
     assert result["valid"] is True
     assert result["errors"] == []
 
 
 def test_invalid_json_is_present_and_invalid(tmp_path: Path) -> None:
-    (tmp_path / "workspace.json").write_text("{nope", encoding="utf-8")
-    result = load_workspace_config(tmp_path)
+    (tmp_path / "vault.json").write_text("{nope", encoding="utf-8")
+    result = load_vault_config(tmp_path)
     assert result["present"] is True
     assert result["valid"] is False
     assert result["errors"]
 
 
 def test_valid_file_round_trips(tmp_path: Path) -> None:
-    (tmp_path / "workspace.json").write_text(json.dumps(_valid_doc()), encoding="utf-8")
-    result = load_workspace_config(tmp_path)
+    (tmp_path / "vault.json").write_text(json.dumps(_valid_doc()), encoding="utf-8")
+    result = load_vault_config(tmp_path)
     assert result["present"] is True
     assert result["valid"] is True
     assert result["config"]["id"] == "trust-safety"
@@ -149,7 +149,7 @@ def test_supported_agents_defaults_to_every_known_agent(tmp_path: Path) -> None:
 
 def test_update_supported_agents_preserves_config_and_clamps_default(tmp_path: Path) -> None:
     doc = _valid_doc()
-    (tmp_path / "workspace.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "vault.json").write_text(json.dumps(doc), encoding="utf-8")
 
     result = update_supported_agents(tmp_path, ["codex"], "claude")
 
@@ -162,18 +162,18 @@ def test_update_supported_agents_preserves_config_and_clamps_default(tmp_path: P
 
 
 def test_update_supported_agents_rejects_empty_or_broken_config(tmp_path: Path) -> None:
-    with pytest.raises(WorkspaceConfigError, match="at least one"):
+    with pytest.raises(VaultConfigError, match="at least one"):
         update_supported_agents(tmp_path, [], "claude")
 
-    (tmp_path / "workspace.json").write_text("{broken", encoding="utf-8")
-    with pytest.raises(WorkspaceConfigError, match="repaired"):
+    (tmp_path / "vault.json").write_text("{broken", encoding="utf-8")
+    with pytest.raises(VaultConfigError, match="repaired"):
         update_supported_agents(tmp_path, ["codex"], "claude")
-    assert (tmp_path / "workspace.json").read_text(encoding="utf-8") == "{broken"
+    assert (tmp_path / "vault.json").read_text(encoding="utf-8") == "{broken"
 
 
 def test_update_appearance_preserves_config(tmp_path: Path) -> None:
     doc = _valid_doc()
-    (tmp_path / "workspace.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "vault.json").write_text(json.dumps(doc), encoding="utf-8")
 
     result = update_appearance(tmp_path, "Safety Lab", "#A371F7")
 
@@ -184,22 +184,22 @@ def test_update_appearance_preserves_config(tmp_path: Path) -> None:
     assert saved["agents"] == doc["agents"]
 
 
-def test_workspace_color_must_be_hex(tmp_path: Path) -> None:
-    with pytest.raises(WorkspaceConfigError, match="hex color"):
+def test_vault_color_must_be_hex(tmp_path: Path) -> None:
+    with pytest.raises(VaultConfigError, match="hex color"):
         update_appearance(tmp_path, "Safety", "purple")
 
     doc = _valid_doc()
     doc["display"]["color"] = "purple"
-    errors, _ = validate_workspace_config(doc)
+    errors, _ = validate_vault_config(doc)
     assert any("display.color" in error for error in errors)
 
 
 # ── HTTP surface ─────────────────────────────────────────────────────────────
 
-def test_workspaces_payload_reports_config_status(client, monorepo: Path) -> None:
-    (monorepo / "workspace.json").write_text(json.dumps(_valid_doc()), encoding="utf-8")
+def test_vaults_payload_reports_config_status(client, monorepo: Path) -> None:
+    (monorepo / "vault.json").write_text(json.dumps(_valid_doc()), encoding="utf-8")
 
-    r = client.get("/api/workspaces")
+    r = client.get("/api/vaults")
 
     assert r.status_code == 200, r.text
     config = r.json()["current"]["config"]
@@ -209,10 +209,10 @@ def test_workspaces_payload_reports_config_status(client, monorepo: Path) -> Non
     assert "config" not in config
 
 
-def test_workspace_config_endpoint_returns_document(client, monorepo: Path) -> None:
-    (monorepo / "workspace.json").write_text(json.dumps(_valid_doc()), encoding="utf-8")
+def test_vault_config_endpoint_returns_document(client, monorepo: Path) -> None:
+    (monorepo / "vault.json").write_text(json.dumps(_valid_doc()), encoding="utf-8")
 
-    r = client.get("/api/workspace/config")
+    r = client.get("/api/vault/config")
 
     assert r.status_code == 200, r.text
     body = r.json()
@@ -221,8 +221,8 @@ def test_workspace_config_endpoint_returns_document(client, monorepo: Path) -> N
     assert body["config"]["agents"]["default"] == "codex"
 
 
-def test_workspace_config_endpoint_without_file(client, monorepo: Path) -> None:
-    r = client.get("/api/workspace/config")
+def test_vault_config_endpoint_without_file(client, monorepo: Path) -> None:
+    r = client.get("/api/vault/config")
 
     assert r.status_code == 200, r.text
     body = r.json()
@@ -230,10 +230,10 @@ def test_workspace_config_endpoint_without_file(client, monorepo: Path) -> None:
     assert body["valid"] is True
 
 
-def test_workspace_config_endpoint_flags_broken_file(client, monorepo: Path) -> None:
-    (monorepo / "workspace.json").write_text("{broken", encoding="utf-8")
+def test_vault_config_endpoint_flags_broken_file(client, monorepo: Path) -> None:
+    (monorepo / "vault.json").write_text("{broken", encoding="utf-8")
 
-    r = client.get("/api/workspace/config")
+    r = client.get("/api/vault/config")
 
     assert r.status_code == 200, r.text
     body = r.json()
@@ -242,8 +242,8 @@ def test_workspace_config_endpoint_flags_broken_file(client, monorepo: Path) -> 
     assert body["errors"]
 
 
-def test_workspace_config_init_creates_starter(client, monorepo: Path) -> None:
-    r = client.post("/api/workspace/config/init")
+def test_vault_config_init_creates_starter(client, monorepo: Path) -> None:
+    r = client.post("/api/vault/config/init")
 
     assert r.status_code == 200, r.text
     body = r.json()
@@ -251,52 +251,52 @@ def test_workspace_config_init_creates_starter(client, monorepo: Path) -> None:
     assert body["valid"] is True
     assert body["config"]["version"] == 1
     assert body["config"]["agents"]["default"] in body["config"]["agents"]["supported"]
-    doc = json.loads((monorepo / "workspace.json").read_text())
+    doc = json.loads((monorepo / "vault.json").read_text())
     assert doc["version"] == 1
 
     # Bootstrap only: a second call refuses to overwrite.
-    r = client.post("/api/workspace/config/init")
+    r = client.post("/api/vault/config/init")
     assert r.status_code == 409
 
 
-def test_workspace_agents_endpoint_updates_policy_and_rejects_last_removal(
+def test_vault_agents_endpoint_updates_policy_and_rejects_last_removal(
     client, monorepo: Path,
 ) -> None:
-    r = client.post("/api/workspace/agents", json={"supported": ["codex"]})
+    r = client.post("/api/vault/agents", json={"supported": ["codex"]})
 
     assert r.status_code == 200, r.text
     assert r.json()["supported"] == ["codex"]
     assert r.json()["default"] == "codex"
-    saved = json.loads((monorepo / "workspace.json").read_text(encoding="utf-8"))
+    saved = json.loads((monorepo / "vault.json").read_text(encoding="utf-8"))
     assert saved["agents"]["supported"] == ["codex"]
     assert saved["agents"]["default"] == "codex"
 
-    fetched = client.get("/api/workspace/agents")
+    fetched = client.get("/api/vault/agents")
     assert fetched.status_code == 200
     assert fetched.json()["supported"] == ["codex"]
 
-    rejected = client.post("/api/workspace/agents", json={"supported": []})
+    rejected = client.post("/api/vault/agents", json={"supported": []})
     assert rejected.status_code == 400
     assert "at least one" in rejected.json()["detail"]
-    assert json.loads((monorepo / "workspace.json").read_text())["agents"]["supported"] == ["codex"]
+    assert json.loads((monorepo / "vault.json").read_text())["agents"]["supported"] == ["codex"]
 
 
-def test_disabled_agent_is_rejected_by_settings_and_project_override(
-    client, monorepo: Path, seed_project,
+def test_disabled_agent_is_rejected_by_settings_and_workspace_override(
+    client, monorepo: Path, seed_workspace,
 ) -> None:
     doc = _valid_doc()
     doc["agents"]["supported"] = ["codex"]
     doc["agents"]["default"] = "codex"
-    (monorepo / "workspace.json").write_text(json.dumps(doc), encoding="utf-8")
-    seed_project("demo")
+    (monorepo / "vault.json").write_text(json.dumps(doc), encoding="utf-8")
+    seed_workspace("demo")
 
     settings = client.post("/api/settings", json={"defaultAgent": "claude"})
     assert settings.status_code == 400
     assert "not enabled" in settings.json()["detail"]
 
-    project = client.post("/api/projects/demo/agent", json={"agent": "claude"})
-    assert project.status_code == 400
-    assert "not enabled" in project.json()["detail"]
+    workspace = client.post("/api/workspaces/demo/agent", json={"agent": "claude"})
+    assert workspace.status_code == 400
+    assert "not enabled" in workspace.json()["detail"]
 
-    enabled = client.post("/api/projects/demo/agent", json={"agent": "codex"})
+    enabled = client.post("/api/workspaces/demo/agent", json={"agent": "codex"})
     assert enabled.status_code == 200, enabled.text

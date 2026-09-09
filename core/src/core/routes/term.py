@@ -1,4 +1,4 @@
-"""Project-scoped terminals backed by tmux + a PTY bridge over WebSocket.
+"""Workspace-scoped terminals backed by tmux + a PTY bridge over WebSocket.
 
 Shape:
   browser xterm.js  <--WS-->  FastAPI  <--PTY-->  `tmux attach -t <name>`  <-->  claude
@@ -11,37 +11,39 @@ Why tmux + PTY (and not one or the other):
 
 Session identity lives in TWO places:
 
-- ``projects/<id>/project.json`` — durable. Stores the *logical*
+- ``workspaces/<id>/workspace.json`` — durable. Stores the *logical*
   session list: ``{name, kind, claude_session_id?, agent_session_id?}``. This is the source of
-  truth for "which sessions does this project know about" and for the
+  truth for "which sessions does this workspace know about" and for the
   Claude session UUIDs we need to ``--resume``. Survives server restarts.
 - ``.lab/state/sessions/sessions.json`` — runtime. Maps the live tmux
-  session name back to ``{project_id, logical_name, cwd, created_at}``.
+  session name back to ``{workspace_id, logical_name, cwd, created_at}``.
   Re-created on session spawn, cleaned on session kill.
 
 Tmux session naming (see ``_tmux_name_for`` / ``_parse_tmux_name``):
-``neurona-<project>-<tab>-<hash6>``. Workspace ownership is deliberately
+``neurona-<workspace>-<tab>-<hash6>``. Vault ownership is deliberately
 not exposed in the human-facing name; it remains in runtime metadata and
-is folded into the deterministic hash so same-named projects in different
-workspaces cannot collide. Older workspace-prefixed and ``lab-`` schemes
+is folded into the deterministic hash so same-named workspaces in different
+vaults cannot collide. Older vault-prefixed and ``lab-`` schemes
 are still recognized for discovery/adoption, so this change never requires
 killing or renaming a live session. ``LAB_TMUX_PREFIX`` (tests / opt-out)
-keeps the plain ``<prefix><project>-<tab>`` shape exactly as before.
+keeps the plain ``<prefix><workspace>-<tab>`` shape exactly as before.
 
 Killing a session (the "X on a tab" flow) removes it from tmux + the runtime
-file but **keeps** the project.json entry so a later re-open can
+file but **keeps** the workspace.json entry so a later re-open can
 ``claude --resume <claude_session_id>`` and pick up the conversation.
 
-Project-scoped endpoints default to the ACTIVE workspace for backward
-compatibility and accept an optional ``workspace`` id so several workspaces
-can stay open at once. Two operations span every REGISTERED workspace
-(``~/.lab/workspaces.toml``): ``GET /api/term/sessions`` with no
-``project_id`` (each row tagged ``workspace``), and
-``DELETE /api/term/sessions/{name}`` (a session named for any workspace is
-accepted and killed against its owning workspace's files). See
-``_known_workspaces``.
+Workspace-scoped endpoints default to the ACTIVE vault for backward
+compatibility and accept an optional ``vault`` id so several vaults
+can stay open at once. Two operations span every REGISTERED vault
+(``~/.lab/vaults.toml``): ``GET /api/term/sessions`` with no
+``workspace_id`` (each row tagged ``vault``), and
+``DELETE /api/term/sessions/{name}`` (a session named for any vault is
+accepted and killed against its owning vault's files). See
+``_known_vaults``.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import asyncio
 import base64
@@ -74,7 +76,7 @@ from lab import settings as lab_settings
 from lab import tmux_sockets
 
 from core import auth, fsguard
-from core import workspace_config
+from core import vault_config
 
 
 router = APIRouter()
@@ -140,20 +142,20 @@ async def _ws_close_safe(ws: WebSocket, code: int = 1000) -> None:
 # ─── paths + env ────────────────────────────────────────────────────────────
 
 # Fixed literal marker for Lab-owned tmux sessions. Current names use
-# ``neurona-<project>-<tab>-<hash6>``; the immediately preceding generation
-# inserted ``<workspace>-`` after this marker and remains discoverable.
+# ``neurona-<workspace>-<tab>-<hash6>``; the immediately preceding generation
+# inserted ``<vault>-`` after this marker and remains discoverable.
 _SESSION_PREFIX = "neurona-"
 
-_WORKSPACE_LABEL_CACHE: dict[str, tuple[float, str]] = {}
-_WORKSPACE_LABEL_TTL_S = 5.0
+_VAULT_LABEL_CACHE: dict[str, tuple[float, str]] = {}
+_VAULT_LABEL_TTL_S = 5.0
 
 
-def _workspace_label_from_registry(resolved_root: Path) -> str | None:
-    """Match ``resolved_root`` against ``~/.lab/workspaces.toml`` entries.
+def _vault_label_from_registry(resolved_root: Path) -> str | None:
+    """Match ``resolved_root`` against ``~/.lab/vaults.toml`` entries.
 
     Returns the entry's ``id`` — the stable handle a concurrent `lab
-    workspace` rename/re-id operation may change, but which never changes
-    just because the workspace's on-disk PATH moved (USB remount, moved
+    vault` rename/re-id operation may change, but which never changes
+    just because the vault's on-disk PATH moved (USB remount, moved
     checkout). Read fresh every call (the TTL cache above wraps the whole
     resolution, not just this step) so a registry edited out-of-process is
     picked up without a server restart.
@@ -162,10 +164,10 @@ def _workspace_label_from_registry(resolved_root: Path) -> str | None:
         assistant = lab_paths.assistant_root()
         if assistant is not None and assistant == resolved_root:
             return "assistant"
-        data = lab_paths.read_workspace_registry()
+        data = lab_paths.read_vault_registry()
     except Exception:
         return None
-    for row in data.get("workspaces") or []:
+    for row in data.get("vaults") or []:
         raw_path = row.get("path")
         if not raw_path:
             continue
@@ -174,14 +176,14 @@ def _workspace_label_from_registry(resolved_root: Path) -> str | None:
         except OSError:
             continue
         if entry_path == resolved_root:
-            wid = row.get("id")
-            if wid:
-                return str(wid)
+            vault_id = row.get("id")
+            if vault_id:
+                return str(vault_id)
     return None
 
 
-def _workspace_label_from_lab_toml(resolved_root: Path) -> str | None:
-    """Fallback: ``[workspace].name`` from the workspace's own ``lab.toml``."""
+def _vault_label_from_lab_toml(resolved_root: Path) -> str | None:
+    """Fallback: ``[vault].name`` from the vault's own ``lab.toml``."""
     toml_path = resolved_root / "lab.toml"
     if not toml_path.is_file():
         return None
@@ -189,21 +191,21 @@ def _workspace_label_from_lab_toml(resolved_root: Path) -> str | None:
         data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeDecodeError):
         return None
-    workspace = data.get("workspace")
-    if isinstance(workspace, dict):
-        name = workspace.get("name")
+    vault = data.get("vault", data.get("workspace"))
+    if isinstance(vault, dict):
+        name = vault.get("name")
         if isinstance(name, str) and name.strip():
             return name.strip()
     return None
 
 
-def _resolve_workspace_label(root: Path | None) -> str:
+def _resolve_vault_label(root: Path | None) -> str:
     """Stable short id for ``root``, used to namespace tmux session names.
 
-    Resolution order: the workspace registry's ``id`` (matched by resolved
+    Resolution order: the vault registry's ``id`` (matched by resolved
     path so it's independent of the path string itself — this is the fix
     for sessions silently orphaning on a path change), then
-    ``[workspace].name`` from the workspace's own ``lab.toml``, then a
+    ``[vault].name`` from the vault's own ``lab.toml``, then a
     sanitized root directory name as a last resort.
 
     Cached per resolved root path for a few seconds: cheap enough to re-read
@@ -211,34 +213,34 @@ def _resolve_workspace_label(root: Path | None) -> str:
     there's no reason to re-parse the registry for each of them.
     """
     if root is None:
-        return "workspace"
+        return "vault"
     try:
         resolved = root.expanduser().resolve()
     except OSError:
         resolved = root.expanduser()
     key = str(resolved)
     now = time.monotonic()
-    cached = _WORKSPACE_LABEL_CACHE.get(key)
-    if cached and (now - cached[0]) < _WORKSPACE_LABEL_TTL_S:
+    cached = _VAULT_LABEL_CACHE.get(key)
+    if cached and (now - cached[0]) < _VAULT_LABEL_TTL_S:
         return cached[1]
     label = (
-        _workspace_label_from_registry(resolved)
-        or _workspace_label_from_lab_toml(resolved)
+        _vault_label_from_registry(resolved)
+        or _vault_label_from_lab_toml(resolved)
         or resolved.name
     )
     sanitized = _sanitize(label)
-    _WORKSPACE_LABEL_CACHE[key] = (now, sanitized)
+    _VAULT_LABEL_CACHE[key] = (now, sanitized)
     return sanitized
 
 
 def _new_scheme_prefix(root: Path | None = None) -> str:
-    """Workspace-neutral prefix of every current-scheme session name."""
+    """Vault-neutral prefix of every current-scheme session name."""
     return _SESSION_PREFIX
 
 
-def _legacy_workspace_prefix(root: Path | None) -> str:
-    """Prefix used by the previous ``neurona-<workspace>-...`` scheme."""
-    return f"{_SESSION_PREFIX}{_resolve_workspace_label(root)}-"
+def _legacy_vault_prefix(root: Path | None) -> str:
+    """Prefix used by the previous ``neurona-<vault>-...`` scheme."""
+    return f"{_SESSION_PREFIX}{_resolve_vault_label(root)}-"
 
 
 def _legacy_namespaced_prefix(root: Path | None) -> str:
@@ -246,26 +248,26 @@ def _legacy_namespaced_prefix(root: Path | None) -> str:
 
     This reproduces the entire prefix algorithm the pre-``neurona-`` code
     used to compute on every call: ``lab-<dirname>-<sha1(resolved
-    path)[:8]>-``. It embedded a hash of the workspace PATH, which is
+    path)[:8]>-``. It embedded a hash of the vault PATH, which is
     exactly why it broke on a path change — kept here only so already-live
     sessions from an older server build are still discovered instead of
     orphaned.
     """
     if root is None:
-        return "lab-workspace-"
+        return "lab-vault-"
     try:
         resolved = root.expanduser().resolve()
     except OSError:
         resolved = root.expanduser()
-    label = re.sub(r"[^A-Za-z0-9_-]+", "-", resolved.name).strip("-") or "workspace"
+    label = re.sub(r"[^A-Za-z0-9_-]+", "-", resolved.name).strip("-") or "vault"
     digest = hashlib.sha1(str(resolved).encode("utf-8")).hexdigest()[:8]
     return f"lab-{label}-{digest}-"
 
 
 def _tmux_discovery_prefixes(root: Path | None) -> list[str]:
-    """All prefixes under which a tmux session could belong to this workspace.
+    """All prefixes under which a tmux session could belong to this vault.
 
-    Includes the workspace-neutral current scheme plus all schemes an older
+    Includes the vault-neutral current scheme plus all schemes an older
     server build used, so already-live sessions from before this
     naming change are discovered/adopted instead of vanishing from the UI.
     With ``LAB_TMUX_PREFIX`` set (tests), there's only ever the one scheme.
@@ -275,36 +277,36 @@ def _tmux_discovery_prefixes(root: Path | None) -> list[str]:
         return [env_prefix]
     return [
         _new_scheme_prefix(root),
-        _legacy_workspace_prefix(root),
+        _legacy_vault_prefix(root),
         _legacy_namespaced_prefix(root),
         "lab-",
     ]
 
 
-# ─── multi-workspace session discovery ──────────────────────────────────────
+# ─── multi-vault session discovery ──────────────────────────────────────
 #
 # Dev servers (core.routes.servers) and a handful of terminal endpoints span
-# every registered workspace, not just the active one — the dashboard needs
-# to see and kill sessions that live in a workspace other than the one
+# every registered vault, not just the active one — the dashboard needs
+# to see and kill sessions that live in a vault other than the one
 # currently open. These helpers extend the single-root primitives above
-# across every workspace in the registry.
+# across every vault in the registry.
 
-def _known_workspaces(active_root: Path | None) -> list[dict]:
-    """``[{"id": ..., "path": Path}, ...]`` for every registered workspace,
+def _known_vaults(active_root: Path | None) -> list[dict]:
+    """``[{"id": ..., "path": Path}, ...]`` for every registered vault,
     plus ``active_root`` itself if it isn't already one of them (id
     defaults to the resolved directory name — same fallback
-    ``core.routes.workspace`` and ``core.routes.servers`` use for a
-    not-yet-registered current workspace). Read fresh on every call: the
+    ``core.routes.vault`` and ``core.routes.servers`` use for a
+    not-yet-registered current vault). Read fresh on every call: the
     registry is a small TOML file and can change out-of-process (``lab
-    workspace add`` et al.) without a server restart.
+    vault add`` et al.) without a server restart.
     """
     try:
-        data = lab_paths.read_workspace_registry()
+        data = lab_paths.read_vault_registry()
     except Exception:
         data = {}
     rows: list[dict] = []
     seen: set[str] = set()
-    for row in data.get("workspaces") or []:
+    for row in data.get("vaults") or []:
         raw = row.get("path")
         if not raw:
             continue
@@ -325,62 +327,62 @@ def _known_workspaces(active_root: Path | None) -> list[dict]:
         if str(resolved) not in seen:
             rows.insert(0, {"id": resolved.name, "path": resolved})
             seen.add(str(resolved))
-    # A client owns one Assistant database across every workspace. Treat it
-    # as a terminal-only pseudo-workspace without registering it as a normal
-    # Workspace tab.
+    # A client owns one Assistant database across every vault. Treat it
+    # as a terminal-only pseudo-vault without registering it as a normal
+    # Vault tab.
     try:
         assistant = lab_paths.assistant_root()
     except Exception:
         assistant = None
     if assistant is not None and assistant.is_dir() and str(assistant) not in seen:
-        rows.append({"id": ASSISTANT_WORKSPACE_ID, "path": assistant})
+        rows.append({"id": ASSISTANT_VAULT_ID, "path": assistant})
     return rows
 
 
-def _workspace_root_for(active_root: Path, workspace: str | None) -> Path:
-    """Resolve an optional registered workspace id without changing global state."""
-    if not workspace:
+def _vault_root_for(active_root: Path, vault: str | None) -> Path:
+    """Resolve an optional registered vault id without changing global state."""
+    if not vault:
         return active_root
-    for row in _known_workspaces(active_root):
-        if row["id"] == workspace:
+    for row in _known_vaults(active_root):
+        if row["id"] == vault:
             return row["path"]
-    raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
+    raise HTTPException(status_code=404, detail=f"vault {vault!r} not found")
 
 
-def _workspace_id_for_root(active_root: Path, root: Path) -> str:
+def _vault_id_for_root(active_root: Path, root: Path) -> str:
     resolved = root.expanduser().resolve()
-    for row in _known_workspaces(active_root):
+    for row in _known_vaults(active_root):
         if row["path"].expanduser().resolve() == resolved:
             return str(row["id"])
     return resolved.name
 
 
 def _require_root_access(connection: Request | WebSocket, active_root: Path, root: Path) -> dict:
-    return auth.require_workspace(connection, _workspace_id_for_root(active_root, root))
+    return auth.require_vault(connection, _vault_id_for_root(active_root, root))
 
 
-def _require_project_access(
-    connection: Request | WebSocket, active_root: Path, root: Path, project_id: str | None,
+def _require_workspace_access(
+    connection: Request | WebSocket, active_root: Path, root: Path, workspace_id: str | None,
 ) -> dict:
-    if project_id == ASSISTANT_PROJECT_ID:
+    if workspace_id == ASSISTANT_WORKSPACE_ID:
         return auth.require_admin(connection)
     user = _require_root_access(connection, active_root, root)
-    if project_id in {SELF_PROJECT_ID, CEREBRO_PROJECT_ID, LOGS_PROJECT_ID} or _cs_repo_name(project_id or ""):
+    if workspace_id in {SELF_WORKSPACE_ID, CEREBRO_WORKSPACE_ID, LOGS_WORKSPACE_ID} or _cs_repo_name(workspace_id or ""):
         if not auth.is_admin(user):
             raise HTTPException(status_code=403, detail="admin access required")
     return user
 
 
-def _tmux_discovery_prefixes_all(workspaces: list[dict]) -> list[str]:
-    """Union of ``_tmux_discovery_prefixes`` across every workspace in
-    ``workspaces`` — lets the "list/kill anything" paths recognize a
-    session spawned for ANY registered workspace, not just the active one.
+def _tmux_discovery_prefixes_all(vaults: list[dict]) -> list[str]:
+    """Union of ``_tmux_discovery_prefixes`` across every vault in
+    ``vaults`` — lets the "list/kill anything" paths recognize a
+    session spawned for ANY registered vault, not just the active one.
 
-    Cheap: each workspace contributes a couple of literal-prefix strings
-    (no filesystem access), and the workspace-agnostic bare ``"lab-"``
-    legacy prefix is included exactly once regardless of workspace count.
-    Callers should compute ``workspaces`` once (e.g. via
-    ``_known_workspaces``) and pass it in rather than re-reading the
+    Cheap: each vault contributes a couple of literal-prefix strings
+    (no filesystem access), and the vault-agnostic bare ``"lab-"``
+    legacy prefix is included exactly once regardless of vault count.
+    Callers should compute ``vaults`` once (e.g. via
+    ``_known_vaults``) and pass it in rather than re-reading the
     registry per call.
     """
     env_prefix = os.environ.get("LAB_TMUX_PREFIX")
@@ -388,11 +390,11 @@ def _tmux_discovery_prefixes_all(workspaces: list[dict]) -> list[str]:
         return [env_prefix]
     prefixes: list[str] = []
     seen: set[str] = set()
-    for ws in workspaces:
+    for vault_row in vaults:
         for p in (
             _new_scheme_prefix(),
-            _legacy_workspace_prefix(ws["path"]),
-            _legacy_namespaced_prefix(ws["path"]),
+            _legacy_vault_prefix(vault_row["path"]),
+            _legacy_namespaced_prefix(vault_row["path"]),
         ):
             if p not in seen:
                 seen.add(p)
@@ -401,31 +403,31 @@ def _tmux_discovery_prefixes_all(workspaces: list[dict]) -> list[str]:
     return prefixes
 
 
-def _resolve_session_workspace_root(
-    name: str, active_root: Path, workspaces: list[dict] | None = None,
+def _resolve_session_vault_root(
+    name: str, active_root: Path, vaults: list[dict] | None = None,
 ) -> Path:
-    """Which workspace's root a live tmux session name actually belongs to.
+    """Which vault's root a live tmux session name actually belongs to.
 
-    Current names omit a visible workspace segment, so ownership is resolved
-    first from each workspace's runtime registry and then by verifying the
-    workspace-specific hash. Previous ``neurona-<workspace>-...`` and
+    Current names omit a visible vault segment, so ownership is resolved
+    first from each vault's runtime registry and then by verifying the
+    vault-specific hash. Previous ``neurona-<vault>-...`` and
     namespaced ``lab-`` names remain directly attributable. The oldest bare
-    ``lab-<project>-<tab>`` form falls back to the active workspace.
+    ``lab-<workspace>-<tab>`` form falls back to the active vault.
     """
     if os.environ.get("LAB_TMUX_PREFIX"):
         return active_root
-    known = workspaces if workspaces is not None else _known_workspaces(active_root)
-    for ws in known:
+    known = vaults if vaults is not None else _known_vaults(active_root)
+    for vault_row in known:
         try:
-            if name in _load_meta(ws["path"]):
-                return ws["path"]
+            if name in _load_meta(vault_row["path"]):
+                return vault_row["path"]
         except OSError:
             continue
-    for ws in known:
-        root = ws["path"]
+    for vault_row in known:
+        root = vault_row["path"]
         if _parse_current_tmux_name(root, name) is not None:
             return root
-        if name.startswith(_legacy_workspace_prefix(root)) or name.startswith(_legacy_namespaced_prefix(root)):
+        if name.startswith(_legacy_vault_prefix(root)) or name.startswith(_legacy_namespaced_prefix(root)):
             return root
     return active_root
 
@@ -437,7 +439,7 @@ def _resolve_session_workspace_root(
 # `list-sessions` / `new-session` / `has-session` etc. onto the CONTAINING
 # session's server instead of the default one. A launchd-run instance (no
 # controlling tmux) then talks to the *default* socket and can't see any of
-# those sessions — they look gone, and reopening a project spawns fresh
+# those sessions — they look gone, and reopening a workspace spawns fresh
 # duplicates instead of finding them. Stripping `TMUX`/`TMUX_PANE` from every
 # tmux child's env pins us to the default socket unconditionally, regardless
 # of how the server process itself was launched.
@@ -449,33 +451,33 @@ def _tmux_child_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k not in _TMUX_ENV_STRIP_KEYS}
 
 
-# Reserved pseudo-project ids.
+# Reserved pseudo-workspace ids.
 #  * __cerebro__ — the personal knowledge-base view (cwd = content/)
 #  * __self__    — the Lab framework checkout itself   (cwd = repo root)
 #  * __logs__    — the embedded logs view              (cwd = logs/)
-#  * __workspace__ — the active workspace view         (cwd = workspace root)
+#  * __vault__ — the active vault view         (cwd = vault root)
 #  * __assistant__ — the client-owned global task database
-# They behave like regular projects for terminal lifecycle and durable session
+# They behave like regular workspaces for terminal lifecycle and durable session
 # state; each view decides independently whether its topbar tab is closable.
-CEREBRO_PROJECT_ID = "__cerebro__"
-SELF_PROJECT_ID = "__self__"
-LOGS_PROJECT_ID = "__logs__"
-WORKSPACE_PROJECT_ID = "__workspace__"
-ASSISTANT_PROJECT_ID = "__assistant__"
+CEREBRO_WORKSPACE_ID = "__cerebro__"
+SELF_WORKSPACE_ID = "__self__"
+LOGS_WORKSPACE_ID = "__logs__"
+VAULT_WORKSPACE_ID = "__vault__"
 ASSISTANT_WORKSPACE_ID = "__assistant__"
-# Per-repo pseudo project for the Code Search tab. The id is
+ASSISTANT_VAULT_ID = "__assistant__"
+# Per-repo pseudo workspace for the Code Search tab. The id is
 # ``__cs_<repo>__`` where ``<repo>`` is a directory name under
 # ``repositories/``. Used so each Code-Search repo has its own scoped
 # terminal panel (cwd = repositories/<repo>) without needing a real
-# project.json.
+# workspace.json.
 _CS_PREFIX = "__cs_"
 _CS_SUFFIX = "__"
 
 
-def _cs_repo_name(project_id: str) -> str | None:
-    if not project_id.startswith(_CS_PREFIX) or not project_id.endswith(_CS_SUFFIX):
+def _cs_repo_name(workspace_id: str) -> str | None:
+    if not workspace_id.startswith(_CS_PREFIX) or not workspace_id.endswith(_CS_SUFFIX):
         return None
-    name = project_id[len(_CS_PREFIX):-len(_CS_SUFFIX)]
+    name = workspace_id[len(_CS_PREFIX):-len(_CS_SUFFIX)]
     return name or None
 
 
@@ -484,51 +486,51 @@ def _sessions_file(root: Path) -> Path:
     return paths.sessions_file(root)
 
 
-def _project_json(root: Path, project_id: str) -> Path:
-    """Path of the metadata file for a project_id. Pseudo-projects store
+def _workspace_json(root: Path, workspace_id: str) -> Path:
+    """Path of the metadata file for a workspace_id. Pseudo-workspaces store
     their sessions[] at a hidden file under content/ that shares
-    project.json's shape."""
-    if project_id == CEREBRO_PROJECT_ID:
-        return root / "content" / ".cerebro-project.json"
-    if project_id == SELF_PROJECT_ID:
+    workspace.json's shape."""
+    if workspace_id == CEREBRO_WORKSPACE_ID:
+        return naming.pseudo_metadata_file(root, "cerebro")
+    if workspace_id == SELF_WORKSPACE_ID:
         from lab import paths
         root = paths.find_framework_root()
-        return root / "content" / ".self-project.json"
-    if project_id == LOGS_PROJECT_ID:
-        return root / "content" / ".logs-project.json"
-    if project_id == WORKSPACE_PROJECT_ID:
-        return root / "content" / ".workspace-project.json"
-    if project_id == ASSISTANT_PROJECT_ID:
-        return root / ".lab" / "project.json"
-    return root / "projects" / project_id / "project.json"
+        return naming.pseudo_metadata_file(root, "self")
+    if workspace_id == LOGS_WORKSPACE_ID:
+        return naming.pseudo_metadata_file(root, "logs")
+    if workspace_id == VAULT_WORKSPACE_ID:
+        return naming.pseudo_metadata_file(root, "vault")
+    if workspace_id == ASSISTANT_WORKSPACE_ID:
+        return naming.workspace_metadata_file(root / ".lab")
+    return naming.workspace_metadata_file(naming.workspaces_dir(root) / workspace_id)
 
 
-def _project_cwd(root: Path, project_id: str) -> Path:
-    """Absolute cwd for a project_id.
+def _workspace_cwd(root: Path, workspace_id: str) -> Path:
+    """Absolute cwd for a workspace_id.
 
     - ``__cerebro__``     → content/
     - ``__self__``        → monorepo root (so claude sees apps/, docs/, etc.)
     - ``__logs__``        → logs/
-    - ``__workspace__``   → the active workspace root (Workspace tab terminal)
+    - ``__vault__``   → the active vault root (Vault tab terminal)
     - ``__assistant__``   → the client-owned Assistant database root
     - ``__cs_<repo>__``   → repositories/<repo> (Code Search per-repo terminal)
     """
-    if project_id == CEREBRO_PROJECT_ID:
+    if workspace_id == CEREBRO_WORKSPACE_ID:
         return (root / "content").resolve()
-    if project_id == WORKSPACE_PROJECT_ID:
+    if workspace_id == VAULT_WORKSPACE_ID:
         return root.resolve()
-    if project_id == ASSISTANT_PROJECT_ID:
+    if workspace_id == ASSISTANT_WORKSPACE_ID:
         return root.resolve()
-    if project_id == SELF_PROJECT_ID:
+    if workspace_id == SELF_WORKSPACE_ID:
         from lab import paths
         return paths.find_framework_root().resolve()
-    if project_id == LOGS_PROJECT_ID:
+    if workspace_id == LOGS_WORKSPACE_ID:
         from lab import paths
         return paths.logs_dir(root).resolve()
-    repo = _cs_repo_name(project_id)
+    repo = _cs_repo_name(workspace_id)
     if repo:
         return (root / "repositories" / repo).resolve()
-    return (root / "projects" / project_id).resolve()
+    return (naming.workspaces_dir(root) / workspace_id).resolve()
 
 
 # ─── runtime metadata (.sessions.json) ──────────────────────────────────────
@@ -541,7 +543,7 @@ def _load_meta(root: Path) -> dict:
     if not p.is_file():
         return {}
     try:
-        return json.loads(p.read_text())
+        return naming.runtime_metadata(json.loads(p.read_text()))
     except (json.JSONDecodeError, ValueError):
         return {}
 
@@ -552,8 +554,8 @@ def _save_meta(root: Path, meta: dict) -> None:
     p.write_text(json.dumps(meta, indent=2) + "\n")
 
 
-# Workspace roots already warned about being unavailable (e.g. a registered
-# workspace living on an unplugged external volume). The UI polls the session
+# Vault roots already warned about being unavailable (e.g. a registered
+# vault living on an unplugged external volume). The UI polls the session
 # endpoints every few seconds, so warn once per root, not once per cycle.
 _UNAVAILABLE_WARNED_ROOTS: set[str] = set()
 
@@ -564,36 +566,36 @@ def _warn_root_unavailable_once(root: Path, action: str, exc: OSError) -> None:
         return
     _UNAVAILABLE_WARNED_ROOTS.add(key)
     log.warning(
-        "workspace storage unavailable during %s for %s: %s",
+        "vault storage unavailable during %s for %s: %s",
         action, root, exc,
-        extra={"event_type": "term.workspace.unavailable", "target": str(root)},
+        extra={"event_type": "term.vault.unavailable", "target": str(root)},
     )
 
 
-# ─── durable metadata (project.json.sessions) ───────────────────────────────
+# ─── durable metadata (workspace.json.sessions) ───────────────────────────────
 
-def _load_project(root: Path, project_id: str) -> dict | None:
-    p = _project_json(root, project_id)
+def _load_workspace(root: Path, workspace_id: str) -> dict | None:
+    p = _workspace_json(root, workspace_id)
     # Pre-rename migration: if the Cerebro file doesn't exist yet but the
-    # old ``.knowledge-project.json`` does, rename it in place. One-shot.
-    if project_id == CEREBRO_PROJECT_ID and not p.is_file():
-        legacy = root / "content" / ".knowledge-project.json"
+    # old ``.knowledge-workspace.json`` does, rename it in place. One-shot.
+    if workspace_id == CEREBRO_WORKSPACE_ID and not p.is_file():
+        legacy = root / "content" / ".knowledge-workspace.json"
         if legacy.is_file():
             try:
                 legacy.rename(p)
             except OSError:
                 pass  # best effort; fall through
     if not p.is_file():
-        # Pseudo-projects have no ``lab project new``
+        # Pseudo-workspaces have no ``lab workspace new``
         # ceremony — bootstrap an empty shell so session IDs get persisted
-        # on first use. Real projects still return None; creating their
-        # project.json is the CLI's job.
-        if project_id in (
-            CEREBRO_PROJECT_ID,
-            SELF_PROJECT_ID,
-            LOGS_PROJECT_ID,
-            WORKSPACE_PROJECT_ID,
-            ASSISTANT_PROJECT_ID,
+        # on first use. Real workspaces still return None; creating their
+        # workspace.json is the CLI's job.
+        if workspace_id in (
+            CEREBRO_WORKSPACE_ID,
+            SELF_WORKSPACE_ID,
+            LOGS_WORKSPACE_ID,
+            VAULT_WORKSPACE_ID,
+            ASSISTANT_WORKSPACE_ID,
         ):
             return {}
         return None
@@ -603,34 +605,34 @@ def _load_project(root: Path, project_id: str) -> dict | None:
         return None
 
 
-def _save_project(root: Path, project_id: str, data: dict) -> None:
-    p = _project_json(root, project_id)
+def _save_workspace(root: Path, workspace_id: str, data: dict) -> None:
+    p = _workspace_json(root, workspace_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def _get_project_sessions(root: Path, project_id: str) -> list[dict]:
-    """Return the `sessions` array from project.json (empty if missing)."""
-    data = _load_project(root, project_id)
+def _get_workspace_sessions(root: Path, workspace_id: str) -> list[dict]:
+    """Return the `sessions` array from workspace.json (empty if missing)."""
+    data = _load_workspace(root, workspace_id)
     if not data:
         return []
     sessions = data.get("sessions")
     return sessions if isinstance(sessions, list) else []
 
 
-def _project_session_by_name(root: Path, project_id: str) -> dict[str, dict]:
+def _workspace_session_by_name(root: Path, workspace_id: str) -> dict[str, dict]:
     """Saved sessions keyed by logical name."""
     return {
-        s["name"]: s for s in _get_project_sessions(root, project_id)
+        s["name"]: s for s in _get_workspace_sessions(root, workspace_id)
         if isinstance(s, dict) and isinstance(s.get("name"), str)
     }
 
 
-def _upsert_project_session(root: Path, project_id: str, entry: dict) -> None:
-    """Insert or update an entry (keyed by ``name``) in project.json.sessions."""
-    data = _load_project(root, project_id)
+def _upsert_workspace_session(root: Path, workspace_id: str, entry: dict) -> None:
+    """Insert or update an entry (keyed by ``name``) in workspace.json.sessions."""
+    data = _load_workspace(root, workspace_id)
     if data is None:
-        return  # project.json doesn't exist — skip silently; the session still
+        return  # workspace.json doesn't exist — skip silently; the session still
                 # runs in tmux, just without durable storage.
     sessions = data.setdefault("sessions", [])
     if not isinstance(sessions, list):
@@ -641,7 +643,7 @@ def _upsert_project_session(root: Path, project_id: str, entry: dict) -> None:
             break
     else:
         sessions.append(entry)
-    _save_project(root, project_id, data)
+    _save_workspace(root, workspace_id, data)
 
 
 def _clean_optional_text(raw: str | None, *, max_len: int) -> str | None:
@@ -827,11 +829,11 @@ def _claude_session_metadata(
     session_id: str, cwd: str,
 ) -> tuple[str | None, str | None, list[str]]:
     """Read Claude's title, live AI recap, and post-clear user requests."""
-    project_slug = re.sub(r"[^A-Za-z0-9]", "-", str(Path(cwd).resolve()))
-    project_dir = Path.home() / ".claude" / "projects" / project_slug
-    transcript = project_dir / f"{session_id}.jsonl"
+    workspace_slug = re.sub(r"[^A-Za-z0-9]", "-", str(Path(cwd).resolve()))
+    workspace_dir = Path.home() / ".claude" / "projects" / workspace_slug
+    transcript = workspace_dir / f"{session_id}.jsonl"
 
-    index_path = project_dir / "sessions-index.json"
+    index_path = workspace_dir / "sessions-index.json"
 
     def load() -> tuple[str | None, str | None, list[str]]:
         title = None
@@ -937,17 +939,17 @@ def _copilot_session_metadata(
     """Read Copilot's saved name, checkpoint recap, and post-clear requests."""
     home = Path(os.environ.get("COPILOT_HOME") or (Path.home() / ".copilot"))
     session_dir = home / "session-state" / session_id
-    workspace = session_dir / "workspace.yaml"
+    vault = session_dir / "workspace.yaml"
     events = session_dir / "events.jsonl"
     store = home / "session-store.db"
 
     def load() -> tuple[str | None, str | None, list[str]]:
         title = None
-        workspace_summary = None
+        vault_summary = None
         user_named = False
         summary_count = 0
-        if workspace.is_file():
-            payload = yaml.safe_load(workspace.read_text())
+        if vault.is_file():
+            payload = yaml.safe_load(vault.read_text())
             if isinstance(payload, dict):
                 candidates = [payload]
                 nested = payload.get("workspace")
@@ -956,8 +958,8 @@ def _copilot_session_metadata(
                 for candidate in candidates:
                     if not title:
                         title = candidate.get("name") or candidate.get("summary")
-                    if not workspace_summary:
-                        workspace_summary = candidate.get("summary")
+                    if not vault_summary:
+                        vault_summary = candidate.get("summary")
                     user_named = user_named or candidate.get("user_named") is True
                     summary_count = max(
                         summary_count, int(candidate.get("summary_count") or 0),
@@ -1016,7 +1018,7 @@ def _copilot_session_metadata(
                 # Older Copilot builds may not have global checkpoint tables.
                 pass
         if not objective and summary_count and not cleared:
-            objective = workspace_summary
+            objective = vault_summary
         if (
             not user_named
             and re.sub(r"\s+", " ", str(objective or "").strip().lower())
@@ -1030,7 +1032,7 @@ def _copilot_session_metadata(
     return _cached_agent_metadata(
         f"copilot:{session_id}",
         _agent_file_fingerprint(
-            workspace, events, store, Path(f"{store}-wal"),
+            vault, events, store, Path(f"{store}-wal"),
         ),
         load,
     )
@@ -1289,62 +1291,63 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
 # ─── registry recovery ──────────────────────────────────────────────────────
 #
 # .sessions.json is rebuildable state: every live tmux session is named
-# ``<prefix><project>-<logical>`` and the durable half of its identity
-# (kind / agent / claude_session_id) lives in project.json. If the runtime
+# ``<prefix><workspace>-<logical>`` and the durable half of its identity
+# (kind / agent / claude_session_id) lives in workspace.json. If the runtime
 # file is ever lost or corrupted, reconstruct it instead of leaving live
-# sessions orphaned — orphans have project_id=None, which empties
-# /api/term/projects-with-sessions and greys out every tab in the UI.
+# sessions orphaned — orphans have workspace_id=None, which empties
+# /api/term/workspaces-with-sessions and greys out every tab in the UI.
 
-def _known_project_ids(root: Path) -> list[str]:
+def _known_workspace_ids(root: Path) -> list[str]:
     ids = [
-        CEREBRO_PROJECT_ID,
-        SELF_PROJECT_ID,
-        LOGS_PROJECT_ID,
-        WORKSPACE_PROJECT_ID,
+        CEREBRO_WORKSPACE_ID,
+        SELF_WORKSPACE_ID,
+        LOGS_WORKSPACE_ID,
+        VAULT_WORKSPACE_ID,
+        "__workspace__",  # Legacy vault terminal scope; keep live tmux names discoverable.
     ]
-    projects = root / "projects"
-    if projects.is_dir():
-        ids += [p.name for p in projects.iterdir() if p.is_dir()]
+    workspaces = naming.workspaces_dir(root)
+    if workspaces.is_dir():
+        ids += [p.name for p in workspaces.iterdir() if p.is_dir()]
     repos = root / "repositories"
     if repos.is_dir():
         ids += [f"{_CS_PREFIX}{p.name}{_CS_SUFFIX}" for p in repos.iterdir() if p.is_dir()]
     return ids
 
 
-def _split_project_tab_from_ids(project_ids: list[str], rest: str) -> tuple[str, str] | None:
-    """Split ``<project>-<tab>`` against known project ids, longest first.
+def _split_workspace_tab_from_ids(workspace_ids: list[str], rest: str) -> tuple[str, str] | None:
+    """Split ``<workspace>-<tab>`` against known workspace ids, longest first.
 
-    Project ids can themselves contain ``-`` so the split point is
-    ambiguous without this. The caller supplies project ids so dashboard
-    scans can compute them once per workspace instead of re-walking the
+    Workspace ids can themselves contain ``-`` so the split point is
+    ambiguous without this. The caller supplies workspace ids so dashboard
+    scans can compute them once per vault instead of re-walking the
     filesystem for every live tmux session.
     """
-    for pid in sorted(set(project_ids), key=len, reverse=True):
+    for pid in sorted(set(workspace_ids), key=len, reverse=True):
         sane = _sanitize(pid)
         if rest.startswith(sane + "-") and len(rest) > len(sane) + 1:
             return pid, rest[len(sane) + 1:]
     return None
 
 
-def _split_project_tab(root: Path, rest: str) -> tuple[str, str] | None:
-    return _split_project_tab_from_ids(_known_project_ids(root), rest)
+def _split_workspace_tab(root: Path, rest: str) -> tuple[str, str] | None:
+    return _split_workspace_tab_from_ids(_known_workspace_ids(root), rest)
 
 
-def _split_project_tab_hashed_from_ids(
-    project_ids: list[str],
-    workspace: str,
+def _split_workspace_tab_hashed_from_ids(
+    workspace_ids: list[str],
+    vault: str,
     rest: str,
 ) -> tuple[str, str] | None:
-    """Split ``<project>-<tab>-<hash6>`` for the current naming scheme.
+    """Split ``<workspace>-<tab>-<hash6>`` for the current naming scheme.
 
     Tolerates sessions missing the hash suffix (e.g. hand-created by a CLI
-    or agent that followed the ``<project>-<tab>`` shape but didn't compute
+    or agent that followed the ``<workspace>-<tab>`` shape but didn't compute
     the marker): a trailing 6-hex segment is only treated as the hash when
-    it verifies against the deterministic hash for that exact (project,
+    it verifies against the deterministic hash for that exact (workspace,
     tab) pair, so a tab name that innocently ends in 6 hex characters is
     never mistaken for one and chopped off.
     """
-    for pid in sorted(set(project_ids), key=len, reverse=True):
+    for pid in sorted(set(workspace_ids), key=len, reverse=True):
         sane = _sanitize(pid)
         if not (rest.startswith(sane + "-") and len(rest) > len(sane) + 1):
             continue
@@ -1352,7 +1355,7 @@ def _split_project_tab_hashed_from_ids(
         if "-" in middle:
             maybe_tab, _, maybe_hash = middle.rpartition("-")
             if maybe_tab and _HASH_HEX_RE.match(maybe_hash):
-                if maybe_hash == _session_hash(workspace, sane, maybe_tab):
+                if maybe_hash == _session_hash(vault, sane, maybe_tab):
                     return pid, maybe_tab
         # No verified hash suffix — tolerate it; the whole remainder is the
         # tab. Still a valid nomenclature session, just hand-made.
@@ -1360,20 +1363,20 @@ def _split_project_tab_hashed_from_ids(
     return None
 
 
-def _split_project_tab_hashed(root: Path, workspace: str, rest: str) -> tuple[str, str] | None:
-    return _split_project_tab_hashed_from_ids(_known_project_ids(root), workspace, rest)
+def _split_workspace_tab_hashed(root: Path, vault: str, rest: str) -> tuple[str, str] | None:
+    return _split_workspace_tab_hashed_from_ids(_known_workspace_ids(root), vault, rest)
 
 
-def _split_current_project_tab_from_ids(
-    project_ids: list[str], workspace: str, rest: str,
+def _split_current_workspace_tab_from_ids(
+    workspace_ids: list[str], vault: str, rest: str,
 ) -> tuple[str, str] | None:
-    """Strictly split a workspace-neutral current name.
+    """Strictly split a vault-neutral current name.
 
-    The visible name no longer carries a workspace id, so the deterministic
-    suffix must verify for ``workspace``. A hash belonging to another root
+    The visible name no longer carries a vault id, so the deterministic
+    suffix must verify for ``vault``. A hash belonging to another root
     is rejected instead of being misread as part of the logical tab name.
     """
-    for pid in sorted(set(project_ids), key=len, reverse=True):
+    for pid in sorted(set(workspace_ids), key=len, reverse=True):
         sane = _sanitize(pid)
         if not (rest.startswith(sane + "-") and len(rest) > len(sane) + 1):
             continue
@@ -1381,105 +1384,105 @@ def _split_current_project_tab_from_ids(
         maybe_tab, sep, maybe_hash = middle.rpartition("-")
         if not sep or not maybe_tab or not _HASH_HEX_RE.match(maybe_hash):
             continue
-        if maybe_hash == _session_hash(workspace, sane, maybe_tab):
+        if maybe_hash == _session_hash(vault, sane, maybe_tab):
             return pid, maybe_tab
     return None
 
 
 def _parse_current_tmux_name(
-    root: Path, name: str, project_ids: list[str] | None = None,
+    root: Path, name: str, workspace_ids: list[str] | None = None,
 ) -> tuple[str, str] | None:
     if not name.startswith(_SESSION_PREFIX):
         return None
-    return _split_current_project_tab_from_ids(
-        project_ids if project_ids is not None else _known_project_ids(root),
-        _resolve_workspace_label(root),
+    return _split_current_workspace_tab_from_ids(
+        workspace_ids if workspace_ids is not None else _known_workspace_ids(root),
+        _resolve_vault_label(root),
         name[len(_SESSION_PREFIX):],
     )
 
 
 def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
-    """Split a live tmux session name back into ``(project_id, logical_name)``.
+    """Split a live tmux session name back into ``(workspace_id, logical_name)``.
 
     Recognizes four generations of naming, tried in order:
-      1. Current: ``neurona-<project>-<tab>-<hash6>``.
-      2. Previous: ``neurona-<workspace>-<project>-<tab>-<hash6>``.
-      3. Namespaced legacy: ``lab-<label>-<digest8>-<project>-<tab>``.
-      4. Bare legacy: ``lab-<project>-<tab>``.
+      1. Current: ``neurona-<workspace>-<tab>-<hash6>``.
+      2. Previous: ``neurona-<vault>-<workspace>-<tab>-<hash6>``.
+      3. Namespaced legacy: ``lab-<label>-<digest8>-<workspace>-<tab>``.
+      4. Bare legacy: ``lab-<workspace>-<tab>``.
     All are tried so sessions spawned by an older server build (or by
     an agent/CLI running outside the server, following the convention) are
     still discovered and adopted instead of showing up as orphaned.
 
     With ``LAB_TMUX_PREFIX`` set, only the single legacy-shaped scheme under
     that literal prefix is recognized (test mode). Returns None for names we
-    can't attribute (e.g. the UUID fallback for project-less terminals).
+    can't attribute (e.g. the UUID fallback for workspace-less terminals).
     """
     env_prefix = os.environ.get("LAB_TMUX_PREFIX")
     if env_prefix:
         if not name.startswith(env_prefix):
             return None
-        return _split_project_tab(root, name[len(env_prefix):])
+        return _split_workspace_tab(root, name[len(env_prefix):])
 
     parsed = _parse_current_tmux_name(root, name)
     if parsed:
         return parsed
 
-    workspace_prefix = _legacy_workspace_prefix(root)
-    if name.startswith(workspace_prefix):
-        workspace = _resolve_workspace_label(root)
-        parsed = _split_project_tab_hashed(root, workspace, name[len(workspace_prefix):])
+    vault_prefix = _legacy_vault_prefix(root)
+    if name.startswith(vault_prefix):
+        vault = _resolve_vault_label(root)
+        parsed = _split_workspace_tab_hashed(root, vault, name[len(vault_prefix):])
         if parsed:
             return parsed
 
     legacy_ns = _legacy_namespaced_prefix(root)
     if name.startswith(legacy_ns):
-        parsed = _split_project_tab(root, name[len(legacy_ns):])
+        parsed = _split_workspace_tab(root, name[len(legacy_ns):])
         if parsed:
             return parsed
 
     if name.startswith("lab-"):
-        parsed = _split_project_tab(root, name[len("lab-"):])
+        parsed = _split_workspace_tab(root, name[len("lab-"):])
         if parsed:
             return parsed
 
     return None
 
 
-def _parse_tmux_name_with_project_ids(
+def _parse_tmux_name_with_workspace_ids(
     root: Path,
     name: str,
-    project_ids: list[str],
+    workspace_ids: list[str],
 ) -> tuple[str, str] | None:
-    """Like ``_parse_tmux_name`` but uses a pre-scanned project id list."""
+    """Like ``_parse_tmux_name`` but uses a pre-scanned workspace id list."""
     env_prefix = os.environ.get("LAB_TMUX_PREFIX")
     if env_prefix:
         if not name.startswith(env_prefix):
             return None
-        return _split_project_tab_from_ids(project_ids, name[len(env_prefix):])
+        return _split_workspace_tab_from_ids(workspace_ids, name[len(env_prefix):])
 
-    parsed = _parse_current_tmux_name(root, name, project_ids)
+    parsed = _parse_current_tmux_name(root, name, workspace_ids)
     if parsed:
         return parsed
 
-    workspace_prefix = _legacy_workspace_prefix(root)
-    if name.startswith(workspace_prefix):
-        workspace = _resolve_workspace_label(root)
-        parsed = _split_project_tab_hashed_from_ids(
-            project_ids,
-            workspace,
-            name[len(workspace_prefix):],
+    vault_prefix = _legacy_vault_prefix(root)
+    if name.startswith(vault_prefix):
+        vault = _resolve_vault_label(root)
+        parsed = _split_workspace_tab_hashed_from_ids(
+            workspace_ids,
+            vault,
+            name[len(vault_prefix):],
         )
         if parsed:
             return parsed
 
     legacy_ns = _legacy_namespaced_prefix(root)
     if name.startswith(legacy_ns):
-        parsed = _split_project_tab_from_ids(project_ids, name[len(legacy_ns):])
+        parsed = _split_workspace_tab_from_ids(workspace_ids, name[len(legacy_ns):])
         if parsed:
             return parsed
 
     if name.startswith("lab-"):
-        parsed = _split_project_tab_from_ids(project_ids, name[len("lab-"):])
+        parsed = _split_workspace_tab_from_ids(workspace_ids, name[len("lab-"):])
         if parsed:
             return parsed
 
@@ -1493,7 +1496,7 @@ def _reconstruct_meta_entry(
     tmux_socket: str = tmux_sockets.DEFAULT_SOCKET,
 ) -> dict | None:
     """Best-effort runtime entry for a live session .sessions.json has no
-    record of. The durable project.json entry wins where present; otherwise
+    record of. The durable workspace.json entry wins where present; otherwise
     the logical name's leading word fills the gaps ("bash" → terminal,
     "codex" → codex agent, "server" → a managed dev-server tab spawned by
     ``core.routes.servers``, not a claude conversation)."""
@@ -1501,20 +1504,22 @@ def _reconstruct_meta_entry(
     if not parsed:
         return None
     pid, logical = parsed
+    if pid == "__workspace__":
+        pid = VAULT_WORKSPACE_ID
     base = logical.split("-")[0]
     entry: dict = {
-        "project_id": pid,
+        "workspace_id": pid,
         "logical_name": logical,
         "kind": "terminal" if base in ("bash", "terminal", "term", "shell", "server") else "claude",
         "agent": None,
-        "cwd": str(_project_cwd(root, pid)),
+        "cwd": str(_workspace_cwd(root, pid)),
         "created_at": created or int(time.time()),
         "tmux_socket": tmux_socket,
         "recovered": True,
     }
     if entry["kind"] == "claude":
         entry["agent"] = base if base in lab_settings.VALID_AGENTS else "claude"
-    for s in _get_project_sessions(root, pid):
+    for s in _get_workspace_sessions(root, pid):
         if isinstance(s, dict) and s.get("name") == logical:
             entry["kind"] = s.get("kind") or entry["kind"]
             entry["agent"] = s.get("agent") or entry["agent"]
@@ -1534,7 +1539,7 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
 
     - ``live is None`` (listing failed) → return the registry untouched.
       Never prune on a failed listing: one transient tmux error would
-      otherwise wipe every session's project mapping.
+      otherwise wipe every session's workspace mapping.
     - Prune entries whose tmux session is provably gone.
     - Rebuild entries for live sessions the registry has no record of.
     """
@@ -1545,10 +1550,10 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
             extra={"event_type": "term.registry.unknown"},
         )
         return meta
-    # The current ``neurona-`` prefix is shared by every workspace. Keep
+    # The current ``neurona-`` prefix is shared by every vault. Keep
     # only sessions already owned by this registry or whose deterministic
-    # hash/name parses for this root; otherwise each workspace scan would
-    # adopt every other workspace's sessions into its own sessions.json.
+    # hash/name parses for this root; otherwise each vault scan would
+    # adopt every other vault's sessions into its own sessions.json.
     live = [
         row for row in live
         if row.get("name") in meta or _parse_tmux_name(root, str(row.get("name") or "")) is not None
@@ -1589,12 +1594,12 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
                 extra={
                     "event_type": "term.registry.recover",
                     "target": n,
-                    "action": entry.get("project_id"),
+                    "action": entry.get("workspace_id"),
                 },
             )
     if changed:
         # Best-effort: the reconciled registry is still valid in memory, so
-        # session listing must keep working even when the workspace's volume
+        # session listing must keep working even when the vault's volume
         # can't take the write (unplugged drive → its stub dir under /Volumes
         # is root-owned and mkdir raises PermissionError). The save simply
         # retries on a later cycle once the volume is back.
@@ -1655,7 +1660,7 @@ def _tmux_list(
     running" (which genuinely means zero sessions and maps to ``[]``).
     None means *unknown*, not *empty*: callers must never prune registry
     state on a failed listing — a single transient tmux error used to wipe
-    every session's project mapping from .sessions.json (2026-06-10).
+    every session's workspace mapping from .sessions.json (2026-06-10).
     """
     if not _tmux_available():
         return None
@@ -1920,54 +1925,54 @@ def _agent_argv(agent: str) -> list[str]:
 _HASH_HEX_RE = re.compile(r"^[0-9a-f]{6}$")
 
 
-def _session_hash(workspace: str, project_sane: str, tab_sane: str) -> str:
+def _session_hash(vault: str, workspace_sane: str, tab_sane: str) -> str:
     """Deterministic 6-hex marker appended to current-scheme session names.
 
-    Workspace ownership stays in this hash even though it is no longer a
+    Vault ownership stays in this hash even though it is no longer a
     visible name segment. Hashing sanitized values keeps generation and
     parsing byte-for-byte consistent.
     """
-    payload = f"{_SESSION_PREFIX}{workspace}/{project_sane}/{tab_sane}"
+    payload = f"{_SESSION_PREFIX}{vault}/{workspace_sane}/{tab_sane}"
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:6]
 
 
-def _tmux_name_for(project_id: str | None, logical_name: str,
+def _tmux_name_for(workspace_id: str | None, logical_name: str,
                    root: Path | None = None) -> str:
     """Build the tmux session name.
 
-    - ``LAB_TMUX_PREFIX`` set (tests / opt-out): ``<prefix><project>-<tab>``,
+    - ``LAB_TMUX_PREFIX`` set (tests / opt-out): ``<prefix><workspace>-<tab>``,
       exactly the pre-nomenclature format.
-    - Otherwise: ``neurona-<project>-<tab>-<hash6>``. The workspace's stable
+    - Otherwise: ``neurona-<workspace>-<tab>-<hash6>``. The vault's stable
       registry id is folded into ``<hash6>`` rather than exposed in the
-      visible name, so identical project/tab pairs in different workspaces
+      visible name, so identical workspace/tab pairs in different vaults
       remain collision-free.
 
-    When no project is given (rare — standalone terminals) we fall back to a
+    When no workspace is given (rare — standalone terminals) we fall back to a
     UUID so the name is globally unique.
     """
     env_prefix = os.environ.get("LAB_TMUX_PREFIX")
-    if not project_id:
+    if not workspace_id:
         if env_prefix:
             return env_prefix + uuid.uuid4().hex[:8]
         return _new_scheme_prefix() + uuid.uuid4().hex[:8]
-    project_sane = _sanitize(project_id)
+    workspace_sane = _sanitize(workspace_id)
     tab_sane = _sanitize(logical_name)
     if env_prefix:
-        return env_prefix + project_sane + "-" + tab_sane
-    workspace = _resolve_workspace_label(root)
-    digest = _session_hash(workspace, project_sane, tab_sane)
-    return f"{_SESSION_PREFIX}{project_sane}-{tab_sane}-{digest}"
+        return env_prefix + workspace_sane + "-" + tab_sane
+    vault = _resolve_vault_label(root)
+    digest = _session_hash(vault, workspace_sane, tab_sane)
+    return f"{_SESSION_PREFIX}{workspace_sane}-{tab_sane}-{digest}"
 
 
-def _legacy_workspace_tmux_name_for(
-    project_id: str, logical_name: str, root: Path | None,
+def _legacy_vault_tmux_name_for(
+    workspace_id: str, logical_name: str, root: Path | None,
 ) -> str:
-    """Exact name emitted by the preceding workspace-visible generation."""
-    workspace = _resolve_workspace_label(root)
-    project_sane = _sanitize(project_id)
+    """Exact name emitted by the preceding vault-visible generation."""
+    vault = _resolve_vault_label(root)
+    workspace_sane = _sanitize(workspace_id)
     tab_sane = _sanitize(logical_name)
-    digest = _session_hash(workspace, project_sane, tab_sane)
-    return f"{_SESSION_PREFIX}{workspace}-{project_sane}-{tab_sane}-{digest}"
+    digest = _session_hash(vault, workspace_sane, tab_sane)
+    return f"{_SESSION_PREFIX}{vault}-{workspace_sane}-{tab_sane}-{digest}"
 
 
 def _attach_command(
@@ -1984,7 +1989,7 @@ def _pick_unique_logical_name(preferred: str, taken_logical_names: set[str]) -> 
     """Return a logical_name that doesn't collide with a DIFFERENT live tab.
 
     ``taken_logical_names`` is the set of logical (tab) names already live
-    for this project. Callers only reach this when they've already
+    for this workspace. Callers only reach this when they've already
     established that the preferred name belongs to a live tab and the
     caller explicitly wants a brand-new one (``start_fresh``) — this
     function's only job is picking the next free "-N" suffix, never
@@ -2007,21 +2012,21 @@ def _pick_unique_logical_name(preferred: str, taken_logical_names: set[str]) -> 
 
 
 class NewSession(BaseModel):
-    project_id: str | None = None
-    workspace: str | None = None
+    workspace_id: str | None = None
+    vault: str | None = None
     cwd: str | None = None
     # "claude" spawns `claude` with --permission-mode auto + --session-id
-    # (generated UUID on first launch, saved to project.json, reused via
+    # (generated UUID on first launch, saved to workspace.json, reused via
     # --resume on subsequent creates of the same name).
     # "terminal" spawns the user's $SHELL (or bash).
     kind: str = "claude"
     # Which agent CLI to launch for kind=="claude". None → resolve from the
-    # project override / global default in .agents/config.json. One of
+    # workspace override / global default in .agents/config.json. One of
     # VALID_AGENTS (claude | codex | copilot).
     agent: str | None = None
     # Optional explicit logical name. Defaults: agent name / "bash".
     name: str | None = None
-    # Only meaningful when kind == "claude". None → the workspace's
+    # Only meaningful when kind == "claude". None → the vault's
     # per-agent autopilot setting decides (claude defaults on; see
     # lab.settings.DEFAULTS["autopilot"]). Explicit true/false wins.
     auto: bool | None = None
@@ -2031,8 +2036,8 @@ class NewSession(BaseModel):
 
 
 class AttachSession(BaseModel):
-    project_id: str
-    workspace: str | None = None
+    workspace_id: str
+    vault: str | None = None
     name: str
 
 
@@ -2047,23 +2052,23 @@ class AttachSession(BaseModel):
 # UI's polling) — visible as typing-echo jitter.
 
 def _sessions_for_root(
-    root: Path, project_id: str | None, *, include_agent_details: bool = True,
+    root: Path, workspace_id: str | None, *, include_agent_details: bool = True,
 ) -> list[dict]:
-    """One workspace's live session rows (optionally scoped to
-    ``project_id``), with the runtime registry reconciled against the live
+    """One vault's live session rows (optionally scoped to
+    ``workspace_id``), with the runtime registry reconciled against the live
     tmux listing. Factored out of ``list_sessions`` so the "every
-    workspace" path can reuse it per workspace without duplicating the
+    vault" path can reuse it per vault without duplicating the
     tmux-list + meta-sync + row-shaping logic."""
     prefixes = _tmux_discovery_prefixes(root)
     listing = _tmux_list(prefixes)
     meta = _sync_meta(root, listing)
-    # _sync_meta filters the workspace-neutral ``neurona-`` listing down to
+    # _sync_meta filters the vault-neutral ``neurona-`` listing down to
     # sessions attributable to this root. Runtime metadata is therefore the
     # ownership boundary for the rows returned here.
     live = {s["name"]: s for s in (listing or []) if s["name"] in meta}
 
     rows: list[dict] = []
-    saved_by_logical = _project_session_by_name(root, project_id) if project_id else {}
+    saved_by_logical = _workspace_session_by_name(root, workspace_id) if workspace_id else {}
     for name, info in live.items():
         row = {**info, **meta.get(name, {}), "name": name}
         socket_name = str(
@@ -2071,7 +2076,7 @@ def _sessions_for_root(
         )
         row["tmux_socket"] = socket_name
         row["attach_command"] = _attach_command(name, socket_name)
-        if project_id and row.get("project_id") != project_id:
+        if workspace_id and row.get("workspace_id") != workspace_id:
             continue
         logical = row.get("logical_name")
         saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
@@ -2081,7 +2086,7 @@ def _sessions_for_root(
                     row[key] = saved[key]
         rows.append(row)
     # Agent titles/tasks and capture-pane summaries are useful in the active
-    # project's terminal UI, but the unscoped endpoint is polled every five
+    # workspace's terminal UI, but the unscoped endpoint is polled every five
     # seconds by the dashboard/top tabs and consumes none of those fields.
     # Avoid ps, SQLite and one tmux capture per row on that global hot path.
     if include_agent_details:
@@ -2104,34 +2109,34 @@ def _sessions_for_root(
 
 @router.get("/api/term/sessions")
 def list_sessions(
-    request: Request, project_id: str | None = None, workspace: str | None = None,
+    request: Request, workspace_id: str | None = None, vault: str | None = None,
 ) -> list[dict]:
-    """List live tmux sessions for a project (or all projects/workspaces).
+    """List live tmux sessions for a workspace (or all workspaces/vaults).
 
-    Scoped to ``project_id``: sessions in the requested ``workspace`` (or
-    the active workspace when omitted). Unscoped: every REGISTERED
-    workspace's sessions, each tagged with ``workspace`` (registry id) —
-    this is what the cross-workspace terminals dashboard needs. A workspace
+    Scoped to ``workspace_id``: sessions in the requested ``vault`` (or
+    the active vault when omitted). Unscoped: every REGISTERED
+    vault's sessions, each tagged with ``vault`` (registry id) —
+    this is what the cross-vault terminals dashboard needs. A vault
     whose path is missing/stalled is skipped for that cycle (fsguard 503,
     or an OSError from an unmounted/unreadable volume) rather than failing
     the whole request.
 
     Only returns sessions that are currently alive in tmux. Saved-but-dead
-    sessions (stored in project.json) are surfaced separately via
+    sessions (stored in workspace.json) are surfaced separately via
     ``/api/term/sessions/saved``.
     """
     active_root = auth.request_root(request)
 
-    if project_id:
-        root = _workspace_root_for(active_root, workspace)
-        _require_project_access(request, active_root, root, project_id)
-        rows = _sessions_for_root(root, project_id)
-        # Order preference: if the project has a saved ``sessions[]`` array
-        # (in project.json), use that order as the source of truth — this
+    if workspace_id:
+        root = _vault_root_for(active_root, vault)
+        _require_workspace_access(request, active_root, root, workspace_id)
+        rows = _sessions_for_root(root, workspace_id)
+        # Order preference: if the workspace has a saved ``sessions[]`` array
+        # (in workspace.json), use that order as the source of truth — this
         # is what powers the "drag pills to reorder" UX. Sessions with no
         # saved entry (edge case: spawned out-of-band) get appended in
         # tmux-creation order.
-        saved = _get_project_sessions(root, project_id)
+        saved = _get_workspace_sessions(root, workspace_id)
         order: dict[str, int] = {
             s["name"]: i for i, s in enumerate(saved)
             if isinstance(s, dict) and "name" in s
@@ -2147,12 +2152,12 @@ def list_sessions(
 
     rows = []
     user = auth.require_user(request)
-    for ws in _known_workspaces(active_root):
-        if not auth.can_access_workspace(user, str(ws["id"])):
+    for vault_row in _known_vaults(active_root):
+        if not auth.can_access_vault(user, str(vault_row["id"])):
             continue
         try:
             ws_rows = fsguard.guarded(
-                ws["path"], _sessions_for_root, ws["path"], None,
+                vault_row["path"], _sessions_for_root, vault_row["path"], None,
                 include_agent_details=False,
             )
         except HTTPException as exc:
@@ -2160,13 +2165,13 @@ def list_sessions(
                 raise
             continue
         except OSError as exc:
-            # Same degradation as the fsguard 503 above: a workspace whose
+            # Same degradation as the fsguard 503 above: a vault whose
             # volume is missing or unreadable is skipped this cycle instead
-            # of failing the listing for every other workspace.
-            _warn_root_unavailable_once(ws["path"], "session listing", exc)
+            # of failing the listing for every other vault.
+            _warn_root_unavailable_once(vault_row["path"], "session listing", exc)
             continue
         for r in ws_rows:
-            r["workspace"] = ws["id"]
+            r["vault"] = vault_row["id"]
         rows.extend(ws_rows)
     rows.sort(key=lambda r: r.get("created", 0), reverse=True)
     return rows
@@ -2174,23 +2179,23 @@ def list_sessions(
 
 @router.get("/api/term/sessions/attachable")
 def list_attachable_sessions(
-    request: Request, project_id: str, workspace: str | None = None,
+    request: Request, workspace_id: str, vault: str | None = None,
 ) -> list[dict]:
     """List live tmux sessions for the attach-session picker.
 
     Unlike the normal session list, admins also see otherwise-unregistered
     sessions on Lab's active/draining tmux sockets. Registered sessions are
-    enriched with their owning workspace/project so the client can group the
-    picker. Non-admins only see sessions already registered in workspaces they
+    enriched with their owning vault/workspace so the client can group the
+    picker. Non-admins only see sessions already registered in vaults they
     can access; importing an arbitrary host session remains admin-only, just
     like the attach endpoint itself.
     """
     active_root = auth.request_root(request)
-    target_root = _workspace_root_for(active_root, workspace)
-    user = _require_project_access(
-        request, active_root, target_root, project_id,
+    target_root = _vault_root_for(active_root, vault)
+    user = _require_workspace_access(
+        request, active_root, target_root, workspace_id,
     )
-    target_workspace = _workspace_id_for_root(active_root, target_root)
+    target_vault = _vault_id_for_root(active_root, target_root)
 
     registered: dict[tuple[str, str], dict] = {}
     # A tmux client is not what makes a session "attached" in this picker.
@@ -2198,13 +2203,13 @@ def list_attachable_sessions(
     # it.  Map both registered sessions and the sources behind grouped
     # aliases to the Lab tab that represents them.
     tabs_by_source: dict[str, dict] = {}
-    for ws in _known_workspaces(active_root):
-        workspace_id = str(ws["id"])
-        if not auth.can_access_workspace(user, workspace_id):
+    for vault_row in _known_vaults(active_root):
+        vault_id = str(vault_row["id"])
+        if not auth.can_access_vault(user, vault_id):
             continue
         try:
             ws_rows = fsguard.guarded(
-                ws["path"], _sessions_for_root, ws["path"], None,
+                vault_row["path"], _sessions_for_root, vault_row["path"], None,
                 include_agent_details=False,
             )
         except HTTPException as exc:
@@ -2213,22 +2218,22 @@ def list_attachable_sessions(
             continue
         except OSError as exc:
             _warn_root_unavailable_once(
-                ws["path"], "attachable session listing", exc,
+                vault_row["path"], "attachable session listing", exc,
             )
             continue
 
-        project_names: dict[str, str] = {}
+        workspace_names: dict[str, str] = {}
         for row in ws_rows:
-            owner_project = str(row.get("project_id") or "")
-            if owner_project not in project_names:
-                project_doc = _load_project(ws["path"], owner_project)
-                project_names[owner_project] = str(
-                    (project_doc or {}).get("name") or owner_project
+            owner_workspace = str(row.get("workspace_id") or "")
+            if owner_workspace not in workspace_names:
+                workspace_doc = _load_workspace(vault_row["path"], owner_workspace)
+                workspace_names[owner_workspace] = str(
+                    (workspace_doc or {}).get("name") or owner_workspace
                 )
             enriched = {
                 **row,
-                "workspace": workspace_id,
-                "project_name": project_names[owner_project],
+                "vault": vault_id,
+                "workspace_name": workspace_names[owner_workspace],
             }
             socket_name = str(
                 enriched.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
@@ -2236,9 +2241,9 @@ def list_attachable_sessions(
             registered[(socket_name, str(enriched["name"]))] = enriched
             tab = {
                 "session_name": str(enriched["name"]),
-                "project_id": owner_project,
-                "project_name": project_names[owner_project],
-                "workspace": workspace_id,
+                "workspace_id": owner_workspace,
+                "workspace_name": workspace_names[owner_workspace],
+                "vault": vault_id,
             }
             tabs_by_source.setdefault(str(enriched["name"]), tab)
             if enriched.get("kind") == "attached" and enriched.get("source_session"):
@@ -2280,9 +2285,9 @@ def list_attachable_sessions(
                 **live_row,
                 "name": name,
                 "logical_name": name,
-                "project_id": None,
-                "project_name": "Unassigned",
-                "workspace": None,
+                "workspace_id": None,
+                "workspace_name": "Unassigned",
+                "vault": None,
                 "kind": "tmux",
                 "agent": None,
                 "tmux_socket": socket_name,
@@ -2299,21 +2304,21 @@ def list_attachable_sessions(
         row["has_ui_tab"] = tab is not None
         if tab:
             row["tab_session_name"] = tab["session_name"]
-            row["tab_project_id"] = tab["project_id"]
-            row["tab_project_name"] = tab["project_name"]
-            row["tab_workspace"] = tab["workspace"]
-            row["tab_in_current_project"] = (
-                tab["workspace"] == target_workspace
-                and tab["project_id"] == project_id
+            row["tab_workspace_id"] = tab["workspace_id"]
+            row["tab_workspace_name"] = tab["workspace_name"]
+            row["tab_vault"] = tab["vault"]
+            row["tab_in_current_workspace"] = (
+                tab["vault"] == target_vault
+                and tab["workspace_id"] == workspace_id
             )
         else:
-            row["tab_in_current_project"] = False
+            row["tab_in_current_workspace"] = False
         # Preserve the narrower legacy meaning for cached clients: this was
         # always "already added to the picker target", not "has any Lab tab".
-        row["already_added"] = row["tab_in_current_project"]
-        row["current_project"] = (
-            row.get("workspace") == target_workspace
-            and row.get("project_id") == project_id
+        row["already_added"] = row["tab_in_current_workspace"]
+        row["current_workspace"] = (
+            row.get("vault") == target_vault
+            and row.get("workspace_id") == workspace_id
         )
         rows.append(row)
 
@@ -2321,8 +2326,8 @@ def list_attachable_sessions(
 
 
 class SessionOrder(BaseModel):
-    project_id: str
-    workspace: str | None = None
+    workspace_id: str
+    vault: str | None = None
     order: list[str]  # logical_names in the desired order
 
 
@@ -2332,8 +2337,8 @@ class LinkedFile(BaseModel):
 
 
 class SessionMetadata(BaseModel):
-    project_id: str
-    workspace: str | None = None
+    workspace_id: str
+    vault: str | None = None
     # Saved logical session name, not the tmux name. Display labels must not
     # rename tmux sessions because that would break attach/resume semantics.
     name: str
@@ -2345,8 +2350,8 @@ class SessionMetadata(BaseModel):
 
 
 class PastedImage(BaseModel):
-    project_id: str
-    workspace: str | None = None
+    workspace_id: str
+    vault: str | None = None
     data: str
     mime: str | None = None
     name: str | None = None
@@ -2391,15 +2396,15 @@ def _decode_pasted_image(body: PastedImage) -> tuple[str, bytes]:
 
 @router.post("/api/term/sessions/order")
 def set_session_order(body: SessionOrder, request: Request) -> dict:
-    """Reorder the project's saved sessions[] so /api/term/sessions reflects
+    """Reorder the workspace's saved sessions[] so /api/term/sessions reflects
     the new pill order. Any saved session not listed is appended in its
     original relative order."""
     active_root = auth.request_root(request)
-    root = _workspace_root_for(active_root, body.workspace)
-    _require_project_access(request, active_root, root, body.project_id)
-    data = _load_project(root, body.project_id)
+    root = _vault_root_for(active_root, body.vault)
+    _require_workspace_access(request, active_root, root, body.workspace_id)
+    data = _load_workspace(root, body.workspace_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"workspace {body.workspace_id!r} not found")
     current = data.get("sessions") if isinstance(data.get("sessions"), list) else []
     by_name = {s["name"]: s for s in current if isinstance(s, dict) and "name" in s}
     new_list: list[dict] = []
@@ -2415,8 +2420,8 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
             new_list.append(s)
             seen.add(n)
     data["sessions"] = new_list
-    _save_project(root, body.project_id, data)
-    _invalidate_project_term_caches()
+    _save_workspace(root, body.workspace_id, data)
+    _invalidate_workspace_term_caches()
     return {"ok": True, "order": [s.get("name") for s in new_list]}
 
 
@@ -2424,11 +2429,11 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     """Persist user-facing metadata for a saved logical session."""
     active_root = auth.request_root(request)
-    root = _workspace_root_for(active_root, body.workspace)
-    _require_project_access(request, active_root, root, body.project_id)
-    data = _load_project(root, body.project_id)
+    root = _vault_root_for(active_root, body.vault)
+    _require_workspace_access(request, active_root, root, body.workspace_id)
+    data = _load_workspace(root, body.workspace_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"project {body.project_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"workspace {body.workspace_id!r} not found")
     sessions = data.get("sessions") if isinstance(data.get("sessions"), list) else []
     entry = None
     for s in sessions:
@@ -2469,9 +2474,9 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
             entry["linked_file"] = {"root": file_root, "path": file_path}
 
     data["sessions"] = sessions
-    _save_project(root, body.project_id, data)
+    _save_workspace(root, body.workspace_id, data)
 
-    tmux_name = _tmux_name_for(body.project_id, body.name, root)
+    tmux_name = _tmux_name_for(body.workspace_id, body.name, root)
     meta = _load_meta(root)
     if tmux_name in meta:
         if "label" in fields:
@@ -2495,7 +2500,7 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         "terminal session metadata updated",
         extra={
             "event_type": "term.session.metadata",
-            "action": body.project_id,
+            "action": body.workspace_id,
             "target": body.name,
         },
     )
@@ -2511,11 +2516,11 @@ def paste_image(body: PastedImage, request: Request) -> dict:
     latency-critical websocket byte path used by normal typing and text paste.
     """
     active_root = auth.request_root(request)
-    root = _workspace_root_for(active_root, body.workspace)
-    _require_project_access(request, active_root, root, body.project_id)
-    if not body.project_id:
-        raise HTTPException(status_code=400, detail="project_id is required")
-    cwd = _project_cwd(root, body.project_id)
+    root = _vault_root_for(active_root, body.vault)
+    _require_workspace_access(request, active_root, root, body.workspace_id)
+    if not body.workspace_id:
+        raise HTTPException(status_code=400, detail="workspace_id is required")
+    cwd = _workspace_cwd(root, body.workspace_id)
     if not cwd.is_dir():
         raise HTTPException(status_code=400, detail=f"cwd not a directory: {cwd}")
     mime, blob = _decode_pasted_image(body)
@@ -2531,7 +2536,7 @@ def paste_image(body: PastedImage, request: Request) -> dict:
         "terminal pasted image saved",
         extra={
             "event_type": "term.paste_image",
-            "action": body.project_id,
+            "action": body.workspace_id,
             "target": str(rel),
         },
     )
@@ -2544,64 +2549,64 @@ def paste_image(body: PastedImage, request: Request) -> dict:
     }
 
 
-# ─── Session-derived summary + project-list caches ─────────────────────────
+# ─── Session-derived summary + workspace-list caches ─────────────────────────
 _SUMMARY_CACHE: dict[str, tuple[float, str]] = {}
 _SUMMARY_TTL_S = 60.0
-_PROJECTS_CACHE_TTL_S = 8.0
-_PROJECTS_WITH_SESSIONS_CACHE: tuple[float, list[str]] | None = None
+_WORKSPACES_CACHE_TTL_S = 8.0
+_WORKSPACES_WITH_SESSIONS_CACHE: tuple[float, list[str]] | None = None
 
 
-def _invalidate_project_term_caches() -> None:
-    global _PROJECTS_WITH_SESSIONS_CACHE
-    _PROJECTS_WITH_SESSIONS_CACHE = None
+def _invalidate_workspace_term_caches() -> None:
+    global _WORKSPACES_WITH_SESSIONS_CACHE
+    _WORKSPACES_WITH_SESSIONS_CACHE = None
 
 
-def _fresh_project_cache(cache: tuple[float, list[str]] | None) -> list[str] | None:
+def _fresh_workspace_cache(cache: tuple[float, list[str]] | None) -> list[str] | None:
     if not cache:
         return None
     ts, value = cache
-    if time.monotonic() - ts >= _PROJECTS_CACHE_TTL_S:
+    if time.monotonic() - ts >= _WORKSPACES_CACHE_TTL_S:
         return None
     return list(value)
 
 
 @router.get("/api/term/sessions/saved")
 def list_saved_sessions(
-    request: Request, project_id: str, workspace: str | None = None,
+    request: Request, workspace_id: str, vault: str | None = None,
 ) -> list[dict]:
-    """List sessions saved in the project's project.json (may or may not be live)."""
+    """List sessions saved in the workspace's workspace.json (may or may not be live)."""
     active_root = auth.request_root(request)
-    root = _workspace_root_for(active_root, workspace)
-    _require_project_access(request, active_root, root, project_id)
-    return _get_project_sessions(root, project_id)
+    root = _vault_root_for(active_root, vault)
+    _require_workspace_access(request, active_root, root, workspace_id)
+    return _get_workspace_sessions(root, workspace_id)
 
 
-@router.get("/api/term/projects-with-sessions")
-def projects_with_sessions(request: Request) -> list[str]:
-    """Project IDs that currently have at least one live tmux session.
+@router.get("/api/term/workspaces-with-sessions")
+def workspaces_with_sessions(request: Request) -> list[str]:
+    """Workspace IDs that currently have at least one live tmux session.
 
-    Drives the topbar tab strip (tabs == projects with active sessions).
-    Code Search per-repo pseudo-projects (``__cs_<repo>__``) are
+    Drives the topbar tab strip (tabs == workspaces with active sessions).
+    Code Search per-repo pseudo-workspaces (``__cs_<repo>__``) are
     filtered out — they aren't standalone tabs, they're driven by the
     single ``🔍 code-search`` pseudo-tab and the in-tab repo picker.
     """
-    global _PROJECTS_WITH_SESSIONS_CACHE
+    global _WORKSPACES_WITH_SESSIONS_CACHE
     user = auth.require_user(request)
     if not auth.is_admin(user):
         active_root = auth.request_root(request)
         ids: list[str] = []
-        for ws in _known_workspaces(active_root):
-            if not auth.can_access_workspace(user, str(ws["id"])):
+        for vault_row in _known_vaults(active_root):
+            if not auth.can_access_vault(user, str(vault_row["id"])):
                 continue
-            listing = _tmux_list(_tmux_discovery_prefixes(ws["path"]))
-            meta = _sync_meta(ws["path"], listing)
+            listing = _tmux_list(_tmux_discovery_prefixes(vault_row["path"]))
+            meta = _sync_meta(vault_row["path"], listing)
             for name in {item["name"] for item in (listing or [])}:
-                project_id = (meta.get(name) or {}).get("project_id")
-                if not project_id or project_id in ids or str(project_id).startswith("__"):
+                workspace_id = (meta.get(name) or {}).get("workspace_id")
+                if not workspace_id or workspace_id in ids or str(workspace_id).startswith("__"):
                     continue
-                ids.append(project_id)
+                ids.append(workspace_id)
         return ids
-    cached = _fresh_project_cache(_PROJECTS_WITH_SESSIONS_CACHE)
+    cached = _fresh_workspace_cache(_WORKSPACES_WITH_SESSIONS_CACHE)
     if cached is not None:
         return cached
 
@@ -2613,13 +2618,13 @@ def projects_with_sessions(request: Request) -> list[str]:
     ids: list[str] = []
     for name in live_names:
         info = meta.get(name) or {}
-        pid = info.get("project_id")
+        pid = info.get("workspace_id")
         if not pid or pid in ids:
             continue
         if _cs_repo_name(pid):
             continue
         ids.append(pid)
-    _PROJECTS_WITH_SESSIONS_CACHE = (time.monotonic(), list(ids))
+    _WORKSPACES_WITH_SESSIONS_CACHE = (time.monotonic(), list(ids))
     return ids
 
 
@@ -2643,30 +2648,30 @@ def attach_session(body: AttachSession, request: Request) -> dict:
         )
 
     active_root = auth.request_root(request)
-    root = _workspace_root_for(active_root, body.workspace)
-    user = _require_project_access(request, active_root, root, body.project_id)
-    cwd = _project_cwd(root, body.project_id)
+    root = _vault_root_for(active_root, body.vault)
+    user = _require_workspace_access(request, active_root, root, body.workspace_id)
+    cwd = _workspace_cwd(root, body.workspace_id)
     if not cwd.is_dir():
-        raise HTTPException(status_code=400, detail=f"project directory not found: {cwd}")
+        raise HTTPException(status_code=400, detail=f"workspace directory not found: {cwd}")
 
-    # A registered Lab session retains its workspace access boundary. An
+    # A registered Lab session retains its vault access boundary. An
     # otherwise-unregistered host tmux session may contain anything, so only
     # an admin can import it into Lab by name.
     owner: tuple[Path, dict] | None = None
-    for workspace_row in _known_workspaces(active_root):
+    for vault_row in _known_vaults(active_root):
         try:
-            candidate = (_load_meta(workspace_row["path"]).get(source_name) or {})
+            candidate = (_load_meta(vault_row["path"]).get(source_name) or {})
         except OSError:
             continue
         if candidate:
-            owner = (workspace_row["path"], candidate)
+            owner = (vault_row["path"], candidate)
             break
     if owner:
-        _require_project_access(
+        _require_workspace_access(
             request,
             active_root,
             owner[0],
-            owner[1].get("project_id"),
+            owner[1].get("workspace_id"),
         )
     elif not auth.is_admin(user):
         raise HTTPException(
@@ -2677,7 +2682,7 @@ def attach_session(body: AttachSession, request: Request) -> dict:
     meta = _load_meta(root)
     for alias_name, info in meta.items():
         if (
-            info.get("project_id") == body.project_id
+            info.get("workspace_id") == body.workspace_id
             and info.get("kind") == "attached"
             and info.get("source_session") == source_name
         ):
@@ -2697,7 +2702,7 @@ def attach_session(body: AttachSession, request: Request) -> dict:
     taken_logical = {
         str(info.get("logical_name"))
         for info in meta.values()
-        if info.get("project_id") == body.project_id and info.get("logical_name")
+        if info.get("workspace_id") == body.workspace_id and info.get("logical_name")
     }
     logical = _pick_unique_logical_name(_sanitize(source_name), taken_logical)
 
@@ -2711,11 +2716,11 @@ def attach_session(body: AttachSession, request: Request) -> dict:
                 status_code=404,
                 detail=f"tmux session {source_name!r} was not found on a Lab socket",
             )
-        alias_name = _tmux_name_for(body.project_id, logical, root)
+        alias_name = _tmux_name_for(body.workspace_id, logical, root)
         while _tmux_find_session_socket(alias_name):
             taken_logical.add(logical)
             logical = _pick_unique_logical_name(_sanitize(source_name), taken_logical)
-            alias_name = _tmux_name_for(body.project_id, logical, root)
+            alias_name = _tmux_name_for(body.workspace_id, logical, root)
         proc = subprocess.run(
             _tmux_command(
                 source_socket,
@@ -2738,7 +2743,7 @@ def attach_session(body: AttachSession, request: Request) -> dict:
 
     _configure_tmux_wheel_scrolling(alias_name, source_socket)
     entry = {
-        "project_id": body.project_id,
+        "workspace_id": body.workspace_id,
         "logical_name": logical,
         "kind": "attached",
         "agent": None,
@@ -2751,17 +2756,17 @@ def attach_session(body: AttachSession, request: Request) -> dict:
     meta = _load_meta(root)
     meta[alias_name] = entry
     _save_meta(root, meta)
-    _upsert_project_session(root, body.project_id, {
+    _upsert_workspace_session(root, body.workspace_id, {
         "name": logical,
         "kind": "attached",
         "source_session": source_name,
     })
-    _invalidate_project_term_caches()
+    _invalidate_workspace_term_caches()
     log.info(
         "existing tmux session attached through grouped alias",
         extra={
             "event_type": "term.session.attach_existing",
-            "action": body.project_id,
+            "action": body.workspace_id,
             "target": alias_name,
         },
     )
@@ -2779,9 +2784,9 @@ def create_session(body: NewSession, request: Request) -> dict:
     Behavior:
     - If a live tmux session with the computed name exists: return it as-is.
     - Else: spawn a new tmux session. For kind == "claude", use the saved
-      claude_session_id (via ``--resume``) if project.json has one and
+      claude_session_id (via ``--resume``) if workspace.json has one and
       ``start_fresh`` is False; otherwise generate a new UUID and record it
-      in project.json via ``--session-id``.
+      in workspace.json via ``--session-id``.
     """
     if not _tmux_available():
         raise HTTPException(status_code=500, detail="tmux not installed. Run: brew install tmux")
@@ -2791,63 +2796,63 @@ def create_session(body: NewSession, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=f"unknown kind: {kind}")
 
     active_root = auth.request_root(request)
-    root = _workspace_root_for(active_root, body.workspace)
-    _require_project_access(request, active_root, root, body.project_id)
+    root = _vault_root_for(active_root, body.vault)
+    _require_workspace_access(request, active_root, root, body.workspace_id)
 
     # For agent sessions (kind=="claude"), resolve which CLI to launch:
-    # explicit body.agent → project override → global default. The result
-    # must be enabled for this workspace (workspace.json agents.supported):
+    # explicit body.agent → workspace override → global default. The result
+    # must be enabled for this vault (vault.json agents.supported):
     # an explicit request for a disabled agent errors; a default that fell
     # out of the enabled set silently clamps to the first enabled agent.
     agent: str | None = None
     if kind == "claude":
-        agent = (body.agent or lab_settings.resolve_agent(root, body.project_id)).lower()
+        agent = (body.agent or lab_settings.resolve_agent(root, body.workspace_id)).lower()
         if agent not in lab_settings.VALID_AGENTS:
             raise HTTPException(status_code=400, detail=f"unknown agent: {agent!r}")
-        supported = workspace_config.supported_agents(root)
+        supported = vault_config.supported_agents(root)
         if agent not in supported:
             if body.agent:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"agent {agent!r} is not enabled for this workspace "
-                           "(Workspace tab → Agents)",
+                    detail=f"agent {agent!r} is not enabled for this vault "
+                           "(Vault tab → Agents)",
                 )
             agent = supported[0]
 
     # Resolve cwd.
     if body.cwd:
         cwd = Path(body.cwd).resolve()
-    elif body.project_id:
-        cwd = _project_cwd(root, body.project_id)
+    elif body.workspace_id:
+        cwd = _workspace_cwd(root, body.workspace_id)
     else:
         cwd = root.resolve()
     if not cwd.is_dir():
         raise HTTPException(status_code=400, detail=f"cwd not a directory: {cwd}")
 
-    # Discover every live session that could belong to this workspace under
+    # Discover every live session that could belong to this vault under
     # ANY generation of the naming scheme (current + the two pre-nomenclature
     # ones), and reconcile the runtime registry against it. This is what
-    # lets us recognize "this project's codex tab is already live" even when
+    # lets us recognize "this workspace's codex tab is already live" even when
     # the live session's actual tmux name uses an older scheme than the one
     # `_tmux_name_for` would compute today — that mismatch used to spawn a
     # same-tab duplicate on every reopen after a naming-scheme or
-    # workspace-path change instead of attaching to what was already there.
+    # vault-path change instead of attaching to what was already there.
     listing = _tmux_list(_tmux_discovery_prefixes(root))
     meta = _sync_meta(root, listing)
     live_by_name = {s["name"]: s for s in (listing or [])}
 
     # Default the logical name to the agent (claude/codex/copilot) so different
-    # agents get distinct tmux sessions/tabs within the same project.
+    # agents get distinct tmux sessions/tabs within the same workspace.
     preferred = body.name or (agent if kind == "claude" else _default_logical_name(kind))
     preferred_sane = _sanitize(preferred)
 
-    # Live logical (tab) names already running for this project, and — if
+    # Live logical (tab) names already running for this workspace, and — if
     # one of them IS the tab we're about to (re)open — its live tmux name +
     # runtime entry, regardless of which naming scheme produced that name.
     live_logical_names: set[str] = set()
     existing_for_tab: tuple[str, dict] | None = None
     for name, info in meta.items():
-        if name not in live_by_name or info.get("project_id") != body.project_id:
+        if name not in live_by_name or info.get("workspace_id") != body.workspace_id:
             continue
         logical_live = info.get("logical_name")
         if not logical_live:
@@ -2868,8 +2873,8 @@ def create_session(body: NewSession, request: Request) -> dict:
         row = {"name": name, **info, "already_running": True,
                "tmux_socket": socket_name,
                "attach_command": _attach_command(name, socket_name)}
-        if body.project_id:
-            saved = _project_session_by_name(root, body.project_id).get(
+        if body.workspace_id:
+            saved = _workspace_session_by_name(root, body.workspace_id).get(
                 info.get("logical_name") or preferred_sane
             )
             if saved:
@@ -2880,7 +2885,7 @@ def create_session(body: NewSession, request: Request) -> dict:
             "terminal session already running",
             extra={
                 "event_type": "term.session.already_running",
-                "action": body.project_id,
+                "action": body.workspace_id,
                 "target": name,
             },
         )
@@ -2895,7 +2900,7 @@ def create_session(body: NewSession, request: Request) -> dict:
         # only sets `existing_for_tab` for an exact logical-name match — so
         # this never renames a tab away from a name it's entitled to reuse.
         logical = _pick_unique_logical_name(preferred_sane, live_logical_names)
-    tmux_name = _tmux_name_for(body.project_id, logical, root)
+    tmux_name = _tmux_name_for(body.workspace_id, logical, root)
 
     # Final authoritative guard: a tmux session with this exact computed
     # name already exists (race with a concurrent create, a leftover from a
@@ -2912,7 +2917,7 @@ def create_session(body: NewSession, request: Request) -> dict:
                 tmux_socket=existing_socket,
             )
             or {
-                "project_id": body.project_id,
+                "workspace_id": body.workspace_id,
                 "logical_name": logical,
                 "kind": kind,
                 "agent": agent,
@@ -2923,12 +2928,12 @@ def create_session(body: NewSession, request: Request) -> dict:
         entry["tmux_socket"] = existing_socket
         meta[tmux_name] = entry
         _save_meta(root, meta)
-        _invalidate_project_term_caches()
+        _invalidate_workspace_term_caches()
         log.info(
             "terminal session adopted (already live under computed name)",
             extra={
                 "event_type": "term.session.adopted",
-                "action": body.project_id,
+                "action": body.workspace_id,
                 "target": tmux_name,
             },
         )
@@ -2950,10 +2955,10 @@ def create_session(body: NewSession, request: Request) -> dict:
         if wants_auto:
             parts.extend(lab_settings.AUTOPILOT_FLAGS["claude"])
             auto_applied = True
-        # Look up a saved claude_session_id for this project+name.
+        # Look up a saved claude_session_id for this workspace+name.
         existing_id = None
-        if body.project_id and not body.start_fresh:
-            for s in _get_project_sessions(root, body.project_id):
+        if body.workspace_id and not body.start_fresh:
+            for s in _get_workspace_sessions(root, body.workspace_id):
                 if isinstance(s, dict) and s.get("name") == logical and s.get("kind") == "claude":
                     existing_id = s.get("claude_session_id")
                     break
@@ -2969,7 +2974,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     elif kind == "claude":
         # codex / copilot — fresh session (resume is Claude-only for now).
         # Same `auto` contract as claude: an explicit request wins,
-        # otherwise the workspace's per-agent autopilot setting decides.
+        # otherwise the vault's per-agent autopilot setting decides.
         cmd_argv = _agent_argv(agent)
         if agent == "copilot":
             # Copilot accepts a caller-owned UUID. Keeping it in Lab's
@@ -3031,7 +3036,7 @@ def create_session(body: NewSession, request: Request) -> dict:
             (proc.stderr or proc.stdout or "").strip()[:500],
             extra={
                 "event_type": "term.session.create_failed",
-                "action": body.project_id,
+                "action": body.workspace_id,
                 "target": tmux_name,
             },
         )
@@ -3043,7 +3048,7 @@ def create_session(body: NewSession, request: Request) -> dict:
     # Record runtime metadata.
     meta = _load_meta(root)
     meta[tmux_name] = {
-        "project_id": body.project_id,
+        "workspace_id": body.workspace_id,
         "logical_name": logical,
         "kind": kind,
         "agent": agent,
@@ -3057,11 +3062,11 @@ def create_session(body: NewSession, request: Request) -> dict:
         "tmux_socket": socket_name,
     }
     _save_meta(root, meta)
-    _invalidate_project_term_caches()
+    _invalidate_workspace_term_caches()
 
     # Record durable provider identity (Claude resumes it; Copilot uses it for
     # display-name lookup even though reopening still starts a fresh session).
-    if body.project_id:
+    if body.workspace_id:
         entry: dict = {"name": logical, "kind": kind}
         if agent:
             entry["agent"] = agent
@@ -3069,21 +3074,21 @@ def create_session(body: NewSession, request: Request) -> dict:
             entry["claude_session_id"] = claude_session_id
         if agent_session_id and agent != "claude":
             entry["agent_session_id"] = agent_session_id
-        _upsert_project_session(root, body.project_id, entry)
-        saved = _project_session_by_name(root, body.project_id).get(logical)
+        _upsert_workspace_session(root, body.workspace_id, entry)
+        saved = _workspace_session_by_name(root, body.workspace_id).get(logical)
         if saved:
             for key in ("label", "summary", "linked_file"):
                 if saved.get(key):
                     meta[tmux_name][key] = saved[key]
             if saved.get("label") or saved.get("summary") or saved.get("linked_file"):
                 _save_meta(root, meta)
-        _invalidate_project_term_caches()
+        _invalidate_workspace_term_caches()
 
     log.info(
         "terminal session spawned",
         extra={
             "event_type": "term.session.spawn",
-            "action": body.project_id,
+            "action": body.workspace_id,
             "target": tmux_name,
         },
     )
@@ -3096,27 +3101,27 @@ def create_session(body: NewSession, request: Request) -> dict:
 
 @router.delete("/api/term/sessions/{name}")
 def kill_session(name: str, request: Request, purge: bool = False) -> dict:
-    """Kill a live session. The saved entry in project.json stays unless
+    """Kill a live session. The saved entry in workspace.json stays unless
     ``purge``.
 
-    Accepts a session named for ANY registered workspace, not just the
-    active one (the cross-workspace terminals dashboard needs to kill
-    sessions it lists from other workspaces) — the name is resolved back
-    to its owning workspace root so the runtime registry / servers
-    desired-state hook below operate on the right workspace's files.
+    Accepts a session named for ANY registered vault, not just the
+    active one (the cross-vault terminals dashboard needs to kill
+    sessions it lists from other vaults) — the name is resolved back
+    to its owning vault root so the runtime registry / servers
+    desired-state hook below operate on the right vault's files.
     """
     active_root = auth.request_root(request)
-    workspaces = _known_workspaces(active_root)
-    prefixes = _tmux_discovery_prefixes_all(workspaces)
+    vaults = _known_vaults(active_root)
+    prefixes = _tmux_discovery_prefixes_all(vaults)
     if not any(name.startswith(p) for p in prefixes):
         raise HTTPException(status_code=400, detail="invalid session name")
 
-    root = _resolve_session_workspace_root(name, active_root, workspaces)
+    root = _resolve_session_vault_root(name, active_root, vaults)
     meta = _load_meta(root)
     info = meta.get(name) or {}
-    project_id = info.get("project_id")
+    workspace_id = info.get("workspace_id")
     logical_name = info.get("logical_name")
-    _require_project_access(request, active_root, root, project_id)
+    _require_workspace_access(request, active_root, root, workspace_id)
 
     if _tmux_available():
         socket_name = str(
@@ -3132,9 +3137,9 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
         )
     meta.pop(name, None)
     _save_meta(root, meta)
-    _invalidate_project_term_caches()
+    _invalidate_workspace_term_caches()
 
-    if logical_name == "server" and project_id:
+    if logical_name == "server" and workspace_id:
         # A managed dev-server tab was killed through the generic terminal
         # kill flow (not /api/servers/{id}/stop) — mark it desired=stopped so
         # the servers supervisor doesn't resurrect it on its next tick.
@@ -3143,53 +3148,53 @@ def kill_session(name: str, request: Request, purge: bool = False) -> dict:
         # scope).
         from core.routes import servers as servers_mod
         try:
-            servers_mod.set_desired(root, project_id, "stopped")
+            servers_mod.set_desired(root, workspace_id, "stopped")
         except Exception:  # pragma: no cover — best effort, never blocks the kill
-            log.warning("failed to mark server desired=stopped for %s", project_id, exc_info=True)
+            log.warning("failed to mark server desired=stopped for %s", workspace_id, exc_info=True)
 
-    if purge and project_id and logical_name:
-        data = _load_project(root, project_id)
+    if purge and workspace_id and logical_name:
+        data = _load_workspace(root, workspace_id)
         if data and isinstance(data.get("sessions"), list):
             data["sessions"] = [s for s in data["sessions"]
                                 if not (isinstance(s, dict) and s.get("name") == logical_name)]
-            _save_project(root, project_id, data)
-            _invalidate_project_term_caches()
+            _save_workspace(root, workspace_id, data)
+            _invalidate_workspace_term_caches()
 
     log.info(
         "terminal session killed",
         extra={
             "event_type": "term.session.kill",
-            "action": project_id,
+            "action": workspace_id,
             "target": name,
         },
     )
     return {"ok": True, "purged": purge}
 
 
-@router.delete("/api/term/sessions/project/{project_id}")
-def kill_project_sessions(
-    project_id: str, request: Request, purge: bool = False, workspace: str | None = None,
+@router.delete("/api/term/sessions/workspace/{workspace_id}")
+def kill_workspace_sessions(
+    workspace_id: str, request: Request, purge: bool = False, vault: str | None = None,
 ) -> dict:
-    """Kill EVERY live session belonging to ``project_id``. Powers the tab X.
+    """Kill EVERY live session belonging to ``workspace_id``. Powers the tab X.
 
-    Scoped to the active workspace by default — unchanged behavior for the
-    project tab strip's "X" button. Pass ``?workspace=<id>`` to target a
-    different registered workspace instead (the cross-workspace terminals
-    dashboard needs this since the same project id can exist in more than
-    one workspace).
+    Scoped to the active vault by default — unchanged behavior for the
+    workspace tab strip's "X" button. Pass ``?vault=<id>`` to target a
+    different registered vault instead (the cross-vault terminals
+    dashboard needs this since the same workspace id can exist in more than
+    one vault).
     """
     active_root = auth.request_root(request)
-    if workspace is not None:
+    if vault is not None:
         root = None
-        for ws in _known_workspaces(active_root):
-            if ws["id"] == workspace:
-                root = ws["path"]
+        for vault_row in _known_vaults(active_root):
+            if vault_row["id"] == vault:
+                root = vault_row["path"]
                 break
         if root is None:
-            raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
+            raise HTTPException(status_code=404, detail=f"vault {vault!r} not found")
     else:
         root = active_root
-    _require_project_access(request, active_root, root, project_id)
+    _require_workspace_access(request, active_root, root, workspace_id)
 
     prefixes = _tmux_discovery_prefixes(root)
     meta = _load_meta(root)
@@ -3197,7 +3202,7 @@ def kill_project_sessions(
     killed_server = False
     for name in list(meta.keys()):
         info = meta.get(name) or {}
-        if info.get("project_id") != project_id:
+        if info.get("workspace_id") != workspace_id:
             continue
         if not any(name.startswith(p) for p in prefixes):
             continue
@@ -3218,27 +3223,27 @@ def kill_project_sessions(
         if info.get("logical_name") == "server":
             killed_server = True
     _save_meta(root, meta)
-    _invalidate_project_term_caches()
+    _invalidate_workspace_term_caches()
 
     if killed_server:
         # See the matching comment in kill_session() above.
         from core.routes import servers as servers_mod
         try:
-            servers_mod.set_desired(root, project_id, "stopped")
+            servers_mod.set_desired(root, workspace_id, "stopped")
         except Exception:  # pragma: no cover — best effort, never blocks the kill
-            log.warning("failed to mark server desired=stopped for %s", project_id, exc_info=True)
+            log.warning("failed to mark server desired=stopped for %s", workspace_id, exc_info=True)
 
     if purge:
-        data = _load_project(root, project_id)
+        data = _load_workspace(root, workspace_id)
         if data and isinstance(data.get("sessions"), list):
             data["sessions"] = []
-            _save_project(root, project_id, data)
-            _invalidate_project_term_caches()
+            _save_workspace(root, workspace_id, data)
+            _invalidate_workspace_term_caches()
     log.info(
-        "terminal project sessions killed",
+        "terminal workspace sessions killed",
         extra={
-            "event_type": "term.session.kill_project",
-            "action": project_id,
+            "event_type": "term.session.kill_workspace",
+            "action": workspace_id,
             "target": ",".join(killed),
         },
     )
@@ -3304,14 +3309,14 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
         await websocket.close(code=4401)
         return
     active_root: Path = websocket.app.state.index_cache.root
-    workspaces = _known_workspaces(active_root)
-    root = _resolve_session_workspace_root(name, active_root, workspaces)
+    vaults = _known_vaults(active_root)
+    root = _resolve_session_vault_root(name, active_root, vaults)
     meta = _load_meta(root)
     session_meta = meta.get(name) or {}
-    project_id = session_meta.get("project_id")
+    workspace_id = session_meta.get("workspace_id")
     known_socket = session_meta.get("tmux_socket")
     try:
-        _require_project_access(websocket, active_root, root, project_id)
+        _require_workspace_access(websocket, active_root, root, workspace_id)
     except HTTPException as exc:
         await websocket.close(code=4403 if exc.status_code == 403 else 4404)
         return

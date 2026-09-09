@@ -2,7 +2,7 @@
 name: focus-mode-and-keep-alive
 description: "Lab Focus mode is presentation mode, while Keep Alive exposes its screen wake lock independently"
 metadata:
-  type: project
+  type: workspace
 ---
 
 The user expects Lab's existing **Focus mode** control to behave like video

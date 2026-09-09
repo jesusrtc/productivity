@@ -5,29 +5,29 @@ let activeTab = "tasks";
 
 export async function render(parent, { match }) {
   const pid = decodeURIComponent(match[1]);
-  const [proj, tasksDoc, docs] = await Promise.all([
-    api.project(pid),
-    api.projectTasks(pid),
-    api.projectDocs(pid),
+  const [workspace, tasksDoc, docs] = await Promise.all([
+    api.workspace(pid),
+    api.workspaceTasks(pid),
+    api.workspaceDocs(pid),
   ]);
 
-  const header = h("div", { class: "proj-header" },
-    h("h2", null, proj.id, proj.priority ? " " : null,
-      proj.priority ? h("span", { class: "chip " + priorityClass(proj.priority) }, proj.priority) : null),
-    h("div", { class: "meta" }, proj.description || "(no description)"),
+  const header = h("div", { class: "workspace-header" },
+    h("h2", null, workspace.id, workspace.priority ? " " : null,
+      workspace.priority ? h("span", { class: "chip " + priorityClass(workspace.priority) }, workspace.priority) : null),
+    h("div", { class: "meta" }, workspace.description || "(no description)"),
     h("div", { class: "meta" },
-      `status: ${proj.status}`,
-      proj.due ? ` · due ${proj.due}` : "",
-      (proj.tags || []).length ? ` · tags: ${proj.tags.join(", ")}` : "",
-      (proj.labels || []).length ? ` · labels: ${proj.labels.join(", ")}` : "",
+      `status: ${workspace.status}`,
+      workspace.due ? ` · due ${workspace.due}` : "",
+      (workspace.tags || []).length ? ` · tags: ${workspace.tags.join(", ")}` : "",
+      (workspace.labels || []).length ? ` · labels: ${workspace.labels.join(", ")}` : "",
     ),
   );
 
   const tabs = h("div", { class: "tabs" },
     tabButton("tasks", `Tasks (${tasksDoc.tasks.length})`, parent, match),
     tabButton("docs", `Docs (${docs.length})`, parent, match),
-    tabButton("prs", `PRs (${(proj.prs || []).length})`, parent, match),
-    tabButton("artifacts", `Artifacts (${(proj.artifacts || []).length})`, parent, match),
+    tabButton("prs", `PRs (${(workspace.prs || []).length})`, parent, match),
+    tabButton("artifacts", `Artifacts (${(workspace.artifacts || []).length})`, parent, match),
   );
 
   let content;
@@ -36,9 +36,9 @@ export async function render(parent, { match }) {
   } else if (activeTab === "docs") {
     content = docsList(pid, docs);
   } else if (activeTab === "prs") {
-    content = prsList(pid, proj.prs || []);
+    content = prsList(pid, workspace.prs || []);
   } else {
-    content = artifactsList(pid, proj.artifacts || []);
+    content = artifactsList(pid, workspace.artifacts || []);
   }
 
   domRender(parent, header, tabs, content);
@@ -131,11 +131,11 @@ function docsList(pid, docs) {
     const isNb = lower.endsWith(".ipynb");
     let href;
     if (isMd) {
-      href = `#/md?path=${encodeURIComponent(`projects/${pid}/${d.path}`)}`;
+      href = `#/md?path=${encodeURIComponent(`workspaces/${pid}/${d.path}`)}`;
     } else if (isNb) {
-      href = `#/nb?path=${encodeURIComponent(`projects/${pid}/${d.path}`)}`;
+      href = `#/nb?path=${encodeURIComponent(`workspaces/${pid}/${d.path}`)}`;
     } else {
-      href = `/api/projects/${encodeURIComponent(pid)}/file?path=${encodeURIComponent(d.path)}`;
+      href = `/api/workspaces/${encodeURIComponent(pid)}/file?path=${encodeURIComponent(d.path)}`;
     }
     const linkAttrs = (isMd || isNb) ? { href } : { href, target: "_blank", rel: "noopener" };
     return h("li", null,
@@ -157,7 +157,7 @@ async function onNewTask(pid) {
   if (!values) return;
   try {
     const body = {
-      project_id: pid,
+      workspace_id: pid,
       title: values.title.trim(),
       priority: values.priority,
       due: values.due || null,

@@ -14,8 +14,8 @@ def test_search_cli_empty_prints_no_matches(monorepo: Path) -> None:
     assert "no matches" in result.output.lower()
 
 
-def test_search_cli_returns_project_hits(monorepo: Path, seed_project) -> None:
-    seed_project("alpha", description="Has banana in it")
+def test_search_cli_returns_workspace_hits(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha", description="Has banana in it")
     runner = CliRunner()
     result = runner.invoke(main, ["search", "banana"])
     assert result.exit_code == 0

@@ -1,4 +1,4 @@
-# Workspace architecture
+# Vault architecture
 
 Status: proposed
 
@@ -6,25 +6,25 @@ Last updated: 2026-07-17
 
 ## Decision summary
 
-Neurona is the workspace shell. It renders files that exist in the workspace,
+Neurona is the vault shell. It renders files that exist in the vault,
 manages terminal sessions, provides clipboard and server surfaces, watches for
-file changes, and presents workspace configuration. Neurona validates and
-renders configuration; it does not mutate project trees. Projection changes
+file changes, and presents vault configuration. Neurona validates and
+renders configuration; it does not mutate workspace trees. Projection changes
 are applied by the user's coding agent, guided by a standard prompt
 ([agent-switch-prompt.md](agent-switch-prompt.md)).
 
-Each workspace owns its conventions. It decides which agent surfaces, skills,
-shared code, project templates, notebook providers, services, and UI features
-its projects use. Projects contain their own work plus explicit projections
-from their workspace. Neurona must not inject unexplained shared or META content
-into project trees.
+Each vault owns its conventions. It decides which agent surfaces, skills,
+shared code, workspace templates, notebook providers, services, and UI features
+its workspaces use. Workspaces contain their own work plus explicit projections
+from their vault. Neurona must not inject unexplained shared or META content
+into workspace trees.
 
-Notebook rendering is built into Neurona because `.ipynb` is a workspace file
+Notebook rendering is built into Neurona because `.ipynb` is a vault file
 format. Notebook execution is pluggable. Darwin, Jupyter, Spark, or another
 executor implements a versioned notebook-provider protocol and is selected by
-the workspace.
+the vault.
 
-All rendered workspace files, including projected files and notebooks, update
+All rendered vault files, including projected files and notebooks, update
 live when their canonical source changes. Unsaved edits are never silently
 overwritten.
 
@@ -36,18 +36,18 @@ the parity checklist for extracting Darwin into a provider.
 
 | Owner | Owns | Does not own |
 | --- | --- | --- |
-| Workspace | Project shape, shared sources, projections, supported agents, project features, notebook provider selection, repository and runtime policy, file-tree presentation | Filesystem mutation machinery, terminal implementation, or security |
-| Project | Project files, project metadata, tasks, references, artifacts, PRs, worktree instances, and explicit project overrides | Copies of workspace-owned source files |
-| Neurona | Workspace rendering, workspace editor, configuration validation, drift preview, file watching, live updates, terminal sessions, notebook storage/provider brokering, clipboard, server UI, indexing, and security | Agent conventions, Darwin behavior, project-tree mutation, or a mandatory project layout |
-| User's agent | Applying projection changes to project trees — links, adapters, legacy adoption — guided by the switch prompt | Configuration schema, rendering, or removing files it cannot identify as projections |
-| Provider app | Execution semantics for one capability, such as Darwin notebook execution | Workspace file ownership or UI policy |
-| User preferences | Theme, tab order, open panels, and other personal display state | Workspace-wide project conventions |
+| Vault | Workspace shape, shared sources, projections, supported agents, workspace features, notebook provider selection, repository and runtime policy, file-tree presentation | Filesystem mutation machinery, terminal implementation, or security |
+| Workspace | Workspace files, workspace metadata, tasks, references, artifacts, PRs, worktree instances, and explicit workspace overrides | Copies of vault-owned source files |
+| Neurona | Vault rendering, vault editor, configuration validation, drift preview, file watching, live updates, terminal sessions, notebook storage/provider brokering, clipboard, server UI, indexing, and security | Agent conventions, Darwin behavior, workspace-tree mutation, or a mandatory workspace layout |
+| User's agent | Applying projection changes to workspace trees — links, adapters, legacy adoption — guided by the switch prompt | Configuration schema, rendering, or removing files it cannot identify as projections |
+| Provider app | Execution semantics for one capability, such as Darwin notebook execution | Vault file ownership or UI policy |
+| User preferences | Theme, tab order, open panels, and other personal display state | Vault-wide workspace conventions |
 
-## Proposed workspace structure
+## Proposed vault structure
 
 ```text
-<workspace-root>/
-  workspace.json
+<vault-root>/
+  vault.json
   agents/
     instructions.md
     memory/
@@ -55,7 +55,7 @@ the parity checklist for extracting Darwin into a provider.
   skills/
   code/
   templates/
-    project/
+    workspace/
       docs/
       notes/
   runtime/
@@ -63,34 +63,34 @@ the parity checklist for extracting Darwin into a provider.
     notebook-darwin/
       lab-app.toml
       bin/notebook-darwin
-  projects/
+  workspaces/
     example/
-      project.json
+      workspace.json
       tasks.json
       docs/
       notebooks/
       AGENTS.md -> ../../agents/instructions.md
 ```
 
-The physical names inside a workspace are tool-neutral where possible. The
-workspace maps those sources to agent-specific surfaces such as `AGENTS.md`,
+The physical names inside a vault are tool-neutral where possible. The
+vault maps those sources to agent-specific surfaces such as `AGENTS.md`,
 `CLAUDE.md`, `.claude/skills`, or Copilot prompt files.
 
-Projects do not need a `workspace` field. Their containing workspace root is
-the authority, and Neurona's existing workspace registry supplies the
-cross-workspace identity used by Home and terminal routing.
+Workspaces do not need a `vault` field. Their containing vault root is
+the authority, and Neurona's existing vault registry supplies the
+cross-vault identity used by Home and terminal routing.
 
-## Workspace configuration
+## Vault configuration
 
-`workspace.json` at the workspace root is the declarative source of truth.
-Users edit it through the Workspace tab; Neurona validates and writes it. The
-file is not a place for arbitrary commands that run merely because a workspace
-is opened. Executable capabilities are separately installed workspace apps and
+`vault.json` at the vault root is the declarative source of truth.
+Users edit it through the Vault tab; Neurona validates and writes it. The
+file is not a place for arbitrary commands that run merely because a vault
+is opened. Executable capabilities are separately installed vault apps and
 are referenced by ID.
 
-The current `lab.toml` already contains some workspace settings. Migration must
-either fold those fields into `workspace.json` or extend `lab.toml` with this
-schema. Neurona must not maintain two authoritative workspace configurations.
+The current `lab.toml` already contains some vault settings. Migration must
+either fold those fields into `vault.json` or extend `lab.toml` with this
+schema. Neurona must not maintain two authoritative vault configurations.
 
 Illustrative configuration:
 
@@ -122,8 +122,8 @@ Illustrative configuration:
       }
     ]
   },
-  "project": {
-    "template": "templates/project",
+  "workspace": {
+    "template": "templates/workspace",
     "features": ["tasks", "docs", "notebooks", "prs", "diffs"],
     "mounts": [
       {
@@ -160,52 +160,52 @@ Illustrative configuration:
 }
 ```
 
-## Workspace tab
+## Vault tab
 
-The Workspace tab is the management surface for one workspace. It is a fixed,
+The Vault tab is the management surface for one vault. It is a fixed,
 always-visible tab (like the pinned Productivity tab), not something opened
-per workspace: its content always reflects the currently selected workspace,
-and switching workspaces re-renders it in place.
+per vault: its content always reflects the currently selected vault,
+and switching vaults re-renders it in place.
 
-1. The file panel shows the real workspace root tree as it exists on disk. It
+1. The file panel shows the real vault root tree as it exists on disk. It
    does not inject framework-parent files, synthetic shared rows, or unrelated
    META from elsewhere.
 2. The configuration panel controls supported agents, the default agent,
-   projections, project features, notebook provider, services, and display
+   projections, workspace features, notebook provider, services, and display
    rules.
-3. A preview panel shows the effective project view and whether the on-disk
+3. A preview panel shows the effective workspace view and whether the on-disk
    state matches the configuration.
-4. The right-docked terminal is scoped to the workspace root and keeps its own
-   saved sessions under the ``__workspace__`` pseudo-project. The Agents card
+4. The right-docked terminal is scoped to the vault root and keeps its own
+   saved sessions under the ``__vault__`` pseudo-workspace. The Agents card
    controls which of Claude Code, Codex, and Copilot appear in terminal and
    settings menus; at least one agent must remain enabled.
 
-Project sidebars show only local project files and enabled workspace
+Workspace sidebars show only local workspace files and enabled vault
 projections. A projected entry displays its origin, for example:
 
 ```text
-workspace/agents/instructions.md -> AGENTS.md
+vault/agents/instructions.md -> AGENTS.md
 ```
 
 The UI must not use the vague label `(shared)` when the actual source is known.
-Editing a workspace-owned file from any project opens the source in the
-Workspace tab so the user understands that the change affects every associated
-project.
+Editing a vault-owned file from any workspace opens the source in the
+Vault tab so the user understands that the change affects every associated
+workspace.
 
 ## Agent-applied projections
 
-Neurona does not implement projection apply machinery. Changing workspace
-configuration edits `workspace.json` and nothing else. Bringing project trees
+Neurona does not implement projection apply machinery. Changing vault
+configuration edits `vault.json` and nothing else. Bringing workspace trees
 in line with the configuration — creating links, writing adapters, removing
 stale projections, migrating legacy layouts — is done by the user's coding
-agent working inside the workspace.
+agent working inside the vault.
 
 Switching agents is rare, so this stays a manual, agent-assisted step:
 
-1. The user edits the configuration in the Workspace tab (for example,
+1. The user edits the configuration in the Vault tab (for example,
    changing the default agent).
-2. The Workspace tab compares configuration against disk and shows drift per
-   project.
+2. The Vault tab compares configuration against disk and shows drift per
+   workspace.
 3. When drift exists, the tab offers the standard prompt from
    [agent-switch-prompt.md](agent-switch-prompt.md) to copy into the user's
    agent session.
@@ -215,21 +215,21 @@ Switching agents is rare, so this stays a manual, agent-assisted step:
 
 The prompt is a recommendation, not a protocol. There are no plan IDs,
 fingerprints, or managed-state stores; the agent's judgment plus the git diff
-replace them. Neurona itself never overwrites or deletes project files.
+replace them. Neurona itself never overwrites or deletes workspace files.
 
 ## Agent and skill projections
 
-Agent support is workspace policy, not a fixed Neurona enum. A workspace selects
+Agent support is vault policy, not a fixed Neurona enum. A vault selects
 the agent surfaces it supports and maps tool-neutral sources to those surfaces.
 The mapping modes are conventions the user's agent applies:
 
-- `symlink`: destination points directly to the workspace source.
+- `symlink`: destination points directly to the vault source.
 - `adapter`: a small generated pointer file, marked as generated in its first
   line, for a tool that cannot consume the canonical source directly.
 - `copy`: allowed only when a tool requires a physical copy; the generated
   file is clearly marked as generated.
 
-The workspace also owns skill sources, repository imports, prefixes, memory
+The vault also owns skill sources, repository imports, prefixes, memory
 policy, hooks, and agent settings. Neurona validates those choices and renders
 the resulting state; it does not choose `.claude/skills` or `.agents/memory`
 as universal canonical locations.
@@ -245,11 +245,11 @@ Notebook support has four layers:
 3. **Provider protocol:** versioned execution, lifecycle, health, kernel, and
    output-event contract.
 4. **Provider app:** Darwin, local Jupyter, remote Jupyter, Spark, or another
-   executor installed in the workspace.
+   executor installed in the vault.
 
 ### Provider discovery
 
-A workspace app registers as a notebook provider:
+A vault app registers as a notebook provider:
 
 ```toml
 name = "notebook-darwin"
@@ -261,7 +261,7 @@ command = "bin/notebook-darwin"
 
 Neurona communicates with providers out of process through a small JSON
 protocol. Provider dependencies and failures therefore do not contaminate the
-Neurona backend. `workspace.json` references `"provider": "darwin"`; it does
+Neurona backend. `vault.json` references `"provider": "darwin"`; it does
 not repeat the provider command.
 
 ### Minimum provider contract
@@ -286,7 +286,7 @@ The UI reads provider capabilities rather than assuming Darwin:
 - No provider: render, edit, and copy only.
 - Execute only: show Run but not Interrupt or Restart.
 - Streaming: update the pending cell as events arrive.
-- Multiple kernels: show only kernels allowed by the workspace.
+- Multiple kernels: show only kernels allowed by the vault.
 - Unhealthy provider: keep rendering the notebook and display actionable
   provider status.
 
@@ -300,7 +300,7 @@ The current Darwin implementation remains in
 2. Move Darwin CLI invocation, kernel lifecycle, exit-code mapping,
    bootstrapping, and code synchronization into `apps/notebook-darwin/`.
 3. Make the current `/api/nb/exec` route a temporary compatibility adapter that
-   resolves the workspace provider and delegates to the generic service.
+   resolves the vault provider and delegates to the generic service.
 4. Remove Darwin-specific labels and unconditional controls from the UI.
 5. Validate the extracted provider against the legacy parity checklist.
 
@@ -317,17 +317,17 @@ specific provider.
 
 When Neurona opens a file, the read response includes:
 
-- the requested workspace-relative path;
+- the requested vault-relative path;
 - the canonical source path after resolving a managed projection;
 - the source version, such as an mtime/size tuple or content fingerprint;
-- known project aliases for that source.
+- known workspace aliases for that source.
 
 Sources and aliases are derived from on-disk symlinks plus the configured
 projections; no separate managed-state record exists.
 
-This is essential for workspace projections. Changing
+This is essential for vault projections. Changing
 `agents/instructions.md` must update open views of
-`projects/a/AGENTS.md` and `projects/b/AGENTS.md` even though the symlink entries
+`workspaces/a/AGENTS.md` and `workspaces/b/AGENTS.md` even though the symlink entries
 themselves did not change.
 
 ### Path-aware events
@@ -337,11 +337,11 @@ The watcher emits a debounced, path-specific WebSocket event:
 ```json
 {
   "type": "file-changed",
-  "workspace": "trust-safety",
+  "vault": "trust-safety",
   "source": "agents/instructions.md",
   "aliases": [
-    "projects/a/AGENTS.md",
-    "projects/b/AGENTS.md"
+    "workspaces/a/AGENTS.md",
+    "workspaces/b/AGENTS.md"
   ],
   "change": "modified",
   "version": "1784301000.123:8421"
@@ -358,8 +358,8 @@ UI (`core/src/core/static/js/lab-app.js`) adopts `file-changed` first; the
 secondary SPA views follow or are retired. `index-updated` is removed only
 when nothing consumes it.
 
-Watcher coverage is derived from the files Neurona can render: workspace roots,
-project roots, configured projection sources, and active file parents. Large
+Watcher coverage is derived from the files Neurona can render: vault roots,
+workspace roots, configured projection sources, and active file parents. Large
 dependency or checkout trees such as `.git`, `node_modules`, virtual
 environments, repositories, and worktrees remain excluded. A lightweight
 version poll is the fallback on filesystems where native watching is
@@ -389,78 +389,78 @@ Atomic-save sequences commonly appear as create-temp, modify, and rename
 events. Neurona debounces and coalesces them into one logical change before
 notifying clients.
 
-## Home and project presentation
+## Home and workspace presentation
 
-Home lists registered workspaces as clickable entries. Projects are grouped
-under the workspace root that contains them. Clicking a workspace opens its
-Workspace tab; clicking a project opens the project view.
+Home lists registered vaults as clickable entries. Workspaces are grouped
+under the vault root that contains them. Clicking a vault opens its
+Vault tab; clicking a workspace opens the workspace view.
 
-The project tree contains:
+The workspace tree contains:
 
-- real project files;
-- enabled workspace projections with their origin;
-- enabled workspace features and service surfaces.
+- real workspace files;
+- enabled vault projections with their origin;
+- enabled vault features and service surfaces.
 
 It does not contain hardcoded root `AGENTS.md`, `.claude`, `.agents`, shared
-code, or META entries that the workspace did not enable.
+code, or META entries that the vault did not enable.
 
 ## Terminals, servers, and clipboard
 
-Neurona owns terminal session lifecycle and rendering. Workspaces may choose
+Neurona owns terminal session lifecycle and rendering. Vaults may choose
 supported agents and terminal profiles, but the terminal transport, reconnect,
 session list, and persistence behavior remain Neurona infrastructure.
 
-Workspaces declare services and how an installed service provider starts or
+Vaults declare services and how an installed service provider starts or
 discovers them. Neurona renders status, controls, logs, links, and server UI; it
-does not impose a Makefile convention on every project.
+does not impose a Makefile convention on every workspace.
 
 Clipboard operations remain a Neurona UI capability. They copy rendered text,
-commands, URLs, images, or notebook cell content but do not alter workspace
+commands, URLs, images, or notebook cell content but do not alter vault
 ownership.
 
 ## Migration sequence
 
 Status (2026-07-18): steps 1–2 are done; step 3 shipped in v1 — the fixed
-Workspace tab with the workspace tree, configuration/agents/projects cards,
-starter-file bootstrap, the agent setup prompt, per-workspace agent
-availability, and a workspace-rooted terminal — with the projection preview
+Vault tab with the vault tree, configuration/agents/workspaces cards,
+starter-file bootstrap, the agent setup prompt, per-vault agent
+availability, and a vault-rooted terminal — with the projection preview
 still to come. Step 4's prompt exists (agent-switch-prompt.md plus the
 in-card setup prompt); drift detection does not yet. Step 5 shipped in v1
-for the project sidebar's Meta section: workspaces that declare
-`agents.projections` / `project.mounts` get origin-labeled rows
+for the workspace sidebar's Meta section: vaults that declare
+`agents.projections` / `workspace.mounts` get origin-labeled rows
 ("CLAUDE.md ← AGENTS.md") instead of the legacy "(shared)" entries, which
-remain the fallback for undeclared workspaces.
+remain the fallback for undeclared vaults.
 
-1. Add `workspace.json` schema validation to the existing workspace registry
-   without changing projects.
-2. Group Home projects by their containing registered workspace.
-3. Build the Workspace tab and read-only effective projection preview.
-4. Write the agent switch prompt and show it in the Workspace tab when
+1. Add `vault.json` schema validation to the existing vault registry
+   without changing workspaces.
+2. Group Home workspaces by their containing registered vault.
+3. Build the Vault tab and read-only effective projection preview.
+4. Write the agent switch prompt and show it in the Vault tab when
    configuration and disk drift.
-5. Replace hardcoded shared sidebar entries with effective workspace
+5. Replace hardcoded shared sidebar entries with effective vault
    projections.
 6. Introduce canonical file identity and path-aware live updates.
 7. Add notebook-provider discovery and the generic notebook service.
 8. Extract Darwin into `apps/notebook-darwin/` and validate legacy parity.
-9. Move project scaffolding, skill imports, server profiles, and display
-   rules into workspace configuration; retire `lab agents sync` in favor of
+9. Move workspace scaffolding, skill imports, server profiles, and display
+   rules into vault configuration; retire `lab agents sync` in favor of
    the agent switch prompt.
-10. Remove compatibility paths after existing workspaces have migrated.
+10. Remove compatibility paths after existing vaults have migrated.
 
 ## Acceptance criteria
 
-- Every project appears under its containing registered workspace in Home.
-- The Workspace tab shows only the workspace source tree and its configuration.
-- The project tree shows only local files plus enabled projections.
-- Every projection displays its workspace source instead of `(shared)`.
-- The Workspace tab shows drift between configuration and disk and offers the
+- Every workspace appears under its containing registered vault in Home.
+- The Vault tab shows only the vault source tree and its configuration.
+- The workspace tree shows only local files plus enabled projections.
+- Every projection displays its vault source instead of `(shared)`.
+- The Vault tab shows drift between configuration and disk and offers the
   agent switch prompt.
-- Neurona never mutates project trees; projection changes happen only through
+- Neurona never mutates workspace trees; projection changes happen only through
   the user's agent.
-- Agent support and defaults come from the workspace.
+- Agent support and defaults come from the vault.
 - Notebooks render with no execution provider installed.
 - Darwin behavior works through a provider with legacy parity.
-- Any rendered workspace file updates when its canonical source changes.
-- Project aliases update when their workspace source changes.
+- Any rendered vault file updates when its canonical source changes.
+- Workspace aliases update when their vault source changes.
 - Unsaved drafts are protected from external changes.
 - Live server views are not reloaded by unrelated filesystem events.

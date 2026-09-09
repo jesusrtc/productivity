@@ -1,194 +1,985 @@
-from __future__ import annotations
-
 import json
+import subprocess
 from pathlib import Path
-
-import pytest
-from fastapi import HTTPException
-
-from core import fsguard
-from core.routes import workspace as workspace_route
-from lab import paths
+from types import SimpleNamespace
 
 
-def _seed_workspace(root: Path, project_id: str) -> None:
-    (root / "content").mkdir(parents=True, exist_ok=True)
-    pdir = root / "projects" / project_id
-    pdir.mkdir(parents=True, exist_ok=True)
-    (root / "lab.toml").write_text("[workspace]\nname = \"test\"\n", encoding="utf-8")
-    (pdir / "project.json").write_text(json.dumps({
-        "id": project_id,
-        "name": project_id,
-        "description": "",
-        "status": "active",
-        "tags": [],
-        "labels": [],
-        "priority": None,
-        "loe": None,
-        "due": None,
-        "created": "2026-04-17",
-        "updated": "2026-04-17",
-        "worktrees": [],
-        "prs": [],
-        "artifacts": [],
-        "pinned": [],
-    }, indent=2), encoding="utf-8")
-    (pdir / "tasks.json").write_text(json.dumps({"next_id": 1, "tasks": []}), encoding="utf-8")
-
-
-def test_workspaces_list_includes_current(client, monorepo: Path) -> None:
-    paths.register_workspace(monorepo, name="Main", active=True)
-
-    r = client.get("/api/workspaces")
-
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["current"]["path"] == str(monorepo.resolve())
-    assert body["workspaces"][0]["active"] is True
-
-
-def test_workspace_switch_replaces_active_index(client, monorepo: Path, tmp_path: Path) -> None:
-    _seed_workspace(monorepo, "alpha")
-    other = tmp_path / "other"
-    _seed_workspace(other, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
-
-    r = client.post("/api/workspaces/use", json={"id": "other"})
-
-    assert r.status_code == 200, r.text
-    assert r.json()["current"]["path"] == str(other.resolve())
-    assert client.get("/api/index").json()["projects"][0]["id"] == "beta"
-    assert client.app.state.index_cache.root == other.resolve()
-    assert paths.active_workspace() == other.resolve()
-    assert not paths.port_file(monorepo).exists()
-    assert paths.port_file(other).exists()
-
-
-def test_workspace_switch_refreshes_workspace_root_in_cached_index_shell(
-    client, monorepo: Path, tmp_path: Path,
-) -> None:
-    _seed_workspace(monorepo, "alpha")
-    other = tmp_path / "other"
-    _seed_workspace(other, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
-
-    first = client.get("/")
-    assert first.status_code == 200
-    assert f'window.LAB_WORKSPACE_ROOT = "{monorepo.resolve()}"' in first.text
-
-    switched = client.post("/api/workspaces/use", json={"id": "other"})
-    assert switched.status_code == 200, switched.text
-
-    reloaded = client.get("/")
-    assert reloaded.status_code == 200
-    assert f'window.LAB_WORKSPACE_ROOT = "{other.resolve()}"' in reloaded.text
-    assert f'window.LAB_WORKSPACE_ROOT = "{monorepo.resolve()}"' not in reloaded.text
-
-
-# ─── /api/workspaces/projects ───────────────────────────────────────────────
-
-
-def test_workspace_projects_lists_ids_per_workspace(client, monorepo: Path, tmp_path: Path) -> None:
-    _seed_workspace(monorepo, "alpha")
-    other = tmp_path / "other"
-    _seed_workspace(other, "beta")
-    (other / "projects" / "gamma").mkdir(parents=True)
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
-
-    r = client.get("/api/workspaces/projects")
-
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["active"] == "main"
-    rows = {w["id"]: w for w in body["workspaces"]}
-    assert rows["main"]["unavailable"] is False
-    assert rows["main"]["projects"] == ["alpha"]
-    assert rows["main"]["project_rows"][0]["path"] == str(monorepo / "projects" / "alpha")
-    assert rows["main"]["project_rows"][0]["workspace"] == "main"
-    assert rows["main"]["color"].startswith("#")
-    assert rows["other"]["unavailable"] is False
-    assert sorted(rows["other"]["projects"]) == ["beta", "gamma"]
-
-
-def test_workspace_appearance_is_workspace_scoped(
-    client, monorepo: Path, tmp_path: Path,
-) -> None:
-    _seed_workspace(monorepo, "alpha")
-    other = tmp_path / "other"
-    _seed_workspace(other, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
-
-    updated = client.patch(
-        "/api/workspaces/other/appearance",
-        json={"name": "Research", "color": "#a371f7"},
+def _request(root):
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(index_cache=SimpleNamespace(root=root)),
+        ),
     )
 
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["name"] == "Research"
-    listing = client.get("/api/workspaces/projects").json()
-    rows = {w["id"]: w for w in listing["workspaces"]}
-    assert rows["other"]["name"] == "Research"
-    assert rows["other"]["color"] == "#a371f7"
-    assert rows["main"]["name"] == "Main"
-    assert client.app.state.index_cache.root == monorepo.resolve()
+
+def test_list_workspaces_empty(client) -> None:
+    r = client.get("/api/workspaces")
+    assert r.status_code == 200
+    assert r.json() == []
 
 
-def test_workspace_config_can_target_non_active_workspace(
-    client, monorepo: Path, tmp_path: Path,
-) -> None:
-    _seed_workspace(monorepo, "alpha")
-    other = tmp_path / "other"
-    _seed_workspace(other, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(other, name="Other", active=False)
-    (other / "workspace.json").write_text(json.dumps({
-        "version": 1,
-        "name": "Other Config",
-    }), encoding="utf-8")
-
-    fetched = client.get("/api/workspace/config?workspace=other")
-
-    assert fetched.status_code == 200, fetched.text
-    assert fetched.json()["root"] == str(other.resolve())
-    assert fetched.json()["config"]["name"] == "Other Config"
+def test_list_workspaces_returns_index_slice(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
+    r = client.get("/api/workspaces")
+    ids = [p["id"] for p in r.json()]
+    assert ids == ["alpha", "beta"]
 
 
-def test_workspace_projects_marks_stalled_workspace_unavailable_without_failing_others(
-    client, monorepo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A single stalled/wedged workspace volume must not blank the whole
-    dashboard: its entry gets `unavailable: true` (empty `projects`), but
-    every other registered workspace still lists normally."""
-    _seed_workspace(monorepo, "alpha")
-    dead = tmp_path / "dead-ssd"
-    _seed_workspace(dead, "beta")
-    paths.register_workspace(monorepo, name="Main", active=True)
-    paths.register_workspace(dead, name="Dead", active=False)
+def test_list_workspaces_filter_by_status(client, seed_workspace, monorepo) -> None:
+    alpha = seed_workspace("alpha")
+    beta = seed_workspace("beta")
+    data = json.loads((beta / "workspace.json").read_text())
+    data["status"] = "archived"
+    (beta / "workspace.json").write_text(json.dumps(data))
 
-    dead_resolved = dead.resolve()
-    real_guarded = fsguard.guarded
+    r = client.get("/api/workspaces?status=active")
+    ids = [p["id"] for p in r.json()]
+    assert ids == ["alpha"]
 
-    def _fake_guarded(root: Path, fn, *args, **kwargs):
-        if Path(root).resolve() == dead_resolved:
-            raise HTTPException(
-                status_code=503,
-                detail=f"resource is not available for workspace {fsguard.workspace_name(root)}",
-            )
-        return real_guarded(root, fn, *args, **kwargs)
+    r = client.get("/api/workspaces?status=archived")
+    ids = [p["id"] for p in r.json()]
+    assert ids == ["beta"]
 
-    monkeypatch.setattr(workspace_route.fsguard, "guarded", _fake_guarded)
 
-    r = client.get("/api/workspaces/projects")
-
-    assert r.status_code == 200, r.text
+def test_get_single_workspace_returns_full_json(client, seed_workspace) -> None:
+    seed_workspace("alpha", description="Alpha desc")
+    r = client.get("/api/workspaces/alpha")
+    assert r.status_code == 200
     body = r.json()
-    rows = {w["id"]: w for w in body["workspaces"]}
-    assert rows["main"]["unavailable"] is False
-    assert rows["main"]["projects"] == ["alpha"]
-    assert rows["dead"]["unavailable"] is True
-    assert rows["dead"]["projects"] == []
-    assert rows["dead"]["detail"] == "resource is not available for workspace Dead"
+    assert body["id"] == "alpha"
+    assert body["description"] == "Alpha desc"
+    assert body["worktrees"] == []
+
+
+def test_get_single_workspace_missing(client) -> None:
+    r = client.get("/api/workspaces/nope")
+    assert r.status_code == 404
+
+
+def test_get_single_workspace_rejects_bad_id(client) -> None:
+    r = client.get("/api/workspaces/..%2Fbad")
+    assert r.status_code in {400, 404}
+
+
+def test_get_workspace_tasks_empty(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.get("/api/workspaces/alpha/tasks")
+    assert r.status_code == 200
+    assert r.json() == {"next_id": 1, "tasks": []}
+
+
+def test_get_workspace_tasks_reflects_on_disk(client, seed_workspace) -> None:
+    import json as _json
+    pdir = seed_workspace("alpha")
+    (pdir / "tasks.json").write_text(_json.dumps({
+        "next_id": 2,
+        "tasks": [{"id": 1, "title": "hi", "status": "todo", "priority": "P1",
+                   "loe": None, "due": None, "tags": [], "labels": [],
+                   "blocker": None, "notes_file": None,
+                   "created": "2026-04-17", "updated": "2026-04-17", "closed_at": None}],
+    }))
+    r = client.get("/api/workspaces/alpha/tasks")
+    body = r.json()
+    assert body["next_id"] == 2
+    assert body["tasks"][0]["title"] == "hi"
+
+
+def test_get_workspace_tasks_missing_workspace(client) -> None:
+    r = client.get("/api/workspaces/nope/tasks")
+    assert r.status_code == 404
+
+
+def test_get_self_workspace_tasks_reads_framework_root(tmp_path, monkeypatch) -> None:
+    from core.routes import workspace as workspace_routes
+
+    vault = tmp_path / "vault"
+    framework = tmp_path / "framework"
+    (vault / "content").mkdir(parents=True)
+    (framework / "content").mkdir(parents=True)
+    (vault / "content" / ".self-tasks.json").write_text(json.dumps({
+        "next_id": 2,
+        "tasks": [{"id": 1, "title": "vault task"}],
+    }))
+    (framework / "content" / ".self-tasks.json").write_text(json.dumps({
+        "next_id": 2,
+        "tasks": [{"id": 1, "title": "framework task"}],
+    }))
+    monkeypatch.setattr(workspace_routes.paths, "find_framework_root", lambda: framework)
+
+    body = workspace_routes.get_workspace_tasks("__self__", _request(vault))
+
+    assert body["tasks"][0]["title"] == "framework task"
+
+
+def test_list_workspace_docs(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
+    (pdir / "docs" / "one-pager.md").write_text("# hello")
+    (pdir / "notes" / "001-draft.md").write_text("# draft")
+    (pdir / "assets").mkdir(exist_ok=True)
+    (pdir / "assets" / "chart.png").write_bytes(b"\x89PNG")
+
+    r = client.get("/api/workspaces/alpha/docs")
+    assert r.status_code == 200
+    files = r.json()
+    paths_set = {f["path"] for f in files}
+    assert "docs/one-pager.md" in paths_set
+    assert "notes/001-draft.md" in paths_set
+    assert "assets/chart.png" in paths_set
+
+
+def test_list_workspace_docs_missing_workspace(client) -> None:
+    r = client.get("/api/workspaces/nope/docs")
+    assert r.status_code == 404
+
+
+def test_get_workspace_file_text(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
+    (pdir / "docs" / "one-pager.md").write_text("# body")
+    r = client.get("/api/workspaces/alpha/file?path=docs/one-pager.md")
+    assert r.status_code == 200
+    assert "# body" in r.text
+
+
+def test_get_workspace_file_rejects_traversal(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.get("/api/workspaces/alpha/file?path=../beta.md")
+    assert r.status_code == 400
+
+
+def test_get_workspace_file_missing(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.get("/api/workspaces/alpha/file?path=notes/999.md")
+    assert r.status_code == 404
+
+
+def test_workspace_files_marks_symlinks(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
+    (pdir / "AGENTS.md").write_text("# canonical\n")
+    (pdir / "CLAUDE.md").symlink_to("AGENTS.md")
+    (pdir / "real-docs").mkdir()
+    (pdir / "real-docs" / "note.md").write_text("# note\n")
+    (pdir / "linked-docs").symlink_to("real-docs", target_is_directory=True)
+    (pdir / ".claude").mkdir()
+    (pdir / ".claude" / "skills").symlink_to("../real-docs", target_is_directory=True)
+
+    r = client.get(f"/api/workspace-files?path={pdir}")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.json()}
+
+    assert files["CLAUDE.md"]["is_symlink"] is True
+    assert files["CLAUDE.md"]["symlink_target"] == "AGENTS.md"
+    assert "is_symlink" not in files["AGENTS.md"]
+    assert files["linked-docs"]["type"] == "dir"
+    assert files["linked-docs"]["is_symlink"] is True
+    assert files["linked-docs"]["symlink_target"] == "real-docs"
+    assert files["linked-docs/note.md"]["type"] == "file"
+
+    r = client.get(f"/api/workspace-files?path={pdir}&include_dotfiles=true")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.json()}
+    assert files[".claude/skills"]["type"] == "dir"
+    assert files[".claude/skills"]["is_symlink"] is True
+    assert files[".claude/skills"]["symlink_target"] == "../real-docs"
+
+
+def test_workspace_files_includes_mtime_for_every_file_type(client, seed_workspace) -> None:
+    pdir = seed_workspace("recent-files")
+    (pdir / "docs" / "note.md").write_text("# note\n")
+    (pdir / "script.py").write_text("print('ok')\n")
+    (pdir / "notebooks").mkdir()
+    (pdir / "notebooks" / "analysis.ipynb").write_text("{}\n")
+
+    r = client.get(f"/api/workspace-files?path={pdir}")
+    assert r.status_code == 200
+    files = {f["path"]: f for f in r.json()}
+
+    for path in ("docs/note.md", "script.py", "notebooks/analysis.ipynb"):
+        assert isinstance(files[path]["mtime"], float)
+
+
+def test_sidebar_recent_git_modes_return_the_requested_file_sets(
+    client, seed_workspace,
+) -> None:
+    pdir = seed_workspace("recent-git-modes")
+    subprocess.run(["git", "init"], cwd=pdir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "lab@example.test"],
+        cwd=pdir,
+        check=True,
+    )
+
+    (pdir / "base.txt").write_text("base\n")
+    subprocess.run(["git", "add", "."], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "base"], cwd=pdir, check=True, capture_output=True,
+    )
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=pdir,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", base_sha],
+        cwd=pdir,
+        check=True,
+    )
+
+    (pdir / "commit-two.txt").write_text("two\n")
+    subprocess.run(["git", "add", "commit-two.txt"], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "two"], cwd=pdir, check=True, capture_output=True,
+    )
+    (pdir / "commit-three.txt").write_text("three\n")
+    subprocess.run(["git", "add", "commit-three.txt"], cwd=pdir, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "three"], cwd=pdir, check=True, capture_output=True,
+    )
+
+    (pdir / "commit-two.txt").write_text("two, edited\n")
+    (pdir / "untracked.txt").write_text("new\n")
+
+    uncommitted = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "uncommitted",
+    })
+    origin_main = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "origin-main",
+    })
+    last_two = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "last-2-commits",
+    })
+
+    assert uncommitted.status_code == 200
+    assert set(uncommitted.json()["files"]) == {"commit-two.txt", "untracked.txt"}
+    assert origin_main.status_code == 200
+    assert origin_main.json()["base_ref"] == "origin/main"
+    assert set(origin_main.json()["files"]) == {
+        "commit-two.txt", "commit-three.txt", "untracked.txt",
+    }
+    assert last_two.status_code == 200
+    assert set(last_two.json()["files"]) == {"commit-two.txt", "commit-three.txt"}
+
+    invalid = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "all-history",
+    })
+    assert invalid.status_code == 400
+
+
+def test_sidebar_worktrees_lists_only_matching_repository_worktrees(client, monorepo) -> None:
+    source = monorepo / "source-repo"
+    workspace = source / "workspaces" / "alpha"
+    workspace.mkdir(parents=True)
+    (workspace / "README.md").write_text("alpha\n")
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=source, check=True)
+    subprocess.run(["git", "add", "."], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True, capture_output=True)
+
+    parent = monorepo / "sidebar-worktrees"
+    parent.mkdir()
+    (parent / "feature-a").mkdir()
+    subprocess.run(
+        [
+            "git", "worktree", "add", "-b", "feature-a",
+            str(parent / "feature-a" / "source-repo"),
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature-direct", str(parent / "feature-direct")],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+
+    unrelated = monorepo / "unrelated-repo"
+    unrelated.mkdir()
+    (unrelated / "README.md").write_text("unrelated\n")
+    subprocess.run(["git", "init"], cwd=unrelated, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=unrelated, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=unrelated, check=True)
+    subprocess.run(["git", "add", "."], cwd=unrelated, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=unrelated, check=True, capture_output=True)
+    (parent / "other-feature").mkdir()
+    subprocess.run(
+        [
+            "git", "worktree", "add", "-b", "other-feature",
+            str(parent / "other-feature" / "unrelated-repo"),
+        ],
+        cwd=unrelated,
+        check=True,
+        capture_output=True,
+    )
+
+    (parent / "ordinary-folder").mkdir()
+    (parent / "README.md").write_text("not a worktree\n")
+    wrapper = monorepo / "workspaces" / "wrapper"
+    wrapper.mkdir()
+
+    response = client.get(
+        "/api/sidebar-worktrees",
+        params={"path": str(parent), "repo": str(workspace), "scope": str(wrapper)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "path": str(parent.resolve()),
+        "repo": str(workspace.resolve()),
+        "folders": [
+            {
+                "name": "feature-a",
+                "path": str((parent / "feature-a").resolve()),
+                "repo": str(
+                    (parent / "feature-a" / "source-repo" / "workspaces" / "alpha").resolve()
+                ),
+            },
+            {
+                "name": "feature-direct",
+                "path": str((parent / "feature-direct" / "workspaces" / "alpha").resolve()),
+                "repo": str((parent / "feature-direct" / "workspaces" / "alpha").resolve()),
+            },
+        ],
+    }
+
+
+def test_sidebar_worktrees_prefers_git_scope_and_accepts_checkout_path(
+    client, monorepo,
+) -> None:
+    source = monorepo / "workspaces" / "direct-repo"
+    source.mkdir()
+    (source / ".gitignore").write_text(".worktrees/\n")
+    (source / "README.md").write_text("direct repo\n")
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=source, check=True)
+    subprocess.run(["git", "add", "."], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True, capture_output=True)
+
+    parent = source / ".worktrees"
+    checkout = parent / "feature-a"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "feature-a", str(checkout)],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+
+    response = client.get(
+        "/api/sidebar-worktrees",
+        params={
+            # The UI should forgive pasting the checkout itself instead of
+            # requiring users to manually trim it back to the parent folder.
+            "path": str(checkout),
+            # Workspace metadata can retain a checkout path after it was moved
+            # or deleted. An exact Git workspace root must win over that stale
+            # registered path.
+            "repo": str(parent / "missing-checkout"),
+            "scope": str(source),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "path": str(parent.resolve()),
+        "repo": str(source.resolve()),
+        "folders": [
+            {
+                "name": "feature-a",
+                "path": str(checkout.resolve()),
+                "repo": str(checkout.resolve()),
+            },
+        ],
+    }
+
+
+def test_sidebar_worktrees_rejects_missing_folder(client, monorepo) -> None:
+    response = client.get(
+        "/api/sidebar-worktrees",
+        params={
+            "path": str(monorepo / "missing-worktrees"),
+            "repo": str(monorepo),
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Worktree folder not found"
+
+
+def test_workspace_files_includes_deep_files_without_nested_git_marker(
+    client, seed_workspace,
+) -> None:
+    """Real source paths must not depend on detecting nested Git metadata."""
+    import os
+    import time
+
+    pdir = seed_workspace("nested-repository-files")
+    nested_repo = pdir / "repositories" / "queries"
+    tools = (
+        nested_repo / "forge" / "experimental" / "cached-queries"
+        / "cached_queries" / "tools"
+    )
+    tools.mkdir(parents=True)
+    leaf = tools / "query_helper.py"
+    leaf.write_text("VALUE = 1\n")
+    future_ts = time.time() + 10_000
+    os.utime(leaf, (future_ts, future_ts))
+    rel = str(leaf.relative_to(pdir))
+
+    listed = client.get(f"/api/workspace-files?path={pdir}")
+    assert listed.status_code == 200
+    assert rel in {row["path"] for row in listed.json()}
+
+    mtime = client.get(f"/api/workspace-mtime?path={pdir}")
+    assert mtime.status_code == 200
+    assert mtime.json()["mtime"] >= future_ts
+
+
+def test_workspace_entry_create_rename_and_delete(client, seed_workspace) -> None:
+    pdir = seed_workspace("explorer")
+
+    created = client.post("/api/workspace-entry", json={
+        "path": str(pdir), "parent": "docs", "name": "draft.md", "kind": "file",
+    })
+    assert created.status_code == 200
+    assert (pdir / "docs" / "draft.md").is_file()
+
+    folder = client.post("/api/workspace-entry", json={
+        "path": str(pdir), "parent": "docs", "name": "research", "kind": "folder",
+    })
+    assert folder.status_code == 200
+    assert (pdir / "docs" / "research").is_dir()
+
+    renamed = client.patch("/api/workspace-entry", json={
+        "path": str(pdir), "entry": "docs/draft.md", "new_name": "notes.md",
+    })
+    assert renamed.status_code == 200
+    assert renamed.json()["renamed_to"] == "docs/notes.md"
+    assert not (pdir / "docs" / "draft.md").exists()
+    assert (pdir / "docs" / "notes.md").is_file()
+
+    deleted = client.request("DELETE", "/api/workspace-entry", json={
+        "path": str(pdir), "entry": "docs/research",
+    })
+    assert deleted.status_code == 200
+    assert not (pdir / "docs" / "research").exists()
+
+
+def test_workspace_entry_creates_valid_repository_notebook(client, seed_workspace) -> None:
+    pdir = seed_workspace("notebook-create")
+    (pdir / "notebooks").mkdir()
+
+    created = client.post("/api/workspace-entry", json={
+        "path": str(pdir),
+        "parent": "notebooks",
+        "name": "analysis",
+        "kind": "notebook",
+    })
+
+    assert created.status_code == 200, created.text
+    assert created.json()["entry"] == "notebooks/analysis.ipynb"
+    target = pdir / "notebooks" / "analysis.ipynb"
+    notebook = json.loads(target.read_text(encoding="utf-8"))
+    assert notebook["nbformat"] == 4
+    assert notebook["nbformat_minor"] == 5
+    assert notebook["cells"] == []
+    assert notebook["metadata"]["kernelspec"]["name"] == "python3"
+
+
+def test_workspace_entry_rejects_traversal_and_collisions(client, seed_workspace) -> None:
+    pdir = seed_workspace("explorer-safe")
+    (pdir / "docs" / "kept.md").write_text("safe")
+
+    traversal = client.request("DELETE", "/api/workspace-entry", json={
+        "path": str(pdir), "entry": "../workspace.json",
+    })
+    assert traversal.status_code == 400
+
+    bad_name = client.patch("/api/workspace-entry", json={
+        "path": str(pdir), "entry": "docs/kept.md", "new_name": "../gone.md",
+    })
+    assert bad_name.status_code == 400
+
+    collision = client.post("/api/workspace-entry", json={
+        "path": str(pdir), "parent": "docs", "name": "kept.md", "kind": "file",
+    })
+    assert collision.status_code == 409
+    assert (pdir / "docs" / "kept.md").read_text() == "safe"
+
+
+def test_workspace_diff_file_and_git_history(client, seed_workspace, monorepo) -> None:
+    pdir = seed_workspace("explorer-git")
+    source = pdir / "docs" / "note.txt"
+    source.write_text("before\n")
+    subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "add", "."], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "add note"], cwd=monorepo, check=True, capture_output=True)
+    source.write_text("after\n")
+    companion = pdir / "docs" / "companion.txt"
+    companion.write_text("same commit\n")
+    subprocess.run([
+        "git", "add", str(source.relative_to(monorepo)),
+        str(companion.relative_to(monorepo)),
+    ], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "update note"], cwd=monorepo, check=True, capture_output=True)
+
+    history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert history.status_code == 200
+    commits = history.json()["commits"]
+    assert [commit["message"] for commit in commits[:2]] == ["update note", "add note"]
+
+    root_commit_diff = client.get("/api/commit-diff", params={
+        "repo": str(monorepo), "sha": commits[1]["sha"],
+    })
+    assert root_commit_diff.status_code == 200
+    assert any(
+        item["filename"] == str(source.relative_to(monorepo))
+        for item in root_commit_diff.json()["files"]
+    )
+
+    commit_diff = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir), "file": "docs/note.txt", "sha": commits[0]["sha"],
+    })
+    assert commit_diff.status_code == 200
+    commit_body = commit_diff.json()
+    parsed = commit_body["files"][0]
+    assert parsed["filename"] == str(source.relative_to(monorepo))
+    assert str(companion.relative_to(monorepo)) in commit_body["changed_files"]
+    assert parsed["additions"] == 1
+    assert parsed["deletions"] == 1
+
+    source.write_text("working tree\n")
+    pending_companion = pdir / "docs" / "pending-companion.txt"
+    pending_companion.write_text("also pending\n")
+    working_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert working_history.status_code == 200
+    working = working_history.json()["commits"][0]
+    assert working["sha"] == "WORKTREE"
+    assert working["message"] == "Uncommitted changes"
+    assert working["states"] == ["unstaged"]
+
+    working_diff = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir), "file": "docs/note.txt", "sha": "WORKTREE",
+    })
+    assert working_diff.status_code == 200
+    working_body = working_diff.json()
+    working_parsed = working_body["files"][0]
+    assert working_parsed["filename"] == str(source.relative_to(monorepo))
+    assert str(pending_companion.relative_to(monorepo)) in working_body["changed_files"]
+    assert working_parsed["additions"] == 1
+    assert working_parsed["deletions"] == 1
+
+    subprocess.run(
+        ["git", "add", str(source.relative_to(monorepo))],
+        cwd=monorepo, check=True,
+    )
+    staged_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert staged_history.json()["commits"][0]["states"] == ["staged"]
+
+    source.write_text("working over staged\n")
+    mixed_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/note.txt",
+    })
+    assert mixed_history.json()["commits"][0]["states"] == ["staged", "unstaged"]
+
+    untracked = pdir / "docs" / "new.txt"
+    untracked.write_text("brand new\n")
+    untracked_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/new.txt",
+    })
+    assert untracked_history.status_code == 200
+    assert untracked_history.json()["commits"][0]["states"] == ["untracked"]
+    untracked_diff = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir), "file": "docs/new.txt", "sha": "WORKTREE",
+    })
+    assert untracked_diff.status_code == 200
+    assert untracked_diff.json()["files"][0]["additions"] == 1
+
+    empty_untracked = pdir / "docs" / "empty.txt"
+    empty_untracked.touch()
+    empty_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/empty.txt",
+    })
+    assert empty_history.status_code == 200
+    assert empty_history.json()["commits"][0]["states"] == ["untracked"]
+
+    patch = pdir / "docs" / "change.diff"
+    patch.write_text(subprocess.run(
+        ["git", "show", "--format=", "--no-color", commits[0]["sha"]],
+        cwd=monorepo, check=True, capture_output=True, text=True,
+    ).stdout)
+    rendered = client.get("/api/workspace-diff-file", params={
+        "path": str(pdir), "file": "docs/change.diff",
+    })
+    assert rendered.status_code == 200
+    rendered_note = next(
+        item for item in rendered.json()["files"]
+        if item["filename"].endswith("docs/note.txt")
+    )
+    assert rendered_note["additions"] == 1
+
+
+def test_notebook_git_history_returns_side_by_side_cell_revisions(
+    client, seed_workspace, monorepo,
+) -> None:
+    def notebook(source: str, output: str, execution_count: int) -> dict:
+        return {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [{
+                "cell_type": "code",
+                "metadata": {},
+                "source": [source],
+                "execution_count": execution_count,
+                "outputs": [{"output_type": "stream", "name": "stdout", "text": [output]}],
+            }],
+        }
+
+    pdir = seed_workspace("explorer-notebook-history")
+    notebooks = pdir / "notebooks"
+    notebooks.mkdir()
+    path = notebooks / "review.ipynb"
+    path.write_text(json.dumps(notebook("print('before')\n", "before\n", 1)))
+
+    subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "config", "user.email", "lab@example.test"], cwd=monorepo, check=True)
+    subprocess.run(["git", "add", "."], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "add notebook"], cwd=monorepo, check=True, capture_output=True)
+
+    path.write_text(json.dumps(notebook("print('after')\n", "after\n", 2)))
+    subprocess.run(["git", "add", str(path.relative_to(monorepo))], cwd=monorepo, check=True)
+    subprocess.run(["git", "commit", "-m", "update notebook"], cwd=monorepo, check=True, capture_output=True)
+
+    history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "notebooks/review.ipynb",
+    })
+    latest = history.json()["commits"][0]
+    committed = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "notebooks/review.ipynb",
+        "sha": latest["sha"],
+    })
+    assert committed.status_code == 200
+    notebook_diff = committed.json()["notebook"]
+    assert notebook_diff["before_cells"] == 1
+    assert notebook_diff["after_cells"] == 1
+    assert notebook_diff["changed_cells"] == 1
+    cell = notebook_diff["cells"][0]
+    assert cell["status"] == "modified"
+    assert cell["base_cell"]["source"] == "print('before')\n"
+    assert cell["cell"]["source"] == "print('after')\n"
+
+    # A working-tree-only output change is also a first-class review entry.
+    path.write_text(json.dumps(notebook("print('after')\n", "working\n", 3)))
+    working_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "notebooks/review.ipynb",
+    })
+    assert working_history.json()["commits"][0]["sha"] == "WORKTREE"
+    working = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "notebooks/review.ipynb",
+        "sha": "WORKTREE",
+    })
+    assert working.status_code == 200
+    working_body = working.json()
+    assert working_body["kind"] == "working-tree"
+    assert working_body["states"] == ["unstaged"]
+    working_cell = working_body["notebook"]["cells"][0]
+    assert working_cell["status"] == "output_changed"
+    assert working_cell["base_cell"]["outputs"][0]["content"] == "after\n"
+    assert working_cell["cell"]["outputs"][0]["content"] == "working\n"
+
+    untracked_path = notebooks / "new-review.ipynb"
+    untracked_path.write_text(json.dumps(notebook("print('new')\n", "new\n", 1)))
+    untracked_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "notebooks/new-review.ipynb",
+    })
+    assert untracked_history.json()["commits"][0]["states"] == ["untracked"]
+    untracked = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "notebooks/new-review.ipynb",
+        "sha": "WORKTREE",
+    })
+    assert untracked.status_code == 200
+    untracked_notebook = untracked.json()["notebook"]
+    assert untracked_notebook["before_cells"] == 0
+    assert untracked_notebook["after_cells"] == 1
+    assert untracked_notebook["cells"][0]["status"] == "added"
+
+
+def test_workspace_git_history_uses_nearest_nested_repository(
+    client, seed_workspace, monorepo,
+) -> None:
+    pdir = seed_workspace("explorer-nested-git")
+    subprocess.run(["git", "init"], cwd=monorepo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Outer Test"], cwd=monorepo, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "outer@example.test"],
+        cwd=monorepo, check=True,
+    )
+
+    nested = pdir / "docs" / "nested-repo"
+    nested.mkdir()
+    source = nested / "inside.txt"
+    source.write_text("nested before\n")
+    subprocess.run(["git", "init"], cwd=nested, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Nested Test"], cwd=nested, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "nested@example.test"],
+        cwd=nested, check=True,
+    )
+    subprocess.run(["git", "add", "inside.txt"], cwd=nested, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "nested initial"],
+        cwd=nested, check=True, capture_output=True,
+    )
+    source.write_text("nested after\n")
+
+    history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/nested-repo/inside.txt",
+    })
+    assert history.status_code == 200
+    body = history.json()
+    assert Path(body["repo"]) == nested
+    assert body["repo_file"] == "inside.txt"
+    assert [item["message"] for item in body["commits"]] == [
+        "Uncommitted changes", "nested initial",
+    ]
+
+    working_diff = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "docs/nested-repo/inside.txt",
+        "sha": "WORKTREE",
+    })
+    assert working_diff.status_code == 200
+    parsed = working_diff.json()["files"][0]
+    assert parsed["filename"] == "inside.txt"
+    assert parsed["additions"] == 1
+    assert parsed["deletions"] == 1
+
+    new_source = nested / "brand-new.txt"
+    new_source.write_text("new in nested repo\n")
+    new_history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "docs/nested-repo/brand-new.txt",
+    })
+    assert new_history.status_code == 200
+    new_body = new_history.json()
+    assert Path(new_body["repo"]) == nested
+    assert new_body["commits"][0]["states"] == ["untracked"]
+
+    new_diff = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "docs/nested-repo/brand-new.txt",
+        "sha": "WORKTREE",
+    })
+    assert new_diff.status_code == 200
+    assert new_diff.json()["files"][0]["status"] == "added"
+    assert new_diff.json()["files"][0]["additions"] == 1
+
+
+def test_workspace_git_history_supports_new_files_before_first_commit(
+    client, seed_workspace,
+) -> None:
+    pdir = seed_workspace("explorer-unborn-git")
+    nested = pdir / "repositories" / "fresh-repo"
+    nested.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=nested, check=True, capture_output=True)
+    source = nested / "new.txt"
+    source.write_text("brand new\n")
+
+    history = client.get("/api/workspace-entry/history", params={
+        "path": str(pdir), "file": "repositories/fresh-repo/new.txt",
+    })
+    assert history.status_code == 200
+    assert history.json()["commits"][0]["states"] == ["untracked"]
+
+    diff = client.get("/api/workspace-entry/history-diff", params={
+        "path": str(pdir),
+        "file": "repositories/fresh-repo/new.txt",
+        "sha": "WORKTREE",
+    })
+    assert diff.status_code == 200
+    assert diff.json()["files"][0]["status"] == "added"
+    assert diff.json()["files"][0]["additions"] == 1
+
+
+def test_set_workspace_hold_with_duration(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/hold", json={
+        "duration": "2d",
+        "reason": "PR review",
+        "url": "https://example.com/pr/1",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    hold = body["hold"]
+    assert hold["reason"] == "PR review"
+    assert hold["url"] == "https://example.com/pr/1"
+    assert hold["until"]  # non-empty ISO timestamp
+    # Persisted to disk
+    stored = json.loads((pdir / "workspace.json").read_text())
+    assert stored["hold"]["reason"] == "PR review"
+
+
+def test_set_workspace_hold_with_until_date(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/hold", json={"until": "2099-01-15"})
+    assert r.status_code == 200
+    hold = r.json()["hold"]
+    assert hold["until"].startswith("2099-01-15")
+
+
+def test_set_workspace_hold_requires_one_of_duration_or_until(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/hold", json={"reason": "x"})
+    assert r.status_code == 400
+
+
+def test_set_workspace_hold_rejects_both_duration_and_until(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/hold", json={
+        "duration": "2d", "until": "2099-01-15",
+    })
+    assert r.status_code == 400
+
+
+def test_set_workspace_hold_rejects_bad_duration(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/hold", json={"duration": "2 weeks"})
+    assert r.status_code == 400
+
+
+def test_clear_workspace_hold(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
+    client.post("/api/workspaces/alpha/hold", json={"duration": "1d"})
+    r = client.delete("/api/workspaces/alpha/hold")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    stored = json.loads((pdir / "workspace.json").read_text())
+    assert stored["hold"] is None
+
+
+def test_clear_workspace_hold_when_none(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.delete("/api/workspaces/alpha/hold")
+    assert r.status_code == 200
+
+
+def test_hold_missing_workspace(client) -> None:
+    r = client.post("/api/workspaces/nope/hold", json={"duration": "1d"})
+    assert r.status_code == 404
+
+
+# ─── /api/workspace-mtime perf regression guard ──────────────────────────────
+#
+# Background: the 2s-interval poll from the client used to walk the entire
+# monorepo (including .venv + repositories + .git) with rglob("*"), stalling
+# the event loop for 20+ seconds per tick. The fix skips the same heavy
+# subtrees /api/workspace-files already filters out and caps recursion depth.
+# These tests plant those exact subtree shapes and assert the endpoint
+# ignores them — protecting the performance contract, not just correctness.
+
+
+def test_workspace_mtime_skips_venv_and_node_modules(monorepo, client, seed_workspace) -> None:
+    """Plant a heavy .venv-like tree whose newest mtime is clearly AFTER
+    any real workspace file. If workspace-mtime walks it, ``latest`` will
+    pick up that timestamp. If the skip list works, it won't."""
+    import os
+    import time
+
+    pdir = seed_workspace("heavy")
+    # Real workspace file (older).
+    doc = pdir / "docs" / "note.md"
+    doc.write_text("hi")
+    old_ts = time.time() - 10_000
+    os.utime(doc, (old_ts, old_ts))
+
+    # Plant a .venv with a much-newer file that MUST be skipped.
+    venv = pdir / ".venv" / "lib" / "site-packages" / "foo"
+    venv.mkdir(parents=True)
+    tainted = venv / "tainted.py"
+    tainted.write_text("x")
+    future_ts = time.time() + 1_000_000
+    os.utime(tainted, (future_ts, future_ts))
+
+    # Also plant a node_modules with a tainted mtime.
+    nm = pdir / "node_modules" / "pkg"
+    nm.mkdir(parents=True)
+    tainted2 = nm / "tainted.js"
+    tainted2.write_text("x")
+    os.utime(tainted2, (future_ts, future_ts))
+
+    r = client.get(f"/api/workspace-mtime?path={pdir}")
+    assert r.status_code == 200
+    mt = r.json()["mtime"]
+    # If the skip list works, mt reflects ``pdir`` itself + its children
+    # but never the tainted .venv / node_modules files.
+    assert mt < future_ts, (
+        f"workspace-mtime walked a skipped subtree (mt={mt}, future={future_ts}). "
+        f"Confirm SKIP_DIRS in api_workspace_mtime includes .venv + node_modules."
+    )
+
+
+def test_workspace_mtime_fast_on_large_tree(seed_workspace, client) -> None:
+    """Explicit p95 budget (p95<500ms). Plant a few hundred files inside
+    allowed subdirs — the walk should still be comfortably sub-second.
+    Pre-fix this test wouldn't exist because the endpoint was >20s on
+    the real monorepo; this guard prevents silent regression to the old
+    ``rglob("*")`` behavior."""
+    import time
+
+    pdir = seed_workspace("bulk")
+    # 200 real-shape files across 20 docs/ subfolders.
+    for i in range(20):
+        sub = pdir / "docs" / f"sub-{i}"
+        sub.mkdir(parents=True)
+        for j in range(10):
+            (sub / f"note-{j}.md").write_text("x")
+
+    samples: list[float] = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        r = client.get(f"/api/workspace-mtime?path={pdir}")
+        samples.append(time.perf_counter() - t0)
+        assert r.status_code == 200
+    # After discarding the warmup sample, p95 must be < 500ms. Observed
+    # on a dev laptop: ~20ms. This budget is ~25× headroom.
+    hot = sorted(samples[1:])
+    p95 = hot[-1] if hot else 0.0
+    assert p95 < 0.5, (
+        f"workspace-mtime p95 = {p95*1000:.1f}ms exceeds 500ms budget. "
+        f"Samples (ms): {[f'{s*1000:.1f}' for s in samples]}. "
+        f"Check for reintroduced rglob / missing SKIP_DIRS."
+    )
+
+
+def test_workspace_mtime_depth_capped(seed_workspace, client) -> None:
+    """Walk depth is capped so a pathological deeply-nested tree can't
+    hang the endpoint. Plant 30-level-deep dirs and confirm we return
+    without hanging — the cap leaves room for real source trees but still
+    excludes this 30-level pathological tail."""
+    pdir = seed_workspace("deep")
+    p = pdir
+    for _ in range(30):
+        p = p / "dir"
+        p.mkdir()
+    (p / "leaf.txt").write_text("x")
+
+    r = client.get(f"/api/workspace-mtime?path={pdir}")
+    assert r.status_code == 200
+    assert "mtime" in r.json()

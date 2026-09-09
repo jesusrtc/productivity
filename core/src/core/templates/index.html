@@ -1,19 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="/static/js/lib/naming-migration.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Git Diff Viewer</title>
 <link rel="icon" href="data:,">
 <script>
   // Pre-paint: suppress the "Git Diff Viewer" home-screen placeholder
-  // when the URL already names a project/repo/view. Without this, every
-  // project-tab click shows a "Git Diff Viewer" flash before JS replaces
+  // when the URL already names a workspace/repo/view. Without this, every
+  // workspace-tab click shows a "Git Diff Viewer" flash before JS replaces
   // #content with the real content. Runs synchronously in <head> so the
   // .loading class is set before the parser reaches .no-repo.
   (function () {
     var q = new URLSearchParams(location.search);
-    if (q.has('project') || q.has('repo') || q.has('view')) {
+    if (q.has('workspace') || q.has('repo') || q.has('view')) {
       document.documentElement.classList.add('loading');
     }
   })();
@@ -32,9 +33,9 @@
   body.cerebro-active .k-view { display: flex; }
   body.cerebro-active .layout, body.cerebro-active .diff-tabs { display: none; }
   .layout { display: flex; padding-top: 88px; min-height: 100vh; }
-  body.project-active .layout { padding-top: 128px; }
+  body.workspace-active .layout { padding-top: 128px; }
   .sidebar { position: fixed; top: 88px; bottom: 0; left: 0; width: 280px; overflow: auto; background: var(--bg-secondary); border-right: 1px solid var(--border); }
-  body.project-active .sidebar { top: 128px; }
+  body.workspace-active .sidebar { top: 128px; }
   .main { margin-left: 280px; flex: 1; min-width: 0; }
   .btn-primary { background: var(--accent); color: #fff; border: 0; border-radius: 4px; padding: 6px 10px; }
   .s-section, .k-pane { border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 6px; }
@@ -103,13 +104,13 @@
 </script>
 
 <div class="topbar">
-  <!-- Persistent navigation: Home, then user-opened workspace and
-       project tabs. Each workspace owns its color cue; switching tabs never
-       changes the server's active workspace or reloads the page. -->
-  <div class="proj-tabs" id="projectTabs" role="tablist"></div>
-  <div class="proj-tabs-plus-wrap">
-    <button class="proj-tabs-plus" id="projTabsPlusBtn" onclick="projTabsTogglePicker(event)" title="Open another project">+</button>
-    <div class="proj-tabs-picker" id="projTabsPicker"></div>
+  <!-- Persistent navigation: Home, then user-opened vault and
+       workspace tabs. Each vault owns its color cue; switching tabs never
+       changes the server's active vault or reloads the page. -->
+  <div class="workspace-tabs" id="workspaceTabs" role="tablist"></div>
+  <div class="workspace-tabs-plus-wrap">
+    <button class="workspace-tabs-plus" id="workspaceTabsPlusBtn" onclick="workspaceTabsTogglePicker(event)" title="Open another workspace">+</button>
+    <div class="workspace-tabs-picker" id="workspaceTabsPicker"></div>
   </div>
   <!-- Legacy dropdown kept hidden so selectRepo() / populateRepoSelect() still
        work without a rewrite. The visible UI is the tab strip above. -->
@@ -144,13 +145,13 @@
 <div class="repo-tabs" id="repoTabs" style="display:none"></div>
 <div class="lid-awake-menu" id="lidAwakeMenu" role="dialog" aria-label="Lid Awake timer"></div>
 
-<!-- Project server bar. Project planning metadata belongs in project files;
+<!-- Workspace server bar. Workspace planning metadata belongs in workspace files;
      this strip only exposes the local server controls that need to stay close. -->
-<div class="attrs-bar" id="projectAttrsBar"></div>
+<div class="attrs-bar" id="workspaceAttrsBar"></div>
 
 <div class="diff-tabs" id="diffTabs" {% if INITIAL_VIEW != 'repo' %}style="display:none"{% endif %}>
-  <button class="diff-tab" id="tabProject" onclick="switchDiffTab('project')">
-    Project
+  <button class="diff-tab" id="tabWorkspace" onclick="switchDiffTab('workspace')">
+    Workspace
   </button>
   <button class="diff-tab active" id="tabUncommitted" onclick="switchDiffTab('uncommitted')">
     Uncommitted<span class="count" id="countUncommitted">0</span>
@@ -216,13 +217,13 @@
       </div>
       </div>
     </div>
-    {% elif INITIAL_VIEW == 'project' or INITIAL_VIEW == 'repo' %}
+    {% elif INITIAL_VIEW == 'workspace' or INITIAL_VIEW == 'repo' %}
     <div style="padding:24px;max-width:900px">
       <div style="margin-bottom:28px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-          <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">{{ INITIAL_PROJECT_NAME }}</h1>
+          <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">{{ INITIAL_WORKSPACE_NAME }}</h1>
         </div>
-        <p style="color:var(--text-secondary);font-size:16px;line-height:1.6;margin:0">{% if INITIAL_IS_REPO %}Opening repository diff...{% else %}Opening project dashboard...{% endif %}</p>
+        <p style="color:var(--text-secondary);font-size:16px;line-height:1.6;margin:0">{% if INITIAL_IS_REPO %}Opening repository diff...{% else %}Opening workspace dashboard...{% endif %}</p>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
         <div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg-secondary)">
@@ -244,7 +245,7 @@
   </div>
 </div>
 
-<!-- Right-docked terminal panel. Visible only while a project is loaded
+<!-- Right-docked terminal panel. Visible only while a workspace is loaded
      (`body.term-open`). Backed by tmux + PTY via /ws/term/{name}. -->
 <div class="term-panel" id="termPanel">
   <div class="term-resizer" id="termResizer" title="Drag to resize"></div>
@@ -256,13 +257,13 @@
   </div>
   <div class="term-stage">
     <!-- Session switcher. Appearance is configured in Terminal settings. -->
-    <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminal sessions" aria-orientation="vertical"></div>
+    <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminals" aria-orientation="vertical"></div>
     <div class="term-console">
       <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
       <div id="termStatusSummary" class="term-status-summary" aria-live="polite" hidden><span id="termStatusSummaryLabel" class="term-status-summary-label">Requests</span><div id="termStatusSummaryText" class="term-status-summary-text"></div></div>
       <div class="term-body" id="termBody">
         <div class="term-empty" id="termEmpty">
-          Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this project's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.
+          Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this workspace's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.
         </div>
       </div>
     </div>
@@ -279,7 +280,7 @@
         <label for="termDetailSelect">Tab labels<select id="termDetailSelect" onchange="termSetSessionView('detail',this.value)"><option value="compact">Icons only</option><option value="full">Icons and text</option><option value="text">Text only</option></select></label>
       </div>
       <h3 id="termNewOptionsTitle">Available terminals in + New</h3>
-      <p>Choose which options appear for this project. Workspace availability still applies.</p>
+      <p>Choose which options appear for this workspace. Vault availability still applies.</p>
       <div id="termNewOptions" class="term-new-options" role="group" aria-labelledby="termNewOptionsTitle">
         <label><input type="checkbox" value="claude" onchange="termSetNewOption(this.value,this.checked)"> Claude Code</label>
         <label><input type="checkbox" value="codex" onchange="termSetNewOption(this.value,this.checked)"> Codex</label>
@@ -309,7 +310,7 @@
       <p>Changes are saved automatically in this browser. Right-click a tab to organize groups, add dividers, rename, or close it.</p>
       <section class="term-danger-zone" aria-labelledby="termDangerTitle">
         <h3 id="termDangerTitle">Danger zone</h3>
-        <p>Stop all terminal sessions in the current project. Running work will stop. External sessions attached to Lab will only be detached.</p>
+        <p>Stop all terminal sessions in the current workspace. Running work will stop. External sessions attached to Lab will only be detached.</p>
         <button id="termKillAllBtn" class="danger" onclick="termKillAll()">Kill all sessions…</button>
       </section>
     </div>
@@ -328,11 +329,11 @@
 <div class="nb-toolbar-tooltip" id="nbToolbarTooltip" role="tooltip" hidden></div>
 <div class="term-session-tooltip" id="termSessionTooltip" role="tooltip" hidden></div>
 <div class="term-toggle" id="termToggle" onclick="termToggleCollapse()" title="Show/hide terminal">Terminal</div>
-<div class="sidebar-toggle" id="sidebarToggle" onclick="sidebarToggleCollapse()" title="Show/hide files sidebar (remembered per project)">Files</div>
+<div class="sidebar-toggle" id="sidebarToggle" onclick="sidebarToggleCollapse()" title="Show/hide files sidebar (remembered per workspace)">Files</div>
 
-<!-- Session chooser opened from Terminal → + New. Its target project is
+<!-- Session chooser opened from Terminal → + New. Its target workspace is
      captured when the button is clicked so navigation cannot redirect an
-     in-flight attach to a different project. -->
+     in-flight attach to a different workspace. -->
 <div class="modal-overlay" id="termAttachModal" onclick="if(event.target===this)termCloseAttachModal()">
   <div class="form-modal term-attach-modal" role="dialog" aria-modal="true" aria-labelledby="termAttachModalTitle">
     <div class="fm-header">
@@ -343,7 +344,7 @@
       <button class="fm-close" type="button" onclick="termCloseAttachModal()" aria-label="Close">&times;</button>
     </div>
     <div class="term-attach-toolbar">
-      <input id="termAttachFilter" type="search" placeholder="Filter sessions or projects&hellip;" aria-label="Filter tmux sessions" oninput="termRenderAttachModal()" autocomplete="off" spellcheck="false">
+      <input id="termAttachFilter" type="search" placeholder="Filter sessions or workspaces&hellip;" aria-label="Filter tmux sessions" oninput="termRenderAttachModal()" autocomplete="off" spellcheck="false">
       <button type="button" onclick="termReloadAttachModal()" title="Reload live tmux sessions" aria-label="Reload live tmux sessions">&#x21BB;</button>
     </div>
     <div class="term-attach-list" id="termAttachList" onclick="termChooseAttachCandidate(event)">
@@ -356,9 +357,9 @@
   </div>
 </div>
 
-<!-- Link one file to a new or existing project terminal. The file link is
+<!-- Link one file to a new or existing workspace terminal. The file link is
      durable; automatic file/terminal navigation is controlled separately by
-     the browser-local "Sync linked" switch in the project tab bar. -->
+     the browser-local "Sync linked" switch in the workspace tab bar. -->
 <div class="modal-overlay" id="termLinkModal" onclick="if(event.target===this)termCloseLinkModal()">
   <div class="form-modal term-link-modal" role="dialog" aria-modal="true" aria-labelledby="termLinkModalTitle">
     <div class="fm-header">
@@ -379,7 +380,7 @@
         </div>
       </section>
       <section class="term-link-section">
-        <div class="term-link-section-title">Existing terminals in this project</div>
+        <div class="term-link-section-title">Existing terminals in this workspace</div>
         <div class="term-link-list" id="termLinkList"></div>
       </section>
     </div>
@@ -397,12 +398,12 @@
 <div class="explorer-context-menu" id="explorerContextMenu" role="menu" aria-hidden="true"></div>
 <div class="explorer-toast" id="explorerToast" role="status" aria-live="polite"></div>
 
-<!-- Project-scoped file sidebar display preferences. Each project, workspace,
+<!-- Workspace-scoped file sidebar display preferences. Each workspace, vault,
      and framework root has its own settings in this browser's localStorage. -->
 <div class="modal-overlay" id="sidebarFileConfigModal" onclick="if(event.target===this)closeSidebarFileConfig()">
   <form class="form-modal sidebar-file-config-modal" onsubmit="saveSidebarFileConfig(event)" role="dialog" aria-labelledby="sidebarFileConfigTitle">
     <div class="fm-header">
-      <span class="fm-title" id="sidebarFileConfigTitle">File sidebar settings for this project</span>
+      <span class="fm-title" id="sidebarFileConfigTitle">File sidebar settings for this workspace</span>
       <button class="fm-close" type="button" onclick="closeSidebarFileConfig()" aria-label="Close">&times;</button>
     </div>
     <div class="fm-body">
@@ -413,11 +414,11 @@
         </label>
       </section>
 
-      <section class="sidebar-config-section sidebar-config-project-folders">
+      <section class="sidebar-config-section sidebar-config-workspace-folders">
         <div class="sidebar-config-folder-head">
           <div>
-            <div class="sidebar-config-section-title">Project folders</div>
-            <small>Add a folder or subfolder for this project, then switch the whole Files and Recently updated view with its colored button.</small>
+            <div class="sidebar-config-section-title">Workspace folders</div>
+            <small>Add a folder or subfolder for this workspace, then switch the whole Files and Recently updated view with its colored button.</small>
           </div>
           <button type="button" onclick="sidebarFileConfigAddFolder()">+ Add folder</button>
         </div>
@@ -464,22 +465,22 @@
   </form>
 </div>
 
-<!-- Create a project in the workspace currently shown in the Workspace tab. -->
-<div class="modal-overlay" id="workspaceProjectModal" onclick="if(event.target===this)closeWorkspaceProjectModal()">
-  <form class="form-modal" id="workspaceProjectForm" onsubmit="submitWorkspaceProject(event)" role="dialog" aria-labelledby="workspaceProjectTitle">
+<!-- Create a workspace in the vault currently shown in the Vault tab. -->
+<div class="modal-overlay" id="vaultWorkspaceModal" onclick="if(event.target===this)closeVaultWorkspaceModal()">
+  <form class="form-modal" id="vaultWorkspaceForm" onsubmit="submitVaultWorkspace(event)" role="dialog" aria-labelledby="vaultWorkspaceTitle">
     <div class="fm-header">
-      <span class="fm-title" id="workspaceProjectTitle">New project</span>
-      <button class="fm-close" type="button" onclick="closeWorkspaceProjectModal()" aria-label="Close">&times;</button>
+      <span class="fm-title" id="vaultWorkspaceTitle">New workspace</span>
+      <button class="fm-close" type="button" onclick="closeVaultWorkspaceModal()" aria-label="Close">&times;</button>
     </div>
     <div class="fm-body">
-      <div class="workspace-project-context">Create in <strong id="workspaceProjectContext">this workspace</strong></div>
-      <div class="fm-err" id="workspaceProjectError" role="alert"></div>
-      <label><span>Project id <span class="req">*</span></span>
-        <input id="workspaceProjectId" name="id" type="text" autocomplete="off" spellcheck="false" maxlength="80" pattern="[a-z0-9][a-z0-9_-]*" placeholder="davi-vision" required />
+      <div class="vault-workspace-context">Create in <strong id="vaultWorkspaceContext">this vault</strong></div>
+      <div class="fm-err" id="vaultWorkspaceError" role="alert"></div>
+      <label><span>Workspace id <span class="req">*</span></span>
+        <input id="vaultWorkspaceId" name="id" type="text" autocomplete="off" spellcheck="false" maxlength="80" pattern="[a-z0-9][a-z0-9_-]*" placeholder="davi-vision" required />
         <span class="hint">Lowercase letters, numbers, hyphens, and underscores.</span>
       </label>
       <label>Description
-        <textarea name="description" rows="3" placeholder="What this project is for"></textarea>
+        <textarea name="description" rows="3" placeholder="What this workspace is for"></textarea>
       </label>
       <div class="row-2">
         <label>Priority
@@ -505,8 +506,8 @@
       </label>
     </div>
     <div class="fm-actions">
-      <button type="button" class="btn-cancel" onclick="closeWorkspaceProjectModal()">Cancel</button>
-      <button type="submit" class="btn-primary" id="workspaceProjectSubmit">Create project</button>
+      <button type="button" class="btn-cancel" onclick="closeVaultWorkspaceModal()">Cancel</button>
+      <button type="submit" class="btn-primary" id="vaultWorkspaceSubmit">Create workspace</button>
     </div>
   </form>
 </div>
@@ -586,10 +587,10 @@
   </div>
 </div>
 
-<!-- Settings modal — global default agent / model / theme, plus a per-project
-     agent override when a project tab is active. Opened by the ⚙ button in the
+<!-- Settings modal — global default agent / model / theme, plus a per-workspace
+     agent override when a workspace tab is active. Opened by the ⚙ button in the
      topbar (replaced the old Dark/Light pill). Reads GET /api/settings; writes
-     POST /api/settings and POST /api/projects/<id>/agent. -->
+     POST /api/settings and POST /api/workspaces/<id>/agent. -->
 <div class="modal-overlay" id="settingsModal" onclick="if(event.target===this)closeSettings()">
   <div class="form-modal" role="dialog" aria-labelledby="settingsTitle" style="width:520px">
     <div class="fm-header">
@@ -601,7 +602,7 @@
 
       <label>Default agent
         <div class="seg-group" id="setAgentSeg"></div>
-        <span class="hint">Which CLI a project terminal launches by default.</span>
+        <span class="hint">Which CLI a workspace terminal launches by default.</span>
       </label>
 
       <label>Autopilot
@@ -618,21 +619,21 @@
         <div class="seg-group" id="setThemeSeg"></div>
       </label>
 
-      <div id="setProjectSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-top:2px; flex-direction:column; gap:12px">
+      <div id="setWorkspaceSection" style="display:none; border-top:1px solid var(--border); padding-top:14px; margin-top:2px; flex-direction:column; gap:12px">
         <div style="font-size:12px; color:var(--text-secondary)">
-          This project · <span id="setProjectName" style="color:var(--text-primary); font-family:ui-monospace,monospace"></span>
+          This workspace · <span id="setWorkspaceName" style="color:var(--text-primary); font-family:ui-monospace,monospace"></span>
         </div>
-        <label>Agent for this project
-          <select id="setProjectAgent">
+        <label>Agent for this workspace
+          <select id="setWorkspaceAgent">
             <option value="">Inherit global</option>
             <option value="claude">Claude Code</option>
             <option value="codex">Codex</option>
             <option value="copilot">Copilot</option>
           </select>
-          <span class="hint">Overrides the global default for terminals opened in this project.</span>
+          <span class="hint">Overrides the global default for terminals opened in this workspace.</span>
         </label>
-        <label>Model for this project
-          <select id="setProjectModel"></select>
+        <label>Model for this workspace
+          <select id="setWorkspaceModel"></select>
         </label>
       </div>
 
@@ -651,8 +652,8 @@
 <!-- Diff-comment composer popover. Opened from the "+" button on a diff line. -->
 <div class="cmt-popover" id="cmtPopover" onclick="event.stopPropagation()"></div>
 
-<!-- Proxies modal — reads and writes a project's standalone servers.json.
-     Legacy project.json proxies remain readable until the first save. -->
+<!-- Proxies modal — reads and writes a workspace's standalone servers.json.
+     Legacy workspace.json proxies remain readable until the first save. -->
 <div class="modal-overlay" id="proxiesModal" onclick="if(event.target===this)closeProxiesModal()">
   <div class="form-modal proxies-modal" role="dialog" aria-labelledby="proxiesTitle">
     <div class="fm-header">
@@ -664,7 +665,7 @@
         <div class="fm-err" id="proxiesError"></div>
         <p style="color:var(--text-secondary);font-size:12px;margin:0 0 12px">
           Each server is exposed at
-          <code>/api/proxy/&lt;project&gt;/&lt;name&gt;/&hellip;</code> and
+          <code>/api/proxy/&lt;workspace&gt;/&lt;name&gt;/&hellip;</code> and
           rendered inline with HMR/WebSocket support. Configure optional
           <code>make</code> commands to start/restart or stop it here.
           Use <b>Edit</b> to change connection details or commands.
@@ -677,7 +678,7 @@
         </div>
         <p class="proxies-config-help">
           Create the empty template, ask an agent to fill it, then reload this modal.
-          Lab reads <code>servers.json</code> automatically from the project root.
+          Lab reads <code>servers.json</code> automatically from the workspace root.
         </p>
         <div id="proxiesRows" class="proxies-rows"></div>
         <button type="button" id="proxiesAddBtn" class="btn-cancel proxies-add" onclick="addProxyRow()">+ Add server</button>
@@ -702,7 +703,7 @@
 
 <script>
   window.LAB_MONOREPO_ROOT = {{ MONOREPO_ROOT | tojson }};
-  window.LAB_WORKSPACE_ROOT = {{ WORKSPACE_ROOT | tojson }};
+  window.LAB_VAULT_ROOT = {{ VAULT_ROOT | tojson }};
   window.LAB_ASSISTANT_ROOT = {{ ASSISTANT_ROOT | tojson }};
   window.LAB_USER = {{ USER | tojson }};
   window.LAB_IS_ADMIN = {{ IS_ADMIN | tojson }};

@@ -72,13 +72,13 @@ function bucket(name, rows) {
       h("thead", null, h("tr", null,
         h("th", null, "Due"),
         h("th", null, "P"),
-        h("th", null, "Project"),
+        h("th", null, "Workspace"),
         h("th", null, "Title"),
       )),
       h("tbody", null, ...rows.map((t) => h("tr", null,
         h("td", null, fmtDate(t.due)),
         h("td", null, h("span", { class: "chip " + priorityClass(t.priority) }, t.priority)),
-        h("td", null, h("a", { href: `#/p/${t.project_id}` }, t.project_id)),
+        h("td", null, h("a", { href: `#/w/${t.workspace_id}` }, t.workspace_id)),
         h("td", null, t.title),
       ))),
     ),
@@ -86,15 +86,15 @@ function bucket(name, rows) {
 }
 
 function renderGantt(idx) {
-  const projects = idx.projects.filter((p) => p.status === "active");
-  if (!projects.length) return h("p", null, "No active projects.");
+  const workspaces = idx.workspaces.filter((p) => p.status === "active");
+  if (!workspaces.length) return h("p", null, "No active workspaces.");
 
   const today = new Date();
-  const minD = projects.reduce((m, p) => {
+  const minD = workspaces.reduce((m, p) => {
     const d = p.created ? new Date(p.created) : today;
     return d < m ? d : m;
   }, today);
-  const maxD = projects.reduce((m, p) => {
+  const maxD = workspaces.reduce((m, p) => {
     const candidate = p.due ? new Date(p.due) : (p.earliest_task_due ? new Date(p.earliest_task_due) : today);
     return candidate > m ? candidate : m;
   }, new Date(today.getTime() + 14 * 86400000));
@@ -103,19 +103,19 @@ function renderGantt(idx) {
   const pct = (d) => ((new Date(d) - minD) / spanMs) * 100;
 
   return h("div", { class: "gantt" },
-    ...projects.map((p) => {
+    ...workspaces.map((p) => {
       const startD = p.created || today.toISOString().slice(0, 10);
       const endD = p.due || p.earliest_task_due || new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
       const left = Math.max(0, pct(startD));
       const width = Math.max(1, pct(endD) - left);
       return h("div", { class: "gantt-row" },
-        h("div", { class: "gantt-label" }, h("a", { href: `#/p/${p.id}` }, p.id)),
+        h("div", { class: "gantt-label" }, h("a", { href: `#/w/${p.id}` }, p.id)),
         h("div", { class: "gantt-lane" },
           h("div", {
             class: "gantt-bar " + priorityClass(p.priority) + (p.status === "archived" ? " archived" : ""),
             style: `left:${left}%; width:${width}%`,
             title: `${startD} → ${endD}`,
-            ...activatable(() => { location.hash = `#/p/${p.id}`; }),
+            ...activatable(() => { location.hash = `#/w/${p.id}`; }),
           }),
         ),
       );

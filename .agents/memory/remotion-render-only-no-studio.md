@@ -1,6 +1,6 @@
 ---
 name: remotion-render-only-no-studio
-description: "User explicitly removed Remotion Studio from projects/remotion (2026-06-10) — render-only workflow; don't reintroduce the Studio or lab-proxy hacks for it"
+description: "User explicitly removed Remotion Studio from workspaces/remotion (2026-06-10) — render-only workflow; don't reintroduce the Studio or lab-proxy hacks for it"
 metadata:
   node_type: memory
   type: feedback
@@ -17,7 +17,7 @@ changes were reverted and the Studio server killed.
 asset URLs, URL rewriting, SSE, worker fetches); the render-to-folder flow
 covers the actual need (Claude builds the video, user watches the mp4).
 
-**How to apply:** in `projects/remotion`, review videos by rendering
+**How to apply:** in `workspaces/remotion`, review videos by rendering
 (`npx remotion render <Id> ../out/x.mp4`) or stills — never suggest
 launching Remotion Studio or re-adding proxy support for it unless the user
 asks. The lab proxy (`core/src/core/routes/proxy.py`) intentionally does NOT

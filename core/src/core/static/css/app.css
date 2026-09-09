@@ -30,7 +30,7 @@ main { padding: 24px; max-width: 1200px; margin: 0 auto; }
 }
 .due-chip .due-date { color: #888; font-variant-numeric: tabular-nums; }
 
-.project-grid {
+.workspace-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
@@ -262,10 +262,10 @@ main { padding: 24px; max-width: 1200px; margin: 0 auto; }
   font-size: 12px;
 }
 
-/* Project view */
-.proj-header { margin-bottom: 16px; }
-.proj-header h2 { margin: 0 0 4px; }
-.proj-header .meta { color: #666; font-size: 13px; }
+/* Workspace view */
+.workspace-header { margin-bottom: 16px; }
+.workspace-header h2 { margin: 0 0 4px; }
+.workspace-header .meta { color: #666; font-size: 13px; }
 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid #ddd; margin-bottom: 16px; }
 .tab {
@@ -443,7 +443,7 @@ table.tasks .done { color: #aaa; text-decoration: line-through; }
 }
 @keyframes nb-spin { to { transform: rotate(360deg); } }
 
-/* Pulsing green dot rendered in the project file sidebar next to any
+/* Pulsing green dot rendered in the workspace file sidebar next to any
    .ipynb whose backing file currently contains a lab_pending cell. Tells
    the user "there's activity in that notebook" without having to open
    it. Same visual idea as the active-session dots elsewhere in the UI. */

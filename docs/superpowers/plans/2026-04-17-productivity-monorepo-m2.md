@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stand up a FastAPI backend that serves the monorepo's project/task/markdown content over HTTP+WS, with a file-system watcher that keeps a cached global `.index.json` in sync with on-disk changes. Fold Plan-1 tech-debt cleanups into the opening commits.
+**Goal:** Stand up a FastAPI backend that serves the monorepo's workspace/task/markdown content over HTTP+WS, with a file-system watcher that keeps a cached global `.index.json` in sync with on-disk changes. Fold Plan-1 tech-debt cleanups into the opening commits.
 
-**Architecture:** A single FastAPI service on port 3333 exposes read-only `/api/*` endpoints that consume a new `lab.index` module. The index aggregates every `project.json` + `tasks.json` under `content/projects/` into a single `content/.index.json` (gitignored) plus an in-process cache. A `watchdog.Observer` subscribes to mutations under `content/` and triggers debounced rebuilds; a WebSocket endpoint broadcasts `index-updated` events so future frontends can live-refresh. The CLI gains `lab index rebuild` (one-shot) and `lab start`/`lab stop` (service control).
+**Architecture:** A single FastAPI service on port 3333 exposes read-only `/api/*` endpoints that consume a new `lab.index` module. The index aggregates every `workspace.json` + `tasks.json` under `content/workspaces/` into a single `content/.index.json` (gitignored) plus an in-process cache. A `watchdog.Observer` subscribes to mutations under `content/` and triggers debounced rebuilds; a WebSocket endpoint broadcasts `index-updated` events so future frontends can live-refresh. The CLI gains `lab index rebuild` (one-shot) and `lab start`/`lab stop` (service control).
 
 **Tech Stack:** FastAPI ≥ 0.109, uvicorn ≥ 0.27, watchdog ≥ 4, httpx ≥ 0.27 (for TestClient), Python ≥ 3.11, pytest ≥ 8. Re-uses `lab` package from Plan 1 (`lab.paths`, `lab.storage`, `lab.model`).
 
 **Out of scope for Plan 2 (deferred):**
-- Any HTML/JS frontend — Plan 3 (dashboard, project view, timeline, markdown viewer UI).
+- Any HTML/JS frontend — Plan 3 (dashboard, workspace view, timeline, markdown viewer UI).
 - POST/PUT/DELETE API endpoints — the CLI stays the only sanctioned write path for now; web-UI mouse actions come with Plan 3 and proxy through `lab`.
 - Full-text search (`lab search`, `/api/search`) — Plan 5.
-- `lab project add/remove` worktree commands + `lab mp` — Plan 4.
+- `lab workspace add/remove` worktree commands + `lab mp` — Plan 4.
 - `lab pr add`, `lab artifact add`, `lab note` — Plan 5.
 - Diff routes (`/api/diff`, commits, notebook diff) — Plan 8 (gdiff/mdview merge).
 - Migration agent + `lab migrate` — Plan 6.
@@ -22,18 +22,18 @@
 
 ```bash
 # New CLI commands
-lab index rebuild                            # one-shot: walks content/projects/, writes content/.index.json
+lab index rebuild                            # one-shot: walks content/workspaces/, writes content/.index.json
 lab start                                    # alias of `make start`; boots backend on :3333
 lab stop                                     # stops running backend
 lab open                                     # opens http://localhost:3333/api/index in browser
 
 # Backend HTTP API (serves JSON)
-GET  /api/index                              # full cached index (projects + tasks)
-GET  /api/projects                           # index slice: just projects (optional ?status=active)
-GET  /api/projects/{id}                      # full project.json
-GET  /api/projects/{id}/tasks                # full tasks.json
-GET  /api/projects/{id}/docs                 # list of md/assets paths under the project
-GET  /api/projects/{id}/file?path=...        # raw file body (text or binary)
+GET  /api/index                              # full cached index (workspaces + tasks)
+GET  /api/workspaces                           # index slice: just workspaces (optional ?status=active)
+GET  /api/workspaces/{id}                      # full workspace.json
+GET  /api/workspaces/{id}/tasks                # full tasks.json
+GET  /api/workspaces/{id}/docs                 # list of md/assets paths under the workspace
+GET  /api/workspaces/{id}/file?path=...        # raw file body (text or binary)
 GET  /api/tasks                              # flat task list from index (filter by query)
 GET  /api/tasks/due?days=N                   # upcoming-due slice
 
@@ -49,12 +49,12 @@ make test         # runs lab + backend pytest suites
 ```
 
 Plus the following tech-debt cleanups ship early in the plan:
-- `_resolve_project_id` deduplicated into `lab.paths.find_project_id_from_pwd`.
+- `_resolve_workspace_id` deduplicated into `lab.paths.find_workspace_id_from_pwd`.
 - `split_csv` moved into a shared `lab.util` module.
-- Every project/task command now calls `_validate_id` on its `project_id` argument (prevents path-traversal sharp edges flagged in T14 review).
-- `project new` is atomic: on any failure mid-creation, the partially-built project dir is removed.
-- `project set` and `task set` trap `ValueError` from `float(loe)` and surface a clean `ClickException` instead of a raw traceback.
-- Missing filter tests for `project ls --tag/--label` and `task ls --tag/--label/--due <bad>` are added.
+- Every workspace/task command now calls `_validate_id` on its `workspace_id` argument (prevents path-traversal sharp edges flagged in T14 review).
+- `workspace new` is atomic: on any failure mid-creation, the partially-built workspace dir is removed.
+- `workspace set` and `task set` trap `ValueError` from `float(loe)` and surface a clean `ClickException` instead of a raw traceback.
+- Missing filter tests for `workspace ls --tag/--label` and `task ls --tag/--label/--due <bad>` are added.
 
 ---
 
@@ -89,15 +89,15 @@ apps/backend/                     # NEW package
 │   └── routes/
 │       ├── __init__.py
 │       ├── index.py              # GET /api/index
-│       ├── project.py            # GET /api/projects[...]
+│       ├── workspace.py            # GET /api/workspaces[...]
 │       ├── task.py               # GET /api/tasks[...]
 │       ├── markdown.py           # GET /api/markdown
 │       └── ws.py                 # WS /ws
 └── tests/
-    ├── conftest.py               # `client` fixture, re-uses `monorepo` / `seed_project` from lab
+    ├── conftest.py               # `client` fixture, re-uses `monorepo` / `seed_workspace` from lab
     ├── test_health.py            # trivial /api/ping
     ├── test_index_route.py
-    ├── test_project_routes.py
+    ├── test_workspace_routes.py
     ├── test_task_routes.py
     ├── test_markdown_route.py
     ├── test_watcher.py
@@ -108,10 +108,10 @@ apps/backend/                     # NEW package
 ### Modified files (Plan 1 cleanup, bundled in Task 1)
 
 ```
-apps/lab/src/lab/paths.py                    # add find_project_id_from_pwd + ProjectNotFound
-apps/lab/src/lab/commands/project.py         # use shared helpers; id validation on every command; atomic new; loe wrap
+apps/lab/src/lab/paths.py                    # add find_workspace_id_from_pwd + WorkspaceNotFound
+apps/lab/src/lab/commands/workspace.py         # use shared helpers; id validation on every command; atomic new; loe wrap
 apps/lab/src/lab/commands/task.py            # use shared helpers; id validation on every command; loe wrap
-apps/lab/tests/test_cli_project.py           # +missing tests (tag/label filters on ls)
+apps/lab/tests/test_cli_workspace.py           # +missing tests (tag/label filters on ls)
 apps/lab/tests/test_cli_task.py              # +missing tests (tag/label filters; --due bad format)
 apps/lab/tests/test_storage.py               # +cleanup-on-failure fault injection test
 Makefile                                     # new `start`, `stop`, `start-bg` targets; `test` runs both suites
@@ -121,7 +121,7 @@ Makefile                                     # new `start`, `stop`, `start-bg` t
 ### Responsibilities per new file
 
 - `lab.util` — misc helpers that don't belong to a domain module. Initially just `split_csv`.
-- `lab.index` — **single source of truth for index shape**. `build_index(root)` walks projects, returns a dict matching the spec's §5.4 format. `write_index(root, data)` persists. `read_index(root)` loads (or triggers rebuild if missing).
+- `lab.index` — **single source of truth for index shape**. `build_index(root)` walks workspaces, returns a dict matching the spec's §5.4 format. `write_index(root, data)` persists. `read_index(root)` loads (or triggers rebuild if missing).
 - `lab.commands.index` — thin CLI wrapper: `lab index rebuild`, `lab index show`.
 - `lab.commands.service` — CLI wrappers for start/stop/open; shell out to make / pkill / webbrowser.
 - `backend.main` — FastAPI factory + lifespan: on startup, build index, start watcher, register route modules.
@@ -137,9 +137,9 @@ Makefile                                     # new `start`, `stop`, `start-bg` t
 **Files:**
 - Modify: `apps/lab/src/lab/paths.py`
 - Create: `apps/lab/src/lab/util.py`
-- Modify: `apps/lab/src/lab/commands/project.py`
+- Modify: `apps/lab/src/lab/commands/workspace.py`
 - Modify: `apps/lab/src/lab/commands/task.py`
-- Modify: `apps/lab/tests/test_cli_project.py`
+- Modify: `apps/lab/tests/test_cli_workspace.py`
 - Modify: `apps/lab/tests/test_cli_task.py`
 - Modify: `apps/lab/tests/test_storage.py`
 - Create: `apps/lab/tests/test_util.py`
@@ -202,68 +202,68 @@ cd apps/lab
 
 Expected: 8 parametrized cases pass.
 
-- [ ] **Step 4: Add `find_project_id_from_pwd` to `apps/lab/src/lab/paths.py`**
+- [ ] **Step 4: Add `find_workspace_id_from_pwd` to `apps/lab/src/lab/paths.py`**
 
 APPEND to `paths.py` (after `tasks_file`):
 
 ```python
 
 
-class ProjectNotFound(RuntimeError):
-    """Raised when PWD is not inside any project under content/projects/."""
+class WorkspaceNotFound(RuntimeError):
+    """Raised when PWD is not inside any workspace under content/workspaces/."""
 
 
-def find_project_id_from_pwd(root: Path, start: Path | None = None) -> str:
-    """Walk up from `start` (defaults to PWD) to find the project folder.
+def find_workspace_id_from_pwd(root: Path, start: Path | None = None) -> str:
+    """Walk up from `start` (defaults to PWD) to find the workspace folder.
 
-    Returns the project id (the directory name whose parent is
-    `<root>/content/projects/`). Raises `ProjectNotFound` if the walk
-    reaches `root` without finding a project folder.
+    Returns the workspace id (the directory name whose parent is
+    `<root>/content/workspaces/`). Raises `WorkspaceNotFound` if the walk
+    reaches `root` without finding a workspace folder.
     """
-    projects_root = (root / "content" / "projects").resolve()
+    workspaces_root = (root / "content" / "workspaces").resolve()
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        if candidate.parent == projects_root:
+        if candidate.parent == workspaces_root:
             return candidate.name
         if candidate == root.resolve():
             break
-    raise ProjectNotFound(
-        "no project — pass --project <id> or cd into a project folder"
+    raise WorkspaceNotFound(
+        "no workspace — pass --workspace <id> or cd into a workspace folder"
     )
 ```
 
-- [ ] **Step 5: Add tests for `find_project_id_from_pwd`**
+- [ ] **Step 5: Add tests for `find_workspace_id_from_pwd`**
 
 APPEND to `apps/lab/tests/test_paths.py`:
 
 ```python
 
 
-from lab.paths import ProjectNotFound, find_project_id_from_pwd
+from lab.paths import WorkspaceNotFound, find_workspace_id_from_pwd
 
 
-def test_find_project_id_from_pwd_inside_project(monorepo: Path, seed_project, monkeypatch) -> None:
-    pdir = seed_project("alpha")
+def test_find_workspace_id_from_pwd_inside_workspace(monorepo: Path, seed_workspace, monkeypatch) -> None:
+    pdir = seed_workspace("alpha")
     monkeypatch.chdir(pdir)
-    assert find_project_id_from_pwd(monorepo) == "alpha"
+    assert find_workspace_id_from_pwd(monorepo) == "alpha"
 
 
-def test_find_project_id_from_pwd_inside_subdir(monorepo: Path, seed_project, monkeypatch) -> None:
-    pdir = seed_project("alpha")
+def test_find_workspace_id_from_pwd_inside_subdir(monorepo: Path, seed_workspace, monkeypatch) -> None:
+    pdir = seed_workspace("alpha")
     (pdir / "docs" / "nested").mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(pdir / "docs" / "nested")
-    assert find_project_id_from_pwd(monorepo) == "alpha"
+    assert find_workspace_id_from_pwd(monorepo) == "alpha"
 
 
-def test_find_project_id_from_pwd_outside_raises(monorepo: Path, monkeypatch) -> None:
+def test_find_workspace_id_from_pwd_outside_raises(monorepo: Path, monkeypatch) -> None:
     monkeypatch.chdir(monorepo)
-    with pytest.raises(ProjectNotFound):
-        find_project_id_from_pwd(monorepo)
+    with pytest.raises(WorkspaceNotFound):
+        find_workspace_id_from_pwd(monorepo)
 ```
 
-- [ ] **Step 6: Refactor `commands/project.py` to use shared helpers + add id validation + atomic new + `loe` trap**
+- [ ] **Step 6: Refactor `commands/workspace.py` to use shared helpers + add id validation + atomic new + `loe` trap**
 
-The full replacement for `apps/lab/src/lab/commands/project.py` is:
+The full replacement for `apps/lab/src/lab/commands/workspace.py` is:
 
 ```python
 from __future__ import annotations
@@ -275,7 +275,7 @@ from pathlib import Path
 import click
 
 from lab import paths, storage
-from lab.model import ModelError, Priority, Project, ProjectStatus, _validate_id
+from lab.model import ModelError, Priority, Workspace, WorkspaceStatus, _validate_id
 from lab.util import split_csv
 
 
@@ -285,7 +285,7 @@ _CLAUDE_TEMPLATE = """# {name}
 {description}
 
 ## On session start
-Run `lab project status` for current state.
+Run `lab workspace status` for current state.
 Check the dashboard at http://localhost:3333/p/{id} (Plan 2+).
 
 ## Task operations
@@ -300,49 +300,49 @@ Shared agents at repo root `.claude/agents/`. Templates at `content/skills/`.
 """
 
 
-_PROJECT_SETTABLE = {
+_WORKSPACE_SETTABLE = {
     "description", "status", "priority", "due", "loe", "tags", "labels", "name",
 }
 
 
-def _require_valid_id(project_id: str) -> str:
-    """Validate `project_id` and surface ModelError as ClickException."""
+def _require_valid_id(workspace_id: str) -> str:
+    """Validate `workspace_id` and surface ModelError as ClickException."""
     try:
-        return _validate_id(project_id)
+        return _validate_id(workspace_id)
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-def _iter_project_files(root: Path):
-    projects_root = root / "content" / "projects"
-    if not projects_root.is_dir():
+def _iter_workspace_files(root: Path):
+    workspaces_root = root / "content" / "workspaces"
+    if not workspaces_root.is_dir():
         return
-    for child in sorted(projects_root.iterdir()):
-        pjson = child / "project.json"
+    for child in sorted(workspaces_root.iterdir()):
+        pjson = child / "workspace.json"
         if pjson.is_file():
             yield pjson
 
 
-@click.group(name="project")
-def project_group() -> None:
-    """Project lifecycle commands."""
+@click.group(name="workspace")
+def workspace_group() -> None:
+    """Workspace lifecycle commands."""
 
 
-@project_group.command("new")
-@click.argument("project_id")
+@workspace_group.command("new")
+@click.argument("workspace_id")
 @click.option("--desc", "description", default="", help="Short description")
 @click.option("--priority", type=click.Choice([p.value for p in Priority]), default=None)
 @click.option("--due", default=None, help="Due date YYYY-MM-DD")
 @click.option("--tags", default="", help="Comma-separated tags")
 @click.option("--labels", default="", help="Comma-separated MP labels")
-def new(project_id: str, description: str, priority: str | None, due: str | None,
+def new(workspace_id: str, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
-    """Create a new project under content/projects/<id>/."""
+    """Create a new workspace under content/workspaces/<id>/."""
     root = paths.find_monorepo_root()
     try:
-        project = Project.from_dict({
-            "id": project_id,
-            "name": project_id,
+        workspace = Workspace.from_dict({
+            "id": workspace_id,
+            "name": workspace_id,
             "description": description,
             "status": "active",
             "priority": priority,
@@ -353,9 +353,9 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    pdir = paths.project_dir(root, project.id)
+    pdir = paths.workspace_dir(root, workspace.id)
     if pdir.exists():
-        raise click.ClickException(f"project {project.id!r} already exists at {pdir}")
+        raise click.ClickException(f"workspace {workspace.id!r} already exists at {pdir}")
 
     # Atomic creation: if any step fails, remove the partial directory.
     try:
@@ -363,14 +363,14 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
         (pdir / "notes").mkdir()
         (pdir / "assets").mkdir()
 
-        storage.write_json(paths.project_file(root, project.id), project.to_dict())
-        storage.write_json(paths.tasks_file(root, project.id), {"next_id": 1, "tasks": []})
+        storage.write_json(paths.workspace_file(root, workspace.id), workspace.to_dict())
+        storage.write_json(paths.tasks_file(root, workspace.id), {"next_id": 1, "tasks": []})
 
         (pdir / "CLAUDE.md").write_text(
             _CLAUDE_TEMPLATE.format(
-                id=project.id,
-                name=project.name,
-                description=project.description or "(not yet defined — set with `lab project set <id> description \"...\"`)",
+                id=workspace.id,
+                name=workspace.name,
+                description=workspace.description or "(not yet defined — set with `lab workspace set <id> description \"...\"`)",
             ),
             encoding="utf-8",
         )
@@ -379,18 +379,18 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
             shutil.rmtree(pdir, ignore_errors=True)
         raise
 
-    click.echo(f"created {project.id} at {pdir}")
+    click.echo(f"created {workspace.id} at {pdir}")
 
 
-@project_group.command("ls")
-@click.option("--status", type=click.Choice([s.value for s in ProjectStatus]), default=None)
+@workspace_group.command("ls")
+@click.option("--status", type=click.Choice([s.value for s in WorkspaceStatus]), default=None)
 @click.option("--tag", "tag_filter", default=None)
 @click.option("--label", "label_filter", default=None)
 def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> None:
-    """List projects (default: all)."""
+    """List workspaces (default: all)."""
     root = paths.find_monorepo_root()
     rows = []
-    for pjson in _iter_project_files(root):
+    for pjson in _iter_workspace_files(root):
         data = storage.read_json(pjson)
         if status and data.get("status") != status:
             continue
@@ -401,7 +401,7 @@ def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> 
         rows.append(data)
 
     if not rows:
-        click.echo("no projects")
+        click.echo("no workspaces")
         return
 
     width_id = max(len(r["id"]) for r in rows)
@@ -412,22 +412,22 @@ def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> 
         click.echo(f"{r['id']:<{width_id}}  {r['status']:<8}  {priority:<2}  {due:<10}  {desc}")
 
 
-@project_group.command("status")
-@click.argument("project_id", required=False)
-def status(project_id: str | None) -> None:
-    """Print a summary of a project (uses PWD if no id given)."""
+@workspace_group.command("status")
+@click.argument("workspace_id", required=False)
+def status(workspace_id: str | None) -> None:
+    """Print a summary of a workspace (uses PWD if no id given)."""
     root = paths.find_monorepo_root()
-    if project_id:
-        pid = _require_valid_id(project_id)
+    if workspace_id:
+        pid = _require_valid_id(workspace_id)
     else:
         try:
-            pid = paths.find_project_id_from_pwd(root)
-        except paths.ProjectNotFound as exc:
+            pid = paths.find_workspace_id_from_pwd(root)
+        except paths.WorkspaceNotFound as exc:
             raise click.ClickException(str(exc)) from exc
 
-    pjson = paths.project_file(root, pid)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
 
     tjson = paths.tasks_file(root, pid)
@@ -456,21 +456,21 @@ def status(project_id: str | None) -> None:
         click.echo(f"  labels: {', '.join(data['labels'])}")
 
 
-@project_group.command("set")
-@click.argument("project_id")
+@workspace_group.command("set")
+@click.argument("workspace_id")
 @click.argument("field")
 @click.argument("value")
-def set_field(project_id: str, field: str, value: str) -> None:
-    """Update a single field on a project (validated)."""
-    pid = _require_valid_id(project_id)
-    if field not in _PROJECT_SETTABLE:
+def set_field(workspace_id: str, field: str, value: str) -> None:
+    """Update a single field on a workspace (validated)."""
+    pid = _require_valid_id(workspace_id)
+    if field not in _WORKSPACE_SETTABLE:
         raise click.ClickException(
-            f"{field} is not settable. Allowed: {sorted(_PROJECT_SETTABLE)}"
+            f"{field} is not settable. Allowed: {sorted(_WORKSPACE_SETTABLE)}"
         )
     root = paths.find_monorepo_root()
-    pjson = paths.project_file(root, pid)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
 
     if field in {"tags", "labels"}:
@@ -491,7 +491,7 @@ def set_field(project_id: str, field: str, value: str) -> None:
     data["updated"] = date.today().isoformat()
 
     try:
-        Project.from_dict(data)
+        Workspace.from_dict(data)
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -499,21 +499,21 @@ def set_field(project_id: str, field: str, value: str) -> None:
     click.echo(f"{pid}.{field} = {data[field]!r}")
 
 
-@project_group.command("archive")
-@click.argument("project_id")
-def archive(project_id: str) -> None:
+@workspace_group.command("archive")
+@click.argument("workspace_id")
+def archive(workspace_id: str) -> None:
     """Set status to archived (hidden from default dashboard)."""
-    pid = _require_valid_id(project_id)
+    pid = _require_valid_id(workspace_id)
     root = paths.find_monorepo_root()
-    pjson = paths.project_file(root, pid)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     data["status"] = "archived"
     data["updated"] = date.today().isoformat()
 
     try:
-        Project.from_dict(data)
+        Workspace.from_dict(data)
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -521,16 +521,16 @@ def archive(project_id: str) -> None:
     click.echo(f"archived {pid}")
 
 
-@project_group.command("rm")
-@click.argument("project_id")
+@workspace_group.command("rm")
+@click.argument("workspace_id")
 @click.option("--yes", is_flag=True, help="Skip confirmation")
-def rm(project_id: str, yes: bool) -> None:
-    """Delete a project folder permanently. Worktrees, if any, must be removed first (later plan)."""
-    pid = _require_valid_id(project_id)
+def rm(workspace_id: str, yes: bool) -> None:
+    """Delete a workspace folder permanently. Worktrees, if any, must be removed first (later plan)."""
+    pid = _require_valid_id(workspace_id)
     root = paths.find_monorepo_root()
-    pdir = paths.project_dir(root, pid)
+    pdir = paths.workspace_dir(root, pid)
     if not pdir.is_dir():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
 
     if not yes:
         click.confirm(
@@ -568,32 +568,32 @@ def _slugify(title: str) -> str:
     return _SLUG_RE.sub("-", title.lower()).strip("-")[:40] or "task"
 
 
-def _require_valid_id(project_id: str) -> str:
+def _require_valid_id(workspace_id: str) -> str:
     try:
-        return _validate_id(project_id)
+        return _validate_id(workspace_id)
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-def _resolve_project_id(explicit: str | None) -> str:
+def _resolve_workspace_id(explicit: str | None) -> str:
     if explicit:
         return _require_valid_id(explicit)
     root = paths.find_monorepo_root()
     try:
-        return paths.find_project_id_from_pwd(root)
-    except paths.ProjectNotFound as exc:
+        return paths.find_workspace_id_from_pwd(root)
+    except paths.WorkspaceNotFound as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-def _load_tasks(root: Path, project_id: str) -> dict:
-    tjson = paths.tasks_file(root, project_id)
+def _load_tasks(root: Path, workspace_id: str) -> dict:
+    tjson = paths.tasks_file(root, workspace_id)
     if not tjson.is_file():
-        raise click.ClickException(f"project {project_id!r} has no tasks.json")
+        raise click.ClickException(f"workspace {workspace_id!r} has no tasks.json")
     return storage.read_json(tjson)
 
 
-def _save_tasks(root: Path, project_id: str, data: dict) -> None:
-    storage.write_json(paths.tasks_file(root, project_id), data)
+def _save_tasks(root: Path, workspace_id: str, data: dict) -> None:
+    storage.write_json(paths.tasks_file(root, workspace_id), data)
 
 
 def _find_task(tasks_doc: dict, task_id: int) -> dict:
@@ -608,10 +608,10 @@ def _now_iso() -> str:
 
 
 def _iter_all_tasks(root: Path):
-    projects_root = root / "content" / "projects"
-    if not projects_root.is_dir():
+    workspaces_root = root / "content" / "workspaces"
+    if not workspaces_root.is_dir():
         return
-    for child in sorted(projects_root.iterdir()):
+    for child in sorted(workspaces_root.iterdir()):
         tjson = child / "tasks.json"
         if not tjson.is_file():
             continue
@@ -634,21 +634,21 @@ def task_group() -> None:
 
 @task_group.command("new")
 @click.argument("title")
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 @click.option("--priority", type=click.Choice([p.value for p in Priority]), required=True)
 @click.option("--loe", type=float, default=None)
 @click.option("--due", default=None)
 @click.option("--tags", default="")
 @click.option("--labels", default="")
 @click.option("--file", "create_file", is_flag=True, default=False, help="Create a notes md file")
-def new(title: str, project_id: str | None, priority: str, loe: float | None,
+def new(title: str, workspace_id: str | None, priority: str, loe: float | None,
         due: str | None, tags: str, labels: str, create_file: bool) -> None:
-    """Create a new task in a project (default: PWD project)."""
+    """Create a new task in a workspace (default: PWD workspace)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
 
     tasks_doc = _load_tasks(root, pid)
     task_id = int(tasks_doc.get("next_id", 1))
@@ -656,7 +656,7 @@ def new(title: str, project_id: str | None, priority: str, loe: float | None,
     notes_file = None
     if create_file:
         notes_rel = f"notes/{task_id:03d}-{slug}.md"
-        notes_path = paths.project_dir(root, pid) / notes_rel
+        notes_path = paths.workspace_dir(root, pid) / notes_rel
         notes_path.parent.mkdir(parents=True, exist_ok=True)
         if not notes_path.exists():
             notes_path.write_text(f"# {title}\n\n", encoding="utf-8")
@@ -685,22 +685,22 @@ def new(title: str, project_id: str | None, priority: str, loe: float | None,
 
 
 @task_group.command("ls")
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 @click.option("--status", default=None, help="todo|in_progress|blocked|done|open (= not done)")
 @click.option("--priority", default=None, help="Comma-separated (e.g. P0,P1)")
 @click.option("--tag", "tag_filter", default=None)
 @click.option("--label", "label_filter", default=None)
 @click.option("--due", "due_window", default=None, help="Nd — due within N days")
-def ls(project_id: str | None, status: str | None, priority: str | None,
+def ls(workspace_id: str | None, status: str | None, priority: str | None,
        tag_filter: str | None, label_filter: str | None,
        due_window: str | None) -> None:
-    """List tasks. Default: all projects. Filter with --project, --status, --priority, --tag, --label, --due."""
+    """List tasks. Default: all workspaces. Filter with --workspace, --status, --priority, --tag, --label, --due."""
     from datetime import timedelta
 
     root = paths.find_monorepo_root()
 
-    if project_id:
-        pid = _require_valid_id(project_id)
+    if workspace_id:
+        pid = _require_valid_id(workspace_id)
         it = ((pid, t) for t in _load_tasks(root, pid).get("tasks", []))
     else:
         it = _iter_all_tasks(root)
@@ -745,11 +745,11 @@ def ls(project_id: str | None, status: str | None, priority: str | None,
 
 @task_group.command("done")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def done(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def done(task_id: int, workspace_id: str | None) -> None:
     """Mark a task done (sets closed_at)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "done"
@@ -761,11 +761,11 @@ def done(task_id: int, project_id: str | None) -> None:
 
 @task_group.command("reopen")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def reopen(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def reopen(task_id: int, workspace_id: str | None) -> None:
     """Reopen a done task (status → in_progress, clears closed_at)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "in_progress"
@@ -778,11 +778,11 @@ def reopen(task_id: int, project_id: str | None) -> None:
 @task_group.command("block")
 @click.argument("task_id", type=int)
 @click.argument("reason")
-@click.option("--project", "project_id", default=None)
-def block(task_id: int, reason: str, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def block(task_id: int, reason: str, workspace_id: str | None) -> None:
     """Mark a task blocked with a reason."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "blocked"
@@ -794,11 +794,11 @@ def block(task_id: int, reason: str, project_id: str | None) -> None:
 
 @task_group.command("unblock")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def unblock(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def unblock(task_id: int, workspace_id: str | None) -> None:
     """Clear a task's blocker (status → in_progress)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "in_progress"
@@ -810,19 +810,19 @@ def unblock(task_id: int, project_id: str | None) -> None:
 
 @task_group.command("show")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def show(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def show(task_id: int, workspace_id: str | None) -> None:
     """Print a task's fields and notes file content (if any)."""
     import json as _json
 
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     click.echo(_json.dumps(t, indent=2))
     notes_file = t.get("notes_file")
     if notes_file:
-        notes_path = paths.project_dir(root, pid) / notes_file
+        notes_path = paths.workspace_dir(root, pid) / notes_file
         if notes_path.is_file():
             click.echo("")
             click.echo(f"--- {notes_file} ---")
@@ -833,15 +833,15 @@ def show(task_id: int, project_id: str | None) -> None:
 @click.argument("task_id", type=int)
 @click.argument("field")
 @click.argument("value")
-@click.option("--project", "project_id", default=None)
-def set_field(task_id: int, field: str, value: str, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def set_field(task_id: int, field: str, value: str, workspace_id: str | None) -> None:
     """Update a single task field (validated)."""
     if field not in _TASK_SETTABLE:
         raise click.ClickException(
             f"{field} is not settable. Allowed: {sorted(_TASK_SETTABLE)}"
         )
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
 
@@ -869,50 +869,50 @@ def set_field(task_id: int, field: str, value: str, project_id: str | None) -> N
     click.echo(f"{pid}#{task_id}.{field} = {t[field]!r}")
 ```
 
-- [ ] **Step 8: Add missing filter tests to `apps/lab/tests/test_cli_project.py`**
+- [ ] **Step 8: Add missing filter tests to `apps/lab/tests/test_cli_workspace.py`**
 
-APPEND to `test_cli_project.py`:
+APPEND to `test_cli_workspace.py`:
 
 ```python
 
 
-def test_project_ls_filter_by_tag(monorepo: Path, seed_project) -> None:
-    alpha = seed_project("alpha")
-    seed_project("beta")
-    data = json.loads((alpha / "project.json").read_text())
+def test_workspace_ls_filter_by_tag(monorepo: Path, seed_workspace) -> None:
+    alpha = seed_workspace("alpha")
+    seed_workspace("beta")
+    data = json.loads((alpha / "workspace.json").read_text())
     data["tags"] = ["backend"]
-    (alpha / "project.json").write_text(json.dumps(data))
+    (alpha / "workspace.json").write_text(json.dumps(data))
 
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "ls", "--tag", "backend"])
+    result = runner.invoke(main, ["workspace", "ls", "--tag", "backend"])
     assert result.exit_code == 0
     assert "alpha" in result.output
     assert "beta" not in result.output
 
 
-def test_project_ls_filter_by_label(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
-    beta = seed_project("beta")
-    data = json.loads((beta / "project.json").read_text())
+def test_workspace_ls_filter_by_label(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
+    beta = seed_workspace("beta")
+    data = json.loads((beta / "workspace.json").read_text())
     data["labels"] = ["lipy-davi"]
-    (beta / "project.json").write_text(json.dumps(data))
+    (beta / "workspace.json").write_text(json.dumps(data))
 
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "ls", "--label", "lipy-davi"])
+    result = runner.invoke(main, ["workspace", "ls", "--label", "lipy-davi"])
     assert result.exit_code == 0
     assert "beta" in result.output
     assert "alpha" not in result.output
 
 
-def test_project_set_loe_invalid(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_set_loe_invalid(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "set", "alpha", "loe", "not-a-number"])
+    result = runner.invoke(main, ["workspace", "set", "alpha", "loe", "not-a-number"])
     assert result.exit_code != 0
     assert "not a number" in result.output.lower()
 
 
-def test_project_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None:
+def test_workspace_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None:
     """If storage.write_json fails mid-creation, no partial pdir is left behind."""
     import lab.storage as storage_mod
     original_write = storage_mod.write_json
@@ -927,9 +927,9 @@ def test_project_new_is_atomic_on_failure(monorepo: Path, monkeypatch) -> None:
     monkeypatch.setattr(storage_mod, "write_json", flaky)
 
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "new", "doomed", "--desc", "test"])
+    result = runner.invoke(main, ["workspace", "new", "doomed", "--desc", "test"])
     assert result.exit_code != 0
-    assert not (monorepo / "content" / "projects" / "doomed").exists()
+    assert not (monorepo / "content" / "workspaces" / "doomed").exists()
 ```
 
 - [ ] **Step 9: Add missing filter tests to `apps/lab/tests/test_cli_task.py`**
@@ -939,42 +939,42 @@ APPEND to `test_cli_task.py`:
 ```python
 
 
-def test_task_ls_filter_by_tag(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_ls_filter_by_tag(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "reviewed", "--project", "alpha", "--priority", "P2", "--tags", "review"])
-    runner.invoke(main, ["task", "new", "other", "--project", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "new", "reviewed", "--workspace", "alpha", "--priority", "P2", "--tags", "review"])
+    runner.invoke(main, ["task", "new", "other", "--workspace", "alpha", "--priority", "P2"])
     result = runner.invoke(main, ["task", "ls", "--tag", "review"])
     assert result.exit_code == 0
     assert "reviewed" in result.output
     assert "other" not in result.output
 
 
-def test_task_ls_filter_by_label(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_ls_filter_by_label(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "labeled", "--project", "alpha", "--priority", "P2", "--labels", "lipy-davi"])
-    runner.invoke(main, ["task", "new", "other", "--project", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "new", "labeled", "--workspace", "alpha", "--priority", "P2", "--labels", "lipy-davi"])
+    runner.invoke(main, ["task", "new", "other", "--workspace", "alpha", "--priority", "P2"])
     result = runner.invoke(main, ["task", "ls", "--label", "lipy-davi"])
     assert result.exit_code == 0
     assert "labeled" in result.output
     assert "other" not in result.output
 
 
-def test_task_ls_due_bad_format(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_ls_due_bad_format(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "t", "--project", "alpha", "--priority", "P2"])
-    result = runner.invoke(main, ["task", "ls", "--project", "alpha", "--due", "foo"])
+    runner.invoke(main, ["task", "new", "t", "--workspace", "alpha", "--priority", "P2"])
+    result = runner.invoke(main, ["task", "ls", "--workspace", "alpha", "--due", "foo"])
     assert result.exit_code != 0
     assert "nd" in result.output.lower()
 
 
-def test_task_set_loe_invalid(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_set_loe_invalid(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "t", "--project", "alpha", "--priority", "P2"])
-    result = runner.invoke(main, ["task", "set", "1", "loe", "abc", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "t", "--workspace", "alpha", "--priority", "P2"])
+    result = runner.invoke(main, ["task", "set", "1", "loe", "abc", "--workspace", "alpha"])
     assert result.exit_code != 0
     assert "not a number" in result.output.lower()
 ```
@@ -1009,8 +1009,8 @@ cd apps/lab
 
 Expected: previous 71 + new tests all pass. Expected new count breakdown:
 - test_util.py: 8 parametrized cases
-- test_paths.py: +3 tests (find_project_id_from_pwd)
-- test_cli_project.py: +4 tests (ls tag/label, set loe invalid, atomic new)
+- test_paths.py: +3 tests (find_workspace_id_from_pwd)
+- test_cli_workspace.py: +4 tests (ls tag/label, set loe invalid, atomic new)
 - test_cli_task.py: +4 tests (ls tag/label/due, set loe invalid)
 - test_storage.py: +1 test (cleanup on failure)
 
@@ -1064,13 +1064,13 @@ from lab.index import Index, build_index, read_index, write_index
 
 def test_build_index_empty_monorepo(monorepo: Path) -> None:
     idx = build_index(monorepo)
-    assert idx["projects"] == []
+    assert idx["workspaces"] == []
     assert idx["tasks"] == []
     assert "generated_at" in idx
 
 
-def test_build_index_counts_tasks_per_status(monorepo: Path, seed_project) -> None:
-    pdir = seed_project("alpha")
+def test_build_index_counts_tasks_per_status(monorepo: Path, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
     tasks = {
         "next_id": 5,
         "tasks": [
@@ -1092,8 +1092,8 @@ def test_build_index_counts_tasks_per_status(monorepo: Path, seed_project) -> No
     (pdir / "tasks.json").write_text(json.dumps(tasks))
 
     idx = build_index(monorepo)
-    assert len(idx["projects"]) == 1
-    p = idx["projects"][0]
+    assert len(idx["workspaces"]) == 1
+    p = idx["workspaces"][0]
     assert p["id"] == "alpha"
     assert p["status"] == "active"
     assert p["open_task_count"] == 3  # todo + in_progress + blocked
@@ -1101,53 +1101,53 @@ def test_build_index_counts_tasks_per_status(monorepo: Path, seed_project) -> No
     assert p["task_counts"] == {"todo": 1, "in_progress": 1, "blocked": 1, "done": 1}
     assert p["earliest_task_due"] == "2026-04-20"
 
-    # tasks flattened across projects
+    # tasks flattened across workspaces
     assert len(idx["tasks"]) == 4
     t2 = next(t for t in idx["tasks"] if t["task_id"] == 2)
-    assert t2["project_id"] == "alpha"
+    assert t2["workspace_id"] == "alpha"
     assert t2["title"] == "t2"
     assert t2["due"] == "2026-04-20"
-    assert t2["path"] == "content/projects/alpha/tasks.json#2"
+    assert t2["path"] == "content/workspaces/alpha/tasks.json#2"
 
 
-def test_build_index_preserves_project_metadata(monorepo: Path, seed_project) -> None:
-    pdir = seed_project("beta")
-    data = json.loads((pdir / "project.json").read_text())
+def test_build_index_preserves_workspace_metadata(monorepo: Path, seed_workspace) -> None:
+    pdir = seed_workspace("beta")
+    data = json.loads((pdir / "workspace.json").read_text())
     data["tags"] = ["backend"]
     data["labels"] = ["lipy-davi"]
     data["priority"] = "P1"
     data["due"] = "2026-05-01"
-    (pdir / "project.json").write_text(json.dumps(data))
+    (pdir / "workspace.json").write_text(json.dumps(data))
 
     idx = build_index(monorepo)
-    p = idx["projects"][0]
+    p = idx["workspaces"][0]
     assert p["tags"] == ["backend"]
     assert p["labels"] == ["lipy-davi"]
     assert p["priority"] == "P1"
     assert p["due"] == "2026-05-01"
-    assert p["path"] == "content/projects/beta"
+    assert p["path"] == "content/workspaces/beta"
 
 
-def test_build_index_sorts_projects_by_id(monorepo: Path, seed_project) -> None:
-    seed_project("zeta")
-    seed_project("alpha")
-    seed_project("mu")
+def test_build_index_sorts_workspaces_by_id(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("zeta")
+    seed_workspace("alpha")
+    seed_workspace("mu")
     idx = build_index(monorepo)
-    assert [p["id"] for p in idx["projects"]] == ["alpha", "mu", "zeta"]
+    assert [p["id"] for p in idx["workspaces"]] == ["alpha", "mu", "zeta"]
 
 
-def test_build_index_skips_non_project_dirs(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
-    # Create a directory that isn't a project (no project.json).
-    (monorepo / "content" / "projects" / "_scratch").mkdir()
-    (monorepo / "content" / "projects" / "_scratch" / "note.md").write_text("hi")
+def test_build_index_skips_non_workspace_dirs(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
+    # Create a directory that isn't a workspace (no workspace.json).
+    (monorepo / "content" / "workspaces" / "_scratch").mkdir()
+    (monorepo / "content" / "workspaces" / "_scratch" / "note.md").write_text("hi")
 
     idx = build_index(monorepo)
-    assert [p["id"] for p in idx["projects"]] == ["alpha"]
+    assert [p["id"] for p in idx["workspaces"]] == ["alpha"]
 
 
-def test_write_and_read_index_roundtrip(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_write_and_read_index_roundtrip(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     data = build_index(monorepo)
     path = write_index(monorepo, data)
     assert path == monorepo / "content" / ".index.json"
@@ -1192,7 +1192,7 @@ from lab import paths, storage
 Index = dict[str, Any]
 
 
-def _project_task_summary(tasks_doc: dict[str, Any]) -> dict[str, Any]:
+def _workspace_task_summary(tasks_doc: dict[str, Any]) -> dict[str, Any]:
     counts = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
     earliest_due: str | None = None
     for t in tasks_doc.get("tasks", []):
@@ -1216,27 +1216,27 @@ def _now_iso() -> str:
 
 
 def build_index(root: Path) -> Index:
-    """Walk content/projects/ and return the cached index shape.
+    """Walk content/workspaces/ and return the cached index shape.
 
-    Projects are sorted by id. Tasks are emitted flat (one per row) with
-    `project_id`, `task_id`, and path fields for cheap filtering.
+    Workspaces are sorted by id. Tasks are emitted flat (one per row) with
+    `workspace_id`, `task_id`, and path fields for cheap filtering.
     """
-    projects_root = root / "content" / "projects"
-    project_rows: list[dict[str, Any]] = []
+    workspaces_root = root / "content" / "workspaces"
+    workspace_rows: list[dict[str, Any]] = []
     task_rows: list[dict[str, Any]] = []
 
-    if projects_root.is_dir():
-        for child in sorted(projects_root.iterdir()):
-            pjson = child / "project.json"
+    if workspaces_root.is_dir():
+        for child in sorted(workspaces_root.iterdir()):
+            pjson = child / "workspace.json"
             tjson = child / "tasks.json"
             if not pjson.is_file():
                 continue
 
             pdata = storage.read_json(pjson)
             tasks_doc = storage.read_json(tjson) if tjson.is_file() else {"tasks": []}
-            summary = _project_task_summary(tasks_doc)
+            summary = _workspace_task_summary(tasks_doc)
 
-            project_rows.append({
+            workspace_rows.append({
                 "id": pdata.get("id", child.name),
                 "name": pdata.get("name", child.name),
                 "description": pdata.get("description", ""),
@@ -1248,13 +1248,13 @@ def build_index(root: Path) -> Index:
                 "due": pdata.get("due"),
                 "created": pdata.get("created"),
                 "updated": pdata.get("updated"),
-                "path": f"content/projects/{child.name}",
+                "path": f"content/workspaces/{child.name}",
                 **summary,
             })
 
             for t in tasks_doc.get("tasks", []):
                 task_rows.append({
-                    "project_id": child.name,
+                    "workspace_id": child.name,
                     "task_id": t["id"],
                     "title": t.get("title", ""),
                     "status": t.get("status"),
@@ -1268,12 +1268,12 @@ def build_index(root: Path) -> Index:
                     "created": t.get("created"),
                     "updated": t.get("updated"),
                     "closed_at": t.get("closed_at"),
-                    "path": f"content/projects/{child.name}/tasks.json#{t['id']}",
+                    "path": f"content/workspaces/{child.name}/tasks.json#{t['id']}",
                 })
 
     return {
         "generated_at": _now_iso(),
-        "projects": project_rows,
+        "workspaces": workspace_rows,
         "tasks": task_rows,
     }
 
@@ -1330,8 +1330,8 @@ from click.testing import CliRunner
 from lab.cli import main
 
 
-def test_index_rebuild_creates_file(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_index_rebuild_creates_file(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     result = runner.invoke(main, ["index", "rebuild"])
     assert result.exit_code == 0, result.output
@@ -1339,38 +1339,38 @@ def test_index_rebuild_creates_file(monorepo: Path, seed_project) -> None:
     index_path = monorepo / "content" / ".index.json"
     assert index_path.is_file()
     idx = json.loads(index_path.read_text())
-    assert len(idx["projects"]) == 1
-    assert idx["projects"][0]["id"] == "alpha"
+    assert len(idx["workspaces"]) == 1
+    assert idx["workspaces"][0]["id"] == "alpha"
 
 
-def test_index_rebuild_overwrites_stale(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_index_rebuild_overwrites_stale(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     runner.invoke(main, ["index", "rebuild"])
-    seed_project("beta")
+    seed_workspace("beta")
     runner.invoke(main, ["index", "rebuild"])
 
     idx = json.loads((monorepo / "content" / ".index.json").read_text())
-    assert {p["id"] for p in idx["projects"]} == {"alpha", "beta"}
+    assert {p["id"] for p in idx["workspaces"]} == {"alpha", "beta"}
 
 
-def test_index_show_prints_json(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_index_show_prints_json(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     runner.invoke(main, ["index", "rebuild"])
     result = runner.invoke(main, ["index", "show"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert [p["id"] for p in parsed["projects"]] == ["alpha"]
+    assert [p["id"] for p in parsed["workspaces"]] == ["alpha"]
 
 
-def test_index_show_missing_rebuilds_implicitly(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_index_show_missing_rebuilds_implicitly(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     result = runner.invoke(main, ["index", "show"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert [p["id"] for p in parsed["projects"]] == ["alpha"]
+    assert [p["id"] for p in parsed["workspaces"]] == ["alpha"]
 ```
 
 - [ ] **Step 2: Run — expect failures**
@@ -1396,16 +1396,16 @@ from lab import paths
 
 @click.group(name="index")
 def index_group() -> None:
-    """Global index (cache of projects + tasks) commands."""
+    """Global index (cache of workspaces + tasks) commands."""
 
 
 @index_group.command("rebuild")
 def rebuild() -> None:
-    """Rebuild content/.index.json from on-disk projects."""
+    """Rebuild content/.index.json from on-disk workspaces."""
     root = paths.find_monorepo_root()
     data = index_mod.build_index(root)
     path = index_mod.write_index(root, data)
-    click.echo(f"wrote {path} ({len(data['projects'])} projects, {len(data['tasks'])} tasks)")
+    click.echo(f"wrote {path} ({len(data['workspaces'])} workspaces, {len(data['tasks'])} tasks)")
 
 
 @index_group.command("show")
@@ -1430,7 +1430,7 @@ from __future__ import annotations
 import click
 
 from lab.commands.index import index_group
-from lab.commands.project import project_group
+from lab.commands.workspace import workspace_group
 from lab.commands.task import task_group
 
 
@@ -1440,7 +1440,7 @@ def main() -> None:
     """Unified CLI for the productivity monorepo."""
 
 
-main.add_command(project_group)
+main.add_command(workspace_group)
 main.add_command(task_group)
 main.add_command(index_group)
 
@@ -1531,7 +1531,7 @@ addopts = "-ra --cov=backend --cov-report=term-missing"
 ```markdown
 # lab-backend
 
-FastAPI + watchdog backend for the productivity monorepo. Serves the cached global index, project/task reads, and markdown rendering over HTTP; broadcasts index-updated events over a WebSocket.
+FastAPI + watchdog backend for the productivity monorepo. Serves the cached global index, workspace/task reads, and markdown rendering over HTTP; broadcasts index-updated events over a WebSocket.
 
 Design: `../../docs/superpowers/specs/2026-04-16-productivity-monorepo-design.md` §7.
 
@@ -1553,11 +1553,11 @@ make stop
 
 - `GET  /api/ping`
 - `GET  /api/index`
-- `GET  /api/projects[?status=...]`
-- `GET  /api/projects/{id}`
-- `GET  /api/projects/{id}/tasks`
-- `GET  /api/projects/{id}/docs`
-- `GET  /api/projects/{id}/file?path=...`
+- `GET  /api/workspaces[?status=...]`
+- `GET  /api/workspaces/{id}`
+- `GET  /api/workspaces/{id}/tasks`
+- `GET  /api/workspaces/{id}/docs`
+- `GET  /api/workspaces/{id}/file?path=...`
 - `GET  /api/tasks[?status=...&priority=...&tag=...&label=...]`
 - `GET  /api/tasks/due?days=N`
 - `GET  /api/markdown?path=content/...`
@@ -1680,7 +1680,7 @@ from fastapi.testclient import TestClient
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Minimal monorepo for backend tests. Mirrors lab's fixture."""
     root = tmp_path / "productivity"
-    (root / "content" / "projects").mkdir(parents=True)
+    (root / "content" / "workspaces").mkdir(parents=True)
     (root / "content" / "meetings").mkdir()
     (root / ".git").mkdir()
     monkeypatch.setenv("LAB_ROOT", str(root))
@@ -1689,13 +1689,13 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture()
-def seed_project(monorepo: Path):
-    def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "content" / "projects" / project_id
+def seed_workspace(monorepo: Path):
+    def _create(workspace_id: str = "demo", *, description: str = "") -> Path:
+        pdir = monorepo / "content" / "workspaces" / workspace_id
         pdir.mkdir(parents=True)
-        (pdir / "project.json").write_text(json.dumps({
-            "id": project_id,
-            "name": project_id,
+        (pdir / "workspace.json").write_text(json.dumps({
+            "id": workspace_id,
+            "name": workspace_id,
             "description": description,
             "status": "active",
             "tags": [],
@@ -1785,23 +1785,23 @@ def test_get_index_empty(client) -> None:
     r = client.get("/api/index")
     assert r.status_code == 200
     body = r.json()
-    assert body["projects"] == []
+    assert body["workspaces"] == []
     assert body["tasks"] == []
     assert "generated_at" in body
 
 
-def test_get_index_reflects_seeded_projects(client, seed_project) -> None:
-    seed_project("alpha")
-    seed_project("beta")
+def test_get_index_reflects_seeded_workspaces(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
     r = client.get("/api/index")
     assert r.status_code == 200
-    ids = [p["id"] for p in r.json()["projects"]]
+    ids = [p["id"] for p in r.json()["workspaces"]]
     assert ids == ["alpha", "beta"]
 
 
-def test_get_index_reflects_task_counts(client, seed_project) -> None:
+def test_get_index_reflects_task_counts(client, seed_workspace) -> None:
     import json as _json
-    pdir = seed_project("alpha")
+    pdir = seed_workspace("alpha")
     (pdir / "tasks.json").write_text(_json.dumps({
         "next_id": 3,
         "tasks": [
@@ -1815,7 +1815,7 @@ def test_get_index_reflects_task_counts(client, seed_project) -> None:
         ],
     }))
     r = client.get("/api/index")
-    p = r.json()["projects"][0]
+    p = r.json()["workspaces"][0]
     assert p["open_task_count"] == 1
     assert p["task_counts"]["done"] == 1
 ```
@@ -1844,7 +1844,7 @@ class IndexCache:
     """Thread-safe in-memory cache of the global index.
 
     On first access, builds from disk. On rebuild, regenerates from on-disk
-    projects and persists to content/.index.json.
+    workspaces and persists to content/.index.json.
     """
 
     def __init__(self, root: Path) -> None:
@@ -1941,60 +1941,60 @@ git commit -m "feat(backend): /api/index route backed by thread-safe IndexCache"
 
 ---
 
-## Task 6: `/api/projects` routes (list + single)
+## Task 6: `/api/workspaces` routes (list + single)
 
 **Files:**
-- Create: `apps/backend/src/backend/routes/project.py`
+- Create: `apps/backend/src/backend/routes/workspace.py`
 - Modify: `apps/backend/src/backend/main.py`
-- Create: `apps/backend/tests/test_project_routes.py`
+- Create: `apps/backend/tests/test_workspace_routes.py`
 
 - [ ] **Step 1: Write failing tests**
 
-Create `apps/backend/tests/test_project_routes.py`:
+Create `apps/backend/tests/test_workspace_routes.py`:
 ```python
 import json
 
 
-def test_list_projects_empty(client) -> None:
-    r = client.get("/api/projects")
+def test_list_workspaces_empty(client) -> None:
+    r = client.get("/api/workspaces")
     assert r.status_code == 200
     assert r.json() == []
 
 
-def test_list_projects_returns_index_slice(client, seed_project) -> None:
-    seed_project("alpha")
-    seed_project("beta")
-    r = client.get("/api/projects")
+def test_list_workspaces_returns_index_slice(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
+    r = client.get("/api/workspaces")
     ids = [p["id"] for p in r.json()]
     assert ids == ["alpha", "beta"]
 
 
-def test_list_projects_filter_by_status(client, seed_project, monorepo) -> None:
-    alpha = seed_project("alpha")
-    beta = seed_project("beta")
-    data = json.loads((beta / "project.json").read_text())
+def test_list_workspaces_filter_by_status(client, seed_workspace, monorepo) -> None:
+    alpha = seed_workspace("alpha")
+    beta = seed_workspace("beta")
+    data = json.loads((beta / "workspace.json").read_text())
     data["status"] = "archived"
-    (beta / "project.json").write_text(json.dumps(data))
+    (beta / "workspace.json").write_text(json.dumps(data))
     # Refresh cache: a new seed changes the filesystem but the cache was built
     # on first /api/ping call in the fixture — tests must either rebuild
     # explicitly or rely on auto-build-on-first-read. We hit /api/index which
     # triggers a rebuild path if the cache is empty. For cache warmed by a
     # prior call, we'd need to rebuild. The IndexCache.get() only rebuilds
     # when the cache is empty, so the first route call on a fresh app primes
-    # it. Since seed_project is called before any request, the index will be
+    # it. Since seed_workspace is called before any request, the index will be
     # correct on first read.
-    r = client.get("/api/projects?status=active")
+    r = client.get("/api/workspaces?status=active")
     ids = [p["id"] for p in r.json()]
     assert ids == ["alpha"]
 
-    r = client.get("/api/projects?status=archived")
+    r = client.get("/api/workspaces?status=archived")
     ids = [p["id"] for p in r.json()]
     assert ids == ["beta"]
 
 
-def test_get_single_project_returns_full_json(client, seed_project) -> None:
-    seed_project("alpha", description="Alpha desc")
-    r = client.get("/api/projects/alpha")
+def test_get_single_workspace_returns_full_json(client, seed_workspace) -> None:
+    seed_workspace("alpha", description="Alpha desc")
+    r = client.get("/api/workspaces/alpha")
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == "alpha"
@@ -2002,13 +2002,13 @@ def test_get_single_project_returns_full_json(client, seed_project) -> None:
     assert body["worktrees"] == []
 
 
-def test_get_single_project_missing(client) -> None:
-    r = client.get("/api/projects/nope")
+def test_get_single_workspace_missing(client) -> None:
+    r = client.get("/api/workspaces/nope")
     assert r.status_code == 404
 
 
-def test_get_single_project_rejects_bad_id(client) -> None:
-    r = client.get("/api/projects/..%2Fbad")
+def test_get_single_workspace_rejects_bad_id(client) -> None:
+    r = client.get("/api/workspaces/..%2Fbad")
     assert r.status_code in {400, 404}
 ```
 
@@ -2016,7 +2016,7 @@ def test_get_single_project_rejects_bad_id(client) -> None:
 
 - [ ] **Step 3: Implement route**
 
-Create `apps/backend/src/backend/routes/project.py`:
+Create `apps/backend/src/backend/routes/workspace.py`:
 ```python
 from __future__ import annotations
 
@@ -2033,16 +2033,16 @@ router = APIRouter()
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-_]*$")
 
 
-def _validate_project_id(project_id: str) -> None:
-    if not _ID_RE.match(project_id):
-        raise HTTPException(status_code=400, detail="invalid project id")
+def _validate_workspace_id(workspace_id: str) -> None:
+    if not _ID_RE.match(workspace_id):
+        raise HTTPException(status_code=400, detail="invalid workspace id")
 
 
-@router.get("/api/projects")
-async def list_projects(request: Request, status: str | None = None,
+@router.get("/api/workspaces")
+async def list_workspaces(request: Request, status: str | None = None,
                         tag: str | None = None, label: str | None = None) -> list[dict]:
     idx = request.app.state.index_cache.get()
-    rows = idx["projects"]
+    rows = idx["workspaces"]
     if status:
         rows = [r for r in rows if r.get("status") == status]
     if tag:
@@ -2052,13 +2052,13 @@ async def list_projects(request: Request, status: str | None = None,
     return rows
 
 
-@router.get("/api/projects/{project_id}")
-async def get_project(project_id: str, request: Request) -> dict:
-    _validate_project_id(project_id)
+@router.get("/api/workspaces/{workspace_id}")
+async def get_workspace(workspace_id: str, request: Request) -> dict:
+    _validate_workspace_id(workspace_id)
     root: Path = request.app.state.index_cache._root
-    pjson = paths.project_file(root, project_id)
+    pjson = paths.workspace_file(root, workspace_id)
     if not pjson.is_file():
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
     return storage.read_json(pjson)
 ```
 
@@ -2066,18 +2066,18 @@ async def get_project(project_id: str, request: Request) -> dict:
 
 APPEND to `main.py` imports:
 ```python
-from backend.routes import project as project_route
+from backend.routes import workspace as workspace_route
 ```
 
 APPEND to `create_app()` (after `index_route` include):
 ```python
-    app.include_router(project_route.router)
+    app.include_router(workspace_route.router)
 ```
 
 - [ ] **Step 5: Run — expect pass**
 
 ```bash
-.venv/bin/pytest tests/test_project_routes.py -v
+.venv/bin/pytest tests/test_workspace_routes.py -v
 ```
 
 Expected: 6 passed.
@@ -2087,33 +2087,33 @@ Expected: 6 passed.
 ```bash
 cd /Users/jcortes/src/productivity
 git add apps/backend
-git commit -m "feat(backend): /api/projects list + single-project routes"
+git commit -m "feat(backend): /api/workspaces list + single-workspace routes"
 ```
 
 ---
 
-## Task 7: `/api/projects/{id}/tasks`
+## Task 7: `/api/workspaces/{id}/tasks`
 
 **Files:**
-- Modify: `apps/backend/src/backend/routes/project.py`
-- Modify: `apps/backend/tests/test_project_routes.py`
+- Modify: `apps/backend/src/backend/routes/workspace.py`
+- Modify: `apps/backend/tests/test_workspace_routes.py`
 
 - [ ] **Step 1: Append failing tests**
 
-APPEND to `test_project_routes.py`:
+APPEND to `test_workspace_routes.py`:
 ```python
 
 
-def test_get_project_tasks_empty(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.get("/api/projects/alpha/tasks")
+def test_get_workspace_tasks_empty(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.get("/api/workspaces/alpha/tasks")
     assert r.status_code == 200
     assert r.json() == {"next_id": 1, "tasks": []}
 
 
-def test_get_project_tasks_reflects_on_disk(client, seed_project) -> None:
+def test_get_workspace_tasks_reflects_on_disk(client, seed_workspace) -> None:
     import json as _json
-    pdir = seed_project("alpha")
+    pdir = seed_workspace("alpha")
     (pdir / "tasks.json").write_text(_json.dumps({
         "next_id": 2,
         "tasks": [{"id": 1, "title": "hi", "status": "todo", "priority": "P1",
@@ -2121,14 +2121,14 @@ def test_get_project_tasks_reflects_on_disk(client, seed_project) -> None:
                    "blocker": None, "notes_file": None,
                    "created": "2026-04-17", "updated": "2026-04-17", "closed_at": None}],
     }))
-    r = client.get("/api/projects/alpha/tasks")
+    r = client.get("/api/workspaces/alpha/tasks")
     body = r.json()
     assert body["next_id"] == 2
     assert body["tasks"][0]["title"] == "hi"
 
 
-def test_get_project_tasks_missing_project(client) -> None:
-    r = client.get("/api/projects/nope/tasks")
+def test_get_workspace_tasks_missing_workspace(client) -> None:
+    r = client.get("/api/workspaces/nope/tasks")
     assert r.status_code == 404
 ```
 
@@ -2136,30 +2136,30 @@ def test_get_project_tasks_missing_project(client) -> None:
 
 - [ ] **Step 3: Append route**
 
-APPEND to `apps/backend/src/backend/routes/project.py`:
+APPEND to `apps/backend/src/backend/routes/workspace.py`:
 ```python
 
 
-@router.get("/api/projects/{project_id}/tasks")
-async def get_project_tasks(project_id: str, request: Request) -> dict:
-    _validate_project_id(project_id)
+@router.get("/api/workspaces/{workspace_id}/tasks")
+async def get_workspace_tasks(workspace_id: str, request: Request) -> dict:
+    _validate_workspace_id(workspace_id)
     root: Path = request.app.state.index_cache._root
-    tjson = paths.tasks_file(root, project_id)
+    tjson = paths.tasks_file(root, workspace_id)
     if not tjson.is_file():
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
     return storage.read_json(tjson)
 ```
 
 - [ ] **Step 4: Run — expect pass**
 
-Expected: 9 passed in test_project_routes.py.
+Expected: 9 passed in test_workspace_routes.py.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/jcortes/src/productivity
 git add apps/backend
-git commit -m "feat(backend): /api/projects/{id}/tasks route"
+git commit -m "feat(backend): /api/workspaces/{id}/tasks route"
 ```
 
 ---
@@ -2202,19 +2202,19 @@ def test_list_tasks_empty(client) -> None:
     assert r.json() == []
 
 
-def test_list_tasks_flattens_across_projects(client, seed_project) -> None:
-    a = seed_project("alpha")
-    b = seed_project("beta")
+def test_list_tasks_flattens_across_workspaces(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
+    b = seed_workspace("beta")
     _seed_tasks(a, [_task_entry(1, title="in-alpha")])
     _seed_tasks(b, [_task_entry(1, title="in-beta")])
     r = client.get("/api/tasks")
-    titles = [(t["project_id"], t["title"]) for t in r.json()]
+    titles = [(t["workspace_id"], t["title"]) for t in r.json()]
     assert ("alpha", "in-alpha") in titles
     assert ("beta", "in-beta") in titles
 
 
-def test_list_tasks_filter_by_status(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_filter_by_status(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, status="todo", title="t"),
         _task_entry(2, status="done", title="d", closed_at="2026-04-17T09:00:00-07:00"),
@@ -2226,8 +2226,8 @@ def test_list_tasks_filter_by_status(client, seed_project) -> None:
     assert [t["title"] for t in r.json()] == ["t"]
 
 
-def test_list_tasks_filter_by_priority(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_filter_by_priority(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, priority="P0"),
         _task_entry(2, priority="P1"),
@@ -2237,8 +2237,8 @@ def test_list_tasks_filter_by_priority(client, seed_project) -> None:
     assert {t["task_id"] for t in r.json()} == {1, 2}
 
 
-def test_list_tasks_filter_by_tag_and_label(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_filter_by_tag_and_label(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     _seed_tasks(a, [
         _task_entry(1, tags=["review"]),
         _task_entry(2, labels=["lipy-davi"]),
@@ -2250,8 +2250,8 @@ def test_list_tasks_filter_by_tag_and_label(client, seed_project) -> None:
     assert {t["task_id"] for t in r.json()} == {2}
 
 
-def test_list_tasks_due(client, seed_project) -> None:
-    a = seed_project("alpha")
+def test_list_tasks_due(client, seed_workspace) -> None:
+    a = seed_workspace("alpha")
     near = (date.today() + timedelta(days=3)).isoformat()
     far = (date.today() + timedelta(days=30)).isoformat()
     _seed_tasks(a, [
@@ -2331,7 +2331,7 @@ APPEND imports:
 from backend.routes import task as task_route
 ```
 
-APPEND include (after project_route):
+APPEND include (after workspace_route):
 ```python
     app.include_router(task_route.router)
 ```
@@ -2509,25 +2509,25 @@ git commit -m "feat(backend): /api/markdown route with frontmatter parsing"
 
 ---
 
-## Task 10: `/api/projects/{id}/docs` and `/api/projects/{id}/file`
+## Task 10: `/api/workspaces/{id}/docs` and `/api/workspaces/{id}/file`
 
 **Files:**
-- Modify: `apps/backend/src/backend/routes/project.py`
-- Modify: `apps/backend/tests/test_project_routes.py`
+- Modify: `apps/backend/src/backend/routes/workspace.py`
+- Modify: `apps/backend/tests/test_workspace_routes.py`
 
 - [ ] **Step 1: Append failing tests**
 
-APPEND to `test_project_routes.py`:
+APPEND to `test_workspace_routes.py`:
 ```python
 
 
-def test_list_project_docs(client, seed_project) -> None:
-    pdir = seed_project("alpha")
+def test_list_workspace_docs(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
     (pdir / "docs" / "one-pager.md").write_text("# hello")
     (pdir / "notes" / "001-draft.md").write_text("# draft")
     (pdir / "assets" / "chart.png").write_bytes(b"\x89PNG")
 
-    r = client.get("/api/projects/alpha/docs")
+    r = client.get("/api/workspaces/alpha/docs")
     assert r.status_code == 200
     files = r.json()
     paths_set = {f["path"] for f in files}
@@ -2536,28 +2536,28 @@ def test_list_project_docs(client, seed_project) -> None:
     assert "assets/chart.png" in paths_set
 
 
-def test_list_project_docs_missing_project(client) -> None:
-    r = client.get("/api/projects/nope/docs")
+def test_list_workspace_docs_missing_workspace(client) -> None:
+    r = client.get("/api/workspaces/nope/docs")
     assert r.status_code == 404
 
 
-def test_get_project_file_text(client, seed_project) -> None:
-    pdir = seed_project("alpha")
+def test_get_workspace_file_text(client, seed_workspace) -> None:
+    pdir = seed_workspace("alpha")
     (pdir / "docs" / "one-pager.md").write_text("# body")
-    r = client.get("/api/projects/alpha/file?path=docs/one-pager.md")
+    r = client.get("/api/workspaces/alpha/file?path=docs/one-pager.md")
     assert r.status_code == 200
     assert "# body" in r.text
 
 
-def test_get_project_file_rejects_traversal(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.get("/api/projects/alpha/file?path=../beta.md")
+def test_get_workspace_file_rejects_traversal(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.get("/api/workspaces/alpha/file?path=../beta.md")
     assert r.status_code == 400
 
 
-def test_get_project_file_missing(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.get("/api/projects/alpha/file?path=notes/999.md")
+def test_get_workspace_file_missing(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.get("/api/workspaces/alpha/file?path=notes/999.md")
     assert r.status_code == 404
 ```
 
@@ -2565,18 +2565,18 @@ def test_get_project_file_missing(client, seed_project) -> None:
 
 - [ ] **Step 3: Append routes**
 
-APPEND to `apps/backend/src/backend/routes/project.py`:
+APPEND to `apps/backend/src/backend/routes/workspace.py`:
 ```python
 from fastapi.responses import FileResponse
 
 
-@router.get("/api/projects/{project_id}/docs")
-async def list_project_docs(project_id: str, request: Request) -> list[dict]:
-    _validate_project_id(project_id)
+@router.get("/api/workspaces/{workspace_id}/docs")
+async def list_workspace_docs(workspace_id: str, request: Request) -> list[dict]:
+    _validate_workspace_id(workspace_id)
     root: Path = request.app.state.index_cache._root
-    pdir = paths.project_dir(root, project_id)
+    pdir = paths.workspace_dir(root, workspace_id)
     if not pdir.is_dir():
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
 
     out: list[dict] = []
     for sub in ("docs", "notes", "assets"):
@@ -2592,16 +2592,16 @@ async def list_project_docs(project_id: str, request: Request) -> list[dict]:
     return out
 
 
-@router.get("/api/projects/{project_id}/file")
-async def get_project_file(project_id: str, path: str, request: Request):
-    _validate_project_id(project_id)
+@router.get("/api/workspaces/{workspace_id}/file")
+async def get_workspace_file(workspace_id: str, path: str, request: Request):
+    _validate_workspace_id(workspace_id)
     if path.startswith("/") or ".." in Path(path).parts:
         raise HTTPException(status_code=400, detail="invalid path")
     root: Path = request.app.state.index_cache._root
-    pdir = paths.project_dir(root, project_id)
+    pdir = paths.workspace_dir(root, workspace_id)
     target = (pdir / path).resolve()
     if pdir.resolve() not in target.parents and target != pdir.resolve():
-        raise HTTPException(status_code=400, detail="path escapes project")
+        raise HTTPException(status_code=400, detail="path escapes workspace")
     if not target.is_file():
         raise HTTPException(status_code=404, detail="not found")
     return FileResponse(target)
@@ -2609,14 +2609,14 @@ async def get_project_file(project_id: str, path: str, request: Request):
 
 - [ ] **Step 4: Run — expect pass**
 
-Expected: 14 passed in test_project_routes.py (9 prior + 5 new).
+Expected: 14 passed in test_workspace_routes.py (9 prior + 5 new).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /Users/jcortes/src/productivity
 git add apps/backend
-git commit -m "feat(backend): /api/projects/{id}/docs and /file raw routes with traversal guard"
+git commit -m "feat(backend): /api/workspaces/{id}/docs and /file raw routes with traversal guard"
 ```
 
 ---
@@ -2652,7 +2652,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
     w.start()
     try:
-        target = monorepo / "content" / "projects" / ".probe"
+        target = monorepo / "content" / "workspaces" / ".probe"
         target.mkdir()
         for i in range(5):
             (target / f"f{i}.md").write_text("x")
@@ -2664,7 +2664,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     assert rebuild_count["n"] == 1
 
 
-def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> None:
+def test_watcher_rebuilds_on_workspace_creation(monorepo: Path, seed_workspace) -> None:
     cache = IndexCache(monorepo)
     cache.rebuild()
     events: list[dict] = []
@@ -2675,13 +2675,13 @@ def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> N
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
     w.start()
     try:
-        seed_project("late-comer")
+        seed_workspace("late-comer")
         time.sleep(0.3)
     finally:
         w.stop()
 
     assert len(events) == 1
-    ids = [p["id"] for p in events[0]["projects"]]
+    ids = [p["id"] for p in events[0]["workspaces"]]
     assert "late-comer" in ids
 
 
@@ -2899,7 +2899,7 @@ from fastapi import FastAPI
 from backend import config
 from backend.routes import index as index_route
 from backend.routes import markdown as markdown_route
-from backend.routes import project as project_route
+from backend.routes import workspace as workspace_route
 from backend.routes import task as task_route
 from backend.routes import ws as ws_route
 from backend.state import IndexCache, WsBroadcaster
@@ -2916,7 +2916,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(index_route.router)
-    app.include_router(project_route.router)
+    app.include_router(workspace_route.router)
     app.include_router(task_route.router)
     app.include_router(markdown_route.router)
     app.include_router(ws_route.router)
@@ -2967,7 +2967,7 @@ from fastapi import FastAPI
 from backend import config
 from backend.routes import index as index_route
 from backend.routes import markdown as markdown_route
-from backend.routes import project as project_route
+from backend.routes import workspace as workspace_route
 from backend.routes import task as task_route
 from backend.routes import ws as ws_route
 from backend.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
@@ -3010,7 +3010,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(index_route.router)
-    app.include_router(project_route.router)
+    app.include_router(workspace_route.router)
     app.include_router(task_route.router)
     app.include_router(markdown_route.router)
     app.include_router(ws_route.router)
@@ -3040,19 +3040,19 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project) -> None:
-    """Full loop: create project → fs event → watcher rebuild → WS broadcast."""
+def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_workspace) -> None:
+    """Full loop: create workspace → fs event → watcher rebuild → WS broadcast."""
     from backend.main import create_app
 
     app = create_app()
     with TestClient(app) as client:
         # Index starts empty
         r = client.get("/api/index")
-        assert r.json()["projects"] == []
+        assert r.json()["workspaces"] == []
 
         with client.websocket_connect("/ws") as ws:
-            # Simulate "lab project new" by creating the project.json directly.
-            seed_project("alpha")
+            # Simulate "lab workspace new" by creating the workspace.json directly.
+            seed_workspace("alpha")
             # Wait for debounce + rebuild
             time.sleep(0.5)
             msg = ws.receive_json()
@@ -3060,7 +3060,7 @@ def test_cli_write_propagates_through_watcher_to_ws(monorepo: Path, seed_project
 
         # Index reflects the change
         r = client.get("/api/index")
-        ids = [p["id"] for p in r.json()["projects"]]
+        ids = [p["id"] for p in r.json()["workspaces"]]
         assert ids == ["alpha"]
 ```
 
@@ -3246,7 +3246,7 @@ from __future__ import annotations
 import click
 
 from lab.commands.index import index_group
-from lab.commands.project import project_group
+from lab.commands.workspace import workspace_group
 from lab.commands.service import open_cmd, start, stop
 from lab.commands.task import task_group
 
@@ -3257,7 +3257,7 @@ def main() -> None:
     """Unified CLI for the productivity monorepo."""
 
 
-main.add_command(project_group)
+main.add_command(workspace_group)
 main.add_command(task_group)
 main.add_command(index_group)
 main.add_command(start)
@@ -3315,22 +3315,22 @@ Expected: lab suite passes (~91 tests), backend suite passes (~30+ tests across 
 make start-bg
 sleep 2
 curl -sf http://localhost:3333/api/ping | tee /dev/stderr | grep -q '"status":"ok"'
-curl -sf http://localhost:3333/api/index | python3 -c 'import sys, json; d = json.load(sys.stdin); print("projects:", len(d["projects"]), "tasks:", len(d["tasks"]))'
+curl -sf http://localhost:3333/api/index | python3 -c 'import sys, json; d = json.load(sys.stdin); print("workspaces:", len(d["workspaces"]), "tasks:", len(d["tasks"]))'
 ```
 
-Expected: ping returns 200 with ok; index returns the currently-populated shape (may be 0 projects if running against a fresh monorepo).
+Expected: ping returns 200 with ok; index returns the currently-populated shape (may be 0 workspaces if running against a fresh monorepo).
 
 - [ ] **Step 4: Verify watcher responds to a real CLI mutation**
 
 ```bash
 cd /Users/jcortes/src/productivity
-LAB_ROOT=$HOME/src/productivity ~/.local/bin/lab project new smoke-test --desc "Plan 2 smoke" || \
-  echo "(pre-existing project — fine; delete it first if you want a fresh test)"
+LAB_ROOT=$HOME/src/productivity ~/.local/bin/lab workspace new smoke-test --desc "Plan 2 smoke" || \
+  echo "(pre-existing workspace — fine; delete it first if you want a fresh test)"
 sleep 1
-curl -sf http://localhost:3333/api/index | python3 -c 'import sys, json; d = json.load(sys.stdin); ids = [p["id"] for p in d["projects"]]; print(ids); assert "smoke-test" in ids'
+curl -sf http://localhost:3333/api/index | python3 -c 'import sys, json; d = json.load(sys.stdin); ids = [p["id"] for p in d["workspaces"]]; print(ids); assert "smoke-test" in ids'
 ```
 
-Expected: the list includes `smoke-test` — proving the watcher picked up the new project.json.
+Expected: the list includes `smoke-test` — proving the watcher picked up the new workspace.json.
 
 - [ ] **Step 5: Stop the backend**
 
@@ -3340,10 +3340,10 @@ make stop
 
 Expected: `stopped backend (pid …)`.
 
-- [ ] **Step 6: Clean up the smoke-test project**
+- [ ] **Step 6: Clean up the smoke-test workspace**
 
 ```bash
-~/.local/bin/lab project rm smoke-test --yes
+~/.local/bin/lab workspace rm smoke-test --yes
 ```
 
 - [ ] **Step 7: (Optional) Commit any incidental fixes found during smoke test**
@@ -3370,10 +3370,10 @@ git status
 
 | Feature | Plan |
 |---|---|
-| HTML/JS frontend — dashboard, project view, timeline, list views | Plan 3 |
+| HTML/JS frontend — dashboard, workspace view, timeline, list views | Plan 3 |
 | POST/PUT/DELETE API endpoints | Plan 3 (or later) |
-| `lab project add` / `lab project remove` — worktree commands + MP prefix config | Plan 4 |
-| `lab search` — full-text across projects/tasks/docs | Plan 5 |
+| `lab workspace add` / `lab workspace remove` — worktree commands + MP prefix config | Plan 4 |
+| `lab search` — full-text across workspaces/tasks/docs | Plan 5 |
 | `lab pr add`, `lab artifact add`, `lab note` | Plan 5 |
 | Migration agent + `lab migrate` | Plan 6 |
 | Moving `apps/darwin-runner`, `apps/darwin-backups`, `apps/trustim-ir-cli` | Plan 7 |

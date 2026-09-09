@@ -91,7 +91,7 @@
     if (document.body) {
       document.body.classList.toggle("logs-have-unseen-errors", unseen);
     }
-    document.querySelectorAll(".proj-tab.logs-tab").forEach((tab) => {
+    document.querySelectorAll(".workspace-tab.logs-tab").forEach((tab) => {
       tab.classList.toggle("has-unseen", unseen);
     });
     document.querySelectorAll('.logs-source[data-file="errors.log"]').forEach((tab) => {

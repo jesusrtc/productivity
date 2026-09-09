@@ -1,227 +1,661 @@
 from __future__ import annotations
 
+from lab import naming
+
+import re
+import shutil
 import subprocess
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import click
 
+from lab import mp as mp_mod
 from lab import paths, storage
 from lab.agent_instructions import NOTEBOOK_AGENT_SECTION
+from lab.commands._helpers import require_valid_id as _require_valid_id
+from lab.model import ModelError, Priority, Workspace, WorkspaceStatus
+from lab.util import split_csv
 
 
-def _write_if_missing(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        path.write_text(content, encoding="utf-8")
+_DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
+
+# Written once into every new workspace's AGENTS.md (canonical; CLAUDE.md is a
+# symlink to it, same convention `lab agents sync` uses elsewhere) so the
+# dev-server convention travels with the workspace from day one instead of
+# depending on someone remembering to add it later. See docs/SERVERS.md in
+# the framework repo for the full contract.
+_WORKSPACE_AGENTS_MD_TEMPLATE = """# {name}
+
+{description}
+
+{notebook_section}
+
+## Dev server
+
+If this workspace runs a local dev server, add a root `Makefile` that follows
+the Lab server convention so the dashboard can discover and control it:
+
+- `SERVER_PORT` — the port the server listens on.
+- `server-start:` — required, runs the server in the **foreground** (it is
+  launched inside a tmux session, not backgrounded with `&`).
+- `server-stop:` — optional, best-effort cleanup of strays.
+- `SERVER_HEALTH_URL` — optional; defaults to `http://127.0.0.1:<SERVER_PORT>/`.
+  Prefer a real `/healthz` endpoint (cheap, no disk access, returns 200) over
+  the default `/` if you own the server code.
+
+```make
+SERVER_PORT = 80NN
+SERVER_HEALTH_URL = http://127.0.0.1:80NN/healthz   # optional
+
+server-start:
+\t<command that runs in the foreground>
+
+server-stop:
+\t-pkill -f '<pattern matching the server-start command>'
+```
+
+Once the Makefile is in place, this workspace's server shows up on the Lab
+dashboard with start/stop controls and live health status. Full contract:
+docs/SERVERS.md in the framework repo.
+"""
 
 
-def _append_gitignore_block(path: Path, block: str) -> None:
-    marker = "# Lab workspace"
-    if path.exists():
-        current = path.read_text(encoding="utf-8")
-        if marker in current:
-            return
-        sep = "" if current.endswith("\n") else "\n"
-        path.write_text(current + sep + "\n" + block, encoding="utf-8")
-    else:
-        _write_if_missing(path, block)
+def _write_workspace_agents_md(pdir: Path, workspace: "Workspace") -> None:
+    """Seed AGENTS.md (+ CLAUDE.md symlink) for a brand-new workspace.
+
+    Idempotent by construction (only ever called once, right after the
+    workspace directory is created) and never overwrites — if either file
+    somehow already exists this is a no-op, hand edits always win.
+    """
+    agents_md = pdir / "AGENTS.md"
+    claude_md = pdir / "CLAUDE.md"
+    if not agents_md.exists():
+        description = workspace.description or "New workspace."
+        agents_md.write_text(
+            _WORKSPACE_AGENTS_MD_TEMPLATE.format(
+                name=workspace.id,
+                description=description,
+                notebook_section=NOTEBOOK_AGENT_SECTION,
+            ),
+            encoding="utf-8",
+        )
+    if not claude_md.exists() and not claude_md.is_symlink():
+        claude_md.symlink_to("AGENTS.md")
 
 
-def _project_doc(project_id: str, name: str) -> dict:
-    today = date.today().isoformat()
-    return {
-        "id": project_id,
-        "name": name,
-        "description": "Example project created by lab init.",
-        "status": "active",
-        "tags": [],
-        "labels": [],
-        "priority": "P2",
-        "loe": None,
-        "due": None,
-        "created": today,
-        "updated": today,
-        "worktrees": [],
-        "prs": [],
-        "artifacts": [],
-        "references": [],
-        "pinned": ["docs/README.md"],
-        "hold": None,
-    }
+def _now_local() -> datetime:
+    """Timezone-aware now in the local zone (so ``isoformat`` includes offset)."""
+    return datetime.now(tz=timezone.utc).astimezone()
 
 
-def _init_example_project(root: Path) -> None:
-    pdir = root / "projects" / "example"
-    (pdir / "docs").mkdir(parents=True, exist_ok=True)
-    (pdir / "notes").mkdir(parents=True, exist_ok=True)
-    (pdir / "assets").mkdir(parents=True, exist_ok=True)
-    (pdir / "scripts").mkdir(parents=True, exist_ok=True)
-    if not (pdir / "project.json").exists():
-        storage.write_json(pdir / "project.json", _project_doc("example", "Example"))
-    if not (pdir / "tasks.json").exists():
-        storage.write_json(pdir / "tasks.json", {"next_id": 1, "tasks": []})
-    _write_if_missing(
-        pdir / "docs" / "README.md",
-        "# Example project\n\nThis project shows the default Lab project shape.\n",
-    )
-    _write_if_missing(pdir / "notes" / ".gitkeep", "")
-    _write_if_missing(pdir / "assets" / ".gitkeep", "")
-    _write_if_missing(
-        pdir / "scripts" / "README.md",
-        "# Project scripts\n\nPut project-specific helper scripts here.\n",
-    )
+def _parse_duration_to_until(spec: str, *, now: datetime | None = None) -> str:
+    """Convert ``2h``/``3d``/``1w``/``45m`` to an ISO timestamp."""
+    m = _DURATION_RE.match(spec)
+    if not m:
+        raise click.ClickException(
+            f"--for {spec!r}: expected N followed by m/h/d/w (e.g. 2h, 3d, 1w)"
+        )
+    qty = int(m.group(1))
+    unit = m.group(2).lower()
+    seconds = {"m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
+    base = now or _now_local()
+    return (base + _timedelta(seconds * qty)).isoformat(timespec="seconds")
 
 
-def _init_example_app(root: Path) -> None:
-    app_dir = root / "apps" / "example-cli"
-    (app_dir / "bin").mkdir(parents=True, exist_ok=True)
-    _write_if_missing(
-        app_dir / "README.md",
-        "# example-cli\n\nWorkspace-owned CLI example. Run with `lab app run example-cli` once app support lands.\n",
-    )
-    _write_if_missing(
-        app_dir / "lab-app.toml",
-        'name = "example-cli"\n'
-        'description = "Example workspace CLI."\n'
-        'command = "bin/example"\n',
-    )
-    script = app_dir / "bin" / "example"
-    _write_if_missing(script, "#!/usr/bin/env sh\necho \"hello from a workspace app\"\n")
+def _timedelta(secs: int):
+    # Local helper to avoid yet another import at module top.
+    from datetime import timedelta
+    return timedelta(seconds=secs)
+
+
+def _parse_until_to_iso(spec: str) -> str:
+    """Normalize a user-supplied ``--until`` to an ISO timestamp.
+
+    Accepts bare dates (``YYYY-MM-DD`` → end-of-day local) and ISO datetimes.
+    """
+    spec = spec.strip()
+    # Bare date → 23:59 local so "until tomorrow" means "all of tomorrow".
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", spec):
+        d = date.fromisoformat(spec)
+        local_tz = _now_local().tzinfo
+        dt = datetime(d.year, d.month, d.day, 23, 59, 0, tzinfo=local_tz)
+        return dt.isoformat(timespec="seconds")
+    # Otherwise trust isoformat (accept trailing Z).
     try:
-        script.chmod(script.stat().st_mode | 0o111)
-    except OSError:
-        pass
+        dt = datetime.fromisoformat(spec.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise click.ClickException(f"--until {spec!r}: not a valid date/datetime") from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_now_local().tzinfo)
+    return dt.isoformat(timespec="seconds")
 
 
-def _init_workspace_files(root: Path, *, name: str, include_example: bool) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    for d in (
-        root / ".lab" / "state" / "cache",
-        root / ".lab" / "state" / "indexes",
-        root / ".lab" / "state" / "sessions",
-        root / "projects",
-        root / "apps",
-        root / "docs",
-        root / "skills",
-        root / "scripts",
-        root / "repositories",
-        root / "content" / "updates",
-        root / "content" / "logs",
-        root / "content" / "wikis",
-        root / ".agents" / "memory",
-    ):
-        d.mkdir(parents=True, exist_ok=True)
-
-    _write_if_missing(root / "README.md", f"# {name}\n\nLab workspace.\n")
-    _write_if_missing(
-        root / "AGENTS.md",
-        "# Lab workspace instructions\n\n"
-        "Use `lab` for project and task state. Do not hand-edit `project.json` "
-        "or `tasks.json`.\n\n"
-        f"{NOTEBOOK_AGENT_SECTION}\n",
+def _ensure_mp_cloned(root: Path, mp: str) -> None:
+    """Best-effort clone of a single MP via `mint clone`. Silent on success,
+    verbose-ish on failure (the caller re-checks and raises if missing)."""
+    mp_root = root / "repositories"
+    mp_root.mkdir(exist_ok=True)
+    dest = mp_root / mp
+    if dest.is_dir() and (dest / ".git").exists():
+        return
+    proc = subprocess.run(
+        ["mint", "clone", mp],
+        cwd=str(mp_root), capture_output=True, text=True,
     )
-    _write_if_missing(
-        root / "lab.toml",
-        "[workspace]\n"
-        f"name = {paths.toml_str(name)}\n"
-        "version = 1\n\n"
-        "[paths]\n"
-        'projects = "projects"\n'
-        'apps = "apps"\n'
-        'docs = "docs"\n'
-        'skills = "skills"\n'
-        'scripts = "scripts"\n'
-        'repositories = "repositories"\n'
-        'content = "content"\n\n'
-        "[server]\n"
-        'host = "127.0.0.1"\n'
-        "port = 3333\n\n"
-        "[agents]\n"
-        'default = "codex"\n',
-    )
-    _append_gitignore_block(
-        root / ".gitignore",
-        "# Lab workspace\n"
-        ".lab/state/\n"
-        "__pycache__/\n"
-        ".DS_Store\n"
-        "projects/*/worktrees/\n"
-        "repositories/*\n"
-        "!repositories/.gitignore\n"
-        "!repositories/README.md\n",
-    )
-    _write_if_missing(root / "docs" / "README.md", "# Workspace docs\n")
-    _write_if_missing(root / "scripts" / "hello.py", "print('hello from Lab')\n")
-    _write_if_missing(root / "repositories" / "README.md", "# Repositories\n\nClone reference repos here.\n")
-    _write_if_missing(root / "repositories" / ".gitignore", "*\n!.gitignore\n!README.md\n")
-    _write_if_missing(root / "content" / "README.md", "# Content\n\nWorkspace knowledge base.\n")
-    _write_if_missing(root / "content" / "updates" / ".gitkeep", "")
-    _write_if_missing(root / "content" / "logs" / ".gitkeep", "")
-    _write_if_missing(root / "content" / "wikis" / ".gitkeep", "")
-    _write_if_missing(root / ".agents" / "memory" / "MEMORY.md", "# Memory index\n")
-    _write_if_missing(
-        root / "skills" / "example-skill" / "SKILL.md",
-        "---\nname: example-skill\ndescription: Example workspace skill.\n---\n\n# Example skill\n",
-    )
-    if include_example:
-        _init_example_project(root)
-        _init_example_app(root)
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout).strip().splitlines()[-3:]
+        click.echo(f"  (mint clone failed: {' | '.join(tail)})")
 
 
-@click.command(name="init")
-@click.argument("path", required=False, type=click.Path(path_type=Path))
-@click.option("--name", default=None, help="Workspace display name.")
-@click.option("--no-example", is_flag=True, help="Skip example project/app files.")
-@click.option("--no-git", is_flag=True, help="Do not run git init for a new workspace.")
-def init_cmd(path: Path | None, name: str | None, no_example: bool, no_git: bool) -> None:
-    """Create a Lab workspace and register it as active."""
-    root = (path or Path.cwd()).expanduser().resolve()
-    display_name = name or root.name
-    already_initialized = (root / "lab.toml").exists()
-    _init_workspace_files(root, name=display_name, include_example=not no_example)
-    if not no_git and not (root / ".git").exists():
-        subprocess.run(["git", "init"], cwd=str(root), check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    row = paths.register_workspace(root, name=display_name, active=True)
-    state = "registered" if already_initialized else "created"
-    click.echo(f"{state} workspace {row['id']} at {row['path']}")
+_WORKSPACE_SETTABLE = {
+    "description", "status", "priority", "due", "loe", "tags", "labels", "name",
+    "agent", "model",
+}
+
+
+def _iter_workspace_files(root: Path):
+    workspaces_root = naming.workspaces_dir(root)
+    if not workspaces_root.is_dir():
+        return
+    for child in sorted(workspaces_root.iterdir()):
+        pjson = naming.workspace_metadata_file(child)
+        if pjson.is_file():
+            yield pjson
 
 
 @click.group(name="workspace")
 def workspace_group() -> None:
-    """Manage Lab workspaces."""
+    """Workspace lifecycle commands."""
 
 
-@workspace_group.command("list")
-def list_workspaces() -> None:
-    data = paths.read_workspace_registry()
-    active = data.get("active")
-    rows = data.get("workspaces") or []
+@workspace_group.command("new")
+@click.argument("workspace_id")
+@click.option("--desc", "description", default="", help="Short description")
+@click.option("--priority", type=click.Choice([p.value for p in Priority]), default=None)
+@click.option("--due", default=None, help="Due date YYYY-MM-DD")
+@click.option("--tags", default="", help="Comma-separated tags")
+@click.option("--labels", default="", help="Comma-separated MP labels")
+def new(workspace_id: str, description: str, priority: str | None, due: str | None,
+        tags: str, labels: str) -> None:
+    """Create a new workspace under workspaces/<id>/."""
+    root = paths.find_monorepo_root()
+    try:
+        workspace = Workspace.from_dict({
+            "id": workspace_id,
+            "name": workspace_id,
+            "description": description,
+            "status": "active",
+            "priority": priority,
+            "due": due,
+            "tags": split_csv(tags),
+            "labels": split_csv(labels),
+        })
+    except ModelError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    pdir = paths.workspace_dir(root, workspace.id)
+    if pdir.exists():
+        raise click.ClickException(f"workspace {workspace.id!r} already exists at {pdir}")
+
+    # Atomic creation: if any step fails, remove the partial directory.
+    try:
+        (pdir / "docs").mkdir(parents=True)
+        (pdir / "notes").mkdir()
+        (pdir / "assets").mkdir()
+
+        storage.write_json(paths.workspace_file(root, workspace.id), workspace.to_dict())
+        storage.write_json(paths.tasks_file(root, workspace.id), {"next_id": 1, "tasks": []})
+        _write_workspace_agents_md(pdir, workspace)
+    except Exception:
+        if pdir.exists():
+            shutil.rmtree(pdir, ignore_errors=True)
+        raise
+
+    click.echo(f"created {workspace.id} at {pdir}")
+
+
+@workspace_group.command("ls")
+@click.option("--status", type=click.Choice([s.value for s in WorkspaceStatus]), default=None)
+@click.option("--tag", "tag_filter", default=None)
+@click.option("--label", "label_filter", default=None)
+def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> None:
+    """List workspaces (default: all)."""
+    root = paths.find_monorepo_root()
+    rows = []
+    for pjson in _iter_workspace_files(root):
+        data = storage.read_json(pjson)
+        if status and data.get("status") != status:
+            continue
+        if tag_filter and tag_filter not in (data.get("tags") or []):
+            continue
+        if label_filter and label_filter not in (data.get("labels") or []):
+            continue
+        rows.append(data)
+
     if not rows:
         click.echo("no workspaces")
         return
-    width = max(len(str(r["id"])) for r in rows)
-    for row in rows:
-        mark = "*" if row["id"] == active else " "
-        click.echo(f"{mark} {row['id']:<{width}}  {row['name']}  {row['path']}")
+
+    width_id = max(len(r["id"]) for r in rows)
+    for r in rows:
+        priority = r.get("priority") or "--"
+        due = r.get("due") or "--"
+        desc = (r.get("description") or "").strip().split("\n")[0][:60]
+        click.echo(f"{r['id']:<{width_id}}  {r['status']:<8}  {priority:<2}  {due:<10}  {desc}")
 
 
-@workspace_group.command("use")
-@click.argument("path", type=click.Path(path_type=Path))
-@click.option("--name", default=None, help="Workspace display name.")
-def use_workspace(path: Path, name: str | None) -> None:
-    root = path.expanduser().resolve()
-    if not (root / "lab.toml").is_file() and not ((root / ".git").exists() and (root / "content").is_dir()):
-        raise click.ClickException(f"{root} is not a Lab workspace; run `lab init {root}` first")
-    row = paths.register_workspace(root, name=name or root.name, active=True)
-    click.echo(f"active workspace {row['id']} at {row['path']}")
+@workspace_group.command("status")
+@click.argument("workspace_id", required=False)
+def status(workspace_id: str | None) -> None:
+    """Print a summary of a workspace (uses PWD if no id given)."""
+    from lab.commands._helpers import resolve_workspace_id
+    root = paths.find_monorepo_root()
+    pid = resolve_workspace_id(workspace_id)
+
+    pjson = paths.workspace_file(root, pid)
+    if not pjson.is_file():
+        raise click.ClickException(f"workspace {pid!r} not found")
+    data = storage.read_json(pjson)
+
+    tjson = paths.tasks_file(root, pid)
+    task_counts = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0}
+    if tjson.is_file():
+        for t in storage.read_json(tjson).get("tasks", []):
+            s = t.get("status")
+            if s in task_counts:
+                task_counts[s] += 1
+
+    click.echo(f"{data['id']}  ({data['status']})")
+    if data.get("description"):
+        for line in data["description"].splitlines():
+            click.echo(f"  {line}")
+    click.echo(
+        f"  tasks: todo={task_counts['todo']} in_progress={task_counts['in_progress']} "
+        f"blocked={task_counts['blocked']} done={task_counts['done']}"
+    )
+    if data.get("priority"):
+        click.echo(f"  priority: {data['priority']}")
+    if data.get("due"):
+        click.echo(f"  due: {data['due']}")
+    if data.get("tags"):
+        click.echo(f"  tags: {', '.join(data['tags'])}")
+    if data.get("labels"):
+        click.echo(f"  labels: {', '.join(data['labels'])}")
 
 
-@workspace_group.command("current")
-def current_workspace() -> None:
-    root = paths.find_workspace_root()
-    data = paths.read_workspace_registry()
-    active = data.get("active")
-    label = f" ({active})" if active else ""
-    click.echo(f"{root}{label}")
+@workspace_group.command("set")
+@click.argument("workspace_id")
+@click.argument("field")
+@click.argument("value")
+def set_field(workspace_id: str, field: str, value: str) -> None:
+    """Update a single field on a workspace (validated)."""
+    pid = _require_valid_id(workspace_id)
+    if field not in _WORKSPACE_SETTABLE:
+        raise click.ClickException(
+            f"{field} is not settable. Allowed: {sorted(_WORKSPACE_SETTABLE)}"
+        )
+    root = paths.find_monorepo_root()
+    pjson = paths.workspace_file(root, pid)
+    if not pjson.is_file():
+        raise click.ClickException(f"workspace {pid!r} not found")
+    data = storage.read_json(pjson)
+
+    if field in {"tags", "labels"}:
+        data[field] = split_csv(value)
+    elif field == "loe":
+        if value in {"", "null", "none"}:
+            data[field] = None
+        else:
+            try:
+                data[field] = float(value)
+            except ValueError as exc:
+                raise click.ClickException(f"loe: {value!r} is not a number") from exc
+    elif field in {"priority", "due", "status", "agent", "model"}:
+        data[field] = value if value not in {"", "null", "none"} else None
+    else:
+        data[field] = value
+
+    data["updated"] = date.today().isoformat()
+
+    try:
+        Workspace.from_dict(data)
+    except ModelError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    storage.write_json(pjson, data)
+    click.echo(f"{pid}.{field} = {data[field]!r}")
+
+
+@workspace_group.command("hold")
+@click.argument("workspace_id", required=False)
+@click.option("--for", "duration", default=None,
+              help="Duration offset (e.g. 2h, 3d, 1w). Mutually exclusive with --until.")
+@click.option("--until", "until", default=None,
+              help="Absolute YYYY-MM-DD or ISO datetime. Mutually exclusive with --for.")
+@click.option("--reason", default="", help="Short label describing what you're waiting on.")
+@click.option("--url", "url", default="", help="Optional URL to check (PR, doc, slack, ...).")
+def hold(workspace_id: str | None, duration: str | None, until: str | None,
+         reason: str, url: str) -> None:
+    """Soft-snooze a workspace until ``--for`` / ``--until``.
+
+    The workspace stays visible on the dashboard but is sorted out of the
+    active set. Once the ``until`` timestamp passes it resurfaces in the
+    "Ready for review" strip with the reason + URL you saved.
+    """
+    from lab.commands._helpers import resolve_workspace_id
+    if (duration is None) == (until is None):
+        raise click.ClickException("exactly one of --for or --until is required")
+    pid = resolve_workspace_id(workspace_id)
+    root = paths.find_monorepo_root()
+    pjson = paths.workspace_file(root, pid)
+    if not pjson.is_file():
+        raise click.ClickException(f"workspace {pid!r} not found")
+
+    now = _now_local()
+    until_iso = _parse_duration_to_until(duration, now=now) if duration else _parse_until_to_iso(until)
+
+    data = storage.read_json(pjson)
+    hold_doc = {
+        "until": until_iso,
+        "reason": reason.strip(),
+        "url": url.strip(),
+        "set_at": now.isoformat(timespec="seconds"),
+    }
+    # Drop empty optional keys for cleaner JSON.
+    hold_doc = {k: v for k, v in hold_doc.items() if v not in ("", None)}
+    data["hold"] = hold_doc
+    data["updated"] = date.today().isoformat()
+
+    try:
+        Workspace.from_dict(data)
+    except ModelError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    storage.write_json(pjson, data)
+    click.echo(f"held {pid} until {until_iso}"
+               + (f" · {reason}" if reason else "")
+               + (f" · {url}" if url else ""))
+
+
+@workspace_group.command("unhold")
+@click.argument("workspace_id", required=False)
+def unhold(workspace_id: str | None) -> None:
+    """Clear an active hold (remove the ``hold`` field)."""
+    from lab.commands._helpers import resolve_workspace_id
+    pid = resolve_workspace_id(workspace_id)
+    root = paths.find_monorepo_root()
+    pjson = paths.workspace_file(root, pid)
+    if not pjson.is_file():
+        raise click.ClickException(f"workspace {pid!r} not found")
+    data = storage.read_json(pjson)
+    if not data.get("hold"):
+        click.echo(f"{pid}: no hold to clear")
+        return
+    data["hold"] = None
+    data["updated"] = date.today().isoformat()
+    storage.write_json(pjson, data)
+    click.echo(f"cleared hold on {pid}")
+
+
+@workspace_group.command("holds")
+def holds_cmd() -> None:
+    """List every workspace currently on hold (active + expired)."""
+    root = paths.find_monorepo_root()
+    rows: list[tuple[str, dict]] = []
+    for pjson in _iter_workspace_files(root):
+        data = storage.read_json(pjson)
+        h = data.get("hold")
+        if h:
+            rows.append((data["id"], h))
+    if not rows:
+        click.echo("no holds")
+        return
+    now = _now_local()
+    width_id = max(len(pid) for pid, _ in rows)
+    for pid, h in sorted(rows, key=lambda r: r[1].get("until", "")):
+        until = h.get("until", "")
+        state = "ready" if until and until < now.isoformat(timespec="seconds") else "held"
+        reason = h.get("reason") or ""
+        url = h.get("url") or ""
+        extra = f" · {reason}" if reason else ""
+        extra += f" · {url}" if url else ""
+        click.echo(f"{pid:<{width_id}}  [{state:<5}]  until {until}{extra}")
+
+
+@workspace_group.command("archive")
+@click.argument("workspace_id")
+def archive(workspace_id: str) -> None:
+    """Set status to archived (hidden from default dashboard)."""
+    pid = _require_valid_id(workspace_id)
+    root = paths.find_monorepo_root()
+    pjson = paths.workspace_file(root, pid)
+    if not pjson.is_file():
+        raise click.ClickException(f"workspace {pid!r} not found")
+    data = storage.read_json(pjson)
+    data["status"] = "archived"
+    data["updated"] = date.today().isoformat()
+
+    try:
+        Workspace.from_dict(data)
+    except ModelError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    storage.write_json(pjson, data)
+    click.echo(f"archived {pid}")
+
+
+@workspace_group.command("rm")
+@click.argument("workspace_id")
+@click.option("--yes", is_flag=True, help="Skip confirmation")
+def rm(workspace_id: str, yes: bool) -> None:
+    """Delete a workspace folder permanently. Worktrees, if any, must be removed first (later plan)."""
+    pid = _require_valid_id(workspace_id)
+    root = paths.find_monorepo_root()
+    pdir = paths.workspace_dir(root, pid)
+    if not pdir.is_dir():
+        raise click.ClickException(f"workspace {pid!r} not found")
+
+    if not yes:
+        click.confirm(
+            f"Permanently delete {pdir}? This cannot be undone.",
+            abort=True,
+        )
+
+    shutil.rmtree(pdir)
+    click.echo(f"removed {pid}")
+
+
+@workspace_group.command("migrate-worktrees")
+@click.option("--id", "workspace_id", default=None,
+              help="Only migrate this workspace; default: every workspace.")
+@click.option("--dry-run", is_flag=True, default=False)
+def migrate_worktrees(workspace_id: str | None, dry_run: bool) -> None:
+    """Move flat-layout worktrees into each workspace's ``worktrees/`` subfolder.
+
+    Older workspaces stored worktrees directly under the workspace dir
+    (``workspaces/<p>/<prefix>-<obj>``). New layout nests them
+    under a dedicated ``worktrees/`` sibling. Uses ``git worktree move``
+    so the MP-side admin state stays consistent, then rewrites
+    ``workspace.json.worktrees[].dir`` to the new relative path.
+
+    Skips entries already at ``worktrees/*``. Safe to re-run.
+    """
+    root = paths.find_monorepo_root()
+    workspaces_root = naming.workspaces_dir(root)
+    if not workspaces_root.is_dir():
+        click.echo("no workspaces yet.")
+        return
+    ids = [workspace_id] if workspace_id else [
+        p.name for p in sorted(workspaces_root.iterdir())
+        if p.is_dir() and (naming.workspace_metadata_file(p)).is_file()
+    ]
+    moved = skipped = failed = 0
+    for pid in ids:
+        pjson = paths.workspace_file(root, pid)
+        data = storage.read_json(pjson)
+        worktrees = data.get("worktrees") or []
+        if not isinstance(worktrees, list) or not worktrees:
+            continue
+        pdir = paths.workspace_dir(root, pid)
+        changed = False
+        for wt in worktrees:
+            if not isinstance(wt, dict):
+                continue
+            current = wt.get("dir", "")
+            if not current or "/" in current:
+                skipped += 1
+                continue  # already subfolder form (or empty)
+            src = pdir / current
+            dst_rel = f"worktrees/{current}"
+            dst = pdir / dst_rel
+            mp = wt.get("mp", "")
+            mp_dir = root / "repositories" / mp
+            if not src.is_dir():
+                click.echo(f"  ✗ {pid}/{current}: source dir missing, skipping")
+                skipped += 1
+                continue
+            if dst.exists():
+                click.echo(f"  ✗ {pid}/{current}: dest already exists at {dst_rel}")
+                failed += 1
+                continue
+            click.echo(f"  ↻ {pid}: {current} → {dst_rel}")
+            if dry_run:
+                moved += 1
+                continue
+            (pdir / "worktrees").mkdir(exist_ok=True)
+            try:
+                subprocess.run(
+                    ["git", "-C", str(mp_dir), "worktree", "move", str(src), str(dst)],
+                    check=True, capture_output=True, text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                msg = (exc.stderr or exc.stdout or str(exc)).strip()
+                click.echo(f"  ✗ {pid}/{current}: {msg}")
+                failed += 1
+                continue
+            wt["dir"] = dst_rel
+            changed = True
+            moved += 1
+        if changed and not dry_run:
+            storage.write_json(pjson, data)
+    verb = "would move" if dry_run else "moved"
+    click.echo(f"{verb} {moved}, skipped {skipped}, failed {failed}")
+
+
+@workspace_group.command("add")
+@click.argument("workspace_id")
+@click.argument("mp")
+@click.option("--branch", default=None, help="Override computed branch name")
+def add(workspace_id: str, mp: str, branch: str | None) -> None:
+    """Create a git worktree of MP at workspaces/<workspace>/<mp-prefix>-<objective>/."""
+    pid = _require_valid_id(workspace_id)
+    root = paths.find_monorepo_root()
+    pdir = paths.workspace_dir(root, pid)
+    if not pdir.is_dir():
+        raise click.ClickException(f"workspace {pid!r} not found")
+
+    mp_dir = root / "repositories" / mp
+    # Missing MP clone? Try to bootstrap from repositories.list before
+    # bailing out. This makes `lab workspace add` Just Work for a fresh repo
+    # checkout — no "oh you forgot to run pull-repos" surprise.
+    if not mp_dir.is_dir() or not (mp_dir / ".git").exists():
+        click.echo(f"repositories/{mp} not found — pulling first…")
+        _ensure_mp_cloned(root, mp)
+        if not mp_dir.is_dir() or not (mp_dir / ".git").exists():
+            raise click.ClickException(
+                f"MP {mp!r} still not at repositories/{mp} — check `repositories.list` "
+                f"and your mint auth, then try `lab repo pull --only {mp}` directly"
+            )
+
+    prefix = mp_mod.prefix_for(mp)
+    if not prefix:
+        raise click.ClickException(
+            f"no prefix for {mp!r} — set with `lab repo prefix {mp} <short>`"
+        )
+
+    objective = mp_mod.objective_from(pid)
+    # Worktrees live under a dedicated subfolder so they don't clutter the
+    # workspace's doc tree (docs/, notes/, assets/, ...). Stored path is
+    # relative to the workspace dir — resolved by the server at render time.
+    worktrees_root = pdir / "worktrees"
+    worktrees_root.mkdir(exist_ok=True)
+    worktree_dir = worktrees_root / f"{prefix}-{objective}"
+    branch_name = branch or f"jcortes/{objective}"
+
+    if worktree_dir.exists():
+        raise click.ClickException(f"worktree already at {worktree_dir}")
+
+    # Ensure the branch exists in the MP (create from master if not)
+    try:
+        subprocess.run(
+            ["git", "-C", str(mp_dir), "rev-parse", "--verify", branch_name],
+            check=True, capture_output=True,
+        )
+        # Branch exists — add worktree tracking it
+        subprocess.run(
+            ["git", "-C", str(mp_dir), "worktree", "add", str(worktree_dir), branch_name],
+            check=True, capture_output=True, text=True,
+        )
+    except subprocess.CalledProcessError:
+        # Branch doesn't exist — create it from master
+        try:
+            subprocess.run(
+                ["git", "-C", str(mp_dir), "worktree", "add", "-b", branch_name,
+                 str(worktree_dir), "master"],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            msg = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise click.ClickException(f"git worktree add failed: {msg}") from exc
+
+    # Update workspace.json.worktrees
+    pjson = paths.workspace_file(root, pid)
+    data = storage.read_json(pjson)
+    data.setdefault("worktrees", [])
+    data["worktrees"].append({
+        "mp": mp,
+        "dir": f"worktrees/{worktree_dir.name}",
+        "branch": branch_name,
+    })
+    data["updated"] = date.today().isoformat()
+    storage.write_json(pjson, data)
+
+    click.echo(f"added worktree worktrees/{worktree_dir.name} on {branch_name}")
+
+
+@workspace_group.command("remove")
+@click.argument("workspace_id")
+@click.argument("mp")
+@click.option("--force", "-f", is_flag=True, default=False,
+              help="Pass --force to `git worktree remove` (drops uncommitted changes).")
+def remove(workspace_id: str, mp: str, force: bool) -> None:
+    """Remove a worktree (git worktree remove + workspace.json update). Does NOT delete the branch."""
+    pid = _require_valid_id(workspace_id)
+    root = paths.find_monorepo_root()
+    pjson = paths.workspace_file(root, pid)
+    if not pjson.is_file():
+        raise click.ClickException(f"workspace {pid!r} not found")
+    data = storage.read_json(pjson)
+    worktrees = data.get("worktrees", [])
+    entry = next((w for w in worktrees if w.get("mp") == mp), None)
+    if not entry:
+        raise click.ClickException(f"no worktree for MP {mp!r} in workspace {pid!r}")
+
+    worktree_path = paths.workspace_dir(root, pid) / entry["dir"]
+    mp_dir = root / "repositories" / mp
+    if worktree_path.exists() and mp_dir.is_dir():
+        cmd = ["git", "-C", str(mp_dir), "worktree", "remove", str(worktree_path)]
+        if force:
+            cmd.append("--force")
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            msg = (exc.stderr or exc.stdout or str(exc)).strip()
+            hint = "" if force else "  (retry with --force to discard uncommitted changes)"
+            raise click.ClickException(f"git worktree remove failed: {msg}{hint}") from exc
+
+    data["worktrees"] = [w for w in worktrees if w.get("mp") != mp]
+    data["updated"] = date.today().isoformat()
+    storage.write_json(pjson, data)
+    click.echo(f"removed worktree for {mp}")

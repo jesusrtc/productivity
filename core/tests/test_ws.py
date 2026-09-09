@@ -23,7 +23,7 @@ def test_ws_receives_live_notebook_execution_event(client) -> None:
 
     event = {
         "phase": "output",
-        "path": "projects/demo/notebooks/live.ipynb",
+        "path": "workspaces/demo/notebooks/live.ipynb",
         "run_id": "run-1",
         "cell_id": "cell-1",
         "sequence": 2,

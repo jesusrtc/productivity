@@ -24,7 +24,7 @@ file is written; nbconvert handles sharing if needed.
 1. Make sure the project has the asta-monitoring notebook. If it's
    missing, copy it from any existing project that has one, or write a
    fresh one (template below). Canonical location:
-   `projects/<id>/notebooks/asta-monitoring.ipynb`.
+   `workspaces/<id>/notebooks/asta-monitoring.ipynb`.
 
 2. Run the bootstrap cell first (cell 0). It enables
    `linkedin.lisql`, sets the Holdem cluster + `trustim` proxy, and
@@ -38,7 +38,7 @@ Concretely, executing a cell via the lab server looks like this — pick
 the cell that matches the user's request and only run that one:
 
 ```bash
-NB=projects/<id>/notebooks/asta-monitoring.ipynb
+NB=workspaces/<id>/notebooks/asta-monitoring.ipynb
 LAB=$(scripts/lab-url.sh)
 
 # Bootstrap (run once per fresh kernel — cell_index 1 in the template)
@@ -79,7 +79,7 @@ After the cell completes, open the notebook in the lab UI to see the
 rendered figures:
 
 ```
-$(scripts/lab-url.sh)/#/nb?path=projects/<id>/notebooks/asta-monitoring.ipynb
+$(scripts/lab-url.sh)/#/nb?path=workspaces/<id>/notebooks/asta-monitoring.ipynb
 ```
 
 ## Function API
@@ -144,9 +144,9 @@ either `YYYY-MM-DD` or `YYYY-MM-DD-HH` form; the hour is normalized to
 
 ## Template — creating the notebook from scratch
 
-If `projects/<id>/notebooks/asta-monitoring.ipynb` doesn't
+If `workspaces/<id>/notebooks/asta-monitoring.ipynb` doesn't
 exist, write it with these cells (the canonical version is the one in
-`projects/asta-gofundme-revamp/notebooks/`):
+`workspaces/asta-gofundme-revamp/notebooks/`):
 
 - Markdown intro
 - **Bootstrap cell** — imports + `%manage_trino Holdem` +

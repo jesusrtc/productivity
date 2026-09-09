@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lab import naming
+
 import os
 import sys
 import threading
@@ -19,7 +21,7 @@ from core.state import IndexCache
 
 
 class IndexWatcher:
-    """Watch `content/` + `projects/` and rebuild the index on any change, debounced."""
+    """Watch `content/` + `workspaces/` and rebuild the index on any change, debounced."""
 
     def __init__(self, root: Path, cache: IndexCache, *,
                  debounce_ms: int,
@@ -37,7 +39,7 @@ class IndexWatcher:
         self._stopped = False
         # Legacy index/session/UI state files can still exist under content/.
         # Ignore those writes if an older tool touches them inside the watched
-        # tree; current state lives under workspace-local .lab/state/.
+        # tree; current state lives under vault-local .lab/state/.
 
     def _is_self_write(self, event: FileSystemEvent) -> bool:
         for attr in ("src_path", "dest_path"):
@@ -47,7 +49,7 @@ class IndexWatcher:
             name = Path(p).name
             if name == ".index.json" or name.startswith(".index.json."):
                 return True
-            # Terminal session metadata writes don't change project or task
+            # Terminal session metadata writes don't change workspace or task
             # state, so skip the index rebuild + WS broadcast.
             if name == ".sessions.json" or name.startswith(".sessions.json."):
                 return True
@@ -59,7 +61,7 @@ class IndexWatcher:
     def _on_change(self, event: FileSystemEvent) -> None:
         if self._is_self_write(event):
             return
-        self._refresh_project_watches_for_event(event)
+        self._refresh_workspace_watches_for_event(event)
         # Directory-modified events are typically byproducts of child writes we
         # already saw (or of our own atomic index rename). File events give us
         # everything actionable with less noise.
@@ -107,7 +109,7 @@ class IndexWatcher:
             return self._polling_observer()
         return Observer()
 
-    _PROJECT_RECURSIVE_DIRS = {
+    _WORKSPACE_RECURSIVE_DIRS = {
         ".agents",
         ".claude",
         "docs",
@@ -133,30 +135,30 @@ class IndexWatcher:
             observer.schedule(handler, resolved, recursive=recursive)
             self._watched_dirs.add(key)
 
-    def _schedule_project_dir(self, observer: BaseObserver, project_dir: Path) -> None:
-        if not project_dir.is_dir():
+    def _schedule_workspace_dir(self, observer: BaseObserver, workspace_dir: Path) -> None:
+        if not workspace_dir.is_dir():
             return
-        # Non-recursive project root catches project.json/tasks.json plus newly
-        # created conventional subfolders. Avoid recursive watches here: projects
+        # Non-recursive workspace root catches workspace.json/tasks.json plus newly
+        # created conventional subfolders. Avoid recursive watches here: workspaces
         # often contain worktrees, assets, or dependency trees that do not affect
         # the lab index and make polling observers expensive on external volumes.
-        self._schedule_dir(observer, project_dir, recursive=False)
-        for name in self._PROJECT_RECURSIVE_DIRS:
-            self._schedule_dir(observer, project_dir / name, recursive=True)
+        self._schedule_dir(observer, workspace_dir, recursive=False)
+        for name in self._WORKSPACE_RECURSIVE_DIRS:
+            self._schedule_dir(observer, workspace_dir / name, recursive=True)
 
-    def _schedule_project_watches(self, observer: BaseObserver) -> None:
-        projects = self._root / "projects"
-        projects.mkdir(parents=True, exist_ok=True)
-        self._schedule_dir(observer, projects, recursive=False)
-        for child in projects.iterdir():
+    def _schedule_workspace_watches(self, observer: BaseObserver) -> None:
+        workspaces = naming.workspaces_dir(self._root)
+        workspaces.mkdir(parents=True, exist_ok=True)
+        self._schedule_dir(observer, workspaces, recursive=False)
+        for child in workspaces.iterdir():
             if child.is_dir():
-                self._schedule_project_dir(observer, child)
+                self._schedule_workspace_dir(observer, child)
 
-    def _refresh_project_watches_for_event(self, event: FileSystemEvent) -> None:
+    def _refresh_workspace_watches_for_event(self, event: FileSystemEvent) -> None:
         observer = self._observer
         if observer is None:
             return
-        projects = (self._root / "projects").resolve()
+        workspaces = (naming.workspaces_dir(self._root)).resolve()
         candidates = []
         for attr in ("src_path", "dest_path"):
             raw = getattr(event, attr, None)
@@ -164,13 +166,13 @@ class IndexWatcher:
                 candidates.append(Path(raw))
         for path in candidates:
             try:
-                rel = path.resolve().relative_to(projects)
+                rel = path.resolve().relative_to(workspaces)
             except (OSError, ValueError):
                 continue
             if not rel.parts:
                 continue
-            project_dir = projects / rel.parts[0]
-            self._schedule_project_dir(observer, project_dir)
+            workspace_dir = workspaces / rel.parts[0]
+            self._schedule_workspace_dir(observer, workspace_dir)
 
     def start(self) -> None:
         handler = FileSystemEventHandler()
@@ -182,7 +184,7 @@ class IndexWatcher:
         content.mkdir(parents=True, exist_ok=True)
         observer.schedule(handler, str(content), recursive=True)
         self._watched_dirs.add(f"{content.resolve()}|1")
-        self._schedule_project_watches(observer)
+        self._schedule_workspace_watches(observer)
         observer.start()
 
     def stop(self) -> None:

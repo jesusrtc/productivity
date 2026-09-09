@@ -2,7 +2,7 @@
 
 Recent-file rows expose a visible GitHub-mark action that opens the shared Git
 history modal. The worktree/main row exposes the same action for repository-wide
-history. Repository buttons do not belong in the project sub-navigation now
+history. Repository buttons do not belong in the workspace sub-navigation now
 that this modal is the primary history entry point. Keep changed files on the
 left, the selected diff in the center, and revisions on the right; repository
 history begins with Working tree and the base branch comparison before commits.

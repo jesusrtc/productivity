@@ -2,24 +2,24 @@
 name: sidebar-file-rows-have-five-render-sites
 description: File rows are string-built in five separate places in lab-app.js — any change to row markup (icons, badges, decorations) must be applied to all of them
 metadata:
-  type: project
+  type: workspace
 ---
 
 `core/src/core/static/js/lab-app.js` builds file/tree rows in five
 independent places. A change to row markup (icons, git decorations,
 badges) silently misses surfaces unless applied to every site:
 
-1. Project sidebar files — `_refreshProjectSidebar` (~line 4390)
-2. Project sidebar Meta rows (project.json, shared CLAUDE/AGENTS) (~4470)
+1. Workspace sidebar files — `_refreshWorkspaceSidebar` (~line 4390)
+2. Workspace sidebar Meta rows (workspace.json, shared CLAUDE/AGENTS) (~4470)
 3. Shared `.claude/`/`code/` async tree — (~8015)
-4. Productivity self-view AND Workspace view — both call the shared
+4. Productivity self-view AND Vault view — both call the shared
    `renderSidebarFileTree()` (extracted 2026-07-17); the self view is
    rooted at `find_framework_root()` (`window.LAB_MONOREPO_ROOT`), the
-   workspace view at the active workspace root
-5. Repo/Project tab tree — `renderTreeNodes` `tree-file` rows (~1454)
+   vault view at the active vault root
+5. Repo/Workspace tab tree — `renderTreeNodes` `tree-file` rows (~1454)
 
 Shared icon helper: `fileIconHtml()` (~870). Related: `/api/git-status`
-containment allows the active workspace, `get_registered_repos()` paths,
+containment allows the active vault, `get_registered_repos()` paths,
 and the framework root (self view) — nothing else.
 
 **Why:** a subagent restyling "the sidebar" hit sites 1–3 and missed 4–5;

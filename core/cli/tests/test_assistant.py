@@ -41,7 +41,7 @@ def test_client_env_value_can_be_updated_without_losing_other_settings(
 
 def test_assistant_init_and_task_lifecycle(monkeypatch, tmp_path: Path, monorepo: Path) -> None:
     root = _configure(monkeypatch, tmp_path)
-    paths.register_workspace(monorepo, name="Test", workspace_id="test", active=True)
+    paths.register_vault(monorepo, name="Test", vault_id="test", active=True)
     runner = CliRunner()
 
     result = runner.invoke(main, ["assistant", "init"])
@@ -49,24 +49,24 @@ def test_assistant_init_and_task_lifecycle(monkeypatch, tmp_path: Path, monorepo
     assert (root / "AGENTS.md").is_file()
     assert (root / "README.md").is_file()
 
-    project_path = monorepo / "projects" / "demo"
-    project_path.mkdir(parents=True)
+    workspace_path = monorepo / "workspaces" / "demo"
+    workspace_path.mkdir(parents=True)
     result = runner.invoke(main, [
-        "assistant", "project", "add", "demo",
-        "--name", "Demo", "--workspace", "test", "--path", str(project_path),
+        "assistant", "workspace", "add", "demo",
+        "--name", "Demo", "--vault", "test", "--path", str(workspace_path),
     ])
     assert result.exit_code == 0, result.output
 
     result = runner.invoke(main, [
         "assistant", "add", "Prepare launch note",
-        "--project", "demo", "--priority", "P1", "--status", "ready",
+        "--workspace", "demo", "--priority", "P1", "--status", "ready",
     ])
     assert result.exit_code == 0, result.output
     task_id = result.output.split()[0]
     rows = list(assistant.iter_tasks(root))
     assert rows[0]["id"] == task_id
-    assert rows[0]["workspace"] == "test"
-    assert rows[0]["project_path"] == str(project_path)
+    assert rows[0]["vault"] == "test"
+    assert rows[0]["workspace_path"] == str(workspace_path)
     assert rows[0]["subtasks_total"] == 0
     assert rows[0]["subtasks_done"] == 0
 
@@ -94,25 +94,25 @@ def test_assistant_init_and_task_lifecycle(monkeypatch, tmp_path: Path, monorepo
 
 def test_assistant_meeting_cli(monkeypatch, tmp_path: Path, monorepo: Path) -> None:
     root = _configure(monkeypatch, tmp_path)
-    paths.register_workspace(monorepo, name="Test", workspace_id="test", active=True)
+    paths.register_vault(monorepo, name="Test", vault_id="test", active=True)
     runner = CliRunner()
     assert runner.invoke(main, ["assistant", "init"]).exit_code == 0
-    project_path = monorepo / "projects" / "demo"
-    project_path.mkdir(parents=True)
+    workspace_path = monorepo / "workspaces" / "demo"
+    workspace_path.mkdir(parents=True)
     assert runner.invoke(main, [
-        "assistant", "project", "add", "demo",
-        "--name", "Demo", "--workspace", "test", "--path", str(project_path),
+        "assistant", "workspace", "add", "demo",
+        "--name", "Demo", "--vault", "test", "--path", str(workspace_path),
     ]).exit_code == 0
 
     result = runner.invoke(main, [
         "assistant", "meeting", "add", "Weekly product review",
-        "--project", "demo", "--date", "2026-09-03",
+        "--workspace", "demo", "--date", "2026-09-03",
         "--attendee", "Maya", "--attendee", "Leo", "--tag", "demo",
     ])
     assert result.exit_code == 0, result.output
     meeting_id = result.output.split()[0]
 
-    listed = runner.invoke(main, ["assistant", "meeting", "ls", "--project", "demo"])
+    listed = runner.invoke(main, ["assistant", "meeting", "ls", "--workspace", "demo"])
     assert listed.exit_code == 0, listed.output
     assert meeting_id in listed.output
     assert "Weekly product review" in listed.output
@@ -129,19 +129,19 @@ def test_assistant_first_class_subtask_lifecycle(
     monorepo: Path,
 ) -> None:
     root = _configure(monkeypatch, tmp_path)
-    paths.register_workspace(monorepo, name="Test", workspace_id="test", active=True)
+    paths.register_vault(monorepo, name="Test", vault_id="test", active=True)
     runner = CliRunner()
     assert runner.invoke(main, ["assistant", "init"]).exit_code == 0
-    project_path = monorepo / "projects" / "demo"
-    project_path.mkdir(parents=True)
+    workspace_path = monorepo / "workspaces" / "demo"
+    workspace_path.mkdir(parents=True)
     assert runner.invoke(main, [
-        "assistant", "project", "add", "demo",
-        "--name", "Demo", "--workspace", "test", "--path", str(project_path),
+        "assistant", "workspace", "add", "demo",
+        "--name", "Demo", "--vault", "test", "--path", str(workspace_path),
     ]).exit_code == 0
 
     created = runner.invoke(main, [
         "assistant", "add", "Prepare campaign",
-        "--project", "demo", "--priority", "P1", "--status", "in_progress",
+        "--workspace", "demo", "--priority", "P1", "--status", "in_progress",
     ])
     assert created.exit_code == 0, created.output
     task_id = created.output.split()[0]
@@ -154,9 +154,9 @@ def test_assistant_first_class_subtask_lifecycle(
     assert created_subtask.exit_code == 0, created_subtask.output
     subtask_id = created_subtask.output.split()[0]
     source, metadata, body = assistant.find_subtask(root, subtask_id)
-    assert source.parent == root / "projects" / "demo" / "subtasks"
+    assert source.parent == root / "workspaces" / "demo" / "subtasks"
     assert metadata["parent"] == task_id
-    assert metadata["project"] == "demo"
+    assert metadata["workspace"] == "demo"
     assert metadata["priority"] == "P0"
     assert metadata["status"] == "in_progress"
     assert metadata["owner"] == "agent"
@@ -231,19 +231,19 @@ def test_assistant_ready_to_review_task_and_invalid_subtask_parent(
     monorepo: Path,
 ) -> None:
     root = _configure(monkeypatch, tmp_path)
-    paths.register_workspace(monorepo, name="Test", workspace_id="test", active=True)
+    paths.register_vault(monorepo, name="Test", vault_id="test", active=True)
     runner = CliRunner()
     assert runner.invoke(main, ["assistant", "init"]).exit_code == 0
-    project_path = monorepo / "projects" / "demo"
-    project_path.mkdir(parents=True)
+    workspace_path = monorepo / "workspaces" / "demo"
+    workspace_path.mkdir(parents=True)
     assert runner.invoke(main, [
-        "assistant", "project", "add", "demo",
-        "--name", "Demo", "--workspace", "test", "--path", str(project_path),
+        "assistant", "workspace", "add", "demo",
+        "--name", "Demo", "--vault", "test", "--path", str(workspace_path),
     ]).exit_code == 0
 
     created = runner.invoke(main, [
         "assistant", "add", "Review generated copy",
-        "--project", "demo", "--status", "ready_to_review",
+        "--workspace", "demo", "--status", "ready_to_review",
     ])
     assert created.exit_code == 0, created.output
     task_id = created.output.split()[0]
@@ -264,30 +264,30 @@ def test_assistant_ready_to_review_task_and_invalid_subtask_parent(
     assert "task 'missing-task' not found" in invalid.output
 
 
-def test_subtask_can_belong_to_another_project_and_still_gate_parent(
+def test_subtask_can_belong_to_another_workspace_and_still_gate_parent(
     monkeypatch, tmp_path: Path, monorepo: Path,
 ) -> None:
     root = _configure(monkeypatch, tmp_path)
     assistant.initialize(root)
-    for project_id in ("alpha", "beta"):
-        project_path = monorepo / "projects" / project_id
-        project_path.mkdir(parents=True)
-        assistant.create_project(root, project_id, name=project_id, workspace="test",
-                                 workspace_path=monorepo, project_path=project_path)
-    parent_path = assistant.create_task(root, "Cross-project release", project_id="alpha")
+    for workspace_id in ("alpha", "beta"):
+        workspace_path = monorepo / "workspaces" / workspace_id
+        workspace_path.mkdir(parents=True)
+        assistant.create_workspace(root, workspace_id, name=workspace_id, vault="test",
+                                 vault_path=monorepo, workspace_path=workspace_path)
+    parent_path = assistant.create_task(root, "Cross-workspace release", workspace_id="alpha")
     parent, _ = assistant.read_markdown(parent_path)
     runner = CliRunner()
     result = runner.invoke(main, ["assistant", "subtask", "add", "Record video",
-                                 "--parent", parent["id"], "--project", "beta"])
+                                 "--parent", parent["id"], "--workspace", "beta"])
     assert result.exit_code == 0, result.output
     child_id = result.output.split()[0]
     child_path, child, _ = assistant.find_subtask(root, child_id)
-    assert child_path.parent == root / "projects" / "beta" / "subtasks"
-    assert child["project"] == "beta"
-    assert child["parent_project"] == "alpha"
+    assert child_path.parent == root / "workspaces" / "beta" / "subtasks"
+    assert child["workspace"] == "beta"
+    assert child["parent_workspace"] == "alpha"
     row = next(assistant.iter_tasks(root))
     assert row["subtasks_total"] == 1
-    assert row["subtasks"][0]["project"] == "beta"
+    assert row["subtasks"][0]["workspace"] == "beta"
     blocked = runner.invoke(main, ["assistant", "done", parent["id"]])
     assert blocked.exit_code != 0
     assert "1 incomplete subtask" in blocked.output

@@ -7,11 +7,11 @@ from lab import paths
 
 
 def monorepo_root() -> Path:
-    """Return the active workspace root used by all backend routes.
+    """Return the active vault root used by all backend routes.
 
-    Honors `LAB_WORKSPACE` first and keeps `LAB_ROOT` as a migration alias.
+    Honors `LAB_VAULT` first and keeps `LAB_ROOT` as a migration alias.
     """
-    return paths.find_workspace_root()
+    return paths.find_vault_root()
 
 
 def host() -> str:

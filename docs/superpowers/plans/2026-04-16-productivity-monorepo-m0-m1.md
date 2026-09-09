@@ -2,16 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Create the productivity monorepo skeleton at `~/src/productivity-new/` and build the `lab` CLI with full project + task lifecycle commands, TDD-covered and installed to `~/.local/bin/lab`.
+**Goal:** Create the productivity monorepo skeleton at `~/src/productivity-new/` and build the `lab` CLI with full workspace + task lifecycle commands, TDD-covered and installed to `~/.local/bin/lab`.
 
-**Architecture:** Python 3.11+ package at `apps/lab/` exposing a click-based CLI. Pure JSON data model (no frontmatter). Atomic file writes. Commands are grouped under `lab project ...` and `lab task ...`. State lives in `content/projects/<id>/{project.json, tasks.json}`. Tests use pytest + click's `CliRunner` against a fixture-created temp monorepo.
+**Architecture:** Python 3.11+ package at `apps/lab/` exposing a click-based CLI. Pure JSON data model (no frontmatter). Atomic file writes. Commands are grouped under `lab workspace ...` and `lab task ...`. State lives in `content/workspaces/<id>/{workspace.json, tasks.json}`. Tests use pytest + click's `CliRunner` against a fixture-created temp monorepo.
 
 **Tech Stack:** Python 3.11, click 8, pytest 8, pytest-cov. No backend / frontend / watcher in this plan — those come in Plan 2 and Plan 3.
 
 **Out of scope for Plan 1 (deferred to later plans):**
 - Backend + watcher + global `.index.json` (Plan 2)
-- Frontend views — dashboard, timeline, project view (Plan 3)
-- Worktree commands — `lab project add`, `lab project remove` (Plan 4)
+- Frontend views — dashboard, timeline, workspace view (Plan 3)
+- Worktree commands — `lab workspace add`, `lab workspace remove` (Plan 4)
 - MP prefix config + `lab mp` commands (Plan 4)
 - `lab search` full-text (Plan 5)
 - `lab pr add`, `lab artifact add`, `lab note` (Plan 5)
@@ -22,21 +22,21 @@
 By the end of Plan 1, these commands work and are tested:
 
 ```
-lab project new <id> [--desc "..."] [--priority P0..P3] [--due YYYY-MM-DD] [--tags ...] [--labels ...]
-lab project ls [--status active|paused|done|archived] [--tag ...] [--label ...]
-lab project status [<id>]                                  # PWD-aware
-lab project set <id> <field> <value>                       # status, description, priority, due, ...
-lab project archive <id>
-lab project rm <id>                                        # confirms before delete
+lab workspace new <id> [--desc "..."] [--priority P0..P3] [--due YYYY-MM-DD] [--tags ...] [--labels ...]
+lab workspace ls [--status active|paused|done|archived] [--tag ...] [--label ...]
+lab workspace status [<id>]                                  # PWD-aware
+lab workspace set <id> <field> <value>                       # status, description, priority, due, ...
+lab workspace archive <id>
+lab workspace rm <id>                                        # confirms before delete
 
-lab task new "title" [--project <id>] [--file] [--priority P0..P3] [--loe N] [--due YYYY-MM-DD] [--tags ...] [--labels ...]
-lab task ls [--project <id>] [--status open|done|<state>] [--priority P0,P1] [--tag ...] [--label ...] [--due 7d]
-lab task show <id> [--project <id>]
-lab task set <id> <field> <value> [--project <id>]
-lab task done <id> [--project <id>]
-lab task reopen <id> [--project <id>]
-lab task block <id> "reason" [--project <id>]
-lab task unblock <id> [--project <id>]
+lab task new "title" [--workspace <id>] [--file] [--priority P0..P3] [--loe N] [--due YYYY-MM-DD] [--tags ...] [--labels ...]
+lab task ls [--workspace <id>] [--status open|done|<state>] [--priority P0,P1] [--tag ...] [--label ...] [--due 7d]
+lab task show <id> [--workspace <id>]
+lab task set <id> <field> <value> [--workspace <id>]
+lab task done <id> [--workspace <id>]
+lab task reopen <id> [--workspace <id>]
+lab task block <id> "reason" [--workspace <id>]
+lab task unblock <id> [--workspace <id>]
 ```
 
 ---
@@ -62,13 +62,13 @@ lab task unblock <id> [--project <id>]
 │       │   └── lab/
 │       │       ├── __init__.py          # __version__
 │       │       ├── __main__.py          # `python -m lab` → cli.main()
-│       │       ├── cli.py               # click root group; project/task subgroups
-│       │       ├── paths.py             # monorepo root detection, project path resolution
+│       │       ├── cli.py               # click root group; workspace/task subgroups
+│       │       ├── paths.py             # monorepo root detection, workspace path resolution
 │       │       ├── storage.py           # atomic JSON read/write
-│       │       ├── model.py             # Project + Task dataclasses, enums, validation
+│       │       ├── model.py             # Workspace + Task dataclasses, enums, validation
 │       │       └── commands/
 │       │           ├── __init__.py
-│       │           ├── project.py       # project subcommands
+│       │           ├── workspace.py       # workspace subcommands
 │       │           └── task.py          # task subcommands
 │       └── tests/
 │           ├── __init__.py
@@ -76,10 +76,10 @@ lab task unblock <id> [--project <id>]
 │           ├── test_paths.py
 │           ├── test_storage.py
 │           ├── test_model.py
-│           ├── test_cli_project.py
+│           ├── test_cli_workspace.py
 │           └── test_cli_task.py
 └── content/
-    ├── projects/
+    ├── workspaces/
     │   └── .gitkeep
     ├── meetings/
     │   └── .gitkeep
@@ -95,16 +95,16 @@ lab task unblock <id> [--project <id>]
 
 ### Responsibilities per file
 
-- `paths.py` — single place for filesystem conventions. `find_monorepo_root()`, `project_dir(root, id)`, `tasks_file(root, id)`, `project_file(root, id)`.
+- `paths.py` — single place for filesystem conventions. `find_monorepo_root()`, `workspace_dir(root, id)`, `tasks_file(root, id)`, `workspace_file(root, id)`.
 - `storage.py` — atomic read/write. `read_json(path)`, `write_json(path, data)` (writes to tempfile + rename). No domain knowledge.
-- `model.py` — dataclasses `Project` and `Task`, `Status` / `Priority` enums, `from_dict` / `to_dict` round-trip, `validate()` raising `ModelError`.
-- `commands/project.py` — each subcommand is a click function that loads → mutates → stores. Thin; business logic in model.
-- `commands/task.py` — same pattern for tasks. Handles PWD-aware `--project` resolution.
-- `cli.py` — wires root group, registers `project` and `task` subgroups.
+- `model.py` — dataclasses `Workspace` and `Task`, `Status` / `Priority` enums, `from_dict` / `to_dict` round-trip, `validate()` raising `ModelError`.
+- `commands/workspace.py` — each subcommand is a click function that loads → mutates → stores. Thin; business logic in model.
+- `commands/task.py` — same pattern for tasks. Handles PWD-aware `--workspace` resolution.
+- `cli.py` — wires root group, registers `workspace` and `task` subgroups.
 
 ### Test strategy
 
-- `conftest.py` builds a temp monorepo with `content/projects/`. The `monorepo` fixture returns the root path.
+- `conftest.py` builds a temp monorepo with `content/workspaces/`. The `monorepo` fixture returns the root path.
 - Each command test uses click's `CliRunner.invoke(cli.main, [...], env={"LAB_ROOT": str(monorepo)})` and asserts on exit code, stdout, and on-disk JSON state.
 - Unit tests for `model.py` / `storage.py` / `paths.py` exercise edge cases directly.
 - Coverage target: ≥ 90% for `lab/` package.
@@ -165,7 +165,7 @@ Create `~/src/productivity-new/README.md`:
 ```markdown
 # Productivity monorepo
 
-Single-user personal productivity suite: unified CLI (`lab`), knowledge base, and project/task state.
+Single-user personal productivity suite: unified CLI (`lab`), knowledge base, and workspace/task state.
 
 ## Install (first time)
 
@@ -183,7 +183,7 @@ Installs `lab` into `~/.local/bin/`. Make sure `~/.local/bin` is on your PATH.
 ## Layout
 
 - `apps/lab/` — the unified CLI (Python)
-- `content/projects/<id>/` — active projects
+- `content/workspaces/<id>/` — active workspaces
 - `content/{meetings,wikis,roadmaps,logs,skills}/` — content
 
 More in the design spec.
@@ -202,7 +202,7 @@ Create `~/src/productivity-new/.python-version`:
 Run:
 ```bash
 cd ~/src/productivity-new
-for d in projects meetings wikis roadmaps logs skills; do
+for d in workspaces meetings wikis roadmaps logs skills; do
   mkdir -p "content/$d" && touch "content/$d/.gitkeep"
 done
 ```
@@ -242,24 +242,24 @@ You're in a single-user productivity monorepo. Everything lives here.
 
 ## How to do anything
 
-Use `lab`. Run `lab --help` for commands. Never hand-edit `project.json`, `tasks.json`, or `.index.json`.
+Use `lab`. Run `lab --help` for commands. Never hand-edit `workspace.json`, `tasks.json`, or `.index.json`.
 
 ## Where things live
 
-- `content/projects/<id>/` — active projects (one folder each, contains `project.json`, `tasks.json`, `docs/`, `notes/`, `assets/`, and any worktrees)
-- `content/{meetings,wikis,roadmaps,logs}/` — knowledge that isn't project-scoped
+- `content/workspaces/<id>/` — active workspaces (one folder each, contains `workspace.json`, `tasks.json`, `docs/`, `notes/`, `assets/`, and any worktrees)
+- `content/{meetings,wikis,roadmaps,logs}/` — knowledge that isn't workspace-scoped
 - `content/skills/` — shared templates (investigation, one-pager, weekly-update)
 - `apps/` — CLIs and the web service (Plan 1 only has `apps/lab/`)
 - `multiproducts/` — gitignored MP clones (added in Plan 4)
 - `.claude/agents/` — shared agents (added in later plans)
 
-## On project work
+## On workspace work
 
-When you're in `content/projects/<id>/`, read that project's `CLAUDE.md` too. It's auto-generated and contains the project's objective and tool references.
+When you're in `content/workspaces/<id>/`, read that workspace's `CLAUDE.md` too. It's auto-generated and contains the workspace's objective and tool references.
 
 ## Archetypes (no types)
 
-Projects are not labeled by archetype. If asked to investigate, draft from `content/skills/investigation/` (once it exists). For a one-pager, use `content/skills/one-pager/`. Pick based on the ask.
+Workspaces are not labeled by archetype. If asked to investigate, draft from `content/skills/investigation/` (once it exists). For a one-pager, use `content/skills/one-pager/`. Pick based on the ask.
 ```
 
 - [ ] **Step 2: Write `Makefile` with install target**
@@ -369,7 +369,7 @@ pytest -v
 
 ## Subcommand overview (Plan 1)
 
-- `lab project new|ls|status|set|archive|rm`
+- `lab workspace new|ls|status|set|archive|rm`
 - `lab task new|ls|show|set|done|reopen|block|unblock`
 
 Run `lab --help` for everything.
@@ -474,7 +474,7 @@ import pytest
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a minimal monorepo layout under tmp_path and point `LAB_ROOT` at it."""
     root = tmp_path / "productivity"
-    (root / "content" / "projects").mkdir(parents=True)
+    (root / "content" / "workspaces").mkdir(parents=True)
     (root / "content" / "meetings").mkdir()
     (root / "content" / "skills").mkdir()
     # git repo marker so find_monorepo_root() works without running git
@@ -486,14 +486,14 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture()
-def seed_project(monorepo: Path):
-    """Factory to create a blank project under the fixture monorepo."""
-    def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "content" / "projects" / project_id
+def seed_workspace(monorepo: Path):
+    """Factory to create a blank workspace under the fixture monorepo."""
+    def _create(workspace_id: str = "demo", *, description: str = "") -> Path:
+        pdir = monorepo / "content" / "workspaces" / workspace_id
         pdir.mkdir(parents=True)
-        (pdir / "project.json").write_text(json.dumps({
-            "id": project_id,
-            "name": project_id,
+        (pdir / "workspace.json").write_text(json.dumps({
+            "id": workspace_id,
+            "name": workspace_id,
             "description": description,
             "status": "active",
             "tags": [],
@@ -520,13 +520,13 @@ from pathlib import Path
 
 
 def test_monorepo_fixture_creates_structure(monorepo: Path) -> None:
-    assert (monorepo / "content" / "projects").is_dir()
+    assert (monorepo / "content" / "workspaces").is_dir()
     assert (monorepo / ".git").is_dir()
 
 
-def test_seed_project_factory(seed_project) -> None:
-    pdir = seed_project("hello")
-    assert (pdir / "project.json").is_file()
+def test_seed_workspace_factory(seed_workspace) -> None:
+    pdir = seed_workspace("hello")
+    assert (pdir / "workspace.json").is_file()
     assert (pdir / "tasks.json").is_file()
 ```
 
@@ -571,8 +571,8 @@ import pytest
 from lab.paths import (
     MonorepoNotFound,
     find_monorepo_root,
-    project_dir,
-    project_file,
+    workspace_dir,
+    workspace_file,
     tasks_file,
 )
 
@@ -584,7 +584,7 @@ def test_find_monorepo_root_uses_env_var(monorepo: Path, monkeypatch: pytest.Mon
 
 def test_find_monorepo_root_walks_up_from_subdir(monorepo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LAB_ROOT", raising=False)
-    sub = monorepo / "content" / "projects"
+    sub = monorepo / "content" / "workspaces"
     monkeypatch.chdir(sub)
     # macOS tmp_path is under /var → /private/var symlink; compare resolved paths.
     assert find_monorepo_root().resolve() == monorepo.resolve()
@@ -597,13 +597,13 @@ def test_find_monorepo_root_raises_when_not_in_repo(tmp_path: Path, monkeypatch:
         find_monorepo_root()
 
 
-def test_project_dir_composes_path(monorepo: Path) -> None:
-    assert project_dir(monorepo, "davi-vision") == monorepo / "content" / "projects" / "davi-vision"
+def test_workspace_dir_composes_path(monorepo: Path) -> None:
+    assert workspace_dir(monorepo, "davi-vision") == monorepo / "content" / "workspaces" / "davi-vision"
 
 
-def test_project_file_and_tasks_file(monorepo: Path) -> None:
-    pdir = monorepo / "content" / "projects" / "davi-vision"
-    assert project_file(monorepo, "davi-vision") == pdir / "project.json"
+def test_workspace_file_and_tasks_file(monorepo: Path) -> None:
+    pdir = monorepo / "content" / "workspaces" / "davi-vision"
+    assert workspace_file(monorepo, "davi-vision") == pdir / "workspace.json"
     assert tasks_file(monorepo, "davi-vision") == pdir / "tasks.json"
 ```
 
@@ -653,16 +653,16 @@ def find_monorepo_root(start: Path | None = None) -> Path:
     )
 
 
-def project_dir(root: Path, project_id: str) -> Path:
-    return root / "content" / "projects" / project_id
+def workspace_dir(root: Path, workspace_id: str) -> Path:
+    return root / "content" / "workspaces" / workspace_id
 
 
-def project_file(root: Path, project_id: str) -> Path:
-    return project_dir(root, project_id) / "project.json"
+def workspace_file(root: Path, workspace_id: str) -> Path:
+    return workspace_dir(root, workspace_id) / "workspace.json"
 
 
-def tasks_file(root: Path, project_id: str) -> Path:
-    return project_dir(root, project_id) / "tasks.json"
+def tasks_file(root: Path, workspace_id: str) -> Path:
+    return workspace_dir(root, workspace_id) / "tasks.json"
 ```
 
 - [ ] **Step 4: Re-run tests — expect pass**
@@ -678,7 +678,7 @@ Expected: 5 passed.
 ```bash
 cd ~/src/productivity-new
 git add apps/lab/src/lab/paths.py apps/lab/tests/test_paths.py
-git commit -m "feat(lab): paths module for monorepo and project path resolution"
+git commit -m "feat(lab): paths module for monorepo and workspace path resolution"
 ```
 
 ---
@@ -802,13 +802,13 @@ git commit -m "feat(lab): atomic JSON read/write"
 
 ---
 
-## Task 7: Implement `model.py` — enums and `Project` dataclass (TDD)
+## Task 7: Implement `model.py` — enums and `Workspace` dataclass (TDD)
 
 **Files:**
 - Create: `~/src/productivity-new/apps/lab/tests/test_model.py`
 - Create: `~/src/productivity-new/apps/lab/src/lab/model.py`
 
-- [ ] **Step 1: Write failing tests for enums and Project**
+- [ ] **Step 1: Write failing tests for enums and Workspace**
 
 Create `apps/lab/tests/test_model.py`:
 
@@ -817,18 +817,18 @@ from __future__ import annotations
 
 import pytest
 
-from lab.model import ModelError, Priority, Project, ProjectStatus
+from lab.model import ModelError, Priority, Workspace, WorkspaceStatus
 
 
-def test_project_status_enum_values() -> None:
-    assert {s.value for s in ProjectStatus} == {"active", "paused", "done", "archived"}
+def test_workspace_status_enum_values() -> None:
+    assert {s.value for s in WorkspaceStatus} == {"active", "paused", "done", "archived"}
 
 
 def test_priority_enum_values() -> None:
     assert {p.value for p in Priority} == {"P0", "P1", "P2", "P3"}
 
 
-def test_project_from_dict_roundtrip() -> None:
+def test_workspace_from_dict_roundtrip() -> None:
     data = {
         "id": "davi-vision",
         "name": "DAVI Vision",
@@ -846,38 +846,38 @@ def test_project_from_dict_roundtrip() -> None:
         "artifacts": [],
         "pinned": [],
     }
-    p = Project.from_dict(data)
+    p = Workspace.from_dict(data)
     assert p.id == "davi-vision"
-    assert p.status is ProjectStatus.active
+    assert p.status is WorkspaceStatus.active
     assert p.priority is Priority.P1
     assert p.to_dict() == data
 
 
-def test_project_rejects_bad_status() -> None:
+def test_workspace_rejects_bad_status() -> None:
     data = {"id": "x", "name": "x", "status": "weird"}
     with pytest.raises(ModelError):
-        Project.from_dict(data)
+        Workspace.from_dict(data)
 
 
-def test_project_rejects_bad_priority() -> None:
+def test_workspace_rejects_bad_priority() -> None:
     data = {"id": "x", "name": "x", "status": "active", "priority": "P9"}
     with pytest.raises(ModelError):
-        Project.from_dict(data)
+        Workspace.from_dict(data)
 
 
-def test_project_rejects_bad_due_format() -> None:
+def test_workspace_rejects_bad_due_format() -> None:
     data = {"id": "x", "name": "x", "status": "active", "due": "tomorrow"}
     with pytest.raises(ModelError):
-        Project.from_dict(data)
+        Workspace.from_dict(data)
 
 
-def test_project_rejects_bad_id() -> None:
+def test_workspace_rejects_bad_id() -> None:
     with pytest.raises(ModelError):
-        Project.from_dict({"id": "Bad ID!", "name": "x", "status": "active"})
+        Workspace.from_dict({"id": "Bad ID!", "name": "x", "status": "active"})
 
 
-def test_project_defaults_fill_missing_fields() -> None:
-    p = Project.from_dict({"id": "x", "name": "x", "status": "active"})
+def test_workspace_defaults_fill_missing_fields() -> None:
+    p = Workspace.from_dict({"id": "x", "name": "x", "status": "active"})
     assert p.tags == []
     assert p.labels == []
     assert p.worktrees == []
@@ -891,7 +891,7 @@ def test_project_defaults_fill_missing_fields() -> None:
 pytest tests/test_model.py -v
 ```
 
-- [ ] **Step 3: Implement enums and Project**
+- [ ] **Step 3: Implement enums and Workspace**
 
 Create `apps/lab/src/lab/model.py`:
 
@@ -909,7 +909,7 @@ class ModelError(ValueError):
     """Raised when model validation fails."""
 
 
-class ProjectStatus(str, Enum):
+class WorkspaceStatus(str, Enum):
     active = "active"
     paused = "paused"
     done = "done"
@@ -967,10 +967,10 @@ def _validate_id(value: str, *, field_name: str = "id") -> str:
 
 
 @dataclass
-class Project:
+class Workspace:
     id: str
     name: str
-    status: ProjectStatus = ProjectStatus.active
+    status: WorkspaceStatus = WorkspaceStatus.active
     description: str = ""
     tags: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
@@ -985,12 +985,12 @@ class Project:
     pinned: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Project:
+    def from_dict(cls, data: dict[str, Any]) -> Workspace:
         return cls(
             id=_validate_id(data.get("id", "")),
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
-            status=_parse_enum(ProjectStatus, data.get("status", "active"), field_name="status"),
+            status=_parse_enum(WorkspaceStatus, data.get("status", "active"), field_name="status"),
             tags=list(data.get("tags", []) or []),
             labels=list(data.get("labels", []) or []),
             priority=_parse_enum(Priority, data.get("priority"), field_name="priority"),
@@ -1037,7 +1037,7 @@ Expected: 8 passed.
 ```bash
 cd ~/src/productivity-new
 git add apps/lab/src/lab/model.py apps/lab/tests/test_model.py
-git commit -m "feat(lab): model enums and Project dataclass"
+git commit -m "feat(lab): model enums and Workspace dataclass"
 ```
 
 ---
@@ -1202,18 +1202,18 @@ git commit -m "feat(lab): Task dataclass with required priority and round-trip"
 
 ---
 
-## Task 9: Register project + task subcommand groups in `cli.py`
+## Task 9: Register workspace + task subcommand groups in `cli.py`
 
 **Files:**
 - Modify: `~/src/productivity-new/apps/lab/src/lab/cli.py`
-- Create: `~/src/productivity-new/apps/lab/src/lab/commands/project.py` (stub)
+- Create: `~/src/productivity-new/apps/lab/src/lab/commands/workspace.py` (stub)
 - Create: `~/src/productivity-new/apps/lab/src/lab/commands/task.py` (stub)
-- Create: `~/src/productivity-new/apps/lab/tests/test_cli_project.py`
+- Create: `~/src/productivity-new/apps/lab/tests/test_cli_workspace.py`
 - Create: `~/src/productivity-new/apps/lab/tests/test_cli_task.py`
 
 - [ ] **Step 1: Write failing tests for subgroup presence**
 
-Create `apps/lab/tests/test_cli_project.py`:
+Create `apps/lab/tests/test_cli_workspace.py`:
 
 ```python
 from __future__ import annotations
@@ -1223,11 +1223,11 @@ from click.testing import CliRunner
 from lab.cli import main
 
 
-def test_project_group_help() -> None:
+def test_workspace_group_help() -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "--help"])
+    result = runner.invoke(main, ["workspace", "--help"])
     assert result.exit_code == 0, result.output
-    assert "project" in result.output.lower()
+    assert "workspace" in result.output.lower()
 ```
 
 Create `apps/lab/tests/test_cli_task.py`:
@@ -1250,12 +1250,12 @@ def test_task_group_help() -> None:
 - [ ] **Step 2: Run — expect failure**
 
 ```bash
-pytest tests/test_cli_project.py tests/test_cli_task.py -v
+pytest tests/test_cli_workspace.py tests/test_cli_task.py -v
 ```
 
 - [ ] **Step 3: Create subcommand stub files**
 
-Create `apps/lab/src/lab/commands/project.py`:
+Create `apps/lab/src/lab/commands/workspace.py`:
 
 ```python
 from __future__ import annotations
@@ -1263,9 +1263,9 @@ from __future__ import annotations
 import click
 
 
-@click.group(name="project")
-def project_group() -> None:
-    """Project lifecycle commands."""
+@click.group(name="workspace")
+def workspace_group() -> None:
+    """Workspace lifecycle commands."""
 ```
 
 Create `apps/lab/src/lab/commands/task.py`:
@@ -1290,7 +1290,7 @@ from __future__ import annotations
 
 import click
 
-from lab.commands.project import project_group
+from lab.commands.workspace import workspace_group
 from lab.commands.task import task_group
 
 
@@ -1300,7 +1300,7 @@ def main() -> None:
     """Unified CLI for the productivity monorepo."""
 
 
-main.add_command(project_group)
+main.add_command(workspace_group)
 main.add_command(task_group)
 
 
@@ -1311,7 +1311,7 @@ if __name__ == "__main__":
 - [ ] **Step 5: Run — expect pass**
 
 ```bash
-pytest tests/test_cli_project.py tests/test_cli_task.py -v
+pytest tests/test_cli_workspace.py tests/test_cli_task.py -v
 ```
 
 Expected: 2 passed.
@@ -1320,21 +1320,21 @@ Expected: 2 passed.
 
 ```bash
 cd ~/src/productivity-new
-git add apps/lab/src/lab/cli.py apps/lab/src/lab/commands apps/lab/tests/test_cli_project.py apps/lab/tests/test_cli_task.py
-git commit -m "feat(lab): register project and task subgroups in CLI"
+git add apps/lab/src/lab/cli.py apps/lab/src/lab/commands apps/lab/tests/test_cli_workspace.py apps/lab/tests/test_cli_task.py
+git commit -m "feat(lab): register workspace and task subgroups in CLI"
 ```
 
 ---
 
-## Task 10: `lab project new` (TDD)
+## Task 10: `lab workspace new` (TDD)
 
 **Files:**
-- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/project.py`
-- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_project.py`
+- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/workspace.py`
+- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_workspace.py`
 
 - [ ] **Step 1: Append failing tests**
 
-Append to `apps/lab/tests/test_cli_project.py`:
+Append to `apps/lab/tests/test_cli_workspace.py`:
 
 ```python
 
@@ -1344,29 +1344,29 @@ from pathlib import Path
 from lab.cli import main
 
 
-def test_project_new_creates_directory_and_files(monorepo: Path) -> None:
+def test_workspace_new_creates_directory_and_files(monorepo: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "new", "davi-vision", "--desc", "Reshape DAVI"])
+    result = runner.invoke(main, ["workspace", "new", "davi-vision", "--desc", "Reshape DAVI"])
     assert result.exit_code == 0, result.output
-    pdir = monorepo / "content" / "projects" / "davi-vision"
+    pdir = monorepo / "content" / "workspaces" / "davi-vision"
     assert pdir.is_dir()
     assert (pdir / "docs").is_dir()
     assert (pdir / "notes").is_dir()
     assert (pdir / "assets").is_dir()
 
-    proj = json.loads((pdir / "project.json").read_text())
-    assert proj["id"] == "davi-vision"
-    assert proj["description"] == "Reshape DAVI"
-    assert proj["status"] == "active"
+    workspace = json.loads((pdir / "workspace.json").read_text())
+    assert workspace["id"] == "davi-vision"
+    assert workspace["description"] == "Reshape DAVI"
+    assert workspace["status"] == "active"
 
     tasks = json.loads((pdir / "tasks.json").read_text())
     assert tasks == {"next_id": 1, "tasks": []}
 
 
-def test_project_new_with_priority_due_tags_labels(monorepo: Path) -> None:
+def test_workspace_new_with_priority_due_tags_labels(monorepo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, [
-        "project", "new", "drools-rate",
+        "workspace", "new", "drools-rate",
         "--desc", "Rate limiter",
         "--priority", "P1",
         "--due", "2026-05-01",
@@ -1374,44 +1374,44 @@ def test_project_new_with_priority_due_tags_labels(monorepo: Path) -> None:
         "--labels", "abuse-scoring-rules",
     ])
     assert result.exit_code == 0, result.output
-    proj = json.loads((monorepo / "content" / "projects" / "drools-rate" / "project.json").read_text())
-    assert proj["priority"] == "P1"
-    assert proj["due"] == "2026-05-01"
-    assert proj["tags"] == ["limits", "abuse"]
-    assert proj["labels"] == ["abuse-scoring-rules"]
+    workspace = json.loads((monorepo / "content" / "workspaces" / "drools-rate" / "workspace.json").read_text())
+    assert workspace["priority"] == "P1"
+    assert workspace["due"] == "2026-05-01"
+    assert workspace["tags"] == ["limits", "abuse"]
+    assert workspace["labels"] == ["abuse-scoring-rules"]
 
 
-def test_project_new_rejects_duplicate(monorepo: Path, seed_project) -> None:
-    seed_project("existing")
+def test_workspace_new_rejects_duplicate(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("existing")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "new", "existing"])
+    result = runner.invoke(main, ["workspace", "new", "existing"])
     assert result.exit_code != 0
     assert "already exists" in result.output.lower()
 
 
-def test_project_new_rejects_bad_id(monorepo: Path) -> None:
+def test_workspace_new_rejects_bad_id(monorepo: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "new", "Bad ID!"])
+    result = runner.invoke(main, ["workspace", "new", "Bad ID!"])
     assert result.exit_code != 0
 
 
-def test_project_new_creates_per_project_CLAUDE_md(monorepo: Path) -> None:
+def test_workspace_new_creates_per_workspace_CLAUDE_md(monorepo: Path) -> None:
     runner = CliRunner()
-    runner.invoke(main, ["project", "new", "x", "--desc", "Do stuff"])
-    claude = (monorepo / "content" / "projects" / "x" / "CLAUDE.md").read_text()
+    runner.invoke(main, ["workspace", "new", "x", "--desc", "Do stuff"])
+    claude = (monorepo / "content" / "workspaces" / "x" / "CLAUDE.md").read_text()
     assert "x" in claude and "Do stuff" in claude
-    assert "lab project status" in claude
+    assert "lab workspace status" in claude
 ```
 
 - [ ] **Step 2: Run — expect failures**
 
 ```bash
-pytest tests/test_cli_project.py -v
+pytest tests/test_cli_workspace.py -v
 ```
 
-- [ ] **Step 3: Implement `project new`**
+- [ ] **Step 3: Implement `workspace new`**
 
-Replace `apps/lab/src/lab/commands/project.py` with:
+Replace `apps/lab/src/lab/commands/workspace.py` with:
 
 ```python
 from __future__ import annotations
@@ -1421,7 +1421,7 @@ from pathlib import Path
 import click
 
 from lab import paths, storage
-from lab.model import ModelError, Priority, Project, ProjectStatus, _validate_id  # noqa: F401 (reuse validation)
+from lab.model import ModelError, Priority, Workspace, WorkspaceStatus, _validate_id  # noqa: F401 (reuse validation)
 
 _CLAUDE_TEMPLATE = """# {name}
 
@@ -1429,7 +1429,7 @@ _CLAUDE_TEMPLATE = """# {name}
 {description}
 
 ## On session start
-Run `lab project status` for current state.
+Run `lab workspace status` for current state.
 Check the dashboard at http://localhost:3333/p/{id} (Plan 2+).
 
 ## Task operations
@@ -1450,31 +1450,31 @@ def _split_csv(value: str | None) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
-@click.group(name="project")
-def project_group() -> None:
-    """Project lifecycle commands."""
+@click.group(name="workspace")
+def workspace_group() -> None:
+    """Workspace lifecycle commands."""
 
 
-@project_group.command("new")
-@click.argument("project_id")
+@workspace_group.command("new")
+@click.argument("workspace_id")
 @click.option("--desc", "description", default="", help="Short description")
 @click.option("--priority", type=click.Choice([p.value for p in Priority]), default=None)
 @click.option("--due", default=None, help="Due date YYYY-MM-DD")
 @click.option("--tags", default="", help="Comma-separated tags")
 @click.option("--labels", default="", help="Comma-separated MP labels")
-def new(project_id: str, description: str, priority: str | None, due: str | None,
+def new(workspace_id: str, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
-    """Create a new project under content/projects/<id>/."""
+    """Create a new workspace under content/workspaces/<id>/."""
     root = paths.find_monorepo_root()
-    pdir = paths.project_dir(root, project_id)
+    pdir = paths.workspace_dir(root, workspace_id)
 
     if pdir.exists():
-        raise click.ClickException(f"project {project_id!r} already exists at {pdir}")
+        raise click.ClickException(f"workspace {workspace_id!r} already exists at {pdir}")
 
     try:
-        project = Project.from_dict({
-            "id": project_id,
-            "name": project_id,
+        workspace = Workspace.from_dict({
+            "id": workspace_id,
+            "name": workspace_id,
             "description": description,
             "status": "active",
             "priority": priority,
@@ -1489,25 +1489,25 @@ def new(project_id: str, description: str, priority: str | None, due: str | None
     (pdir / "notes").mkdir()
     (pdir / "assets").mkdir()
 
-    storage.write_json(paths.project_file(root, project_id), project.to_dict())
-    storage.write_json(paths.tasks_file(root, project_id), {"next_id": 1, "tasks": []})
+    storage.write_json(paths.workspace_file(root, workspace_id), workspace.to_dict())
+    storage.write_json(paths.tasks_file(root, workspace_id), {"next_id": 1, "tasks": []})
 
     (pdir / "CLAUDE.md").write_text(
         _CLAUDE_TEMPLATE.format(
-            id=project.id,
-            name=project.name,
-            description=project.description or "(not yet defined — set with `lab project set <id> description \"...\"`)",
+            id=workspace.id,
+            name=workspace.name,
+            description=workspace.description or "(not yet defined — set with `lab workspace set <id> description \"...\"`)",
         ),
         encoding="utf-8",
     )
 
-    click.echo(f"created {project_id} at {pdir}")
+    click.echo(f"created {workspace_id} at {pdir}")
 ```
 
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
-pytest tests/test_cli_project.py -v
+pytest tests/test_cli_workspace.py -v
 ```
 
 Expected: 6 passed (1 from Task 9 + 5 new).
@@ -1517,55 +1517,55 @@ Expected: 6 passed (1 from Task 9 + 5 new).
 ```bash
 cd ~/src/productivity-new
 git add apps/lab
-git commit -m "feat(lab): project new with CLAUDE.md scaffolding"
+git commit -m "feat(lab): workspace new with CLAUDE.md scaffolding"
 ```
 
 ---
 
-## Task 11: `lab project ls` (TDD)
+## Task 11: `lab workspace ls` (TDD)
 
 **Files:**
-- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/project.py`
-- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_project.py`
+- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/workspace.py`
+- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_workspace.py`
 
 - [ ] **Step 1: Append failing tests**
 
-Append to `apps/lab/tests/test_cli_project.py`:
+Append to `apps/lab/tests/test_cli_workspace.py`:
 
 ```python
 
 
-def test_project_ls_empty(monorepo: Path) -> None:
+def test_workspace_ls_empty(monorepo: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "ls"])
+    result = runner.invoke(main, ["workspace", "ls"])
     assert result.exit_code == 0
-    assert "no projects" in result.output.lower()
+    assert "no workspaces" in result.output.lower()
 
 
-def test_project_ls_lists_all_by_default(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
-    seed_project("beta")
+def test_workspace_ls_lists_all_by_default(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "ls"])
+    result = runner.invoke(main, ["workspace", "ls"])
     assert result.exit_code == 0
     assert "alpha" in result.output
     assert "beta" in result.output
 
 
-def test_project_ls_filter_by_status(monorepo: Path, seed_project) -> None:
-    alpha = seed_project("alpha")
-    beta = seed_project("beta")
+def test_workspace_ls_filter_by_status(monorepo: Path, seed_workspace) -> None:
+    alpha = seed_workspace("alpha")
+    beta = seed_workspace("beta")
     # flip beta to archived directly on disk
-    data = json.loads((beta / "project.json").read_text())
+    data = json.loads((beta / "workspace.json").read_text())
     data["status"] = "archived"
-    (beta / "project.json").write_text(json.dumps(data))
+    (beta / "workspace.json").write_text(json.dumps(data))
 
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "ls", "--status", "active"])
+    result = runner.invoke(main, ["workspace", "ls", "--status", "active"])
     assert "alpha" in result.output
     assert "beta" not in result.output
 
-    result = runner.invoke(main, ["project", "ls", "--status", "archived"])
+    result = runner.invoke(main, ["workspace", "ls", "--status", "archived"])
     assert "beta" in result.output
     assert "alpha" not in result.output
 ```
@@ -1573,35 +1573,35 @@ def test_project_ls_filter_by_status(monorepo: Path, seed_project) -> None:
 - [ ] **Step 2: Run — expect failures**
 
 ```bash
-pytest tests/test_cli_project.py -v
+pytest tests/test_cli_workspace.py -v
 ```
 
 - [ ] **Step 3: Append `ls` command**
 
-Append to `apps/lab/src/lab/commands/project.py`:
+Append to `apps/lab/src/lab/commands/workspace.py`:
 
 ```python
 
 
-def _iter_project_files(root: Path):
-    projects_root = root / "content" / "projects"
-    if not projects_root.is_dir():
+def _iter_workspace_files(root: Path):
+    workspaces_root = root / "content" / "workspaces"
+    if not workspaces_root.is_dir():
         return
-    for child in sorted(projects_root.iterdir()):
-        pjson = child / "project.json"
+    for child in sorted(workspaces_root.iterdir()):
+        pjson = child / "workspace.json"
         if pjson.is_file():
             yield pjson
 
 
-@project_group.command("ls")
-@click.option("--status", type=click.Choice([s.value for s in ProjectStatus]), default=None)
+@workspace_group.command("ls")
+@click.option("--status", type=click.Choice([s.value for s in WorkspaceStatus]), default=None)
 @click.option("--tag", "tag_filter", default=None)
 @click.option("--label", "label_filter", default=None)
 def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> None:
-    """List projects (default: all)."""
+    """List workspaces (default: all)."""
     root = paths.find_monorepo_root()
     rows = []
-    for pjson in _iter_project_files(root):
+    for pjson in _iter_workspace_files(root):
         data = storage.read_json(pjson)
         if status and data.get("status") != status:
             continue
@@ -1612,7 +1612,7 @@ def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> 
         rows.append(data)
 
     if not rows:
-        click.echo("no projects")
+        click.echo("no workspaces")
         return
 
     width_id = max(len(r["id"]) for r in rows)
@@ -1626,7 +1626,7 @@ def ls(status: str | None, tag_filter: str | None, label_filter: str | None) -> 
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
-pytest tests/test_cli_project.py -v
+pytest tests/test_cli_workspace.py -v
 ```
 
 Expected: 9 passed.
@@ -1636,45 +1636,45 @@ Expected: 9 passed.
 ```bash
 cd ~/src/productivity-new
 git add apps/lab
-git commit -m "feat(lab): project ls with status/tag/label filters"
+git commit -m "feat(lab): workspace ls with status/tag/label filters"
 ```
 
 ---
 
-## Task 12: `lab project status` (TDD)
+## Task 12: `lab workspace status` (TDD)
 
 **Files:**
-- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/project.py`
-- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_project.py`
+- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/workspace.py`
+- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_workspace.py`
 
 - [ ] **Step 1: Append failing tests**
 
-Append to `apps/lab/tests/test_cli_project.py`:
+Append to `apps/lab/tests/test_cli_workspace.py`:
 
 ```python
 
 
-def test_project_status_prints_summary(monorepo: Path, seed_project) -> None:
-    seed_project("alpha", description="Alpha is great")
+def test_workspace_status_prints_summary(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha", description="Alpha is great")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "status", "alpha"])
+    result = runner.invoke(main, ["workspace", "status", "alpha"])
     assert result.exit_code == 0
     assert "alpha" in result.output
     assert "Alpha is great" in result.output
 
 
-def test_project_status_auto_detects_from_pwd(monorepo: Path, seed_project, monkeypatch) -> None:
-    pdir = seed_project("beta")
+def test_workspace_status_auto_detects_from_pwd(monorepo: Path, seed_workspace, monkeypatch) -> None:
+    pdir = seed_workspace("beta")
     monkeypatch.chdir(pdir)
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "status"])
+    result = runner.invoke(main, ["workspace", "status"])
     assert result.exit_code == 0, result.output
     assert "beta" in result.output
 
 
-def test_project_status_missing_project(monorepo: Path) -> None:
+def test_workspace_status_missing_workspace(monorepo: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "status", "nope"])
+    result = runner.invoke(main, ["workspace", "status", "nope"])
     assert result.exit_code != 0
     assert "not found" in result.output.lower()
 ```
@@ -1683,34 +1683,34 @@ def test_project_status_missing_project(monorepo: Path) -> None:
 
 - [ ] **Step 3: Append `status` command**
 
-Append to `apps/lab/src/lab/commands/project.py`:
+Append to `apps/lab/src/lab/commands/workspace.py`:
 
 ```python
 
 
-def _resolve_project_id(explicit: str | None) -> str:
+def _resolve_workspace_id(explicit: str | None) -> str:
     if explicit:
         return explicit
     root = paths.find_monorepo_root()
-    projects_root = (root / "content" / "projects").resolve()
+    workspaces_root = (root / "content" / "workspaces").resolve()
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
-        if candidate.parent == projects_root:
+        if candidate.parent == workspaces_root:
             return candidate.name
         if candidate == root:
             break
-    raise click.ClickException("no project — pass <id> or cd into a project folder")
+    raise click.ClickException("no workspace — pass <id> or cd into a workspace folder")
 
 
-@project_group.command("status")
-@click.argument("project_id", required=False)
-def status(project_id: str | None) -> None:
-    """Print a summary of a project (uses PWD if no id given)."""
+@workspace_group.command("status")
+@click.argument("workspace_id", required=False)
+def status(workspace_id: str | None) -> None:
+    """Print a summary of a workspace (uses PWD if no id given)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
 
     tjson = paths.tasks_file(root, pid)
@@ -1739,7 +1739,7 @@ def status(project_id: str | None) -> None:
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
-pytest tests/test_cli_project.py -v
+pytest tests/test_cli_workspace.py -v
 ```
 
 Expected: 12 passed.
@@ -1749,64 +1749,64 @@ Expected: 12 passed.
 ```bash
 cd ~/src/productivity-new
 git add apps/lab
-git commit -m "feat(lab): project status with PWD auto-detect"
+git commit -m "feat(lab): workspace status with PWD auto-detect"
 ```
 
 ---
 
-## Task 13: `lab project set` (TDD)
+## Task 13: `lab workspace set` (TDD)
 
 **Files:**
-- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/project.py`
-- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_project.py`
+- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/workspace.py`
+- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_workspace.py`
 
 - [ ] **Step 1: Append failing tests**
 
 ```python
 
 
-def test_project_set_updates_field(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_set_updates_field(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "set", "alpha", "description", "New desc"])
+    result = runner.invoke(main, ["workspace", "set", "alpha", "description", "New desc"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["description"] == "New desc"
 
 
-def test_project_set_status(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_set_status(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "set", "alpha", "status", "paused"])
+    result = runner.invoke(main, ["workspace", "set", "alpha", "status", "paused"])
     assert result.exit_code == 0
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["status"] == "paused"
 
 
-def test_project_set_rejects_bad_status(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_set_rejects_bad_status(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "set", "alpha", "status", "weird"])
+    result = runner.invoke(main, ["workspace", "set", "alpha", "status", "weird"])
     assert result.exit_code != 0
     assert "not one of" in result.output.lower()
 
 
-def test_project_set_priority_and_due(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_set_priority_and_due(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["project", "set", "alpha", "priority", "P0"])
-    runner.invoke(main, ["project", "set", "alpha", "due", "2026-05-15"])
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    runner.invoke(main, ["workspace", "set", "alpha", "priority", "P0"])
+    runner.invoke(main, ["workspace", "set", "alpha", "due", "2026-05-15"])
+    data = json.loads((monorepo / "content" / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["priority"] == "P0"
     assert data["due"] == "2026-05-15"
 
 
-def test_project_set_tags_and_labels_csv(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_set_tags_and_labels_csv(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["project", "set", "alpha", "tags", "a,b,c"])
-    runner.invoke(main, ["project", "set", "alpha", "labels", "lipy-davi"])
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    runner.invoke(main, ["workspace", "set", "alpha", "tags", "a,b,c"])
+    runner.invoke(main, ["workspace", "set", "alpha", "labels", "lipy-davi"])
+    data = json.loads((monorepo / "content" / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["tags"] == ["a", "b", "c"]
     assert data["labels"] == ["lipy-davi"]
 ```
@@ -1815,7 +1815,7 @@ def test_project_set_tags_and_labels_csv(monorepo: Path, seed_project) -> None:
 
 - [ ] **Step 3: Append `set` command**
 
-At the top of `apps/lab/src/lab/commands/project.py`, add this import next to the existing imports:
+At the top of `apps/lab/src/lab/commands/workspace.py`, add this import next to the existing imports:
 
 ```python
 from datetime import date
@@ -1826,25 +1826,25 @@ Then append:
 ```python
 
 
-_PROJECT_SETTABLE = {
+_WORKSPACE_SETTABLE = {
     "description", "status", "priority", "due", "loe", "tags", "labels", "name",
 }
 
 
-@project_group.command("set")
-@click.argument("project_id")
+@workspace_group.command("set")
+@click.argument("workspace_id")
 @click.argument("field")
 @click.argument("value")
-def set_field(project_id: str, field: str, value: str) -> None:
-    """Update a single field on a project (validated)."""
-    if field not in _PROJECT_SETTABLE:
+def set_field(workspace_id: str, field: str, value: str) -> None:
+    """Update a single field on a workspace (validated)."""
+    if field not in _WORKSPACE_SETTABLE:
         raise click.ClickException(
-            f"{field} is not settable. Allowed: {sorted(_PROJECT_SETTABLE)}"
+            f"{field} is not settable. Allowed: {sorted(_WORKSPACE_SETTABLE)}"
         )
     root = paths.find_monorepo_root()
-    pjson = paths.project_file(root, project_id)
+    pjson = paths.workspace_file(root, workspace_id)
     if not pjson.is_file():
-        raise click.ClickException(f"project {project_id!r} not found")
+        raise click.ClickException(f"workspace {workspace_id!r} not found")
     data = storage.read_json(pjson)
 
     if field in {"tags", "labels"}:
@@ -1859,12 +1859,12 @@ def set_field(project_id: str, field: str, value: str) -> None:
     data["updated"] = date.today().isoformat()
 
     try:
-        Project.from_dict(data)  # validate the whole doc
+        Workspace.from_dict(data)  # validate the whole doc
     except ModelError as exc:
         raise click.ClickException(str(exc)) from exc
 
     storage.write_json(pjson, data)
-    click.echo(f"{project_id}.{field} = {data[field]!r}")
+    click.echo(f"{workspace_id}.{field} = {data[field]!r}")
 ```
 
 - [ ] **Step 4: Run — expect pass**
@@ -1874,51 +1874,51 @@ Expected: 17 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/lab && git commit -m "feat(lab): project set with per-field validation"
+git add apps/lab && git commit -m "feat(lab): workspace set with per-field validation"
 ```
 
 ---
 
-## Task 14: `lab project archive` and `lab project rm` (TDD)
+## Task 14: `lab workspace archive` and `lab workspace rm` (TDD)
 
 **Files:**
-- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/project.py`
-- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_project.py`
+- Modify: `~/src/productivity-new/apps/lab/src/lab/commands/workspace.py`
+- Modify: `~/src/productivity-new/apps/lab/tests/test_cli_workspace.py`
 
 - [ ] **Step 1: Append failing tests**
 
 ```python
 
 
-def test_project_archive(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_archive(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "archive", "alpha"])
+    result = runner.invoke(main, ["workspace", "archive", "alpha"])
     assert result.exit_code == 0, result.output
-    data = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    data = json.loads((monorepo / "content" / "workspaces" / "alpha" / "workspace.json").read_text())
     assert data["status"] == "archived"
 
 
-def test_project_rm_requires_confirmation(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_rm_requires_confirmation(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     # No confirmation → aborts
-    result = runner.invoke(main, ["project", "rm", "alpha"], input="\n")
+    result = runner.invoke(main, ["workspace", "rm", "alpha"], input="\n")
     assert result.exit_code != 0
-    assert (monorepo / "content" / "projects" / "alpha").exists()
+    assert (monorepo / "content" / "workspaces" / "alpha").exists()
 
 
-def test_project_rm_with_force(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_workspace_rm_with_force(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "rm", "alpha", "--yes"])
+    result = runner.invoke(main, ["workspace", "rm", "alpha", "--yes"])
     assert result.exit_code == 0, result.output
-    assert not (monorepo / "content" / "projects" / "alpha").exists()
+    assert not (monorepo / "content" / "workspaces" / "alpha").exists()
 
 
-def test_project_rm_missing(monorepo: Path) -> None:
+def test_workspace_rm_missing(monorepo: Path) -> None:
     runner = CliRunner()
-    result = runner.invoke(main, ["project", "rm", "nope", "--yes"])
+    result = runner.invoke(main, ["workspace", "rm", "nope", "--yes"])
     assert result.exit_code != 0
 ```
 
@@ -1929,33 +1929,33 @@ def test_project_rm_missing(monorepo: Path) -> None:
 ```python
 
 
-@project_group.command("archive")
-@click.argument("project_id")
-def archive(project_id: str) -> None:
+@workspace_group.command("archive")
+@click.argument("workspace_id")
+def archive(workspace_id: str) -> None:
     """Set status to archived (hidden from default dashboard)."""
     root = paths.find_monorepo_root()
-    pjson = paths.project_file(root, project_id)
+    pjson = paths.workspace_file(root, workspace_id)
     if not pjson.is_file():
-        raise click.ClickException(f"project {project_id!r} not found")
+        raise click.ClickException(f"workspace {workspace_id!r} not found")
     data = storage.read_json(pjson)
     data["status"] = "archived"
     from datetime import date
     data["updated"] = date.today().isoformat()
     storage.write_json(pjson, data)
-    click.echo(f"archived {project_id}")
+    click.echo(f"archived {workspace_id}")
 
 
-@project_group.command("rm")
-@click.argument("project_id")
+@workspace_group.command("rm")
+@click.argument("workspace_id")
 @click.option("--yes", is_flag=True, help="Skip confirmation")
-def rm(project_id: str, yes: bool) -> None:
-    """Delete a project folder permanently. Worktrees, if any, must be removed first (later plan)."""
+def rm(workspace_id: str, yes: bool) -> None:
+    """Delete a workspace folder permanently. Worktrees, if any, must be removed first (later plan)."""
     import shutil
 
     root = paths.find_monorepo_root()
-    pdir = paths.project_dir(root, project_id)
+    pdir = paths.workspace_dir(root, workspace_id)
     if not pdir.is_dir():
-        raise click.ClickException(f"project {project_id!r} not found")
+        raise click.ClickException(f"workspace {workspace_id!r} not found")
 
     if not yes:
         click.confirm(
@@ -1964,7 +1964,7 @@ def rm(project_id: str, yes: bool) -> None:
         )
 
     shutil.rmtree(pdir)
-    click.echo(f"removed {project_id}")
+    click.echo(f"removed {workspace_id}")
 ```
 
 - [ ] **Step 4: Run — expect pass**
@@ -1974,7 +1974,7 @@ Expected: 21 passed.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/lab && git commit -m "feat(lab): project archive and rm with confirmation"
+git add apps/lab && git commit -m "feat(lab): workspace archive and rm with confirmation"
 ```
 
 ---
@@ -1995,15 +1995,15 @@ from pathlib import Path
 from lab.cli import main
 
 
-def test_task_new_basic(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_new_basic(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     result = runner.invoke(main, [
         "task", "new", "Draft one-pager",
-        "--project", "alpha", "--priority", "P1",
+        "--workspace", "alpha", "--priority", "P1",
     ])
     assert result.exit_code == 0, result.output
-    tasks = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())
     assert tasks["next_id"] == 2
     assert len(tasks["tasks"]) == 1
     t = tasks["tasks"][0]
@@ -2013,58 +2013,58 @@ def test_task_new_basic(monorepo: Path, seed_project) -> None:
     assert t["status"] == "todo"
 
 
-def test_task_new_with_file_creates_notes(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_new_with_file_creates_notes(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     result = runner.invoke(main, [
         "task", "new", "Review one-pager with Jesus",
-        "--project", "alpha", "--priority", "P1", "--file",
+        "--workspace", "alpha", "--priority", "P1", "--file",
     ])
     assert result.exit_code == 0, result.output
-    notes_dir = monorepo / "content" / "projects" / "alpha" / "notes"
+    notes_dir = monorepo / "content" / "workspaces" / "alpha" / "notes"
     notes = list(notes_dir.iterdir())
     assert len(notes) == 1
     content = notes[0].read_text()
     assert "Review one-pager with Jesus" in content
 
 
-def test_task_new_auto_detects_project_from_pwd(monorepo: Path, seed_project, monkeypatch) -> None:
-    pdir = seed_project("alpha")
+def test_task_new_auto_detects_workspace_from_pwd(monorepo: Path, seed_workspace, monkeypatch) -> None:
+    pdir = seed_workspace("alpha")
     monkeypatch.chdir(pdir)
     runner = CliRunner()
     result = runner.invoke(main, ["task", "new", "Inline task", "--priority", "P2"])
     assert result.exit_code == 0, result.output
 
 
-def test_task_new_requires_priority(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_new_requires_priority(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["task", "new", "No priority", "--project", "alpha"])
+    result = runner.invoke(main, ["task", "new", "No priority", "--workspace", "alpha"])
     assert result.exit_code != 0
 
 
-def test_task_new_full_fields(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_new_full_fields(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     result = runner.invoke(main, [
-        "task", "new", "Review", "--project", "alpha",
+        "task", "new", "Review", "--workspace", "alpha",
         "--priority", "P1", "--loe", "0.5", "--due", "2026-04-20",
         "--tags", "review,meet", "--labels", "lipy-davi",
     ])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["loe"] == 0.5
     assert t["due"] == "2026-04-20"
     assert t["tags"] == ["review", "meet"]
     assert t["labels"] == ["lipy-davi"]
 
 
-def test_task_new_next_id_increments(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_new_next_id_increments(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "a", "--project", "alpha", "--priority", "P2"])
-    runner.invoke(main, ["task", "new", "b", "--project", "alpha", "--priority", "P2"])
-    tasks = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())
+    runner.invoke(main, ["task", "new", "a", "--workspace", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "new", "b", "--workspace", "alpha", "--priority", "P2"])
+    tasks = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())
     assert tasks["next_id"] == 3
     assert [t["id"] for t in tasks["tasks"]] == [1, 2]
 ```
@@ -2095,18 +2095,18 @@ def _slugify(title: str) -> str:
     return _SLUG_RE.sub("-", title.lower()).strip("-")[:40] or "task"
 
 
-def _resolve_project_id(explicit: str | None) -> str:
+def _resolve_workspace_id(explicit: str | None) -> str:
     if explicit:
         return explicit
     root = paths.find_monorepo_root()
-    projects_root = (root / "content" / "projects").resolve()
+    workspaces_root = (root / "content" / "workspaces").resolve()
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
-        if candidate.parent == projects_root:
+        if candidate.parent == workspaces_root:
             return candidate.name
         if candidate == root:
             break
-    raise click.ClickException("no project — pass --project <id> or cd into a project folder")
+    raise click.ClickException("no workspace — pass --workspace <id> or cd into a workspace folder")
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -2115,15 +2115,15 @@ def _split_csv(value: str | None) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
-def _load_tasks(root: Path, project_id: str) -> dict:
-    tjson = paths.tasks_file(root, project_id)
+def _load_tasks(root: Path, workspace_id: str) -> dict:
+    tjson = paths.tasks_file(root, workspace_id)
     if not tjson.is_file():
-        raise click.ClickException(f"project {project_id!r} has no tasks.json")
+        raise click.ClickException(f"workspace {workspace_id!r} has no tasks.json")
     return storage.read_json(tjson)
 
 
-def _save_tasks(root: Path, project_id: str, data: dict) -> None:
-    storage.write_json(paths.tasks_file(root, project_id), data)
+def _save_tasks(root: Path, workspace_id: str, data: dict) -> None:
+    storage.write_json(paths.tasks_file(root, workspace_id), data)
 
 
 @click.group(name="task")
@@ -2133,21 +2133,21 @@ def task_group() -> None:
 
 @task_group.command("new")
 @click.argument("title")
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 @click.option("--priority", type=click.Choice([p.value for p in Priority]), required=True)
 @click.option("--loe", type=float, default=None)
 @click.option("--due", default=None)
 @click.option("--tags", default="")
 @click.option("--labels", default="")
 @click.option("--file", "create_file", is_flag=True, default=False, help="Create a notes md file")
-def new(title: str, project_id: str | None, priority: str, loe: float | None,
+def new(title: str, workspace_id: str | None, priority: str, loe: float | None,
         due: str | None, tags: str, labels: str, create_file: bool) -> None:
-    """Create a new task in a project (default: PWD project)."""
+    """Create a new task in a workspace (default: PWD workspace)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
 
     tasks_doc = _load_tasks(root, pid)
     task_id = int(tasks_doc.get("next_id", 1))
@@ -2155,7 +2155,7 @@ def new(title: str, project_id: str | None, priority: str, loe: float | None,
     notes_file = None
     if create_file:
         notes_rel = f"notes/{task_id:03d}-{slug}.md"
-        notes_path = paths.project_dir(root, pid) / notes_rel
+        notes_path = paths.workspace_dir(root, pid) / notes_rel
         notes_path.parent.mkdir(parents=True, exist_ok=True)
         if not notes_path.exists():
             notes_path.write_text(f"# {title}\n\n", encoding="utf-8")
@@ -2206,52 +2206,52 @@ git add apps/lab && git commit -m "feat(lab): task new with optional notes file 
 ```python
 
 
-def test_task_ls_empty(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_ls_empty(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["task", "ls", "--project", "alpha"])
+    result = runner.invoke(main, ["task", "ls", "--workspace", "alpha"])
     assert result.exit_code == 0
     assert "no tasks" in result.output.lower()
 
 
-def test_task_ls_cross_project(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
-    seed_project("beta")
+def test_task_ls_cross_workspace(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "alpha-task", "--project", "alpha", "--priority", "P1"])
-    runner.invoke(main, ["task", "new", "beta-task", "--project", "beta", "--priority", "P2"])
+    runner.invoke(main, ["task", "new", "alpha-task", "--workspace", "alpha", "--priority", "P1"])
+    runner.invoke(main, ["task", "new", "beta-task", "--workspace", "beta", "--priority", "P2"])
     result = runner.invoke(main, ["task", "ls"])
     assert result.exit_code == 0
     assert "alpha-task" in result.output
     assert "beta-task" in result.output
 
 
-def test_task_ls_filter_by_status(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_ls_filter_by_status(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "open-one", "--project", "alpha", "--priority", "P2"])
-    runner.invoke(main, ["task", "new", "will-close", "--project", "alpha", "--priority", "P2"])
-    runner.invoke(main, ["task", "done", "2", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "open-one", "--workspace", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "new", "will-close", "--workspace", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "done", "2", "--workspace", "alpha"])
 
-    result = runner.invoke(main, ["task", "ls", "--project", "alpha", "--status", "open"])
+    result = runner.invoke(main, ["task", "ls", "--workspace", "alpha", "--status", "open"])
     assert "open-one" in result.output
     assert "will-close" not in result.output
 
-    result = runner.invoke(main, ["task", "ls", "--project", "alpha", "--status", "done"])
+    result = runner.invoke(main, ["task", "ls", "--workspace", "alpha", "--status", "done"])
     assert "will-close" in result.output
     assert "open-one" not in result.output
 
 
-def test_task_ls_filter_by_due_window(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_ls_filter_by_due_window(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
     from datetime import date, timedelta
     near = (date.today() + timedelta(days=3)).isoformat()
     far = (date.today() + timedelta(days=30)).isoformat()
-    runner.invoke(main, ["task", "new", "near", "--project", "alpha", "--priority", "P2", "--due", near])
-    runner.invoke(main, ["task", "new", "far", "--project", "alpha", "--priority", "P2", "--due", far])
+    runner.invoke(main, ["task", "new", "near", "--workspace", "alpha", "--priority", "P2", "--due", near])
+    runner.invoke(main, ["task", "new", "far", "--workspace", "alpha", "--priority", "P2", "--due", far])
 
-    result = runner.invoke(main, ["task", "ls", "--project", "alpha", "--due", "7d"])
+    result = runner.invoke(main, ["task", "ls", "--workspace", "alpha", "--due", "7d"])
     assert "near" in result.output
     assert "far" not in result.output
 ```
@@ -2264,10 +2264,10 @@ def test_task_ls_filter_by_due_window(monorepo: Path, seed_project) -> None:
 
 
 def _iter_all_tasks(root: Path):
-    projects_root = root / "content" / "projects"
-    if not projects_root.is_dir():
+    workspaces_root = root / "content" / "workspaces"
+    if not workspaces_root.is_dir():
         return
-    for child in sorted(projects_root.iterdir()):
+    for child in sorted(workspaces_root.iterdir()):
         tjson = child / "tasks.json"
         if not tjson.is_file():
             continue
@@ -2284,22 +2284,22 @@ def _parse_due_window(value: str) -> int | None:
 
 
 @task_group.command("ls")
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 @click.option("--status", default=None, help="todo|in_progress|blocked|done|open (= not done)")
 @click.option("--priority", default=None, help="Comma-separated (e.g. P0,P1)")
 @click.option("--tag", "tag_filter", default=None)
 @click.option("--label", "label_filter", default=None)
 @click.option("--due", "due_window", default=None, help="Nd — due within N days")
-def ls(project_id: str | None, status: str | None, priority: str | None,
+def ls(workspace_id: str | None, status: str | None, priority: str | None,
        tag_filter: str | None, label_filter: str | None,
        due_window: str | None) -> None:
-    """List tasks. Default: all projects. Filter with --project, --status, --priority, --tag, --label, --due."""
+    """List tasks. Default: all workspaces. Filter with --workspace, --status, --priority, --tag, --label, --due."""
     from datetime import date, timedelta
 
     root = paths.find_monorepo_root()
 
-    if project_id:
-        it = ((project_id, t) for t in _load_tasks(root, project_id).get("tasks", []))
+    if workspace_id:
+        it = ((workspace_id, t) for t in _load_tasks(root, workspace_id).get("tasks", []))
     else:
         it = _iter_all_tasks(root)
 
@@ -2364,33 +2364,33 @@ git add apps/lab && git commit -m "feat(lab): task ls with status/priority/tag/l
 ```python
 
 
-def test_task_done_sets_closed_at(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_done_sets_closed_at(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "ship it", "--project", "alpha", "--priority", "P1"])
-    result = runner.invoke(main, ["task", "done", "1", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "ship it", "--workspace", "alpha", "--priority", "P1"])
+    result = runner.invoke(main, ["task", "done", "1", "--workspace", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "done"
     assert t["closed_at"] is not None
 
 
-def test_task_reopen_clears_closed_at(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_reopen_clears_closed_at(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "ship", "--project", "alpha", "--priority", "P1"])
-    runner.invoke(main, ["task", "done", "1", "--project", "alpha"])
-    result = runner.invoke(main, ["task", "reopen", "1", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "ship", "--workspace", "alpha", "--priority", "P1"])
+    runner.invoke(main, ["task", "done", "1", "--workspace", "alpha"])
+    result = runner.invoke(main, ["task", "reopen", "1", "--workspace", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "in_progress"
     assert t["closed_at"] is None
 
 
-def test_task_done_missing_task(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_done_missing_task(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    result = runner.invoke(main, ["task", "done", "99", "--project", "alpha"])
+    result = runner.invoke(main, ["task", "done", "99", "--workspace", "alpha"])
     assert result.exit_code != 0
 ```
 
@@ -2415,11 +2415,11 @@ def _now_iso() -> str:
 
 @task_group.command("done")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def done(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def done(task_id: int, workspace_id: str | None) -> None:
     """Mark a task done (sets closed_at)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "done"
@@ -2431,11 +2431,11 @@ def done(task_id: int, project_id: str | None) -> None:
 
 @task_group.command("reopen")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def reopen(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def reopen(task_id: int, workspace_id: str | None) -> None:
     """Reopen a done task (status → in_progress, clears closed_at)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "in_progress"
@@ -2468,25 +2468,25 @@ git add apps/lab && git commit -m "feat(lab): task done / reopen with closed_at"
 ```python
 
 
-def test_task_block_sets_blocker(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_block_sets_blocker(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "blocked-task", "--project", "alpha", "--priority", "P2"])
-    result = runner.invoke(main, ["task", "block", "1", "waiting on legal", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "blocked-task", "--workspace", "alpha", "--priority", "P2"])
+    result = runner.invoke(main, ["task", "block", "1", "waiting on legal", "--workspace", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "blocked"
     assert t["blocker"] == "waiting on legal"
 
 
-def test_task_unblock_clears(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_unblock_clears(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "t", "--project", "alpha", "--priority", "P2"])
-    runner.invoke(main, ["task", "block", "1", "stuck", "--project", "alpha"])
-    result = runner.invoke(main, ["task", "unblock", "1", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "t", "--workspace", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "block", "1", "stuck", "--workspace", "alpha"])
+    result = runner.invoke(main, ["task", "unblock", "1", "--workspace", "alpha"])
     assert result.exit_code == 0
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["status"] == "in_progress"
     assert t["blocker"] is None
 ```
@@ -2501,11 +2501,11 @@ def test_task_unblock_clears(monorepo: Path, seed_project) -> None:
 @task_group.command("block")
 @click.argument("task_id", type=int)
 @click.argument("reason")
-@click.option("--project", "project_id", default=None)
-def block(task_id: int, reason: str, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def block(task_id: int, reason: str, workspace_id: str | None) -> None:
     """Mark a task blocked with a reason."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "blocked"
@@ -2517,11 +2517,11 @@ def block(task_id: int, reason: str, project_id: str | None) -> None:
 
 @task_group.command("unblock")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def unblock(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def unblock(task_id: int, workspace_id: str | None) -> None:
     """Clear a task's blocker (status → in_progress)."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     t["status"] = "in_progress"
@@ -2554,11 +2554,11 @@ git add apps/lab && git commit -m "feat(lab): task block / unblock"
 ```python
 
 
-def test_task_show(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_show(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "Review", "--project", "alpha", "--priority", "P1", "--file"])
-    result = runner.invoke(main, ["task", "show", "1", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "Review", "--workspace", "alpha", "--priority", "P1", "--file"])
+    result = runner.invoke(main, ["task", "show", "1", "--workspace", "alpha"])
     assert result.exit_code == 0
     assert "Review" in result.output
     assert "P1" in result.output
@@ -2566,30 +2566,30 @@ def test_task_show(monorepo: Path, seed_project) -> None:
     assert "# Review" in result.output
 
 
-def test_task_set_field(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_set_field(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
-    result = runner.invoke(main, ["task", "set", "1", "priority", "P0", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "T", "--workspace", "alpha", "--priority", "P2"])
+    result = runner.invoke(main, ["task", "set", "1", "priority", "P0", "--workspace", "alpha"])
     assert result.exit_code == 0, result.output
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["priority"] == "P0"
 
 
-def test_task_set_rejects_unknown_field(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_set_rejects_unknown_field(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
-    result = runner.invoke(main, ["task", "set", "1", "foo", "bar", "--project", "alpha"])
+    runner.invoke(main, ["task", "new", "T", "--workspace", "alpha", "--priority", "P2"])
+    result = runner.invoke(main, ["task", "set", "1", "foo", "bar", "--workspace", "alpha"])
     assert result.exit_code != 0
 
 
-def test_task_set_tags_csv(monorepo: Path, seed_project) -> None:
-    seed_project("alpha")
+def test_task_set_tags_csv(monorepo: Path, seed_workspace) -> None:
+    seed_workspace("alpha")
     runner = CliRunner()
-    runner.invoke(main, ["task", "new", "T", "--project", "alpha", "--priority", "P2"])
-    runner.invoke(main, ["task", "set", "1", "tags", "a,b", "--project", "alpha"])
-    t = json.loads((monorepo / "content" / "projects" / "alpha" / "tasks.json").read_text())["tasks"][0]
+    runner.invoke(main, ["task", "new", "T", "--workspace", "alpha", "--priority", "P2"])
+    runner.invoke(main, ["task", "set", "1", "tags", "a,b", "--workspace", "alpha"])
+    t = json.loads((monorepo / "content" / "workspaces" / "alpha" / "tasks.json").read_text())["tasks"][0]
     assert t["tags"] == ["a", "b"]
 ```
 
@@ -2605,19 +2605,19 @@ _TASK_SETTABLE = {"title", "priority", "loe", "due", "tags", "labels", "status"}
 
 @task_group.command("show")
 @click.argument("task_id", type=int)
-@click.option("--project", "project_id", default=None)
-def show(task_id: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def show(task_id: int, workspace_id: str | None) -> None:
     """Print a task's fields and notes file content (if any)."""
     import json as _json
 
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
     click.echo(_json.dumps(t, indent=2))
     notes_file = t.get("notes_file")
     if notes_file:
-        notes_path = paths.project_dir(root, pid) / notes_file
+        notes_path = paths.workspace_dir(root, pid) / notes_file
         if notes_path.is_file():
             click.echo("")
             click.echo(f"--- {notes_file} ---")
@@ -2628,15 +2628,15 @@ def show(task_id: int, project_id: str | None) -> None:
 @click.argument("task_id", type=int)
 @click.argument("field")
 @click.argument("value")
-@click.option("--project", "project_id", default=None)
-def set_field(task_id: int, field: str, value: str, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def set_field(task_id: int, field: str, value: str, workspace_id: str | None) -> None:
     """Update a single task field (validated)."""
     if field not in _TASK_SETTABLE:
         raise click.ClickException(
             f"{field} is not settable. Allowed: {sorted(_TASK_SETTABLE)}"
         )
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
+    pid = _resolve_workspace_id(workspace_id)
     doc = _load_tasks(root, pid)
     t = _find_task(doc, task_id)
 
@@ -2694,7 +2694,7 @@ In a new terminal (to pick up PATH):
 ```bash
 lab --version
 lab --help
-lab project --help
+lab workspace --help
 lab task --help
 ```
 
@@ -2704,21 +2704,21 @@ Expected: all four print help text without error.
 
 ```bash
 cd ~/src/productivity-new
-lab project new inbox --desc "Catch-all for standalone reminders"
-lab project new davi-test-vision --desc "Test project" --priority P1 --labels lipy-davi
-lab project ls
+lab workspace new inbox --desc "Catch-all for standalone reminders"
+lab workspace new davi-test-vision --desc "Test workspace" --priority P1 --labels lipy-davi
+lab workspace ls
 
-cd content/projects/davi-test-vision
+cd content/workspaces/davi-test-vision
 lab task new "Draft one-pager" --priority P1 --due 2026-04-20 --file
 lab task new "Review with Jesus" --priority P1 --loe 0.5
 lab task ls
 lab task done 1
 lab task block 2 "waiting on Jesus availability"
 lab task ls --status open
-lab project status
+lab workspace status
 ```
 
-Verify output matches expectations: two projects listed, two tasks, second one blocked, first one done.
+Verify output matches expectations: two workspaces listed, two tasks, second one blocked, first one done.
 
 - [ ] **Step 4: Commit** (if any hand-fixes needed during smoke test)
 
@@ -2752,32 +2752,32 @@ from click.testing import CliRunner
 from lab.cli import main
 
 
-def test_full_project_lifecycle(monorepo: Path) -> None:
-    """Create project → add tasks → flip statuses → list → archive."""
+def test_full_workspace_lifecycle(monorepo: Path) -> None:
+    """Create workspace → add tasks → flip statuses → list → archive."""
     runner = CliRunner()
 
-    # Create two projects
-    r = runner.invoke(main, ["project", "new", "inbox", "--desc", "Catch-all"])
+    # Create two workspaces
+    r = runner.invoke(main, ["workspace", "new", "inbox", "--desc", "Catch-all"])
     assert r.exit_code == 0, r.output
-    r = runner.invoke(main, ["project", "new", "davi-test", "--desc", "Test", "--priority", "P1"])
+    r = runner.invoke(main, ["workspace", "new", "davi-test", "--desc", "Test", "--priority", "P1"])
     assert r.exit_code == 0, r.output
 
     # Add tasks to davi-test
     for i, (title, pri) in enumerate([("draft", "P1"), ("review", "P1"), ("ship", "P2")], start=1):
-        r = runner.invoke(main, ["task", "new", title, "--project", "davi-test", "--priority", pri])
+        r = runner.invoke(main, ["task", "new", title, "--workspace", "davi-test", "--priority", pri])
         assert r.exit_code == 0, r.output
 
     # Add a reminder to inbox
     r = runner.invoke(main, [
-        "task", "new", "email someone", "--project", "inbox", "--priority", "P3",
+        "task", "new", "email someone", "--workspace", "inbox", "--priority", "P3",
     ])
     assert r.exit_code == 0
 
     # Flip states
-    runner.invoke(main, ["task", "done", "1", "--project", "davi-test"])
-    runner.invoke(main, ["task", "block", "2", "waiting on Jesus", "--project", "davi-test"])
+    runner.invoke(main, ["task", "done", "1", "--workspace", "davi-test"])
+    runner.invoke(main, ["task", "block", "2", "waiting on Jesus", "--workspace", "davi-test"])
 
-    # Cross-project ls
+    # Cross-workspace ls
     r = runner.invoke(main, ["task", "ls"])
     assert r.exit_code == 0
     assert "draft" in r.output
@@ -2797,15 +2797,15 @@ def test_full_project_lifecycle(monorepo: Path) -> None:
     assert "email someone" not in r.output  # P3
 
     # Archive davi-test
-    runner.invoke(main, ["project", "archive", "davi-test"])
-    r = runner.invoke(main, ["project", "ls", "--status", "active"])
+    runner.invoke(main, ["workspace", "archive", "davi-test"])
+    r = runner.invoke(main, ["workspace", "ls", "--status", "active"])
     assert "davi-test" not in r.output
     assert "inbox" in r.output
 
     # Verify on-disk state
-    davi = json.loads((monorepo / "content" / "projects" / "davi-test" / "project.json").read_text())
+    davi = json.loads((monorepo / "content" / "workspaces" / "davi-test" / "workspace.json").read_text())
     assert davi["status"] == "archived"
-    tasks = json.loads((monorepo / "content" / "projects" / "davi-test" / "tasks.json").read_text())
+    tasks = json.loads((monorepo / "content" / "workspaces" / "davi-test" / "tasks.json").read_text())
     statuses = {t["id"]: t["status"] for t in tasks["tasks"]}
     assert statuses == {1: "done", 2: "blocked", 3: "todo"}
 ```
@@ -2833,7 +2833,7 @@ Expected: all tests pass (21 + 1 = ~22+), coverage ≥ 90% on `lab/`.
 ```bash
 cd ~/src/productivity-new
 git add apps/lab/tests/test_integration_e2e.py
-git commit -m "test(lab): end-to-end integration covering full project + task lifecycle"
+git commit -m "test(lab): end-to-end integration covering full workspace + task lifecycle"
 ```
 
 ---
@@ -2854,13 +2854,13 @@ All of these are true:
 | Feature | Plan |
 |---|---|
 | Backend FastAPI service, watcher, global `.index.json` | Plan 2 |
-| Frontend dashboard, project view, timeline, list view, markdown renderer | Plan 3 |
-| `lab project add / remove` (worktrees) + MP prefix config + `lab mp` | Plan 4 |
+| Frontend dashboard, workspace view, timeline, list view, markdown renderer | Plan 3 |
+| `lab workspace add / remove` (worktrees) + MP prefix config + `lab mp` | Plan 4 |
 | `lab search` full-text | Plan 5 |
 | `lab pr add`, `lab artifact add`, `lab note` | Plan 5 |
-| Migration agent + `lab migrate` (ingests `~/projects/*`) | Plan 6 |
+| Migration agent + `lab migrate` (ingests `~/workspaces/*`) | Plan 6 |
 | `apps/darwin-runner`, `apps/darwin-backups`, `apps/trustim-ir-cli` moved in | Plan 7 |
 | gdiff + mdview folded into backend | Plan 8 |
-| `make seed` sample projects | Plan 9 |
+| `make seed` sample workspaces | Plan 9 |
 
 Plan 1 is self-contained: once merged, you can already use `lab` to track everything, even while the web UI and worktrees are still future work.

@@ -14,13 +14,13 @@ dependencies = [
     "markdown>=3.6",
     "pyyaml>=6.0",
     "jinja2>=3.1",
-    # Host-local project notebook kernels. Lab owns the Jupyter control
-    # plane while each project runtime supplies its exact Python/packages.
+    # Host-local workspace notebook kernels. Lab owns the Jupyter control
+    # plane while each workspace runtime supplies its exact Python/packages.
     "jupyter-client>=8.6,<9",
     "ipykernel>=6.29,<8",
     "lab",
-    # Reverse proxy for per-project local servers (routes/proxy.py): used
-    # to forward HTTP from /api/proxy/<project>/<name>/<path> to a
+    # Reverse proxy for per-workspace local servers (routes/proxy.py): used
+    # to forward HTTP from /api/proxy/<workspace>/<name>/<path> to a
     # localhost:<port> dev server, with HTML <base href> injection and
     # cookie-name scoping. uvicorn[standard] already pulls `websockets`
     # for the WS side of the proxy.

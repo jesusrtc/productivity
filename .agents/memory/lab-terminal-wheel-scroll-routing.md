@@ -36,4 +36,4 @@ on every session spawn, so a code change here needs a lab server restart
 (`launchctl kickstart -k gui/$UID/com.lab.server`) plus one session spawn (or
 a manual `tmux bind-key`) to reach already-running sessions.
 
-Related: [[terminal-latency-invariants]], [[lab-terminals-workspace-tmux-socket]].
+Related: [[terminal-latency-invariants]], [[lab-terminals-vault-tmux-socket]].

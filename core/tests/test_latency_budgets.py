@@ -66,13 +66,13 @@ def _assert_p95(samples_ns: list[int], budget_ms: float, *, name: str,
 
 class TestTermSessionsLatency:
     """``GET /api/term/sessions`` is polled from the UI every few seconds
-    on every project tab. With mocked tmux (no subprocess spawn) it
+    on every workspace tab. With mocked tmux (no subprocess spawn) it
     should be near-trivial. Budget: p95 < 20ms."""
 
     def test_list_sessions_budget(self, client, mock_tmux_alive, monkeypatch):
         from core.routes import term as term_route
 
-        # Exercise row shaping with a busy workspace rather than an empty
+        # Exercise row shaping with a busy vault rather than an empty
         # response. The global poll does not consume agent titles/summaries,
         # so those expensive lookups must remain completely off its path.
         listing = [
@@ -81,7 +81,7 @@ class TestTermSessionsLatency:
         ]
         metadata = {
             row["name"]: {
-                "project_id": "demo", "logical_name": f"codex-{i}",
+                "workspace_id": "demo", "logical_name": f"codex-{i}",
                 "agent": "codex", "pane_tty": f"/dev/ttys{i:03d}",
                 "created_at": i,
             }

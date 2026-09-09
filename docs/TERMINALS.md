@@ -17,7 +17,7 @@ lab terminal rotate
 ```
 
 Run the command directly in iTerm, not from inside tmux or a Lab terminal.
-Lab then routes newly created terminals, Copilot sessions, managed project
+Lab then routes newly created terminals, Copilot sessions, managed workspace
 servers, and proxy control sessions to the new socket. Existing sessions stay
 attached to the previous socket and continue running without interruption.
 
@@ -40,7 +40,7 @@ sessions on each socket. Attach commands returned by the API and UI include
 Open **+ New**, paste an existing tmux session name into **Attach tmux
 session**, and select **Attach**. Lab searches the active and draining socket
 generations and creates a lightweight grouped-session alias inside the current
-project. The alias shares the source session's windows and panes; it does not
+workspace. The alias shares the source session's windows and panes; it does not
 start a nested tmux client or forwarding process.
 
 Closing an attached Lab tab removes only this alias. The original tmux session

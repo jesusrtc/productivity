@@ -11,7 +11,7 @@
     view: 'all_open',
     status: '',
     priority: '',
-    project: '',
+    workspace: '',
     search: '',
     expandedGroups: new Set(),
     modalRoot: null,
@@ -149,9 +149,9 @@
       if (state.view === 'all_open' && task.status === 'done') return false;
       if (state.status && task.status !== state.status) return false;
       if (state.priority && task.priority !== state.priority) return false;
-      if (state.project && task.project !== state.project) return false;
+      if (state.workspace && task.workspace !== state.workspace) return false;
       if (needle) {
-        const haystack = [task.title, task.tldr, task.summary, task.group, task.project_name, task.project, task.workspace]
+        const haystack = [task.title, task.tldr, task.summary, task.group, task.workspace_name, task.workspace, task.vault]
           .join(' ').toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
@@ -166,11 +166,11 @@
     return meetings().filter(meeting => {
       if (state.view === 'meeting_actions'
           && !(meeting.action_items_total > meeting.action_items_done)) return false;
-      if (state.project && meeting.project !== state.project) return false;
+      if (state.workspace && meeting.workspace !== state.workspace) return false;
       if (needle) {
         const haystack = [
-          meeting.title, meeting.summary, meeting.project_name, meeting.project,
-          meeting.workspace, ...(meeting.attendees || []),
+          meeting.title, meeting.summary, meeting.workspace_name, meeting.workspace,
+          meeting.vault, ...(meeting.attendees || []),
         ].join(' ').toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
@@ -200,9 +200,9 @@
     state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
-    if (isTaskSection() && !projectRows().some(project => project.id === state.project)) {
-      const available = projectRows();
-      state.project = available.length ? available[0].id : '';
+    if (isTaskSection() && !workspaceRows().some(workspace => workspace.id === state.workspace)) {
+      const available = workspaceRows();
+      state.workspace = available.length ? available[0].id : '';
     }
     if (!options.history) {
       const url = new URL(window.location);
@@ -210,10 +210,10 @@
       if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
       else if (state.section === 'tasks') {
         url.searchParams.set('subview', 'tasks');
-        if (state.project) url.searchParams.set('assistant_project', state.project);
+        if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
       } else {
         url.searchParams.delete('subview');
-        url.searchParams.delete('assistant_project');
+        url.searchParams.delete('assistant_workspace');
       }
       if (state.section !== 'tasks') url.searchParams.delete('task');
       if (state.section !== 'meetings') url.searchParams.delete('meeting');
@@ -252,7 +252,7 @@
     return `<article class="assistant-list-item${meeting.path === state.selectedMeetingPath ? ' selected' : ''}" data-assistant-entry-wrap="${e(meeting.path)}">
       <button type="button" class="assistant-compact-row" data-assistant-meeting="${e(meeting.path)}" data-testid="assistant-meeting-row">
         <span class="assistant-row-main"><span class="assistant-meeting-date">${e(displayDate(meeting.date))}</span><strong>${e(meeting.title)}</strong></span>
-        <span class="assistant-row-meta">${actionProgress ? `<span class="assistant-progress-label">${e(actionProgress)}</span>` : ''}<span class="assistant-task-project">${e(meeting.project_name || meeting.project)}</span></span>
+        <span class="assistant-row-meta">${actionProgress ? `<span class="assistant-progress-label">${e(actionProgress)}</span>` : ''}<span class="assistant-task-workspace">${e(meeting.workspace_name || meeting.workspace)}</span></span>
       </button>
     </article>`;
   }
@@ -263,7 +263,7 @@
       ? 'Choose the Assistant folder from Home → Admin.'
       : 'Open Home → Admin and choose an available Assistant folder.';
     content.innerHTML = `<div class="assistant-setup">
-      <span class="assistant-kicker">Global workspace</span>
+      <span class="assistant-kicker">Global vault</span>
       <h1>Assistant needs a database</h1>
       <p>${e(message)}</p>
       ${root ? `<code>${e(root)}</code>` : '<code>Home → Admin → Assistant</code>'}
@@ -298,10 +298,10 @@
     const review = countWhere(tasks(), hasReview);
     const urgent = countWhere(tasks(), task => task.status !== 'done' && task.priority === 'P0');
     const recent = recentFiles();
-    const projects = projectRows();
+    const workspaces = workspaceRows();
     content.innerHTML = `<div class="assistant-shell assistant-overview-shell">
       <header class="assistant-overview-hero">
-        <div><span class="assistant-kicker">Client-global project</span><h1>Assistant</h1><p>Tasks, notes, and agent-ready context across every Lab workspace.</p></div>
+        <div><span class="assistant-kicker">Across all vaults</span><h1>Assistant</h1><p>Tasks, notes, and agent-ready context across every Lab vault.</p></div>
         <button type="button" class="refresh-btn" id="assistantOverviewTasks">Open tasks</button>
       </header>
       <div class="assistant-overview-stats">
@@ -316,12 +316,12 @@
           <div class="assistant-recent-files">${recent.length ? recent.map(file => `<button type="button" data-assistant-file="${e(file.path)}"><span><b>${e(file.path.split('/').pop())}</b><small>${e(file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : 'Assistant root')}</small></span><time>${e(updatedLabel(file.mtime))}</time></button>`).join('') : '<p class="assistant-overview-empty">No files yet.</p>'}</div>
         </section>
         <section class="assistant-overview-card">
-          <header><h2>Projects</h2><span>${projects.length}</span></header>
-          <div class="assistant-overview-projects">${projects.length ? projects.map(project => {
-            const rows = tasks().filter(task => task.project === project.id);
+          <header><h2>Workspaces</h2><span>${workspaces.length}</span></header>
+          <div class="assistant-overview-workspaces">${workspaces.length ? workspaces.map(workspace => {
+            const rows = tasks().filter(task => task.workspace === workspace.id);
             const pending = countWhere(rows, task => task.status !== 'done');
-            return `<button type="button" data-assistant-overview-project="${e(project.id)}"><span><b>${e(project.name || project.id)}</b><small>${e(project.workspace || 'Unmapped workspace')}</small></span><strong>${pending} open</strong></button>`;
-          }).join('') : '<p class="assistant-overview-empty">No mapped projects yet.</p>'}</div>
+            return `<button type="button" data-assistant-overview-workspace="${e(workspace.id)}"><span><b>${e(workspace.name || workspace.id)}</b><small>${e(workspace.vault || 'Unmapped vault')}</small></span><strong>${pending} open</strong></button>`;
+          }).join('') : '<p class="assistant-overview-empty">No mapped workspaces yet.</p>'}</div>
         </section>
       </div>
       <section class="assistant-root-card"><span>Assistant folder</span><code>${e(state.data.root || '')}</code><small>Managed from Home → Admin. New terminals and all file views use this location.</small></section>
@@ -329,24 +329,24 @@
     document.getElementById('assistantOverviewTasks')?.addEventListener('click', () => setSection('tasks'));
     content.querySelectorAll('[data-assistant-file]').forEach(button => {
       button.addEventListener('click', () => {
-        if (window.openProjectDocFromFileClick) {
-          window.openProjectDocFromFileClick(button.dataset.assistantFile, {root: state.data.root});
+        if (window.openWorkspaceDocFromFileClick) {
+          window.openWorkspaceDocFromFileClick(button.dataset.assistantFile, {root: state.data.root});
         }
       });
     });
-    content.querySelectorAll('[data-assistant-overview-project]').forEach(button => {
+    content.querySelectorAll('[data-assistant-overview-workspace]').forEach(button => {
       button.addEventListener('click', () => {
-        state.project = button.dataset.assistantOverviewProject;
+        state.workspace = button.dataset.assistantOverviewWorkspace;
         setSection('tasks');
       });
     });
   }
 
-  function projectRows() {
-    const projects = [...((state.data && state.data.projects) || [])];
-    return projects.sort((left, right) => {
-      const leftCount = countWhere(tasks(), task => task.project === left.id && needsAttention(task));
-      const rightCount = countWhere(tasks(), task => task.project === right.id && needsAttention(task));
+  function workspaceRows() {
+    const workspaces = [...((state.data && state.data.workspaces) || [])];
+    return workspaces.sort((left, right) => {
+      const leftCount = countWhere(tasks(), task => task.workspace === left.id && needsAttention(task));
+      const rightCount = countWhere(tasks(), task => task.workspace === right.id && needsAttention(task));
       return rightCount - leftCount || String(left.name || left.id).localeCompare(String(right.name || right.id));
     });
   }
@@ -360,23 +360,23 @@
     ].filter(item => item[0]).map(item => `${item[0]} ${item[1]}`).join(' · ') || 'No attention items';
   }
 
-  function labProjectNav() {
-    return `<nav class="assistant-lab-projects" aria-label="Lab projects">${projectRows().map(project => {
-      const rows = tasks().filter(task => task.project === project.id);
+  function labWorkspaceNav() {
+    return `<nav class="assistant-lab-workspaces" aria-label="Lab workspaces">${workspaceRows().map(workspace => {
+      const rows = tasks().filter(task => task.workspace === workspace.id);
       const count = countWhere(rows, needsAttention);
-      return `<button type="button" class="${state.project === project.id ? 'active' : ''}" data-assistant-project="${e(project.id)}" title="${e(attentionBreakdown(rows))}">
-        <span class="assistant-lab-project-name">${e(project.name || project.id)}</span><small>${count}</small>
+      return `<button type="button" class="${state.workspace === workspace.id ? 'active' : ''}" data-assistant-workspace="${e(workspace.id)}" title="${e(attentionBreakdown(rows))}">
+        <span class="assistant-lab-workspace-name">${e(workspace.name || workspace.id)}</span><small>${count}</small>
       </button>`;
     }).join('')}</nav>`;
   }
 
-  function projectSelect(source) {
-    const projects = state.data && state.data.projects || [];
-    return `<select id="assistantProject" aria-label="Filter by project">
-      <option value="">All projects (${source.length})</option>
-      ${projects.map(project => {
-        const count = countWhere(source, row => row.project === project.id);
-        return `<option value="${e(project.id)}"${state.project === project.id ? ' selected' : ''}>${e(project.name || project.id)} (${count})</option>`;
+  function workspaceSelect(source) {
+    const workspaces = state.data && state.data.workspaces || [];
+    return `<select id="assistantWorkspace" aria-label="Filter by workspace">
+      <option value="">All workspaces (${source.length})</option>
+      ${workspaces.map(workspace => {
+        const count = countWhere(source, row => row.workspace === workspace.id);
+        return `<option value="${e(workspace.id)}"${state.workspace === workspace.id ? ' selected' : ''}>${e(workspace.name || workspace.id)} (${count})</option>`;
       }).join('')}
     </select>`;
   }
@@ -394,7 +394,7 @@
       </select>` : '';
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
-      ${isTasks ? '' : projectSelect(meetings())}${advanced}
+      ${isTasks ? '' : workspaceSelect(meetings())}${advanced}
       <span class="assistant-filter-count">${rows.length} ${isTasks ? 'task' : 'note'}${rows.length === 1 ? '' : 's'}</span>
     </div>`;
   }
@@ -408,7 +408,7 @@
   }
 
   function internalGroupKey(name) {
-    return `${state.project}:${name}`;
+    return `${state.workspace}:${name}`;
   }
 
   function renderTasks(rows) {
@@ -418,9 +418,9 @@
       const key = internalGroupKey(name);
       const expanded = state.expandedGroups.has(key);
       const attention = countWhere(items, needsAttention);
-      return `<section class="assistant-internal-project${expanded ? ' expanded' : ''}" data-assistant-group-wrap="${e(key)}">
+      return `<section class="assistant-task-group${expanded ? ' expanded' : ''}" data-assistant-group-wrap="${e(key)}">
         <button type="button" class="assistant-group-header" data-assistant-group="${e(key)}" aria-expanded="${expanded}">
-          <span class="assistant-group-badge">PROJECT</span>
+          <span class="assistant-group-badge">WORKSPACE</span>
           <span class="assistant-group-name"><strong>${e(name)}</strong><small>${items.length} task${items.length === 1 ? '' : 's'}${attention ? ` · ${attention} attention` : ''}</small></span>
           <span class="assistant-group-summary">${e(attentionBreakdown(items))}</span>
           <span class="assistant-group-chevron" aria-hidden="true">›</span>
@@ -428,7 +428,7 @@
         ${expanded ? `<div class="assistant-group-tasks">${items.map(taskCard).join('')}</div>` : ''}
       </section>`;
     }).join('');
-    return `${labProjectNav()}${filterBar(rows)}<div class="assistant-internal-projects" data-testid="assistant-list">${groups || emptyTasks()}</div>`;
+    return `${labWorkspaceNav()}${filterBar(rows)}<div class="assistant-task-groups" data-testid="assistant-list">${groups || emptyTasks()}</div>`;
   }
 
   function renderMeetings(rows) {
@@ -456,9 +456,9 @@
       return;
     }
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
-    const project = projectRows().find(item => item.id === state.project);
+    const workspace = workspaceRows().find(item => item.id === state.workspace);
     const proposal = isTaskSection()
-      ? `Lab project · ${project ? project.name || project.id : 'Tasks'}`
+      ? `Lab workspace · ${workspace ? workspace.name || workspace.id : 'Tasks'}`
       : 'Global Assistant';
     const title = isTaskSection() ? 'Tasks' : 'Meeting notes';
     const body = isTaskSection() ? renderTasks(rows) : renderMeetings(rows);
@@ -472,8 +472,8 @@
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
       button.addEventListener('click', () => setView(button.dataset.assistantView));
     });
-    content.querySelectorAll('[data-assistant-project]').forEach(button => {
-      button.addEventListener('click', () => selectProject(button.dataset.assistantProject));
+    content.querySelectorAll('[data-assistant-workspace]').forEach(button => {
+      button.addEventListener('click', () => selectWorkspace(button.dataset.assistantWorkspace));
     });
     content.querySelectorAll('[data-assistant-group]').forEach(button => {
       button.addEventListener('click', () => {
@@ -506,8 +506,8 @@
       state.view = state.priority === 'P0' ? 'p0' : 'all_open';
       render();
     });
-    document.getElementById('assistantProject')?.addEventListener('change', event => {
-      state.project = event.target.value;
+    document.getElementById('assistantWorkspace')?.addEventListener('change', event => {
+      state.workspace = event.target.value;
       render();
     });
     content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
@@ -521,16 +521,16 @@
     });
   }
 
-  function selectProject(projectId) {
-    if (!projectId || projectId === state.project) return;
-    state.project = projectId;
+  function selectWorkspace(workspaceId) {
+    if (!workspaceId || workspaceId === state.workspace) return;
+    state.workspace = workspaceId;
     state.selectedTaskPath = '';
     state.expandedGroups.clear();
     const url = new URL(window.location);
     url.searchParams.set('view', 'assistant');
-    url.searchParams.set('assistant_project', projectId);
+    url.searchParams.set('assistant_workspace', workspaceId);
     url.searchParams.delete('task');
-    history.pushState({nav: 'assistant', assistant_project: projectId}, '', url.pathname + url.search + url.hash);
+    history.pushState({nav: 'assistant', assistant_workspace: workspaceId}, '', url.pathname + url.search + url.hash);
     render();
   }
 
@@ -558,7 +558,7 @@
       url.searchParams.set('view', 'assistant');
       if (kind === 'task') {
         url.searchParams.set('subview', 'tasks');
-        if (state.project) url.searchParams.set('assistant_project', state.project);
+        if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
       } else {
@@ -621,7 +621,7 @@
       if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
       if (kind === 'subtask') {
         const metadata = detail.metadata || {};
-        const parent = tasks().find(task => task.project === (metadata.parent_project || metadata.project) && task.id === metadata.parent);
+        const parent = tasks().find(task => task.workspace === (metadata.parent_workspace || metadata.workspace) && task.id === metadata.parent);
         state.modalRoot = parent ? await fetchDocument('task', parent.path) : detail;
         state.modalKind = parent ? 'task' : 'subtask';
       } else {
@@ -655,16 +655,16 @@
 
   function documentMeta(detail, kind) {
     const metadata = detail.metadata || {};
-    const project = detail.project || {};
+    const workspace = detail.workspace || {};
     const rows = kind !== 'meeting' ? [
       ['Status', labelStatus(metadata.status)], ['Priority', metadata.priority],
-      ['Lab project', project.name || metadata.project], ['Group', metadata.group], ['Workspace', project.workspace],
+      ['Lab workspace', workspace.name || metadata.workspace], ['Group', metadata.group], ['Vault', workspace.vault],
       ['Parent', metadata.parent], ['Due', metadata.due], ['Owner', metadata.owner],
       ['Waiting on', metadata.waiting_on], ['Follow up', metadata.follow_up_at],
       ['Updated', displayDate(metadata.updated)],
     ] : [
-      ['Date', metadata.date], ['Project', project.name || metadata.project],
-      ['Workspace', project.workspace],
+      ['Date', metadata.date], ['Workspace', workspace.name || metadata.workspace],
+      ['Vault', workspace.vault],
       ['Attendees', Array.isArray(metadata.attendees) ? metadata.attendees.join(', ') : metadata.attendees],
       ['Updated', displayDate(metadata.updated)],
     ];
@@ -721,7 +721,7 @@
     const body = detail.body || '';
     const markdown = window.marked ? window.marked.parse(body) : `<pre>${e(body)}</pre>`;
     const metadata = detail.metadata || {};
-    const project = detail.project || {};
+    const workspace = detail.workspace || {};
     const host = document.getElementById('assistantModalDocument');
     const badges = kind !== 'meeting'
       ? `<div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>`
@@ -735,7 +735,7 @@
       <div>${badges}<h1>${e(metadata.title || metadata.id || 'Document')}</h1>${tldr ? `<p><b>TLDR</b>${e(tldr)}</p>` : ''}</div>${progress ? `<span>${e(progress)}</span>` : ''}
     </div>
     <div class="assistant-meta">${documentMeta(detail, kind)}</div>
-    ${project.project_path ? `<div class="assistant-path"><span>Project path</span><code>${e(project.project_path)}</code></div>` : ''}
+    ${workspace.workspace_path ? `<div class="assistant-path"><span>Workspace path</span><code>${e(workspace.workspace_path)}</code></div>` : ''}
     <div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
     const markdownHost = document.getElementById('assistantModalMarkdown');
     rewriteImages(markdownHost, detail.path);
@@ -864,7 +864,7 @@
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       state.data = data;
       if (data.exists && data.root) {
-        const filesResponse = await fetch('/api/project-files?path=' + encodeURIComponent(data.root));
+        const filesResponse = await fetch('/api/workspace-files?path=' + encodeURIComponent(data.root));
         state.files = filesResponse.ok ? await filesResponse.json() : [];
       } else {
         state.files = [];
@@ -872,15 +872,15 @@
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       if (options.task !== undefined) state.selectedTaskPath = options.task || '';
       if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
-      if (options.project !== undefined) state.project = options.project || '';
+      if (options.workspace !== undefined) state.workspace = options.workspace || '';
       const selected = tasks().find(task => task.path === state.selectedTaskPath);
       if (selected) {
-        state.project = selected.project;
-        state.expandedGroups.add(`${selected.project}:${internalGroup(selected)}`);
+        state.workspace = selected.workspace;
+        state.expandedGroups.add(`${selected.workspace}:${internalGroup(selected)}`);
       }
-      const available = projectRows();
-      if (!available.some(project => project.id === state.project)) {
-        state.project = available.length ? available[0].id : '';
+      const available = workspaceRows();
+      if (!available.some(workspace => workspace.id === state.workspace)) {
+        state.workspace = available.length ? available[0].id : '';
       }
       render();
     } catch (error) {
@@ -898,10 +898,10 @@
     state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
-    state.project = options.project || new URL(window.location).searchParams.get('assistant_project') || '';
+    state.workspace = options.workspace || new URL(window.location).searchParams.get('assistant_workspace') || '';
     state.search = '';
     state.expandedGroups.clear();
-    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, project: state.project});
+    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, workspace: state.workspace});
     if (!state.poll) {
       state.poll = setInterval(() => {
         if (document.body.classList.contains('assistant-active') && !document.hidden) refresh();

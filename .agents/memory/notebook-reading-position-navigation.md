@@ -1,7 +1,7 @@
 # Notebook reading position uses stable cell IDs
 
 Large notebook views persist the last-read cell in browser-local storage,
-scoped by owning workspace and notebook path. Restore by stable nbformat cell
+scoped by owning vault and notebook path. Restore by stable nbformat cell
 ID first and use the prior index only as a fallback, so insertions do not move
 the bookmark to unrelated content. Running cells stay visible but never steal
 the viewport on open, refresh, or execution start; use the blue Running control

@@ -1,10 +1,10 @@
 # Lab terminals: default tmux socket + stripped $TMUX (updated 2026-07-01)
 
 Decision changed: Lab terminals run on the **default** tmux socket, with session
-names carrying the namespace instead: `neurona-<workspace>-<project>-<tab>-<hash6>`
-(workspace = registry id from `~/.lab/workspaces.toml`, e.g. `ssd`/`local`).
-Do not reintroduce per-workspace `-L`/`-S` sockets — split sockets were the root
-cause of "opening a project creates a new session instead of attaching": sessions
+names carrying the namespace instead: `neurona-<vault>-<workspace>-<tab>-<hash6>`
+(vault = registry id from `~/.lab/vaults.toml`, e.g. `ssd`/`local`).
+Do not reintroduce per-vault `-L`/`-S` sockets — split sockets were the root
+cause of "opening a workspace creates a new session instead of attaching": sessions
 created while the server ran inside tmux landed on the containing server's socket
 (inherited `$TMUX`) and became invisible to launchd-run instances.
 

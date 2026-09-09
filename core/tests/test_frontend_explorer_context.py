@@ -39,7 +39,7 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     template = INDEX.read_text(encoding="utf-8")
 
-    # Repository tree + per-project tree + shared self/workspace tree.
+    # Repository tree + per-workspace tree + shared self/vault tree.
     assert source.count('data-entry-kind="folder"') >= 3
     assert source.count('data-entry-kind="file"') >= 5
     assert "document.addEventListener('contextmenu'" in source
@@ -64,7 +64,7 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
 
     # Secondary click gains the terminal action; the existing double-click
     # full-size document modal remains the file rows' dblclick behavior.
-    assert source.count("ondblclick=\"event.stopPropagation();openProjectDocModal") >= 5
+    assert source.count("ondblclick=\"event.stopPropagation();openWorkspaceDocModal") >= 5
 
 
 def test_notebook_creation_chooses_repository_folder_and_creates_notebook_kind() -> None:
@@ -100,15 +100,15 @@ process.stdout.write(JSON.stringify(_notebookFoldersByRoot.get('/repo')));
 def test_files_section_has_visible_new_file_action_for_every_file_root() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
 
-    assert "function openNewFileAtRoot(root, surface = 'project')" in source
+    assert "function openNewFileAtRoot(root, surface = 'workspace')" in source
     assert 'data-new-file-root="${escAttr(root || \'\')}"' in source
     assert '>＋ File</button>' in source
     assert "_sidebarFilesTitle(fileRoot, 'repo')" in source
     assert source.count("_sidebarFilesTitle(fileRoot)") >= 3
 
     helper = _between(
-        "function openNewFileAtRoot(root, surface = 'project')",
-        "function _sidebarFilesTitle(root, surface = 'project')",
+        "function openNewFileAtRoot(root, surface = 'workspace')",
+        "function _sidebarFilesTitle(root, surface = 'workspace')",
     )
     result = _run_node("""
 let opened = null;
@@ -117,13 +117,13 @@ const window = {};
 function openExplorerEntryDialog(action, ctx) { opened = {action, ctx}; }
 function explorerToast(message, error) { toast = {message, error}; }
 """ + helper + """
-openNewFileAtRoot('/workspace/repo', 'repo');
+openNewFileAtRoot('/vault/repo', 'repo');
 const repo = opened;
 opened = null;
-openNewFileAtRoot('/workspace/project');
-const project = opened;
+openNewFileAtRoot('/vault/workspace');
+const workspace = opened;
 openNewFileAtRoot('');
-process.stdout.write(JSON.stringify({repo, project, toast}));
+process.stdout.write(JSON.stringify({repo, workspace, toast}));
 """)
 
     assert result == {
@@ -132,17 +132,17 @@ process.stdout.write(JSON.stringify({repo, project, toast}));
             "ctx": {
                 "kind": "folder",
                 "path": "",
-                "root": "/workspace/repo",
+                "root": "/vault/repo",
                 "surface": "repo",
             },
         },
-        "project": {
+        "workspace": {
             "action": "create-file",
             "ctx": {
                 "kind": "folder",
                 "path": "",
-                "root": "/workspace/project",
-                "surface": "project",
+                "root": "/vault/workspace",
+                "surface": "workspace",
             },
         },
         "toast": {"message": "No file root is available.", "error": True},
@@ -187,17 +187,17 @@ def test_saved_diff_files_use_structured_diff_renderer_everywhere() -> None:
     assert "mode === 'split' ? renderSplit(file) : renderUnified(file)" in source
 
     repo_open = _between(
-        "async function openProjectFile(filepath)",
-        "function renderProjectFileView(filepath, fileContent)",
+        "async function openWorkspaceFile(filepath)",
+        "function renderWorkspaceFileView(filepath, fileContent)",
     )
-    project_open = _between(
+    workspace_open = _between(
         "async function _renderDocInto(filepath, container",
-        "async function openProjectDoc(filepath",
+        "async function openWorkspaceDoc(filepath",
     )
-    assert "/api/project-diff-file" in repo_open
+    assert "/api/workspace-diff-file" in repo_open
     assert "renderStoredDiffDocument(filepath, data, content)" in repo_open
-    assert "/api/project-diff-file" in project_open
-    assert "renderStoredDiffDocument(filepath, data, container)" in project_open
+    assert "/api/workspace-diff-file" in workspace_open
+    assert "renderStoredDiffDocument(filepath, data, container)" in workspace_open
     assert "lower.endsWith('.diff')" in source
     assert "lower.endsWith('.patch')" in source
 

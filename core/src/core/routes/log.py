@@ -107,15 +107,15 @@ def _log_dir(request: Request) -> Path:
     return paths.logs_dir(config.monorepo_root())
 
 
-def _workspace_log_dirs(request: Request) -> list[tuple[str, Path]]:
-    """Every registered workspace log directory, without changing workspace."""
-    from core.routes.term import _known_workspaces
+def _vault_log_dirs(request: Request) -> list[tuple[str, Path]]:
+    """Every registered vault log directory, without changing vault."""
+    from core.routes.term import _known_vaults
     from lab import paths
 
     active_root = Path(request.app.state.index_cache.root)
     return [
         (row["id"], paths.logs_dir(row["path"]))
-        for row in _known_workspaces(active_root)
+        for row in _known_vaults(active_root)
     ]
 
 
@@ -303,12 +303,12 @@ def log_tail_all(
     file: str = _DEFAULT_LOG_FILE,
     tail: int = Query(default=_DEFAULT_TAIL, ge=1, le=_MAX_TAIL),
 ) -> dict:
-    """Merge a log tail from every registered workspace into one timeline."""
+    """Merge a log tail from every registered vault into one timeline."""
     if not _is_allowed_log_name(file):
         raise HTTPException(status_code=400, detail="unsupported log file")
 
     entries: list[dict] = []
-    for workspace, log_dir in _workspace_log_dirs(request):
+    for vault, log_dir in _vault_log_dirs(request):
         path = log_dir / file
         try:
             lines = _tail_text_lines(path, tail)
@@ -316,7 +316,7 @@ def log_tail_all(
             continue
         for line in lines:
             entry = _parse_log_line(line)
-            entry["workspace"] = workspace
+            entry["vault"] = vault
             entries.append(entry)
     entries.sort(key=lambda row: str(row.get("ts") or ""))
     entries = entries[-tail:]
@@ -333,11 +333,11 @@ def log_clear_all(
     request: Request,
     file: str = _DEFAULT_LOG_FILE,
 ) -> dict:
-    """Truncate one whitelisted log across every registered workspace.
+    """Truncate one whitelisted log across every registered vault.
 
-    The consolidated Admin viewer reads the same set of workspace-local log
+    The consolidated Admin viewer reads the same set of vault-local log
     files through ``/api/log/tail/all``. Clearing that view therefore needs
-    to target the same set; clearing only the active workspace would make old
+    to target the same set; clearing only the active vault would make old
     rows appear to survive the action. This is destructive and admin-only.
     """
     auth.require_admin(request)
@@ -347,18 +347,18 @@ def log_clear_all(
     cleared: list[str] = []
     missing: list[str] = []
     failed: list[dict[str, str]] = []
-    for workspace, log_dir in _workspace_log_dirs(request):
+    for vault, log_dir in _vault_log_dirs(request):
         path = log_dir / file
         try:
             if not path.exists():
-                missing.append(workspace)
+                missing.append(vault)
                 continue
             # FileHandlers open logs in append mode, so truncating the same
             # inode is safe: future records resume at the new end of file.
             path.write_text("", encoding="utf-8")
-            cleared.append(workspace)
+            cleared.append(vault)
         except OSError as exc:
-            failed.append({"workspace": workspace, "error": str(exc)})
+            failed.append({"vault": vault, "error": str(exc)})
 
     return {
         "ok": not failed,

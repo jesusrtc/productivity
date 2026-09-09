@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from lab.model import ModelError, Priority, Project, ProjectStatus
+from lab.model import ModelError, Priority, Workspace, WorkspaceStatus
 
 
-def test_project_status_enum_values() -> None:
-    assert {s.value for s in ProjectStatus} == {"active", "paused", "done", "archived"}
+def test_workspace_status_enum_values() -> None:
+    assert {s.value for s in WorkspaceStatus} == {"active", "paused", "done", "archived"}
 
 
 def test_priority_enum_values() -> None:
     assert {p.value for p in Priority} == {"P0", "P1", "P2", "P3"}
 
 
-def test_project_from_dict_roundtrip() -> None:
+def test_workspace_from_dict_roundtrip() -> None:
     data = {
         "id": "davi-vision",
         "name": "DAVI Vision",
@@ -35,14 +35,14 @@ def test_project_from_dict_roundtrip() -> None:
         "agent": None,
         "model": None,
     }
-    p = Project.from_dict(data)
+    p = Workspace.from_dict(data)
     assert p.id == "davi-vision"
-    assert p.status is ProjectStatus.active
+    assert p.status is WorkspaceStatus.active
     assert p.priority is Priority.P1
     assert p.to_dict() == data
 
 
-def test_project_hold_roundtrip() -> None:
+def test_workspace_hold_roundtrip() -> None:
     data = {
         "id": "x", "name": "x", "status": "active",
         "hold": {
@@ -52,49 +52,49 @@ def test_project_hold_roundtrip() -> None:
             "set_at": "2026-04-20T09:00:00-07:00",
         },
     }
-    p = Project.from_dict(data)
+    p = Workspace.from_dict(data)
     assert p.hold is not None
     assert p.hold["until"] == "2026-05-01T14:00:00-07:00"
     assert p.to_dict()["hold"] == data["hold"]
 
 
-def test_project_hold_requires_until() -> None:
+def test_workspace_hold_requires_until() -> None:
     with pytest.raises(ModelError):
-        Project.from_dict({"id": "x", "name": "x", "status": "active",
+        Workspace.from_dict({"id": "x", "name": "x", "status": "active",
                            "hold": {"reason": "nope"}})
 
 
-def test_project_hold_accepts_bare_date() -> None:
-    p = Project.from_dict({"id": "x", "name": "x", "status": "active",
+def test_workspace_hold_accepts_bare_date() -> None:
+    p = Workspace.from_dict({"id": "x", "name": "x", "status": "active",
                            "hold": {"until": "2026-05-01"}})
     assert p.hold == {"until": "2026-05-01"}
 
 
-def test_project_rejects_bad_status() -> None:
+def test_workspace_rejects_bad_status() -> None:
     data = {"id": "x", "name": "x", "status": "weird"}
     with pytest.raises(ModelError):
-        Project.from_dict(data)
+        Workspace.from_dict(data)
 
 
-def test_project_rejects_bad_priority() -> None:
+def test_workspace_rejects_bad_priority() -> None:
     data = {"id": "x", "name": "x", "status": "active", "priority": "P9"}
     with pytest.raises(ModelError):
-        Project.from_dict(data)
+        Workspace.from_dict(data)
 
 
-def test_project_rejects_bad_due_format() -> None:
+def test_workspace_rejects_bad_due_format() -> None:
     data = {"id": "x", "name": "x", "status": "active", "due": "tomorrow"}
     with pytest.raises(ModelError):
-        Project.from_dict(data)
+        Workspace.from_dict(data)
 
 
-def test_project_rejects_bad_id() -> None:
+def test_workspace_rejects_bad_id() -> None:
     with pytest.raises(ModelError):
-        Project.from_dict({"id": "Bad ID!", "name": "x", "status": "active"})
+        Workspace.from_dict({"id": "Bad ID!", "name": "x", "status": "active"})
 
 
-def test_project_defaults_fill_missing_fields() -> None:
-    p = Project.from_dict({"id": "x", "name": "x", "status": "active"})
+def test_workspace_defaults_fill_missing_fields() -> None:
+    p = Workspace.from_dict({"id": "x", "name": "x", "status": "active"})
     assert p.tags == []
     assert p.labels == []
     assert p.worktrees == []

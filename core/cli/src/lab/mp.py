@@ -23,13 +23,13 @@ def prefix_for(mp: str) -> str | None:
     return load_prefixes().get(mp)
 
 
-def objective_from(project_id: str) -> str:
-    """Extract the objective portion of a project id by stripping any known prefix."""
+def objective_from(workspace_id: str) -> str:
+    """Extract the objective portion of a workspace id by stripping any known prefix."""
     prefixes = load_prefixes()
     # Longest-match first so `drools` wins over `d`
     for mp, pfx in sorted(prefixes.items(), key=lambda kv: -len(kv[1])):
-        if project_id == pfx:
-            return project_id
-        if project_id.startswith(pfx + "-"):
-            return project_id[len(pfx) + 1:]
-    return project_id
+        if workspace_id == pfx:
+            return workspace_id
+        if workspace_id.startswith(pfx + "-"):
+            return workspace_id[len(pfx) + 1:]
+    return workspace_id

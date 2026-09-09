@@ -1,6 +1,6 @@
-"""Per-project dev-server management.
+"""Per-workspace dev-server management.
 
-A workspace project opts in by having a ``Makefile`` at its project root
+A vault workspace opts in by having a ``Makefile`` at its workspace root
 with a ``server-start`` target. Convention (see ``docs/SERVERS.md``):
 
   server-start:       # required — foreground, blocks
@@ -20,22 +20,24 @@ normal terminal UI as a "server" tab. "Stopping" runs the optional
 
 A background supervisor thread ticks periodically, checks liveness (tmux
 has-session) + health (HTTP GET on the optional health URL), and restarts
-any project whose desired state is "running" but whose session died or
+any workspace whose desired state is "running" but whose session died or
 whose health check has been failing.
 
-Desired state (running vs. stopped) is persisted per-workspace at
+Desired state (running vs. stopped) is persisted per-vault at
 ``<root>/.lab/state/servers.json`` so it survives server restarts.
 
-Servers are managed across EVERY registered workspace (``~/.lab/
-workspaces.toml``), not just the active one: ``GET /api/servers`` returns
-rows from all of them (each carrying ``workspace``), the supervisor ticks
+Servers are managed across EVERY registered vault (``~/.lab/
+vaults.toml``), not just the active one: ``GET /api/servers`` returns
+rows from all of them (each carrying ``vault``), the supervisor ticks
 all of them every interval, and start/stop/restart take an explicit
-``{workspace}`` path segment (see ``_known_workspaces``). A workspace whose
+``{vault}`` path segment (see ``_known_vaults``). A vault whose
 path is currently missing or stalled is skipped for that cycle rather than
-failing the whole request — mirrors ``core.routes.workspace``'s
-per-workspace degradation in ``list_workspace_projects``.
+failing the whole request — mirrors ``core.routes.vault``'s
+per-vault degradation in ``list_vault_workspaces``.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import json
 import logging
@@ -56,7 +58,7 @@ from lab.model import ModelError, validate_id
 
 from core import auth, fsguard
 from core.routes import term as term_routes
-from core.routes import workspace as workspace_routes
+from core.routes import vault as vault_routes
 
 
 router = APIRouter()
@@ -64,9 +66,9 @@ router = APIRouter()
 log = logging.getLogger("core.servers")
 
 
-def _validate_project_id(project_id: str) -> None:
+def _validate_workspace_id(workspace_id: str) -> None:
     try:
-        validate_id(project_id)
+        validate_id(workspace_id)
     except ModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -78,43 +80,43 @@ def _root_key(root: Path) -> str:
         return str(root)
 
 
-_WORKSPACE_ID_CACHE_TTL_S = 15.0
-_workspace_id_cache: dict[str, tuple[float, str]] = {}
+_VAULT_ID_CACHE_TTL_S = 15.0
+_vault_id_cache: dict[str, tuple[float, str]] = {}
 
 
-def _workspace_id(root: Path) -> str:
-    """Registered workspace id for ``root`` (directory name as fallback),
+def _vault_id(root: Path) -> str:
+    """Registered vault id for ``root`` (directory name as fallback),
     cached briefly — the registry is a tiny toml but the dashboard polls
     every few seconds."""
     key = _root_key(root)
     now = time.monotonic()
-    cached = _workspace_id_cache.get(key)
-    if cached and (now - cached[0]) < _WORKSPACE_ID_CACHE_TTL_S:
+    cached = _vault_id_cache.get(key)
+    if cached and (now - cached[0]) < _VAULT_ID_CACHE_TTL_S:
         return cached[1]
     try:
-        rows = list(paths.read_workspace_registry().get("workspaces") or [])
+        rows = list(paths.read_vault_registry().get("vaults") or [])
     except Exception:
         rows = []
-    wid = workspace_routes._workspace_id_for(Path(key), rows)
-    _workspace_id_cache[key] = (now, wid)
-    return wid
+    vault_id = vault_routes._vault_id_for(Path(key), rows)
+    _vault_id_cache[key] = (now, vault_id)
+    return vault_id
 
 
-def _known_workspaces(active_root: Path | None) -> list[dict]:
-    """``[{"id": ..., "path": Path}, ...]`` for every registered workspace,
+def _known_vaults(active_root: Path | None) -> list[dict]:
+    """``[{"id": ..., "path": Path}, ...]`` for every registered vault,
     plus ``active_root`` itself if it isn't already one of them.
 
-    This is what makes dev servers span every registered workspace instead
-    of just the active one. The not-yet-registered-current-workspace
-    fallback mirrors ``_workspace_id``/``core.routes.workspace``'s
-    ``_workspace_id_for`` (id defaults to the resolved directory name), so
-    servers still work before a workspace has been formally registered —
-    the shape most of this test suite's fixture workspace is in. Read
+    This is what makes dev servers span every registered vault instead
+    of just the active one. The not-yet-registered-current-vault
+    fallback mirrors ``_vault_id``/``core.routes.vault``'s
+    ``_vault_id_for`` (id defaults to the resolved directory name), so
+    servers still work before a vault has been formally registered —
+    the shape most of this test suite's fixture vault is in. Read
     fresh on every call: the registry is a small TOML file and can change
-    out-of-process (``lab workspace add`` et al.) without a server restart.
+    out-of-process (``lab vault add`` et al.) without a server restart.
     """
     try:
-        rows = list(paths.read_workspace_registry().get("workspaces") or [])
+        rows = list(paths.read_vault_registry().get("vaults") or [])
     except Exception:
         rows = []
     out: list[dict] = []
@@ -138,26 +140,26 @@ def _known_workspaces(active_root: Path | None) -> list[dict]:
         except OSError:
             resolved = active_root
         if str(resolved) not in seen:
-            out.insert(0, {"id": workspace_routes._workspace_id_for(resolved, rows), "path": resolved})
+            out.insert(0, {"id": vault_routes._vault_id_for(resolved, rows), "path": resolved})
     return out
 
 
-def _resolve_workspace_root(workspace_id: str, active_root: Path | None) -> Path | None:
-    for ws in _known_workspaces(active_root):
-        if ws["id"] == workspace_id:
-            return ws["path"]
+def _resolve_vault_root(vault_id: str, active_root: Path | None) -> Path | None:
+    for vault_row in _known_vaults(active_root):
+        if vault_row["id"] == vault_id:
+            return vault_row["path"]
     return None
 
 
-def _require_workspace_root(workspace_id: str, active_root: Path | None) -> Path:
-    """404 for an unknown workspace id, or one whose path isn't reachable
+def _require_vault_root(vault_id: str, active_root: Path | None) -> Path:
+    """404 for an unknown vault id, or one whose path isn't reachable
     right now (missing mount, unplugged drive, a stalled volume that times
     out rather than answering). From the API caller's perspective both read
-    as "can't act on this workspace right now", so a stall degrades to 404
+    as "can't act on this vault right now", so a stall degrades to 404
     here rather than surfacing fsguard's 503."""
-    root = _resolve_workspace_root(workspace_id, active_root)
+    root = _resolve_vault_root(vault_id, active_root)
     if root is None:
-        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"vault {vault_id!r} not found")
     try:
         available = fsguard.guarded(root, root.is_dir)
     except HTTPException as exc:
@@ -165,10 +167,10 @@ def _require_workspace_root(workspace_id: str, active_root: Path | None) -> Path
             raise
         raise HTTPException(
             status_code=404,
-            detail=f"workspace {workspace_id!r} is not available right now: {exc.detail}",
+            detail=f"vault {vault_id!r} is not available right now: {exc.detail}",
         ) from exc
     if not available:
-        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} path not found: {root}")
+        raise HTTPException(status_code=404, detail=f"vault {vault_id!r} path not found: {root}")
     return root
 
 
@@ -202,15 +204,15 @@ def _parse_makefile(text: str) -> dict:
     return {"has_start": has_start, "has_stop": has_stop, "port": port, "health_url": health_url}
 
 
-def _scan_server_projects(root: Path) -> list[dict]:
-    """Blocking scan of ``root/projects/*/Makefile`` for server-managed
-    projects. Runs inside ``fsguard.guarded`` — never call directly against
-    a live workspace path outside that wrapper."""
-    projects_dir = root / "projects"
-    if not projects_dir.is_dir():
+def _scan_server_workspaces(root: Path) -> list[dict]:
+    """Blocking scan of ``root/workspaces/*/Makefile`` for server-managed
+    workspaces. Runs inside ``fsguard.guarded`` — never call directly against
+    a live vault path outside that wrapper."""
+    workspaces_dir = naming.workspaces_dir(root)
+    if not workspaces_dir.is_dir():
         return []
     found: list[dict] = []
-    for pdir in sorted(projects_dir.iterdir()):
+    for pdir in sorted(workspaces_dir.iterdir()):
         if not pdir.is_dir() or pdir.name.startswith("."):
             continue
         makefile = pdir / "Makefile"
@@ -223,7 +225,7 @@ def _scan_server_projects(root: Path) -> list[dict]:
         info = _parse_makefile(text)
         if not info["has_start"]:
             continue
-        info["project_id"] = pdir.name
+        info["workspace_id"] = pdir.name
         found.append(info)
     return found
 
@@ -233,56 +235,56 @@ _discovery_cache_lock = threading.Lock()
 _discovery_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
-def _discover_server_projects(root: Path) -> list[dict]:
-    """Server-managed projects for ``root``, cached for a few seconds."""
+def _discover_server_workspaces(root: Path) -> list[dict]:
+    """Server-managed workspaces for ``root``, cached for a few seconds."""
     key = _root_key(root)
     now = time.monotonic()
     with _discovery_cache_lock:
         cached = _discovery_cache.get(key)
         if cached and (now - cached[0]) < _DISCOVERY_CACHE_TTL_S:
             return [dict(r) for r in cached[1]]
-    rows = fsguard.guarded(root, _scan_server_projects, root)
+    rows = fsguard.guarded(root, _scan_server_workspaces, root)
     with _discovery_cache_lock:
         _discovery_cache[key] = (now, rows)
     return [dict(r) for r in rows]
 
 
-def _find_server_project(root: Path, project_id: str) -> dict | None:
-    for row in _discover_server_projects(root):
-        if row["project_id"] == project_id:
+def _find_server_workspace(root: Path, workspace_id: str) -> dict | None:
+    for row in _discover_server_workspaces(root):
+        if row["workspace_id"] == workspace_id:
             return row
     return None
 
 
 def _discover_all_server_rows(active_root: Path | None) -> list[tuple[str, Path, dict]]:
-    """``(workspace_id, root, discovery_row)`` across every available
-    registry workspace, sorted by ``(workspace_id, project_id)``.
+    """``(vault_id, root, discovery_row)`` across every available
+    registry vault, sorted by ``(vault_id, workspace_id)``.
 
-    A workspace whose path is missing or its volume stalled this cycle
-    (fsguard 503 from ``_discover_server_projects``) is silently skipped —
-    mirrors ``core.routes.workspace``'s per-workspace degradation in
-    ``list_workspace_projects`` so one dead mount never blanks every other
-    workspace's rows.
+    A vault whose path is missing or its volume stalled this cycle
+    (fsguard 503 from ``_discover_server_workspaces``) is silently skipped —
+    mirrors ``core.routes.vault``'s per-vault degradation in
+    ``list_vault_workspaces`` so one dead mount never blanks every other
+    vault's rows.
     """
     out: list[tuple[str, Path, dict]] = []
-    for ws in _known_workspaces(active_root):
-        root = ws["path"]
+    for vault_row in _known_vaults(active_root):
+        root = vault_row["path"]
         try:
-            found = _discover_server_projects(root)
+            found = _discover_server_workspaces(root)
         except HTTPException as exc:
             if exc.status_code != 503:
                 raise
             continue
         for row in found:
-            out.append((ws["id"], root, row))
-    out.sort(key=lambda t: (t[0], t[2]["project_id"]))
+            out.append((vault_row["id"], root, row))
+    out.sort(key=lambda t: (t[0], t[2]["workspace_id"]))
     return out
 
 
 # ─── desired-state persistence ──────────────────────────────────────────────
 
 def _servers_state_file(root: Path) -> Path:
-    return paths.workspace_state_dir(root) / "servers.json"
+    return paths.vault_state_dir(root) / "servers.json"
 
 
 def _load_desired_state(root: Path) -> dict:
@@ -297,23 +299,23 @@ def _save_desired_state(root: Path, data: dict) -> None:
     storage.write_json(_servers_state_file(root), data)
 
 
-def set_desired(root: Path, project_id: str, desired: str) -> None:
-    """Persist the desired run state ("running"/"stopped") for a project.
+def set_desired(root: Path, workspace_id: str, desired: str) -> None:
+    """Persist the desired run state ("running"/"stopped") for a workspace.
 
     Public (no leading underscore) because ``core.routes.term`` calls this
     after killing a "server" tab session so the supervisor doesn't
     resurrect a session the user explicitly closed.
     """
     data = _load_desired_state(root)
-    data[project_id] = {
+    data[workspace_id] = {
         "desired": desired,
         "updated": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
     }
     _save_desired_state(root, data)
 
 
-def _get_desired(root: Path, project_id: str) -> str:
-    entry = _load_desired_state(root).get(project_id)
+def _get_desired(root: Path, workspace_id: str) -> str:
+    entry = _load_desired_state(root).get(workspace_id)
     if isinstance(entry, dict) and entry.get("desired") in ("running", "stopped"):
         return entry["desired"]
     return "stopped"
@@ -324,17 +326,17 @@ def _get_desired(root: Path, project_id: str) -> str:
 _SERVER_TAB_NAME = "server"
 
 
-def _session_name_for(root: Path, project_id: str) -> str:
-    return term_routes._tmux_name_for(project_id, _SERVER_TAB_NAME, root)
+def _session_name_for(root: Path, workspace_id: str) -> str:
+    return term_routes._tmux_name_for(workspace_id, _SERVER_TAB_NAME, root)
 
 
-def _live_or_current_session_name(root: Path, project_id: str) -> str:
-    """Adopt a live server from the previous workspace-visible naming scheme."""
-    current = _session_name_for(root, project_id)
+def _live_or_current_session_name(root: Path, workspace_id: str) -> str:
+    """Adopt a live server from the previous vault-visible naming scheme."""
+    current = _session_name_for(root, workspace_id)
     if term_routes._tmux_has_session(current):
         return current
-    previous = term_routes._legacy_workspace_tmux_name_for(
-        project_id, _SERVER_TAB_NAME, root,
+    previous = term_routes._legacy_vault_tmux_name_for(
+        workspace_id, _SERVER_TAB_NAME, root,
     )
     if term_routes._tmux_has_session(previous):
         return previous
@@ -358,13 +360,13 @@ def _check_health(url: str | None, timeout: float = _HEALTH_TIMEOUT_S) -> bool:
         return False
 
 
-def _spawn_server_session(root: Path, project_id: str, project_dir: Path) -> str:
+def _spawn_server_session(root: Path, workspace_id: str, workspace_dir: Path) -> str:
     """Start the tmux session running ``make server-start`` (no-op if
     already alive). Returns the session name. Raises HTTPException(409) on
     a hard tmux failure, HTTPException(500) if tmux isn't installed."""
     if not term_routes._tmux_available():
         raise HTTPException(status_code=500, detail="tmux not installed. Run: brew install tmux")
-    session_name = _live_or_current_session_name(root, project_id)
+    session_name = _live_or_current_session_name(root, workspace_id)
     if term_routes._tmux_has_session(session_name):
         return session_name
     with tmux_sockets.state_lock():
@@ -388,7 +390,7 @@ def _spawn_server_session(root: Path, project_id: str, project_dir: Path) -> str
                 "-s",
                 session_name,
                 "-c",
-                str(project_dir),
+                str(workspace_dir),
                 "make server-start",
             ),
             capture_output=True, text=True, env=term_routes._tmux_child_env(),
@@ -402,21 +404,21 @@ def _spawn_server_session(root: Path, project_id: str, project_dir: Path) -> str
         raise HTTPException(status_code=409, detail=message)
     log.info(
         "server session spawned",
-        extra={"event_type": "servers.spawn", "action": project_id, "target": session_name},
+        extra={"event_type": "servers.spawn", "action": workspace_id, "target": session_name},
     )
     return session_name
 
 
-def _stop_server_session(root: Path, project_id: str, project_dir: Path, has_stop: bool) -> str:
+def _stop_server_session(root: Path, workspace_id: str, workspace_dir: Path, has_stop: bool) -> str:
     """Best-effort ``make server-stop`` (if the target exists) then
     ``tmux kill-session``. Returns the session name. Raises
     HTTPException(504) if ``make server-stop`` times out; a nonzero exit
     code from ``server-stop`` itself is ignored (best effort)."""
-    session_name = _live_or_current_session_name(root, project_id)
+    session_name = _live_or_current_session_name(root, workspace_id)
     if has_stop:
         try:
             subprocess.run(
-                ["make", "server-stop"], cwd=str(project_dir), timeout=20,
+                ["make", "server-stop"], cwd=str(workspace_dir), timeout=20,
                 capture_output=True, text=True, env=term_routes._tmux_child_env(),
             )
         except subprocess.TimeoutExpired:
@@ -437,28 +439,28 @@ def _stop_server_session(root: Path, project_id: str, project_dir: Path, has_sto
         )
     log.info(
         "server session stopped",
-        extra={"event_type": "servers.stop", "action": project_id, "target": session_name},
+        extra={"event_type": "servers.stop", "action": workspace_id, "target": session_name},
     )
     return session_name
 
 
-def _restart_project(root: Path, project_id: str, project_dir: Path, row: dict) -> None:
+def _restart_workspace(root: Path, workspace_id: str, workspace_dir: Path, row: dict) -> None:
     """Stop then start. Raises HTTPException on a hard failure from either
     step (surfaced to the API caller as 409/504/500)."""
     try:
-        _stop_server_session(root, project_id, project_dir, bool(row.get("has_stop")))
+        _stop_server_session(root, workspace_id, workspace_dir, bool(row.get("has_stop")))
     finally:
         # Reset the cached liveness/started_at BEFORE respawning so the new
         # session gets a fresh "starting" grace window instead of inheriting
         # whatever `started_at` the previous run had.
-        _refresh_status(root, project_id, row)
-    _spawn_server_session(root, project_id, project_dir)
+        _refresh_status(root, workspace_id, row)
+    _spawn_server_session(root, workspace_id, workspace_dir)
 
 
 # ─── status cache ────────────────────────────────────────────────────────────
 #
-# Keyed by (resolved workspace root, project_id) so a workspace switch never
-# mixes up two different workspaces' projects that happen to share an id.
+# Keyed by (resolved vault root, workspace_id) so a vault switch never
+# mixes up two different vaults' workspaces that happen to share an id.
 
 _STATUS_LOCK = threading.Lock()
 _STATUS: dict[tuple[str, str], dict] = {}
@@ -496,12 +498,12 @@ def _derive_state(alive: bool, healthy: bool | None, health_url: str | None,
     return "unhealthy"
 
 
-def _refresh_status(root: Path, project_id: str, row: dict) -> dict:
-    """Compute liveness/health for one project and update the shared status
+def _refresh_status(root: Path, workspace_id: str, row: dict) -> dict:
+    """Compute liveness/health for one workspace and update the shared status
     cache (never performs a restart). Returns a copy of the updated entry.
     Used both by the supervisor tick and by GET /api/servers's bounded
     inline refresh for stale/missing rows."""
-    session_name = _live_or_current_session_name(root, project_id)
+    session_name = _live_or_current_session_name(root, workspace_id)
     session_info = term_routes._tmux_session_info(session_name)
     alive = session_info is not None
     health_url = row.get("health_url")
@@ -512,7 +514,7 @@ def _refresh_status(root: Path, project_id: str, row: dict) -> dict:
     if not alive and healthy is False:
         healthy = None
     now_mono = time.monotonic()
-    key = (_root_key(root), project_id)
+    key = (_root_key(root), workspace_id)
     with _STATUS_LOCK:
         entry = _STATUS.setdefault(key, _default_status_entry())
         if not alive:
@@ -536,22 +538,22 @@ def _refresh_status(root: Path, project_id: str, row: dict) -> dict:
         return dict(entry)
 
 
-def _row_for(root: Path, project_id: str, row: dict, entry: dict) -> dict:
-    session_name = _live_or_current_session_name(root, project_id)
+def _row_for(root: Path, workspace_id: str, row: dict, entry: dict) -> dict:
+    session_name = _live_or_current_session_name(root, workspace_id)
     port = row.get("port")
     status = entry["state"]
     # Human-facing URL, non-null whenever the server is actually listening
     # (managed or external) — the dashboard's "Open" button gates on this.
     url = f"http://localhost:{port}/" if (port is not None and status in ("running", "external")) else None
     return {
-        "project_id": project_id,
-        "workspace": _workspace_id(root),
-        "path": str(root / "projects" / project_id),
+        "workspace_id": workspace_id,
+        "vault": _vault_id(root),
+        "path": str(naming.workspaces_dir(root) / workspace_id),
         "has_stop": bool(row.get("has_stop")),
         "port": port,
         "health_url": row.get("health_url"),
         "url": url,
-        "desired": _get_desired(root, project_id),
+        "desired": _get_desired(root, workspace_id),
         "status": status,
         "healthy": entry["healthy"],
         "session_name": session_name,
@@ -574,28 +576,28 @@ def _supervisor_interval_s() -> float:
         return 10.0
 
 
-def _supervisor_restart(root: Path, project_id: str, project_dir: Path, row: dict) -> bool:
+def _supervisor_restart(root: Path, workspace_id: str, workspace_dir: Path, row: dict) -> bool:
     """Best-effort restart for the supervisor — never raises."""
     try:
-        _restart_project(root, project_id, project_dir, row)
+        _restart_workspace(root, workspace_id, workspace_dir, row)
         return True
     except Exception:
         log.warning(
-            "supervisor restart failed for %s", project_id, exc_info=True,
-            extra={"event_type": "servers.supervisor.restart_failed", "action": project_id},
+            "supervisor restart failed for %s", workspace_id, exc_info=True,
+            extra={"event_type": "servers.supervisor.restart_failed", "action": workspace_id},
         )
         return False
 
 
 def _supervisor_tick_impl(root: Path) -> None:
-    rows = _discover_server_projects(root)
+    rows = _discover_server_workspaces(root)
     desired_map = _load_desired_state(root)
     now_mono = time.monotonic()
 
     for row in rows:
-        project_id = row["project_id"]
-        entry = _refresh_status(root, project_id, row)
-        desired = (desired_map.get(project_id) or {}).get("desired", "stopped")
+        workspace_id = row["workspace_id"]
+        entry = _refresh_status(root, workspace_id, row)
+        desired = (desired_map.get(workspace_id) or {}).get("desired", "stopped")
 
         # "external" means the port is already answering without a lab
         # session — spawning `make server-start` on top of it would just
@@ -605,7 +607,7 @@ def _supervisor_tick_impl(root: Path) -> None:
             or (bool(row.get("health_url")) and entry["consecutive_unhealthy"] >= 2)
         )
 
-        key = (_root_key(root), project_id)
+        key = (_root_key(root), workspace_id)
         if needs_restart:
             with _STATUS_LOCK:
                 e = _STATUS[key]
@@ -623,9 +625,9 @@ def _supervisor_tick_impl(root: Path) -> None:
         if not needs_restart:
             continue
 
-        project_dir = root / "projects" / project_id
-        ok = _supervisor_restart(root, project_id, project_dir, row)
-        entry2 = _refresh_status(root, project_id, row)
+        workspace_dir = naming.workspaces_dir(root) / workspace_id
+        ok = _supervisor_restart(root, workspace_id, workspace_dir, row)
+        entry2 = _refresh_status(root, workspace_id, row)
         if not ok or not entry2["alive"]:
             with _STATUS_LOCK:
                 _STATUS[key]["consecutive_restart_failures"] += 1
@@ -634,11 +636,11 @@ def _supervisor_tick_impl(root: Path) -> None:
 def supervisor_tick(root: Path) -> None:
     """Run one supervisor pass for ``root``.
 
-    Never raises — a bad tick (a stalled workspace volume, a project whose
+    Never raises — a bad tick (a stalled vault volume, a workspace whose
     Makefile went missing mid-scan, ...) must not kill the daemon thread.
-    A workspace whose path is currently unavailable (fsguard 503 — missing
+    A vault whose path is currently unavailable (fsguard 503 — missing
     mount, stalled volume) is skipped quietly at DEBUG rather than logged
-    as an ERROR on every tick: with multiple workspaces ticked every
+    as an ERROR on every tick: with multiple vaults ticked every
     interval, an unmounted USB drive is an expected steady state, not a
     bug. Any other failure is still logged loudly. Tests call this
     directly without any thread involved.
@@ -648,8 +650,8 @@ def supervisor_tick(root: Path) -> None:
     except HTTPException as exc:
         if exc.status_code == 503:
             log.debug(
-                "server supervisor: workspace unavailable this tick: %s", root,
-                extra={"event_type": "servers.supervisor.workspace_unavailable"},
+                "server supervisor: vault unavailable this tick: %s", root,
+                extra={"event_type": "servers.supervisor.vault_unavailable"},
             )
             return
         log.exception(
@@ -672,8 +674,8 @@ def _supervisor_loop(get_root) -> None:
     while not _SUPERVISOR_STOP.is_set():
         try:
             active_root = get_root()
-            for ws in _known_workspaces(active_root):
-                supervisor_tick(ws["path"])
+            for vault_row in _known_vaults(active_root):
+                supervisor_tick(vault_row["path"])
         except Exception:  # pragma: no cover — defensive; supervisor_tick already guards
             log.exception("server supervisor loop iteration failed")
         interval = _supervisor_interval_s()
@@ -725,75 +727,75 @@ def list_servers(request: Request) -> dict:
     now_wall = time.time()
 
     out = []
-    for workspace_id, root, row in _discover_all_server_rows(active_root):
-        if not auth.can_access_workspace(user, workspace_id):
+    for vault_id, root, row in _discover_all_server_rows(active_root):
+        if not auth.can_access_vault(user, vault_id):
             continue
-        project_id = row["project_id"]
-        key = (_root_key(root), project_id)
+        workspace_id = row["workspace_id"]
+        key = (_root_key(root), workspace_id)
         with _STATUS_LOCK:
             cached = _STATUS.get(key)
             entry = dict(cached) if cached else None
         if entry is None or (now_wall - entry["last_check"]) > stale_after:
-            entry = _refresh_status(root, project_id, row)
-        out.append(_row_for(root, project_id, row, entry))
+            entry = _refresh_status(root, workspace_id, row)
+        out.append(_row_for(root, workspace_id, row, entry))
     return {"servers": out}
 
 
-@router.post("/api/servers/{workspace}/{project_id}/start")
-def start_server(workspace: str, project_id: str, request: Request) -> dict:
-    auth.require_workspace(request, workspace)
-    _validate_project_id(project_id)
+@router.post("/api/servers/{vault}/{workspace_id}/start")
+def start_server(vault: str, workspace_id: str, request: Request) -> dict:
+    auth.require_vault(request, vault)
+    _validate_workspace_id(workspace_id)
     active_root = auth.request_root(request)
-    root = _require_workspace_root(workspace, active_root)
-    row = _find_server_project(root, project_id)
+    root = _require_vault_root(vault, active_root)
+    row = _find_server_workspace(root, workspace_id)
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail=f"project {project_id!r} has no server-start Makefile target in workspace {workspace!r}",
+            detail=f"workspace {workspace_id!r} has no server-start Makefile target in vault {vault!r}",
         )
 
-    set_desired(root, project_id, "running")
-    project_dir = root / "projects" / project_id
-    _spawn_server_session(root, project_id, project_dir)
-    entry = _refresh_status(root, project_id, row)
-    return _row_for(root, project_id, row, entry)
+    set_desired(root, workspace_id, "running")
+    workspace_dir = naming.workspaces_dir(root) / workspace_id
+    _spawn_server_session(root, workspace_id, workspace_dir)
+    entry = _refresh_status(root, workspace_id, row)
+    return _row_for(root, workspace_id, row, entry)
 
 
-@router.post("/api/servers/{workspace}/{project_id}/stop")
-def stop_server(workspace: str, project_id: str, request: Request) -> dict:
-    auth.require_workspace(request, workspace)
-    _validate_project_id(project_id)
+@router.post("/api/servers/{vault}/{workspace_id}/stop")
+def stop_server(vault: str, workspace_id: str, request: Request) -> dict:
+    auth.require_vault(request, vault)
+    _validate_workspace_id(workspace_id)
     active_root = auth.request_root(request)
-    root = _require_workspace_root(workspace, active_root)
-    row = _find_server_project(root, project_id)
+    root = _require_vault_root(vault, active_root)
+    row = _find_server_workspace(root, workspace_id)
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail=f"project {project_id!r} has no server-start Makefile target in workspace {workspace!r}",
+            detail=f"workspace {workspace_id!r} has no server-start Makefile target in vault {vault!r}",
         )
 
-    set_desired(root, project_id, "stopped")
-    project_dir = root / "projects" / project_id
-    _stop_server_session(root, project_id, project_dir, bool(row.get("has_stop")))
-    entry = _refresh_status(root, project_id, row)
-    return _row_for(root, project_id, row, entry)
+    set_desired(root, workspace_id, "stopped")
+    workspace_dir = naming.workspaces_dir(root) / workspace_id
+    _stop_server_session(root, workspace_id, workspace_dir, bool(row.get("has_stop")))
+    entry = _refresh_status(root, workspace_id, row)
+    return _row_for(root, workspace_id, row, entry)
 
 
-@router.post("/api/servers/{workspace}/{project_id}/restart")
-def restart_server(workspace: str, project_id: str, request: Request) -> dict:
-    auth.require_workspace(request, workspace)
-    _validate_project_id(project_id)
+@router.post("/api/servers/{vault}/{workspace_id}/restart")
+def restart_server(vault: str, workspace_id: str, request: Request) -> dict:
+    auth.require_vault(request, vault)
+    _validate_workspace_id(workspace_id)
     active_root = auth.request_root(request)
-    root = _require_workspace_root(workspace, active_root)
-    row = _find_server_project(root, project_id)
+    root = _require_vault_root(vault, active_root)
+    row = _find_server_workspace(root, workspace_id)
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail=f"project {project_id!r} has no server-start Makefile target in workspace {workspace!r}",
+            detail=f"workspace {workspace_id!r} has no server-start Makefile target in vault {vault!r}",
         )
 
-    set_desired(root, project_id, "running")
-    project_dir = root / "projects" / project_id
-    _restart_project(root, project_id, project_dir, row)
-    entry = _refresh_status(root, project_id, row)
-    return _row_for(root, project_id, row, entry)
+    set_desired(root, workspace_id, "running")
+    workspace_dir = naming.workspaces_dir(root) / workspace_id
+    _restart_workspace(root, workspace_id, workspace_dir, row)
+    entry = _refresh_status(root, workspace_id, row)
+    return _row_for(root, workspace_id, row, entry)

@@ -26,7 +26,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     w = IndexWatcher(monorepo, cache, debounce_ms=300, on_rebuild=on_rebuild)
     w.start()
     try:
-        target = monorepo / "projects" / ".probe"
+        target = monorepo / "workspaces" / ".probe"
         target.mkdir()
         for i in range(5):
             (target / f"f{i}.md").write_text("x")
@@ -41,7 +41,7 @@ def test_watcher_debounces_bursts(monorepo: Path) -> None:
     assert rebuild_count["n"] == 1
 
 
-def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> None:
+def test_watcher_rebuilds_on_workspace_creation(monorepo: Path, seed_workspace) -> None:
     cache = IndexCache(monorepo)
     cache.rebuild()
     events: list[dict] = []
@@ -52,7 +52,7 @@ def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> N
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=on_rebuild)
     w.start()
     try:
-        seed_project("late-comer")
+        seed_workspace("late-comer")
         # Deadline-based wait: under full-suite load the 50ms poll observer
         # plus the debounce can overshoot a fixed sleep, and the creation
         # burst can occasionally straddle two debounce windows. Exact
@@ -63,17 +63,17 @@ def test_watcher_rebuilds_on_project_creation(monorepo: Path, seed_project) -> N
     finally:
         w.stop()
 
-    assert events, "watcher never rebuilt after project creation"
-    ids = [p["id"] for p in events[-1]["projects"]]
+    assert events, "watcher never rebuilt after workspace creation"
+    ids = [p["id"] for p in events[-1]["workspaces"]]
     assert "late-comer" in ids
 
 
-def test_project_watches_skip_arbitrary_worktree_dirs(monorepo: Path) -> None:
-    """Project polling stays scoped to lab metadata/content, not whole worktrees."""
-    project = monorepo / "projects" / "demo"
-    (project / "docs").mkdir(parents=True)
-    (project / "scripts").mkdir()
-    (project / "worktree" / ".git").mkdir(parents=True)
+def test_workspace_watches_skip_arbitrary_worktree_dirs(monorepo: Path) -> None:
+    """Workspace polling stays scoped to lab metadata/content, not whole worktrees."""
+    workspace = monorepo / "workspaces" / "demo"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "scripts").mkdir()
+    (workspace / "worktree" / ".git").mkdir(parents=True)
 
     class FakeObserver:
         def __init__(self) -> None:
@@ -87,14 +87,14 @@ def test_project_watches_skip_arbitrary_worktree_dirs(monorepo: Path) -> None:
     w = IndexWatcher(monorepo, cache, debounce_ms=100, on_rebuild=lambda d: None)
     w._handler = FileSystemEventHandler()
 
-    w._schedule_project_watches(observer)  # type: ignore[arg-type]
+    w._schedule_workspace_watches(observer)  # type: ignore[arg-type]
 
     scheduled = set(observer.scheduled)
-    assert (str(monorepo / "projects"), False) in scheduled
-    assert (str(project), False) in scheduled
-    assert (str(project / "docs"), True) in scheduled
-    assert (str(project / "scripts"), True) in scheduled
-    assert (str(project / "worktree"), True) not in scheduled
+    assert (str(monorepo / "workspaces"), False) in scheduled
+    assert (str(workspace), False) in scheduled
+    assert (str(workspace / "docs"), True) in scheduled
+    assert (str(workspace / "scripts"), True) in scheduled
+    assert (str(workspace / "worktree"), True) not in scheduled
 
 
 def test_watcher_stop_is_idempotent(monorepo: Path) -> None:

@@ -2,20 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a working single-page web UI on `http://localhost:3333/` with dashboard, project view, timeline (Gantt + list), and markdown viewer — all live-updating via WebSocket. Add the POST routes the frontend needs for mouse-driven edits. Fold Plan-2 tech debt into opening commits.
+**Goal:** Ship a working single-page web UI on `http://localhost:3333/` with dashboard, workspace view, timeline (Gantt + list), and markdown viewer — all live-updating via WebSocket. Add the POST routes the frontend needs for mouse-driven edits. Fold Plan-2 tech debt into opening commits.
 
 **Architecture:** Vanilla HTML + ES modules served by the same FastAPI backend. Frontend fetches `/api/*` JSON, renders DOM, subscribes to `/ws` for invalidations. Writes go through new POST routes that proxy to `lab` via `subprocess.run` (keeps CLI as the only write-validation path). Route reuses lab's `_validate_id` and shared helpers. No build step, no framework dependency.
 
 **Tech Stack:** FastAPI + Jinja2 templates (for the index.html shell), ES modules (no transpiler), `marked` via CDN for client-side markdown fallback, `chart.js` deferred (Plan 4 if Gantt needs it). Re-uses Plans 1 and 2 infrastructure unchanged.
 
 **Out of scope for Plan 3 (deferred):**
-- Worktree commands (`lab project add`/`remove`), MP prefix config — Plan 4.
+- Worktree commands (`lab workspace add`/`remove`), MP prefix config — Plan 4.
 - `lab search` + `/api/search` — Plan 5.
 - `lab pr add`, `lab artifact add`, `lab note` — Plan 5.
 - Migration agent + `lab migrate` — Plan 6.
 - Tool apps migration (`apps/darwin-runner` etc.) — Plan 7.
 - Diff rendering + gdiff merge — Plan 8.
-- Seed data / sample projects — Plan 9.
+- Seed data / sample workspaces — Plan 9.
 - Mobile responsive layout. Keep it desktop-first.
 - Authentication. Binds to 127.0.0.1 only.
 
@@ -23,19 +23,19 @@
 
 ```
 http://localhost:3333/
-  /                     → dashboard (project grid + due-this-week strip)
-  /p/<id>               → project view (tasks, docs, artifacts tabs)
+  /                     → dashboard (workspace grid + due-this-week strip)
+  /p/<id>               → workspace view (tasks, docs, artifacts tabs)
   /timeline             → Gantt + List sub-views (tab-switched)
   /md?path=...          → markdown viewer
   /api/*                → (existing Plan 2 routes)
-  POST /api/projects    → create new project (proxies to `lab project new`)
+  POST /api/workspaces    → create new workspace (proxies to `lab workspace new`)
   POST /api/tasks       → create new task
-  POST /api/tasks/{project}/{id}/status → transition task status
-  POST /api/tasks/{project}/{id}/update → set task field
+  POST /api/tasks/{workspace}/{id}/status → transition task status
+  POST /api/tasks/{workspace}/{id}/update → set task field
   WS /ws                → live `index-updated` broadcasts (existing)
 ```
 
-And the user can fully drive the system from the browser: create projects, add/close tasks, flip statuses, view docs rendered as markdown, watch the dashboard live-update as changes happen.
+And the user can fully drive the system from the browser: create workspaces, add/close tasks, flip statuses, view docs rendered as markdown, watch the dashboard live-update as changes happen.
 
 ---
 
@@ -58,7 +58,7 @@ apps/backend/src/backend/
         ├── api.js               # fetch helpers (GET, POST) + WS client
         ├── views/
         │   ├── dashboard.js     # home view
-        │   ├── project.js       # project detail view
+        │   ├── workspace.js       # workspace detail view
         │   ├── timeline.js      # gantt + list sub-views
         │   └── markdown.js      # md viewer
         └── lib/
@@ -78,7 +78,7 @@ Makefile updates for `make start` to print the URL.
 apps/backend/src/backend/state.py          # add `IndexCache.root` property; prune broken WS sockets inline
 apps/backend/src/backend/main.py           # add CORSMiddleware; mount static + templates; catch-all for SPA routes
 apps/backend/src/backend/config.py         # default LAB_HOST to "127.0.0.1"
-apps/backend/src/backend/routes/project.py # use IndexCache.root (not _root); dedupe _validate_project_id → lab.model
+apps/backend/src/backend/routes/workspace.py # use IndexCache.root (not _root); dedupe _validate_workspace_id → lab.model
 apps/backend/src/backend/routes/markdown.py # re-add "toc" extension; use IndexCache.root
 apps/backend/src/backend/routes/task.py    # delete dead `days < 1` branch
 apps/backend/tests/conftest.py             # rename _RebuildingClient → MaterializedClient; drop unused import
@@ -102,7 +102,7 @@ Makefile                                    # chain test targets with &&; print 
 **Files:**
 - Modify: `apps/backend/src/backend/state.py`
 - Modify: `apps/backend/src/backend/config.py`
-- Modify: `apps/backend/src/backend/routes/project.py`
+- Modify: `apps/backend/src/backend/routes/workspace.py`
 - Modify: `apps/backend/src/backend/routes/markdown.py`
 - Modify: `apps/backend/src/backend/routes/task.py`
 - Modify: `apps/backend/tests/conftest.py`
@@ -151,17 +151,17 @@ def host() -> str:
     return os.environ.get("LAB_HOST", "127.0.0.1")
 ```
 
-- [ ] **Step 4: Dedupe `_validate_project_id` in backend**
+- [ ] **Step 4: Dedupe `_validate_workspace_id` in backend**
 
-Edit `apps/backend/src/backend/routes/project.py`. Replace the local regex + validator with:
+Edit `apps/backend/src/backend/routes/workspace.py`. Replace the local regex + validator with:
 
 ```python
 from lab.model import ModelError, _validate_id
 
 
-def _validate_project_id(project_id: str) -> None:
+def _validate_workspace_id(workspace_id: str) -> None:
     try:
-        _validate_id(project_id)
+        _validate_id(workspace_id)
     except ModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 ```
@@ -219,7 +219,7 @@ Edit `apps/lab/src/lab/commands/task.py`. In `set_field`, after the existing `el
         t[field] = value
 ```
 
-(This mirrors the catch-all in project.py's set_field, protecting against future additions to `_TASK_SETTABLE`.)
+(This mirrors the catch-all in workspace.py's set_field, protecting against future additions to `_TASK_SETTABLE`.)
 
 - [ ] **Step 9: Chain Makefile test targets**
 
@@ -401,7 +401,7 @@ from fastapi.templating import Jinja2Templates
 from backend import config
 from backend.routes import index as index_route
 from backend.routes import markdown as markdown_route
-from backend.routes import project as project_route
+from backend.routes import workspace as workspace_route
 from backend.routes import task as task_route
 from backend.routes import ws as ws_route
 from backend.state import IndexCache, IndexUpdatedEvent, WsBroadcaster
@@ -458,7 +458,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(index_route.router)
-    app.include_router(project_route.router)
+    app.include_router(workspace_route.router)
     app.include_router(task_route.router)
     app.include_router(markdown_route.router)
     app.include_router(ws_route.router)
@@ -473,7 +473,7 @@ def create_app() -> FastAPI:
 
     # SPA catch-alls for client-side routes (so reloads on /p/<id> etc. work)
     @app.get("/p/{path:path}", response_class=HTMLResponse)
-    async def spa_project(request: Request, path: str):
+    async def spa_workspace(request: Request, path: str):
         return templates.TemplateResponse(request, "index.html", {})
 
     @app.get("/timeline", response_class=HTMLResponse)
@@ -544,7 +544,7 @@ git commit -m "feat(backend): mount CORS + static + Jinja templates; SPA shell a
 
 ---
 
-## Task 3: POST `/api/projects` and `/api/tasks` (mutation routes)
+## Task 3: POST `/api/workspaces` and `/api/tasks` (mutation routes)
 
 **Files:**
 - Create: `apps/backend/src/backend/routes/mutation.py`
@@ -559,8 +559,8 @@ Create `apps/backend/tests/test_mutation_routes.py`:
 import json
 
 
-def test_post_project_new_creates_on_disk(client, monorepo) -> None:
-    r = client.post("/api/projects", json={
+def test_post_workspace_new_creates_on_disk(client, monorepo) -> None:
+    r = client.post("/api/workspaces", json={
         "id": "alpha",
         "description": "Alpha description",
         "priority": "P1",
@@ -572,27 +572,27 @@ def test_post_project_new_creates_on_disk(client, monorepo) -> None:
     assert body["id"] == "alpha"
     assert body["priority"] == "P1"
 
-    on_disk = json.loads((monorepo / "content" / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "content" / "workspaces" / "alpha" / "workspace.json").read_text())
     assert on_disk["description"] == "Alpha description"
     assert on_disk["tags"] == ["x", "y"]
 
 
-def test_post_project_new_rejects_duplicate(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.post("/api/projects", json={"id": "alpha"})
+def test_post_workspace_new_rejects_duplicate(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces", json={"id": "alpha"})
     assert r.status_code == 400
     assert "already exists" in r.json()["detail"].lower()
 
 
-def test_post_project_new_rejects_bad_id(client) -> None:
-    r = client.post("/api/projects", json={"id": "Bad ID!"})
+def test_post_workspace_new_rejects_bad_id(client) -> None:
+    r = client.post("/api/workspaces", json={"id": "Bad ID!"})
     assert r.status_code == 400
 
 
-def test_post_task_new(client, seed_project) -> None:
-    seed_project("alpha")
+def test_post_task_new(client, seed_workspace) -> None:
+    seed_workspace("alpha")
     r = client.post("/api/tasks", json={
-        "project_id": "alpha",
+        "workspace_id": "alpha",
         "title": "Draft",
         "priority": "P1",
         "tags": ["review"],
@@ -604,18 +604,18 @@ def test_post_task_new(client, seed_project) -> None:
     assert body["status"] == "todo"
 
 
-def test_post_task_status_done(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/tasks", json={"project_id": "alpha", "title": "t", "priority": "P2"})
+def test_post_task_status_done(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/tasks", json={"workspace_id": "alpha", "title": "t", "priority": "P2"})
     r = client.post("/api/tasks/alpha/1/status", json={"status": "done"})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "done"
     assert r.json()["closed_at"] is not None
 
 
-def test_post_task_status_blocked_requires_reason(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/tasks", json={"project_id": "alpha", "title": "t", "priority": "P2"})
+def test_post_task_status_blocked_requires_reason(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/tasks", json={"workspace_id": "alpha", "title": "t", "priority": "P2"})
     r = client.post("/api/tasks/alpha/1/status", json={"status": "blocked"})
     assert r.status_code == 400
 
@@ -624,9 +624,9 @@ def test_post_task_status_blocked_requires_reason(client, seed_project) -> None:
     assert r.json()["blocker"] == "waiting on x"
 
 
-def test_post_task_update_field(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/tasks", json={"project_id": "alpha", "title": "t", "priority": "P2"})
+def test_post_task_update_field(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/tasks", json={"workspace_id": "alpha", "title": "t", "priority": "P2"})
     r = client.post("/api/tasks/alpha/1/update", json={"field": "priority", "value": "P0"})
     assert r.status_code == 200
     assert r.json()["priority"] == "P0"
@@ -678,13 +678,13 @@ def _run_lab(args: list[str], *, root: Path) -> None:
         raise HTTPException(status_code=400, detail=msg or "lab command failed")
 
 
-def _read_project(root: Path, project_id: str) -> dict:
-    pjson = paths.project_file(root, project_id)
+def _read_workspace(root: Path, workspace_id: str) -> dict:
+    pjson = paths.workspace_file(root, workspace_id)
     return storage.read_json(pjson)
 
 
-def _find_task(root: Path, project_id: str, task_id: int) -> dict:
-    tjson = paths.tasks_file(root, project_id)
+def _find_task(root: Path, workspace_id: str, task_id: int) -> dict:
+    tjson = paths.tasks_file(root, workspace_id)
     doc = storage.read_json(tjson)
     for t in doc.get("tasks", []):
         if t["id"] == task_id:
@@ -700,7 +700,7 @@ def _validate_pid(pid: str) -> str:
     return pid
 
 
-class NewProject(BaseModel):
+class NewWorkspace(BaseModel):
     id: str
     description: str = ""
     priority: str | None = None
@@ -709,11 +709,11 @@ class NewProject(BaseModel):
     labels: list[str] = Field(default_factory=list)
 
 
-@router.post("/api/projects")
-async def create_project(body: NewProject, request: Request) -> dict:
+@router.post("/api/workspaces")
+async def create_workspace(body: NewWorkspace, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
     _validate_pid(body.id)
-    args = ["project", "new", body.id]
+    args = ["workspace", "new", body.id]
     if body.description:
         args += ["--desc", body.description]
     if body.priority:
@@ -725,11 +725,11 @@ async def create_project(body: NewProject, request: Request) -> dict:
     if body.labels:
         args += ["--labels", ",".join(body.labels)]
     _run_lab(args, root=root)
-    return _read_project(root, body.id)
+    return _read_workspace(root, body.id)
 
 
 class NewTask(BaseModel):
-    project_id: str
+    workspace_id: str
     title: str
     priority: str
     loe: float | None = None
@@ -742,8 +742,8 @@ class NewTask(BaseModel):
 @router.post("/api/tasks")
 async def create_task(body: NewTask, request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
-    _validate_pid(body.project_id)
-    args = ["task", "new", body.title, "--project", body.project_id, "--priority", body.priority]
+    _validate_pid(body.workspace_id)
+    args = ["task", "new", body.title, "--workspace", body.workspace_id, "--priority", body.priority]
     if body.loe is not None:
         args += ["--loe", str(body.loe)]
     if body.due:
@@ -757,7 +757,7 @@ async def create_task(body: NewTask, request: Request) -> dict:
     _run_lab(args, root=root)
 
     # The new task is always the last one in tasks.json
-    tjson = paths.tasks_file(root, body.project_id)
+    tjson = paths.tasks_file(root, body.workspace_id)
     doc = storage.read_json(tjson)
     return doc["tasks"][-1]
 
@@ -767,25 +767,25 @@ class StatusChange(BaseModel):
     reason: str | None = None  # required when status == "blocked"
 
 
-@router.post("/api/tasks/{project_id}/{task_id}/status")
-async def set_task_status(project_id: str, task_id: int, body: StatusChange,
+@router.post("/api/tasks/{workspace_id}/{task_id}/status")
+async def set_task_status(workspace_id: str, task_id: int, body: StatusChange,
                           request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
-    _validate_pid(project_id)
+    _validate_pid(workspace_id)
     if body.status == "done":
-        args = ["task", "done", str(task_id), "--project", project_id]
+        args = ["task", "done", str(task_id), "--workspace", workspace_id]
     elif body.status == "reopened":
-        args = ["task", "reopen", str(task_id), "--project", project_id]
+        args = ["task", "reopen", str(task_id), "--workspace", workspace_id]
     elif body.status == "blocked":
         if not body.reason:
             raise HTTPException(status_code=400, detail="reason required when status=blocked")
-        args = ["task", "block", str(task_id), body.reason, "--project", project_id]
+        args = ["task", "block", str(task_id), body.reason, "--workspace", workspace_id]
     elif body.status == "in_progress":
-        args = ["task", "unblock", str(task_id), "--project", project_id]
+        args = ["task", "unblock", str(task_id), "--workspace", workspace_id]
     else:
         raise HTTPException(status_code=400, detail=f"unsupported status transition: {body.status}")
     _run_lab(args, root=root)
-    return _find_task(root, project_id, task_id)
+    return _find_task(root, workspace_id, task_id)
 
 
 class FieldUpdate(BaseModel):
@@ -793,14 +793,14 @@ class FieldUpdate(BaseModel):
     value: str
 
 
-@router.post("/api/tasks/{project_id}/{task_id}/update")
-async def update_task_field(project_id: str, task_id: int, body: FieldUpdate,
+@router.post("/api/tasks/{workspace_id}/{task_id}/update")
+async def update_task_field(workspace_id: str, task_id: int, body: FieldUpdate,
                             request: Request) -> dict:
     root: Path = request.app.state.index_cache.root
-    _validate_pid(project_id)
-    args = ["task", "set", str(task_id), body.field, body.value, "--project", project_id]
+    _validate_pid(workspace_id)
+    args = ["task", "set", str(task_id), body.field, body.value, "--workspace", workspace_id]
     _run_lab(args, root=root)
-    return _find_task(root, project_id, task_id)
+    return _find_task(root, workspace_id, task_id)
 ```
 
 - [ ] **Step 4: Wire `mutation_route` into `main.py`**
@@ -866,7 +866,7 @@ Expected: 48 passed (41 prior + 7 new).
 ```bash
 cd /Users/jcortes/src/productivity
 git add apps/backend
-git commit -m "feat(backend): POST /api/projects, /api/tasks, /status, /update (lab CLI proxy)"
+git commit -m "feat(backend): POST /api/workspaces, /api/tasks, /status, /update (lab CLI proxy)"
 ```
 
 ---
@@ -960,15 +960,15 @@ async function request(method, path, body) {
 export const api = {
   // Reads
   index: () => request("GET", "/api/index"),
-  projects: (params = {}) => {
+  workspaces: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
-    return request("GET", "/api/projects" + (qs ? "?" + qs : ""));
+    return request("GET", "/api/workspaces" + (qs ? "?" + qs : ""));
   },
-  project: (id) => request("GET", `/api/projects/${encodeURIComponent(id)}`),
-  projectTasks: (id) => request("GET", `/api/projects/${encodeURIComponent(id)}/tasks`),
-  projectDocs: (id) => request("GET", `/api/projects/${encodeURIComponent(id)}/docs`),
-  projectFile: (id, path) =>
-    request("GET", `/api/projects/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`),
+  workspace: (id) => request("GET", `/api/workspaces/${encodeURIComponent(id)}`),
+  workspaceTasks: (id) => request("GET", `/api/workspaces/${encodeURIComponent(id)}/tasks`),
+  workspaceDocs: (id) => request("GET", `/api/workspaces/${encodeURIComponent(id)}/docs`),
+  workspaceFile: (id, path) =>
+    request("GET", `/api/workspaces/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`),
   tasks: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request("GET", "/api/tasks" + (qs ? "?" + qs : ""));
@@ -977,12 +977,12 @@ export const api = {
   markdown: (path) => request("GET", `/api/markdown?path=${encodeURIComponent(path)}`),
 
   // Writes
-  createProject: (body) => request("POST", "/api/projects", body),
+  createWorkspace: (body) => request("POST", "/api/workspaces", body),
   createTask: (body) => request("POST", "/api/tasks", body),
-  setTaskStatus: (projectId, taskId, body) =>
-    request("POST", `/api/tasks/${encodeURIComponent(projectId)}/${taskId}/status`, body),
-  updateTaskField: (projectId, taskId, body) =>
-    request("POST", `/api/tasks/${encodeURIComponent(projectId)}/${taskId}/update`, body),
+  setTaskStatus: (workspaceId, taskId, body) =>
+    request("POST", `/api/tasks/${encodeURIComponent(workspaceId)}/${taskId}/status`, body),
+  updateTaskField: (workspaceId, taskId, body) =>
+    request("POST", `/api/tasks/${encodeURIComponent(workspaceId)}/${taskId}/update`, body),
 };
 
 export function subscribeWS(onEvent) {
@@ -1028,7 +1028,7 @@ import { clear } from "./lib/dom.js";
 // Dynamic imports keep each view's code out of the initial bundle.
 const routes = [
   { pattern: /^\/?$/, loader: () => import("./views/dashboard.js") },
-  { pattern: /^\/p\/([^/]+)$/, loader: () => import("./views/project.js") },
+  { pattern: /^\/p\/([^/]+)$/, loader: () => import("./views/workspace.js") },
   { pattern: /^\/timeline$/, loader: () => import("./views/timeline.js") },
   { pattern: /^\/md$/, loader: () => import("./views/markdown.js") },
 ];
@@ -1112,7 +1112,7 @@ APPEND to `apps/backend/src/backend/static/css/app.css`:
 }
 .due-chip .due-date { color: #888; font-variant-numeric: tabular-nums; }
 
-.project-grid {
+.workspace-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
@@ -1174,7 +1174,7 @@ let statusFilter = "active";
 
 export async function render(parent, _params) {
   const [idx, dueSoon] = await Promise.all([api.index(), api.tasksDue(7)]);
-  const projects = idx.projects.filter((p) => statusFilter === "all" || p.status === statusFilter);
+  const workspaces = idx.workspaces.filter((p) => statusFilter === "all" || p.status === statusFilter);
 
   const filterRow = h("div", { class: "filter-row" },
     h("label", null, "Show: "),
@@ -1187,15 +1187,15 @@ export async function render(parent, _params) {
     ),
     h("button", {
       class: "btn btn-primary",
-      onclick: () => onNewProject(),
-    }, "+ New project"),
+      onclick: () => onNewWorkspace(),
+    }, "+ New workspace"),
   );
 
   const dueStrip = h("div", { class: "due-strip" },
     ...dueSoon.slice(0, 30).map((t) => h("span", {
       class: "due-chip",
-      title: `${t.project_id}  #${t.task_id}`,
-      onclick: () => { location.hash = `#/p/${t.project_id}`; },
+      title: `${t.workspace_id}  #${t.task_id}`,
+      onclick: () => { location.hash = `#/p/${t.workspace_id}`; },
       style: { cursor: "pointer" },
     },
       h("span", { class: "chip " + priorityClass(t.priority) }, t.priority || ""),
@@ -1204,14 +1204,14 @@ export async function render(parent, _params) {
     ))
   );
 
-  const grid = h("div", { class: "project-grid" },
-    ...projects.map((p) => projectCard(p))
+  const grid = h("div", { class: "workspace-grid" },
+    ...workspaces.map((p) => workspaceCard(p))
   );
 
   render(parent,
     filterRow,
     dueSoon.length > 0 ? dueStrip : h("span"),
-    projects.length > 0 ? grid : h("p", null, "No projects. Click 'New project' to create one."),
+    workspaces.length > 0 ? grid : h("p", null, "No workspaces. Click 'New workspace' to create one."),
   );
 
   function renderView() {
@@ -1222,7 +1222,7 @@ export async function render(parent, _params) {
 // Alias for re-render calls from within this module
 const module_render = render;
 
-function projectCard(p) {
+function workspaceCard(p) {
   const counts = p.task_counts || {};
   return h("div", {
     class: "card",
@@ -1245,16 +1245,16 @@ function projectCard(p) {
   );
 }
 
-async function onNewProject() {
-  const id = prompt("Project id (e.g. davi-vision):");
+async function onNewWorkspace() {
+  const id = prompt("Workspace id (e.g. davi-vision):");
   if (!id) return;
   const description = prompt("Description (optional):") || "";
   const priority = prompt("Priority P0-P3 (optional):") || null;
   try {
-    const p = await api.createProject({ id: id.trim(), description, priority });
+    const p = await api.createWorkspace({ id: id.trim(), description, priority });
     location.hash = `#/p/${p.id}`;
   } catch (e) {
-    alert("Failed to create project: " + e.message);
+    alert("Failed to create workspace: " + e.message);
   }
 }
 ```
@@ -1273,7 +1273,7 @@ let statusFilter = "active";
 
 export async function render(parent, params) {
   const [idx, dueSoon] = await Promise.all([api.index(), api.tasksDue(7)]);
-  const projects = idx.projects.filter((p) => statusFilter === "all" || p.status === statusFilter);
+  const workspaces = idx.workspaces.filter((p) => statusFilter === "all" || p.status === statusFilter);
 
   const filterRow = h("div", { class: "filter-row" },
     h("label", null, "Show: "),
@@ -1286,15 +1286,15 @@ export async function render(parent, params) {
     ),
     h("button", {
       class: "btn btn-primary",
-      onclick: () => onNewProject(),
-    }, "+ New project"),
+      onclick: () => onNewWorkspace(),
+    }, "+ New workspace"),
   );
 
   const dueStrip = h("div", { class: "due-strip" },
     ...dueSoon.slice(0, 30).map((t) => h("span", {
       class: "due-chip",
-      title: `${t.project_id}  #${t.task_id}`,
-      onclick: () => { location.hash = `#/p/${t.project_id}`; },
+      title: `${t.workspace_id}  #${t.task_id}`,
+      onclick: () => { location.hash = `#/p/${t.workspace_id}`; },
       style: { cursor: "pointer" },
     },
       h("span", { class: "chip " + priorityClass(t.priority) }, t.priority || ""),
@@ -1303,18 +1303,18 @@ export async function render(parent, params) {
     ))
   );
 
-  const grid = h("div", { class: "project-grid" },
-    ...projects.map((p) => projectCard(p))
+  const grid = h("div", { class: "workspace-grid" },
+    ...workspaces.map((p) => workspaceCard(p))
   );
 
   domRender(parent,
     filterRow,
     dueSoon.length > 0 ? dueStrip : h("span"),
-    projects.length > 0 ? grid : h("p", null, "No projects. Click 'New project' to create one."),
+    workspaces.length > 0 ? grid : h("p", null, "No workspaces. Click 'New workspace' to create one."),
   );
 }
 
-function projectCard(p) {
+function workspaceCard(p) {
   const counts = p.task_counts || {};
   return h("div", {
     class: "card",
@@ -1337,16 +1337,16 @@ function projectCard(p) {
   );
 }
 
-async function onNewProject() {
-  const id = prompt("Project id (e.g. davi-vision):");
+async function onNewWorkspace() {
+  const id = prompt("Workspace id (e.g. davi-vision):");
   if (!id) return;
   const description = prompt("Description (optional):") || "";
   const priority = prompt("Priority P0-P3 (optional):") || null;
   try {
-    const p = await api.createProject({ id: id.trim(), description, priority });
+    const p = await api.createWorkspace({ id: id.trim(), description, priority });
     location.hash = `#/p/${p.id}`;
   } catch (e) {
-    alert("Failed to create project: " + e.message);
+    alert("Failed to create workspace: " + e.message);
   }
 }
 ```
@@ -1356,15 +1356,15 @@ async function onNewProject() {
 ```bash
 cd /Users/jcortes/src/productivity
 git add apps/backend/src/backend/static
-git commit -m "feat(frontend): dashboard with project grid, due strip, status filter, new-project prompt"
+git commit -m "feat(frontend): dashboard with workspace grid, due strip, status filter, new-workspace prompt"
 ```
 
 ---
 
-## Task 7: Project view
+## Task 7: Workspace view
 
 **Files:**
-- Create: `apps/backend/src/backend/static/js/views/project.js`
+- Create: `apps/backend/src/backend/static/js/views/workspace.js`
 - Modify: `apps/backend/src/backend/static/css/app.css`
 
 - [ ] **Step 1: Extend CSS**
@@ -1372,10 +1372,10 @@ git commit -m "feat(frontend): dashboard with project grid, due strip, status fi
 APPEND to `apps/backend/src/backend/static/css/app.css`:
 
 ```css
-/* Project view */
-.proj-header { margin-bottom: 16px; }
-.proj-header h2 { margin: 0 0 4px; }
-.proj-header .meta { color: #666; font-size: 13px; }
+/* Workspace view */
+.workspace-header { margin-bottom: 16px; }
+.workspace-header h2 { margin: 0 0 4px; }
+.workspace-header .meta { color: #666; font-size: 13px; }
 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid #ddd; margin-bottom: 16px; }
 .tab {
@@ -1417,9 +1417,9 @@ table.tasks .done { color: #aaa; text-decoration: line-through; }
 .doc-list li a:hover { text-decoration: underline; }
 ```
 
-- [ ] **Step 2: Implement project view**
+- [ ] **Step 2: Implement workspace view**
 
-Create `apps/backend/src/backend/static/js/views/project.js`:
+Create `apps/backend/src/backend/static/js/views/workspace.js`:
 
 ```javascript
 import { api } from "../api.js";
@@ -1429,22 +1429,22 @@ let activeTab = "tasks";
 
 export async function render(parent, { match }) {
   const pid = decodeURIComponent(match[1]);
-  const [proj, tasksDoc, docs] = await Promise.all([
-    api.project(pid),
-    api.projectTasks(pid),
-    api.projectDocs(pid),
+  const [workspace, tasksDoc, docs] = await Promise.all([
+    api.workspace(pid),
+    api.workspaceTasks(pid),
+    api.workspaceDocs(pid),
   ]);
 
-  const header = h("div", { class: "proj-header" },
-    h("h2", null, proj.id, " ", h("span", { class: "chip " + priorityClass(proj.priority) }, proj.priority || "")),
+  const header = h("div", { class: "workspace-header" },
+    h("h2", null, workspace.id, " ", h("span", { class: "chip " + priorityClass(workspace.priority) }, workspace.priority || "")),
     h("div", { class: "meta" },
-      proj.description || "(no description)",
+      workspace.description || "(no description)",
     ),
     h("div", { class: "meta" },
-      `status: ${proj.status}`,
-      proj.due ? ` · due ${proj.due}` : "",
-      (proj.tags || []).length ? ` · tags: ${proj.tags.join(", ")}` : "",
-      (proj.labels || []).length ? ` · labels: ${proj.labels.join(", ")}` : "",
+      `status: ${workspace.status}`,
+      workspace.due ? ` · due ${workspace.due}` : "",
+      (workspace.tags || []).length ? ` · tags: ${workspace.tags.join(", ")}` : "",
+      (workspace.labels || []).length ? ` · labels: ${workspace.labels.join(", ")}` : "",
     ),
   );
 
@@ -1545,7 +1545,7 @@ function docsList(pid, docs) {
   if (!docs.length) return h("p", null, "No docs, notes, or assets.");
   const items = docs.map((d) => h("li", null,
     h("a", {
-      href: "#/md?path=" + encodeURIComponent(`content/projects/${pid}/${d.path}`),
+      href: "#/md?path=" + encodeURIComponent(`content/workspaces/${pid}/${d.path}`),
     }, d.path),
     h("span", { style: "color:#999; margin-left:8px; font-size:11px" }, `${d.size} bytes`),
   ));
@@ -1558,7 +1558,7 @@ async function onNewTask(pid) {
   const priority = prompt("Priority P0-P3:", "P2") || "P2";
   const due = prompt("Due (YYYY-MM-DD, optional):") || null;
   try {
-    await api.createTask({ project_id: pid, title: title.trim(), priority, due });
+    await api.createTask({ workspace_id: pid, title: title.trim(), priority, due });
   } catch (e) {
     alert("Failed: " + e.message);
   }
@@ -1570,7 +1570,7 @@ async function onNewTask(pid) {
 ```bash
 cd /Users/jcortes/src/productivity
 git add apps/backend/src/backend/static
-git commit -m "feat(frontend): project view with tasks/docs tabs, inline status actions"
+git commit -m "feat(frontend): workspace view with tasks/docs tabs, inline status actions"
 ```
 
 ---
@@ -1777,13 +1777,13 @@ function bucket(name, rows) {
       h("thead", null, h("tr", null,
         h("th", null, "Due"),
         h("th", null, "P"),
-        h("th", null, "Project"),
+        h("th", null, "Workspace"),
         h("th", null, "Title"),
       )),
       h("tbody", null, ...rows.map((t) => h("tr", null,
         h("td", null, fmtDate(t.due)),
         h("td", null, h("span", { class: "chip " + priorityClass(t.priority) }, t.priority)),
-        h("td", null, h("a", { href: `#/p/${t.project_id}` }, t.project_id)),
+        h("td", null, h("a", { href: `#/p/${t.workspace_id}` }, t.workspace_id)),
         h("td", null, t.title),
       ))),
     ),
@@ -1791,16 +1791,16 @@ function bucket(name, rows) {
 }
 
 function renderGantt(idx) {
-  const projects = idx.projects.filter((p) => p.status === "active");
-  if (!projects.length) return h("p", null, "No active projects.");
+  const workspaces = idx.workspaces.filter((p) => p.status === "active");
+  if (!workspaces.length) return h("p", null, "No active workspaces.");
 
-  // Time axis: earliest project created → 30 days past max due
+  // Time axis: earliest workspace created → 30 days past max due
   const today = new Date();
-  const minD = projects.reduce((m, p) => {
+  const minD = workspaces.reduce((m, p) => {
     const d = p.created ? new Date(p.created) : today;
     return d < m ? d : m;
   }, today);
-  const maxD = projects.reduce((m, p) => {
+  const maxD = workspaces.reduce((m, p) => {
     const candidate = p.due ? new Date(p.due) : (p.earliest_task_due ? new Date(p.earliest_task_due) : today);
     return candidate > m ? candidate : m;
   }, new Date(today.getTime() + 14 * 86400000));
@@ -1809,7 +1809,7 @@ function renderGantt(idx) {
   const pct = (d) => ((new Date(d) - minD) / spanMs) * 100;
 
   return h("div", { class: "gantt" },
-    ...projects.map((p) => {
+    ...workspaces.map((p) => {
       const startD = p.created || today.toISOString().slice(0, 10);
       const endD = p.due || p.earliest_task_due || new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
       const left = Math.max(0, pct(startD));
@@ -1889,18 +1889,18 @@ open http://localhost:3333/
 ```
 
 Verify visually in the browser:
-1. Dashboard loads, shows any existing projects or "No projects".
-2. Click "+ New project", enter an id like `smoke-test`, optional description and priority. Project should appear.
-3. Click into the new project. Tabs: Tasks, Docs.
+1. Dashboard loads, shows any existing workspaces or "No workspaces".
+2. Click "+ New workspace", enter an id like `smoke-test`, optional description and priority. Workspace should appear.
+3. Click into the new workspace. Tabs: Tasks, Docs.
 4. Click "+ New task", create a task with priority P1. It appears in the table.
-5. Click "done" on the task. Status changes to "done". Dashboard shows 1 done task in the project card.
+5. Click "done" on the task. Status changes to "done". Dashboard shows 1 done task in the workspace card.
 6. Navigate to /timeline (click Timeline in nav). Toggle between List and Gantt.
-7. Click a doc link on a project with a docs file — verify markdown renders.
+7. Click a doc link on a workspace with a docs file — verify markdown renders.
 
 - [ ] **Step 4: Cleanup**
 
 ```bash
-~/.local/bin/lab project rm smoke-test --yes
+~/.local/bin/lab workspace rm smoke-test --yes
 make stop
 ```
 
@@ -1922,13 +1922,13 @@ If the live smoke test surfaced anything that needed a fix, commit with a descri
 ## Plan 3 — Done when
 
 1. `http://localhost:3333/` serves the SPA shell (`index.html`).
-2. Dashboard shows the project grid and due-soon strip.
-3. Clicking a project card navigates to `/p/<id>` and shows tasks + docs tabs.
+2. Dashboard shows the workspace grid and due-soon strip.
+3. Clicking a workspace card navigates to `/p/<id>` and shows tasks + docs tabs.
 4. Creating a task via the "+ New task" button works via POST `/api/tasks`.
 5. Clicking "done" / "block" on a task updates the status; dashboard reflects immediately.
 6. Timeline view shows List and Gantt sub-views.
-7. Markdown viewer renders any project doc.
-8. WS connection keeps views fresh across browser tabs (opening dashboard in two tabs and creating a project in one updates the other).
+7. Markdown viewer renders any workspace doc.
+8. WS connection keeps views fresh across browser tabs (opening dashboard in two tabs and creating a workspace in one updates the other).
 9. `make test` passes both suites (~154 tests).
 10. Plan-2 tech-debt items 1-9 are closed.
 11. Commit log tells a per-task story.
@@ -1937,13 +1937,13 @@ If the live smoke test surfaced anything that needed a fix, commit with a descri
 
 | Feature | Plan |
 |---|---|
-| Worktree commands (`lab project add/remove`) + MP prefix config | Plan 4 |
+| Worktree commands (`lab workspace add/remove`) + MP prefix config | Plan 4 |
 | `lab search` full-text + `/api/search` + Search view | Plan 5 |
 | `lab pr add`, `lab artifact add`, `lab note` | Plan 5 |
-| Migration agent for existing `~/projects/*` | Plan 6 |
+| Migration agent for existing `~/workspaces/*` | Plan 6 |
 | Moving `apps/darwin-runner`, `darwin-backups`, `trustim-ir-cli` into the monorepo | Plan 7 |
 | Diff routes + gdiff/mdview merge into frontend | Plan 8 |
-| `make seed` sample projects | Plan 9 |
+| `make seed` sample workspaces | Plan 9 |
 | Auth, mobile layout, production deployment | Not planned |
 
 After Plan 3 ships you have a **fully working personal productivity suite**: CLI + backend + web UI. Plans 4-9 are optional enhancements; you can stop here and still use the system productively.

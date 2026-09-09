@@ -1,10 +1,10 @@
-"""Project-local notebook runtime configuration and environment builds.
+"""Workspace-local notebook runtime configuration and environment builds.
 
-Lab owns the Jupyter control plane, but a project owns the Python interpreter,
+Lab owns the Jupyter control plane, but a workspace owns the Python interpreter,
 packages, editable libraries, CLI search path, and process environment used by
 its kernels.  The desired configuration is stored as ``runtime.json`` in the
-project; generated environments and build state live under
-``<workspace>/.lab/state/runtimes`` so they never dirty the project tree.
+workspace; generated environments and build state live under
+``<vault>/.lab/state/runtimes`` so they never dirty the workspace tree.
 
 There are two runtime kinds:
 
@@ -17,6 +17,8 @@ There are two runtime kinds:
     can import ipykernel but never mutates it.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import hashlib
 import json
@@ -36,13 +38,13 @@ from pydantic import BaseModel, Field, field_validator
 
 RUNTIME_FILENAME = "runtime.json"
 RUNTIME_VERSION = 1
-_PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_WORKSPACE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _build_locks: dict[str, threading.Lock] = {}
 _build_locks_guard = threading.Lock()
 
 
 class RuntimeConfigError(ValueError):
-    """The desired runtime configuration is invalid for this workspace."""
+    """The desired runtime configuration is invalid for this vault."""
 
 
 class RuntimeBuildError(RuntimeError):
@@ -68,7 +70,7 @@ class RuntimeCliCheck(BaseModel):
         return value
 
 
-class ProjectRuntimeSpec(BaseModel):
+class WorkspaceRuntimeSpec(BaseModel):
     version: int = Field(default=RUNTIME_VERSION, ge=1)
     mode: Literal["local", "darwin"] = "local"
     kind: Literal["managed", "existing"] = "managed"
@@ -114,7 +116,7 @@ class ProjectRuntimeSpec(BaseModel):
 
 
 class RuntimeHandle(BaseModel):
-    project_id: str
+    workspace_id: str
     fingerprint: str
     python: str
     working_dir: str
@@ -143,68 +145,68 @@ def _atomic_json(target: Path, data: dict[str, Any]) -> None:
             pass
 
 
-def project_for_notebook(root: Path, rel_path: str) -> tuple[str, Path]:
+def workspace_for_notebook(root: Path, rel_path: str) -> tuple[str, Path]:
     parts = Path(rel_path).parts
-    if len(parts) < 3 or parts[0] != "projects":
-        raise RuntimeConfigError("notebook must live under projects/<id>/")
-    project_id = parts[1]
-    if not _PROJECT_ID_RE.fullmatch(project_id):
-        raise RuntimeConfigError("invalid project id in notebook path")
-    project_dir = (root / "projects" / project_id).resolve()
+    if len(parts) < 3 or parts[0] != naming.workspaces_dir(root).name:
+        raise RuntimeConfigError("notebook must live under workspaces/<id>/")
+    workspace_id = parts[1]
+    if not _WORKSPACE_ID_RE.fullmatch(workspace_id):
+        raise RuntimeConfigError("invalid workspace id in notebook path")
+    workspace_dir = (naming.workspaces_dir(root) / workspace_id).resolve()
     root_resolved = root.resolve()
-    if root_resolved not in project_dir.parents:
-        raise RuntimeConfigError("project path escapes workspace")
-    return project_id, project_dir
+    if root_resolved not in workspace_dir.parents:
+        raise RuntimeConfigError("workspace path escapes vault")
+    return workspace_id, workspace_dir
 
 
 def runtime_config_path(root: Path, rel_path: str) -> Path:
-    _, project_dir = project_for_notebook(root, rel_path)
-    return project_dir / RUNTIME_FILENAME
+    _, workspace_dir = workspace_for_notebook(root, rel_path)
+    return workspace_dir / RUNTIME_FILENAME
 
 
-def load_runtime_spec(root: Path, rel_path: str) -> ProjectRuntimeSpec | None:
+def load_runtime_spec(root: Path, rel_path: str) -> WorkspaceRuntimeSpec | None:
     target = runtime_config_path(root, rel_path)
     if not target.is_file():
         return None
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
-        return ProjectRuntimeSpec.model_validate(data)
+        return WorkspaceRuntimeSpec.model_validate(data)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise RuntimeConfigError(f"invalid {RUNTIME_FILENAME}: {exc}") from exc
 
 
-def save_runtime_spec(root: Path, rel_path: str, spec: ProjectRuntimeSpec) -> Path:
+def save_runtime_spec(root: Path, rel_path: str, spec: WorkspaceRuntimeSpec) -> Path:
     target = runtime_config_path(root, rel_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     _atomic_json(target, spec.model_dump(mode="json"))
     return target
 
 
-def runtime_fingerprint(spec: ProjectRuntimeSpec) -> str:
+def runtime_fingerprint(spec: WorkspaceRuntimeSpec) -> str:
     payload = json.dumps(
         spec.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
-def _project_state_dir(root: Path, project_id: str) -> Path:
-    return root / ".lab" / "state" / "runtimes" / project_id
+def _workspace_state_dir(root: Path, workspace_id: str) -> Path:
+    return root / ".lab" / "state" / "runtimes" / workspace_id
 
 
-def _build_dir(root: Path, project_id: str, fingerprint: str) -> Path:
-    return _project_state_dir(root, project_id) / fingerprint
+def _build_dir(root: Path, workspace_id: str, fingerprint: str) -> Path:
+    return _workspace_state_dir(root, workspace_id) / fingerprint
 
 
-def _active_path(root: Path, project_id: str) -> Path:
-    return _project_state_dir(root, project_id) / "active.json"
+def _active_path(root: Path, workspace_id: str) -> Path:
+    return _workspace_state_dir(root, workspace_id) / "active.json"
 
 
-def _last_build_path(root: Path, project_id: str) -> Path:
-    return _project_state_dir(root, project_id) / "last-build.json"
+def _last_build_path(root: Path, workspace_id: str) -> Path:
+    return _workspace_state_dir(root, workspace_id) / "last-build.json"
 
 
-def _lock_for(root: Path, project_id: str) -> threading.Lock:
-    key = str((_project_state_dir(root, project_id)).resolve())
+def _lock_for(root: Path, workspace_id: str) -> threading.Lock:
+    key = str((_workspace_state_dir(root, workspace_id)).resolve())
     with _build_locks_guard:
         lock = _build_locks.get(key)
         if lock is None:
@@ -241,20 +243,20 @@ def _resolve_python(selector: str) -> Path:
     raise RuntimeBuildError(f"Python interpreter not found: {shown}")
 
 
-def _resolve_runtime_path(project_dir: Path, value: str) -> Path:
-    """Resolve a client-owned host path, relative to the project by default.
+def _resolve_runtime_path(workspace_dir: Path, value: str) -> Path:
+    """Resolve a client-owned host path, relative to the workspace by default.
 
     Absolute paths are intentionally supported: an existing environment,
     editable SDK, CLI installation, or data working directory may live outside
-    the Lab workspace on the client's machine.
+    the Lab vault on the client's machine.
     """
     raw = Path(value).expanduser()
-    target = raw.resolve() if raw.is_absolute() else (project_dir / raw).resolve()
+    target = raw.resolve() if raw.is_absolute() else (workspace_dir / raw).resolve()
     return target
 
 
-def _working_dir(root: Path, project_dir: Path, spec: ProjectRuntimeSpec) -> Path:
-    target = _resolve_runtime_path(project_dir, spec.working_dir or ".")
+def _working_dir(root: Path, workspace_dir: Path, spec: WorkspaceRuntimeSpec) -> Path:
+    target = _resolve_runtime_path(workspace_dir, spec.working_dir or ".")
     if not target.is_dir():
         raise RuntimeBuildError(f"working directory does not exist: {spec.working_dir}")
     return target
@@ -262,14 +264,14 @@ def _working_dir(root: Path, project_dir: Path, spec: ProjectRuntimeSpec) -> Pat
 
 def _runtime_environment(
     root: Path,
-    project_dir: Path,
-    spec: ProjectRuntimeSpec,
+    workspace_dir: Path,
+    spec: WorkspaceRuntimeSpec,
     python: Path,
 ) -> dict[str, str]:
     env = dict(os.environ)
     path_entries = [str(python.parent)]
     for raw in spec.cli_paths:
-        path_entries.append(str(_resolve_runtime_path(project_dir, raw)))
+        path_entries.append(str(_resolve_runtime_path(workspace_dir, raw)))
     inherited_path = env.get("PATH", "")
     if inherited_path:
         path_entries.append(inherited_path)
@@ -309,7 +311,7 @@ def _run_logged(
         )
 
 
-def _validation_source(spec: ProjectRuntimeSpec) -> str:
+def _validation_source(spec: WorkspaceRuntimeSpec) -> str:
     checks = [
         "import json, os, shutil, subprocess, sys",
         "result = {'python': sys.executable, 'imports': {}, 'clis': {}}",
@@ -343,26 +345,26 @@ def _validation_source(spec: ProjectRuntimeSpec) -> str:
 def _state_handle(root: Path, rel_path: str, data: dict[str, Any]) -> RuntimeHandle:
     spec = load_runtime_spec(root, rel_path)
     if spec is None:
-        raise RuntimeBuildError("project runtime configuration is missing")
-    _, project_dir = project_for_notebook(root, rel_path)
+        raise RuntimeBuildError("workspace runtime configuration is missing")
+    _, workspace_dir = workspace_for_notebook(root, rel_path)
     python = Path(str(data["python"]))
     return RuntimeHandle.model_validate({
-        "project_id": data["project_id"],
+        "workspace_id": data["workspace_id"],
         "fingerprint": data["fingerprint"],
         "python": str(python),
         "working_dir": data["working_dir"],
         # Inherit the server process environment at kernel-start time instead
         # of persisting it in state.json (which could copy credentials into a
-        # project-readable API response). Only the user's explicit overrides
+        # workspace-readable API response). Only the user's explicit overrides
         # and computed PATH are persisted indirectly via runtime.json.
-        "environment": _runtime_environment(root, project_dir, spec, python),
-        "display_name": data.get("display_name") or data["project_id"],
+        "environment": _runtime_environment(root, workspace_dir, spec, python),
+        "display_name": data.get("display_name") or data["workspace_id"],
     })
 
 
 def _validate_handle(
     handle: RuntimeHandle,
-    spec: ProjectRuntimeSpec,
+    spec: WorkspaceRuntimeSpec,
     *,
     log: list[str],
 ) -> dict[str, Any]:
@@ -385,21 +387,21 @@ def _validate_handle(
 
 
 def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
-    """Materialize and validate the desired project runtime synchronously."""
+    """Materialize and validate the desired workspace runtime synchronously."""
     spec = load_runtime_spec(root, rel_path)
     if spec is None:
         raise RuntimeBuildError(f"configure {RUNTIME_FILENAME} before building")
     if spec.mode != "local":
         raise RuntimeBuildError("only local runtimes are built by Lab")
 
-    project_id, project_dir = project_for_notebook(root, rel_path)
+    workspace_id, workspace_dir = workspace_for_notebook(root, rel_path)
     fingerprint = runtime_fingerprint(spec)
-    project_state = _project_state_dir(root, project_id)
-    final_dir = _build_dir(root, project_id, fingerprint)
-    active_path = _active_path(root, project_id)
+    workspace_state = _workspace_state_dir(root, workspace_id)
+    final_dir = _build_dir(root, workspace_id, fingerprint)
+    active_path = _active_path(root, workspace_id)
     log: list[str] = []
 
-    with _lock_for(root, project_id):
+    with _lock_for(root, workspace_id):
         ready_state = final_dir / "state.json"
         if ready_state.is_file():
             try:
@@ -421,28 +423,28 @@ def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
                             "log": (exc.log or "\n".join(log))[-20000:],
                         }
                         _atomic_json(active_path, failed)
-                        _atomic_json(_last_build_path(root, project_id), failed)
+                        _atomic_json(_last_build_path(root, workspace_id), failed)
                         raise
                     _atomic_json(ready_state, data)
                     _atomic_json(active_path, data)
-                    _atomic_json(_last_build_path(root, project_id), data)
+                    _atomic_json(_last_build_path(root, workspace_id), data)
                     return data
             except (OSError, json.JSONDecodeError):
                 pass
 
-        project_state.mkdir(parents=True, exist_ok=True)
-        temp_dir = project_state / f".build-{fingerprint}-{os.getpid()}-{threading.get_ident()}"
+        workspace_state.mkdir(parents=True, exist_ok=True)
+        temp_dir = workspace_state / f".build-{fingerprint}-{os.getpid()}-{threading.get_ident()}"
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
         temp_dir.mkdir(parents=True)
         building = {
             "status": "building",
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "fingerprint": fingerprint,
             "started_at": _utc_now(),
             "spec": spec.model_dump(mode="json"),
         }
-        _atomic_json(_last_build_path(root, project_id), building)
+        _atomic_json(_last_build_path(root, workspace_id), building)
 
         try:
             base_python = _resolve_python(spec.python)
@@ -452,7 +454,7 @@ def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
                 venv_dir = temp_dir / "venv"
                 _run_logged(
                     [str(base_python), "-m", "venv", str(venv_dir)],
-                    cwd=project_dir,
+                    cwd=workspace_dir,
                     env=None,
                     log=log,
                 )
@@ -461,27 +463,27 @@ def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
                     str(runtime_python), "-m", "pip", "install",
                     "ipykernel>=6.29,<8", *spec.packages,
                 ]
-                _run_logged(install, cwd=project_dir, env=None, log=log)
+                _run_logged(install, cwd=workspace_dir, env=None, log=log)
                 for raw in spec.editable:
-                    editable = _resolve_runtime_path(project_dir, raw)
+                    editable = _resolve_runtime_path(workspace_dir, raw)
                     _run_logged(
                         [str(runtime_python), "-m", "pip", "install", "-e", str(editable)],
-                        cwd=project_dir,
+                        cwd=workspace_dir,
                         env=None,
                         log=log,
                     )
 
-            working_dir = _working_dir(root, project_dir, spec)
-            environment = _runtime_environment(root, project_dir, spec, runtime_python)
+            working_dir = _working_dir(root, workspace_dir, spec)
+            environment = _runtime_environment(root, workspace_dir, spec, runtime_python)
 
             validation = _validate_handle(
                 RuntimeHandle(
-                    project_id=project_id,
+                    workspace_id=workspace_id,
                     fingerprint=fingerprint,
                     python=str(runtime_python),
                     working_dir=str(working_dir),
                     environment=environment,
-                    display_name=f"{project_id} · Python",
+                    display_name=f"{workspace_id} · Python",
                 ),
                 spec,
                 log=log,
@@ -495,17 +497,17 @@ def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
                 runtime_python = final_dir / "venv" / (
                     "Scripts/python.exe" if os.name == "nt" else "bin/python"
                 )
-                environment = _runtime_environment(root, project_dir, spec, runtime_python)
+                environment = _runtime_environment(root, workspace_dir, spec, runtime_python)
             else:
                 final_dir.mkdir(parents=True, exist_ok=True)
 
             data = {
                 "status": "ready",
-                "project_id": project_id,
+                "workspace_id": workspace_id,
                 "fingerprint": fingerprint,
                 "python": str(runtime_python),
                 "working_dir": str(working_dir),
-                "display_name": f"{project_id} · Python",
+                "display_name": f"{workspace_id} · Python",
                 "built_at": _utc_now(),
                 "spec": spec.model_dump(mode="json"),
                 "validation": validation,
@@ -513,7 +515,7 @@ def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
             }
             _atomic_json(final_dir / "state.json", data)
             _atomic_json(active_path, data)
-            _atomic_json(_last_build_path(root, project_id), data)
+            _atomic_json(_last_build_path(root, workspace_id), data)
             return data
         except Exception as exc:
             if temp_dir.exists():
@@ -531,22 +533,22 @@ def build_runtime(root: Path, rel_path: str) -> dict[str, Any]:
                 "detail": detail,
                 "log": build_log[-20000:],
             }
-            _atomic_json(_last_build_path(root, project_id), failed)
+            _atomic_json(_last_build_path(root, workspace_id), failed)
             raise RuntimeBuildError(detail, log=build_log) from exc
 
 
 def runtime_status(root: Path, rel_path: str) -> dict[str, Any]:
-    project_id, _ = project_for_notebook(root, rel_path)
+    workspace_id, _ = workspace_for_notebook(root, rel_path)
     spec = load_runtime_spec(root, rel_path)
     desired = runtime_fingerprint(spec) if spec is not None else None
     active: dict[str, Any] | None = None
     last_build: dict[str, Any] | None = None
     try:
-        active = json.loads(_active_path(root, project_id).read_text(encoding="utf-8"))
+        active = json.loads(_active_path(root, workspace_id).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         pass
     try:
-        last_build = json.loads(_last_build_path(root, project_id).read_text(encoding="utf-8"))
+        last_build = json.loads(_last_build_path(root, workspace_id).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         pass
 
@@ -563,7 +565,7 @@ def runtime_status(root: Path, rel_path: str) -> dict[str, Any]:
     else:
         status = "draft"
     return {
-        "project_id": project_id,
+        "workspace_id": workspace_id,
         "configured": spec is not None,
         "spec": spec.model_dump(mode="json") if spec is not None else None,
         "desired_fingerprint": desired,
@@ -578,12 +580,12 @@ def active_runtime(root: Path, rel_path: str) -> RuntimeHandle | None:
     spec = load_runtime_spec(root, rel_path)
     if spec is None or spec.mode != "local":
         return None
-    project_id, _ = project_for_notebook(root, rel_path)
+    workspace_id, _ = workspace_for_notebook(root, rel_path)
     desired = runtime_fingerprint(spec)
     try:
-        data = json.loads(_active_path(root, project_id).read_text(encoding="utf-8"))
+        data = json.loads(_active_path(root, workspace_id).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeBuildError("project runtime is not built") from exc
+        raise RuntimeBuildError("workspace runtime is not built") from exc
     if data.get("status") != "ready" or data.get("fingerprint") != desired:
-        raise RuntimeBuildError("project runtime has changed; build it before running cells")
+        raise RuntimeBuildError("workspace runtime has changed; build it before running cells")
     return _state_handle(root, rel_path, data)

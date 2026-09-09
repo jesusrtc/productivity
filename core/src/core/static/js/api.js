@@ -22,15 +22,15 @@ async function request(method, path, body) {
 export const api = {
   // Reads
   index: () => request("GET", "/api/index"),
-  projects: (params = {}) => {
+  workspaces: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
-    return request("GET", "/api/projects" + (qs ? "?" + qs : ""));
+    return request("GET", "/api/workspaces" + (qs ? "?" + qs : ""));
   },
-  project: (id) => request("GET", `/api/projects/${encodeURIComponent(id)}`),
-  projectTasks: (id) => request("GET", `/api/projects/${encodeURIComponent(id)}/tasks`),
-  projectDocs: (id) => request("GET", `/api/projects/${encodeURIComponent(id)}/docs`),
-  projectFile: (id, path) =>
-    request("GET", `/api/projects/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`),
+  workspace: (id) => request("GET", `/api/workspaces/${encodeURIComponent(id)}`),
+  workspaceTasks: (id) => request("GET", `/api/workspaces/${encodeURIComponent(id)}/tasks`),
+  workspaceDocs: (id) => request("GET", `/api/workspaces/${encodeURIComponent(id)}/docs`),
+  workspaceFile: (id, path) =>
+    request("GET", `/api/workspaces/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`),
   tasks: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request("GET", "/api/tasks" + (qs ? "?" + qs : ""));
@@ -49,16 +49,16 @@ export const api = {
   },
 
   // Writes
-  createProject: (body) => request("POST", "/api/projects", body),
+  createWorkspace: (body) => request("POST", "/api/workspaces", body),
   createTask: (body) => request("POST", "/api/tasks", body),
-  setTaskStatus: (projectId, taskId, body) =>
-    request("POST", `/api/tasks/${encodeURIComponent(projectId)}/${taskId}/status`, body),
-  updateTaskField: (projectId, taskId, body) =>
-    request("POST", `/api/tasks/${encodeURIComponent(projectId)}/${taskId}/update`, body),
-  addPR: (pid, body) => request("POST", `/api/projects/${encodeURIComponent(pid)}/prs`, body),
-  rmPR: (pid, idx) => request("DELETE", `/api/projects/${encodeURIComponent(pid)}/prs/${idx}`),
-  addArtifact: (pid, body) => request("POST", `/api/projects/${encodeURIComponent(pid)}/artifacts`, body),
-  rmArtifact: (pid, idx) => request("DELETE", `/api/projects/${encodeURIComponent(pid)}/artifacts/${idx}`),
+  setTaskStatus: (workspaceId, taskId, body) =>
+    request("POST", `/api/tasks/${encodeURIComponent(workspaceId)}/${taskId}/status`, body),
+  updateTaskField: (workspaceId, taskId, body) =>
+    request("POST", `/api/tasks/${encodeURIComponent(workspaceId)}/${taskId}/update`, body),
+  addPR: (pid, body) => request("POST", `/api/workspaces/${encodeURIComponent(pid)}/prs`, body),
+  rmPR: (pid, idx) => request("DELETE", `/api/workspaces/${encodeURIComponent(pid)}/prs/${idx}`),
+  addArtifact: (pid, body) => request("POST", `/api/workspaces/${encodeURIComponent(pid)}/artifacts`, body),
+  rmArtifact: (pid, idx) => request("DELETE", `/api/workspaces/${encodeURIComponent(pid)}/artifacts/${idx}`),
 
   // Git push (dashboard buttons)
   pushProductivity: () => request("POST", "/api/git/push-productivity"),

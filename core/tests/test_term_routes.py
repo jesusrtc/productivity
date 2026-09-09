@@ -152,8 +152,8 @@ def isolated_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
 @pytest.fixture()
 def nomenclature_tmux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, monorepo: Path):
-    """Fake tmux + a registered workspace, for exercising the CURRENT
-    (non-``LAB_TMUX_PREFIX``) ``neurona-<project>-<tab>-<hash6>``
+    """Fake tmux + a registered vault, for exercising the CURRENT
+    (non-``LAB_TMUX_PREFIX``) ``neurona-<workspace>-<tab>-<hash6>``
     naming scheme end-to-end, instead of the plain legacy shape the other
     tests opt into via ``isolated_prefix``.
     """
@@ -161,15 +161,15 @@ def nomenclature_tmux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, monorepo:
 
     # `monorepo` already points `LAB_HOME` at a per-test tmp dir, so this
     # registry write is fully isolated from the user's real
-    # ``~/.lab/workspaces.toml``.
+    # ``~/.lab/vaults.toml``.
     from lab import paths
-    paths.write_workspace_registry({
+    paths.write_vault_registry({
         "active": "ssd",
-        "workspaces": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
+        "vaults": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
     })
 
     import core.routes.term as term_mod
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    term_mod._VAULT_LABEL_CACHE.clear()
 
     state_file = tmp_path / "fake-tmux-state-nomenclature.json"
     bin_dir = tmp_path / "bin-nomenclature"
@@ -179,7 +179,7 @@ def nomenclature_tmux(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, monorepo:
 
     yield "ssd"
 
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    term_mod._VAULT_LABEL_CACHE.clear()
     proc = subprocess.run(
         ["tmux", "list-sessions", "-F", "#{session_name}"],
         capture_output=True, text=True,
@@ -196,11 +196,11 @@ def test_list_sessions_empty(client, isolated_prefix) -> None:
     assert r.json() == []
 
 
-def test_create_claude_session_for_project(client, seed_project, isolated_prefix,
+def test_create_claude_session_for_workspace(client, seed_workspace, isolated_prefix,
                                             monorepo: Path) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude",
+        "workspace_id": "demo", "kind": "claude",
     })
     assert r.status_code == 200, r.text
     body = r.json()
@@ -214,17 +214,17 @@ def test_create_claude_session_for_project(client, seed_project, isolated_prefix
     assert subprocess.run(["tmux", "has-session", "-t", body["name"]],
                           capture_output=True).returncode == 0
 
-    # project.json now has a durable sessions[] entry with the id.
-    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    # workspace.json now has a durable sessions[] entry with the id.
+    pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert pjson["sessions"] == [{
         "name": "claude", "kind": "claude", "agent": "claude",
         "claude_session_id": body["claude_session_id"],
     }]
 
 
-def test_create_terminal_session(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"})
+def test_create_terminal_session(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("demo")
+    r = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "terminal"})
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == isolated_prefix + "demo-bash"
@@ -240,19 +240,19 @@ def test_create_terminal_session_for_global_assistant(
     monkeypatch.setenv("LAB_ASSISTANT_HOME", str(assistant_root))
 
     response = client.post("/api/term/sessions", json={
-        "project_id": "__assistant__",
-        "workspace": "__assistant__",
+        "workspace_id": "__assistant__",
+        "vault": "__assistant__",
         "kind": "terminal",
     })
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["project_id"] == "__assistant__"
+    assert body["workspace_id"] == "__assistant__"
     assert body["cwd"] == str(assistant_root)
-    assert (assistant_root / ".lab" / "project.json").is_file()
+    assert (assistant_root / ".lab" / "workspace.json").is_file()
     listed = client.get("/api/term/sessions", params={
-        "project_id": "__assistant__",
-        "workspace": "__assistant__",
+        "workspace_id": "__assistant__",
+        "vault": "__assistant__",
     })
     assert listed.status_code == 200, listed.text
     assert [row["name"] for row in listed.json()] == [body["name"]]
@@ -260,10 +260,10 @@ def test_create_terminal_session_for_global_assistant(
 
 def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     source_name = "existing-work"
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", source_name, "bash"],
@@ -271,7 +271,7 @@ def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
     )
 
     response = client.post("/api/term/sessions/attach", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": source_name,
     })
 
@@ -283,12 +283,12 @@ def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
     assert body["source_session"] == source_name
     assert body["cmd"] == f"tmux attach -t '{source_name}'"
 
-    listed = client.get("/api/term/sessions", params={"project_id": "demo"})
+    listed = client.get("/api/term/sessions", params={"workspace_id": "demo"})
     assert listed.status_code == 200, listed.text
     assert [row["name"] for row in listed.json()] == [body["name"]]
 
     saved = client.get(
-        "/api/term/sessions/saved", params={"project_id": "demo"}
+        "/api/term/sessions/saved", params={"workspace_id": "demo"}
     ).json()
     assert saved == [{
         "name": body["logical_name"],
@@ -310,15 +310,15 @@ def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
 
 def test_attach_existing_tmux_session_is_idempotent(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", "existing-work", "bash"],
         check=True,
     )
-    payload = {"project_id": "demo", "name": "existing-work"}
+    payload = {"workspace_id": "demo", "name": "existing-work"}
 
     first = client.post("/api/term/sessions/attach", json=payload)
     second = client.post("/api/term/sessions/attach", json=payload)
@@ -331,21 +331,21 @@ def test_attach_existing_tmux_session_is_idempotent(
 
 def test_attachable_session_picker_lists_and_groups_registered_and_host_sessions(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
     monorepo: Path,
 ) -> None:
-    demo_dir = seed_project("demo")
-    seed_project("other")
-    demo_doc = json.loads((demo_dir / "project.json").read_text())
+    demo_dir = seed_workspace("demo")
+    seed_workspace("other")
+    demo_doc = json.loads((demo_dir / "workspace.json").read_text())
     demo_doc["name"] = "Demo Display Name"
-    (demo_dir / "project.json").write_text(json.dumps(demo_doc, indent=2))
+    (demo_dir / "workspace.json").write_text(json.dumps(demo_doc, indent=2))
 
     demo = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "terminal",
+        "workspace_id": "demo", "kind": "terminal",
     }).json()
     other = client.post("/api/term/sessions", json={
-        "project_id": "other", "kind": "terminal",
+        "workspace_id": "other", "kind": "terminal",
     }).json()
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", "host-work", "bash"],
@@ -356,30 +356,30 @@ def test_attachable_session_picker_lists_and_groups_registered_and_host_sessions
         check=True,
     )
     attached = client.post("/api/term/sessions/attach", json={
-        "project_id": "demo", "name": "host-work",
+        "workspace_id": "demo", "name": "host-work",
     })
     assert attached.status_code == 200, attached.text
 
     response = client.get(
-        "/api/term/sessions/attachable", params={"project_id": "demo"},
+        "/api/term/sessions/attachable", params={"workspace_id": "demo"},
     )
 
     assert response.status_code == 200, response.text
     by_name = {row["name"]: row for row in response.json()}
-    assert by_name[demo["name"]]["project_name"] == "Demo Display Name"
-    assert by_name[demo["name"]]["current_project"] is True
+    assert by_name[demo["name"]]["workspace_name"] == "Demo Display Name"
+    assert by_name[demo["name"]]["current_workspace"] is True
     assert by_name[demo["name"]]["has_ui_tab"] is True
-    assert by_name[other["name"]]["project_id"] == "other"
-    assert by_name[other["name"]]["current_project"] is False
+    assert by_name[other["name"]]["workspace_id"] == "other"
+    assert by_name[other["name"]]["current_workspace"] is False
     assert by_name[other["name"]]["has_ui_tab"] is True
     assert by_name[other["name"]]["already_added"] is False
-    assert by_name["host-work"]["project_id"] is None
-    assert by_name["host-work"]["project_name"] == "Unassigned"
+    assert by_name["host-work"]["workspace_id"] is None
+    assert by_name["host-work"]["workspace_name"] == "Unassigned"
     assert by_name["host-work"]["has_ui_tab"] is True
     assert by_name["host-work"]["already_added"] is True
     assert by_name["host-work"]["tab_session_name"] == attached.json()["name"]
-    assert by_name["host-work"]["tab_project_id"] == "demo"
-    assert by_name["host-work"]["tab_in_current_project"] is True
+    assert by_name["host-work"]["tab_workspace_id"] == "demo"
+    assert by_name["host-work"]["tab_in_current_workspace"] is True
     assert by_name["host-free"]["has_ui_tab"] is False
     assert by_name["host-free"]["already_added"] is False
     assert attached.json()["name"] not in by_name
@@ -388,14 +388,14 @@ def test_attachable_session_picker_lists_and_groups_registered_and_host_sessions
 @pytest.mark.parametrize("name", ["", "bad.name", "bad:name", "bad/name", "bad name"])
 def test_attach_existing_tmux_session_rejects_invalid_names(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
     name: str,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
 
     response = client.post("/api/term/sessions/attach", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": name,
     })
 
@@ -404,13 +404,13 @@ def test_attach_existing_tmux_session_rejects_invalid_names(
 
 def test_attach_existing_tmux_session_reports_a_missing_source(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
 
     response = client.post("/api/term/sessions/attach", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": "does-not-exist",
     })
 
@@ -418,9 +418,9 @@ def test_attach_existing_tmux_session_reports_a_missing_source(
     assert "was not found" in response.json()["detail"]
 
 
-def test_unknown_kind_rejected(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "banana"})
+def test_unknown_kind_rejected(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("demo")
+    r = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "banana"})
     assert r.status_code == 400
 
 
@@ -825,8 +825,8 @@ def test_claude_metadata_uses_post_clear_requests_and_current_recap(
 
     monkeypatch.setenv("HOME", str(tmp_path))
     cwd = "/repo"
-    project_dir = tmp_path / ".claude" / "projects" / "-repo"
-    project_dir.mkdir(parents=True)
+    workspace_dir = tmp_path / ".claude" / "projects" / "-repo"
+    workspace_dir.mkdir(parents=True)
     events = [
         {"aiTitle": "Generated Claude title"},
         {
@@ -854,7 +854,7 @@ def test_claude_metadata_uses_post_clear_requests_and_current_recap(
             "content": "Implementing terminal request history",
         },
     ]
-    (project_dir / "claude-id.jsonl").write_text(
+    (workspace_dir / "claude-id.jsonl").write_text(
         "\n".join(json.dumps(event) for event in events) + "\n",
     )
     term_mod._AGENT_METADATA_CACHE.clear()
@@ -864,7 +864,7 @@ def test_claude_metadata_uses_post_clear_requests_and_current_recap(
         ["Latest task"],
     )
 
-    with (project_dir / "claude-id.jsonl").open("a") as handle:
+    with (workspace_dir / "claude-id.jsonl").open("a") as handle:
         handle.write(json.dumps({
             "type": "user", "isSidechain": False, "userType": "external",
             "message": {"content": "Follow-up request"},
@@ -876,12 +876,12 @@ def test_claude_metadata_uses_post_clear_requests_and_current_recap(
     )
 
 
-def test_second_claude_gets_suffix(client, seed_project, isolated_prefix) -> None:
+def test_second_claude_gets_suffix(client, seed_workspace, isolated_prefix) -> None:
     """`+ New` while a default-named session is already live spawns claude-2."""
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     second = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "start_fresh": True,
+        "workspace_id": "demo", "kind": "claude", "start_fresh": True,
     }).json()
     assert first["name"].endswith("-claude")
     assert second["name"].endswith("-claude-2")
@@ -889,98 +889,98 @@ def test_second_claude_gets_suffix(client, seed_project, isolated_prefix) -> Non
     assert first["claude_session_id"] != second["claude_session_id"]
 
 
-def test_reopen_same_name_resumes_saved_uuid(client, seed_project, isolated_prefix,
+def test_reopen_same_name_resumes_saved_uuid(client, seed_workspace, isolated_prefix,
                                               monorepo: Path) -> None:
     """Kill the tmux session (tab close) then respawn by name → --resume with saved uuid."""
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     original_uuid = first["claude_session_id"]
 
-    # Simulate the X-on-tab flow: kill the tmux session but keep project.json entry.
+    # Simulate the X-on-tab flow: kill the tmux session but keep workspace.json entry.
     r = client.delete(f"/api/term/sessions/{first['name']}")
     assert r.status_code == 200
 
     # Re-create — should pick up the same UUID via --resume.
-    resumed = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    resumed = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     assert resumed["claude_session_id"] == original_uuid
     assert resumed["resumed_from"] == original_uuid
     assert "--resume" in resumed["cmd"]
     assert "--session-id" not in resumed["cmd"]
 
 
-def test_start_fresh_overrides_saved_uuid(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+def test_start_fresh_overrides_saved_uuid(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     client.delete(f"/api/term/sessions/{first['name']}")
     fresh = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "start_fresh": True,
+        "workspace_id": "demo", "kind": "claude", "start_fresh": True,
     }).json()
     assert fresh["claude_session_id"] != first["claude_session_id"]
     assert fresh["resumed_from"] is None
     assert "--session-id" in fresh["cmd"]
 
 
-def test_idempotent_when_already_live(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
-    again = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+def test_idempotent_when_already_live(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
+    again = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     # No new session spawned — same live name returned.
     assert again["name"] == first["name"]
     assert again.get("already_running") is True
 
 
-def test_list_filters_by_project(client, seed_project, isolated_prefix) -> None:
-    seed_project("alpha")
-    seed_project("beta")
-    client.post("/api/term/sessions", json={"project_id": "alpha", "kind": "terminal"})
-    client.post("/api/term/sessions", json={"project_id": "beta", "kind": "terminal"})
+def test_list_filters_by_workspace(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
+    client.post("/api/term/sessions", json={"workspace_id": "alpha", "kind": "terminal"})
+    client.post("/api/term/sessions", json={"workspace_id": "beta", "kind": "terminal"})
 
     r_all = client.get("/api/term/sessions")
     assert len(r_all.json()) == 2
-    r_alpha = client.get("/api/term/sessions?project_id=alpha").json()
+    r_alpha = client.get("/api/term/sessions?workspace_id=alpha").json()
     assert len(r_alpha) == 1
-    assert r_alpha[0]["project_id"] == "alpha"
+    assert r_alpha[0]["workspace_id"] == "alpha"
 
 
-def test_projects_with_sessions(client, seed_project, isolated_prefix) -> None:
-    seed_project("alpha")
-    seed_project("beta")
-    r = client.get("/api/term/projects-with-sessions")
+def test_workspaces_with_sessions(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
+    r = client.get("/api/term/workspaces-with-sessions")
     assert r.json() == []
 
-    client.post("/api/term/sessions", json={"project_id": "alpha", "kind": "terminal"})
-    client.post("/api/term/sessions", json={"project_id": "beta", "kind": "terminal"})
-    client.post("/api/term/sessions", json={"project_id": "beta", "kind": "terminal"})
+    client.post("/api/term/sessions", json={"workspace_id": "alpha", "kind": "terminal"})
+    client.post("/api/term/sessions", json={"workspace_id": "beta", "kind": "terminal"})
+    client.post("/api/term/sessions", json={"workspace_id": "beta", "kind": "terminal"})
 
-    ids = client.get("/api/term/projects-with-sessions").json()
+    ids = client.get("/api/term/workspaces-with-sessions").json()
     assert sorted(ids) == ["alpha", "beta"]
 
 
-def test_kill_project_sessions_removes_all(client, seed_project, isolated_prefix,
+def test_kill_workspace_sessions_removes_all(client, seed_workspace, isolated_prefix,
                                              monorepo: Path) -> None:
-    seed_project("demo")
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"})
+    seed_workspace("demo")
+    client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"})
+    client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "terminal"})
 
-    r = client.delete("/api/term/sessions/project/demo")
+    r = client.delete("/api/term/sessions/workspace/demo")
     assert r.status_code == 200
     assert len(r.json()["killed"]) == 2
 
     # No live sessions remain.
-    assert client.get("/api/term/sessions?project_id=demo").json() == []
-    # But project.json still has the saved entries (not purged).
-    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    assert client.get("/api/term/sessions?workspace_id=demo").json() == []
+    # But workspace.json still has the saved entries (not purged).
+    pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert len(pjson["sessions"]) == 2
 
 
-def test_kill_project_sessions_purge_clears_saved(client, seed_project, isolated_prefix,
+def test_kill_workspace_sessions_purge_clears_saved(client, seed_workspace, isolated_prefix,
                                                     monorepo: Path) -> None:
-    seed_project("demo")
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
+    seed_workspace("demo")
+    client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"})
 
-    r = client.delete("/api/term/sessions/project/demo?purge=true")
+    r = client.delete("/api/term/sessions/workspace/demo?purge=true")
     assert r.status_code == 200
-    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert pjson["sessions"] == []
 
 
@@ -988,64 +988,64 @@ def test_agent_activity_routes_are_removed(client) -> None:
     """Lab no longer scrapes terminal panes or exposes attention state."""
     paths = client.get("/openapi.json").json()["paths"]
     assert "/api/term/sessions/status" not in paths
-    assert "/api/term/projects-attention" not in paths
+    assert "/api/term/workspaces-attention" not in paths
 
 
-def test_session_order_reorder_saved_and_affect_live_list(client, seed_project,
+def test_session_order_reorder_saved_and_affect_live_list(client, seed_workspace,
                                                              isolated_prefix,
                                                              monorepo) -> None:
-    """POST /api/term/sessions/order reorders project.json.sessions[]; the
+    """POST /api/term/sessions/order reorders workspace.json.sessions[]; the
     live GET uses that order too so the UI's pill row reflects it."""
     import json as _json
-    seed_project("demo")
+    seed_workspace("demo")
     # Spawn three sessions.
-    a = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    a = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
     b = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "start_fresh": True,
+        "workspace_id": "demo", "kind": "claude", "start_fresh": True,
     }).json()
-    c = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"}).json()
+    c = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "terminal"}).json()
     names = [a["logical_name"], b["logical_name"], c["logical_name"]]
     assert sorted(names) == sorted(["claude", "claude-2", "bash"])
 
     # Reorder: bash, claude-2, claude.
     new_order = ["bash", "claude-2", "claude"]
     r = client.post("/api/term/sessions/order",
-                     json={"project_id": "demo", "order": new_order})
+                     json={"workspace_id": "demo", "order": new_order})
     assert r.status_code == 200, r.text
     assert r.json()["order"] == new_order
 
     # Saved order updated.
-    pjson = _json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    pjson = _json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert [s["name"] for s in pjson["sessions"]] == new_order
 
     # Live list reflects saved order.
-    live = client.get("/api/term/sessions?project_id=demo").json()
+    live = client.get("/api/term/sessions?workspace_id=demo").json()
     assert [s["logical_name"] for s in live] == new_order
 
 
-def test_session_order_ignores_unknown_names(client, seed_project, isolated_prefix) -> None:
-    """Names not in project.json.sessions[] are silently dropped from the
+def test_session_order_ignores_unknown_names(client, seed_workspace, isolated_prefix) -> None:
+    """Names not in workspace.json.sessions[] are silently dropped from the
     order update (they have no saved entry to move)."""
-    seed_project("demo")
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
+    seed_workspace("demo")
+    client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"})
     r = client.post("/api/term/sessions/order",
-                    json={"project_id": "demo", "order": ["mystery", "claude"]})
+                    json={"workspace_id": "demo", "order": ["mystery", "claude"]})
     assert r.status_code == 200
     assert r.json()["order"] == ["claude"]
 
 
-def test_session_order_404_for_missing_project(client, isolated_prefix) -> None:
+def test_session_order_404_for_missing_workspace(client, isolated_prefix) -> None:
     r = client.post("/api/term/sessions/order",
-                    json={"project_id": "does-not-exist", "order": []})
+                    json={"workspace_id": "does-not-exist", "order": []})
     assert r.status_code == 404
 
 
-def test_saved_sessions_endpoint(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
-    client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"})
+def test_saved_sessions_endpoint(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("demo")
+    client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"})
+    client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "terminal"})
 
-    saved = client.get("/api/term/sessions/saved?project_id=demo").json()
+    saved = client.get("/api/term/sessions/saved?workspace_id=demo").json()
     assert len(saved) == 2
     kinds = sorted(s["kind"] for s in saved)
     assert kinds == ["claude", "terminal"]
@@ -1058,42 +1058,42 @@ def test_delete_rejects_non_prefix(client, isolated_prefix) -> None:
     assert r.status_code == 400
 
 
-def test_delete_single_session_does_not_purge_project_json(client, seed_project,
+def test_delete_single_session_does_not_purge_workspace_json(client, seed_workspace,
                                                             isolated_prefix, monorepo: Path) -> None:
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
 
     client.delete(f"/api/term/sessions/{first['name']}")
 
     # tmux session gone, runtime meta gone…
     assert subprocess.run(["tmux", "has-session", "-t", first["name"]],
                           capture_output=True).returncode != 0
-    # …but the project.json entry with the claude UUID persists so we can --resume later.
-    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    # …but the workspace.json entry with the claude UUID persists so we can --resume later.
+    pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert pjson["sessions"][0]["claude_session_id"] == first["claude_session_id"]
 
 
-def test_tab_close_then_reopen_restores_all_sessions(client, seed_project,
+def test_tab_close_then_reopen_restores_all_sessions(client, seed_workspace,
                                                        isolated_prefix, monorepo: Path) -> None:
     """Tab close (kill-all) → re-post each saved session by name → --resume.
 
-    This is the loop the frontend runs when you reopen a project tab:
+    This is the loop the frontend runs when you reopen a workspace tab:
     GET /sessions/saved, then for every entry POST again with the same name
     so Claude resumes with its saved UUID.
     """
-    seed_project("demo")
+    seed_workspace("demo")
     main = client.post("/api/term/sessions",
-                       json={"project_id": "demo", "kind": "claude"}).json()
+                       json={"workspace_id": "demo", "kind": "claude"}).json()
     extra = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "start_fresh": True,
+        "workspace_id": "demo", "kind": "claude", "start_fresh": True,
     }).json()
     main_id, extra_id = main["claude_session_id"], extra["claude_session_id"]
     assert main["logical_name"] == "claude"
     assert extra["logical_name"] == "claude-2"
 
     # User closes the tab → every live session dies. Saved metadata stays.
-    client.delete("/api/term/sessions/project/demo")
-    saved = client.get("/api/term/sessions/saved?project_id=demo").json()
+    client.delete("/api/term/sessions/workspace/demo")
+    saved = client.get("/api/term/sessions/saved?workspace_id=demo").json()
     assert len(saved) == 2
     names = {s["name"] for s in saved}
     assert names == {"claude", "claude-2"}
@@ -1101,12 +1101,12 @@ def test_tab_close_then_reopen_restores_all_sessions(client, seed_project,
     # User reopens the tab. Frontend POSTs each saved entry by name.
     for s in saved:
         r = client.post("/api/term/sessions", json={
-            "project_id": "demo", "kind": s["kind"], "name": s["name"], "auto": True,
+            "workspace_id": "demo", "kind": s["kind"], "name": s["name"], "auto": True,
         })
         assert r.status_code == 200, r.text
 
     # Both sessions are live again and retained their UUIDs via --resume.
-    live = client.get("/api/term/sessions?project_id=demo").json()
+    live = client.get("/api/term/sessions?workspace_id=demo").json()
     assert len(live) == 2
     by_logical = {s["logical_name"]: s for s in live}
     assert by_logical["claude"]["claude_session_id"] == main_id
@@ -1115,12 +1115,12 @@ def test_tab_close_then_reopen_restores_all_sessions(client, seed_project,
     assert "--resume" in by_logical["claude-2"]["cmd"]
 
 
-def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
+def test_cerebro_pseudo_workspace_lifecycle(client, isolated_prefix,
                                              monorepo: Path) -> None:
-    """__cerebro__ is a pseudo-project: cwd = content/, storage = hidden
-    file. Behaves like a real project for session create + resume."""
+    """__cerebro__ is a pseudo-workspace: cwd = content/, storage = hidden
+    file. Behaves like a real workspace for session create + resume."""
     r = client.post("/api/term/sessions", json={
-        "project_id": "__cerebro__", "kind": "claude",
+        "workspace_id": "__cerebro__", "kind": "claude",
     })
     assert r.status_code == 200, r.text
     body = r.json()
@@ -1128,8 +1128,8 @@ def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
     assert body["cwd"].endswith("/content")
     assert body["claude_session_id"], "cerebro sessions still mint a UUID"
 
-    # The saved sessions go into content/.cerebro-project.json.
-    meta_path = monorepo / "content" / ".cerebro-project.json"
+    # The saved sessions go into content/.cerebro-workspace.json.
+    meta_path = monorepo / "content" / ".cerebro-workspace.json"
     assert meta_path.is_file()
     data = json.loads(meta_path.read_text())
     assert data["sessions"][0]["name"] == "claude"
@@ -1138,86 +1138,86 @@ def test_cerebro_pseudo_project_lifecycle(client, isolated_prefix,
     # Close + reopen: --resume is used.
     client.delete(f"/api/term/sessions/{body['name']}")
     resumed = client.post("/api/term/sessions", json={
-        "project_id": "__cerebro__", "kind": "claude",
+        "workspace_id": "__cerebro__", "kind": "claude",
     }).json()
     assert resumed["resumed_from"] == body["claude_session_id"]
     assert "--resume" in resumed["cmd"]
 
 
-def test_logs_pseudo_project_uses_own_saved_state(monorepo: Path) -> None:
+def test_logs_pseudo_workspace_uses_own_saved_state(monorepo: Path) -> None:
     """The Logs tab owns terminal metadata separate from other tabs."""
     from core.routes import term as term_mod
     from lab import paths
 
     paths.logs_dir(monorepo).mkdir(parents=True, exist_ok=True)
 
-    assert term_mod.LOGS_PROJECT_ID == "__logs__"
-    assert term_mod._project_json(monorepo, term_mod.LOGS_PROJECT_ID) == (
-        monorepo / "content" / ".logs-project.json"
+    assert term_mod.LOGS_WORKSPACE_ID == "__logs__"
+    assert term_mod._workspace_json(monorepo, term_mod.LOGS_WORKSPACE_ID) == (
+        monorepo / "content" / ".logs-workspace.json"
     )
-    assert term_mod._project_cwd(monorepo, term_mod.LOGS_PROJECT_ID) == (
+    assert term_mod._workspace_cwd(monorepo, term_mod.LOGS_WORKSPACE_ID) == (
         paths.logs_dir(monorepo)
     ).resolve()
-    assert term_mod._load_project(monorepo, term_mod.LOGS_PROJECT_ID) == {}
-    assert term_mod.LOGS_PROJECT_ID in term_mod._known_project_ids(monorepo)
+    assert term_mod._load_workspace(monorepo, term_mod.LOGS_WORKSPACE_ID) == {}
+    assert term_mod.LOGS_WORKSPACE_ID in term_mod._known_workspace_ids(monorepo)
 
-    term_mod._upsert_project_session(
+    term_mod._upsert_workspace_session(
         monorepo,
-        term_mod.LOGS_PROJECT_ID,
+        term_mod.LOGS_WORKSPACE_ID,
         {"name": "bash", "kind": "terminal"},
     )
 
-    meta_path = monorepo / "content" / ".logs-project.json"
+    meta_path = monorepo / "content" / ".logs-workspace.json"
     assert meta_path.is_file()
     data = json.loads(meta_path.read_text())
     assert data["sessions"] == [{"name": "bash", "kind": "terminal"}]
-    assert term_mod._get_project_sessions(monorepo, term_mod.LOGS_PROJECT_ID) == [
+    assert term_mod._get_workspace_sessions(monorepo, term_mod.LOGS_WORKSPACE_ID) == [
         {"name": "bash", "kind": "terminal"}
     ]
 
 
-def test_workspace_pseudo_project_runs_at_root_and_persists_own_sessions(
+def test_vault_pseudo_workspace_runs_at_root_and_persists_own_sessions(
     client, isolated_prefix, monorepo: Path,
 ) -> None:
     from core.routes import term as term_mod
 
     r = client.post("/api/term/sessions", json={
-        "project_id": "__workspace__",
+        "workspace_id": "__vault__",
         "kind": "terminal",
     })
 
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["name"] == isolated_prefix + "__workspace__-bash"
+    assert body["name"] == isolated_prefix + "__vault__-bash"
     assert body["cwd"] == str(monorepo.resolve())
-    assert term_mod._project_json(monorepo, term_mod.WORKSPACE_PROJECT_ID) == (
-        monorepo / "content" / ".workspace-project.json"
+    assert term_mod._workspace_json(monorepo, term_mod.VAULT_WORKSPACE_ID) == (
+        monorepo / "content" / ".vault-workspace.json"
     )
-    assert term_mod.WORKSPACE_PROJECT_ID in term_mod._known_project_ids(monorepo)
+    assert term_mod.VAULT_WORKSPACE_ID in term_mod._known_workspace_ids(monorepo)
     saved = json.loads(
-        (monorepo / "content" / ".workspace-project.json").read_text()
+        (monorepo / "content" / ".vault-workspace.json").read_text()
     )
     assert saved["sessions"] == [{"name": "bash", "kind": "terminal"}]
 
 
-def test_create_session_enforces_workspace_supported_agents(
+def test_create_session_enforces_vault_supported_agents(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
     monorepo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from core.routes import term as term_mod
 
-    seed_project("demo")
-    (monorepo / "workspace.json").write_text(json.dumps({
+    seed_workspace("demo")
+    (monorepo / "vault.json").write_text(json.dumps({
         "version": 1,
         "agents": {"supported": ["codex"], "default": "codex"},
     }))
     monkeypatch.setattr(term_mod, "_agent_argv", lambda agent: [agent])
 
     disabled = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "claude",
         "agent": "claude",
     })
@@ -1225,7 +1225,7 @@ def test_create_session_enforces_workspace_supported_agents(
     assert "not enabled" in disabled.json()["detail"]
 
     defaulted = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "claude",
     })
     assert defaulted.status_code == 200, defaulted.text
@@ -1233,7 +1233,7 @@ def test_create_session_enforces_workspace_supported_agents(
     assert defaulted.json()["logical_name"] == "codex"
 
 
-def test_self_pseudo_project_uses_framework_root_for_terminal(monorepo: Path, tmp_path: Path,
+def test_self_pseudo_workspace_uses_framework_root_for_terminal(monorepo: Path, tmp_path: Path,
                                                               monkeypatch: pytest.MonkeyPatch) -> None:
     from core.routes import term as term_mod
     from lab import paths
@@ -1242,32 +1242,32 @@ def test_self_pseudo_project_uses_framework_root_for_terminal(monorepo: Path, tm
     (framework / "content").mkdir(parents=True)
     monkeypatch.setattr(paths, "find_framework_root", lambda: framework)
 
-    assert term_mod._project_json(monorepo, term_mod.SELF_PROJECT_ID) == (
-        framework / "content" / ".self-project.json"
+    assert term_mod._workspace_json(monorepo, term_mod.SELF_WORKSPACE_ID) == (
+        framework / "content" / ".self-workspace.json"
     )
-    assert term_mod._project_cwd(monorepo, term_mod.SELF_PROJECT_ID) == framework.resolve()
+    assert term_mod._workspace_cwd(monorepo, term_mod.SELF_WORKSPACE_ID) == framework.resolve()
 
 
-def test_delete_with_purge_clears_project_json_entry(client, seed_project,
+def test_delete_with_purge_clears_workspace_json_entry(client, seed_workspace,
                                                       isolated_prefix, monorepo: Path) -> None:
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"}).json()
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"}).json()
 
     client.delete(f"/api/term/sessions/{first['name']}?purge=true")
-    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert pjson["sessions"] == []
 
 
-def test_delete_with_purge_prevents_later_resume(client, seed_project,
+def test_delete_with_purge_prevents_later_resume(client, seed_workspace,
                                                   isolated_prefix) -> None:
-    seed_project("demo")
-    r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
+    seed_workspace("demo")
+    r = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"})
     assert r.status_code == 200, r.text
     first = r.json()
 
     client.delete(f"/api/term/sessions/{first['name']}?purge=true")
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "claude",
     })
     assert r.status_code == 200, r.text
@@ -1279,16 +1279,16 @@ def test_delete_with_purge_prevents_later_resume(client, seed_project,
     assert "--resume" not in recreated["cmd"]
 
 
-def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_project,
+def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_workspace,
                                                         isolated_prefix,
                                                         monorepo: Path) -> None:
     """Regression (2026-06-10): .sessions.json got wiped while sessions were
-    live, orphaning every tab (project_id=None → grey tabs, empty
-    projects-with-sessions). The registry must self-heal from the tmux
-    session names + the durable project.json entries."""
-    seed_project("demo")
+    live, orphaning every tab (workspace_id=None → grey tabs, empty
+    workspaces-with-sessions). The registry must self-heal from the tmux
+    session names + the durable workspace.json entries."""
+    seed_workspace("demo")
     created = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude",
+        "workspace_id": "demo", "kind": "claude",
     }).json()
 
     from lab import paths
@@ -1296,22 +1296,22 @@ def test_wiped_sessions_json_is_rebuilt_from_live_tmux(client, seed_project,
     # Simulate the wipe.
     sessions_path.write_text("{}\n")
 
-    rows = client.get("/api/term/sessions?project_id=demo").json()
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
     assert [r["name"] for r in rows] == [created["name"]]
-    assert rows[0]["project_id"] == "demo"
+    assert rows[0]["workspace_id"] == "demo"
     assert rows[0]["logical_name"] == "claude"
     assert rows[0]["kind"] == "claude"
     assert rows[0]["agent"] == "claude"
-    # claude_session_id recovered from project.json so --resume keeps working.
+    # claude_session_id recovered from workspace.json so --resume keeps working.
     assert rows[0]["claude_session_id"] == created["claude_session_id"]
 
-    assert client.get("/api/term/projects-with-sessions").json() == ["demo"]
+    assert client.get("/api/term/workspaces-with-sessions").json() == ["demo"]
     # And the rebuilt entry is persisted.
     meta = json.loads(sessions_path.read_text())
-    assert meta[created["name"]]["project_id"] == "demo"
+    assert meta[created["name"]]["workspace_id"] == "demo"
 
 
-def test_failed_tmux_listing_does_not_prune_registry(client, seed_project,
+def test_failed_tmux_listing_does_not_prune_registry(client, seed_workspace,
                                                       isolated_prefix,
                                                       monorepo: Path,
                                                       monkeypatch) -> None:
@@ -1320,65 +1320,65 @@ def test_failed_tmux_listing_does_not_prune_registry(client, seed_project,
     the whole registry."""
     from core.routes import term as term_route
 
-    seed_project("demo")
+    seed_workspace("demo")
     created = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude",
+        "workspace_id": "demo", "kind": "claude",
     }).json()
 
     monkeypatch.setattr(term_route, "_tmux_list", lambda prefix: None)
     assert client.get("/api/term/sessions").json() == []
-    assert client.get("/api/term/projects-with-sessions").json() == []
+    assert client.get("/api/term/workspaces-with-sessions").json() == []
 
     from lab import paths
     meta = json.loads(paths.sessions_file(monorepo).read_text())
     assert created["name"] in meta, "failed listing must not prune the registry"
 
 
-def test_session_metadata_label_is_persisted_and_returned(client, seed_project,
+def test_session_metadata_label_is_persisted_and_returned(client, seed_workspace,
                                                           isolated_prefix,
                                                           monorepo: Path) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     created = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "claude",
         "agent": "codex",
     }).json()
 
     r = client.patch("/api/term/sessions/metadata", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": created["logical_name"],
         "label": "review auth PR",
         "summary": "Checking failing auth tests",
     })
     assert r.status_code == 200, r.text
 
-    rows = client.get("/api/term/sessions?project_id=demo").json()
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
     assert rows[0]["label"] == "review auth PR"
     assert rows[0]["summary"] == "Checking failing auth tests"
 
-    pjson = json.loads((monorepo / "projects" / "demo" / "project.json").read_text())
+    pjson = json.loads((monorepo / "workspaces" / "demo" / "workspace.json").read_text())
     assert pjson["sessions"][0]["label"] == "review auth PR"
     assert pjson["sessions"][0]["summary"] == "Checking failing auth tests"
 
 
-def test_session_linked_file_is_durable_and_can_be_removed(client, seed_project,
+def test_session_linked_file_is_durable_and_can_be_removed(client, seed_workspace,
                                                             isolated_prefix,
                                                             monorepo: Path) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     created = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "claude",
         "agent": "codex",
         "name": "analysis.ipynb",
         "start_fresh": True,
     }).json()
     linked_file = {
-        "root": str(monorepo / "projects" / "demo"),
+        "root": str(monorepo / "workspaces" / "demo"),
         "path": "notebooks/analysis.ipynb",
     }
 
     linked = client.patch("/api/term/sessions/metadata", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": created["logical_name"],
         "label": "analysis.ipynb",
         "linked_file": linked_file,
@@ -1386,15 +1386,15 @@ def test_session_linked_file_is_durable_and_can_be_removed(client, seed_project,
     assert linked.status_code == 200, linked.text
     assert linked.json()["session"]["linked_file"] == linked_file
 
-    rows = client.get("/api/term/sessions?project_id=demo").json()
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
     assert rows[0]["label"] == "analysis.ipynb"
     assert rows[0]["linked_file"] == linked_file
 
-    saved = client.get("/api/term/sessions/saved?project_id=demo").json()
+    saved = client.get("/api/term/sessions/saved?workspace_id=demo").json()
     assert saved[0]["linked_file"] == linked_file
 
     unlinked = client.patch("/api/term/sessions/metadata", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": created["logical_name"],
         "label": None,
         "linked_file": None,
@@ -1404,15 +1404,15 @@ def test_session_linked_file_is_durable_and_can_be_removed(client, seed_project,
     assert "label" not in unlinked.json()["session"]
 
 
-def test_session_linked_file_rejects_empty_paths(client, seed_project,
+def test_session_linked_file_rejects_empty_paths(client, seed_workspace,
                                                   isolated_prefix) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     created = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "terminal",
+        "workspace_id": "demo", "kind": "terminal",
     }).json()
 
     response = client.patch("/api/term/sessions/metadata", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "name": created["logical_name"],
         "linked_file": {"root": "", "path": "analysis.ipynb"},
     })
@@ -1420,14 +1420,14 @@ def test_session_linked_file_rejects_empty_paths(client, seed_project,
     assert "non-empty root and path" in response.json()["detail"]
 
 
-def test_paste_image_saves_under_project_and_returns_relative_path(client, seed_project,
+def test_paste_image_saves_under_workspace_and_returns_relative_path(client, seed_workspace,
                                                                    monorepo: Path) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     png = b"\x89PNG\r\n\x1a\n"
     data = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
     r = client.post("/api/term/paste-image", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "mime": "image/png",
         "name": "clipboard.png",
         "data": data,
@@ -1437,28 +1437,28 @@ def test_paste_image_saves_under_project_and_returns_relative_path(client, seed_
 
     assert body["path"].startswith(".lab/terminal-pastes/")
     assert body["path"].endswith(".png")
-    saved = monorepo / "projects" / "demo" / body["path"]
+    saved = monorepo / "workspaces" / "demo" / body["path"]
     assert saved.read_bytes() == png
     assert body["mime"] == "image/png"
     assert body["bytes"] == len(png)
 
 
-def test_paste_image_rejects_unsupported_mime(client, seed_project) -> None:
-    seed_project("demo")
+def test_paste_image_rejects_unsupported_mime(client, seed_workspace) -> None:
+    seed_workspace("demo")
     r = client.post("/api/term/paste-image", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "mime": "text/plain",
         "data": base64.b64encode(b"not-image").decode("ascii"),
     })
     assert r.status_code == 400
 
 
-# ─── Naming scheme: neurona-<project>-<tab>-<hash6> ────────────────────────
+# ─── Naming scheme: neurona-<workspace>-<tab>-<hash6> ────────────────────────
 #
 # These tests exercise the CURRENT naming scheme (not the legacy
-# LAB_TMUX_PREFIX-based one every test above opts into), covering: workspace
+# LAB_TMUX_PREFIX-based one every test above opts into), covering: vault
 # id resolution from the registry, deterministic hashed-name generation,
-# parsing (with hyphenated project ids/tabs), legacy-scheme adoption, and
+# parsing (with hyphenated workspace ids/tabs), legacy-scheme adoption, and
 # the attach-not-duplicate create_session path.
 
 
@@ -1466,120 +1466,120 @@ def _is_hex6(s: str) -> bool:
     return len(s) == 6 and all(c in "0123456789abcdef" for c in s)
 
 
-def test_resolve_workspace_label_prefers_registry_id(monorepo: Path) -> None:
+def test_resolve_vault_label_prefers_registry_id(monorepo: Path) -> None:
     import core.routes.term as term_mod
     from lab import paths
 
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
-    paths.write_workspace_registry({
+    term_mod._VAULT_LABEL_CACHE.clear()
+    paths.write_vault_registry({
         "active": "ssd",
-        "workspaces": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
+        "vaults": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
     })
-    assert term_mod._resolve_workspace_label(monorepo) == "ssd"
+    assert term_mod._resolve_vault_label(monorepo) == "ssd"
 
 
-def test_resolve_workspace_label_falls_back_to_lab_toml_name(monorepo: Path) -> None:
+def test_resolve_vault_label_falls_back_to_lab_toml_name(monorepo: Path) -> None:
     import core.routes.term as term_mod
 
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
-    (monorepo / "lab.toml").write_text('[workspace]\nname = "my-workspace"\n')
-    assert term_mod._resolve_workspace_label(monorepo) == "my-workspace"
+    term_mod._VAULT_LABEL_CACHE.clear()
+    (monorepo / "lab.toml").write_text('[vault]\nname = "my-vault"\n')
+    assert term_mod._resolve_vault_label(monorepo) == "my-vault"
 
 
-def test_resolve_workspace_label_falls_back_to_dirname(monorepo: Path) -> None:
+def test_resolve_vault_label_falls_back_to_dirname(monorepo: Path) -> None:
     import core.routes.term as term_mod
 
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
-    assert term_mod._resolve_workspace_label(monorepo) == term_mod._sanitize(monorepo.name)
+    term_mod._VAULT_LABEL_CACHE.clear()
+    assert term_mod._resolve_vault_label(monorepo) == term_mod._sanitize(monorepo.name)
 
 
-def test_resolve_workspace_label_rereads_registry_after_rename(monorepo: Path) -> None:
-    """A concurrently-running rename (e.g. `lab workspace` re-id, or moving
-    the workspace to a new registry entry) must be picked up without a
+def test_resolve_vault_label_rereads_registry_after_rename(monorepo: Path) -> None:
+    """A concurrently-running rename (e.g. `lab vault` re-id, or moving
+    the vault to a new registry entry) must be picked up without a
     server restart — the id must never be hardcoded or memoized forever."""
     import core.routes.term as term_mod
     from lab import paths
 
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
-    paths.write_workspace_registry({
+    term_mod._VAULT_LABEL_CACHE.clear()
+    paths.write_vault_registry({
         "active": "productivity",
-        "workspaces": [{"id": "productivity", "name": "productivity", "path": str(monorepo)}],
+        "vaults": [{"id": "productivity", "name": "productivity", "path": str(monorepo)}],
     })
-    assert term_mod._resolve_workspace_label(monorepo) == "productivity"
+    assert term_mod._resolve_vault_label(monorepo) == "productivity"
 
-    paths.write_workspace_registry({
+    paths.write_vault_registry({
         "active": "ssd",
-        "workspaces": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
+        "vaults": [{"id": "ssd", "name": "productivity", "path": str(monorepo)}],
     })
-    term_mod._WORKSPACE_LABEL_CACHE.clear()  # simulate TTL expiry
-    assert term_mod._resolve_workspace_label(monorepo) == "ssd"
+    term_mod._VAULT_LABEL_CACHE.clear()  # simulate TTL expiry
+    assert term_mod._resolve_vault_label(monorepo) == "ssd"
 
 
 def test_tmux_name_for_new_scheme_is_deterministic_and_hashed(nomenclature_tmux, monorepo: Path) -> None:
     import core.routes.term as term_mod
 
-    name = term_mod._tmux_name_for("my-project", "codex-tab", monorepo)
-    assert name.startswith("neurona-my-project-codex-tab-")
+    name = term_mod._tmux_name_for("my-workspace", "codex-tab", monorepo)
+    assert name.startswith("neurona-my-workspace-codex-tab-")
     assert not name.startswith("neurona-ssd-")
     suffix = name.rsplit("-", 1)[-1]
     assert _is_hex6(suffix)
-    # Deterministic: same workspace+project+tab → same name, every time.
-    assert term_mod._tmux_name_for("my-project", "codex-tab", monorepo) == name
+    # Deterministic: same vault+workspace+tab → same name, every time.
+    assert term_mod._tmux_name_for("my-workspace", "codex-tab", monorepo) == name
     # A different tab hashes differently.
-    other = term_mod._tmux_name_for("my-project", "other-tab", monorepo)
+    other = term_mod._tmux_name_for("my-workspace", "other-tab", monorepo)
     assert other != name
 
 
-def test_parse_tmux_name_new_scheme_with_hyphenated_project_and_tab(
-    nomenclature_tmux, seed_project, monorepo: Path,
+def test_parse_tmux_name_new_scheme_with_hyphenated_workspace_and_tab(
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
-    seed_project("my-project")
+    seed_workspace("my-workspace")
     import core.routes.term as term_mod
 
-    name = term_mod._tmux_name_for("my-project", "review-pr-42", monorepo)
-    assert term_mod._parse_tmux_name(monorepo, name) == ("my-project", "review-pr-42")
+    name = term_mod._tmux_name_for("my-workspace", "review-pr-42", monorepo)
+    assert term_mod._parse_tmux_name(monorepo, name) == ("my-workspace", "review-pr-42")
 
 
-def test_current_scheme_rejects_a_hash_from_another_workspace(
-    nomenclature_tmux, seed_project, monorepo: Path,
+def test_current_scheme_rejects_a_hash_from_another_vault(
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
-    """A shared visible prefix must not make another workspace's tab ours."""
-    seed_project("demo")
+    """A shared visible prefix must not make another vault's tab ours."""
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     assert term_mod._parse_tmux_name(monorepo, "neurona-demo-my-tab-abcdef") is None
 
 
-def test_parse_tmux_name_adopts_previous_workspace_scheme_without_hash_suffix(
-    nomenclature_tmux, seed_project, monorepo: Path,
+def test_parse_tmux_name_adopts_previous_vault_scheme_without_hash_suffix(
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
     """A session hand-created outside the server (CLI/agent following the
-    ``<workspace>-<project>-<tab>`` convention but not bothering to compute
+    ``<vault>-<workspace>-<tab>`` convention but not bothering to compute
     the hash marker) must still be discovered."""
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     name = "neurona-ssd-demo-mytab"
     assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "mytab")
 
 
-def test_parse_tmux_name_adopts_previous_workspace_scheme_with_hash(
-    nomenclature_tmux, seed_project, monorepo: Path,
+def test_parse_tmux_name_adopts_previous_vault_scheme_with_hash(
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
-    name = term_mod._legacy_workspace_tmux_name_for("demo", "mytab", monorepo)
+    name = term_mod._legacy_vault_tmux_name_for("demo", "mytab", monorepo)
     assert name.startswith("neurona-ssd-demo-mytab-")
     assert term_mod._parse_tmux_name(monorepo, name) == ("demo", "mytab")
 
 
 def test_previous_scheme_does_not_strip_unverified_hash_looking_suffix(
-    nomenclature_tmux, seed_project, monorepo: Path,
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
     """A tab name that just happens to end in 6 hex characters must not be
     mistaken for a hash and chopped off — only a VERIFIED hash is stripped."""
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     name = "neurona-ssd-demo-my-tab-abcdef"  # "abcdef" looks hex but is not the real hash
@@ -1587,9 +1587,9 @@ def test_previous_scheme_does_not_strip_unverified_hash_looking_suffix(
 
 
 def test_parse_tmux_name_adopts_namespaced_legacy_scheme(
-    nomenclature_tmux, seed_project, monorepo: Path,
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     legacy_prefix = term_mod._legacy_namespaced_prefix(monorepo)
@@ -1598,9 +1598,9 @@ def test_parse_tmux_name_adopts_namespaced_legacy_scheme(
 
 
 def test_parse_tmux_name_adopts_bare_legacy_scheme(
-    nomenclature_tmux, seed_project, monorepo: Path,
+    nomenclature_tmux, seed_workspace, monorepo: Path,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     assert term_mod._parse_tmux_name(monorepo, "lab-demo-bash") == ("demo", "bash")
@@ -1618,37 +1618,37 @@ def test_pick_unique_logical_name_only_uniquifies_against_different_tabs() -> No
 
 
 def test_create_and_list_use_new_naming_scheme_and_expose_attach_command(
-    nomenclature_tmux, seed_project, client, monorepo: Path,
+    nomenclature_tmux, seed_workspace, client, monorepo: Path,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     created = client.post("/api/term/sessions",
-                          json={"project_id": "demo", "kind": "terminal"}).json()
+                          json={"workspace_id": "demo", "kind": "terminal"}).json()
     assert created["name"].startswith("neurona-demo-bash-")
     assert not created["name"].startswith("neurona-ssd-")
     assert created["attach_command"] == "tmux attach -t '{}'".format(created["name"])
 
-    rows = client.get("/api/term/sessions?project_id=demo").json()
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
     assert len(rows) == 1
     assert rows[0]["name"] == created["name"]
     assert rows[0]["attach_command"] == created["attach_command"]
 
 
-def test_new_scheme_idempotent_when_already_live(nomenclature_tmux, seed_project, client) -> None:
-    seed_project("demo")
-    first = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"}).json()
-    again = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "terminal"}).json()
+def test_new_scheme_idempotent_when_already_live(nomenclature_tmux, seed_workspace, client) -> None:
+    seed_workspace("demo")
+    first = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "terminal"}).json()
+    again = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "terminal"}).json()
     assert again["name"] == first["name"]
     assert again["already_running"] is True
 
 
 def test_list_sessions_adopts_legacy_named_live_session(
-    nomenclature_tmux, seed_project, client, monorepo: Path,
+    nomenclature_tmux, seed_workspace, client, monorepo: Path,
 ) -> None:
     """A session already live under the OLD naming scheme (spawned by a
-    previous server build) must still show up in the project's session
+    previous server build) must still show up in the workspace's session
     list, not just vanish because its name doesn't match the current
     scheme."""
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     legacy_prefix = term_mod._legacy_namespaced_prefix(monorepo)
@@ -1656,23 +1656,23 @@ def test_list_sessions_adopts_legacy_named_live_session(
     subprocess.run(["tmux", "new-session", "-d", "-s", legacy_name, "-c", str(monorepo), "bash"],
                   check=True)
 
-    rows = client.get("/api/term/sessions?project_id=demo").json()
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
     assert [r["name"] for r in rows] == [legacy_name]
-    assert rows[0]["project_id"] == "demo"
+    assert rows[0]["workspace_id"] == "demo"
     assert rows[0]["logical_name"] == "claude"
     assert rows[0]["attach_command"] == f"tmux attach -t '{legacy_name}'"
 
 
 def test_create_session_attaches_to_legacy_named_live_session_instead_of_duplicating(
-    nomenclature_tmux, seed_project, client, monorepo: Path,
+    nomenclature_tmux, seed_workspace, client, monorepo: Path,
 ) -> None:
     """The repro for the 'creates a new session for some reason' bug: a
-    session for this exact project+tab is already live, just under an
+    session for this exact workspace+tab is already live, just under an
     OLDER naming scheme (e.g. left over from before this naming change, or
     from a server instance that landed on a different tmux socket).
-    Reopening that project+tab must attach to the live session, not spawn a
+    Reopening that workspace+tab must attach to the live session, not spawn a
     second, differently-named one."""
-    seed_project("demo")
+    seed_workspace("demo")
     import core.routes.term as term_mod
 
     legacy_prefix = term_mod._legacy_namespaced_prefix(monorepo)
@@ -1681,7 +1681,7 @@ def test_create_session_attaches_to_legacy_named_live_session_instead_of_duplica
                   check=True)
 
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "agent": "codex", "name": "codex",
+        "workspace_id": "demo", "kind": "claude", "agent": "codex", "name": "codex",
     })
     assert r.status_code == 200, r.text
     body = r.json()
@@ -1689,8 +1689,8 @@ def test_create_session_attaches_to_legacy_named_live_session_instead_of_duplica
     assert body["already_running"] is True
     assert body["attach_command"] == f"tmux attach -t '{legacy_name}'"
 
-    # Only one live tmux session for this project — no duplicate spawned.
-    rows = client.get("/api/term/sessions?project_id=demo").json()
+    # Only one live tmux session for this workspace — no duplicate spawned.
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
     assert len(rows) == 1
     assert rows[0]["name"] == legacy_name
 
@@ -1735,73 +1735,73 @@ def test_tmux_has_session_strips_tmux_env_from_child(monkeypatch: pytest.MonkeyP
     assert "TMUX" not in captured["env"]
 
 
-# ─── multi-workspace terminal listing / killing ─────────────────────────────
+# ─── multi-vault terminal listing / killing ─────────────────────────────
 #
 # core.routes.servers manages dev servers across every registered
-# workspace, not just the active one, and the cross-workspace terminals
+# vault, not just the active one, and the cross-vault terminals
 # dashboard needs the matching view here: GET /api/term/sessions (unscoped)
-# spans every registered workspace tagging each row with `workspace`, and
-# the kill endpoints accept/target sessions from a non-active workspace.
+# spans every registered vault tagging each row with `vault`, and
+# the kill endpoints accept/target sessions from a non-active vault.
 # These tests use the CURRENT naming scheme (LAB_TMUX_PREFIX unset) since
-# the legacy flat scheme carries no workspace identity to resolve.
+# the legacy flat scheme carries no vault identity to resolve.
 
 @pytest.fixture()
-def second_workspace_tmux(nomenclature_tmux, tmp_path: Path):
-    """A second registered workspace ("other"), alongside the ``monorepo``
+def second_vault_tmux(nomenclature_tmux, tmp_path: Path):
+    """A second registered vault ("other"), alongside the ``monorepo``
     ("ssd") ``nomenclature_tmux`` already registers. Returns its root."""
     from lab import paths
 
-    other_root = tmp_path / "other-workspace"
-    (other_root / "projects" / "demo2").mkdir(parents=True)
+    other_root = tmp_path / "other-vault"
+    (other_root / "workspaces" / "demo2").mkdir(parents=True)
     (other_root / "content").mkdir(parents=True, exist_ok=True)
 
-    data = paths.read_workspace_registry()
-    rows = list(data.get("workspaces") or [])
+    data = paths.read_vault_registry()
+    rows = list(data.get("vaults") or [])
     rows.append({"id": "other", "name": "other", "path": str(other_root)})
-    paths.write_workspace_registry({"active": data.get("active"), "workspaces": rows})
+    paths.write_vault_registry({"active": data.get("active"), "vaults": rows})
 
     import core.routes.term as term_mod
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    term_mod._VAULT_LABEL_CACHE.clear()
     yield other_root
-    term_mod._WORKSPACE_LABEL_CACHE.clear()
+    term_mod._VAULT_LABEL_CACHE.clear()
 
 
-def _spawn_and_adopt(root: Path, project_id: str, tab: str) -> str:
-    """Spawn a bare tmux session named for ``(root, project_id, tab)`` and
-    reconcile THAT workspace's own runtime registry against it — mirrors
-    how a session created outside this server process (or in a workspace
+def _spawn_and_adopt(root: Path, workspace_id: str, tab: str) -> str:
+    """Spawn a bare tmux session named for ``(root, workspace_id, tab)`` and
+    reconcile THAT vault's own runtime registry against it — mirrors
+    how a session created outside this server process (or in a vault
     that isn't currently active) gets adopted."""
     import core.routes.term as term_mod
 
-    name = term_mod._tmux_name_for(project_id, tab, root)
+    name = term_mod._tmux_name_for(workspace_id, tab, root)
     subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", str(root), "bash"], check=True)
     term_mod._sync_meta(root, term_mod._tmux_list(term_mod._tmux_discovery_prefixes(root)))
     return name
 
 
-def test_workspace_neutral_names_keep_workspace_in_collision_hash(
-    monorepo: Path, second_workspace_tmux,
+def test_vault_neutral_names_keep_vault_in_collision_hash(
+    monorepo: Path, second_vault_tmux,
 ) -> None:
     import core.routes.term as term_mod
 
-    other_root = second_workspace_tmux
-    mine = term_mod._tmux_name_for("same-project", "codex", monorepo)
-    other = term_mod._tmux_name_for("same-project", "codex", other_root)
-    assert mine.startswith("neurona-same-project-codex-")
-    assert other.startswith("neurona-same-project-codex-")
+    other_root = second_vault_tmux
+    mine = term_mod._tmux_name_for("same-workspace", "codex", monorepo)
+    other = term_mod._tmux_name_for("same-workspace", "codex", other_root)
+    assert mine.startswith("neurona-same-workspace-codex-")
+    assert other.startswith("neurona-same-workspace-codex-")
     assert mine != other
 
 
-def test_list_sessions_unscoped_spans_all_registered_workspaces(
-    client, seed_project, second_workspace_tmux, monkeypatch,
+def test_list_sessions_unscoped_spans_all_registered_vaults(
+    client, seed_workspace, second_vault_tmux, monkeypatch,
 ) -> None:
     import core.routes.term as term_mod
 
-    seed_project("demo")
-    other_root = second_workspace_tmux
+    seed_workspace("demo")
+    other_root = second_vault_tmux
 
     mine = client.post("/api/term/sessions",
-                       json={"project_id": "demo", "kind": "terminal"}).json()
+                       json={"workspace_id": "demo", "kind": "terminal"}).json()
     other_name = _spawn_and_adopt(other_root, "demo2", "bash")
 
     # The global endpoint feeds top tabs/the dashboard and does not display
@@ -1819,44 +1819,44 @@ def test_list_sessions_unscoped_spans_all_registered_workspaces(
 
     rows = client.get("/api/term/sessions").json()
     by_name = {r["name"]: r for r in rows}
-    assert by_name[mine["name"]]["workspace"] == "ssd"
-    assert by_name[other_name]["workspace"] == "other"
+    assert by_name[mine["name"]]["vault"] == "ssd"
+    assert by_name[other_name]["vault"] == "other"
     assert detail_calls == []
 
-    # A project-scoped request powers the visible terminal panel and keeps
+    # A workspace-scoped request powers the visible terminal panel and keeps
     # the richer details enabled.
-    scoped = client.get("/api/term/sessions?project_id=demo")
+    scoped = client.get("/api/term/sessions?workspace_id=demo")
     assert scoped.status_code == 200
     assert "agent" in detail_calls
 
 
-def test_create_and_list_sessions_can_target_non_active_workspace(
-    client, second_workspace_tmux,
+def test_create_and_list_sessions_can_target_non_active_vault(
+    client, second_vault_tmux,
 ) -> None:
-    other_root = second_workspace_tmux
+    other_root = second_vault_tmux
 
     created = client.post("/api/term/sessions", json={
-        "project_id": "demo2",
-        "workspace": "other",
+        "workspace_id": "demo2",
+        "vault": "other",
         "kind": "terminal",
     })
 
     assert created.status_code == 200, created.text
-    assert created.json()["cwd"] == str((other_root / "projects" / "demo2").resolve())
+    assert created.json()["cwd"] == str((other_root / "workspaces" / "demo2").resolve())
     assert created.json()["name"].startswith("neurona-demo2-bash-")
     assert not created.json()["name"].startswith("neurona-other-")
-    rows = client.get("/api/term/sessions?project_id=demo2&workspace=other").json()
+    rows = client.get("/api/term/sessions?workspace_id=demo2&vault=other").json()
     assert [row["name"] for row in rows] == [created.json()["name"]]
-    assert client.get("/api/term/sessions?project_id=demo2").json() == []
+    assert client.get("/api/term/sessions?workspace_id=demo2").json() == []
 
 
-def test_kill_session_resolves_non_active_workspace(
-    client, seed_project, second_workspace_tmux,
+def test_kill_session_resolves_non_active_vault(
+    client, seed_workspace, second_vault_tmux,
 ) -> None:
-    """Killing a session named for a workspace OTHER than the active one
-    must still validate (not 400) and clean up THAT workspace's own
-    runtime registry, not the active workspace's."""
-    other_root = second_workspace_tmux
+    """Killing a session named for a vault OTHER than the active one
+    must still validate (not 400) and clean up THAT vault's own
+    runtime registry, not the active vault's."""
+    other_root = second_vault_tmux
     other_name = _spawn_and_adopt(other_root, "demo2", "bash")
 
     r = client.delete(f"/api/term/sessions/{other_name}")
@@ -1869,14 +1869,14 @@ def test_kill_session_resolves_non_active_workspace(
     assert other_name not in other_meta
 
 
-def test_kill_session_marks_server_desired_stopped_in_owning_workspace(
-    client, second_workspace_tmux,
+def test_kill_session_marks_server_desired_stopped_in_owning_vault(
+    client, second_vault_tmux,
 ) -> None:
     """The server-tab kill hook (logical_name == 'server') must write
-    desired=stopped into the SESSION's OWN workspace state file — not the
-    active workspace's — when the killed session belongs to another
-    registered workspace."""
-    other_root = second_workspace_tmux
+    desired=stopped into the SESSION's OWN vault state file — not the
+    active vault's — when the killed session belongs to another
+    registered vault."""
+    other_root = second_vault_tmux
     other_name = _spawn_and_adopt(other_root, "demo2", "server")
 
     r = client.delete(f"/api/term/sessions/{other_name}")
@@ -1884,45 +1884,45 @@ def test_kill_session_marks_server_desired_stopped_in_owning_workspace(
 
     desired = json.loads((other_root / ".lab" / "state" / "servers.json").read_text())
     assert desired["demo2"]["desired"] == "stopped"
-    # The active workspace's own (nonexistent) state file was not touched.
+    # The active vault's own (nonexistent) state file was not touched.
     assert not (Path(client.app.state.index_cache.root) / ".lab" / "state" / "servers.json").is_file()
 
 
-def test_kill_project_sessions_workspace_filter_scopes_to_one_workspace(
-    client, seed_project, second_workspace_tmux,
+def test_kill_workspace_sessions_vault_filter_scopes_to_one_vault(
+    client, seed_workspace, second_vault_tmux,
 ) -> None:
-    seed_project("demo")
+    seed_workspace("demo")
     mine = client.post("/api/term/sessions",
-                       json={"project_id": "demo", "kind": "terminal"}).json()
-    other_root = second_workspace_tmux
-    (other_root / "projects" / "demo").mkdir(parents=True)
+                       json={"workspace_id": "demo", "kind": "terminal"}).json()
+    other_root = second_vault_tmux
+    (other_root / "workspaces" / "demo").mkdir(parents=True)
     other_name = _spawn_and_adopt(other_root, "demo", "bash")
 
-    r = client.delete("/api/term/sessions/project/demo?workspace=other")
+    r = client.delete("/api/term/sessions/workspace/demo?vault=other")
     assert r.status_code == 200, r.text
     assert r.json()["killed"] == [other_name]
-    # The active workspace's same-project-id session survives untouched.
+    # The active vault's same-workspace-id session survives untouched.
     assert subprocess.run(["tmux", "has-session", "-t", mine["name"]],
                           capture_output=True).returncode == 0
     assert subprocess.run(["tmux", "has-session", "-t", other_name],
                           capture_output=True).returncode != 0
 
 
-def test_kill_project_sessions_default_scopes_to_active_workspace_only(
-    client, seed_project, second_workspace_tmux,
+def test_kill_workspace_sessions_default_scopes_to_active_vault_only(
+    client, seed_workspace, second_vault_tmux,
 ) -> None:
-    """Without ?workspace=, the "X" button's kill-everything call keeps its
-    pre-multi-workspace behavior: only the active workspace's sessions for
-    that project id are killed, even if another registered workspace has a
-    project with the same id."""
-    seed_project("demo")
+    """Without ?vault=, the "X" button's kill-everything call keeps its
+    pre-multi-vault behavior: only the active vault's sessions for
+    that workspace id are killed, even if another registered vault has a
+    workspace with the same id."""
+    seed_workspace("demo")
     mine = client.post("/api/term/sessions",
-                       json={"project_id": "demo", "kind": "terminal"}).json()
-    other_root = second_workspace_tmux
-    (other_root / "projects" / "demo").mkdir(parents=True)
+                       json={"workspace_id": "demo", "kind": "terminal"}).json()
+    other_root = second_vault_tmux
+    (other_root / "workspaces" / "demo").mkdir(parents=True)
     other_name = _spawn_and_adopt(other_root, "demo", "bash")
 
-    r = client.delete("/api/term/sessions/project/demo")
+    r = client.delete("/api/term/sessions/workspace/demo")
     assert r.status_code == 200, r.text
     assert r.json()["killed"] == [mine["name"]]
     assert subprocess.run(["tmux", "has-session", "-t", mine["name"]],
@@ -1931,32 +1931,32 @@ def test_kill_project_sessions_default_scopes_to_active_workspace_only(
                           capture_output=True).returncode == 0
 
 
-def test_kill_project_sessions_unknown_workspace_404(client, seed_project, isolated_prefix) -> None:
-    seed_project("demo")
-    r = client.delete("/api/term/sessions/project/demo?workspace=does-not-exist")
+def test_kill_workspace_sessions_unknown_vault_404(client, seed_workspace, isolated_prefix) -> None:
+    seed_workspace("demo")
+    r = client.delete("/api/term/sessions/workspace/demo?vault=does-not-exist")
     assert r.status_code == 404
 
 
-# ─── Workspace autopilot launch flags ────────────────────────────────────────
+# ─── Vault autopilot launch flags ────────────────────────────────────────
 
 
-def test_claude_launch_respects_workspace_autopilot(client, seed_project, isolated_prefix,
+def test_claude_launch_respects_vault_autopilot(client, seed_workspace, isolated_prefix,
                                                     monorepo: Path, tmp_path: Path) -> None:
     from lab import settings as lab_settings
 
-    seed_project("demo")
+    seed_workspace("demo")
     # Default: claude autopilot is on → --permission-mode auto in the command.
-    r = client.post("/api/term/sessions", json={"project_id": "demo", "kind": "claude"})
+    r = client.post("/api/term/sessions", json={"workspace_id": "demo", "kind": "claude"})
     assert r.status_code == 200, r.text
     assert r.json()["auto"] is True
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     cmd = state["sessions"][r.json()["name"]]["cmd"]
     assert "--permission-mode auto" in cmd
 
-    # Workspace opt-out: a fresh session launches without the flag.
+    # Vault opt-out: a fresh session launches without the flag.
     lab_settings.update(monorepo, {"autopilot": {"claude": False}})
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "name": "claude-2",
+        "workspace_id": "demo", "kind": "claude", "name": "claude-2",
     })
     assert r.status_code == 200, r.text
     assert r.json()["auto"] is False
@@ -1964,15 +1964,15 @@ def test_claude_launch_respects_workspace_autopilot(client, seed_project, isolat
     cmd = state["sessions"][r.json()["name"]]["cmd"]
     assert "--permission-mode" not in cmd
 
-    # Explicit per-request auto still wins over the workspace setting.
+    # Explicit per-request auto still wins over the vault setting.
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "name": "claude-3", "auto": True,
+        "workspace_id": "demo", "kind": "claude", "name": "claude-3", "auto": True,
     })
     assert r.status_code == 200, r.text
     assert r.json()["auto"] is True
 
 
-def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_prefix,
+def test_copilot_launch_appends_autopilot_flag(client, seed_workspace, isolated_prefix,
                                                monorepo: Path, tmp_path: Path,
                                                monkeypatch) -> None:
     import shutil as real_shutil
@@ -1980,7 +1980,7 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
     from core.routes import term as term_route
     from lab import settings as lab_settings
 
-    seed_project("demo")
+    seed_workspace("demo")
     real_which = real_shutil.which
     monkeypatch.setattr(
         term_route.shutil, "which",
@@ -1989,7 +1989,7 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
 
     # Off by default: only the stable session UUID is added.
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot",
+        "workspace_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot",
     })
     assert r.status_code == 200, r.text
     session_id = r.json()["agent_session_id"]
@@ -2000,10 +2000,10 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
     )
     assert r.json()["auto"] is False
 
-    # Workspace checkbox on: fresh sessions get --autopilot.
+    # Vault checkbox on: fresh sessions get --autopilot.
     lab_settings.update(monorepo, {"autopilot": {"copilot": True}})
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot-2",
+        "workspace_id": "demo", "kind": "claude", "agent": "copilot", "name": "copilot-2",
     })
     assert r.status_code == 200, r.text
     assert r.json()["auto"] is True
@@ -2014,17 +2014,17 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_project, isolated_pr
     )
 
 
-def test_copilot_explicit_auto_false_overrides_workspace(client, seed_project, isolated_prefix,
+def test_copilot_explicit_auto_false_overrides_vault(client, seed_workspace, isolated_prefix,
                                                          monorepo: Path, tmp_path: Path,
                                                          monkeypatch) -> None:
     """Same auto contract as claude: an explicit request wins over the
-    workspace autopilot setting for codex/copilot too."""
+    vault autopilot setting for codex/copilot too."""
     import shutil as real_shutil
 
     from core.routes import term as term_route
     from lab import settings as lab_settings
 
-    seed_project("demo")
+    seed_workspace("demo")
     real_which = real_shutil.which
     monkeypatch.setattr(
         term_route.shutil, "which",
@@ -2033,7 +2033,7 @@ def test_copilot_explicit_auto_false_overrides_workspace(client, seed_project, i
     lab_settings.update(monorepo, {"autopilot": {"copilot": True}})
 
     r = client.post("/api/term/sessions", json={
-        "project_id": "demo", "kind": "claude", "agent": "copilot",
+        "workspace_id": "demo", "kind": "claude", "agent": "copilot",
         "name": "copilot", "auto": False,
     })
 
@@ -2123,7 +2123,7 @@ def test_filtered_listing_does_not_prune_drain_with_other_lab_sessions(
 
 def test_create_and_close_session_use_active_named_socket(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2131,7 +2131,7 @@ def test_create_and_close_session_use_active_named_socket(
     from core.routes import term as term_mod
     from lab import tmux_sockets
 
-    seed_project("demo")
+    seed_workspace("demo")
     tmux_sockets.write_state({
         "version": 1,
         "active": "lab-fresh",
@@ -2157,7 +2157,7 @@ def test_create_and_close_session_use_active_named_socket(
     monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
 
     response = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "terminal",
     })
     assert response.status_code == 200, response.text
@@ -2181,14 +2181,14 @@ def test_create_and_close_session_use_active_named_socket(
 
 def test_dead_active_named_socket_fails_without_reseeding_from_backend(
     client,
-    seed_project,
+    seed_workspace,
     isolated_prefix,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from core.routes import term as term_mod
     from lab import tmux_sockets
 
-    seed_project("demo")
+    seed_workspace("demo")
     tmux_sockets.write_state({
         "version": 1,
         "active": "lab-fresh",
@@ -2212,7 +2212,7 @@ def test_dead_active_named_socket_fails_without_reseeding_from_backend(
     monkeypatch.setattr(term_mod.subprocess, "run", fake_run)
 
     response = client.post("/api/term/sessions", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "kind": "terminal",
     })
 

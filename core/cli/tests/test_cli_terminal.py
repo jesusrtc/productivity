@@ -47,7 +47,7 @@ def test_terminal_rotate_seeds_fresh_socket_and_keeps_old_draining(
     def fake_run(socket_name: str, *args: str):
         calls.append((socket_name, args))
         if args and args[0] == "list-sessions":
-            return _completed(stdout="neurona-project-copilot-abcdef\n")
+            return _completed(stdout="neurona-workspace-copilot-abcdef\n")
         return _completed()
 
     monkeypatch.setattr(terminal_cmd, "_run", fake_run)
@@ -129,7 +129,7 @@ def test_terminal_rotate_is_bounded_while_previous_generation_drains(
 
     def fake_run(socket_name: str, *args: str):
         calls.append((socket_name, args))
-        return _completed(stdout="neurona-project-shell-abcdef\n")
+        return _completed(stdout="neurona-workspace-shell-abcdef\n")
 
     monkeypatch.setattr(terminal_cmd, "_run", fake_run)
 
@@ -160,7 +160,7 @@ def test_terminal_rotate_rolls_back_new_server_if_old_cannot_retire(
     def fake_run(socket_name: str, *args: str):
         calls.append((socket_name, args))
         if args and args[0] == "list-sessions":
-            return _completed(stdout="neurona-project-shell-abcdef\n")
+            return _completed(stdout="neurona-workspace-shell-abcdef\n")
         if (
             socket_name == "lab-current"
             and args == ("set-option", "-g", "exit-empty", "on")
@@ -274,7 +274,7 @@ def test_terminal_status_prunes_an_empty_draining_generation(
     def fake_run(socket_name: str, *args: str):
         if args and args[0] == "list-sessions" and socket_name == "default":
             return _completed(1, stderr="no server running")
-        return _completed(stdout="neurona-project-shell-abcdef\n")
+        return _completed(stdout="neurona-workspace-shell-abcdef\n")
 
     monkeypatch.setattr(terminal_cmd, "_run", fake_run)
 

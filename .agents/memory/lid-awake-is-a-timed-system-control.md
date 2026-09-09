@@ -2,7 +2,7 @@
 name: lid-awake-is-a-timed-system-control
 description: Lid Awake is the admin-only macOS pmset timer beside browser-only Keep Alive and Focus mode
 metadata:
-  type: project
+  type: workspace
 ---
 
 Lab's **Lid Awake** control is distinct from browser **Keep Alive**. It uses

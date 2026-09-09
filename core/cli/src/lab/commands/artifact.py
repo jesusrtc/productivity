@@ -5,7 +5,7 @@ from datetime import date
 import click
 
 from lab import paths, storage
-from lab.commands._helpers import resolve_project_id as _resolve_project_id
+from lab.commands._helpers import resolve_workspace_id as _resolve_workspace_id
 
 
 VALID_TYPES = [
@@ -22,12 +22,12 @@ VALID_TYPES = [
 
 @click.group(name="artifact")
 def artifact_group() -> None:
-    """Track external artifacts (google docs, jira, charts, etc.) for a project."""
+    """Track external artifacts (google docs, jira, charts, etc.) for a workspace."""
 
 
 @artifact_group.command("add")
 @click.argument("url")
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 @click.option("--type", "atype", type=click.Choice(VALID_TYPES), default="url")
 @click.option("--title", default="")
 @click.option("--desc", default="")
@@ -35,18 +35,18 @@ def artifact_group() -> None:
     "--file",
     "file_path",
     default=None,
-    help="Path (relative to the project) of the local doc this artifact mirrors online. "
+    help="Path (relative to the workspace) of the local doc this artifact mirrors online. "
     "The web UI surfaces a 'Published at' banner on that doc; an empty --file makes the "
-    "artifact project-scoped (shown on the project dashboard only).",
+    "artifact workspace-scoped (shown on the workspace dashboard only).",
 )
-def add(url: str, project_id: str | None, atype: str, title: str, desc: str,
+def add(url: str, workspace_id: str | None, atype: str, title: str, desc: str,
         file_path: str | None) -> None:
-    """Append an artifact entry to project.json.artifacts[]."""
+    """Append an artifact entry to workspace.json.artifacts[]."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     data.setdefault("artifacts", [])
     next_id = 1 + max((a.get("id", 0) for a in data["artifacts"]), default=0)
@@ -70,14 +70,14 @@ def add(url: str, project_id: str | None, atype: str, title: str, desc: str,
 
 
 @artifact_group.command("ls")
-@click.option("--project", "project_id", default=None)
-def ls(project_id: str | None) -> None:
-    """List artifacts for a project."""
+@click.option("--workspace", "workspace_id", default=None)
+def ls(workspace_id: str | None) -> None:
+    """List artifacts for a workspace."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     arts = storage.read_json(pjson).get("artifacts", [])
     if not arts:
         click.echo("(no artifacts)")
@@ -95,14 +95,14 @@ def ls(project_id: str | None) -> None:
 
 @artifact_group.command("rm")
 @click.argument("idx", type=int)
-@click.option("--project", "project_id", default=None)
-def rm(idx: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def rm(idx: int, workspace_id: str | None) -> None:
     """Remove artifact by id (preferred) or list index."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     arts = data.get("artifacts", [])
     # Try by id first

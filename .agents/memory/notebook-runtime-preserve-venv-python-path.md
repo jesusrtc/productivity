@@ -1,6 +1,6 @@
 # Preserve selected venv Python paths
 
-When resolving a project notebook runtime's Python executable, normalize it to
+When resolving a workspace notebook runtime's Python executable, normalize it to
 an absolute path but do not call `Path.resolve()` on it. Virtualenv Python
 binaries are often symlinks to a system interpreter; resolving the symlink
 prevents Python from finding the venv's `pyvenv.cfg`, installed `ipykernel`, and

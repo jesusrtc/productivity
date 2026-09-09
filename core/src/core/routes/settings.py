@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from lab import agentsync
 from lab import settings as lab_settings
 
-from core import auth, workspace_config
+from core import auth, vault_config
 
 router = APIRouter()
 
@@ -71,10 +71,10 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
     if not patch:
         return _with_flags(lab_settings.load(root))
     requested_default = patch.get("defaultAgent")
-    if requested_default and requested_default not in workspace_config.supported_agents(root):
+    if requested_default and requested_default not in vault_config.supported_agents(root):
         raise HTTPException(
             status_code=400,
-            detail=f"agent {requested_default!r} is not enabled for this workspace",
+            detail=f"agent {requested_default!r} is not enabled for this vault",
         )
     try:
         return _with_flags(lab_settings.update(root, patch))

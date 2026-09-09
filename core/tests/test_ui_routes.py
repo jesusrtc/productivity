@@ -112,39 +112,39 @@ def test_pseudo_tabs_reject_unknown_id_without_app(tmp_path) -> None:
 
 
 def test_term_autospawn_defaults_enabled(client) -> None:
-    r = client.get("/api/ui/term-autospawn", params={"project_id": "demo"})
+    r = client.get("/api/ui/term-autospawn", params={"workspace_id": "demo"})
     assert r.status_code == 200
-    assert r.json() == {"project_id": "demo", "enabled": True}
+    assert r.json() == {"workspace_id": "demo", "enabled": True}
 
 
 def test_term_autospawn_roundtrip(client) -> None:
     r = client.post("/api/ui/term-autospawn", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "enabled": False,
     })
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "project_id": "demo", "enabled": False}
+    assert r.json() == {"ok": True, "workspace_id": "demo", "enabled": False}
     assert client.get(
         "/api/ui/term-autospawn",
-        params={"project_id": "demo"},
+        params={"workspace_id": "demo"},
     ).json()["enabled"] is False
 
     r = client.post("/api/ui/term-autospawn", json={
-        "project_id": "demo",
+        "workspace_id": "demo",
         "enabled": True,
     })
     assert r.status_code == 200
     assert client.get(
         "/api/ui/term-autospawn",
-        params={"project_id": "demo"},
+        params={"workspace_id": "demo"},
     ).json()["enabled"] is True
 
 
-def test_term_autospawn_rejects_empty_project_without_app(tmp_path) -> None:
+def test_term_autospawn_rejects_empty_workspace_without_app(tmp_path) -> None:
     from core.routes import ui
 
     with pytest.raises(ui.HTTPException):
         _run(ui.set_term_autospawn(
-            ui.TermAutoSpawnState(project_id="", enabled=False),
+            ui.TermAutoSpawnState(workspace_id="", enabled=False),
             _request(tmp_path),
         ))

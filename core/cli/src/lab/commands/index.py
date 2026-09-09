@@ -10,16 +10,16 @@ from lab import paths
 
 @click.group(name="index")
 def index_group() -> None:
-    """Global index (cache of projects + tasks) commands."""
+    """Global index (cache of workspaces + tasks) commands."""
 
 
 @index_group.command("rebuild")
 def rebuild() -> None:
-    """Rebuild the workspace-local index cache from on-disk projects."""
+    """Rebuild the vault-local index cache from on-disk workspaces."""
     root = paths.find_monorepo_root()
     data = index_mod.build_index(root)
     path = index_mod.write_index(root, data)
-    click.echo(f"wrote {path} ({len(data['projects'])} projects, {len(data['tasks'])} tasks)")
+    click.echo(f"wrote {path} ({len(data['workspaces'])} workspaces, {len(data['tasks'])} tasks)")
 
 
 @index_group.command("show")

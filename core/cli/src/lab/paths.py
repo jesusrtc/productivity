@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from lab import naming
+
 import json
 import os
 import re
@@ -15,15 +17,15 @@ class MonorepoNotFound(RuntimeError):
 def global_config_dir() -> Path:
     """Return Lab's user-level config directory.
 
-    This directory stores only framework-level config, such as the workspace
-    registry. Workspace data, caches, indexes, sessions, and logs stay under
-    the active workspace.
+    This directory stores only framework-level config, such as the vault
+    registry. Vault data, caches, indexes, sessions, and logs stay under
+    the active vault.
     """
     return Path(os.environ.get("LAB_HOME", "~/.lab")).expanduser()
 
 
-def workspaces_file() -> Path:
-    return global_config_dir() / "workspaces.toml"
+def vaults_file() -> Path:
+    return global_config_dir() / "vaults.toml"
 
 
 def local_cli_token_file() -> Path:
@@ -50,61 +52,66 @@ def toml_str(value: str) -> str:
 
 def _slug(value: str) -> str:
     slug = re.sub(r"[^a-z0-9_-]+", "-", value.strip().lower()).strip("-")
-    return slug or "workspace"
+    return slug or "vault"
 
 
-def read_workspace_registry() -> dict[str, Any]:
-    path = workspaces_file()
+def read_vault_registry() -> dict[str, Any]:
+    path = vaults_file()
+    legacy = global_config_dir() / naming.LEGACY_REGISTRY
+    if not path.is_file() and legacy.is_file():
+        path = legacy
     if not path.is_file():
-        return {"active": None, "workspaces": []}
+        return {"active": None, "vaults": []}
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    workspaces = data.get("workspaces") or []
-    if not isinstance(workspaces, list):
-        workspaces = []
+    if path.name == naming.LEGACY_REGISTRY:
+        data = naming.legacy_fields(data)
+    vaults = data.get("vaults") or []
+    if not isinstance(vaults, list):
+        vaults = []
     rows: list[dict[str, str]] = []
-    for row in workspaces:
+    for row in vaults:
         if not isinstance(row, dict):
             continue
         path_value = row.get("path")
         if not isinstance(path_value, str) or not path_value:
             continue
-        wid = row.get("id")
+        vault_id = row.get("id")
         name = row.get("name")
         rows.append({
-            "id": str(wid or _slug(Path(path_value).name)),
+            "id": str(vault_id or _slug(Path(path_value).name)),
             "name": str(name or Path(path_value).name),
             "path": path_value,
         })
     active = data.get("active")
-    return {"active": active if isinstance(active, str) else None, "workspaces": rows}
+    return {"active": active if isinstance(active, str) else None, "vaults": rows}
 
 
-def write_workspace_registry(data: dict[str, Any]) -> Path:
-    rows = list(data.get("workspaces") or [])
+def write_vault_registry(data: dict[str, Any]) -> Path:
+    rows = list(data.get("vaults") or [])
     active = data.get("active")
     lines: list[str] = []
     if active:
         lines.append(f"active = {toml_str(str(active))}")
         lines.append("")
     for row in rows:
-        lines.append("[[workspaces]]")
+        lines.append("[[vaults]]")
         lines.append(f"id = {toml_str(str(row['id']))}")
         lines.append(f"name = {toml_str(str(row['name']))}")
         lines.append(f"path = {toml_str(str(Path(row['path']).expanduser().resolve()))}")
         lines.append("")
-    path = workspaces_file()
+    path = vaults_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return path
 
 
-def register_workspace(root: Path, *, name: str | None = None,
-                       workspace_id: str | None = None,
+def register_vault(root: Path, *, name: str | None = None,
+                       vault_id: str | None = None,
                        active: bool = True) -> dict[str, str]:
-    """Add or update a workspace in the global registry."""
+    """Add or update a vault in the global registry."""
     resolved = root.expanduser().resolve()
-    data = read_workspace_registry()
-    rows = list(data.get("workspaces") or [])
+    data = read_vault_registry()
+    rows = list(data.get("vaults") or [])
     existing_ids = {str(row.get("id")) for row in rows}
     existing = next((row for row in rows
                      if Path(str(row.get("path", ""))).expanduser().resolve() == resolved), None)
@@ -113,27 +120,27 @@ def register_workspace(root: Path, *, name: str | None = None,
         if name:
             row["name"] = name
     else:
-        base_id = _slug(workspace_id or name or resolved.name)
-        wid = base_id
+        base_id = _slug(vault_id or name or resolved.name)
+        vault_id = base_id
         i = 2
-        while wid in existing_ids:
-            wid = f"{base_id}-{i}"
+        while vault_id in existing_ids:
+            vault_id = f"{base_id}-{i}"
             i += 1
-        row = {"id": wid, "name": name or resolved.name, "path": str(resolved)}
+        row = {"id": vault_id, "name": name or resolved.name, "path": str(resolved)}
         rows.append(row)
-    data["workspaces"] = rows
+    data["vaults"] = rows
     if active:
         data["active"] = row["id"]
-    write_workspace_registry(data)
+    write_vault_registry(data)
     return {"id": str(row["id"]), "name": str(row["name"]), "path": str(row["path"])}
 
 
-def active_workspace() -> Path | None:
-    data = read_workspace_registry()
+def active_vault() -> Path | None:
+    data = read_vault_registry()
     active = data.get("active")
     if not active:
         return None
-    for row in data.get("workspaces") or []:
+    for row in data.get("vaults") or []:
         if row.get("id") == active:
             return Path(str(row["path"])).expanduser().resolve()
     return None
@@ -153,7 +160,7 @@ def _looks_like_framework_checkout(candidate: Path) -> bool:
     return False
 
 
-def _looks_like_workspace(candidate: Path) -> bool:
+def _looks_like_vault(candidate: Path) -> bool:
     if (candidate / "lab.toml").is_file():
         return True
     if _looks_like_framework_checkout(candidate):
@@ -162,20 +169,20 @@ def _looks_like_workspace(candidate: Path) -> bool:
     return (candidate / ".git").exists() and (candidate / "content").is_dir()
 
 
-def find_workspace_root(start: Path | None = None, *, use_registry: bool = True) -> Path:
-    """Locate the active Lab workspace.
+def find_vault_root(start: Path | None = None, *, use_registry: bool = True) -> Path:
+    """Locate the active Lab vault.
 
     Resolution order:
-      1. `LAB_WORKSPACE` environment variable.
+      1. `LAB_VAULT` environment variable.
       2. `LAB_ROOT` compatibility environment variable.
-      3. Walk up from `start` (defaults to PWD) until a workspace marker is found.
-      4. Active entry in `~/.lab/workspaces.toml`.
+      3. Walk up from `start` (defaults to PWD) until a vault marker is found.
+      4. Active entry in `~/.lab/vaults.toml`.
 
     Raises `MonorepoNotFound` if neither resolves.
     """
-    env_workspace = os.environ.get("LAB_WORKSPACE")
-    if env_workspace:
-        return Path(env_workspace).expanduser().resolve()
+    env_vault = os.environ.get("LAB_VAULT") or os.environ.get(naming.LEGACY_ROOT_ENV)
+    if env_vault:
+        return Path(env_vault).expanduser().resolve()
 
     env_root = os.environ.get("LAB_ROOT")
     if env_root:
@@ -183,20 +190,20 @@ def find_workspace_root(start: Path | None = None, *, use_registry: bool = True)
 
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        if _looks_like_workspace(candidate):
+        if _looks_like_vault(candidate):
             return candidate
     if use_registry:
-        active = active_workspace()
+        active = active_vault()
         if active is not None:
             return active
     raise MonorepoNotFound(
-        f"No Lab workspace found from {current}. Set LAB_WORKSPACE or run `lab init`."
+        f"No Lab vault found from {current}. Set LAB_VAULT or run `lab init`."
     )
 
 
 def find_monorepo_root(start: Path | None = None) -> Path:
     """Compatibility wrapper for older code that still says monorepo."""
-    return find_workspace_root(start)
+    return find_vault_root(start)
 
 
 def find_framework_root(start: Path | None = None) -> Path:
@@ -218,23 +225,23 @@ def find_framework_root(start: Path | None = None) -> Path:
     )
 
 
-def workspace_state_dir(root: Path) -> Path:
+def vault_state_dir(root: Path) -> Path:
     return root / ".lab" / "state"
 
 
 def logs_dir(root: Path) -> Path:
-    return workspace_state_dir(root) / "logs"
+    return vault_state_dir(root) / "logs"
 
 
 def port_file(root: Path) -> Path:
-    return workspace_state_dir(root) / "server.port"
+    return vault_state_dir(root) / "server.port"
 
 
 def configured_server_port(root: Path, default: int = 3333) -> int:
-    """Return ``[server].port`` from the workspace's ``lab.toml``.
+    """Return ``[server].port`` from the vault's ``lab.toml``.
 
     Runtime overrides and the live ``.lab/state/server.port`` file are handled
-    by callers. This helper only resolves the workspace's persistent default.
+    by callers. This helper only resolves the vault's persistent default.
     """
     config = root.expanduser().resolve() / "lab.toml"
     if not config.is_file():
@@ -352,8 +359,8 @@ def assistant_root(framework_root: Path | None = None) -> Path | None:
 
     ``LAB_ASSISTANT_HOME`` is a one-run override.  Otherwise the path is read
     from the framework checkout's uncommitted ``.env``.  There is deliberately
-    no workspace fallback: one client has one Assistant database regardless of
-    which workspace is active.
+    no vault fallback: one client has one Assistant database regardless of
+    which vault is active.
     """
     raw = os.environ.get("LAB_ASSISTANT_HOME")
     if not raw:
@@ -368,59 +375,59 @@ def assistant_root(framework_root: Path | None = None) -> Path | None:
 
 
 def sessions_file(root: Path) -> Path:
-    return workspace_state_dir(root) / "sessions" / "sessions.json"
+    return vault_state_dir(root) / "sessions" / "sessions.json"
 
 
 def ui_state_file(root: Path) -> Path:
-    return workspace_state_dir(root) / "ui-state.json"
+    return vault_state_dir(root) / "ui-state.json"
 
 
-# Pseudo-project id for the Lab framework checkout itself. Like __cerebro__,
-# it has no folder under projects/ — its meta + tasks live in
-# hidden files under content/ so they don't clutter the project listing.
-SELF_PROJECT_ID = "__self__"
+# Pseudo-workspace id for the Lab framework checkout itself. Like __cerebro__,
+# it has no folder under workspaces/ — its meta + tasks live in
+# hidden files under content/ so they don't clutter the workspace listing.
+SELF_WORKSPACE_ID = "__self__"
 
 
-def is_pseudo_project(project_id: str) -> bool:
-    """True for ids that aren't backed by projects/<id>/."""
-    return project_id == SELF_PROJECT_ID
+def is_pseudo_workspace(workspace_id: str) -> bool:
+    """True for ids that aren't backed by workspaces/<id>/."""
+    return workspace_id == SELF_WORKSPACE_ID
 
 
-def project_dir(root: Path, project_id: str) -> Path:
-    # Pseudo-projects don't have a directory of their own; return the
+def workspace_dir(root: Path, workspace_id: str) -> Path:
+    # Pseudo-workspaces don't have a directory of their own; return the
     # content root so callers that only use this for relative paths
     # (notes_file creation, etc.) have a sensible base. Callers that need
-    # a real project folder should check is_pseudo_project() first.
-    if is_pseudo_project(project_id):
+    # a real workspace folder should check is_pseudo_workspace() first.
+    if is_pseudo_workspace(workspace_id):
         return root / "content"
-    return root / "projects" / project_id
+    return naming.workspaces_dir(root) / workspace_id
 
 
-def project_file(root: Path, project_id: str) -> Path:
-    if project_id == SELF_PROJECT_ID:
-        return root / "content" / ".self-project.json"
-    return project_dir(root, project_id) / "project.json"
+def workspace_file(root: Path, workspace_id: str) -> Path:
+    if workspace_id == SELF_WORKSPACE_ID:
+        return naming.pseudo_metadata_file(root, "self")
+    return naming.workspace_metadata_file(workspace_dir(root, workspace_id))
 
 
-def tasks_file(root: Path, project_id: str) -> Path:
-    if project_id == SELF_PROJECT_ID:
+def tasks_file(root: Path, workspace_id: str) -> Path:
+    if workspace_id == SELF_WORKSPACE_ID:
         return root / "content" / ".self-tasks.json"
-    return project_dir(root, project_id) / "tasks.json"
+    return workspace_dir(root, workspace_id) / "tasks.json"
 
 
 def ensure_self_files(root: Path) -> None:
-    """Bootstrap empty meta + tasks files for the productivity pseudo-project.
+    """Bootstrap empty meta + tasks files for the productivity pseudo-workspace.
 
     Idempotent. Safe to call on every read/write of __self__ state.
     """
-    pjson = project_file(root, SELF_PROJECT_ID)
-    tjson = tasks_file(root, SELF_PROJECT_ID)
+    pjson = workspace_file(root, SELF_WORKSPACE_ID)
+    tjson = tasks_file(root, SELF_WORKSPACE_ID)
     pjson.parent.mkdir(parents=True, exist_ok=True)
     if not pjson.is_file():
         import json as _json
         today = __import__("datetime").date.today().isoformat()
         pjson.write_text(_json.dumps({
-            "id": SELF_PROJECT_ID,
+            "id": SELF_WORKSPACE_ID,
             "name": "Productivity",
             "description": "The Lab framework checkout itself — commits, uncommitted changes, and repo-level tasks.",
             "status": "active",
@@ -442,32 +449,32 @@ def ensure_self_files(root: Path) -> None:
         tjson.write_text(_json.dumps({"next_id": 1, "tasks": []}, indent=2) + "\n")
 
 
-class ProjectNotFound(RuntimeError):
-    """Raised when PWD is not inside any project under projects/."""
+class WorkspaceNotFound(RuntimeError):
+    """Raised when PWD is not inside any workspace under workspaces/."""
 
 
-def find_project_id_from_pwd(root: Path, start: Path | None = None) -> str:
-    """Walk up from `start` (defaults to PWD) to find the project folder.
+def find_workspace_id_from_pwd(root: Path, start: Path | None = None) -> str:
+    """Walk up from `start` (defaults to PWD) to find the workspace folder.
 
-    Returns the project id (the directory name whose parent is
-    `<root>/projects/`). Raises `ProjectNotFound` if the walk
-    reaches `root` without finding a project folder.
+    Returns the workspace id (the directory name whose parent is
+    `<root>/workspaces/`). Raises `WorkspaceNotFound` if the walk
+    reaches `root` without finding a workspace folder.
     """
-    projects_root = (root / "projects").resolve()
+    workspaces_root = (naming.workspaces_dir(root)).resolve()
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
-        if candidate.parent == projects_root:
+        if candidate.parent == workspaces_root:
             return candidate.name
         if candidate == root.resolve():
             break
-    raise ProjectNotFound(
-        "no project — pass --project <id> or cd into a project folder"
+    raise WorkspaceNotFound(
+        "no workspace — pass --workspace <id> or cd into a workspace folder"
     )
 
 
 def index_file(root: Path) -> Path:
-    """Return the path of the workspace-local index cache."""
-    return workspace_state_dir(root) / "indexes" / "index.json"
+    """Return the path of the vault-local index cache."""
+    return vault_state_dir(root) / "indexes" / "index.json"
 
 
 def legacy_index_file(root: Path) -> Path:
@@ -488,19 +495,19 @@ def config_file(root: Path) -> Path:
     return agents_dir(root) / "config.json"
 
 
-def memory_dir(root: Path, project_id: str | None = None) -> Path:
+def memory_dir(root: Path, workspace_id: str | None = None) -> Path:
     """Canonical, repo-committed agent memory directory.
 
     Monorepo-level memory lives at ``<root>/.agents/memory/`` (productivity
-    repo). Per-project memory lives at ``projects/<id>/.agents/memory/``
-    (committed to the content repo, so it travels with project work).
+    repo). Per-workspace memory lives at ``workspaces/<id>/.agents/memory/``
+    (committed to the content repo, so it travels with workspace work).
     """
-    if project_id and not is_pseudo_project(project_id):
-        return project_dir(root, project_id) / ".agents" / "memory"
+    if workspace_id and not is_pseudo_workspace(workspace_id):
+        return workspace_dir(root, workspace_id) / ".agents" / "memory"
     return agents_dir(root) / "memory"
 
 
-def claude_project_slug(path: Path) -> str:
+def claude_workspace_slug(path: Path) -> str:
     """Claude Code's ``~/.claude/projects/<slug>`` name for an absolute path.
 
     Claude derives the slug by replacing every path separator with ``-`` (e.g.
@@ -510,5 +517,5 @@ def claude_project_slug(path: Path) -> str:
 
 
 def claude_memory_dir(path: Path) -> Path:
-    """The built-in ``~/.claude`` memory dir for a project rooted at ``path``."""
-    return Path.home() / ".claude" / "projects" / claude_project_slug(path) / "memory"
+    """The built-in ``~/.claude`` memory dir for a workspace rooted at ``path``."""
+    return Path.home() / ".claude" / "projects" / claude_workspace_slug(path) / "memory"

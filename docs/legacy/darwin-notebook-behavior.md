@@ -11,7 +11,7 @@ Current implementation:
 ## Purpose
 
 The current Neurona backend embeds Darwin-specific notebook execution. The
-workspace architecture will extract that behavior into a workspace-installed
+vault architecture will extract that behavior into a vault-installed
 `notebook-darwin` provider while leaving generic notebook rendering and file
 persistence in Neurona.
 
@@ -21,7 +21,7 @@ record rather than a copied Python implementation.
 
 ## Current HTTP surface
 
-### `GET /api/nb/session?path=<workspace-relative.ipynb>`
+### `GET /api/nb/session?path=<vault-relative.ipynb>`
 
 - Validates the notebook path.
 - Returns the deterministic Darwin session assigned to the notebook path.
@@ -33,7 +33,7 @@ record rather than a copied Python implementation.
 
 Request fields:
 
-- `path`: workspace-relative `.ipynb` path.
+- `path`: vault-relative `.ipynb` path.
 - `code`: code to execute.
 - `kernel`: optional Darwin kernel name.
 - `timeout`: defaults to 1,800 seconds and has no artificial upper bound.
@@ -69,10 +69,10 @@ final cell index, parsed cell, and notebook mtime.
 
 ## Path and file safety
 
-- Paths must be relative to the workspace root.
+- Paths must be relative to the vault root.
 - Absolute paths and `..` traversal are rejected.
 - Only `.ipynb` paths are accepted.
-- The resolved path must remain inside the workspace.
+- The resolved path must remain inside the vault.
 - Per-notebook locks protect local read-modify-write operations.
 - Notebook writes use a sibling temporary file followed by `os.replace`.
 
@@ -87,7 +87,7 @@ Before Darwin runs, Neurona writes a standard code cell with:
 - empty outputs;
 - `metadata.lab_pending = true`.
 
-The file write wakes the workspace watcher, so open notebook views render a
+The file write wakes the vault watcher, so open notebook views render a
 running placeholder before remote execution finishes.
 
 An in-memory set of active notebook paths provides an O(1) running-state check
@@ -178,7 +178,7 @@ Darwin execution:
 
 - adds the pod home directory to `sys.path` so `~/code` is importable;
 - evicts the standard-library `code` module if it was already imported and
-  would shadow the workspace package;
+  would shadow the vault package;
 - best-effort installs `lipy-davi` when `import davi` fails.
 
 Bootstrap uses a 900-second timeout to tolerate pod startup and installation.
@@ -205,7 +205,7 @@ After pushing files, a hidden execution:
 - treats reload failure as best-effort rather than failing the user cell.
 
 All bootstrap, push, and reload behavior is Darwin-provider behavior. In the
-new architecture, the workspace supplies code mounts such as
+new architecture, the vault supplies code mounts such as
 `{"source": "code", "target": "code"}` and the provider implements how that
 mount reaches its execution environment.
 
@@ -236,9 +236,9 @@ picker, Run, Interrupt, and Restart controls become capability-driven.
 
 ## Live update behavior
 
-Today, notebook writes trigger the general workspace watcher, which broadcasts
+Today, notebook writes trigger the general vault watcher, which broadcasts
 the coarse `index-updated` event. The active notebook is then fetched and
-rendered again while preserving scroll. A one-second project mtime poll is a
+rendered again while preserving scroll. A one-second workspace mtime poll is a
 fallback.
 
 The new file event layer replaces this with path-aware `file-changed` events
@@ -263,7 +263,7 @@ The following must not remain in Neurona's generic notebook route:
 
 ## Provider parity checklist
 
-Before switching a workspace from the embedded executor to
+Before switching a vault from the embedded executor to
 `notebook-darwin`, verify:
 
 - Same notebook path reuses the same provider session.
@@ -277,7 +277,7 @@ Before switching a workspace from the embedded executor to
 - Execution count remains stable.
 - Standard MIME output rendering remains unchanged.
 - Restart clears kernel state without modifying cells.
-- Workspace code mounts preserve current bootstrap, push, and reload behavior.
+- Vault code mounts preserve current bootstrap, push, and reload behavior.
 - External or provider-driven notebook writes update every open view.
 - Unsaved browser drafts survive live refreshes.
 - The compatibility `/api/nb/exec` route delegates without changing existing

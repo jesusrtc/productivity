@@ -9,20 +9,20 @@ def _seed(monkeypatch, tmp_path: Path, monorepo: Path) -> tuple[Path, Path]:
     root = tmp_path / "assistant-db"
     monkeypatch.setenv("LAB_ASSISTANT_HOME", str(root))
     assistant_db.initialize(root)
-    project_path = monorepo / "projects" / "demo"
-    project_path.mkdir(parents=True, exist_ok=True)
-    assistant_db.create_project(
+    workspace_path = monorepo / "workspaces" / "demo"
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    assistant_db.create_workspace(
         root,
         "demo",
         name="Demo",
-        workspace="local",
-        workspace_path=monorepo,
-        project_path=project_path,
+        vault="local",
+        vault_path=monorepo,
+        workspace_path=workspace_path,
     )
     task = assistant_db.create_task(
         root,
         "Write launch update",
-        project_id="demo",
+        workspace_id="demo",
         priority="P0",
         status="in_progress",
     )
@@ -56,11 +56,11 @@ def test_assistant_folder_can_be_configured_and_initialized_from_home(
     assert (target / "README.md").is_file()
     assert f'LAB_ASSISTANT_HOME="{target.resolve()}"' in env_file.read_text(encoding="utf-8")
     assert client.get("/api/assistant").json()["root"] == str(target.resolve())
-    files = client.get("/api/project-files", params={"path": str(target)})
+    files = client.get("/api/workspace-files", params={"path": str(target)})
     assert files.status_code == 200, files.text
     assert {row["path"] for row in files.json()} >= {"AGENTS.md", "README.md"}
     created = client.post(
-        "/api/project-entry",
+        "/api/workspace-entry",
         json={"path": str(target), "parent": "", "name": "notes.md", "kind": "file"},
     )
     assert created.status_code == 200, created.text
@@ -90,7 +90,7 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["root"] == str(root)
-    assert body["projects"][0]["id"] == "demo"
+    assert body["workspaces"][0]["id"] == "demo"
     assert body["tasks"][0]["title"] == "Write launch update"
     assert body["tasks"][0]["group"] == "Launch operations"
     assert body["tasks"][0]["tldr"] == "A concise launch TLDR."
@@ -118,7 +118,7 @@ def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, 
     meeting = assistant_db.create_meeting(
         root,
         "Weekly product review",
-        project_id="demo",
+        workspace_id="demo",
         date="2026-09-03",
         attendees=["Maya", "Leo"],
     )
@@ -195,11 +195,11 @@ def test_assistant_first_class_subtasks_are_summarized_and_have_detail(
     assert "# Generate content" in detail.json()["body"]
 
 
-def test_assistant_asset_allows_mapped_project_file(
+def test_assistant_asset_allows_mapped_workspace_file(
     client, monkeypatch, tmp_path: Path, monorepo: Path,
 ) -> None:
     root, task = _seed(monkeypatch, tmp_path, monorepo)
-    image = monorepo / "projects" / "demo" / "chart.png"
+    image = monorepo / "workspaces" / "demo" / "chart.png"
     image.write_bytes(b"not-a-real-png")
     response = client.get(
         "/api/assistant/asset",
@@ -226,23 +226,23 @@ def test_assistant_subtask_path_rejects_task_document(
     assert response.status_code == 400
 
 
-def test_cross_project_subtask_is_in_parent_list_and_document(
+def test_cross_workspace_subtask_is_in_parent_list_and_document(
     client, monkeypatch, tmp_path: Path, monorepo: Path,
 ) -> None:
     root, task = _seed(monkeypatch, tmp_path, monorepo)
-    other_path = monorepo / "projects" / "video"
+    other_path = monorepo / "workspaces" / "video"
     other_path.mkdir(parents=True)
-    assistant_db.create_project(root, "video", name="Video", workspace="local",
-                                workspace_path=monorepo, project_path=other_path)
+    assistant_db.create_workspace(root, "video", name="Video", vault="local",
+                                vault_path=monorepo, workspace_path=other_path)
     metadata, _ = assistant_db.read_markdown(task)
-    child = assistant_db.create_subtask(root, "Record explainer", parent=metadata["id"], project="video")
+    child = assistant_db.create_subtask(root, "Record explainer", parent=metadata["id"], workspace="video")
     listed = client.get("/api/assistant").json()["tasks"][0]
     assert listed["subtasks_total"] == 1
-    assert listed["subtasks"][0]["project"] == "video"
+    assert listed["subtasks"][0]["workspace"] == "video"
     detail = client.get("/api/assistant/task", params={"path": str(task.relative_to(root))})
     assert detail.status_code == 200
     assert detail.json()["subtasks"][0]["path"] == str(child.relative_to(root))
     child_detail = client.get("/api/assistant/subtask", params={"path": str(child.relative_to(root))})
     assert child_detail.status_code == 200
-    assert child_detail.json()["project"]["id"] == "video"
-    assert child_detail.json()["metadata"]["parent_project"] == "demo"
+    assert child_detail.json()["workspace"]["id"] == "video"
+    assert child_detail.json()["metadata"]["parent_workspace"] == "demo"

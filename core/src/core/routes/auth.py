@@ -26,31 +26,31 @@ class NewUserBody(BaseModel):
     name: str | None = None
     role: str = "user"
     password: str
-    workspaces: list[str] = Field(default_factory=list)
+    vaults: list[str] = Field(default_factory=list)
 
 
 class UserPatch(BaseModel):
     name: str | None = None
     role: str | None = None
     password: str | None = None
-    workspaces: list[str] | None = None
+    vaults: list[str] | None = None
     disabled: bool | None = None
 
 
-def _known_workspace_ids() -> set[str]:
+def _known_vault_ids() -> set[str]:
     return {
         str(row.get("id"))
-        for row in paths.read_workspace_registry().get("workspaces") or []
+        for row in paths.read_vault_registry().get("vaults") or []
         if row.get("id")
     }
 
 
-def _validated_workspaces(values: list[str]) -> list[str]:
-    known = _known_workspace_ids()
+def _validated_vaults(values: list[str]) -> list[str]:
+    known = _known_vault_ids()
     requested = sorted({str(value) for value in values if value})
     missing = [value for value in requested if value not in known]
     if missing:
-        raise HTTPException(status_code=400, detail=f"unknown workspace: {missing[0]}")
+        raise HTTPException(status_code=400, detail=f"unknown vault: {missing[0]}")
     return requested
 
 
@@ -124,7 +124,7 @@ def create_user(body: NewUserBody, request: Request) -> dict:
             "name": (body.name or username.title()).strip() or username.title(),
             "role": body.role,
             "password_sha256": auth.password_sha256(body.password),
-            "workspaces": _validated_workspaces(body.workspaces),
+            "vaults": _validated_vaults(body.vaults),
             "disabled": False,
         }
         store.setdefault("users", []).append(row)
@@ -163,8 +163,8 @@ def update_user(username: str, body: UserPatch, request: Request) -> dict:
             if not body.password:
                 raise HTTPException(status_code=400, detail="password cannot be empty")
             row["password_sha256"] = auth.password_sha256(body.password)
-        if body.workspaces is not None:
-            row["workspaces"] = _validated_workspaces(body.workspaces)
+        if body.vaults is not None:
+            row["vaults"] = _validated_vaults(body.vaults)
         if body.disabled is not None:
             row["disabled"] = body.disabled
         auth.save_store(store)

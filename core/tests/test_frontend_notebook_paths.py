@@ -38,30 +38,30 @@ def _js_between(start_marker: str, end_marker: str) -> str:
     return src[start:end]
 
 
-def test_notebook_path_uses_active_workspace_when_framework_root_differs() -> None:
+def test_notebook_path_uses_active_vault_when_framework_root_differs() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
         "function renderNotebookCell(cell, status, index = null)",
     )
     result = _run_node(
         """
-const WORKSPACE_ROOT = '/Users/jcortes/src/workspaces/main';
+const VAULT_ROOT = '/Users/jcortes/src/vaults/main';
 """
         + helpers
         + """
-const relative = _workspaceRelativeNotebookPath(
-  '/Users/jcortes/src/workspaces/main/projects/investigations',
+const relative = _vaultRelativeNotebookPath(
+  '/Users/jcortes/src/vaults/main/workspaces/investigations',
   'investigations/2026-W29/onCall/analysis.ipynb',
 );
 const failures = [];
-for (const [project, file] of [
-  ['/Users/jcortes/CEREBRO/projects/investigations', 'analysis.ipynb'],
-  ['/Users/jcortes/src/workspaces/main-other/projects/investigations', 'analysis.ipynb'],
-  ['/Users/jcortes/src/workspaces/main/projects/investigations', '../escape.ipynb'],
-  ['/Users/jcortes/src/workspaces/main/projects/investigations', '/absolute.ipynb'],
+for (const [workspace, file] of [
+  ['/Users/jcortes/CEREBRO/workspaces/investigations', 'analysis.ipynb'],
+  ['/Users/jcortes/src/vaults/main-other/workspaces/investigations', 'analysis.ipynb'],
+  ['/Users/jcortes/src/vaults/main/workspaces/investigations', '../escape.ipynb'],
+  ['/Users/jcortes/src/vaults/main/workspaces/investigations', '/absolute.ipynb'],
 ]) {
   try {
-    _workspaceRelativeNotebookPath(project, file);
+    _vaultRelativeNotebookPath(workspace, file);
     failures.push(null);
   } catch (err) {
     failures.push(err.message);
@@ -72,138 +72,138 @@ process.stdout.write(JSON.stringify({relative, failures}));
     )
 
     assert result["relative"] == (
-        "projects/investigations/investigations/2026-W29/onCall/analysis.ipynb"
+        "workspaces/investigations/investigations/2026-W29/onCall/analysis.ipynb"
     )
     assert not result["relative"].startswith("/")
     assert all(result["failures"])
 
 
-def test_notebook_path_can_follow_a_project_in_another_workspace() -> None:
+def test_notebook_path_can_follow_a_workspace_in_another_vault() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
         "function renderNotebookCell(cell, status, index = null)",
     )
     result = _run_node(
         """
-const WORKSPACE_ROOT = '/Volumes/SSD/workspaces/productivity';
+const VAULT_ROOT = '/Volumes/SSD/vaults/productivity';
 """
         + helpers
         + """
-const relative = _workspaceRelativeNotebookPath(
-  '/Users/jcortes/workspaces/local/projects/test',
+const relative = _vaultRelativeNotebookPath(
+  '/Users/jcortes/vaults/local/workspaces/test',
   'agent-demo.ipynb',
-  '/Users/jcortes/workspaces/local',
+  '/Users/jcortes/vaults/local',
 );
 process.stdout.write(JSON.stringify({relative}));
 """
     )
 
-    assert result["relative"] == "projects/test/agent-demo.ipynb"
+    assert result["relative"] == "workspaces/test/agent-demo.ipynb"
 
 
-def test_notebook_deep_link_resolves_project_under_active_workspace() -> None:
+def test_notebook_deep_link_resolves_workspace_under_active_vault() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
         "function renderNotebookCell(cell, status, index = null)",
     )
     deep_link = _js_between(
-        "let _nbHashProject = null;",
-        "const _effectiveProject = urlProject || _nbHashProject;",
+        "let _nbHashWorkspace = null;",
+        "const _effectiveWorkspace = urlWorkspace || _nbHashWorkspace;",
     )
     result = _run_node(
         """
-const WORKSPACE_ROOT = '/Users/jcortes/src/workspaces/main';
+const VAULT_ROOT = '/Users/jcortes/src/vaults/main';
 const location = {
-  hash: '#/nb?path=projects/investigations/notebooks/analysis.ipynb',
-  href: 'http://lab.test/#/nb?path=projects/investigations/notebooks/analysis.ipynb',
+  hash: '#/nb?path=workspaces/investigations/notebooks/analysis.ipynb',
+  href: 'http://lab.test/#/nb?path=workspaces/investigations/notebooks/analysis.ipynb',
 };
 const historyCalls = [];
 const lastDocs = [];
 const history = {replaceState(_state, _title, url) { historyCalls.push(String(url)); }};
-function setLastProjectDoc(project, doc) { lastDocs.push({project, doc}); }
-const urlProject = null;
+function setLastWorkspaceDoc(workspace, doc) { lastDocs.push({workspace, doc}); }
+const urlWorkspace = null;
 """
         + helpers
         + deep_link
         + """
-process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
+process.stdout.write(JSON.stringify({_nbHashWorkspace, historyCalls, lastDocs}));
 """
     )
 
-    expected_project = "/Users/jcortes/src/workspaces/main/projects/investigations"
-    assert result["_nbHashProject"] == expected_project
+    expected_workspace = "/Users/jcortes/src/vaults/main/workspaces/investigations"
+    assert result["_nbHashWorkspace"] == expected_workspace
     assert result["lastDocs"] == [
-        {"project": expected_project, "doc": "notebooks/analysis.ipynb"}
+        {"workspace": expected_workspace, "doc": "notebooks/analysis.ipynb"}
     ]
     assert (
-        "project=%2FUsers%2Fjcortes%2Fsrc%2Fworkspaces%2Fmain%2Fprojects%2Finvestigations"
+        "workspace=%2FUsers%2Fjcortes%2Fsrc%2Fvaults%2Fmain%2Fworkspaces%2Finvestigations"
         in result["historyCalls"][0]
     )
 
 
-def test_notebook_deep_link_keeps_an_explicit_cross_workspace_project() -> None:
+def test_notebook_deep_link_keeps_an_explicit_cross_vault_workspace() -> None:
     helpers = _js_between(
         "function _normalizeAbsolutePath(path)",
         "function renderNotebookCell(cell, status, index = null)",
     )
     deep_link = _js_between(
-        "let _nbHashProject = null;",
-        "const _effectiveProject = urlProject || _nbHashProject;",
+        "let _nbHashWorkspace = null;",
+        "const _effectiveWorkspace = urlWorkspace || _nbHashWorkspace;",
     )
     result = _run_node(
         """
-const WORKSPACE_ROOT = '/Volumes/SSD/workspaces/productivity';
+const VAULT_ROOT = '/Volumes/SSD/vaults/productivity';
 const location = {
-  hash: '#/nb?path=projects/test/agent-demo.ipynb',
-  href: 'http://lab.test/?project=%2FUsers%2Fjcortes%2Fworkspaces%2Flocal%2Fprojects%2Ftest#/nb?path=projects/test/agent-demo.ipynb',
+  hash: '#/nb?path=workspaces/test/agent-demo.ipynb',
+  href: 'http://lab.test/?workspace=%2FUsers%2Fjcortes%2Fvaults%2Flocal%2Fworkspaces%2Ftest#/nb?path=workspaces/test/agent-demo.ipynb',
 };
 const historyCalls = [];
 const lastDocs = [];
 const history = {replaceState(_state, _title, url) { historyCalls.push(String(url)); }};
-function setLastProjectDoc(project, doc) { lastDocs.push({project, doc}); }
-const urlProject = '/Users/jcortes/workspaces/local/projects/test';
+function setLastWorkspaceDoc(workspace, doc) { lastDocs.push({workspace, doc}); }
+const urlWorkspace = '/Users/jcortes/vaults/local/workspaces/test';
 """
         + helpers
         + deep_link
         + """
-process.stdout.write(JSON.stringify({_nbHashProject, historyCalls, lastDocs}));
+process.stdout.write(JSON.stringify({_nbHashWorkspace, historyCalls, lastDocs}));
 """
     )
 
-    expected_project = "/Users/jcortes/workspaces/local/projects/test"
-    assert result["_nbHashProject"] == expected_project
+    expected_workspace = "/Users/jcortes/vaults/local/workspaces/test"
+    assert result["_nbHashWorkspace"] == expected_workspace
     assert result["lastDocs"] == [
-        {"project": expected_project, "doc": "agent-demo.ipynb"}
+        {"workspace": expected_workspace, "doc": "agent-demo.ipynb"}
     ]
-    assert "project=%2FUsers%2Fjcortes%2Fworkspaces%2Flocal%2Fprojects%2Ftest" in (
+    assert "workspace=%2FUsers%2Fjcortes%2Fvaults%2Flocal%2Fworkspaces%2Ftest" in (
         result["historyCalls"][0]
     )
 
 
-def test_cold_project_hydration_does_not_stomp_a_remembered_notebook() -> None:
+def test_cold_workspace_hydration_does_not_stomp_a_remembered_notebook() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     select_repo = _js_between(
-        "async function selectRepo(projectKey)",
+        "async function selectRepo(workspaceKey)",
         "async function loadDiff()",
     )
 
-    assert "const remembered = getLastProjectDoc(currentProject.path);" in select_repo
-    assert "showProjectInfo({keepShell: true});" in select_repo
-    assert "if (remembered) openProjectDoc(remembered);" in select_repo
-    assert "showProjectInfo({keepShell: !remembered});" not in source
+    assert "const remembered = getLastWorkspaceDoc(currentWorkspace.path);" in select_repo
+    assert "showWorkspaceInfo({keepShell: true});" in select_repo
+    assert "if (remembered) openWorkspaceDoc(remembered);" in select_repo
+    assert "showWorkspaceInfo({keepShell: !remembered});" not in source
 
 
 def test_builtin_jupyter_tab_needs_no_server_proxy_configuration() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     helpers = _js_between(
-        "function _projectNotebookEntries(files)",
-        "async function _loadProjectNotebookEntries(projectPath)",
+        "function _workspaceNotebookEntries(files)",
+        "async function _loadWorkspaceNotebookEntries(workspacePath)",
     )
     result = _run_node(
         helpers
         + """
-const entries = _projectNotebookEntries([
+const entries = _workspaceNotebookEntries([
   {path: 'README.md', type: 'file', mtime: 30},
   {path: 'notebooks/older.ipynb', type: 'file', mtime: 10},
   {path: 'notebooks', type: 'dir', mtime: 50},
@@ -214,16 +214,16 @@ process.stdout.write(JSON.stringify(entries.map(entry => entry.path)));
     )
 
     assert result == ["research/newer.IPYNB", "notebooks/older.ipynb"]
-    assert 'onclick="openProjectNotebooks()"' in source
+    assert 'onclick="openWorkspaceNotebooks()"' in source
     assert "Lab Jupyter notebooks — no server configuration required" in source
-    assert "Notebooks are scoped to this project" in source
-    assert "A notebook created in another project appears in that project's Jupyter tab" in source
+    assert "Notebooks are scoped to this workspace" in source
+    assert "A notebook created in another workspace appears in that workspace's Jupyter tab" in source
     assert "Create the first notebook here" in source
-    assert 'onclick="openProjectNotebooks({showLauncher:true})"' in source
+    assert 'onclick="openWorkspaceNotebooks({showLauncher:true})"' in source
     assert "☷ All notebooks" in source
     assert ".nb-notebook-list, .nb-runtime-open, .nb-interrupt-kernel" in css
     assert ".nb-notebook-list:hover" in css
-    assert "window.openProjectNotebooks = openProjectNotebooks" in source
+    assert "window.openWorkspaceNotebooks = openWorkspaceNotebooks" in source
     assert "__proxy__/Jupyter" not in source
 
 
@@ -246,12 +246,12 @@ const localStorage = {
         + """
 const attrs = new Map([['data-cell-id', 'stable-cell'], ['data-cell-index', '41']]);
 const cell = {getAttribute(name) { return attrs.get(name) || null; }};
-_writeNotebookPosition('workspace-a', 'projects/demo/large.ipynb', cell);
-_setNotebookCodeHidden('workspace-a', 'projects/demo/large.ipynb', true);
-const saved = _readNotebookPosition('workspace-a', 'projects/demo/large.ipynb');
-const other = _readNotebookPosition('workspace-b', 'projects/demo/large.ipynb');
-const codeHidden = _isNotebookCodeHidden('workspace-a', 'projects/demo/large.ipynb');
-const otherCodeHidden = _isNotebookCodeHidden('workspace-b', 'projects/demo/large.ipynb');
+_writeNotebookPosition('vault-a', 'workspaces/demo/large.ipynb', cell);
+_setNotebookCodeHidden('vault-a', 'workspaces/demo/large.ipynb', true);
+const saved = _readNotebookPosition('vault-a', 'workspaces/demo/large.ipynb');
+const other = _readNotebookPosition('vault-b', 'workspaces/demo/large.ipynb');
+const codeHidden = _isNotebookCodeHidden('vault-a', 'workspaces/demo/large.ipynb');
+const otherCodeHidden = _isNotebookCodeHidden('vault-b', 'workspaces/demo/large.ipynb');
 process.stdout.write(JSON.stringify({saved, other, codeHidden, otherCodeHidden}));
 """
     )
@@ -298,7 +298,7 @@ const notebook = {
 const firstTarget = {closest() { return first; }};
 const secondTarget = {closest() { return second; }};
 const firstOpen = _activateNotebookCodeCell(
-  notebook, firstTarget, 'workspace-a', 'projects/demo/large.ipynb', true,
+  notebook, firstTarget, 'vault-a', 'workspaces/demo/large.ipynb', true,
 );
 const afterFirst = {
   open: firstOpen && firstOpen.id,
@@ -306,7 +306,7 @@ const afterFirst = {
   second: second.classList.contains('nb-code-peek'),
 };
 const secondOpen = _activateNotebookCodeCell(
-  notebook, secondTarget, 'workspace-a', 'projects/demo/large.ipynb', true,
+  notebook, secondTarget, 'vault-a', 'workspaces/demo/large.ipynb', true,
 );
 const afterSecond = {
   open: secondOpen && secondOpen.id,
@@ -314,7 +314,7 @@ const afterSecond = {
   second: second.classList.contains('nb-code-peek'),
 };
 const sameOpen = _activateNotebookCodeCell(
-  notebook, secondTarget, 'workspace-a', 'projects/demo/large.ipynb', true,
+  notebook, secondTarget, 'vault-a', 'workspaces/demo/large.ipynb', true,
 );
 process.stdout.write(JSON.stringify({
   afterFirst,
@@ -322,10 +322,10 @@ process.stdout.write(JSON.stringify({
   sameOpen: sameOpen && sameOpen.id,
   anyOpen: first.classList.contains('nb-code-peek') || second.classList.contains('nb-code-peek'),
   restored: _restoreNotebookActiveCodeCell(
-    notebook, 'workspace-a', 'projects/demo/large.ipynb',
+    notebook, 'vault-a', 'workspaces/demo/large.ipynb',
   ).id,
   otherScope: _restoreNotebookActiveCodeCell(
-    notebook, 'workspace-b', 'projects/demo/large.ipynb',
+    notebook, 'vault-b', 'workspaces/demo/large.ipynb',
   ),
 }));
 """
@@ -392,7 +392,7 @@ process.stdout.write(JSON.stringify({
     assert "_setNotebookCodeHidden(scope, path, codeHidden)" in source
     assert 'data-cell-type="code"' in source
     assert "_bindNbNavigation(" in source
-    assert "notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot" in source
+    assert "notebookVault.vaultId || notebookVault.vaultRoot" in source
     assert "running || _resolveNotebookPosition" not in source
     assert "jump(_notebookRunningCell(notebook), 'start')" in source
     assert '<span aria-hidden="true">&lt;/&gt;</span>' in source
@@ -553,8 +553,8 @@ const notebook = {
     return [];
   },
 };
-const scope = 'workspace-a';
-const path = 'projects/demo/large.ipynb';
+const scope = 'vault-a';
+const path = 'workspaces/demo/large.ipynb';
 _setNotebookCodePinned(scope, path, first, true);
 _setNotebookCodePinned(scope, path, second, true);
 _applyNotebookCodePins(notebook, scope, path);
@@ -566,7 +566,7 @@ const afterThird = {
 _setNotebookCodePeek(notebook, fourth);
 process.stdout.write(JSON.stringify({
   saved: _readNotebookPinnedCode(scope, path),
-  otherScope: _readNotebookPinnedCode('workspace-b', path),
+  otherScope: _readNotebookPinnedCode('vault-b', path),
   pinned: [first, second, third, fourth].map(cell => cell.classList.contains('nb-code-pinned')),
   afterThird,
   afterFourth: {
@@ -593,46 +593,46 @@ process.stdout.write(JSON.stringify({
     assert ".nb-cell:is(.nb-code-pinned, .nb-code-peek) > .nb-outputs" in css
 
 
-def test_all_notebook_operations_reuse_workspace_relative_path() -> None:
+def test_all_notebook_operations_reuse_vault_relative_path() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     open_block = _js_between(
         "// Notebooks: render cells via /api/nb",
         "// All other files: fetch content + comments",
     )
     cell_bindings = _js_between(
-        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null)",
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, vaultId = null)",
         "function renderNbAddCellButton()",
     )
     restart_binding = _js_between(
-        "async function _requestNbKernelRestart(relPath, workspaceId = null)",
-        "function bindNbAddCellButton(container, relPath, filepath, workspaceId = null)",
+        "async function _requestNbKernelRestart(relPath, vaultId = null)",
+        "function bindNbAddCellButton(container, relPath, filepath, vaultId = null)",
     )
 
-    assert "const notebookWorkspace = _notebookWorkspaceContext(currentProject);" in open_block
-    assert "currentProject.path, filepath, notebookWorkspace.workspaceRoot" in open_block
-    assert "fetch(`/api/nb?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`)" in open_block
-    assert "fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`)" in open_block
-    assert "fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`)" in open_block
-    assert "wrap, relPath, filepath, null, notebookWorkspace.workspaceId" in open_block
-    assert "bindNbRestartKernel(container, relPath, filepath, notebookWorkspace.workspaceId)" in open_block
-    assert "bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId)" in open_block
-    assert "bindNbInterruptKernel(container, relPath, notebookWorkspace.workspaceId)" in open_block
+    assert "const notebookVault = _notebookVaultContext(currentWorkspace);" in open_block
+    assert "currentWorkspace.path, filepath, notebookVault.vaultRoot" in open_block
+    assert "fetch(`/api/nb?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`)" in open_block
+    assert "fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`)" in open_block
+    assert "fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`)" in open_block
+    assert "wrap, relPath, filepath, null, notebookVault.vaultId" in open_block
+    assert "bindNbRestartKernel(container, relPath, filepath, notebookVault.vaultId)" in open_block
+    assert "bindNbRuntimePanel(container, relPath, filepath, notebookVault.vaultId)" in open_block
+    assert "bindNbInterruptKernel(container, relPath, notebookVault.vaultId)" in open_block
     assert "const body = { path: relPath, code, actor: 'human' };" in cell_bindings
-    assert "if (workspaceId) body.workspace = workspaceId;" in cell_bindings
+    assert "if (vaultId) body.vault = vaultId;" in cell_bindings
     assert "if (cellId) body.cell_id = cellId;" in cell_bindings
-    assert "...(workspaceId ? {workspace: workspaceId} : {})" in cell_bindings
-    assert "...(workspaceId ? {workspace: workspaceId} : {})" in restart_binding
+    assert "...(vaultId ? {vault: vaultId} : {})" in cell_bindings
+    assert "...(vaultId ? {vault: vaultId} : {})" in restart_binding
     assert "/api/notebook?repo=${encodeURIComponent(docRoot)}" in open_block
     assert "read-only notebook" in open_block
-    assert "Move or copy into a workspace project to execute" in open_block
+    assert "Move or copy into a vault workspace to execute" in open_block
     assert "SELF_REPO_PATH" not in open_block
-    assert "window.LAB_WORKSPACE_ROOT" in source
+    assert "window.LAB_VAULT_ROOT" in source
 
 
-def test_project_runtime_panel_exposes_python_libraries_and_cli_configuration() -> None:
+def test_workspace_runtime_panel_exposes_python_libraries_and_cli_configuration() -> None:
     render = _js_between(
         "function _nbRuntimeLines(values)",
-        "function bindNbRuntimePanel(container, relPath, filepath, workspaceId = null)",
+        "function bindNbRuntimePanel(container, relPath, filepath, vaultId = null)",
     )
     result = _run_node(
         """
@@ -645,13 +645,13 @@ const html = renderNbRuntimePanel({status: 'ready', spec: {
   packages: ['pandas==2.3.2'], editable: ['libs/sdk'], imports: ['client_sdk'],
   cli_paths: ['tools/bin'], cli_checks: [{command: 'client-cli', args: ['--version']}],
   environment: {PROFILE: 'test'}, working_dir: '.', validation_code: 'assert True',
-}, active: {python: '/client/.venv/bin/python'}}, 'projects/acme/notebooks/x.ipynb');
+}, active: {python: '/client/.venv/bin/python'}}, 'workspaces/acme/notebooks/x.ipynb');
 process.stdout.write(JSON.stringify({html}));
 """
     )
     html = result["html"]
     for expected in (
-        "Project Runtime",
+        "Workspace Runtime",
         "Shared by people and agents",
         "Local Jupyter",
         "/client/.venv/bin/python",
@@ -664,15 +664,15 @@ process.stdout.write(JSON.stringify({html}));
         assert expected in html
 
 
-def test_project_runtime_panel_saves_builds_and_interrupts_through_shared_api() -> None:
+def test_workspace_runtime_panel_saves_builds_and_interrupts_through_shared_api() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     runtime_binding = _js_between(
-        "function bindNbRuntimePanel(container, relPath, filepath, workspaceId = null)",
-        "function bindNbInterruptKernel(container, relPath, workspaceId = null)",
+        "function bindNbRuntimePanel(container, relPath, filepath, vaultId = null)",
+        "function bindNbInterruptKernel(container, relPath, vaultId = null)",
     )
     interrupt_binding = _js_between(
-        "function bindNbInterruptKernel(container, relPath, workspaceId = null)",
-        "async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null)",
+        "function bindNbInterruptKernel(container, relPath, vaultId = null)",
+        "async function bindNbRestartKernel(container, relPath, filepath, vaultId = null)",
     )
     assert "fetch('/api/nb/runtime'" in runtime_binding
     assert "fetch('/api/nb/runtime/build'" in runtime_binding
@@ -687,8 +687,8 @@ def test_notebook_run_all_sequences_cells_and_can_restart_first() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     binding = _js_between(
-        "async function _requestNbKernelRestart(relPath, workspaceId = null)",
-        "async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null)",
+        "async function _requestNbKernelRestart(relPath, vaultId = null)",
+        "async function bindNbRestartKernel(container, relPath, filepath, vaultId = null)",
     )
     result = _run_node(
         """
@@ -697,14 +697,14 @@ const alerts = [];
 const opened = [];
 const removedDrafts = [];
 const listeners = {};
-const currentProject = {workspace_id: 'workspace-a'};
-function _projectWorkspaceId(project) { return project.workspace_id; }
-function _currentOpenNotebookRelPath() { return 'projects/demo/notebooks/x.ipynb'; }
+const currentWorkspace = {vault_id: 'vault-a'};
+function _workspaceVaultId(workspace) { return workspace.vault_id; }
+function _currentOpenNotebookRelPath() { return 'workspaces/demo/notebooks/x.ipynb'; }
 function _cellDraftKey(path, cell) { return `draft:${path}:${cell}`; }
 const localStorage = {removeItem(key) { removedDrafts.push(key); }};
 function confirm() { return true; }
 function alert(message) { alerts.push(String(message)); }
-async function openProjectDoc(path, options) { opened.push({path, options}); }
+async function openWorkspaceDoc(path, options) { opened.push({path, options}); }
 function _nbSetToolbarButtonLabel(button, label) {
   button.setAttribute('data-nb-tooltip', label);
   button.setAttribute('aria-label', label);
@@ -754,9 +754,9 @@ const container = {
         + """
 bindNbRunAll(
   container,
-  'projects/demo/notebooks/x.ipynb',
+  'workspaces/demo/notebooks/x.ipynb',
   'notebooks/x.ipynb',
-  'workspace-a',
+  'vault-a',
 );
 Promise.resolve(listeners['restart:click']()).then(() => {
   process.stdout.write(JSON.stringify({calls, alerts, opened, removedDrafts}));
@@ -773,14 +773,14 @@ Promise.resolve(listeners['restart:click']()).then(() => {
         "first",
         "second",
     ]
-    assert all(call["body"]["workspace"] == "workspace-a" for call in result["calls"])
+    assert all(call["body"]["vault"] == "vault-a" for call in result["calls"])
     assert result["alerts"] == []
     assert result["opened"] == [
         {"path": "notebooks/x.ipynb", "options": {"preserveScroll": True}}
     ]
     assert result["removedDrafts"] == [
-        "draft:projects/demo/notebooks/x.ipynb:first",
-        "draft:projects/demo/notebooks/x.ipynb:second",
+        "draft:workspaces/demo/notebooks/x.ipynb:first",
+        "draft:workspaces/demo/notebooks/x.ipynb:second",
     ]
     assert "toolbarActionsHtml" in source
     assert "${runtimeBadge}${runAllButtonsHtml}${interruptBtnHtml}${restartBtnHtml}" in source
@@ -816,7 +816,7 @@ process.stdout.write(JSON.stringify({
 def test_agent_api_running_snapshot_renders_visible_running_cell() -> None:
     renderer = _js_between(
         "function _formatNbElapsed(milliseconds)",
-        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null)",
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, vaultId = null)",
     )
     result = _run_node(
         """
@@ -848,7 +848,7 @@ const html = renderNbCellInteractive({
   },
   source: "print('first')\\n",
   outputs: [{type: 'text', content: 'first\\n'}],
-}, 3, 'projects/demo/notebooks/live.ipynb', {queuePos: 1, liveSequence: 2});
+}, 3, 'workspaces/demo/notebooks/live.ipynb', {queuePos: 1, liveSequence: 2});
 process.stdout.write(JSON.stringify({html}));
 """
     )
@@ -871,7 +871,7 @@ def test_starting_a_cell_clears_stale_output_without_stealing_scroll() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     bindings = _js_between(
-        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null)",
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, vaultId = null)",
         "function renderNbAddCellButton()",
     )
     open_block = _js_between(
@@ -912,7 +912,7 @@ def test_notebook_live_execution_replays_and_applies_ordered_ws_deltas() -> None
         "// Live notebook execution events share the global authenticated WebSocket"
     ):]
 
-    assert "`/api/nb/live?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`" in open_block
+    assert "`/api/nb/live?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`" in open_block
     assert "liveByCell" in open_block
     assert "live.sequence" in open_block
     assert "latestNbRes" in open_block
@@ -921,9 +921,9 @@ def test_notebook_live_execution_replays_and_applies_ordered_ws_deltas() -> None
     assert "incomingSequence > currentSequence + 1" in live_block
     assert "event.operation === 'replace'" in live_block
     assert "body.insertAdjacentHTML('beforeend', rendered)" in live_block
-    assert "_reconcileOpenNotebook(relPath, workspaceId)" in live_block
-    assert "_reconcileOpenNotebook(reconnectNotebook, reconnectWorkspaceId)" in live_block
-    assert "const workspaceId = String(event.workspace || '');" in live_block
-    assert "const liveKey = _nbLiveKey(workspaceId, relPath);" in live_block
+    assert "_reconcileOpenNotebook(relPath, vaultId)" in live_block
+    assert "_reconcileOpenNotebook(reconnectNotebook, reconnectVaultId)" in live_block
+    assert "const vaultId = String(event.vault || '');" in live_block
+    assert "const liveKey = _nbLiveKey(vaultId, relPath);" in live_block
     assert "const idxAttr = clientPending ? 'new' : String(index);" in source
     assert "if (draftKey && !isServerRunning)" in source

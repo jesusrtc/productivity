@@ -11,7 +11,7 @@ class ModelError(ValueError):
     """Raised when model validation fails."""
 
 
-class ProjectStatus(str, Enum):
+class WorkspaceStatus(str, Enum):
     active = "active"
     paused = "paused"
     done = "done"
@@ -32,15 +32,15 @@ class Priority(str, Enum):
     P3 = "P3"
 
 
-# The agent CLIs a project terminal can launch. The global default lives in
-# .agents/config.json; a project may override it via the ``agent`` field below.
+# The agent CLIs a workspace terminal can launch. The global default lives in
+# .agents/config.json; a workspace may override it via the ``agent`` field below.
 VALID_AGENTS = ("claude", "codex", "copilot")
 
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-_]*$")
-# Reserved pseudo-project ids (Cerebro, productivity self-view, ...). They
+# Reserved pseudo-workspace ids (Cerebro, productivity self-view, ...). They
 # bypass the regular id regex because they start with ``__`` to avoid
-# colliding with any real project id a user would plausibly pick.
+# colliding with any real workspace id a user would plausibly pick.
 _PSEUDO_IDS = {"__cerebro__", "__self__"}
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Accept either a bare date (YYYY-MM-DD) or an ISO datetime with optional
@@ -89,7 +89,7 @@ def _parse_timestamp(value, *, field_name: str) -> str | None:
 
 
 def _parse_hold(value, *, field_name: str = "hold") -> dict | None:
-    """Validate the project ``hold`` dict (soft snooze metadata).
+    """Validate the workspace ``hold`` dict (soft snooze metadata).
 
     Shape::
 
@@ -140,7 +140,7 @@ _validate_id = validate_id
 
 
 def _parse_agent(value: Any, *, field_name: str = "agent") -> str | None:
-    """Validate an optional per-project agent override (None = inherit global)."""
+    """Validate an optional per-workspace agent override (None = inherit global)."""
     if value in (None, ""):
         return None
     if value not in VALID_AGENTS:
@@ -151,10 +151,10 @@ def _parse_agent(value: Any, *, field_name: str = "agent") -> str | None:
 
 
 @dataclass
-class Project:
+class Workspace:
     id: str
     name: str
-    status: ProjectStatus = ProjectStatus.active
+    status: WorkspaceStatus = WorkspaceStatus.active
     description: str = ""
     tags: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
@@ -166,26 +166,26 @@ class Project:
     worktrees: list[dict[str, Any]] = field(default_factory=list)
     prs: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
-    # External reference URLs used as project context (reading material,
+    # External reference URLs used as workspace context (reading material,
     # slack threads, blog posts). Distinct from ``artifacts`` — artifacts
     # are canonical online mirrors of local work; references are inbound
     # source material. Shape: {id, url, title, note, added}.
     references: list[dict[str, Any]] = field(default_factory=list)
     pinned: list[str] = field(default_factory=list)
     hold: dict[str, Any] | None = None
-    # Per-project agent override (None → inherit the global default in
+    # Per-workspace agent override (None → inherit the global default in
     # .agents/config.json). ``agent`` ∈ VALID_AGENTS; ``model`` is free-form
     # (its valid values depend on the chosen agent, so we don't enum it).
     agent: str | None = None
     model: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Project:
+    def from_dict(cls, data: dict[str, Any]) -> Workspace:
         return cls(
             id=_validate_id(data.get("id", "")),
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
-            status=_parse_enum(ProjectStatus, data.get("status", "active"), field_name="status"),
+            status=_parse_enum(WorkspaceStatus, data.get("status", "active"), field_name="status"),
             tags=list(data.get("tags", []) or []),
             labels=list(data.get("labels", []) or []),
             priority=_parse_enum(Priority, data.get("priority"), field_name="priority"),

@@ -58,52 +58,52 @@
   .framework-update-btn.is-busy .framework-update-icon { animation: framework-update-spin .8s linear infinite; }
   @keyframes framework-update-spin { to { transform: rotate(360deg); } }
 
-  /* Chrome-style project tabs. Tabs appear when a project has live tmux
-     sessions OR is the currently-viewed project. Scroll horizontally when
+  /* Chrome-style workspace tabs. Tabs appear when a workspace has live tmux
+     sessions OR is the currently-viewed workspace. Scroll horizontally when
      overflowing. */
-  .proj-tabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; padding-top: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; height: 100%; }
-  .proj-tabs::-webkit-scrollbar { height: 4px; }
-  .proj-tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-  .proj-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 12px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; max-width: 220px; white-space: nowrap; position: relative; top: 6px; flex-shrink: 0; }
-  .proj-tab:hover { color: var(--text-primary); background: var(--border); }
-  .proj-tab.active { color: var(--text-primary); background: var(--bg-primary); border-color: var(--border); border-bottom-color: var(--bg-primary); top: 5px; padding-bottom: 7px; }
-  .proj-tab.active::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #f78166; border-radius: 2px 2px 0 0; }
-  .proj-tab.workspace-owned::after { content: ""; position: absolute; left: 7px; right: 7px; bottom: 2px; height: 2px; border-radius: 2px; background: var(--workspace-color, var(--accent)); opacity: .75; }
-  .proj-tab.workspace-owned.active::before { background: var(--workspace-color, var(--accent)); }
-  .proj-tab .workspace-mark { width: 7px; height: 7px; border-radius: 50%; background: var(--workspace-color, var(--accent)); box-shadow: 0 0 0 1px rgba(255,255,255,.12); flex: 0 0 auto; }
-  .repo-tab .workspace-mark,
-  .proj-tabs-picker .workspace-mark { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--workspace-color, var(--accent)); box-shadow: 0 0 0 1px rgba(255,255,255,.12); vertical-align: 1px; flex: 0 0 auto; }
-  .proj-tab .label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .proj-tab .x { border: none; background: transparent; color: var(--text-dim); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; border-radius: 3px; }
-  .proj-tab .x:hover { background: rgba(248,81,73,0.15); color: var(--red); }
-  .proj-tab.dragging { opacity: 0.45; cursor: grabbing; }
-  .proj-tab.drop-before { box-shadow: -2px 0 0 var(--accent); }
-  .proj-tab.drop-after { box-shadow: 2px 0 0 var(--accent); }
+  .workspace-tabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; padding-top: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; height: 100%; }
+  .workspace-tabs::-webkit-scrollbar { height: 4px; }
+  .workspace-tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .workspace-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 12px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; max-width: 220px; white-space: nowrap; position: relative; top: 6px; flex-shrink: 0; }
+  .workspace-tab:hover { color: var(--text-primary); background: var(--border); }
+  .workspace-tab.active { color: var(--text-primary); background: var(--bg-primary); border-color: var(--border); border-bottom-color: var(--bg-primary); top: 5px; padding-bottom: 7px; }
+  .workspace-tab.active::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #f78166; border-radius: 2px 2px 0 0; }
+  .workspace-tab.vault-owned::after { content: ""; position: absolute; left: 7px; right: 7px; bottom: 2px; height: 2px; border-radius: 2px; background: var(--vault-color, var(--accent)); opacity: .75; }
+  .workspace-tab.vault-owned.active::before { background: var(--vault-color, var(--accent)); }
+  .workspace-tab .vault-mark { width: 7px; height: 7px; border-radius: 50%; background: var(--vault-color, var(--accent)); box-shadow: 0 0 0 1px rgba(255,255,255,.12); flex: 0 0 auto; }
+  .repo-tab .vault-mark,
+  .workspace-tabs-picker .vault-mark { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--vault-color, var(--accent)); box-shadow: 0 0 0 1px rgba(255,255,255,.12); vertical-align: 1px; flex: 0 0 auto; }
+  .workspace-tab .label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .workspace-tab .x { border: none; background: transparent; color: var(--text-dim); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; border-radius: 3px; }
+  .workspace-tab .x:hover { background: rgba(248,81,73,0.15); color: var(--red); }
+  .workspace-tab.dragging { opacity: 0.45; cursor: grabbing; }
+  .workspace-tab.drop-before { box-shadow: -2px 0 0 var(--accent); }
+  .workspace-tab.drop-after { box-shadow: 2px 0 0 var(--accent); }
 
-  /* Small "which workspace does this belong to" badge — dashboard rows and
-     project tabs both use it. */
-  .ws-badge { display: inline-block; flex-shrink: 0; padding: 0 5px; font-size: 9px; line-height: 14px; border-radius: 7px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; vertical-align: middle; }
-  .proj-tab .ws-badge { margin: 0; }
-  .proj-tab.active .ws-badge { color: var(--text-secondary); }
+  /* Small "which vault does this belong to" badge — dashboard rows and
+     workspace tabs both use it. */
+  .vault-badge { display: inline-block; flex-shrink: 0; padding: 0 5px; font-size: 9px; line-height: 14px; border-radius: 7px; background: var(--bg-tertiary); border: 1px solid var(--border); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; vertical-align: middle; }
+  .workspace-tab .vault-badge { margin: 0; }
+  .workspace-tab.active .vault-badge { color: var(--text-secondary); }
 
-  /* Tab blocked by a 503 (fsguard: the workspace volume stalled). Read as
+  /* Tab blocked by a 503 (fsguard: the vault volume stalled). Read as
      "warning", distinct from the amber "needs attention" tint above. */
-  .proj-tab .blocked-icon { display: none; color: var(--red); font-size: 12px; line-height: 1; flex-shrink: 0; }
-  .proj-tab.blocked .blocked-icon { display: inline-block; }
-  .proj-tab.blocked { box-shadow: inset 0 -2px 0 var(--red); }
-  .proj-tab.blocked .label { color: var(--red); }
-  .proj-tab.blocked:hover { background: rgba(248,81,73,0.12); }
-  .proj-tab { user-select: none; }
+  .workspace-tab .blocked-icon { display: none; color: var(--red); font-size: 12px; line-height: 1; flex-shrink: 0; }
+  .workspace-tab.blocked .blocked-icon { display: inline-block; }
+  .workspace-tab.blocked { box-shadow: inset 0 -2px 0 var(--red); }
+  .workspace-tab.blocked .label { color: var(--red); }
+  .workspace-tab.blocked:hover { background: rgba(248,81,73,0.12); }
+  .workspace-tab { user-select: none; }
 
-  .proj-tabs-plus-wrap { position: relative; flex-shrink: 0; }
-  .proj-tabs-plus { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 14px; cursor: pointer; line-height: 1; }
-  .proj-tabs-plus:hover { color: var(--text-primary); background: var(--border); }
-  .proj-tabs-picker { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 110; max-height: 400px; overflow-y: auto; min-width: 260px; padding: 4px; }
-  .proj-tabs-picker.open { display: block; }
-  .proj-tabs-picker .empty { padding: 12px; color: var(--text-dim); font-size: 12px; }
-  .proj-tabs-picker .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; color: var(--text-primary); font-size: 12px; }
-  .proj-tabs-picker .row:hover { background: var(--bg-tertiary); }
-  .proj-tabs-picker .row .meta { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+  .workspace-tabs-plus-wrap { position: relative; flex-shrink: 0; }
+  .workspace-tabs-plus { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 14px; cursor: pointer; line-height: 1; }
+  .workspace-tabs-plus:hover { color: var(--text-primary); background: var(--border); }
+  .workspace-tabs-picker { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 110; max-height: 400px; overflow-y: auto; min-width: 260px; padding: 4px; }
+  .workspace-tabs-picker.open { display: block; }
+  .workspace-tabs-picker .empty { padding: 12px; color: var(--text-dim); font-size: 12px; }
+  .workspace-tabs-picker .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; color: var(--text-primary); font-size: 12px; }
+  .workspace-tabs-picker .row:hover { background: var(--bg-tertiary); }
+  .workspace-tabs-picker .row .meta { color: var(--text-dim); font-size: 11px; margin-left: auto; }
   .view-toggle { display: flex; gap: 0; }
   .view-toggle button { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); padding: 5px 12px; font-size: 12px; cursor: pointer; }
   .theme-toggle { margin-left: auto; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; line-height: 1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -447,7 +447,7 @@
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; justify-content: center; align-items: center; }
   .modal-overlay.active { display: flex; }
 
-  /* Form-style modal — narrower + auto-height for things like "New project"
+  /* Form-style modal — narrower + auto-height for things like "New workspace"
      instead of the big editor-style .modal above. */
   .form-modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; width: 480px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
   .form-modal .fm-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
@@ -543,9 +543,9 @@
   .sidebar-file-scope-buttons { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 12px 8px; }
   .sidebar-file-scope-button { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; background: var(--bg-primary); color: var(--text-secondary); font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
   .sidebar-file-scope-button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sidebar-file-scope-button:hover { color: var(--text-primary); border-color: var(--sidebar-project-color, var(--accent)); }
-  .sidebar-file-scope-button.active { border-color: var(--sidebar-project-color, var(--accent)); background: var(--bg-tertiary); color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--sidebar-project-color, var(--accent)); }
-  .sidebar-file-scope-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--sidebar-project-color, #6e7681); }
+  .sidebar-file-scope-button:hover { color: var(--text-primary); border-color: var(--sidebar-workspace-color, var(--accent)); }
+  .sidebar-file-scope-button.active { border-color: var(--sidebar-workspace-color, var(--accent)); background: var(--bg-tertiary); color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--sidebar-workspace-color, var(--accent)); }
+  .sidebar-file-scope-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--sidebar-workspace-color, #6e7681); }
   .sidebar-worktree-picker { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; }
   .sidebar-repo-history { flex: none; width: 27px; height: 25px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; }
   .sidebar-repo-history:hover { color: var(--text-primary); border-color: var(--accent); }
@@ -683,7 +683,7 @@
   .confirm-dialog .btn-danger { background: #da3633; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .confirm-dialog .btn-danger:hover { background: #f85149; }
 
-  /* Project tab - file tree */
+  /* Workspace tab - file tree */
   .tree-node { list-style: none; padding-left: 0; }
   .tree-node .tree-node { padding-left: 14px; border-left: 1px solid var(--tree-indent-guide); margin-left: 6px; }
   .tree-dir { cursor: pointer; min-height: 22px; padding: 1px 0; color: var(--text-secondary); font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; user-select: none; display: flex; align-items: center; gap: 4px; }
@@ -697,7 +697,7 @@
   .tree-file.active { color: var(--text-primary); background: var(--bg-secondary); border-left: 2px solid #f78166; padding-left: 14px; }
   .tree-file .sidebar-badge { flex-shrink: 0; }
 
-  /* Project tab - inline file viewer */
+  /* Workspace tab - inline file viewer */
   .file-viewer-header { display: flex; align-items: center; padding: 10px 16px; background: #161b22; border: 1px solid #30363d; border-radius: 6px 6px 0 0; gap: 8px; }
   .file-viewer-header .fv-path { font-family: monospace; font-size: 13px; flex: 1; }
   .file-viewer-header button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 4px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
@@ -956,7 +956,7 @@
     align-self: center;
   }
 
-  /* Sidebar notebook activity dots — emitted by _refreshProjectSidebar /
+  /* Sidebar notebook activity dots — emitted by _refreshWorkspaceSidebar /
      selfPopulateSidebar next to each .ipynb name so the user can tell at
      a glance which notebooks have running cells or unacknowledged output
      without opening them.
@@ -1037,9 +1037,9 @@
   .nb-jump-controls-spacer { height:24px; margin-bottom:10px; }
   body.has-repo-tabs { --nb-jump-top:124px; }
   body.has-repo-tabs:not(.has-diff-tabs) { --nb-jump-top:84px; }
-  body.project-active { --nb-jump-top:128px; }
-  body.project-active.has-repo-tabs { --nb-jump-top:164px; }
-  body.project-active.has-repo-tabs:not(.has-diff-tabs) { --nb-jump-top:124px; }
+  body.workspace-active { --nb-jump-top:128px; }
+  body.workspace-active.has-repo-tabs { --nb-jump-top:164px; }
+  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) { --nb-jump-top:124px; }
   body.focus-mode { --nb-jump-top:88px; }
   body.focus-mode.has-repo-tabs { --nb-jump-top:124px; }
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) { --nb-jump-top:84px; }
@@ -1165,7 +1165,7 @@
   .nb-outputs-collapsed .nb-outputs-body { display: none; }
   .nb-outputs-collapsed .nb-outputs-toggle { border-bottom: none; }
 
-  /* Repo tabs (within a project) */
+  /* Repo tabs (within a workspace) */
   .repo-tabs { position: fixed; top: 48px; left: 0; right: 0; height: 36px; background: var(--bg-primary); display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--border); gap: 4px; overflow-x: auto; z-index: 80; }
   .repo-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 12px; font-family: monospace; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
   .repo-tab:hover { color: var(--text-primary); }
@@ -1176,18 +1176,18 @@
   body.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 84px; }
   body.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 84px; }
 
-  /* Project dashboard/docs — Google Docs scale */
-  .project-content { font-size: 18px; line-height: 1.8; color: var(--text-primary); }
+  /* Workspace dashboard/docs — Google Docs scale */
+  .workspace-content { font-size: 18px; line-height: 1.8; color: var(--text-primary); }
 
   /* Light mode overrides for inline-styled elements */
-  body.light-mode .project-content h1,
-  body.light-mode .project-content h2,
-  body.light-mode .project-content h3,
-  body.light-mode .project-content p,
-  body.light-mode .project-content li,
-  body.light-mode .project-content div,
-  body.light-mode .project-content span,
-  body.light-mode .project-content td,
+  body.light-mode .workspace-content h1,
+  body.light-mode .workspace-content h2,
+  body.light-mode .workspace-content h3,
+  body.light-mode .workspace-content p,
+  body.light-mode .workspace-content li,
+  body.light-mode .workspace-content div,
+  body.light-mode .workspace-content span,
+  body.light-mode .workspace-content td,
   body.light-mode .nb-markdown,
   body.light-mode .nb-markdown h1,
   body.light-mode .nb-markdown h2,
@@ -1212,13 +1212,13 @@
   body.light-mode [style*="border:1px solid #30363d"],
   body.light-mode [style*="border-left:1px solid #21262d"] { border-color: #d0d7de !important; }
 
-  body.light-mode .project-content pre { background: #f6f8fa !important; color: #1f2328 !important; border-color: #d0d7de !important; }
-  body.light-mode .project-content code { color: #1f2328 !important; background: #e8eaed; }
+  body.light-mode .workspace-content pre { background: #f6f8fa !important; color: #1f2328 !important; border-color: #d0d7de !important; }
+  body.light-mode .workspace-content code { color: #1f2328 !important; background: #e8eaed; }
 
   body.light-mode .no-repo, body.light-mode .no-repo h2,
   body.light-mode .no-repo p { color: #1f2328 !important; }
 
-  body.light-mode #projDocEditor { background: #ffffff !important; color: #1f2328 !important; border-color: #d0d7de !important; }
+  body.light-mode #workspaceDocEditor { background: #ffffff !important; color: #1f2328 !important; border-color: #d0d7de !important; }
 
   /* Light mode: diff tabs */
   body.light-mode .diff-tab { color: #656d76; }
@@ -1355,26 +1355,26 @@
   body.light-mode .main [style*="border:1px solid #388bfd"] { border-color: #0969da !important; }
   body.light-mode .main [style*="color:#d29922"] { color: #9a6700 !important; }
   body.light-mode .loading { color: #656d76 !important; }
-  .project-content h1 { font-size: 36px; margin-bottom: 12px; font-weight: 400; }
-  .project-content h2 { font-size: 28px; margin: 28px 0 12px; font-weight: 400; }
-  .project-content h3 { font-size: 22px; margin: 20px 0 10px; }
-  .project-content p, .project-content li { font-size: 18px; line-height: 1.8; }
-  .project-content pre { font-size: 15px; line-height: 1.6; }
-  .project-content code { font-size: 16px; }
-  .project-content a { color: var(--accent); }
-  .project-content ul, .project-content ol { padding-left: 3em; margin: 8px 0; }
-  .project-content li { margin: 4px 0; }
+  .workspace-content h1 { font-size: 36px; margin-bottom: 12px; font-weight: 400; }
+  .workspace-content h2 { font-size: 28px; margin: 28px 0 12px; font-weight: 400; }
+  .workspace-content h3 { font-size: 22px; margin: 20px 0 10px; }
+  .workspace-content p, .workspace-content li { font-size: 18px; line-height: 1.8; }
+  .workspace-content pre { font-size: 15px; line-height: 1.6; }
+  .workspace-content code { font-size: 16px; }
+  .workspace-content a { color: var(--accent); }
+  .workspace-content ul, .workspace-content ol { padding-left: 3em; margin: 8px 0; }
+  .workspace-content li { margin: 4px 0; }
 
-  .proj-tab.cerebro-tab .label { color: var(--purple); }
-  .proj-tab.cerebro-tab.active .label { color: var(--text-primary); }
-  .proj-tab.self-tab .label { color: var(--green); }
-  .proj-tab.self-tab.active .label { color: var(--text-primary); }
+  .workspace-tab.cerebro-tab .label { color: var(--purple); }
+  .workspace-tab.cerebro-tab.active .label { color: var(--text-primary); }
+  .workspace-tab.self-tab .label { color: var(--green); }
+  .workspace-tab.self-tab.active .label { color: var(--text-primary); }
   /* ─── Admin: Servers / Terminals / KPI strip ───
      Three independently-refreshed panes in Productivity Admin (see
      dashKpisRender/dashServersRefresh/dashTermsRefresh in lab-app.js):
      a compact stat-tile row (#dashKpis, reuses .s-summary/.s-metric from
-     the workbench header), then a card grid per project server
-     (#dashServers) and a card grid per project's terminal sessions
+     the workbench header), then a card grid per workspace server
+     (#dashServers) and a card grid per workspace's terminal sessions
      (#dashTerms). Status is always a dot + word pair (never color alone);
      the dot and the card's left border carry the color, the word itself
      stays a plain text token. */
@@ -1477,7 +1477,7 @@
   .cmt-popover .cp-row button.secondary:hover { color: var(--text-primary); }
   .cmt-popover .cp-err { color: var(--red); font-size: 11px; margin-top: 4px; min-height: 14px; }
 
-  /* ─── Project attributes bar (below top tabs, above repo/diff tabs) ─── */
+  /* ─── Workspace attributes bar (below top tabs, above repo/diff tabs) ─── */
   /* The other tool strips (.diff-tabs, .repo-tabs) are all position:fixed
      with hardcoded top offsets. We join that fixed stack so the bar lives
      directly under the topbar (48px tall); when visible, we shift the
@@ -1488,31 +1488,31 @@
                font-size: 12px; flex-wrap: nowrap; overflow-x: auto;
                position: fixed; top: 48px; left: 0; right: 0; height: 40px;
                z-index: 90; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-  body.project-active .attrs-bar { display: flex; }
+  body.workspace-active .attrs-bar { display: flex; }
   body.cerebro-active .attrs-bar,
   body.self-active .attrs-bar { display: none; }
   /* When the attrs-bar is visible it takes the 48–88 slot, so everything
      below it gets pushed down by 40px. */
-  body.project-active .repo-tabs { top: 88px; }
-  body.project-active .diff-tabs { top: 88px; }
-  body.project-active.has-repo-tabs .diff-tabs { top: 124px; }
-  body.project-active .layout { padding-top: 128px; }
-  body.project-active.has-repo-tabs .layout { padding-top: 164px; }
-  body.project-active.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 124px; }
+  body.workspace-active .repo-tabs { top: 88px; }
+  body.workspace-active .diff-tabs { top: 88px; }
+  body.workspace-active.has-repo-tabs .diff-tabs { top: 124px; }
+  body.workspace-active .layout { padding-top: 128px; }
+  body.workspace-active.has-repo-tabs .layout { padding-top: 164px; }
+  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 124px; }
   /* Keep the sidebar aligned with the shifted diff-tabs. */
-  body.project-active .sidebar { top: 128px; }
-  body.project-active.has-repo-tabs .sidebar { top: 164px; }
-  body.project-active.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 124px; }
-  /* Same trick for the right-docked terminal panel: in project view, the
+  body.workspace-active .sidebar { top: 128px; }
+  body.workspace-active.has-repo-tabs .sidebar { top: 164px; }
+  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 124px; }
+  /* Same trick for the right-docked terminal panel: in workspace view, the
      .repo-tabs and .diff-tabs strips sit at top:88px (z-index:80) and
      span full width, which covers the term-panel's TERMINAL header +
      session pills (z-index:60). Push the panel below them so the bar is
      visible — same offsets as .layout's padding-top above. Productivity
      and Cerebro views hide those strips entirely, so they don't need
      this and keep the default top:88px. */
-  body.project-active .term-panel { top: 128px; }
-  body.project-active.has-repo-tabs .term-panel { top: 164px; }
-  body.project-active.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 124px; }
+  body.workspace-active .term-panel { top: 128px; }
+  body.workspace-active.has-repo-tabs .term-panel { top: 164px; }
+  body.workspace-active.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 124px; }
   .attrs-bar .ab-chip { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); padding: 3px 9px; border-radius: 12px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
   .attrs-bar .ab-chip:hover { border-color: var(--accent); }
   .attrs-bar .ab-chip .v { color: var(--text-primary); }
@@ -1528,27 +1528,27 @@
   body.assistant-active .repo-tabs { display: flex; }
   body.assistant-active .attrs-bar { display: none; }
 
-  /* ─── Workspace view (active-workspace management surface) ───
+  /* ─── Vault view (active-vault management surface) ───
      Same shell as the self view: reuses .layout / #sidebar / #content,
      with the overview rendered as .s-section cards in .s-workbench-grid.
      All colors via CSS variables so both themes work unchanged. */
-  body.workspace-active .layout { display: flex; }
-  body.workspace-active .diff-tabs { display: none; }
-  body.workspace-active .repo-tabs { display: flex; }
-  body.workspace-active .attrs-bar { display: none; }
-  .ws-overview { max-width: 1100px; }
-  .ws-ov-head { margin-bottom: 4px; }
-  .ws-ov-head h1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .ws-ov-head .ws-badge { font-size: 10px; line-height: 18px; padding: 0 8px; border-radius: 9px; }
-  .ws-ov-path { color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin: 0 0 20px; word-break: break-all; }
-  .ws-appearance-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(110px, auto); gap: 10px 14px; align-items: end; }
-  .ws-appearance-form label { display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); font-size: 11px; }
-  .ws-appearance-form input[type="text"] { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; min-width: 0; }
-  .ws-appearance-form input[type="color"] { width: 44px; height: 31px; padding: 2px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
-  .ws-color-row { display: flex; align-items: center; gap: 8px; }
-  .ws-color-value { color: var(--text-dim); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .ws-appearance-form .ws-card-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
-  .ws-appearance-status { color: var(--text-secondary); font-size: 11px; }
+  body.vault-active .layout { display: flex; }
+  body.vault-active .diff-tabs { display: none; }
+  body.vault-active .repo-tabs { display: flex; }
+  body.vault-active .attrs-bar { display: none; }
+  .vault-overview { max-width: 1100px; }
+  .vault-ov-head { margin-bottom: 4px; }
+  .vault-ov-head h1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .vault-ov-head .vault-badge { font-size: 10px; line-height: 18px; padding: 0 8px; border-radius: 9px; }
+  .vault-ov-path { color: var(--text-dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin: 0 0 20px; word-break: break-all; }
+  .vault-appearance-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(110px, auto); gap: 10px 14px; align-items: end; }
+  .vault-appearance-form label { display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); font-size: 11px; }
+  .vault-appearance-form input[type="text"] { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; min-width: 0; }
+  .vault-appearance-form input[type="color"] { width: 44px; height: 31px; padding: 2px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+  .vault-color-row { display: flex; align-items: center; gap: 8px; }
+  .vault-color-value { color: var(--text-dim); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .vault-appearance-form .vault-card-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+  .vault-appearance-status { color: var(--text-secondary); font-size: 11px; }
   .context-placeholder { max-width: 760px; margin: 48px auto; padding: 32px; border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 10px; }
   .context-placeholder .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .8px; font-size: 11px; font-weight: 700; }
   .context-placeholder h1 { margin: 8px 0 10px; font-size: 24px; }
@@ -1562,33 +1562,33 @@
   .admin-log-status { min-width: 120px; color: var(--text-secondary); font-size: 11px; text-align: right; }
   .admin-log-output { max-height: 420px; overflow: auto; margin: 0; padding: 12px; border-radius: 6px; background: #010409; color: #c9d1d9; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
   .admin-logs-section { grid-column: 1 / -1; }
-  .ws-card-body { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-primary); }
-  .ws-muted { color: var(--text-secondary); font-style: italic; }
-  .ws-cfg-status.ok { color: var(--green); font-weight: 600; }
-  .ws-cfg-status.err { color: var(--red); font-weight: 600; }
-  .ws-cfg-issue { border-left: 3px solid var(--border); padding: 2px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-word; }
-  .ws-cfg-issue.err { border-left-color: var(--red); color: var(--red); }
-  .ws-cfg-issue.warn { border-left-color: var(--yellow); color: var(--yellow); }
-  .ws-card-actions { margin-top: 4px; }
-  .ws-card-actions .refresh-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
-  .ws-card-actions .refresh-btn:hover { color: var(--text-primary); border-color: var(--accent); }
-  .ws-agent-hint { color: var(--text-secondary); font-size: 12px; margin-bottom: 2px; }
-  .ws-agent-row { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
-  .ws-agent-row.off { opacity: 0.55; }
-  .ws-agent-row input { margin: 0; accent-color: var(--accent); cursor: pointer; }
-  .ws-agent-row input:disabled { cursor: not-allowed; }
-  .ws-agent-name { font-weight: 600; flex-shrink: 0; }
-  .ws-agent-default { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
-  .ws-agent-auto { color: var(--text-secondary); font-size: 12px; margin-left: auto; text-align: right; }
-  .ws-agent-auto.on { color: var(--green); }
-  .ws-proj-list { list-style: none; margin: 0; padding: 0; }
-  .ws-proj-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 4px; }
-  .ws-proj-row:last-child { border-bottom: none; }
-  .ws-proj-row:hover { background: var(--bg-tertiary); }
-  .ws-proj-row .ws-proj-name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ws-proj-row .p-caret { margin-left: auto; color: var(--text-dim); }
-  .workspace-project-context { color: var(--text-secondary); font-size: 12px; }
-  .workspace-project-context strong { color: var(--text-primary); }
+  .vault-card-body { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-primary); }
+  .vault-muted { color: var(--text-secondary); font-style: italic; }
+  .vault-cfg-status.ok { color: var(--green); font-weight: 600; }
+  .vault-cfg-status.err { color: var(--red); font-weight: 600; }
+  .vault-cfg-issue { border-left: 3px solid var(--border); padding: 2px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-word; }
+  .vault-cfg-issue.err { border-left-color: var(--red); color: var(--red); }
+  .vault-cfg-issue.warn { border-left-color: var(--yellow); color: var(--yellow); }
+  .vault-card-actions { margin-top: 4px; }
+  .vault-card-actions .refresh-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .vault-card-actions .refresh-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+  .vault-agent-hint { color: var(--text-secondary); font-size: 12px; margin-bottom: 2px; }
+  .vault-agent-row { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+  .vault-agent-row.off { opacity: 0.55; }
+  .vault-agent-row input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .vault-agent-row input:disabled { cursor: not-allowed; }
+  .vault-agent-name { font-weight: 600; flex-shrink: 0; }
+  .vault-agent-default { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.4); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
+  .vault-agent-auto { color: var(--text-secondary); font-size: 12px; margin-left: auto; text-align: right; }
+  .vault-agent-auto.on { color: var(--green); }
+  .vault-workspace-list { list-style: none; margin: 0; padding: 0; }
+  .vault-workspace-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 4px; }
+  .vault-workspace-row:last-child { border-bottom: none; }
+  .vault-workspace-row:hover { background: var(--bg-tertiary); }
+  .vault-workspace-row .vault-workspace-name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vault-workspace-row .p-caret { margin-left: auto; color: var(--text-dim); }
+  .vault-workspace-context { color: var(--text-secondary); font-size: 12px; }
+  .vault-workspace-context strong { color: var(--text-primary); }
   .s-inner { max-width: 1100px; margin: 0 auto; padding: 24px 28px 120px; }
   .s-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
   .s-head h1 { font-size: 22px; margin: 0; }
@@ -1765,7 +1765,7 @@
   .k-pane .doc .csv-table th { background: var(--bg-secondary); position: sticky; top: 0; text-align: left; font-weight: 600; }
   .k-pane .doc .csv-table tbody tr:nth-child(odd) td { background: rgba(255,255,255,0.02); }
   /* HTML viewer — toggle between rendered iframe and source code. Shared
-     CSS so the project doc pane and Cerebro look identical. */
+     CSS so the workspace doc pane and Cerebro look identical. */
   .html-toolbar button.html-toggle { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); padding: 3px 9px; font-size: 11px; font-family: ui-monospace, monospace; border-radius: 4px; cursor: pointer; }
   .html-toolbar button.html-toggle:hover { color: var(--text-primary); }
   .html-toolbar button.html-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -1777,7 +1777,7 @@
   .pdf-iframe { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; background: #525659; }
   .k-empty { padding: 40px; color: var(--text-secondary); font-size: 14px; text-align: center; }
 
-  /* ─── Terminal panel (right-docked when a project is active) ─── */
+  /* ─── Terminal panel (right-docked when a workspace is active) ─── */
   /* Three-column layout: [files sidebar] | [doc + comments] | [terminal].
      Percentage-based so everything fills 100% of the viewport by default,
      with two draggable vertical dividers. Pixel minimums via min-width
@@ -1785,7 +1785,7 @@
   :root { --sidebar-width: 10%; --term-width: 40%; }
   /* Sidebar resizer: thin vertical bar positioned on the sidebar's
      right edge. Lives outside #sidebar as a sibling so it survives the
-     innerHTML rewrites that renderProject() does. */
+     innerHTML rewrites that renderWorkspace() does. */
   .sidebar-resizer { position: fixed; top: 88px; bottom: 0; left: var(--sidebar-width); width: 6px; margin-left: -3px; cursor: ew-resize; z-index: 62; }
   .sidebar-resizer:hover, .sidebar-resizer.dragging { background: var(--accent); opacity: 0.6; }
   body.sidebar-resizing { cursor: ew-resize !important; user-select: none; }
@@ -1926,14 +1926,14 @@
   .term-attach-toolbar button:hover { color: var(--text-primary); border-color: var(--accent); }
   .term-attach-list { min-height: 0; flex: 1; overflow-y: auto; padding: 12px 14px 16px; }
   .term-attach-empty { display: grid; min-height: 180px; place-items: center; color: var(--text-dim); font-size: 12px; text-align: center; }
-  .term-attach-project { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--bg-primary); }
-  .term-attach-project + .term-attach-project { margin-top: 10px; }
-  .term-attach-project.current { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); }
-  .term-attach-project-head { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 8px 10px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border); }
-  .term-attach-project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 12px; font-weight: 600; }
-  .term-attach-project-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font: 10px var(--font-mono); }
-  .term-attach-project-count { margin-left: auto; color: var(--text-dim); font: 10px var(--font-mono); }
-  .term-attach-current-badge, .term-attach-workspace { flex-shrink: 0; padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font: 9px var(--font-mono); }
+  .term-attach-workspace { border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--bg-primary); }
+  .term-attach-workspace + .term-attach-workspace { margin-top: 10px; }
+  .term-attach-workspace.current { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); }
+  .term-attach-workspace-head { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 8px 10px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border); }
+  .term-attach-workspace-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+  .term-attach-workspace-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font: 10px var(--font-mono); }
+  .term-attach-workspace-count { margin-left: auto; color: var(--text-dim); font: 10px var(--font-mono); }
+  .term-attach-current-badge, .term-attach-vault { flex-shrink: 0; padding: 1px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font: 9px var(--font-mono); }
   .term-attach-current-badge { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); }
   .term-attach-state-title { padding: 6px 10px 4px; color: var(--text-dim); font: 9px var(--font-mono); text-transform: uppercase; letter-spacing: .6px; }
   .term-attach-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 8px 10px; color: var(--text-primary); background: transparent; border: 0; border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 0; text-align: left; cursor: pointer; font-family: inherit; }
@@ -2023,17 +2023,17 @@
 
   /* Files-sidebar collapse — the terminal toggle's mirror image on the
      LEFT edge. Visible only on views that actually render the sidebar
-     (project + self; home/cerebro/code-search hide .layout entirely).
+     (workspace + self; home/cerebro/code-search hide .layout entirely).
      Collapse state and sidebar width are persisted PER VIEW (see
-     _sidebarApplyForView) so hiding/resizing in one project never
+     _sidebarApplyForView) so hiding/resizing in one workspace never
      affects another. */
   .sidebar-toggle { position: fixed; top: 50%; left: var(--sidebar-width); transform: translateY(-50%); background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-left: none; border-radius: 0 6px 6px 0; padding: 10px 4px; font-size: 10px; writing-mode: vertical-rl; cursor: pointer; z-index: 61; display: none; }
-  body.project-active .sidebar-toggle, body.self-active .sidebar-toggle, body.workspace-active .sidebar-toggle, body.assistant-active .sidebar-toggle { display: block; }
+  body.workspace-active .sidebar-toggle, body.self-active .sidebar-toggle, body.vault-active .sidebar-toggle, body.assistant-active .sidebar-toggle { display: block; }
   body.sidebar-collapsed .sidebar, body.sidebar-collapsed .sidebar-resizer { display: none; }
   body.sidebar-collapsed .main { margin-left: 0; }
   body.sidebar-collapsed .sidebar-toggle { left: 0; }
 
-  /* Project proxy iframe — fullscreen mode hides the rest of the lab
+  /* Workspace proxy iframe — fullscreen mode hides the rest of the lab
      UI chrome (sidebar, attrs/repo/diff bars, terminal panel, topbar)
      so the proxied app fills the viewport. Pure CSS toggle; the JS
      wires Esc to flip the class off again. */
@@ -2061,8 +2061,8 @@
   .doc-modal-body { flex: 1; overflow-y: auto; }
 
 /* ─── Focus mode ─────────────────────────────────────────────────────────
-   Keep the topbar so Home and the open workspace/project tabs remain usable.
-   Only the project attrs bar is hidden; the Overview strip and content move
+   Keep the topbar so Home and the open vault/workspace tabs remain usable.
+   Only the workspace attrs bar is hidden; the Overview strip and content move
    into its place below the 48px topbar. These rules sit at the end of the file
    so they win every equal-specificity offset rule above. */
   body.focus-mode .attrs-bar { display: none; }
@@ -2074,18 +2074,18 @@
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .layout { padding-top: 84px; }
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .sidebar { top: 84px; }
   /* Both bars visible (repo tabs at 48 + diff tabs at 84): content at 124.
-     Three body classes so this outranks project-active.has-repo-tabs. */
+     Three body classes so this outranks workspace-active.has-repo-tabs. */
   body.focus-mode.has-repo-tabs.has-diff-tabs .layout { padding-top: 124px; }
   body.focus-mode.has-repo-tabs.has-diff-tabs .sidebar { top: 124px; }
   body.focus-mode .term-panel { top: 88px; }
   body.focus-mode.has-repo-tabs .term-panel { top: 124px; }
   body.focus-mode.has-repo-tabs:not(.has-diff-tabs) .term-panel { top: 84px; }
 
-  /* Global Assistant task workspace. The data lives in the client-selected
+  /* Global Assistant task database. The data lives in the client-selected
      Assistant directory; these styles only provide Lab's viewing surface. */
   .assistant-side-row { width:100%; min-height:30px; padding:5px 14px 5px 16px; border:0; border-left:2px solid transparent; background:transparent; color:var(--text-secondary); display:flex; align-items:center; justify-content:space-between; gap:8px; font:13px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; text-align:left; cursor:pointer; }
   .assistant-side-row:hover { color:var(--text-primary); background:var(--tree-hover); }
-  .assistant-side-row.active, .assistant-side-row.active-project { color:var(--text-primary); background:var(--bg-secondary); border-left-color:#f78166; }
+  .assistant-side-row.active, .assistant-side-row.active-workspace { color:var(--text-primary); background:var(--bg-secondary); border-left-color:#f78166; }
   .assistant-side-count { min-width:22px; padding:1px 6px; border-radius:10px; background:var(--bg-tertiary); color:var(--text-dim); font-size:10px; text-align:center; }
   .assistant-db-path { padding:4px 16px 16px; color:var(--text-dim); font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
   .assistant-shell { max-width:1080px; margin:0 auto; padding:14px 18px 48px; }
@@ -2119,8 +2119,8 @@
   .assistant-status.status-blocked { color:var(--red); }
   .assistant-status.status-done { color:var(--green); }
   .assistant-task-due { margin-left:auto; color:var(--text-dim); font-size:10px; }
-  .assistant-task-project { color:var(--accent); font-size:10px; }
-  .assistant-project-chip { max-width:150px; overflow:hidden; text-overflow:ellipsis; padding:2px 7px; border-radius:10px; background:var(--bg-tertiary); color:var(--text-dim); font-size:9px; white-space:nowrap; }
+  .assistant-task-workspace { color:var(--accent); font-size:10px; }
+  .assistant-workspace-chip { max-width:150px; overflow:hidden; text-overflow:ellipsis; padding:2px 7px; border-radius:10px; background:var(--bg-tertiary); color:var(--text-dim); font-size:9px; white-space:nowrap; }
   .assistant-task-summary { color:var(--text-secondary); font-size:11px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .assistant-detail { min-width:0; max-height:calc(100vh - 255px); overflow:auto; padding:22px 26px 60px; }
   .assistant-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding-bottom:16px; border-bottom:1px solid var(--border); }
@@ -2164,7 +2164,7 @@
   .assistant-preview-top .assistant-task-due { margin-left:0; }
   .assistant-open-hint { margin-left:auto; color:var(--text-dim); font-size:9px; letter-spacing:.04em; text-transform:uppercase; }
   .assistant-inline-preview h2 { margin:10px 0 6px; color:var(--text-primary); font-size:20px; line-height:1.25; }
-  .assistant-inline-preview .assistant-task-project { font-size:11px; }
+  .assistant-inline-preview .assistant-task-workspace { font-size:11px; }
   .assistant-inline-preview .assistant-task-summary { display:block; max-width:760px; margin:13px 0 0; overflow:visible; color:var(--text-secondary); font-size:13px; line-height:1.55; }
   .assistant-preview-image { display:block; width:min(520px,100%); aspect-ratio:16/9; margin:14px 0 2px; border:1px solid var(--border); border-radius:8px; object-fit:cover; background:var(--bg-primary); }
   .assistant-generate-content { margin-top:16px; padding:7px 11px; border:1px solid color-mix(in srgb,var(--accent) 65%,var(--border)); border-radius:6px; background:color-mix(in srgb,var(--accent) 14%,transparent); color:var(--accent); font:650 11px/1.2 inherit; cursor:pointer; }
@@ -2196,8 +2196,8 @@
   .assistant-content-target { scroll-margin-top:16px; padding:8px 10px; border-radius:7px; background:color-mix(in srgb,var(--accent) 10%,transparent); }
   .assistant-copy-actions button.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
 
-  /* Assistant is a project-style surface: its selected client folder owns
-     the same Files / Recently updated sidebar as every other project. */
+  /* Assistant is a workspace-style surface: its selected client folder owns
+     the same Files / Recently updated sidebar as every other workspace. */
   .assistant-shell { max-width:1180px; }
   .assistant-overview-shell { max-width:1180px; padding-top:22px; }
   .assistant-overview-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:12px 4px 24px; }
@@ -2213,13 +2213,13 @@
   .assistant-overview-card > header { min-height:43px; display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); background:var(--bg-secondary); }
   .assistant-overview-card > header h2 { margin:0; color:var(--text-primary); font-size:13px; }
   .assistant-overview-card > header span { min-width:22px; padding:1px 6px; border-radius:10px; background:var(--bg-tertiary); color:var(--text-dim); font-size:9px; text-align:center; }
-  .assistant-recent-files button, .assistant-overview-projects button { width:100%; min-height:50px; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:9px 13px; border:0; border-bottom:1px solid var(--border); background:transparent; color:var(--text-primary); text-align:left; cursor:pointer; }
-  .assistant-recent-files button:last-child, .assistant-overview-projects button:last-child { border-bottom:0; }
-  .assistant-recent-files button:hover, .assistant-overview-projects button:hover { background:var(--tree-hover); }
-  .assistant-recent-files button > span, .assistant-overview-projects button > span { min-width:0; display:grid; gap:3px; }
-  .assistant-recent-files b, .assistant-overview-projects b { overflow:hidden; text-overflow:ellipsis; font-size:12px; white-space:nowrap; }
-  .assistant-recent-files small, .assistant-overview-projects small { overflow:hidden; text-overflow:ellipsis; color:var(--text-dim); font-size:10px; white-space:nowrap; }
-  .assistant-recent-files time, .assistant-overview-projects button > strong { flex:0 0 auto; color:var(--text-dim); font-size:10px; font-weight:500; }
+  .assistant-recent-files button, .assistant-overview-workspaces button { width:100%; min-height:50px; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:9px 13px; border:0; border-bottom:1px solid var(--border); background:transparent; color:var(--text-primary); text-align:left; cursor:pointer; }
+  .assistant-recent-files button:last-child, .assistant-overview-workspaces button:last-child { border-bottom:0; }
+  .assistant-recent-files button:hover, .assistant-overview-workspaces button:hover { background:var(--tree-hover); }
+  .assistant-recent-files button > span, .assistant-overview-workspaces button > span { min-width:0; display:grid; gap:3px; }
+  .assistant-recent-files b, .assistant-overview-workspaces b { overflow:hidden; text-overflow:ellipsis; font-size:12px; white-space:nowrap; }
+  .assistant-recent-files small, .assistant-overview-workspaces small { overflow:hidden; text-overflow:ellipsis; color:var(--text-dim); font-size:10px; white-space:nowrap; }
+  .assistant-recent-files time, .assistant-overview-workspaces button > strong { flex:0 0 auto; color:var(--text-dim); font-size:10px; font-weight:500; }
   .assistant-overview-empty { margin:0; padding:24px 14px; color:var(--text-dim); font-size:11px; text-align:center; }
   .assistant-root-card { display:grid; gap:5px; margin-top:16px; padding:13px 15px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); }
   .assistant-root-card span { color:var(--text-dim); font-size:9px; font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
@@ -2258,35 +2258,35 @@
   .assistant-queue-group[data-assistant-queue="p0"] > header { box-shadow:inset 3px 0 0 var(--red); }
   .assistant-queue-group[data-assistant-queue="ready_to_review"] > header { box-shadow:inset 3px 0 0 #8b5cf6; }
   .assistant-ledgers { display:grid; gap:14px; }
-  .assistant-project-ledger { overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); }
-  .assistant-project-ledger > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--bg-secondary) 78%,var(--bg-primary)); }
-  .assistant-project-ledger > header div { min-width:0; display:flex; align-items:baseline; gap:9px; }
-  .assistant-project-ledger > header h2 { margin:0; color:var(--text-primary); font-size:14px; }
-  .assistant-project-ledger > header span,
-  .assistant-project-ledger > header small { color:var(--text-dim); font-size:10px; }
-  .assistant-project-ledger > header small { white-space:nowrap; }
+  .assistant-workspace-ledger { overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); }
+  .assistant-workspace-ledger > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--bg-secondary) 78%,var(--bg-primary)); }
+  .assistant-workspace-ledger > header div { min-width:0; display:flex; align-items:baseline; gap:9px; }
+  .assistant-workspace-ledger > header h2 { margin:0; color:var(--text-primary); font-size:14px; }
+  .assistant-workspace-ledger > header span,
+  .assistant-workspace-ledger > header small { color:var(--text-dim); font-size:10px; }
+  .assistant-workspace-ledger > header small { white-space:nowrap; }
 
-  /* Project-first Assistant hierarchy: Lab project → internal project → task. */
+  /* Workspace-first Assistant hierarchy: Lab workspace → task group → task. */
   .assistant-layout-tasks { max-width:1440px; }
-  .assistant-lab-projects { display:flex; align-items:stretch; gap:4px; margin:0 0 10px; padding:4px; overflow-x:auto; border:1px solid var(--border); border-radius:9px; background:color-mix(in srgb,var(--bg-secondary) 78%,var(--bg-primary)); scrollbar-width:thin; }
-  .assistant-lab-projects button { min-width:max-content; display:flex; align-items:center; gap:9px; padding:9px 13px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); font:620 12px/1.2 inherit; cursor:pointer; }
-  .assistant-lab-projects button:hover { color:var(--text-primary); background:var(--tree-hover); }
-  .assistant-lab-projects button.active { color:var(--text-primary); background:var(--bg-tertiary); box-shadow:inset 0 0 0 1px var(--border); }
-  .assistant-lab-projects small { min-width:22px; padding:2px 6px; border-radius:10px; background:var(--bg-primary); color:var(--text-dim); font-size:9px; text-align:center; }
-  .assistant-lab-projects button.active small { color:var(--accent); }
+  .assistant-lab-workspaces { display:flex; align-items:stretch; gap:4px; margin:0 0 10px; padding:4px; overflow-x:auto; border:1px solid var(--border); border-radius:9px; background:color-mix(in srgb,var(--bg-secondary) 78%,var(--bg-primary)); scrollbar-width:thin; }
+  .assistant-lab-workspaces button { min-width:max-content; display:flex; align-items:center; gap:9px; padding:9px 13px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); font:620 12px/1.2 inherit; cursor:pointer; }
+  .assistant-lab-workspaces button:hover { color:var(--text-primary); background:var(--tree-hover); }
+  .assistant-lab-workspaces button.active { color:var(--text-primary); background:var(--bg-tertiary); box-shadow:inset 0 0 0 1px var(--border); }
+  .assistant-lab-workspaces small { min-width:22px; padding:2px 6px; border-radius:10px; background:var(--bg-primary); color:var(--text-dim); font-size:9px; text-align:center; }
+  .assistant-lab-workspaces button.active small { color:var(--accent); }
   .assistant-layout-tasks .assistant-filters { margin-bottom:12px; border-radius:8px; }
-  .assistant-internal-projects { display:grid; gap:12px; }
-  .assistant-internal-project { overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); }
+  .assistant-task-groups { display:grid; gap:12px; }
+  .assistant-task-group { overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--bg-primary); }
   .assistant-group-header { width:100%; min-height:64px; display:grid; grid-template-columns:auto minmax(220px,1fr) auto auto; align-items:center; gap:14px; padding:11px 15px; border:0; border-left:3px solid transparent; background:color-mix(in srgb,var(--bg-secondary) 78%,var(--bg-primary)); color:var(--text-primary); text-align:left; cursor:pointer; }
   .assistant-group-header:hover { background:var(--tree-hover); }
-  .assistant-internal-project.expanded .assistant-group-header { border-left-color:var(--green); }
+  .assistant-task-group.expanded .assistant-group-header { border-left-color:var(--green); }
   .assistant-group-badge { display:inline-grid; place-items:center; min-width:64px; min-height:34px; padding:4px 8px; border:1px solid var(--border); border-radius:6px; color:var(--text-secondary); font-size:10px; font-weight:800; letter-spacing:.07em; }
   .assistant-group-name { min-width:0; display:grid; gap:3px; }
   .assistant-group-name strong { overflow:hidden; text-overflow:ellipsis; color:var(--text-primary); font-size:15px; white-space:nowrap; }
   .assistant-group-name small, .assistant-group-summary { color:var(--text-dim); font-size:10px; }
   .assistant-group-summary { white-space:nowrap; }
   .assistant-group-chevron { color:var(--text-dim); font-size:24px; transform:rotate(0); transition:transform .12s ease; }
-  .assistant-internal-project.expanded .assistant-group-chevron { transform:rotate(90deg); }
+  .assistant-task-group.expanded .assistant-group-chevron { transform:rotate(90deg); }
   .assistant-group-tasks { padding-left:34px; border-top:1px solid var(--border); background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 8%,var(--bg-primary)) 0 72px,var(--bg-primary) 72px); }
   .assistant-group-tasks .assistant-list-item { position:relative; }
   .assistant-task-row { min-height:78px; padding:10px 15px 10px 0; }
@@ -2341,10 +2341,10 @@
     .assistant-compact-row { align-items:flex-start; gap:8px; }
     .assistant-row-meta { flex-wrap:wrap; }
     .assistant-progress-label { display:none; }
-    .assistant-project-chip { display:none; }
+    .assistant-workspace-chip { display:none; }
     .assistant-inline-preview { padding-left:20px; }
-    .assistant-project-ledger > header { align-items:flex-start; }
-    .assistant-project-ledger > header div { align-items:flex-start; flex-direction:column; gap:2px; }
+    .assistant-workspace-ledger > header { align-items:flex-start; }
+    .assistant-workspace-ledger > header div { align-items:flex-start; flex-direction:column; gap:2px; }
     .assistant-document-overlay { padding:8px; }
     .assistant-document-modal { width:100%; height:94vh; }
     .assistant-group-header { grid-template-columns:auto minmax(0,1fr) auto; }
@@ -2416,9 +2416,9 @@
   body.focus-mode .repo-tab.focus-toggle { color: var(--accent); }
 
   /* Origin label on projection-derived Meta rows ("CLAUDE.md ← AGENTS.md"). */
-  .sidebar-fname .ws-origin { color: var(--text-dim); font-size: 10px; margin-left: 6px; }
+  .sidebar-fname .vault-origin { color: var(--text-dim); font-size: 10px; margin-left: 6px; }
 
-  /* Auth identity and workspace-level access editor. */
+  /* Auth identity and vault-level access editor. */
   .auth-user { margin-left:auto; display:flex; align-items:center; gap:7px; white-space:nowrap; font-size:12px; }
   .auth-user-name { color:var(--text-primary); font-weight:600; }
   .auth-user-role { color:var(--text-secondary); text-transform:capitalize; }
@@ -2437,14 +2437,14 @@
   .admin-permissions label { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); }
   .admin-user-status { min-height:16px; margin-top:7px; color:var(--text-secondary); font-size:11px; }
   .admin-built-in-badge { align-self:center; border:1px solid var(--accent); border-radius:999px; color:var(--accent); padding:5px 9px; font-size:11px; white-space:nowrap; }
-  .admin-workspace-form { grid-template-columns:minmax(140px,1fr) minmax(220px,2fr) auto auto; }
+  .admin-vault-form { grid-template-columns:minmax(140px,1fr) minmax(220px,2fr) auto auto; }
   .admin-assistant-form { grid-template-columns:minmax(280px,1fr) auto auto; }
   .assistant-config-section > p { margin:0 0 12px; line-height:1.5; }
   .admin-access-toolbar .refresh-btn, .admin-user-row .refresh-btn { min-height:31px; border:1px solid var(--border); border-radius:5px; background:var(--bg-tertiary); color:var(--text-primary); padding:6px 11px; font-family:inherit; cursor:pointer; }
   .admin-access-toolbar .refresh-btn:hover, .admin-user-row .refresh-btn:hover { border-color:var(--accent); color:#fff; }
   .admin-access-toolbar .refresh-btn:disabled, .admin-user-row .refresh-btn:disabled { opacity:.55; cursor:default; }
   @media (max-width:900px) {
-    .admin-access-toolbar, .admin-workspace-form, .admin-assistant-form, .admin-user-head { grid-template-columns:1fr; }
+    .admin-access-toolbar, .admin-vault-form, .admin-assistant-form, .admin-user-head { grid-template-columns:1fr; }
     .assistant-overview-stats { grid-template-columns:1fr 1fr; }
     .assistant-overview-grid { grid-template-columns:1fr; }
   }
@@ -2454,7 +2454,7 @@
 .assistant-group-badge { min-width:54px; min-height:27px; padding:3px 6px; }
 .assistant-group-name strong { font-size:16px; }
 .assistant-group-name small, .assistant-group-summary { font-size:12px; }
-.assistant-internal-projects { gap:9px; }
+.assistant-task-groups { gap:9px; }
 .assistant-task-row { min-height:48px; padding:5px 12px 5px 0; }
 .assistant-row-content { gap:4px; }
 .assistant-row-title strong { font-size:16px; line-height:1.35; }

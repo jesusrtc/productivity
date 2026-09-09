@@ -3,7 +3,7 @@ Copilot, with a single canonical source and symlinks for the rest.
 
 Canonical layout (see also the plan and CLAUDE.md):
 
-    AGENTS.md                          canonical instructions (root + per project)
+    AGENTS.md                          canonical instructions (root + per workspace)
     CLAUDE.md            -> AGENTS.md   symlink (Claude Code)
     .github/copilot-instructions.md -> ../AGENTS.md
     .agents/memory/                    canonical memory (committed); MEMORY.md index
@@ -14,6 +14,8 @@ Everything here is idempotent and safe to re-run. The same engine backs both
 ``lab agents sync`` and the server's ``POST /api/agents/sync``.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import json
 import os
@@ -38,14 +40,14 @@ dir. This applies to every agent (Claude Code, Codex, Copilot):
 
 - **At the start of a session**, read `.agents/memory/MEMORY.md` (the index) and
   load the linked files relevant to your task.
-- **When you learn a durable fact** (a preference, a project constraint, a
+- **When you learn a durable fact** (a preference, a workspace constraint, a
   hard-won gotcha), append it as one file under `.agents/memory/` and add a
   one-line pointer to `MEMORY.md`. One fact per file.
 - **Commit and push** memory changes along with your other work, so they travel
   with the repo.
 - Monorepo-level memory lives at the root `.agents/memory/` (committed to the
-  productivity repo); per-project memory lives at `projects/<id>/.agents/memory/`
-  and travels with that project folder. Use whichever matches the scope of the fact.
+  productivity repo); per-workspace memory lives at `workspaces/<id>/.agents/memory/`
+  and travels with that workspace folder. Use whichever matches the scope of the fact.
 
 Claude Code auto-memory is redirected by `.claude/settings.local.json`
 (`autoMemoryDirectory`) to the repo-local memory directory; `lab agents sync`
@@ -119,7 +121,7 @@ def _migrate_instructions(pdir: Path, *, create_stub: bool,
                 )
             actions.append(f"create {_rel(agents_md, root)}")
         else:
-            return False  # nothing to migrate for this project
+            return False  # nothing to migrate for this workspace
     # On a dry run the move above didn't actually happen, so CLAUDE.md is still a
     # real file — report the symlink we *would* create instead of a false "skip".
     if dry_run and just_freed and claude_md.is_file() and not claude_md.is_symlink():
@@ -174,11 +176,11 @@ def _link_copilot(root: Path, *, actions: list[str], dry_run: bool) -> None:
 
 def _link_shared_skills(root: Path, *, actions: list[str], dry_run: bool) -> None:
     """Expose the canonical skills (``.claude/skills``) via the tool-neutral
-    ``.agents/skills`` path — at the root AND inside every project, so any agent
-    working in a project dir finds the same shared skills.
+    ``.agents/skills`` path — at the root AND inside every workspace, so any agent
+    working in a workspace dir finds the same shared skills.
 
-    Root AGENTS.md / CLAUDE.md don't need per-project links: agents already
-    inherit them by walking up the directory tree from the project folder.
+    Root AGENTS.md / CLAUDE.md don't need per-workspace links: agents already
+    inherit them by walking up the directory tree from the workspace folder.
     """
     canonical = root / ".claude" / "skills"
     if not canonical.is_dir():
@@ -186,11 +188,11 @@ def _link_shared_skills(root: Path, *, actions: list[str], dry_run: bool) -> Non
     # Root tool-neutral alias: .agents/skills -> .claude/skills
     _ensure_symlink(root / ".agents" / "skills", canonical, relative=True,
                     actions=actions, root=root, dry_run=dry_run)
-    # Each project: both the Claude path and the tool-neutral path resolve to it.
-    projects_root = root / "projects"
-    if projects_root.is_dir():
-        for pdir in sorted(projects_root.iterdir()):
-            if not (pdir / "project.json").is_file():
+    # Each workspace: both the Claude path and the tool-neutral path resolve to it.
+    workspaces_root = naming.workspaces_dir(root)
+    if workspaces_root.is_dir():
+        for pdir in sorted(workspaces_root.iterdir()):
+            if not (naming.workspace_metadata_file(pdir)).is_file():
                 continue
             _ensure_symlink(pdir / ".claude" / "skills", canonical, relative=True,
                             actions=actions, root=root, dry_run=dry_run)
@@ -218,7 +220,7 @@ def _ensure_claude_auto_memory_setting(scope_dir: Path, repo_mem: Path, *,
     Claude requires an absolute or `~/` path. Write it to settings.local.json
     so the repository does not commit a machine-specific absolute path. The
     ~/.claude symlink remains as a compatibility fallback for older Claude
-    versions and already-created project memory directories.
+    versions and already-created workspace memory directories.
     """
     settings = scope_dir / ".claude" / "settings.local.json"
     wanted = str(repo_mem.resolve())
@@ -399,29 +401,29 @@ def doctor_all(root: Path, *, include_cli: bool = True) -> dict:
         _check_link(checks, "root .agents/skills -> .claude/skills",
                     root / ".agents" / "skills", skills)
 
-    projects_root = root / "projects"
-    if projects_root.is_dir():
-        for pdir in sorted(projects_root.iterdir()):
-            if not (pdir / "project.json").is_file():
+    workspaces_root = naming.workspaces_dir(root)
+    if workspaces_root.is_dir():
+        for pdir in sorted(workspaces_root.iterdir()):
+            if not (naming.workspace_metadata_file(pdir)).is_file():
                 continue
-            project = pdir.name
+            workspace = pdir.name
             agents_md = pdir / "AGENTS.md"
             if agents_md.exists():
-                _check_link(checks, f"{project} CLAUDE.md -> AGENTS.md",
+                _check_link(checks, f"{workspace} CLAUDE.md -> AGENTS.md",
                             pdir / "CLAUDE.md", agents_md)
-            proj_mem = paths.memory_dir(root, project)
+            workspace_mem = paths.memory_dir(root, workspace)
             checks.append({
-                "label": f"{project} repo memory index exists",
-                "ok": (proj_mem / "MEMORY.md").is_file(),
-                "detail": _rel(proj_mem / "MEMORY.md", root),
+                "label": f"{workspace} repo memory index exists",
+                "ok": (workspace_mem / "MEMORY.md").is_file(),
+                "detail": _rel(workspace_mem / "MEMORY.md", root),
             })
             _check_claude_memory_setting(
-                checks, f"{project} Claude auto-memory -> repo memory", pdir, proj_mem
+                checks, f"{workspace} Claude auto-memory -> repo memory", pdir, workspace_mem
             )
             if skills.is_dir():
-                _check_link(checks, f"{project} .claude/skills -> root skills",
+                _check_link(checks, f"{workspace} .claude/skills -> root skills",
                             pdir / ".claude" / "skills", skills)
-                _check_link(checks, f"{project} .agents/skills -> root skills",
+                _check_link(checks, f"{workspace} .agents/skills -> root skills",
                             pdir / ".agents" / "skills", skills)
 
     cli_checks: list[dict[str, object]] = []
@@ -468,26 +470,26 @@ def sync_all(root: Path, *, dry_run: bool = False) -> dict:
                      actions=actions, root=root, dry_run=dry_run)
     _ensure_memory_index(repo_mem, actions=actions, root=root, dry_run=dry_run)
 
-    # 3. Per-project: instructions (only where a CLAUDE.md exists) + memory (always,
-    #    so future project sessions write memory in-repo too).
-    projects_root = root / "projects"
-    if projects_root.is_dir():
-        for pdir in sorted(projects_root.iterdir()):
-            if not (pdir / "project.json").is_file():
+    # 3. Per-workspace: instructions (only where a CLAUDE.md exists) + memory (always,
+    #    so future workspace sessions write memory in-repo too).
+    workspaces_root = naming.workspaces_dir(root)
+    if workspaces_root.is_dir():
+        for pdir in sorted(workspaces_root.iterdir()):
+            if not (naming.workspace_metadata_file(pdir)).is_file():
                 continue
             _migrate_instructions(pdir, create_stub=False,
                                   actions=actions, root=root, dry_run=dry_run)
             _ensure_notebook_section(pdir / "AGENTS.md",
                                      actions=actions, root=root, dry_run=dry_run)
-            proj_mem = paths.memory_dir(root, pdir.name)
-            _ensure_claude_auto_memory_setting(pdir, proj_mem,
+            workspace_mem = paths.memory_dir(root, pdir.name)
+            _ensure_claude_auto_memory_setting(pdir, workspace_mem,
                                                actions=actions, root=root, dry_run=dry_run)
-            _relocate_memory(paths.claude_memory_dir(pdir), proj_mem,
+            _relocate_memory(paths.claude_memory_dir(pdir), workspace_mem,
                              actions=actions, root=root, dry_run=dry_run)
-            _ensure_memory_index(proj_mem, actions=actions, root=root, dry_run=dry_run)
+            _ensure_memory_index(workspace_mem, actions=actions, root=root, dry_run=dry_run)
 
     # 4. Shared skills: canonical .claude/skills exposed via .agents/skills at
-    #    the root and inside every project.
+    #    the root and inside every workspace.
     _link_shared_skills(root, actions=actions, dry_run=dry_run)
 
     # 5. Skills: best-effort repo-local pointer adapters for GitHub prompt
@@ -500,7 +502,7 @@ def sync_all(root: Path, *, dry_run: bool = False) -> dict:
 def sync_notebook_instructions(root: Path, *, dry_run: bool = False) -> dict:
     """Add only the live-notebook contract to existing agent instructions.
 
-    This is the narrow migration path for a running workspace: it does not
+    This is the narrow migration path for a running vault: it does not
     create memory directories, relink tools, or otherwise perform a full
     ``agents sync``.
     """
@@ -511,10 +513,10 @@ def sync_notebook_instructions(root: Path, *, dry_run: bool = False) -> dict:
     _ensure_notebook_section(
         root / "AGENTS.md", actions=actions, root=root, dry_run=dry_run,
     )
-    projects_root = root / "projects"
-    if projects_root.is_dir():
-        for pdir in sorted(projects_root.iterdir()):
-            if not (pdir / "project.json").is_file():
+    workspaces_root = naming.workspaces_dir(root)
+    if workspaces_root.is_dir():
+        for pdir in sorted(workspaces_root.iterdir()):
+            if not (naming.workspace_metadata_file(pdir)).is_file():
                 continue
             _migrate_instructions(
                 pdir, create_stub=False,

@@ -155,7 +155,7 @@ def test_fetch_network_failures_are_warnings() -> None:
         """
 failFetch = true;
 try {
-  await windowStub.fetch('/api/project-files', { method: 'GET' });
+  await windowStub.fetch('/api/workspace-files', { method: 'GET' });
 } catch (_) {}
 const ev = uploads[0].events[0];
 process.stdout.write(JSON.stringify({ uploads, nativeCalls, ev }));
@@ -164,20 +164,20 @@ process.stdout.write(JSON.stringify({ uploads, nativeCalls, ev }));
     ev = result["ev"]
     assert ev["level"] == "warning"
     assert ev["action"] == "fetch"
-    assert ev["target"] == "/api/project-files"
+    assert ev["target"] == "/api/workspace-files"
     assert "Failed to fetch" in ev["msg"]
-    assert [c["input"] for c in result["nativeCalls"]] == ["/api/project-files", "/api/log/client"]
+    assert [c["input"] for c in result["nativeCalls"]] == ["/api/workspace-files", "/api/log/client"]
 
 
 def test_fetch_503_shows_resource_unavailable_banner() -> None:
-    """core.fsguard returns 503 with a `detail` naming the stalled workspace
-    (e.g. "resource is not available for workspace ssd"). The fetch wrapper
+    """core.fsguard returns 503 with a `detail` naming the stalled vault
+    (e.g. "resource is not available for vault ssd"). The fetch wrapper
     must surface that text in a visible banner, not just log it."""
     result = _run_node(_browser_harness(
         """
 nextStatus = 503;
-nextBody = { detail: 'resource is not available for workspace ssd' };
-await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+nextBody = { detail: 'resource is not available for vault ssd' };
+await windowStub.fetch('/api/workspace-files?path=/x', { method: 'GET' });
 await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
@@ -187,19 +187,19 @@ process.stdout.write(JSON.stringify({
 }));
 """
     ))
-    assert result["bannerText"] == "resource is not available for workspace ssd"
+    assert result["bannerText"] == "resource is not available for vault ssd"
 
 
 def test_fetch_503_dispatches_resource_unavailable_event() -> None:
-    """The tab strip (lab-app.js) marks the active project's tab as blocked
+    """The tab strip (lab-app.js) marks the active workspace's tab as blocked
     by listening for a `lab:resource-unavailable` window event carrying the
     same `detail` text as the banner -- this is the one place that can
     dispatch it, since every fetch already flows through this wrapper."""
     result = _run_node(_browser_harness(
         """
 nextStatus = 503;
-nextBody = { detail: 'resource is not available for workspace ssd' };
-await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+nextBody = { detail: 'resource is not available for vault ssd' };
+await windowStub.fetch('/api/workspace-files?path=/x', { method: 'GET' });
 await Promise.resolve();
 await Promise.resolve();
 await Promise.resolve();
@@ -209,8 +209,8 @@ process.stdout.write(JSON.stringify({ dispatchedEvents }));
     ))
     events = [e for e in result["dispatchedEvents"] if e["type"] == 'lab:resource-unavailable']
     assert len(events) == 1
-    assert events[0]["detail"]["message"] == 'resource is not available for workspace ssd'
-    assert events[0]["detail"]["path"] == '/api/project-files'
+    assert events[0]["detail"]["message"] == 'resource is not available for vault ssd'
+    assert events[0]["detail"]["path"] == '/api/workspace-files'
 
 
 def test_fetch_ok_dispatches_resource_available_event() -> None:
@@ -220,21 +220,21 @@ def test_fetch_ok_dispatches_resource_available_event() -> None:
         """
 nextStatus = 200;
 nextBody = { ok: true };
-await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+await windowStub.fetch('/api/workspace-files?path=/x', { method: 'GET' });
 process.stdout.write(JSON.stringify({ dispatchedEvents }));
 """
     ))
     events = [e for e in result["dispatchedEvents"] if e["type"] == 'lab:resource-available']
     assert len(events) == 1
-    assert events[0]["detail"]["path"] == '/api/project-files'
+    assert events[0]["detail"]["path"] == '/api/workspace-files'
 
 
 def test_fetch_503_does_not_dispatch_resource_available_event() -> None:
     result = _run_node(_browser_harness(
         """
 nextStatus = 503;
-nextBody = { detail: 'resource is not available for workspace ssd' };
-await windowStub.fetch('/api/project-files?path=/x', { method: 'GET' });
+nextBody = { detail: 'resource is not available for vault ssd' };
+await windowStub.fetch('/api/workspace-files?path=/x', { method: 'GET' });
 await Promise.resolve();
 await Promise.resolve();
 process.stdout.write(JSON.stringify({ dispatchedEvents }));
@@ -323,7 +323,7 @@ def test_consolidated_logs_live_in_productivity_admin() -> None:
     lab_app = (root / "core/src/core/static/js/lab-app.js").read_text()
 
     assert "/static/js/lab-app.js" in index_html
-    assert 'id="projectTabs"' in index_html
+    assert 'id="workspaceTabs"' in index_html
     assert "function selfShowAdmin" in lab_app
     assert "function adminRefreshLogs" in lab_app
     assert "function adminCopyLogs" in lab_app
@@ -462,8 +462,8 @@ async function fetch(url, options = {}) {
     return {ok: true, json: async () => ({cleared: ['main'], failed: []})};
   }
   const entries = cleared ? [] : [{
-    workspace: 'main', ts: '2026-08-26T20:00:00Z', level: 'ERROR',
-    msg: 'frontend fetch failed', href: '/api/project-mtime?path=/project',
+    vault: 'main', ts: '2026-08-26T20:00:00Z', level: 'ERROR',
+    msg: 'frontend fetch failed', href: '/api/workspace-mtime?path=/workspace',
     status_code: 503, exc: 'traceback',
   }];
   return {ok: true, json: async () => ({entries})};
@@ -490,7 +490,7 @@ async function fetch(url, options = {}) {
     )
 
     assert "frontend fetch failed" in result["rendered"]
-    assert '"href":"/api/project-mtime?path=/project"' in result["rendered"]
+    assert '"href":"/api/workspace-mtime?path=/workspace"' in result["rendered"]
     assert "traceback" in result["rendered"]
     assert result["copied"] == [result["rendered"]]
     assert result["copyLabel"] == "Copy errors"
@@ -501,7 +501,7 @@ async function fetch(url, options = {}) {
         {"url": "/api/log/tail/all?file=errors.log&tail=300", "method": "GET"},
     ]
     assert result["finalOutput"] == "No log entries."
-    assert result["status"] == "Flushed errors in 1 workspace"
+    assert result["status"] == "Flushed errors in 1 vault"
 
 
 def test_log_alert_script_tracks_unseen_error_cursor() -> None:

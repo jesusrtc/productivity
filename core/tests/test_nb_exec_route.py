@@ -48,8 +48,8 @@ def patch_darwin(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> None:
-    rel = "projects/demo/notebooks/x.ipynb"
-    (monorepo / "projects" / "demo" / "notebooks").mkdir(parents=True, exist_ok=True)
+    rel = "workspaces/demo/notebooks/x.ipynb"
+    (monorepo / "workspaces" / "demo" / "notebooks").mkdir(parents=True, exist_ok=True)
 
     r = client.get(f"/api/nb/session?path={rel}")
     assert r.status_code == 200, r.text
@@ -63,14 +63,14 @@ def test_session_endpoint_returns_deterministic_id(client, monorepo: Path) -> No
     assert r2.json()["session"] == body["session"]
 
     # A different .ipynb owns a different kernel session.
-    other = client.get("/api/nb/session?path=projects/demo/notebooks/y.ipynb")
+    other = client.get("/api/nb/session?path=workspaces/demo/notebooks/y.ipynb")
     assert other.status_code == 200, other.text
     assert other.json()["session"] != body["session"]
 
 
 def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin) -> None:
     _, calls = patch_darwin
-    rel = "projects/demo/notebooks/new.ipynb"
+    rel = "workspaces/demo/notebooks/new.ipynb"
 
     r = client.post("/api/nb/exec", json={"path": rel, "code": "print(42)"})
     assert r.status_code == 200, r.text
@@ -104,45 +104,45 @@ def test_exec_appends_cell_to_new_notebook(client, monorepo: Path, patch_darwin)
     assert calls[0]["code"] == "print(42)"
 
 
-def test_exec_and_live_replay_follow_explicit_owning_workspace(
+def test_exec_and_live_replay_follow_explicit_owning_vault(
     client, monorepo: Path, tmp_path: Path, patch_darwin
 ) -> None:
-    """A project tab may belong to a workspace other than the active shell."""
-    paths.register_workspace(
-        monorepo, name="Main", workspace_id="main", active=True
+    """A workspace tab may belong to a vault other than the active shell."""
+    paths.register_vault(
+        monorepo, name="Main", vault_id="main", active=True
     )
-    other = tmp_path / "other-workspace"
-    (other / "projects").mkdir(parents=True)
-    registration = paths.register_workspace(
-        other, name="Local", workspace_id="local", active=False
+    other = tmp_path / "other-vault"
+    (other / "workspaces").mkdir(parents=True)
+    registration = paths.register_vault(
+        other, name="Local", vault_id="local", active=False
     )
-    rel = "projects/test/agent-demo.ipynb"
+    rel = "workspaces/test/agent-demo.ipynb"
 
     executed = client.post(
         "/api/nb/exec",
         json={
-            "workspace": registration["id"],
+            "vault": registration["id"],
             "path": rel,
             "code": "print(42)",
         },
     )
 
     assert executed.status_code == 200, executed.text
-    assert executed.json()["workspace"] == registration["id"]
+    assert executed.json()["vault"] == registration["id"]
     assert (other / rel).is_file()
     assert not (monorepo / rel).exists()
     opened = client.get(
-        f"/api/nb?path={rel}&workspace={registration['id']}"
+        f"/api/nb?path={rel}&vault={registration['id']}"
     )
     assert opened.status_code == 200, opened.text
     assert opened.json()["cells"][0]["source"] == "print(42)"
     live = client.get(
-        f"/api/nb/live?path={rel}&workspace={registration['id']}"
+        f"/api/nb/live?path={rel}&vault={registration['id']}"
     )
     assert live.status_code == 200, live.text
     assert live.json() == {
         "path": rel,
-        "workspace": registration["id"],
+        "vault": registration["id"],
         "executions": [],
     }
 
@@ -150,7 +150,7 @@ def test_exec_appends_to_existing_notebook_and_pins_session(
     client, monorepo: Path, patch_darwin
 ) -> None:
     _, calls = patch_darwin
-    rel = "projects/demo/notebooks/grow.ipynb"
+    rel = "workspaces/demo/notebooks/grow.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -193,7 +193,7 @@ def test_exec_error_cell_is_persisted_as_200(
              "traceback": ["Traceback…", "NameError: name 'foo' is not defined"]},
         ],
     }))
-    rel = "projects/demo/notebooks/err.ipynb"
+    rel = "workspaces/demo/notebooks/err.ipynb"
     r = client.post("/api/nb/exec", json={"path": rel, "code": "foo"})
     assert r.status_code == 200, r.text
 
@@ -217,7 +217,7 @@ def test_exec_kernel_error_returns_200_with_error_cell(
         }),
         returncode=6,
     )
-    rel = "projects/demo/notebooks/kerr.ipynb"
+    rel = "workspaces/demo/notebooks/kerr.ipynb"
     r = client.post("/api/nb/exec", json={"path": rel, "code": "%sql SELECT 1"})
 
     assert r.status_code == 200, r.text
@@ -239,7 +239,7 @@ def test_exec_maps_auth_failure_to_401(client, monorepo: Path, patch_darwin) -> 
     )
     r = client.post(
         "/api/nb/exec",
-        json={"path": "projects/demo/notebooks/q.ipynb", "code": "1"},
+        json={"path": "workspaces/demo/notebooks/q.ipynb", "code": "1"},
     )
     assert r.status_code == 401
     assert "auth" in r.json()["detail"].lower()
@@ -256,7 +256,7 @@ def test_exec_rejects_path_traversal(client, patch_darwin) -> None:
 def test_exec_rejects_non_ipynb(client, patch_darwin) -> None:
     r = client.post(
         "/api/nb/exec",
-        json={"path": "projects/demo/notes.txt", "code": "1"},
+        json={"path": "workspaces/demo/notes.txt", "code": "1"},
     )
     assert r.status_code == 400
 
@@ -268,7 +268,7 @@ def test_exec_handles_missing_darwin_binary(client, monorepo: Path, monkeypatch)
     monkeypatch.setattr(nb_exec_route.subprocess, "run", fake_run)
     r = client.post(
         "/api/nb/exec",
-        json={"path": "projects/demo/notebooks/x.ipynb", "code": "1"},
+        json={"path": "workspaces/demo/notebooks/x.ipynb", "code": "1"},
     )
     assert r.status_code == 503
     assert "darwin" in r.json()["detail"].lower()
@@ -278,7 +278,7 @@ def test_exec_with_cell_index_replaces_in_place(
     client, monorepo: Path, patch_darwin
 ) -> None:
     fake_run, _ = patch_darwin
-    rel = "projects/demo/notebooks/inplace.ipynb"
+    rel = "workspaces/demo/notebooks/inplace.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -320,7 +320,7 @@ def test_exec_with_cell_index_replaces_in_place(
 def test_exec_with_out_of_range_cell_index_returns_404(
     client, monorepo: Path, patch_darwin
 ) -> None:
-    rel = "projects/demo/notebooks/short.ipynb"
+    rel = "workspaces/demo/notebooks/short.ipynb"
     (monorepo / rel).parent.mkdir(parents=True, exist_ok=True)
     (monorepo / rel).write_text(json.dumps({
         "nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [],
@@ -334,7 +334,7 @@ def test_exec_with_out_of_range_cell_index_returns_404(
 
 
 def test_delete_cell_removes_at_index(client, monorepo: Path) -> None:
-    rel = "projects/demo/notebooks/del.ipynb"
+    rel = "workspaces/demo/notebooks/del.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -365,13 +365,13 @@ def test_delete_cell_removes_at_index(client, monorepo: Path) -> None:
 def test_delete_cell_404_on_missing_notebook(client) -> None:
     r = client.post(
         "/api/nb/cell/delete",
-        json={"path": "projects/demo/notebooks/nope.ipynb", "cell_index": 0},
+        json={"path": "workspaces/demo/notebooks/nope.ipynb", "cell_index": 0},
     )
     assert r.status_code == 404
 
 
 def test_delete_cell_out_of_range(client, monorepo: Path) -> None:
-    rel = "projects/demo/notebooks/oob.ipynb"
+    rel = "workspaces/demo/notebooks/oob.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -396,7 +396,7 @@ def test_exec_insert_at_inserts_between_cells(
     given index — the wire used by the UI's hover-revealed `+` button between
     cells."""
     fake_run, calls = patch_darwin
-    rel = "projects/demo/notebooks/insert.ipynb"
+    rel = "workspaces/demo/notebooks/insert.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -434,7 +434,7 @@ def test_exec_insert_at_zero_prepends(
 ) -> None:
     """``insert_at=0`` puts the new cell at the very top."""
     fake_run, _ = patch_darwin
-    rel = "projects/demo/notebooks/prepend.ipynb"
+    rel = "workspaces/demo/notebooks/prepend.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -460,7 +460,7 @@ def test_exec_insert_at_end_equals_append(
 ) -> None:
     """``insert_at == len(cells)`` is identical to a plain append."""
     fake_run, _ = patch_darwin
-    rel = "projects/demo/notebooks/insert_end.ipynb"
+    rel = "workspaces/demo/notebooks/insert_end.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -482,7 +482,7 @@ def test_exec_insert_at_end_equals_append(
 def test_exec_insert_at_out_of_range_returns_404(
     client, monorepo: Path, patch_darwin
 ) -> None:
-    rel = "projects/demo/notebooks/oob_insert.ipynb"
+    rel = "workspaces/demo/notebooks/oob_insert.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -497,7 +497,7 @@ def test_exec_rejects_cell_index_and_insert_at_together(
     client, monorepo: Path, patch_darwin
 ) -> None:
     """The two are mutually exclusive — server must reject the ambiguity."""
-    rel = "projects/demo/notebooks/conflict.ipynb"
+    rel = "workspaces/demo/notebooks/conflict.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({
@@ -519,21 +519,21 @@ def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -
     run_id = "run-live"
     started = nb_exec_route._live_start(
         target,
-        path="projects/demo/notebooks/live.ipynb",
-        workspace="local",
+        path="workspaces/demo/notebooks/live.ipynb",
+        vault="local",
         run_id=run_id,
         cell_id="cell-live",
         cell_index=3,
         actor="agent",
         source="display(chart)",
         provider="local",
-        provider_label="project kernel",
+        provider_label="workspace kernel",
         execution_count=8,
         started_at=100.0,
     )
     try:
         assert started["sequence"] == 0
-        assert "Running on project kernel" in started["outputs"][0]["content"]
+        assert "Running on workspace kernel" in started["outputs"][0]["content"]
 
         first, first_checkpoint, _ = nb_exec_route._live_apply_kernel_event(
             target,
@@ -588,7 +588,7 @@ def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -
 def test_live_endpoint_does_not_replay_a_run_after_its_cell_finished(
     client, monorepo: Path
 ) -> None:
-    rel = "projects/demo/notebooks/live-finish-race.ipynb"
+    rel = "workspaces/demo/notebooks/live-finish-race.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     run_id = "run-finish-race"
@@ -611,14 +611,14 @@ def test_live_endpoint_does_not_replay_a_run_after_its_cell_finished(
     nb_exec_route._live_start(
         target,
         path=rel,
-        workspace="local",
+        vault="local",
         run_id=run_id,
         cell_id=cell["id"],
         cell_index=0,
         actor="agent",
         source="print(1)",
         provider="local",
-        provider_label="project kernel",
+        provider_label="workspace kernel",
         execution_count=1,
         started_at=100.0,
     )
@@ -642,7 +642,7 @@ def test_live_endpoint_does_not_replay_a_run_after_its_cell_finished(
 def test_notebook_read_recovers_orphaned_running_cell_once(
     client, monorepo: Path
 ) -> None:
-    rel = "projects/demo/notebooks/orphaned.ipynb"
+    rel = "workspaces/demo/notebooks/orphaned.ipynb"
     target = monorepo / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({

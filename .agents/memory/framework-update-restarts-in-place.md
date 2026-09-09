@@ -13,4 +13,4 @@ changes. A pull failure is shown without restarting.
 
 For manual updates, pull and restart must also run serially; shell `&` backgrounds
 the pull and creates a race. `make restart` falls back to its requested `PORT`
-when the workspace port-state file is absent.
+when the vault port-state file is absent.

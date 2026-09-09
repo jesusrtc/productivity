@@ -6,8 +6,8 @@
 # Usage: make check-ui     (from monorepo root)
 #        scripts/check-ui.sh [url]
 #
-# Also accepts a URL override — useful for testing a specific project view:
-#   scripts/check-ui.sh "$(scripts/lab-url.sh)/?project=/abs/path"
+# Also accepts a URL override — useful for testing a specific workspace view:
+#   scripts/check-ui.sh "$(scripts/lab-url.sh)/?workspace=/abs/path"
 
 set -e
 
@@ -46,7 +46,7 @@ if ! _lab_alive; then
   make start-bg >/dev/null
   STARTED_BY_US=1
   # Give uvicorn a moment to finish lifespan startup. Re-resolve the URL
-  # because the server only writes the workspace-local port file once it's listening.
+  # because the server only writes the vault-local port file once it's listening.
   for _ in 1 2 3 4 5; do
     if _lab_alive; then
       break

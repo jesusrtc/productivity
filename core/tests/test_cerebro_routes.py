@@ -7,9 +7,9 @@ def test_cerebro_tree_empty(client, monorepo: Path) -> None:
     r = client.get("/api/cerebro/tree")
     assert r.status_code == 200
     tree = r.json()
-    # Fresh fixture: projects/ + meetings/ exist (created by the monorepo fixture).
+    # Fresh fixture: workspaces/ + meetings/ exist (created by the monorepo fixture).
     names = {n["name"] for n in tree if n["type"] == "dir"}
-    assert {"projects", "meetings"}.issubset(names)
+    assert {"workspaces", "meetings"}.issubset(names)
 
 
 def test_cerebro_tree_lists_md_files(client, monorepo: Path) -> None:
@@ -56,13 +56,13 @@ def test_cerebro_tree_skips_dotfiles_by_default(client, monorepo: Path) -> None:
     assert ".sessions.json" in names_all
 
 
-def test_cerebro_tree_includes_projects_tree(client, monorepo: Path, seed_project) -> None:
-    seed_project("demo")
-    (monorepo / "projects" / "demo" / "docs").mkdir(exist_ok=True)
-    (monorepo / "projects" / "demo" / "docs" / "one-pager.md").write_text("# one-pager")
+def test_cerebro_tree_includes_workspaces_tree(client, monorepo: Path, seed_workspace) -> None:
+    seed_workspace("demo")
+    (monorepo / "workspaces" / "demo" / "docs").mkdir(exist_ok=True)
+    (monorepo / "workspaces" / "demo" / "docs" / "one-pager.md").write_text("# one-pager")
 
     tree = client.get("/api/cerebro/tree").json()
-    projects = next(n for n in tree if n["name"] == "projects")
-    demo = next(n for n in projects["children"] if n["name"] == "demo")
+    workspaces = next(n for n in tree if n["name"] == "workspaces")
+    demo = next(n for n in workspaces["children"] if n["name"] == "demo")
     doc_names = [c["name"] for c in demo["children"]]
-    assert "docs" in doc_names or "project.json" in doc_names
+    assert "docs" in doc_names or "workspace.json" in doc_names

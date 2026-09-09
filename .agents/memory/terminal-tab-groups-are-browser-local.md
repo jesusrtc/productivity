@@ -1,8 +1,8 @@
 # Terminal tab dividers are browser-local
 
 Colored terminal-tab dividers are navigation chrome. Persist them in browser
-storage, scoped by workspace plus Home/workspace/project terminal surface; do
-not write them into project or workspace metadata.
+storage, scoped by vault plus Home/vault/workspace terminal surface; do
+not write them into workspace or vault metadata.
 
 A divider is a draggable colored line in the session order. Clicking or
 secondary-clicking the line opens its color/delete menu. Secondary-clicking

@@ -35,20 +35,20 @@ def _find_app(root: Path, name: str) -> dict[str, Any]:
     for row in _app_rows(root):
         if row["name"] == name or row["dir"].name == name:
             return row
-    raise click.ClickException(f"workspace app {name!r} not found")
+    raise click.ClickException(f"vault app {name!r} not found")
 
 
 @click.group(name="app")
 def app_group() -> None:
-    """Run workspace-owned apps and CLIs."""
+    """Run vault-owned apps and CLIs."""
 
 
 @app_group.command("list")
 def list_apps() -> None:
-    root = paths.find_workspace_root()
+    root = paths.find_vault_root()
     rows = _app_rows(root)
     if not rows:
-        click.echo("no workspace apps")
+        click.echo("no vault apps")
         return
     width = max(len(row["name"]) for row in rows)
     for row in rows:
@@ -60,11 +60,11 @@ def list_apps() -> None:
 @click.argument("name")
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def run_app(name: str, args: tuple[str, ...]) -> None:
-    root = paths.find_workspace_root()
+    root = paths.find_vault_root()
     row = _find_app(root, name)
     command = row["command"]
     if not command:
-        raise click.ClickException(f"workspace app {name!r} has no command")
+        raise click.ClickException(f"vault app {name!r} has no command")
     command_path = Path(command)
     executable = command_path if command_path.is_absolute() else row["dir"] / command_path
     cmd = [str(executable), *args]

@@ -1,8 +1,8 @@
-"""``lab ref`` — manage a project's external reference URLs.
+"""``lab ref`` — manage a workspace's external reference URLs.
 
 References are inbound source material (articles, Slack threads, blog
-posts, external specs) that inform the project. They live under
-``project.json.references[]`` and surface in the UI as a virtual
+posts, external specs) that inform the workspace. They live under
+``workspace.json.references[]`` and surface in the UI as a virtual
 ``external-references/`` folder in the sidebar.
 
 Distinct from ``artifacts``: artifacts are canonical online mirrors of
@@ -21,29 +21,29 @@ from datetime import date
 import click
 
 from lab import paths, storage
-from lab.commands._helpers import resolve_project_id as _resolve_project_id
+from lab.commands._helpers import resolve_workspace_id as _resolve_workspace_id
 
 
 @click.group(name="ref")
 def ref_group() -> None:
-    """Track external URLs a project references (reading material, threads, …)."""
+    """Track external URLs a workspace references (reading material, threads, …)."""
 
 
 @ref_group.command("add")
 @click.argument("url")
-@click.option("--project", "project_id", default=None,
-              help="Project id (defaults to the project of the current dir).")
+@click.option("--workspace", "workspace_id", default=None,
+              help="Workspace id (defaults to the workspace of the current dir).")
 @click.option("--name", "title", default="",
               help="Display name; falls back to the URL itself.")
 @click.option("--note", default="",
               help="One-line context about why this reference matters.")
-def add(url: str, project_id: str | None, title: str, note: str) -> None:
-    """Append a reference entry to ``project.json.references[]``."""
+def add(url: str, workspace_id: str | None, title: str, note: str) -> None:
+    """Append a reference entry to ``workspace.json.references[]``."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     data.setdefault("references", [])
     next_id = 1 + max((r.get("id", 0) for r in data["references"]), default=0)
@@ -61,15 +61,15 @@ def add(url: str, project_id: str | None, title: str, note: str) -> None:
 
 
 @ref_group.command("ls")
-@click.option("--project", "project_id", default=None,
-              help="Project id (defaults to the project of the current dir).")
-def ls(project_id: str | None) -> None:
-    """List references for a project."""
+@click.option("--workspace", "workspace_id", default=None,
+              help="Workspace id (defaults to the workspace of the current dir).")
+def ls(workspace_id: str | None) -> None:
+    """List references for a workspace."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     refs = storage.read_json(pjson).get("references", [])
     if not refs:
         click.echo("(no references)")
@@ -83,15 +83,15 @@ def ls(project_id: str | None) -> None:
 
 @ref_group.command("rm")
 @click.argument("idx", type=int)
-@click.option("--project", "project_id", default=None,
-              help="Project id (defaults to the project of the current dir).")
-def rm(idx: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None,
+              help="Workspace id (defaults to the workspace of the current dir).")
+def rm(idx: int, workspace_id: str | None) -> None:
     """Remove a reference by id (preferred) or list index."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     refs = data.get("references", [])
     by_id = next(((i, r) for i, r in enumerate(refs) if r.get("id") == idx), None)

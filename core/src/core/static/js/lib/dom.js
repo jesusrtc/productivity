@@ -46,7 +46,7 @@ export function priorityClass(p) {
 
 
 // Open a modal form. `fields` is an array of:
-//   { name: "id", label: "Project id", type: "text", required: true, value: "" }
+//   { name: "id", label: "Workspace id", type: "text", required: true, value: "" }
 //   { name: "priority", label: "Priority", type: "select", options: ["P0","P1","P2","P3"], value: "P2" }
 //   { name: "description", label: "Description", type: "textarea" }
 // onSubmit(values) is called with an object of the filled-in values.

@@ -11,25 +11,25 @@ from pathlib import Path
 import core.notebook_kernel as notebook_kernel
 import core.notebook_runtime as notebook_runtime
 import pytest
-from core.notebook_runtime import ProjectRuntimeSpec, runtime_fingerprint
+from core.notebook_runtime import WorkspaceRuntimeSpec, runtime_fingerprint
 
 
-def _project_with_cli(monorepo: Path) -> tuple[str, Path]:
-    rel = "projects/demo/notebooks/analysis.ipynb"
-    project = monorepo / "projects" / "demo"
-    (project / "notebooks").mkdir(parents=True, exist_ok=True)
-    tools = project / "tools"
+def _workspace_with_cli(monorepo: Path) -> tuple[str, Path]:
+    rel = "workspaces/demo/notebooks/analysis.ipynb"
+    workspace = monorepo / "workspaces" / "demo"
+    (workspace / "notebooks").mkdir(parents=True, exist_ok=True)
+    tools = workspace / "tools"
     tools.mkdir()
     cli = tools / "client-tool"
     cli.write_text("#!/bin/sh\nprintf 'client-cli-ok\\n'\n", encoding="utf-8")
     cli.chmod(cli.stat().st_mode | 0o111)
-    (project / "clientlib.py").write_text(
+    (workspace / "clientlib.py").write_text(
         "import subprocess\n\n"
         "def cli_value():\n"
         "    return subprocess.check_output(['client-tool'], text=True).strip()\n",
         encoding="utf-8",
     )
-    return rel, project
+    return rel, workspace
 
 
 def _existing_spec() -> dict:
@@ -50,9 +50,9 @@ def _existing_spec() -> dict:
 
 
 def test_runtime_fingerprint_is_stable_and_configuration_sensitive() -> None:
-    first = ProjectRuntimeSpec(python="3.12", packages=["pandas==2.3.2"])
-    same = ProjectRuntimeSpec.model_validate(first.model_dump())
-    changed = ProjectRuntimeSpec(python="3.12", packages=["pandas==2.3.3"])
+    first = WorkspaceRuntimeSpec(python="3.12", packages=["pandas==2.3.2"])
+    same = WorkspaceRuntimeSpec.model_validate(first.model_dump())
+    changed = WorkspaceRuntimeSpec(python="3.12", packages=["pandas==2.3.3"])
     assert runtime_fingerprint(first) == runtime_fingerprint(same)
     assert runtime_fingerprint(first) != runtime_fingerprint(changed)
 
@@ -95,7 +95,7 @@ def test_cancelled_http_execution_interrupts_and_drains_kernel_worker(
     session = FakeSession()
     monkeypatch.setattr(notebook_kernel, "_session_for", lambda *args: session)
     handle = notebook_runtime.RuntimeHandle(
-        project_id="demo",
+        workspace_id="demo",
         python=sys.executable,
         working_dir=str(tmp_path),
         environment={},
@@ -121,12 +121,12 @@ def test_cancelled_http_execution_interrupts_and_drains_kernel_worker(
 def test_managed_runtime_build_installs_pins_and_editable_libraries(
     tmp_path: Path, monkeypatch
 ) -> None:
-    root = tmp_path / "workspace"
-    project = root / "projects" / "managed"
-    (project / "notebooks").mkdir(parents=True)
-    (project / "libs" / "client_sdk").mkdir(parents=True)
-    rel = "projects/managed/notebooks/analysis.ipynb"
-    spec = ProjectRuntimeSpec(
+    root = tmp_path / "vault"
+    workspace = root / "workspaces" / "managed"
+    (workspace / "notebooks").mkdir(parents=True)
+    (workspace / "libs" / "client_sdk").mkdir(parents=True)
+    rel = "workspaces/managed/notebooks/analysis.ipynb"
+    spec = WorkspaceRuntimeSpec(
         mode="local",
         kind="managed",
         python=sys.executable,
@@ -164,11 +164,11 @@ def test_managed_runtime_build_installs_pins_and_editable_libraries(
     assert "pandas==2.3.2" in install
     assert "client-wheel>=4" in install
     editable = next(command for command in commands if "-e" in command)
-    assert editable[-1] == str((project / "libs" / "client_sdk").resolve())
+    assert editable[-1] == str((workspace / "libs" / "client_sdk").resolve())
 
 
-def test_runtime_api_saves_project_owned_config(client, monorepo: Path) -> None:
-    rel, project = _project_with_cli(monorepo)
+def test_runtime_api_saves_workspace_owned_config(client, monorepo: Path) -> None:
+    rel, workspace = _workspace_with_cli(monorepo)
     before = client.get(f"/api/nb/runtime?path={rel}")
     assert before.status_code == 200
     assert before.json()["status"] == "legacy"
@@ -176,8 +176,8 @@ def test_runtime_api_saves_project_owned_config(client, monorepo: Path) -> None:
     response = client.put("/api/nb/runtime", json={"path": rel, "spec": _existing_spec()})
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "draft"
-    assert response.json()["config_path"] == "projects/demo/runtime.json"
-    saved = json.loads((project / "runtime.json").read_text(encoding="utf-8"))
+    assert response.json()["config_path"] == "workspaces/demo/runtime.json"
+    saved = json.loads((workspace / "runtime.json").read_text(encoding="utf-8"))
     assert saved["python"] == sys.executable
     assert saved["cli_paths"] == ["tools"]
 
@@ -191,7 +191,7 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     executor. It proves that a client library can invoke its own CLI from the
     exact Jupyter process Lab supplies.
     """
-    rel, project = _project_with_cli(monorepo)
+    rel, workspace = _workspace_with_cli(monorepo)
     saved = client.put("/api/nb/runtime", json={"path": rel, "spec": _existing_spec()})
     assert saved.status_code == 200, saved.text
 
@@ -273,7 +273,7 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
 def test_agent_api_shows_running_state_and_streams_output_before_completion(
     client, monorepo: Path
 ) -> None:
-    rel, _ = _project_with_cli(monorepo)
+    rel, _ = _workspace_with_cli(monorepo)
     assert client.put(
         "/api/nb/runtime", json={"path": rel, "spec": _existing_spec()}
     ).status_code == 200
@@ -386,7 +386,7 @@ def test_agent_api_shows_running_state_and_streams_output_before_completion(
 
 
 def test_local_runtime_requires_build_before_exec(client, monorepo: Path) -> None:
-    rel, _ = _project_with_cli(monorepo)
+    rel, _ = _workspace_with_cli(monorepo)
     saved = client.put("/api/nb/runtime", json={"path": rel, "spec": _existing_spec()})
     assert saved.status_code == 200
     response = client.post("/api/nb/exec", json={"path": rel, "code": "1 + 1"})
@@ -395,7 +395,7 @@ def test_local_runtime_requires_build_before_exec(client, monorepo: Path) -> Non
 
 
 def test_local_kernel_interrupt_stops_a_running_cell(client, monorepo: Path) -> None:
-    rel, _ = _project_with_cli(monorepo)
+    rel, _ = _workspace_with_cli(monorepo)
     assert client.put(
         "/api/nb/runtime", json={"path": rel, "spec": _existing_spec()}
     ).status_code == 200
@@ -456,7 +456,7 @@ def test_local_kernel_interrupt_stops_a_running_cell(client, monorepo: Path) -> 
 
 
 def test_runtime_reports_missing_working_directory(client, monorepo: Path) -> None:
-    rel, _ = _project_with_cli(monorepo)
+    rel, _ = _workspace_with_cli(monorepo)
     spec = _existing_spec()
     spec["working_dir"] = "missing-directory"
     saved = client.put("/api/nb/runtime", json={"path": rel, "spec": spec})
@@ -470,14 +470,14 @@ def test_runtime_reports_missing_working_directory(client, monorepo: Path) -> No
 def test_revalidation_detects_a_client_cli_removed_in_place(
     client, monorepo: Path
 ) -> None:
-    rel, project = _project_with_cli(monorepo)
+    rel, workspace = _workspace_with_cli(monorepo)
     assert client.put(
         "/api/nb/runtime", json={"path": rel, "spec": _existing_spec()}
     ).status_code == 200
     first = client.post("/api/nb/runtime/build", json={"path": rel})
     assert first.status_code == 200, first.text
 
-    (project / "tools" / "client-tool").unlink()
+    (workspace / "tools" / "client-tool").unlink()
     revalidated = client.post("/api/nb/runtime/build", json={"path": rel})
     assert revalidated.status_code == 422, revalidated.text
     assert "CLI not found" in revalidated.json()["detail"]["message"]

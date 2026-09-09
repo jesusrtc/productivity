@@ -2,11 +2,11 @@
 
 Small catch-all for per-monorepo UI preferences that need to persist across
 browsers / machines (so localStorage isn't the right place). Today that's
-the tab-strip order, pseudo-tab open state, and per-project terminal
-auto-spawn suppression; future: pinned projects, theme per-project, etc.
+the tab-strip order, pseudo-tab open state, and per-workspace terminal
+auto-spawn suppression; future: pinned workspaces, theme per-workspace, etc.
 
-State lives in workspace-local ``.lab/state/ui-state.json`` so switching
-workspaces does not reuse stale frontend state.
+State lives in vault-local ``.lab/state/ui-state.json`` so switching
+vaults does not reuse stale frontend state.
 """
 from __future__ import annotations
 
@@ -40,7 +40,11 @@ def _load(root: Path) -> dict:
     if not p.is_file():
         return {}
     try:
-        return json.loads(p.read_text())
+        data = json.loads(p.read_text())
+        disabled = data.get("terminal_autospawn_disabled")
+        if isinstance(disabled, list):
+            data["terminal_autospawn_disabled"] = ["__vault__" if value == "__workspace__" else value for value in disabled]
+        return data
     except (json.JSONDecodeError, ValueError):
         return {}
 
@@ -133,48 +137,48 @@ def _terminal_autospawn_disabled(data: dict) -> list[str]:
         return []
     seen: set[str] = set()
     out: list[str] = []
-    for project_id in raw:
-        if not isinstance(project_id, str) or not project_id or project_id in seen:
+    for workspace_id in raw:
+        if not isinstance(workspace_id, str) or not workspace_id or workspace_id in seen:
             continue
-        seen.add(project_id)
-        out.append(project_id)
+        seen.add(workspace_id)
+        out.append(workspace_id)
     return out
 
 
-def _workspace_root(request: Request, workspace: str | None) -> Path:
+def _vault_root(request: Request, vault: str | None) -> Path:
     active_root = auth.request_root(request)
-    if not workspace:
+    if not vault:
         return active_root
-    from core.routes.term import _workspace_root_for
-    return _workspace_root_for(active_root, workspace)
+    from core.routes.term import _vault_root_for
+    return _vault_root_for(active_root, vault)
 
 
 @router.get("/api/ui/term-autospawn")
 def get_term_autospawn(
-    project_id: str, request: Request, workspace: str | None = None,
+    workspace_id: str, request: Request, vault: str | None = None,
 ) -> dict:
-    root = _workspace_root(request, workspace)
+    root = _vault_root(request, vault)
     disabled = set(_terminal_autospawn_disabled(_load(root)))
-    return {"project_id": project_id, "enabled": project_id not in disabled}
+    return {"workspace_id": workspace_id, "enabled": workspace_id not in disabled}
 
 
 class TermAutoSpawnState(BaseModel):
-    project_id: str
+    workspace_id: str
     enabled: bool
-    workspace: str | None = None
+    vault: str | None = None
 
 
 @router.post("/api/ui/term-autospawn")
 def set_term_autospawn(body: TermAutoSpawnState, request: Request) -> dict:
-    if not body.project_id:
-        raise HTTPException(status_code=400, detail="project_id is required")
-    root = _workspace_root(request, body.workspace)
+    if not body.workspace_id:
+        raise HTTPException(status_code=400, detail="workspace_id is required")
+    root = _vault_root(request, body.vault)
     data = _load(root)
     disabled = set(_terminal_autospawn_disabled(data))
     if body.enabled:
-        disabled.discard(body.project_id)
+        disabled.discard(body.workspace_id)
     else:
-        disabled.add(body.project_id)
+        disabled.add(body.workspace_id)
     data["terminal_autospawn_disabled"] = sorted(disabled)
     _save(root, data)
-    return {"ok": True, "project_id": body.project_id, "enabled": body.enabled}
+    return {"ok": True, "workspace_id": body.workspace_id, "enabled": body.enabled}

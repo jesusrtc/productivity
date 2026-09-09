@@ -23,7 +23,7 @@ from lab import paths
 
 SESSION_COOKIE = "lab_session"
 SESSION_MAX_AGE = 30 * 24 * 60 * 60
-HOME_WORKSPACE = "__home__"
+HOME_VAULT = "__home__"
 STORE_VERSION = 2
 BUILTIN_ADMIN_USERNAME = "admin"
 _LOCAL_CLI_API_PREFIXES = ("/api/nb",)
@@ -37,7 +37,7 @@ _SEED_USERS = (
 
 
 def auth_file() -> Path:
-    """Global auth state; permissions span the global workspace registry."""
+    """Global auth state; permissions span the global vault registry."""
     return paths.global_config_dir() / "auth.json"
 
 
@@ -112,7 +112,7 @@ def _seed_row(username: str, name: str, role: str, password: str) -> dict[str, A
         "name": name,
         "role": role,
         "password_sha256": password_sha256(password),
-        "workspaces": [],
+        "vaults": [],
         "disabled": False,
     }
 
@@ -172,16 +172,16 @@ def _normalize_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
             continue
         seen.add(username)
         role = "admin" if raw.get("role") == "admin" else "user"
-        workspaces = raw.get("workspaces")
-        if not isinstance(workspaces, list):
-            workspaces = []
+        vaults = raw.get("vaults", raw.get("workspaces"))
+        if not isinstance(vaults, list):
+            vaults = []
             changed = True
         row = {
             "username": username,
             "name": str(raw.get("name") or username.title()).strip() or username.title(),
             "role": role,
             "password_sha256": str(raw.get("password_sha256") or ""),
-            "workspaces": sorted({str(w) for w in workspaces if isinstance(w, str) and w}),
+            "vaults": sorted({str(w) for w in vaults if isinstance(w, str) and w}),
             "disabled": bool(raw.get("disabled", False)),
         }
         if row != raw:
@@ -243,7 +243,7 @@ def public_user(row: dict[str, Any]) -> dict[str, Any]:
         "username": row["username"],
         "name": row.get("name") or row["username"].title(),
         "role": row.get("role") or "user",
-        "workspaces": list(row.get("workspaces") or []),
+        "vaults": list(row.get("vaults") or []),
         "disabled": bool(row.get("disabled", False)),
         "built_in": row.get("username") == BUILTIN_ADMIN_USERNAME,
     }
@@ -360,83 +360,83 @@ def is_admin(row: dict[str, Any] | None) -> bool:
     return bool(row and row.get("role") == "admin")
 
 
-def allowed_workspace_ids(row: dict[str, Any] | None) -> set[str]:
+def allowed_vault_ids(row: dict[str, Any] | None) -> set[str]:
     if is_admin(row):
         return {
-            str(workspace.get("id"))
-            for workspace in paths.read_workspace_registry().get("workspaces") or []
-            if workspace.get("id")
+            str(vault.get("id"))
+            for vault in paths.read_vault_registry().get("vaults") or []
+            if vault.get("id")
         }
-    return {str(value) for value in (row or {}).get("workspaces") or [] if value}
+    return {str(value) for value in (row or {}).get("vaults") or [] if value}
 
 
-def can_access_workspace(row: dict[str, Any] | None, workspace_id: str) -> bool:
-    return is_admin(row) or workspace_id in allowed_workspace_ids(row)
+def can_access_vault(row: dict[str, Any] | None, vault_id: str) -> bool:
+    return is_admin(row) or vault_id in allowed_vault_ids(row)
 
 
-def require_workspace(connection: Request | WebSocket, workspace_id: str) -> dict[str, Any]:
+def require_vault(connection: Request | WebSocket, vault_id: str) -> dict[str, Any]:
     row = require_user(connection)
-    if not can_access_workspace(row, workspace_id):
-        # Do not disclose whether an unassigned workspace exists.
-        raise HTTPException(status_code=404, detail="workspace not found")
+    if not can_access_vault(row, vault_id):
+        # Do not disclose whether an unassigned vault exists.
+        raise HTTPException(status_code=404, detail="vault not found")
     return row
 
 
-def workspace_id_for_root(root: Path) -> str | None:
+def vault_id_for_root(root: Path) -> str | None:
     try:
         resolved = root.expanduser().resolve()
     except OSError:
         return None
-    for row in paths.read_workspace_registry().get("workspaces") or []:
+    for row in paths.read_vault_registry().get("vaults") or []:
         try:
             if Path(str(row["path"])).expanduser().resolve() == resolved:
                 return str(row["id"])
         except (KeyError, OSError):
             continue
     try:
-        if resolved == paths.find_workspace_root().expanduser().resolve():
+        if resolved == paths.find_vault_root().expanduser().resolve():
             return resolved.name
     except Exception:
         pass
     return None
 
 
-def workspace_id_for_path(value: str | Path) -> str | None:
+def vault_id_for_path(value: str | Path) -> str | None:
     try:
         target = Path(value).expanduser().resolve()
     except (OSError, RuntimeError, TypeError):
         return None
     candidates: list[tuple[int, str, Path]] = []
-    for row in paths.read_workspace_registry().get("workspaces") or []:
+    for row in paths.read_vault_registry().get("vaults") or []:
         try:
             root = Path(str(row["path"])).expanduser().resolve()
         except (KeyError, OSError):
             continue
         candidates.append((len(root.parts), str(row["id"]), root))
-    for _depth, workspace_id, root in sorted(candidates, reverse=True):
+    for _depth, vault_id, root in sorted(candidates, reverse=True):
         if target == root or root in target.parents:
-            return workspace_id
+            return vault_id
     try:
         framework = paths.find_framework_root().expanduser().resolve()
         if target == framework or framework in target.parents:
-            return HOME_WORKSPACE
+            return HOME_VAULT
     except Exception:
         pass
     return None
 
 
-def first_allowed_workspace(row: dict[str, Any] | None) -> str | None:
-    allowed = allowed_workspace_ids(row)
-    for workspace in paths.read_workspace_registry().get("workspaces") or []:
-        workspace_id = str(workspace.get("id") or "")
-        if workspace_id and (is_admin(row) or workspace_id in allowed):
-            return workspace_id
+def first_allowed_vault(row: dict[str, Any] | None) -> str | None:
+    allowed = allowed_vault_ids(row)
+    for vault in paths.read_vault_registry().get("vaults") or []:
+        vault_id = str(vault.get("id") or "")
+        if vault_id and (is_admin(row) or vault_id in allowed):
+            return vault_id
     return None
 
 
-def workspace_root_for_id(workspace_id: str) -> Path | None:
-    for row in paths.read_workspace_registry().get("workspaces") or []:
-        if str(row.get("id")) != workspace_id:
+def vault_root_for_id(vault_id: str) -> Path | None:
+    for row in paths.read_vault_registry().get("vaults") or []:
+        if str(row.get("id")) != vault_id:
             continue
         try:
             return Path(str(row["path"])).expanduser().resolve()
@@ -446,15 +446,15 @@ def workspace_root_for_id(workspace_id: str) -> Path | None:
 
 
 def request_root(request: Request) -> Path:
-    """Return the workspace root selected and authorized for this request."""
-    scoped = getattr(getattr(request, "state", None), "auth_workspace_root", None)
+    """Return the vault root selected and authorized for this request."""
+    scoped = getattr(getattr(request, "state", None), "auth_vault_root", None)
     if scoped is not None:
         return Path(scoped).expanduser().resolve()
     return Path(request.app.state.index_cache.root).expanduser().resolve()
 
 
 def request_index(request: Request) -> dict[str, Any]:
-    """Read the request workspace index without switching global state."""
+    """Read the request vault index without switching global state."""
     root = request_root(request)
     cache = request.app.state.index_cache
     if Path(cache.root).expanduser().resolve() == root:
@@ -475,14 +475,14 @@ _ADMIN_PREFIXES = (
     "/api/log/tail",
 )
 _ADMIN_EXACT = {
-    "/api/workspaces/use",
+    "/api/vaults/use",
     "/api/agents/sync",
 }
 _GLOBAL_FILTERED_GETS = {
-    "/api/workspaces",
-    "/api/workspaces/projects",
+    "/api/vaults",
+    "/api/vaults/workspaces",
     "/api/servers",
-    "/api/term/projects-with-sessions",
+    "/api/term/workspaces-with-sessions",
 }
 _GLOBAL_USER_ENDPOINTS = {
     "/api/agents/available",
@@ -498,7 +498,7 @@ def _is_admin_only_request(request: Request) -> bool:
         return True
     if path == "/api/settings" and request.method != "GET":
         return True
-    if path == "/api/workspaces" and request.method != "GET":
+    if path == "/api/vaults" and request.method != "GET":
         return True
     if path == "/logs":
         return True
@@ -518,12 +518,12 @@ async def _json_request_body(request: Request) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _workspace_from_route_path(path: str) -> str | None:
+def _vault_from_route_path(path: str) -> str | None:
     patterns = (
-        r"^/api/workspace-proxy/([^/]+)(?:/|$)",
+        r"^/api/vault-proxy/([^/]+)(?:/|$)",
         r"^/api/servers/([^/]+)(?:/|$)",
-        r"^/ws/workspace-proxy/([^/]+)(?:/|$)",
-        r"^/api/workspaces/([^/]+)/(?:appearance)(?:/|$)",
+        r"^/ws/vault-proxy/([^/]+)(?:/|$)",
+        r"^/api/vaults/([^/]+)/(?:appearance)(?:/|$)",
     )
     for pattern in patterns:
         match = re.match(pattern, path)
@@ -540,25 +540,25 @@ def _referer_scope(request: Request) -> tuple[str | None, str | None]:
         query = parse_qs(urlparse(raw).query)
     except ValueError:
         return None, None
-    workspace = (query.get("workspace") or [None])[0]
-    for key in ("project", "repo"):
+    vault = (query.get("vault") or [None])[0]
+    for key in ("workspace", "repo"):
         value = (query.get(key) or [None])[0]
         if value and Path(value).is_absolute():
-            return workspace, value
-    return workspace, None
+            return vault, value
+    return vault, None
 
 
 async def _request_scope(request: Request) -> tuple[str | None, str | None, str | None]:
-    """Return (workspace id, absolute resource path, pseudo project id)."""
+    """Return (vault id, absolute resource path, pseudo workspace id)."""
     body = await _json_request_body(request)
-    workspace = request.query_params.get("workspace") or _workspace_from_route_path(request.url.path)
-    if not workspace:
-        raw_workspace = body.get("workspace")
-        if isinstance(raw_workspace, str) and raw_workspace:
-            workspace = raw_workspace
+    vault = request.query_params.get("vault") or _vault_from_route_path(request.url.path)
+    if not vault:
+        raw_vault = body.get("vault")
+        if isinstance(raw_vault, str) and raw_vault:
+            vault = raw_vault
 
     resource: str | None = None
-    for key in ("repo", "project", "path", "cwd"):
+    for key in ("repo", "workspace", "path", "cwd"):
         value = request.query_params.get(key)
         if isinstance(value, str) and value and Path(value).is_absolute():
             resource = value
@@ -567,14 +567,14 @@ async def _request_scope(request: Request) -> tuple[str | None, str | None, str 
         if isinstance(value, str) and value and Path(value).is_absolute():
             resource = value
             break
-    referer_workspace, referer_resource = _referer_scope(request)
-    workspace = workspace or referer_workspace
+    referer_vault, referer_resource = _referer_scope(request)
+    vault = vault or referer_vault
     if resource is None:
         resource = referer_resource
 
     pseudo: str | None = None
-    candidates = [request.url.path, request.query_params.get("project_id") or ""]
-    for key in ("project_id", "id"):
+    candidates = [request.url.path, request.query_params.get("workspace_id") or ""]
+    for key in ("workspace_id", "id"):
         value = body.get(key)
         if isinstance(value, str):
             candidates.append(value)
@@ -583,18 +583,23 @@ async def _request_scope(request: Request) -> tuple[str | None, str | None, str 
         if match:
             pseudo = match.group(0)
             break
-    return workspace, resource, pseudo
+    return vault, resource, pseudo
 
 
-def _no_workspace_page(row: dict[str, Any]) -> HTMLResponse:
+def _no_vault_page(row: dict[str, Any]) -> HTMLResponse:
     name = escape(str(row.get("name") or row.get("username") or "User"))
-    body = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>No workspace access</title>
+    body = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>No vault access</title>
     <style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}}main{{max-width:520px;padding:32px;border:1px solid #30363d;border-radius:10px;background:#161b22}}p{{color:#8b949e;line-height:1.6}}button{{border:1px solid #30363d;border-radius:6px;background:#21262d;color:#e6edf3;padding:8px 12px;cursor:pointer}}</style></head>
-    <body><div id=\"__js_errors__\" data-errors=\"\" style=\"display:none\"></div><main><h1>No workspace assigned</h1><p>{name}, an admin needs to grant your account access to a workspace.</p><button id=\"signout\">Sign out</button></main><script>document.getElementById('signout').onclick=async()=>{{try{{await fetch('/api/auth/logout',{{method:'POST'}})}}catch{{}}location.replace('/login')}}</script></body></html>"""
+    <body><div id=\"__js_errors__\" data-errors=\"\" style=\"display:none\"></div><main><h1>No vault assigned</h1><p>{name}, an admin needs to grant your account access to a vault.</p><button id=\"signout\">Sign out</button></main><script>document.getElementById('signout').onclick=async()=>{{try{{await fetch('/api/auth/logout',{{method:'POST'}})}}catch{{}}location.replace('/login')}}</script></body></html>"""
     return HTMLResponse(body, status_code=403)
 
 
 async def http_auth_middleware(request: Request, call_next) -> Response:
+    if request.url.path == "/":
+        from core.naming_compat import legacy_link_redirect
+        redirect = legacy_link_redirect(request)
+        if redirect is not None:
+            return redirect
     path = request.url.path
     if (
         path == "/api/ping"
@@ -617,18 +622,18 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
     request.state.auth_user = row
     request.state.auth_method = "local_cli" if local_cli else "session"
 
-    workspace, resource, pseudo = await _request_scope(request)
-    owner = workspace_id_for_path(resource) if resource else None
-    scoped_workspace = workspace or (owner if owner != HOME_WORKSPACE else None)
-    scoped_root = workspace_root_for_id(scoped_workspace) if scoped_workspace else None
-    if owner == HOME_WORKSPACE and is_admin(row):
+    vault, resource, pseudo = await _request_scope(request)
+    owner = vault_id_for_path(resource) if resource else None
+    scoped_vault = vault or (owner if owner != HOME_VAULT else None)
+    scoped_root = vault_root_for_id(scoped_vault) if scoped_vault else None
+    if owner == HOME_VAULT and is_admin(row):
         try:
             scoped_root = paths.find_framework_root().expanduser().resolve()
         except Exception:
             scoped_root = None
     # The Assistant database is intentionally outside both the framework and
-    # registered workspaces. Admin-only explorer requests still need the
-    # selected folder as their authorization root so the standard project
+    # registered vaults. Admin-only explorer requests still need the
+    # selected folder as their authorization root so the standard workspace
     # sidebar can read and manage its files without opening arbitrary paths.
     if resource and is_admin(row):
         try:
@@ -642,13 +647,13 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
         except (OSError, RuntimeError):
             pass
     if scoped_root is not None:
-        request.state.auth_workspace_root = scoped_root
+        request.state.auth_vault_root = scoped_root
 
-    # A local CLI request names its workspace explicitly when it is not using
+    # A local CLI request names its vault explicitly when it is not using
     # the server's active one. Never silently execute against the active root
     # when that id is stale or misspelled.
-    if local_cli and workspace and scoped_root is None:
-        return JSONResponse({"detail": "workspace not found"}, status_code=404)
+    if local_cli and vault and scoped_root is None:
+        return JSONResponse({"detail": "vault not found"}, status_code=404)
 
     if is_admin(row):
         return await call_next(request)
@@ -658,37 +663,37 @@ async def http_auth_middleware(request: Request, call_next) -> Response:
 
     if path == "/":
         view = request.query_params.get("view") or ""
-        has_resource = bool(request.query_params.get("project") or request.query_params.get("repo"))
+        has_resource = bool(request.query_params.get("workspace") or request.query_params.get("repo"))
         if (not view and not has_resource) or view in {"productivity", "cerebro", "code-search", "logs"}:
-            workspace = first_allowed_workspace(row)
-            if workspace is None:
-                return _no_workspace_page(row)
+            vault = first_allowed_vault(row)
+            if vault is None:
+                return _no_vault_page(row)
             return RedirectResponse(
-                url=f"/?view=workspace&workspace={quote(workspace, safe='')}", status_code=303,
+                url=f"/?view=vault&vault={quote(vault, safe='')}", status_code=303,
             )
 
     if pseudo is not None:
         return JSONResponse({"detail": "admin access required"}, status_code=403)
-    if workspace:
-        if not can_access_workspace(row, workspace):
-            return JSONResponse({"detail": "workspace not found"}, status_code=404)
+    if vault:
+        if not can_access_vault(row, vault):
+            return JSONResponse({"detail": "vault not found"}, status_code=404)
         return await call_next(request)
     if resource:
-        owner = workspace_id_for_path(resource)
-        if owner == HOME_WORKSPACE:
+        owner = vault_id_for_path(resource)
+        if owner == HOME_VAULT:
             return JSONResponse({"detail": "admin access required"}, status_code=403)
-        if owner is None or not can_access_workspace(row, owner):
+        if owner is None or not can_access_vault(row, owner):
             return JSONResponse({"detail": "resource not found"}, status_code=404)
         return await call_next(request)
 
-    if request.method == "GET" and path == "/api/term/sessions" and not request.query_params.get("project_id"):
+    if request.method == "GET" and path == "/api/term/sessions" and not request.query_params.get("workspace_id"):
         return await call_next(request)
     if path in _GLOBAL_FILTERED_GETS or path in _GLOBAL_USER_ENDPOINTS:
         return await call_next(request)
 
-    default_workspace = first_allowed_workspace(row)
-    default_root = workspace_root_for_id(default_workspace) if default_workspace else None
+    default_vault = first_allowed_vault(row)
+    default_root = vault_root_for_id(default_vault) if default_vault else None
     if default_root is not None:
-        request.state.auth_workspace_root = default_root
+        request.state.auth_vault_root = default_root
         return await call_next(request)
-    return JSONResponse({"detail": "workspace not found"}, status_code=404)
+    return JSONResponse({"detail": "vault not found"}, status_code=404)

@@ -137,8 +137,8 @@
   }
 
   // ─── Resource-unavailable banner ─────────────────────────────────────────
-  // Backend routes that walk the workspace tree (core/fsguard.py) return a
-  // 503 with a plain-English `detail` when the workspace volume stalls or
+  // Backend routes that walk the vault tree (core/fsguard.py) return a
+  // 503 with a plain-English `detail` when the vault volume stalls or
   // goes away (e.g. a disconnected USB SSD), instead of just hanging. Every
   // fetch already flows through the wrapper below, so this is the one place
   // that can reliably surface that message to the user regardless of which
@@ -195,9 +195,9 @@
 
   window.labShowResourceBanner = _showResourceBanner;
 
-  // Same signal, as a DOM event -- lets other UI (e.g. the project tab
+  // Same signal, as a DOM event -- lets other UI (e.g. the workspace tab
   // strip) react to a 503 without depending on the banner directly, and
-  // without this file knowing anything about tabs/projects. Dispatched on
+  // without this file knowing anything about tabs/workspaces. Dispatched on
   // `window` so any listener registered anywhere picks it up.
   function _dispatchResourceEvent(type, detail) {
     try {
@@ -293,7 +293,7 @@
           href: url,
         }, level === 'error');
         if (status === 503 && resp && typeof resp.clone === 'function') {
-          // fsguard-style "workspace unavailable" response. Clone so the
+          // fsguard-style "vault unavailable" response. Clone so the
           // caller can still read the original body via resp.json()/.text().
           try {
             resp.clone().json().then(function (body) {

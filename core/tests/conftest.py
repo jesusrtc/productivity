@@ -18,13 +18,13 @@ from fastapi.testclient import TestClient
 def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Minimal monorepo for backend tests. Mirrors lab's fixture."""
     root = tmp_path / "productivity"
-    (root / "projects").mkdir(parents=True)
+    (root / "workspaces").mkdir(parents=True)
     (root / "content" / "meetings").mkdir(parents=True)
     (root / ".git").mkdir()
-    # LAB_WORKSPACE wins over LAB_ROOT in find_workspace_root(); a developer
+    # LAB_VAULT wins over LAB_ROOT in find_vault_root(); a developer
     # shell that exports it would otherwise point every test's app at their
-    # real workspace (and hang/fail when that volume is unplugged).
-    monkeypatch.setenv("LAB_WORKSPACE", str(root))
+    # real vault (and hang/fail when that volume is unplugged).
+    monkeypatch.setenv("LAB_VAULT", str(root))
     monkeypatch.setenv("LAB_ROOT", str(root))
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home"))
     monkeypatch.setenv("LAB_WATCHER_OBSERVER", "polling")
@@ -40,13 +40,13 @@ def monorepo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture()
-def seed_project(monorepo: Path):
-    def _create(project_id: str = "demo", *, description: str = "") -> Path:
-        pdir = monorepo / "projects" / project_id
+def seed_workspace(monorepo: Path):
+    def _create(workspace_id: str = "demo", *, description: str = "") -> Path:
+        pdir = monorepo / "workspaces" / workspace_id
         pdir.mkdir(parents=True)
-        (pdir / "project.json").write_text(json.dumps({
-            "id": project_id,
-            "name": project_id,
+        (pdir / "workspace.json").write_text(json.dumps({
+            "id": workspace_id,
+            "name": workspace_id,
             "description": description,
             "status": "active",
             "tags": [],
@@ -232,11 +232,11 @@ def resource_snapshot() -> Iterator[Callable[[], None]]:
 def tmp_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Return the per-test app log directory.
 
-    The lifespan hook writes the three app logs under workspace-local
+    The lifespan hook writes the three app logs under vault-local
     ``.lab/state/logs``; this fixture centralizes that path for tests that
     need direct file assertions.
     """
-    # Lifespan creates logs under workspace-local .lab/state; this just computes the path
+    # Lifespan creates logs under vault-local .lab/state; this just computes the path
     # so tests can locate app log files without hardcoding it.
     root = Path(os.environ.get("LAB_ROOT", tmp_path))
     from lab import paths

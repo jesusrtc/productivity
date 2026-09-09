@@ -1,8 +1,8 @@
 """Host-local Jupyter kernel sessions used by Lab notebooks.
 
 Each notebook path owns one long-lived kernel.  The kernel is started with the
-exact interpreter and environment selected by the project's runtime config,
-so imported libraries and subprocess/CLI calls see the same project runtime.
+exact interpreter and environment selected by the workspace's runtime config,
+so imported libraries and subprocess/CLI calls see the same workspace runtime.
 All ZeroMQ work for a session stays on one worker thread; jupyter-client's
 sockets are not moved between FastAPI worker threads.
 """
@@ -69,7 +69,7 @@ class _KernelProcess:
         manager = KernelManager(kernel_name="python3")
         # A generated kernelspec is unnecessary and would leak global state.
         # Mutating this per-manager in-memory spec gives Jupyter the exact
-        # project interpreter while keeping connection-file handling native.
+        # workspace interpreter while keeping connection-file handling native.
         manager.kernel_spec.argv = [
             self.handle.python,
             "-m",
@@ -355,7 +355,7 @@ class _KernelSession:
 
     def close_sync(self) -> None:
         # Wake a sleeping cell before queueing shutdown behind it. Without the
-        # signal, workspace switching could wait for the cell's full timeout.
+        # signal, vault switching could wait for the cell's full timeout.
         try:
             self.process.interrupt()
         except Exception:

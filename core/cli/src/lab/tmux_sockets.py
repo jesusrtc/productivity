@@ -8,8 +8,8 @@ active and one draining. Once the draining generation has no Lab sessions it
 is removed from the routing file, returning steady-state discovery cost to one
 tmux command.
 
-This is framework-level runtime state, shared by every registered workspace.
-It lives under ``LAB_HOME`` rather than in any workspace's project metadata.
+This is framework-level runtime state, shared by every registered vault.
+It lives under ``LAB_HOME`` rather than in any vault's workspace metadata.
 """
 from __future__ import annotations
 

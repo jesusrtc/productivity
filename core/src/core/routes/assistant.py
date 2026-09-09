@@ -1,6 +1,8 @@
 """API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
+from lab import naming
+
 import os
 import re
 from pathlib import Path
@@ -135,7 +137,7 @@ def get_assistant(request: Request) -> dict:
             "configured": False,
             "exists": False,
             "root": None,
-            "projects": [],
+            "workspaces": [],
             "tasks": [],
             "meetings": [],
             "statuses": list(assistant_db.STATUSES),
@@ -146,16 +148,16 @@ def get_assistant(request: Request) -> dict:
             "configured": True,
             "exists": False,
             "root": str(root),
-            "projects": [],
+            "workspaces": [],
             "tasks": [],
             "meetings": [],
             "statuses": list(assistant_db.STATUSES),
             "priorities": list(assistant_db.PRIORITIES),
         }
 
-    projects = list(assistant_db.iter_projects(root))
+    workspaces = list(assistant_db.iter_workspaces(root))
     tasks = []
-    for task in assistant_db.iter_tasks(root, projects):
+    for task in assistant_db.iter_tasks(root, workspaces):
         row = dict(task)
         body = str(row.pop("body", ""))
         for key in ("subtasks", "first_class_subtasks"):
@@ -176,7 +178,7 @@ def get_assistant(request: Request) -> dict:
         tasks.append(row)
     tasks.sort(key=_task_sort_key)
     meetings = []
-    for meeting in assistant_db.iter_meetings(root, projects):
+    for meeting in assistant_db.iter_meetings(root, workspaces):
         row = dict(meeting)
         body = str(row.pop("body", ""))
         row["summary"] = _summary(body)
@@ -190,7 +192,7 @@ def get_assistant(request: Request) -> dict:
         "exists": True,
         "initialized": (root / "AGENTS.md").is_file(),
         "root": str(root),
-        "projects": projects,
+        "workspaces": workspaces,
         "tasks": tasks,
         "meetings": meetings,
         "statuses": list(assistant_db.STATUSES),
@@ -202,7 +204,7 @@ def _safe_markdown_path(root: Path, relative: str, collection: str | None = None
     rel = Path(relative)
     if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".md":
         raise HTTPException(status_code=400, detail="invalid Assistant document path")
-    if len(rel.parts) != 4 or rel.parts[0] != "projects":
+    if len(rel.parts) != 4 or rel.parts[0] != naming.workspaces_dir(root).name:
         raise HTTPException(status_code=400, detail="invalid Assistant document path")
     if collection and rel.parts[-2] != collection:
         raise HTTPException(status_code=400, detail=f"invalid {collection} path")
@@ -231,15 +233,15 @@ def get_task(path: str, request: Request) -> dict:
     root = _require_root(request)
     source = _safe_task_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
-    project_id = str(metadata.get("project") or source.parent.parent.name)
-    project_source = root / "projects" / project_id / "project.md"
-    project: dict = {}
-    if project_source.is_file():
-        project, _ = assistant_db.read_markdown(project_source)
+    workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
+    workspace_source = naming.workspace_document_file(naming.workspaces_dir(root) / workspace_id)
+    workspace: dict = {}
+    if workspace_source.is_file():
+        workspace, _ = assistant_db.read_markdown(workspace_source)
     subtasks = []
     parent_id = str(metadata.get("id") or source.stem)
     for child in assistant_db.iter_subtasks(root):
-        if str(child.get("parent_project") or child.get("project")) != project_id or str(child.get("parent")) != parent_id:
+        if str(child.get("parent_workspace") or child.get("workspace")) != workspace_id or str(child.get("parent")) != parent_id:
             continue
         item = dict(child)
         child_body = str(item.pop("body", ""))
@@ -251,7 +253,7 @@ def get_task(path: str, request: Request) -> dict:
     return {
         "path": str(source.relative_to(root)),
         "metadata": metadata,
-        "project": project,
+        "workspace": workspace,
         "body": body,
         "tldr": str(metadata.get("tldr") or _summary(body)),
         "subtasks": subtasks,
@@ -263,15 +265,15 @@ def get_meeting(path: str, request: Request) -> dict:
     root = _require_root(request)
     source = _safe_meeting_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
-    project_id = str(metadata.get("project") or source.parent.parent.name)
-    project_source = root / "projects" / project_id / "project.md"
-    project: dict = {}
-    if project_source.is_file():
-        project, _ = assistant_db.read_markdown(project_source)
+    workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
+    workspace_source = naming.workspace_document_file(naming.workspaces_dir(root) / workspace_id)
+    workspace: dict = {}
+    if workspace_source.is_file():
+        workspace, _ = assistant_db.read_markdown(workspace_source)
     return {
         "path": str(source.relative_to(root)),
         "metadata": metadata,
-        "project": project,
+        "workspace": workspace,
         "body": body,
         "tldr": str(metadata.get("tldr") or _summary(body)),
     }
@@ -282,15 +284,15 @@ def get_subtask(path: str, request: Request) -> dict:
     root = _require_root(request)
     source = _safe_subtask_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
-    project_id = str(metadata.get("project") or source.parent.parent.name)
-    project_source = root / "projects" / project_id / "project.md"
-    project: dict = {}
-    if project_source.is_file():
-        project, _ = assistant_db.read_markdown(project_source)
+    workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
+    workspace_source = naming.workspace_document_file(naming.workspaces_dir(root) / workspace_id)
+    workspace: dict = {}
+    if workspace_source.is_file():
+        workspace, _ = assistant_db.read_markdown(workspace_source)
     return {
         "path": str(source.relative_to(root)),
         "metadata": metadata,
-        "project": project,
+        "workspace": workspace,
         "body": body,
         "tldr": str(metadata.get("tldr") or _summary(body)),
     }
@@ -306,15 +308,15 @@ def _inside(target: Path, parent: Path) -> bool:
 def _allowed_asset_roots(root: Path, task_path: Path) -> list[Path]:
     allowed = [root.resolve()]
     metadata, _ = assistant_db.read_markdown(task_path)
-    project_id = str(metadata.get("project") or task_path.parent.parent.name)
-    project_source = root / "projects" / project_id / "project.md"
-    if project_source.is_file():
-        project, _ = assistant_db.read_markdown(project_source)
-        for key in ("workspace_path", "project_path"):
-            raw = project.get(key)
+    workspace_id = str(metadata.get("workspace") or task_path.parent.parent.name)
+    workspace_source = naming.workspace_document_file(naming.workspaces_dir(root) / workspace_id)
+    if workspace_source.is_file():
+        workspace, _ = assistant_db.read_markdown(workspace_source)
+        for key in ("vault_path", "workspace_path"):
+            raw = workspace.get(key)
             if isinstance(raw, str) and raw:
                 allowed.append(Path(raw).expanduser().resolve())
-    for row in paths.read_workspace_registry().get("workspaces") or []:
+    for row in paths.read_vault_registry().get("vaults") or []:
         raw = row.get("path")
         if isinstance(raw, str) and raw:
             allowed.append(Path(raw).expanduser().resolve())
@@ -331,7 +333,7 @@ def get_asset(task: str, src: str, request: Request):
     raw = Path(src).expanduser()
     target = raw.resolve() if raw.is_absolute() else (task_path.parent / raw).resolve()
     if not any(_inside(target, allowed) for allowed in _allowed_asset_roots(root, task_path)):
-        raise HTTPException(status_code=403, detail="asset is outside Assistant/project roots")
+        raise HTTPException(status_code=403, detail="asset is outside Assistant/workspace roots")
     if not target.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
     return FileResponse(target)

@@ -5,27 +5,27 @@ from datetime import date
 import click
 
 from lab import paths, storage
-from lab.commands._helpers import resolve_project_id as _resolve_project_id
+from lab.commands._helpers import resolve_workspace_id as _resolve_workspace_id
 
 
 @click.group(name="pr")
 def pr_group() -> None:
-    """Track PRs associated with a project."""
+    """Track PRs associated with a workspace."""
 
 
 @pr_group.command("add")
 @click.argument("url")
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 @click.option("--mp", default="")
 @click.option("--title", default="")
 @click.option("--status", type=click.Choice(["open", "merged", "closed", "draft"]), default="open")
-def add(url: str, project_id: str | None, mp: str, title: str, status: str) -> None:
-    """Append a PR entry to project.json.prs[]."""
+def add(url: str, workspace_id: str | None, mp: str, title: str, status: str) -> None:
+    """Append a PR entry to workspace.json.prs[]."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     data.setdefault("prs", [])
     entry = {
@@ -42,14 +42,14 @@ def add(url: str, project_id: str | None, mp: str, title: str, status: str) -> N
 
 
 @pr_group.command("ls")
-@click.option("--project", "project_id", default=None)
-def ls(project_id: str | None) -> None:
-    """List PRs for a project."""
+@click.option("--workspace", "workspace_id", default=None)
+def ls(workspace_id: str | None) -> None:
+    """List PRs for a workspace."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     prs = storage.read_json(pjson).get("prs", [])
     if not prs:
         click.echo("(no PRs)")
@@ -63,14 +63,14 @@ def ls(project_id: str | None) -> None:
 
 @pr_group.command("rm")
 @click.argument("idx", type=int)
-@click.option("--project", "project_id", default=None)
-def rm(idx: int, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def rm(idx: int, workspace_id: str | None) -> None:
     """Remove PR at index."""
     root = paths.find_monorepo_root()
-    pid = _resolve_project_id(project_id)
-    pjson = paths.project_file(root, pid)
+    pid = _resolve_workspace_id(workspace_id)
+    pjson = paths.workspace_file(root, pid)
     if not pjson.is_file():
-        raise click.ClickException(f"project {pid!r} not found")
+        raise click.ClickException(f"workspace {pid!r} not found")
     data = storage.read_json(pjson)
     prs = data.get("prs", [])
     if idx < 0 or idx >= len(prs):

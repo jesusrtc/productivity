@@ -2,7 +2,7 @@
 name: sidebar-tree-indentation-recurses
 description: "Sidebar indentation must scale with arbitrary folder depth"
 metadata:
-  type: project
+  type: workspace
 ---
 
 Lab file trees can be arbitrarily deep. Indentation and guide CSS must recurse

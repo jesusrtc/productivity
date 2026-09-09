@@ -12,9 +12,9 @@ venv/
 content/
 knowledge/
 
-# Projects (popped out of content/ to the repo root; same untracked model —
-# each project folder may hold git worktrees + per-project .agents/memory).
-projects/
+# Workspaces (popped out of content/ to the repo root; same untracked model —
+# each workspace folder may hold git worktrees + per-workspace .agents/memory).
+workspaces/
 
 # Monorepo runtime (state, terminal-pastes, logs — never tracked)
 repositories/
@@ -49,7 +49,7 @@ core/.coverage
 .devserver.pid
 .playwright-mcp/
 .claude/settings.local.json
-projects/*/.claude/settings.local.json
+workspaces/*/.claude/settings.local.json
 
 # Centralized server + client error logs
 logs/
@@ -59,3 +59,6 @@ logs/
 # `repositories/trustim-investigation/skills/` so they're machine-
 # specific and don't belong in the tree.
 .claude/skills/investigation-*
+
+# Existing vaults may retain their pre-rename workspace directory.
+projects/

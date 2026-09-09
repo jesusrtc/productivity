@@ -1,6 +1,6 @@
 # Lab
 
-Lab is a local productivity framework: this repo owns the CLI, backend, UI, tests, and packaging. User work lives in separate workspace repos created with `lab init`.
+Lab is a local productivity framework: this repo owns the CLI, backend, UI, tests, and packaging. User work lives in separate vault repos created with `lab init`.
 
 ## Install
 
@@ -18,21 +18,19 @@ cd ~/work/my-lab
 lab start
 ```
 
-`lab init` creates a workspace repo with `projects/`, `content/`, `docs/`, `skills/`, `scripts/`, `apps/`, `repositories/`, `.agents/memory/`, and workspace-local `.lab/state/`.
+`lab init` creates a vault repo with `workspaces/`, `content/`, `docs/`, `skills/`, `scripts/`, `apps/`, `repositories/`, `.agents/memory/`, and vault-local `.lab/state/`.
 
-Use `lab workspace list`, `lab workspace use <path>`, or the UI dropdown to switch workspaces. Only the active workspace is indexed and watched.
+Use `lab vault list` and `lab vault use <path>` to select the default vault. In the UI, workspaces from multiple vaults can remain open together. Home is the permanent framework destination; Assistant manages tasks across vaults.
 
-The Logs and Productivity tabs are always visible. Logs expose framework runtime
-diagnostics; Productivity opens the Lab framework repo itself so framework tasks
-and commits stay reachable even while a workspace is active.
+The naming hierarchy is **Vault → Workspace → Terminal**. See [Naming and compatibility](docs/NAMING.md) for commands, configuration, and support for existing Local and SSD vaults.
 
 ## Layout
 
 - `core/cli/` - installable `lab` CLI.
 - `core/` - FastAPI/WS backend, UI assets, and framework-owned CLI.
-- `apps/` - reserved for workspace/client apps; framework code should not live here.
+- `apps/` - reserved for vault/client apps; framework code should not live here.
 - `docs/framework-migration-changelog.md` - changelog and migration guide for older Lab versions.
-- `docs/productivity-framework-proposal.md` - workspace/framework split proposal and migration plan.
+- `docs/productivity-framework-proposal.md` - vault/framework split proposal and migration plan.
 - `docs/superpowers/` - older specs and plans.
 
-Generated runtime state belongs in the active workspace under `.lab/state/`; global config is limited to `~/.lab/workspaces.toml`.
+Generated runtime state belongs in the active vault under `.lab/state/`; global config is limited to `~/.lab/vaults.toml`.

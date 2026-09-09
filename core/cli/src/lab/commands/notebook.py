@@ -12,13 +12,13 @@ from urllib.parse import urlsplit
 
 import click
 
-from lab import paths
+from lab import naming, paths
 from lab.commands.service import server_port
 
 
-def _workspace_id(root: Path) -> str | None:
+def _vault_id(root: Path) -> str | None:
     wanted = root.expanduser().resolve()
-    for row in paths.read_workspace_registry().get("workspaces") or []:
+    for row in paths.read_vault_registry().get("vaults") or []:
         try:
             registered = Path(str(row.get("path") or "")).expanduser().resolve()
         except OSError:
@@ -32,7 +32,7 @@ def _notebook_path(root: Path, value: str) -> str:
     raw = Path(value).expanduser()
     if raw.is_absolute():
         target = raw.resolve()
-    elif raw.parts and raw.parts[0] == "projects":
+    elif raw.parts and raw.parts[0] in {"workspaces", naming.workspaces_dir(root).name}:
         target = (root / raw).resolve()
     else:
         target = (Path.cwd() / raw).resolve()
@@ -40,7 +40,7 @@ def _notebook_path(root: Path, value: str) -> str:
         relative = target.relative_to(root.resolve())
     except ValueError as exc:
         raise click.ClickException(
-            f"notebook must live under workspace {root}: {target}"
+            f"notebook must live under vault {root}: {target}"
         ) from exc
     if relative.suffix.lower() != ".ipynb":
         raise click.ClickException("notebook path must end in .ipynb")
@@ -132,9 +132,9 @@ def exec_cell(path: str, code: str | None, code_file: Path | None,
     if not source.strip():
         raise click.ClickException("cell source is empty")
 
-    root = paths.find_workspace_root()
+    root = paths.find_vault_root()
     relative = _notebook_path(root, path)
-    workspace = _workspace_id(root)
+    vault = _vault_id(root)
     url = (base_url or f"http://localhost:{server_port(root)}").rstrip("/")
 
     jar = http.cookiejar.CookieJar()
@@ -155,8 +155,8 @@ def exec_cell(path: str, code: str | None, code_file: Path | None,
         "timeout": timeout,
         "code": source,
     }
-    if workspace:
-        payload["workspace"] = workspace
+    if vault:
+        payload["vault"] = vault
     if cell_id:
         payload["cell_id"] = cell_id
 

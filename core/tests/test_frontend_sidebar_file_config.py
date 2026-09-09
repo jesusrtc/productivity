@@ -58,11 +58,11 @@ process.stdout.write(JSON.stringify({sql, uppercase, scala, plain}));
     assert 'class="ft-icon ft-generic"' in result["plain"]
 
 
-def test_pinned_files_remain_in_the_normal_project_tree() -> None:
+def test_pinned_files_remain_in_the_normal_workspace_tree() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     sidebar = _between(
-        "async function _refreshProjectSidebar",
-        "function paintProjectShell()",
+        "async function _refreshWorkspaceSidebar",
+        "function paintWorkspaceShell()",
     )
 
     assert "const otherFiles = fileEntries;" in sidebar
@@ -88,7 +88,7 @@ const localStorage = {
   getItem(key) { return stored[key] || null; },
   setItem(key, value) { stored[key] = value; },
 };
-const currentProject = {path: '/workspace/project'};
+const currentWorkspace = {path: '/vault/workspace'};
 const document = {addEventListener() {}};
 const window = {};
 """
@@ -116,10 +116,10 @@ process.stdout.write(JSON.stringify({
   loadedRecentMinutes,
   markdown: _sidebarFileExtension('README.md'),
   extensionless: _sidebarFileExtension('Makefile'),
-  absoluteFolder: _sidebarNormalizeFolderPath('/workspace/projects/alpha'),
-  relativeFolder: _sidebarNormalizeFolderPath('projects/alpha', '/workspace'),
-  parentFolder: _sidebarNormalizeFolderPath('../alpha', '/workspace/projects'),
-  homeWorktrees: _sidebarNormalizeWorktreeFolder('~/worktrees', '/workspace'),
+  absoluteFolder: _sidebarNormalizeFolderPath('/vault/workspaces/alpha'),
+  relativeFolder: _sidebarNormalizeFolderPath('workspaces/alpha', '/vault'),
+  parentFolder: _sidebarNormalizeFolderPath('../alpha', '/vault/workspaces'),
+  homeWorktrees: _sidebarNormalizeWorktreeFolder('~/worktrees', '/vault'),
 }));
 """
     )
@@ -129,9 +129,9 @@ process.stdout.write(JSON.stringify({
         "loadedRecentMinutes": 1440,
         "markdown": "md",
         "extensionless": "__none__",
-        "absoluteFolder": "/workspace/projects/alpha",
-        "relativeFolder": "/workspace/projects/alpha",
-        "parentFolder": "/workspace/alpha",
+        "absoluteFolder": "/vault/workspaces/alpha",
+        "relativeFolder": "/vault/workspaces/alpha",
+        "parentFolder": "/vault/alpha",
         "homeWorktrees": "~/worktrees",
     }
 
@@ -152,7 +152,7 @@ def test_recent_and_main_file_sort_modes_are_independent() -> None:
     result = _run_node(
         """
 const stored = {
-  'labSidebarFileConfig-v2:%2Fworkspace%2Fproject': JSON.stringify({
+  'labSidebarFileConfig-v2:%2Fvault%2Fworkspace': JSON.stringify({
     recentSort: 'type',
     filesSort: 'updated',
   }),
@@ -161,7 +161,7 @@ const localStorage = {
   getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
   setItem(key, value) { stored[key] = value; },
 };
-const currentProject = {path: '/workspace/project'};
+const currentWorkspace = {path: '/vault/workspace'};
 const document = {addEventListener() {}};
 const window = {};
 """
@@ -254,7 +254,7 @@ const localStorage = {
   getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
   setItem(key, value) { stored[key] = value; },
 };
-const currentProject = {path: '/workspace/project'};
+const currentWorkspace = {path: '/vault/workspace'};
 const document = {addEventListener() {}};
 const window = {};
 const esc = value => String(value);
@@ -278,7 +278,7 @@ _refreshSidebarAfterFileConfig = async () => { refreshes += 1; };
     value: 'updated',
     getAttribute(name) { return name === 'data-sort-section' ? 'files' : null; },
   });
-  const storageKey = 'labSidebarFileConfig-v2:%2Fworkspace%2Fproject';
+  const storageKey = 'labSidebarFileConfig-v2:%2Fvault%2Fworkspace';
   process.stdout.write(JSON.stringify({
     afterRecent,
     final: _sidebarFileConfig,
@@ -301,7 +301,7 @@ _refreshSidebarAfterFileConfig = async () => { refreshes += 1; };
     assert '<option value="updated" selected>' in result["filesHtml"]
 
 
-def test_sidebar_file_settings_are_isolated_per_project() -> None:
+def test_sidebar_file_settings_are_isolated_per_workspace() -> None:
     helpers = _between(
         "let showDotFiles = false;",
         "function filterDotFiles(nodes)",
@@ -319,7 +319,7 @@ const localStorage = {
   getItem(key) { return Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : null; },
   setItem(key, value) { stored[key] = value; },
 };
-let currentProject = {name: '__self__', path: '/framework'};
+let currentWorkspace = {name: '__self__', path: '/framework'};
 const document = {addEventListener() {}};
 const window = {};
 """
@@ -329,16 +329,16 @@ const selfDefaults = {
   hidden: _sidebarFileConfig.showHidden,
   folders: _sidebarFileConfig.folderScopes.map(row => row.path),
 };
-currentProject = {name: 'a', path: '/workspace/projects/a'};
+currentWorkspace = {name: 'a', path: '/vault/workspaces/a'};
 _sidebarActivateFileConfig();
-const projectA = {
+const workspaceA = {
   hidden: _sidebarFileConfig.showHidden,
   minutes: _sidebarFileConfig.recentMinutes,
   folders: _sidebarFileConfig.folderScopes.map(row => row.path),
 };
-currentProject = {path: '/other-workspace/projects/b'};
+currentWorkspace = {path: '/other-vault/workspaces/b'};
 _sidebarActivateFileConfig();
-const projectBDefaults = {
+const workspaceBDefaults = {
   hidden: _sidebarFileConfig.showHidden,
   minutes: _sidebarFileConfig.recentMinutes,
   folders: _sidebarFileConfig.folderScopes.map(row => row.path),
@@ -346,9 +346,9 @@ const projectBDefaults = {
 _sidebarFileConfig.showRecent = false;
 _sidebarFileConfig.folderScopes = [{path: '/tracked/from-b', label: 'Only B'}];
 _storeSidebarFileConfig();
-currentProject = {path: '/workspace/projects/a'};
+currentWorkspace = {path: '/vault/workspaces/a'};
 _sidebarActivateFileConfig();
-const projectARestored = {
+const workspaceARestored = {
   hidden: _sidebarFileConfig.showHidden,
   recent: _sidebarFileConfig.showRecent,
   folders: _sidebarFileConfig.folderScopes.map(row => row.path),
@@ -358,9 +358,9 @@ const scopedKeys = Object.keys(stored)
   .sort();
 process.stdout.write(JSON.stringify({
   selfDefaults,
-  projectA,
-  projectBDefaults,
-  projectARestored,
+  workspaceA,
+  workspaceBDefaults,
+  workspaceARestored,
   migrationScope: stored['labSidebarFileConfig-v1-migrated'],
   scopedKeys,
 }));
@@ -372,25 +372,25 @@ process.stdout.write(JSON.stringify({
             "hidden": False,
             "folders": [],
         },
-        "projectA": {
+        "workspaceA": {
             "hidden": True,
             "minutes": 120,
             "folders": ["/tracked/from-a"],
         },
-        "projectBDefaults": {
+        "workspaceBDefaults": {
             "hidden": False,
             "minutes": 1440,
             "folders": [],
         },
-        "projectARestored": {
+        "workspaceARestored": {
             "hidden": True,
             "recent": True,
             "folders": ["/tracked/from-a"],
         },
-        "migrationScope": "%2Fworkspace%2Fprojects%2Fa",
+        "migrationScope": "%2Fvault%2Fworkspaces%2Fa",
         "scopedKeys": [
-            "labSidebarFileConfig-v2:%2Fother-workspace%2Fprojects%2Fb",
-            "labSidebarFileConfig-v2:%2Fworkspace%2Fprojects%2Fa",
+            "labSidebarFileConfig-v2:%2Fother-vault%2Fworkspaces%2Fb",
+            "labSidebarFileConfig-v2:%2Fvault%2Fworkspaces%2Fa",
         ],
     }
 
@@ -408,7 +408,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const currentRepo = null;
-const currentProject = {path: '/workspace/project', is_project: false};
+const currentWorkspace = {path: '/vault/workspace', is_workspace: false};
 const document = {
   body: {classList: {contains() { return false; }}},
   addEventListener() {},
@@ -470,7 +470,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const currentRepo = null;
-const currentProject = {path: '/repo', repos: [{path: '/repo/nested'}]};
+const currentWorkspace = {path: '/repo', repos: [{path: '/repo/nested'}]};
 const SELF_REPO_PATH = '/framework';
 const document = {
   body: {classList: {contains() { return false; }}},
@@ -543,7 +543,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_project_folder_buttons_scope_files_and_use_their_own_worktree_folder() -> None:
+def test_workspace_folder_buttons_scope_files_and_use_their_own_worktree_folder() -> None:
     helpers = _between(
         "let showDotFiles = false;",
         "function filterDotFiles(nodes)",
@@ -556,7 +556,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const currentRepo = null;
-const currentProject = {path: '/workspace', repos: []};
+const currentWorkspace = {path: '/vault', repos: []};
 const SELF_REPO_PATH = '/framework';
 const document = {
   body: {classList: {contains() { return false; }}},
@@ -578,30 +578,30 @@ _sidebarFileConfig = {
   trackMode: 'all',
   extensions: [],
   folderScopes: [
-    {path: '/workspace/projects/alpha', label: 'Alpha', color: '#ff5500', worktreeFolder: '/worktrees/alpha'},
-    {path: '/workspace/projects/beta', label: 'Beta', color: '#33aa77', worktreeFolder: '/worktrees/beta'},
+    {path: '/vault/workspaces/alpha', label: 'Alpha', color: '#ff5500', worktreeFolder: '/worktrees/alpha'},
+    {path: '/vault/workspaces/beta', label: 'Beta', color: '#33aa77', worktreeFolder: '/worktrees/beta'},
   ],
-  rootScopeColors: {'/workspace': '#445566'},
-  rootWorktreeFolders: {'/workspace': '/worktrees/root'},
-  selectedFolders: {'/workspace': '/workspace/projects/alpha'},
+  rootScopeColors: {'/vault': '#445566'},
+  rootWorktreeFolders: {'/vault': '/worktrees/root'},
+  selectedFolders: {'/vault': '/vault/workspaces/alpha'},
   worktreeFolder: '',
   worktreeColors: {'/worktrees/alpha/feature-a': '#aa22cc'},
-  selectedWorktrees: {'/workspace/projects/alpha': '/worktrees/alpha/feature-a'},
+  selectedWorktrees: {'/vault/workspaces/alpha': '/worktrees/alpha/feature-a'},
 };
-const buttons = _sidebarFileScopeButtonsHtml('/workspace');
-const picker = _sidebarWorktreePickerHtml('/workspace');
-const scope = _sidebarWorktreeScopeStartHtml('/workspace');
+const buttons = _sidebarFileScopeButtonsHtml('/vault');
+const picker = _sidebarWorktreePickerHtml('/vault');
+const scope = _sidebarWorktreeScopeStartHtml('/vault');
 process.stdout.write(JSON.stringify({
-  projectRoot: _sidebarProjectRoot('/workspace'),
-  fileRoot: _sidebarScopedRoot('/workspace'),
-  worktreeFolder: _sidebarActiveWorktreeFolder('/workspace'),
+  workspaceRoot: _sidebarWorkspaceRoot('/vault'),
+  fileRoot: _sidebarScopedRoot('/vault'),
+  worktreeFolder: _sidebarActiveWorktreeFolder('/vault'),
   hasRoot: buttons.includes('>Root</span>'),
   hasAlpha: buttons.includes('>Alpha</span>'),
   hasBeta: buttons.includes('>Beta</span>'),
-  alphaActive: buttons.includes('data-folder-path="/workspace/projects/alpha"')
+  alphaActive: buttons.includes('data-folder-path="/vault/workspaces/alpha"')
     && buttons.includes('class="sidebar-file-scope-button active"'),
-  alphaColor: buttons.includes('--sidebar-project-color:#ff5500'),
-  pickerRoot: picker.includes('data-project-root="/workspace/projects/alpha"'),
+  alphaColor: buttons.includes('--sidebar-workspace-color:#ff5500'),
+  pickerRoot: picker.includes('data-workspace-root="/vault/workspaces/alpha"'),
   pickerWorktree: picker.includes('value="/worktrees/alpha/feature-a" selected'),
   scopeColor: scope.includes('--sidebar-worktree-color:#aa22cc'),
 }));
@@ -609,7 +609,7 @@ process.stdout.write(JSON.stringify({
     )
 
     assert result == {
-        "projectRoot": "/workspace/projects/alpha",
+        "workspaceRoot": "/vault/workspaces/alpha",
         "fileRoot": "/worktrees/alpha/feature-a",
         "worktreeFolder": "/worktrees/alpha",
         "hasRoot": True,
@@ -637,7 +637,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const currentRepo = null;
-const currentProject = {path: '/project-a', repos: [{path: '/repos/repo-a'}]};
+const currentWorkspace = {path: '/workspace-a', repos: [{path: '/repos/repo-a'}]};
 const SELF_REPO_PATH = '/framework';
 const document = {
   body: {classList: {contains() { return false; }}},
@@ -664,8 +664,8 @@ const fetch = async url => {
 (async () => {
   const first = await _sidebarDiscoverWorktrees('/worktrees');
   await _sidebarDiscoverWorktrees('/worktrees');
-  currentProject.path = '/project-b';
-  currentProject.repos = [{path: '/repos/repo-b'}];
+  currentWorkspace.path = '/workspace-b';
+  currentWorkspace.repos = [{path: '/repos/repo-b'}];
   const second = await _sidebarDiscoverWorktrees('/worktrees');
   process.stdout.write(JSON.stringify({
     callCount: urls.length,
@@ -683,8 +683,8 @@ const fetch = async url => {
     assert result == {
         "callCount": 2,
         "urls": [
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a&scope=%2Fproject-a",
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b&scope=%2Fproject-b",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a&scope=%2Fworkspace-a",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b&scope=%2Fworkspace-b",
         ],
         "first": [{"name": "repo-a", "repo": "/worktrees/repo-a/actual-repo"}],
         "second": [{"name": "repo-b", "repo": "/worktrees/repo-b/actual-repo"}],
@@ -731,7 +731,7 @@ const files = [
   {path: 'missing/README.md', type: 'file'},
   {path: 'notebooks/new.ipynb', type: 'file', mtime: 9990},
 ];
-_sidebarLogRecentDiagnostics(files, '/workspace/project', 'settings-save', 10000);
+_sidebarLogRecentDiagnostics(files, '/vault/workspace', 'settings-save', 10000);
 const rows = events
   .filter(event => event.details && event.details.event_type === 'sidebar.recent.readme')
   .map(event => JSON.parse(event.message.replace('recent README diagnostic ', '')));
@@ -744,7 +744,7 @@ process.stdout.write(JSON.stringify({
 """
     )
 
-    assert result["summary"]["root"] == "/workspace/project"
+    assert result["summary"]["root"] == "/vault/workspace"
     assert result["summary"]["recent_minutes"] == 60
     assert result["summary"]["file_count"] == 4
     assert result["summary"]["files_with_mtime"] == 3
@@ -776,7 +776,7 @@ const localStorage = {
 };
 const document = {addEventListener() {}};
 const window = {};
-const currentProject = {path: '/workspace/project'};
+const currentWorkspace = {path: '/vault/workspace'};
 const esc = value => String(value);
 const escAttr = value => String(value);
 const symlinkClass = () => '';
@@ -794,7 +794,7 @@ const now = Date.now() / 1000;
 const recentFiles = [
   {path: 'core/src/core/routes/diff.py', type: 'file', mtime: now},
   {path: 'core/src/core/static/js/lab-app.js', type: 'file', mtime: now},
-  {path: 'core/tests/test_project_routes.py', type: 'file', mtime: now},
+  {path: 'core/tests/test_workspace_routes.py', type: 'file', mtime: now},
 ];
 const branched = _sidebarRecentTreeModel(recentFiles);
 const core = branched.folders[0];
@@ -810,7 +810,7 @@ _sidebarFileConfig = {
   extensions: [],
 };
 const html = _sidebarRecentSectionHtml(recentFiles, null);
-openSidebarFileHistory('core/tests/test_project_routes.py');
+openSidebarFileHistory('core/tests/test_workspace_routes.py');
 process.stdout.write(JSON.stringify({
   root: branched.folders.map(folder => folder.label),
   coreChildren: core.children.folders.map(folder => folder.label),
@@ -837,10 +837,10 @@ process.stdout.write(JSON.stringify({
         "rendered": [True, True, True, True, True, True],
         "historyCall": {
             "kind": "file",
-            "path": "core/tests/test_project_routes.py",
-            "root": "/workspace/project",
+            "path": "core/tests/test_workspace_routes.py",
+            "root": "/vault/workspace",
             "row": None,
-            "surface": "project",
+            "surface": "workspace",
         },
     }
 
@@ -898,7 +898,7 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert '<option value="10080">' not in template
     assert '<option value="43200">' not in template
 
-    # Repository, project, framework, and workspace sidebar renderers all use
+    # Repository, workspace, framework, and vault sidebar renderers all use
     # one settings cog and the same mutually-exclusive quick selector group.
     assert source.count("_sidebarFileConfigCogHtml()") >= 4
     assert source.count("_sidebarRecentSelectorsHtml()") >= 4
@@ -915,14 +915,14 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert "function sidebarFileConfigAddFolder()" in source
     assert "Paste the folder containing Git worktrees, or a direct-child worktree inside it" in source
     assert "Add a folder or subfolder" in template
-    assert "File sidebar settings for this project" in template
+    assert "File sidebar settings for this workspace" in template
     assert "SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681'" in source
     assert source.count("_sidebarActivateFileConfig();") >= 3
 
 
-def test_project_mtime_poll_is_single_flight_and_backs_off_after_503() -> None:
+def test_workspace_mtime_poll_is_single_flight_and_backs_off_after_503() -> None:
     poller = _between(
-        "// Auto-refresh project view when any file in the project folder changes",
+        "// Auto-refresh workspace view when any file in the workspace folder changes",
         "// Sidebar git decorations poll.",
     )
     result = _run_node(
@@ -937,10 +937,10 @@ const document = {
   hidden: false,
   body: {classList: {contains() { return false; }}},
 };
-const currentProject = {is_project: true, path: '/workspace/project'};
+const currentWorkspace = {is_workspace: true, path: '/vault/workspace'};
 const currentRepo = null;
-const _projDocEditing = false;
-const _projDocPath = null;
+const _workspaceDocEditing = false;
+const _workspaceDocPath = null;
 function setInterval(callback) { tick = callback; }
 function fetch() {
   fetchCalls += 1;

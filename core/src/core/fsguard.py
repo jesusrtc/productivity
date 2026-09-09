@@ -1,17 +1,17 @@
-"""Fail fast against a stalled workspace volume.
+"""Fail fast against a stalled vault volume.
 
-The active Lab workspace can live on removable/networked storage (e.g. a USB
+The active Lab vault can live on removable/networked storage (e.g. a USB
 SSD). When that volume wedges, every blocking filesystem call issued against
 it (``os.listdir``, ``iterdir``, ``read_text``, ...) can hang for a long time
 before eventually raising ``InterruptedError``/``OSError(EINTR)`` -- or just
 never return. Left unguarded, a single request against a stalled directory
-walk (e.g. the project-files sidebar scan) blocks that worker indefinitely
+walk (e.g. the workspace-files sidebar scan) blocks that worker indefinitely
 and the UI just spins.
 
 ``guarded()`` runs a blocking filesystem operation on a small worker pool
 with a timeout. If the operation doesn't finish in time, or fails with the
 EINTR signature of a stalled volume, it raises a 503 ``HTTPException`` naming
-the affected workspace instead of hanging the request.
+the affected vault instead of hanging the request.
 """
 from __future__ import annotations
 
@@ -65,33 +65,33 @@ def _timeout_seconds() -> float:
     return DEFAULT_TIMEOUT_SECONDS
 
 
-def _workspaces_toml_path() -> Path:
+def _vaults_toml_path() -> Path:
     if _lab_paths is not None:
-        return _lab_paths.workspaces_file()
-    return Path(os.environ.get("LAB_HOME", "~/.lab")).expanduser() / "workspaces.toml"
+        return _lab_paths.vaults_file()
+    return Path(os.environ.get("LAB_HOME", "~/.lab")).expanduser() / "vaults.toml"
 
 
-def workspace_name(root: Path) -> str:
-    """Resolve a human-readable display name for the workspace at ``root``.
+def vault_name(root: Path) -> str:
+    """Resolve a human-readable display name for the vault at ``root``.
 
     Resolution order (read fresh on every call -- the registry can change,
-    e.g. workspace ids being renamed, while the server keeps running):
+    e.g. vault ids being renamed, while the server keeps running):
 
-      1. Match ``root`` (resolved) against ``[[workspaces]]`` entries in
-         ``~/.lab/workspaces.toml`` by resolved ``path``; use that row's
+      1. Match ``root`` (resolved) against ``[[vaults]]`` entries in
+         ``~/.lab/vaults.toml`` by resolved ``path``; use that row's
          ``name`` (falling back to its ``id``).
-      2. ``[workspace].name`` in ``{root}/lab.toml``.
+      2. ``[vault].name`` in ``{root}/lab.toml``.
       3. The directory name of ``root``.
     """
     resolved = Path(root).expanduser().resolve()
 
-    registry_path = _workspaces_toml_path()
+    registry_path = _vaults_toml_path()
     if registry_path.is_file():
         try:
             data = tomllib.loads(registry_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
-        for row in data.get("workspaces") or []:
+        for row in data.get("vaults") or []:
             if not isinstance(row, dict):
                 continue
             row_path = row.get("path")
@@ -109,7 +109,7 @@ def workspace_name(root: Path) -> str:
     if lab_toml.is_file():
         try:
             data = tomllib.loads(lab_toml.read_text(encoding="utf-8"))
-            name = (data.get("workspace") or {}).get("name")
+            name = (data.get("vault") or {}).get("name")
             if name:
                 return str(name)
         except (OSError, ValueError):
@@ -121,13 +121,13 @@ def workspace_name(root: Path) -> str:
 def _unavailable(root: Path) -> HTTPException:
     return HTTPException(
         status_code=503,
-        detail=f"resource is not available for workspace {workspace_name(root)}",
+        detail=f"resource is not available for vault {vault_name(root)}",
     )
 
 
 def _describe_op(fn: Callable, args: tuple) -> str:
     """Best-effort human-readable label for what ``guarded()`` was running --
-    used only for the error log line, e.g. ``scan(/path/to/project)``."""
+    used only for the error log line, e.g. ``scan(/path/to/workspace)``."""
     name = getattr(fn, "__qualname__", None) or getattr(fn, "__name__", None) or repr(fn)
     if args and isinstance(args[0], (str, Path)):
         return f"{name}({args[0]})"
@@ -146,7 +146,7 @@ def _run_tracked(fn: Callable[..., T], args: tuple, kwargs: dict) -> T:
 def guarded(root: Path, fn: Callable[..., T], *args, timeout: float | None = None, **kwargs) -> T:
     """Run ``fn(*args, **kwargs)`` on the bounded fsguard worker pool.
 
-    Raises ``fastapi.HTTPException(503, ...)`` naming ``root``'s workspace
+    Raises ``fastapi.HTTPException(503, ...)`` naming ``root``'s vault
     if the call doesn't finish within ``timeout`` seconds (default from the
     ``LAB_FS_TIMEOUT_SECONDS`` env var, else 10s), if it raises
     ``InterruptedError`` / an ``OSError`` with ``errno.EINTR`` (the signature
@@ -178,15 +178,15 @@ def guarded(root: Path, fn: Callable[..., T], *args, timeout: float | None = Non
         return future.result(timeout=effective_timeout)
     except FutureTimeoutError:
         log.error(
-            "fs timeout after %ss reading %s (workspace %s)",
-            effective_timeout, _describe_op(fn, args), workspace_name(root),
+            "fs timeout after %ss reading %s (vault %s)",
+            effective_timeout, _describe_op(fn, args), vault_name(root),
         )
         raise _unavailable(root)
     except (InterruptedError, OSError) as exc:
         if isinstance(exc, InterruptedError) or getattr(exc, "errno", None) == errno.EINTR:
             log.error(
-                "fs EINTR reading %s (workspace %s): %s",
-                _describe_op(fn, args), workspace_name(root), exc,
+                "fs EINTR reading %s (vault %s): %s",
+                _describe_op(fn, args), vault_name(root), exc,
             )
             raise _unavailable(root)
         raise

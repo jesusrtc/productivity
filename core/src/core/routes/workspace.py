@@ -1,420 +1,250 @@
 from __future__ import annotations
 
-import json
-import os
-import hashlib
-import subprocess
-import sys
+import re
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from lab import paths
-from lab import settings as lab_settings
+from lab import paths, storage
+from lab.model import ModelError, Workspace, validate_id
 
-from core import auth, fsguard
-from core import workspace_config
-from core.diff_parser import get_registered_repos
+from core import auth, fsguard, vault_config
 
 
 router = APIRouter()
 
 
-class WorkspaceUseRequest(BaseModel):
-    id: str | None = None
-    path: str | None = None
+_DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
 
 
-class WorkspaceAgentsPatch(BaseModel):
-    supported: list[str]
-    workspace: str | None = None
+def _now_local() -> datetime:
+    return datetime.now(tz=timezone.utc).astimezone()
 
 
-class WorkspaceAppearancePatch(BaseModel):
-    name: str
-    color: str
+def _duration_to_iso(spec: str, now: datetime) -> str:
+    m = _DURATION_RE.match(spec)
+    if not m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"duration {spec!r}: expected N followed by m/h/d/w",
+        )
+    qty = int(m.group(1))
+    unit = m.group(2).lower()
+    from datetime import timedelta
+    seconds = {"m": 60, "h": 3600, "d": 86400, "w": 604800}[unit] * qty
+    return (now + timedelta(seconds=seconds)).isoformat(timespec="seconds")
 
 
-class WorkspaceCreateRequest(BaseModel):
-    path: str
-    name: str | None = None
-    create: bool = False
-
-
-def _workspace_id_for(root: Path, rows: list[dict]) -> str:
-    resolved = root.expanduser().resolve()
-    for row in rows:
-        try:
-            if Path(str(row["path"])).expanduser().resolve() == resolved:
-                return str(row["id"])
-        except (OSError, KeyError):
-            continue
-    return resolved.name
-
-
-def _workspace_row(root: Path, rows: list[dict]) -> dict:
-    resolved = root.expanduser().resolve()
-    wid = _workspace_id_for(resolved, rows)
-    for row in rows:
-        try:
-            if Path(str(row["path"])).expanduser().resolve() == resolved:
-                return {
-                    "id": str(row["id"]),
-                    "name": str(row.get("name") or row["id"]),
-                    "path": str(resolved),
-                    "active": True,
-                    "exists": resolved.is_dir(),
-                }
-        except (OSError, KeyError):
-            continue
-    return {
-        "id": wid,
-        "name": resolved.name,
-        "path": str(resolved),
-        "active": True,
-        "exists": resolved.is_dir(),
-    }
-
-
-def _payload(request: Request) -> dict:
-    current_root = auth.request_root(request)
-    data = paths.read_workspace_registry()
-    rows = list(data.get("workspaces") or [])
-    current = _workspace_row(current_root, rows)
-
-    seen: set[str] = set()
-    workspaces: list[dict] = []
-    for row in rows:
-        try:
-            root = Path(str(row["path"])).expanduser().resolve()
-        except OSError:
-            root = Path(str(row["path"])).expanduser()
-        key = str(root)
-        seen.add(key)
-        workspaces.append({
-            "id": str(row["id"]),
-            "name": str(row.get("name") or row["id"]),
-            "path": key,
-            "active": key == current["path"],
-            "exists": root.is_dir(),
-        })
-    if current["path"] not in seen:
-        workspaces.insert(0, current)
-    user = auth.require_user(request)
-    if not auth.is_admin(user):
-        workspaces = [
-            row for row in workspaces
-            if auth.can_access_workspace(user, str(row.get("id") or ""))
-        ]
-        visible_active = current["id"] if any(row["id"] == current["id"] for row in workspaces) else None
-        if visible_active is None and workspaces:
-            visible_active = workspaces[0]["id"]
-        for row in workspaces:
-            row["active"] = row["id"] == visible_active
-        current = next((row for row in workspaces if row["id"] == visible_active), None)
-    # Advisory workspace.json status for the ACTIVE workspace only. Other
-    # registered roots may live on unplugged volumes; reading a file there
-    # would hang the whole dashboard, so they are not touched here.
+def _normalize_until(spec: str) -> str:
+    spec = spec.strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", spec):
+        d = date.fromisoformat(spec)
+        local_tz = _now_local().tzinfo
+        dt = datetime(d.year, d.month, d.day, 23, 59, 0, tzinfo=local_tz)
+        return dt.isoformat(timespec="seconds")
     try:
-        config_root = Path(str(current["path"])).expanduser().resolve() if current else None
-        if config_root is not None:
-            current["config"] = fsguard.guarded(
-                config_root,
-                workspace_config.summarize_workspace_config,
-                config_root,
-            )
-    except HTTPException:
-        pass
-    return {
-        "active": current["id"] if current else None,
-        "current": current,
-        "workspaces": workspaces,
-    }
+        dt = datetime.fromisoformat(spec.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid until: {spec!r}") from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_now_local().tzinfo)
+    return dt.isoformat(timespec="seconds")
 
 
-def _resolve_requested_workspace(body: WorkspaceUseRequest) -> Path:
-    if body.id:
-        data = paths.read_workspace_registry()
-        for row in data.get("workspaces") or []:
-            if str(row.get("id")) == body.id:
-                return Path(str(row["path"])).expanduser().resolve()
-        raise HTTPException(status_code=404, detail=f"workspace {body.id!r} not found")
-    if body.path:
-        return Path(body.path).expanduser().resolve()
-    raise HTTPException(status_code=400, detail="workspace id or path required")
+def _validate_workspace_id(workspace_id: str) -> None:
+    try:
+        validate_id(workspace_id)
+    except ModelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _validate_workspace(root: Path) -> None:
-    if not root.is_dir():
-        raise HTTPException(status_code=404, detail=f"workspace path not found: {root}")
-    if not (root / "lab.toml").is_file() and not (root / "content").is_dir():
-        raise HTTPException(status_code=400, detail=f"{root} is not a Lab workspace")
-
-
-def _workspace_root(request: Request, workspace: str | None = None) -> Path:
-    active_root = auth.request_root(request)
-    if not workspace:
-        return active_root
-    for row in _payload(request)["workspaces"]:
-        if row["id"] == workspace:
-            root = Path(str(row["path"])).expanduser().resolve()
-            _validate_workspace(root)
-            return root
-    raise HTTPException(status_code=404, detail=f"workspace {workspace!r} not found")
-
-
-_WORKSPACE_COLORS = (
-    "#58a6ff", "#a371f7", "#3fb950", "#d29922",
-    "#f78166", "#db61a2", "#39c5cf", "#8b949e",
-)
-
-
-def _default_workspace_color(workspace_id: str) -> str:
-    digest = hashlib.sha1(workspace_id.encode("utf-8")).digest()
-    return _WORKSPACE_COLORS[int.from_bytes(digest, "big") % len(_WORKSPACE_COLORS)]
-
-
-def _workspace_overview(root: Path, fallback_name: str, workspace_id: str) -> dict:
-    projects = _scan_project_ids(root)
-    loaded = workspace_config.load_workspace_config(root)
-    doc = loaded.get("config") if isinstance(loaded.get("config"), dict) else {}
-    display = doc.get("display") if isinstance(doc.get("display"), dict) else {}
-    name = doc.get("name") if isinstance(doc.get("name"), str) and doc.get("name").strip() else fallback_name
-    color = display.get("color") if isinstance(display.get("color"), str) else _default_workspace_color(workspace_id)
-
-    project_rows: list[dict] = []
-    for project in get_registered_repos(root):
-        repos = [
-            {"path": repo, "name": Path(repo).name, "branch": ""}
-            for repo in (project.get("repos") or [])
-        ]
-        project_rows.append({
-            **project,
-            "repos": repos,
-            "workspace": workspace_id,
-            "workspace_name": name,
-            "workspace_color": color,
-            "workspace_path": str(root),
-        })
-    return {
-        "projects": projects,
-        "project_rows": project_rows,
-        "name": name,
-        "color": color,
-        "config": {
-            "present": loaded["present"],
-            "valid": loaded["valid"],
-            "errors": loaded["errors"],
-            "warnings": loaded["warnings"],
-        },
-    }
+def _root_for_workspace(root: Path, workspace_id: str) -> Path:
+    if workspace_id == paths.SELF_WORKSPACE_ID:
+        return paths.find_framework_root()
+    return root
 
 
 @router.get("/api/workspaces")
-def list_workspaces(request: Request) -> dict:
-    return _payload(request)
+def list_workspaces(request: Request, status: str | None = None,
+                  tag: str | None = None, label: str | None = None) -> list[dict]:
+    idx = auth.request_index(request)
+    rows = idx["workspaces"]
+    if status:
+        rows = [r for r in rows if r.get("status") == status]
+    if tag:
+        rows = [r for r in rows if tag in (r.get("tags") or [])]
+    if label:
+        rows = [r for r in rows if label in (r.get("labels") or [])]
+    return rows
 
 
-@router.post("/api/workspaces")
-def add_workspace(body: WorkspaceCreateRequest, request: Request) -> dict:
-    """Register an existing workspace or create an empty one via ``lab init``."""
-    auth.require_admin(request)
-    root = Path(body.path).expanduser().resolve()
-    display_name = (body.name or root.name).strip() or root.name
-    previous_active = paths.active_workspace()
-    if body.create:
-        if (root / "lab.toml").exists():
-            raise HTTPException(status_code=409, detail="workspace already exists; add it as existing")
-        env = dict(os.environ)
-        env.pop("LAB_WORKSPACE", None)
-        env.pop("LAB_ROOT", None)
-        proc = subprocess.run(
-            [sys.executable, "-m", "lab", "init", str(root), "--name", display_name, "--no-example"],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout).strip().removeprefix("Error: ")
-            raise HTTPException(status_code=400, detail=detail or "could not create workspace")
-        if previous_active is not None:
-            paths.register_workspace(previous_active, active=True)
-    else:
-        _validate_workspace(root)
-    row = paths.register_workspace(root, name=display_name, active=False)
-    return {"workspace": row, **_payload(request)}
+@router.get("/api/workspaces/{workspace_id}")
+def get_workspace(workspace_id: str, request: Request) -> dict:
+    _validate_workspace_id(workspace_id)
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    if paths.is_pseudo_workspace(workspace_id):
+        paths.ensure_self_files(root)
+    pjson = paths.workspace_file(root, workspace_id)
+    if not pjson.is_file():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    return storage.read_json(pjson)
 
 
-@router.get("/api/workspace/config")
-def get_workspace_config(request: Request, workspace: str | None = None) -> dict:
-    """Full workspace.json load result (parsed document + validation) for the
-    active workspace. The file is optional; ``present: false`` is a normal,
-    valid answer."""
-    root = _workspace_root(request, workspace)
-    result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
-    return {"root": str(root), **result}
+@router.get("/api/workspaces/{workspace_id}/tasks")
+def get_workspace_tasks(workspace_id: str, request: Request) -> dict:
+    _validate_workspace_id(workspace_id)
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    if paths.is_pseudo_workspace(workspace_id):
+        paths.ensure_self_files(root)
+    tjson = paths.tasks_file(root, workspace_id)
+    if not tjson.is_file():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    return storage.read_json(tjson)
 
 
-def _workspace_agent_policy(root: Path) -> dict:
-    supported = workspace_config.supported_agents(root)
-    default = lab_settings.resolve_agent(root)
-    if default not in supported:
-        default = supported[0]
-    return {
-        "root": str(root),
-        "supported": supported,
-        "default": default,
-    }
+@router.get("/api/workspaces/{workspace_id}/docs")
+def list_workspace_docs(workspace_id: str, request: Request) -> list[dict]:
+    _validate_workspace_id(workspace_id)
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    pdir = paths.workspace_dir(root, workspace_id)
+    if not pdir.is_dir():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+
+    def _scan_docs() -> list[dict]:
+        found: list[dict] = []
+        for sub in ("docs", "notes", "assets", "notebooks"):
+            sub_dir = pdir / sub
+            if not sub_dir.is_dir():
+                continue
+            for f in sorted(sub_dir.rglob("*")):
+                if f.is_file():
+                    found.append({
+                        "path": str(f.relative_to(pdir)),
+                        "size": f.stat().st_size,
+                    })
+        return found
+
+    return fsguard.guarded(root, _scan_docs)
 
 
-@router.get("/api/workspace/agents")
-def get_workspace_agents(request: Request, workspace: str | None = None) -> dict:
-    """Return the effective agent choices for the active workspace."""
-    root = _workspace_root(request, workspace)
-    return fsguard.guarded(root, _workspace_agent_policy, root)
+class HoldBody(BaseModel):
+    until: str | None = None         # ISO date or datetime
+    duration: str | None = None      # e.g. "2h", "3d" (mutually exclusive with until)
+    reason: str | None = None
+    url: str | None = None
 
 
-def _write_starter_workspace_config(root: Path) -> None:
-    """Write a minimal valid workspace.json reflecting the workspace's
-    current identity and agent settings. Atomic; never overwrites."""
-    rows = list(paths.read_workspace_registry().get("workspaces") or [])
-    row = _workspace_row(root, rows)
-    settings = lab_settings.load(root)
-    doc = {
-        "version": 1,
-        "id": row["id"],
-        "name": row["name"],
-        "agents": {
-            "supported": list(lab_settings.VALID_AGENTS),
-            "default": settings.get("defaultAgent") or lab_settings.DEFAULT_AGENT,
-        },
-    }
-    path = root / "workspace.json"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+@router.post("/api/workspaces/{workspace_id}/hold")
+def set_workspace_hold(workspace_id: str, body: HoldBody, request: Request) -> dict:
+    """Set (or replace) a soft-snooze hold on a workspace.
 
-
-def _write_workspace_agents(root: Path, supported: list[str]) -> dict:
-    if not (root / "workspace.json").exists():
-        _write_starter_workspace_config(root)
-    workspace_config.update_supported_agents(
-        root,
-        supported,
-        lab_settings.resolve_agent(root),
-    )
-    return _workspace_agent_policy(root)
-
-
-@router.post("/api/workspace/agents")
-def update_workspace_agents(body: WorkspaceAgentsPatch, request: Request) -> dict:
-    """Replace the active workspace's enabled-agent set.
-
-    The rest of ``workspace.json`` is preserved. The last enabled agent cannot
-    be removed because every terminal menu needs a valid fallback.
+    The workspace stays visible everywhere; the UI uses ``hold.until`` to
+    sort held workspaces out of the active set until the timestamp passes,
+    at which point they resurface in the "Ready for review" strip.
     """
-    root = _workspace_root(request, body.workspace)
-    try:
-        return fsguard.guarded(
-            root,
-            _write_workspace_agents,
-            root,
-            body.supported,
+    _validate_workspace_id(workspace_id)
+    if bool(body.until) == bool(body.duration):
+        raise HTTPException(
+            status_code=400,
+            detail="exactly one of `until` or `duration` is required",
         )
-    except workspace_config.WorkspaceConfigError as exc:
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    pjson = paths.workspace_file(root, workspace_id)
+    if not pjson.is_file():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    data = storage.read_json(pjson)
+
+    now = _now_local()
+    until_iso = _duration_to_iso(body.duration, now) if body.duration else _normalize_until(body.until)
+
+    hold_doc: dict = {"until": until_iso, "set_at": now.isoformat(timespec="seconds")}
+    if body.reason:
+        hold_doc["reason"] = body.reason.strip()
+    if body.url:
+        hold_doc["url"] = body.url.strip()
+    data["hold"] = hold_doc
+    data["updated"] = date.today().isoformat()
+
+    try:
+        Workspace.from_dict(data)
+    except ModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
-@router.post("/api/workspace/config/init")
-def init_workspace_config(request: Request, workspace: str | None = None) -> dict:
-    """Create a starter workspace.json at the active workspace root.
-
-    Bootstrap only: 409 when the file already exists — edits and the real
-    configuration work belong to the user's agent (the Workspace tab's
-    setup prompt explains the structure to it)."""
-    root = _workspace_root(request, workspace)
-    if (root / "workspace.json").exists():
-        raise HTTPException(status_code=409, detail="workspace.json already exists")
-    fsguard.guarded(root, _write_starter_workspace_config, root)
-    result = fsguard.guarded(root, workspace_config.load_workspace_config, root)
-    return {"root": str(root), **result}
+    storage.write_json(pjson, data)
+    return {"ok": True, "hold": hold_doc}
 
 
-@router.patch("/api/workspaces/{workspace_id}/appearance")
-def update_workspace_appearance(
-    workspace_id: str, body: WorkspaceAppearancePatch, request: Request,
-) -> dict:
-    root = _workspace_root(request, workspace_id)
-    try:
-        result = fsguard.guarded(
-            root, workspace_config.update_appearance, root, body.name, body.color,
+@router.delete("/api/workspaces/{workspace_id}/hold")
+def clear_workspace_hold(workspace_id: str, request: Request) -> dict:
+    """Remove the workspace's hold (no-op if nothing is set)."""
+    _validate_workspace_id(workspace_id)
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    pjson = paths.workspace_file(root, workspace_id)
+    if not pjson.is_file():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    data = storage.read_json(pjson)
+    if data.get("hold"):
+        data["hold"] = None
+        data["updated"] = date.today().isoformat()
+        storage.write_json(pjson, data)
+    return {"ok": True}
+
+
+class AgentBody(BaseModel):
+    agent: str | None = None   # None / "" → clear the override (inherit global)
+    model: str | None = None
+
+
+@router.post("/api/workspaces/{workspace_id}/agent")
+def set_workspace_agent(workspace_id: str, body: AgentBody, request: Request) -> dict:
+    """Set or clear a workspace's agent/model override.
+
+    Empty/None values clear the override so the workspace inherits the global
+    default from ``.agents/config.json``. Agent is validated against
+    ``VALID_AGENTS`` via the Workspace model.
+    """
+    _validate_workspace_id(workspace_id)
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    if body.agent and body.agent not in vault_config.supported_agents(root):
+        raise HTTPException(
+            status_code=400,
+            detail=f"agent {body.agent!r} is not enabled for this vault",
         )
-    except workspace_config.WorkspaceConfigError as exc:
+    pjson = paths.workspace_file(root, workspace_id)
+    if not pjson.is_file():
+        raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
+    data = storage.read_json(pjson)
+    data["agent"] = body.agent or None
+    data["model"] = body.model or None
+    data["updated"] = date.today().isoformat()
+    try:
+        Workspace.from_dict(data)
+    except ModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    doc = result.get("config") or {}
-    display = doc.get("display") if isinstance(doc.get("display"), dict) else {}
-    return {
-        "id": workspace_id,
-        "name": doc.get("name") or workspace_id,
-        "color": display.get("color") or _default_workspace_color(workspace_id),
-        "path": str(root),
-    }
+    storage.write_json(pjson, data)
+    return {"ok": True, "agent": data["agent"], "model": data["model"]}
 
 
-@router.post("/api/workspaces/use")
-def use_workspace(body: WorkspaceUseRequest, request: Request) -> dict:
-    auth.require_admin(request)
-    root = _resolve_requested_workspace(body)
-    _validate_workspace(root)
-    paths.register_workspace(root, name=root.name, active=True)
-    request.app.state.switch_workspace(root)
-    return _payload(request)
-
-
-def _scan_project_ids(root: Path) -> list[str]:
-    """List project directory names under ``root/projects``.
-
-    Runs entirely inside ``fsguard.guarded()`` -- including the ``is_dir()``
-    check -- so a stalled/wedged volume can't hang on that first stat call
-    either; only ``guarded()``'s timeout ever gets to observe it.
-    """
-    projects_dir = root / "projects"
-    if not projects_dir.is_dir():
-        return []
-    return sorted(
-        p.name for p in projects_dir.iterdir()
-        if p.is_dir() and not p.name.startswith(".")
-    )
-
-
-@router.get("/api/workspaces/projects")
-def list_workspace_projects(request: Request) -> dict:
-    """All registered workspaces, each with its project ids.
-
-    One dead/stalled volume must not blank the whole dashboard: a per-
-    workspace scan that fails with fsguard's 503 is caught here and turned
-    into ``unavailable: true`` (empty ``projects``) for that entry only,
-    while every other workspace's listing still comes back normally.
-    """
-    payload = _payload(request)
-    workspaces: list[dict] = []
-    for row in payload["workspaces"]:
-        entry = dict(row)
-        root = Path(str(row["path"]))
-        try:
-            overview = fsguard.guarded(
-                root, _workspace_overview, root, entry["name"], entry["id"],
-            )
-            entry.update(overview)
-            entry["unavailable"] = False
-        except HTTPException as exc:
-            if exc.status_code != 503:
-                raise
-            entry["projects"] = []
-            entry["project_rows"] = []
-            entry["color"] = _default_workspace_color(entry["id"])
-            entry["unavailable"] = True
-            entry["detail"] = exc.detail
-        workspaces.append(entry)
-    return {"active": payload["active"], "workspaces": workspaces}
+@router.get("/api/workspaces/{workspace_id}/file")
+def get_workspace_file(workspace_id: str, path: str, request: Request):
+    _validate_workspace_id(workspace_id)
+    if path.startswith("/") or ".." in Path(path).parts:
+        raise HTTPException(status_code=400, detail="invalid path")
+    root = auth.request_root(request)
+    root = _root_for_workspace(root, workspace_id)
+    pdir = paths.workspace_dir(root, workspace_id)
+    target = (pdir / path).resolve()
+    if pdir.resolve() not in target.parents and target != pdir.resolve():
+        raise HTTPException(status_code=400, detail="path escapes workspace")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(target)

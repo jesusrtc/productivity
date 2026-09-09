@@ -73,59 +73,59 @@
   let diffCache = { uncommitted: null, branch: null };
 
   let commitsList = [];
-  let projectsList = [];
-  let currentProject = null;
-  let currentRepoInProject = null;
-  let workspaceCatalog = [];
-  let _workspaceCatalogInFlight = null;
+  let workspacesList = [];
+  let currentWorkspace = null;
+  let currentRepoInWorkspace = null;
+  let vaultCatalog = [];
+  let _vaultCatalogInFlight = null;
 
   const urlRepo = new URLSearchParams(location.search).get('repo');
 
-  // Global catalog: every registered workspace and its projects.  It is the
-  // key to keeping tabs from several workspaces alive at once; selecting a
-  // workspace no longer mutates the backend's process-wide root.
+  // Global catalog: every registered vault and its workspaces.  It is the
+  // key to keeping tabs from several vaults alive at once; selecting a
+  // vault no longer mutates the backend's process-wide root.
   let _reposInFlight = null;
-  function fetchWorkspaceCatalog() {
-    if (_workspaceCatalogInFlight) return _workspaceCatalogInFlight;
-    const p = fetch('/api/workspaces/projects')
-      .then(r => r.ok ? r.json() : {workspaces: []})
+  function fetchVaultCatalog() {
+    if (_vaultCatalogInFlight) return _vaultCatalogInFlight;
+    const p = fetch('/api/vaults/workspaces')
+      .then(r => r.ok ? r.json() : {vaults: []})
       .then(data => {
-        workspaceCatalog = Array.isArray(data.workspaces) ? data.workspaces : [];
-        currentWorkspaceId = data.active || currentWorkspaceId;
+        vaultCatalog = Array.isArray(data.vaults) ? data.vaults : [];
+        currentVaultId = data.active || currentVaultId;
         return data;
       })
-      .catch(() => ({workspaces: workspaceCatalog || []}));
-    _workspaceCatalogInFlight = p;
-    p.finally(() => { if (_workspaceCatalogInFlight === p) _workspaceCatalogInFlight = null; });
+      .catch(() => ({vaults: vaultCatalog || []}));
+    _vaultCatalogInFlight = p;
+    p.finally(() => { if (_vaultCatalogInFlight === p) _vaultCatalogInFlight = null; });
     return p;
   }
 
   function fetchRepos() {
     if (_reposInFlight) return _reposInFlight;
-    const p = fetchWorkspaceCatalog()
-      .then(data => (data.workspaces || []).flatMap(ws => ws.project_rows || []))
+    const p = fetchVaultCatalog()
+      .then(data => (data.vaults || []).flatMap(vault => vault.workspace_rows || []))
       .catch(() => []);
     _reposInFlight = p;
     p.finally(() => { if (_reposInFlight === p) _reposInFlight = null; });
     return p;
   }
 
-  // Project ids remain stable for paths, terminal sessions, and API calls.
+  // Workspace ids remain stable for paths, terminal sessions, and API calls.
   // Only this helper should decide what human-facing label to render.
-  function _projectDisplayName(project) {
+  function _workspaceDisplayName(workspace) {
     // The detail request may be newer than an in-flight catalog poll. Keep
     // the active tab aligned with the Overview heading in that short window.
-    const activeDisplayName = currentProject && project
-      && currentProject.path === project.path && currentProject.display_name;
-    return String(activeDisplayName || (project && (project.display_name || project.name)) || 'Project');
+    const activeDisplayName = currentWorkspace && workspace
+      && currentWorkspace.path === workspace.path && currentWorkspace.display_name;
+    return String(activeDisplayName || (workspace && (workspace.display_name || workspace.name)) || 'Workspace');
   }
 
-  let currentWorkspaceId = null;
-  async function workspaceRefresh() {
+  let currentVaultId = null;
+  async function vaultRefresh() {
     try {
-      const data = await fetchWorkspaceCatalog();
-      currentWorkspaceId = data.active || currentWorkspaceId;
-      if (typeof renderRepoTabs === 'function' && currentProject) renderRepoTabs();
+      const data = await fetchVaultCatalog();
+      currentVaultId = data.active || currentVaultId;
+      if (typeof renderRepoTabs === 'function' && currentWorkspace) renderRepoTabs();
     } catch {}
   }
 
@@ -280,92 +280,92 @@
 
   async function loadRepos() {
     try {
-      projectsList = await fetchRepos();
+      workspacesList = await fetchRepos();
       const sel = document.getElementById('repoSelect');
-      sel.innerHTML = '<option value="">Select project...</option>';
-      projectsList.forEach(p => {
+      sel.innerHTML = '<option value="">Select workspace...</option>';
+      workspacesList.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.path;
-        opt.textContent = (p.is_project ? '\u{1F4E6} ' : '') + _projectDisplayName(p);
-        if (p.is_project) opt.style.color = '#58a6ff';
-        if (p.name === (currentProject && currentProject.name)) opt.selected = true;
+        opt.textContent = (p.is_workspace ? '\u{1F4E6} ' : '') + _workspaceDisplayName(p);
+        if (p.is_workspace) opt.style.color = '#58a6ff';
+        if (p.name === (currentWorkspace && currentWorkspace.name)) opt.selected = true;
         sel.appendChild(opt);
       });
     } catch (err) {}
   }
 
-  async function selectRepo(projectKey) {
-    if (!projectKey) return;
-    currentProject = projectsList.find(p => p.path === projectKey)
-      || projectsList.find(p => p.name === projectKey);
-    if (!currentProject) return;
+  async function selectRepo(workspaceKey) {
+    if (!workspaceKey) return;
+    currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
+      || workspacesList.find(p => p.name === workspaceKey);
+    if (!currentWorkspace) return;
     _sidebarActivateFileConfig();
 
     _contextSubView = 'overview';
 
-    if (currentProject.is_project) projTabsSetOpen(currentProject.path, true);
+    if (currentWorkspace.is_workspace) workspaceTabsSetOpen(currentWorkspace.path, true);
 
-    document.title = _projectDisplayName(currentProject);
-    // replaceState (not pushState): the caller (goToProject / popstate
+    document.title = _workspaceDisplayName(currentWorkspace);
+    // replaceState (not pushState): the caller (goToWorkspace / popstate
     // handler / initial-load dispatch) has already settled the URL. A
     // pushState here would create a duplicate history entry, breaking
-    // the back button. replaceState normalizes (e.g., ?repo= → ?project=)
+    // the back button. replaceState normalizes (e.g., ?repo= → ?workspace=)
     // without adding to history.
     const url = new URL(window.location);
-    url.searchParams.set('project', currentProject.path);
+    url.searchParams.set('workspace', currentWorkspace.path);
     url.searchParams.delete('repo');
     history.replaceState(null, '', url);
 
     renderRepoTabs();
 
-    if (currentProject.is_project) {
-      // Restore the last-viewed doc for this project (if any). Switching
-      // between projects should land the user where they left off, not
+    if (currentWorkspace.is_workspace) {
+      // Restore the last-viewed doc for this workspace (if any). Switching
+      // between workspaces should land the user where they left off, not
       // force them through Dashboard every time.
       currentRepo = null;
-      currentRepoInProject = null;
+      currentRepoInWorkspace = null;
       document.getElementById('diffTabs').style.display = 'none';
       document.body.classList.remove('has-diff-tabs');
-      // A real project is active — reveal the attrs bar.
-      document.body.classList.add('project-active');
-      const hydrateProjectChrome = () => {
+      // A real workspace is active — reveal the attrs bar.
+      document.body.classList.add('workspace-active');
+      const hydrateWorkspaceChrome = () => {
         refreshAttrsBar();
-        // The project shell (or a remembered document) is already painted.
+        // The workspace shell (or a remembered document) is already painted.
         // Sidebar/dashboard hydration must never replace it with a dashboard
-        // loading spinner; showProjectInfo's final race guard will paint the
+        // loading spinner; showWorkspaceInfo's final race guard will paint the
         // dashboard only when no document owns the content area.
-        showProjectInfo({keepShell: true});
+        showWorkspaceInfo({keepShell: true});
       };
       // Decide synchronously whether a doc or the dashboard will paint
       // the content area. On cold full-page loads, keep the server-rendered
       // shell isolated from sidebar/dashboard fetches; warm in-app switches
       // hydrate immediately.
-      // Set `_projDocPath` up-front so showProjectInfo's dashboard-paint
+      // Set `_workspaceDocPath` up-front so showWorkspaceInfo's dashboard-paint
       // race guard knows a doc is on its way and doesn't stomp the doc
-      // render. If no remembered doc, _projDocPath is null and
-      // showProjectInfo paints the dashboard as usual.
-      const remembered = getLastProjectDoc(currentProject.path);
-      _projDocPath = remembered || null;
-      if (!remembered) paintProjectShell();
-      afterColdPageQuiet(hydrateProjectChrome);
-      if (remembered) openProjectDoc(remembered);
-      // Project-scoped terminal panel: auto-open + attach latest session (if any).
+      // render. If no remembered doc, _workspaceDocPath is null and
+      // showWorkspaceInfo paints the dashboard as usual.
+      const remembered = getLastWorkspaceDoc(currentWorkspace.path);
+      _workspaceDocPath = remembered || null;
+      if (!remembered) paintWorkspaceShell();
+      afterColdPageQuiet(hydrateWorkspaceChrome);
+      if (remembered) openWorkspaceDoc(remembered);
+      // Workspace-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
       if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
-        const terminalProjectId = currentProject.name;
+        const terminalWorkspaceId = currentWorkspace.name;
         afterPageQuiet(() => {
-          if (typeof _termIsScopeActive === 'function' && !_termIsScopeActive(terminalProjectId)) return;
-          termOpenForProject(terminalProjectId);
+          if (typeof _termIsScopeActive === 'function' && !_termIsScopeActive(terminalWorkspaceId)) return;
+          termOpenForWorkspace(terminalWorkspaceId);
         });
       }
-      // Re-render project tabs so the active highlight tracks the selection.
-      if (typeof projTabsRender === 'function') projTabsRender();
+      // Re-render workspace tabs so the active highlight tracks the selection.
+      if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
     } else {
-      // Single repo — go straight to diff. Not a real project, so hide
-      // the attrs bar (matches the else-branch below the project init).
-      document.body.classList.remove('project-active');
-      currentRepoInProject = currentProject.repos[0];
-      currentRepo = currentRepoInProject.path;
+      // Single repo — go straight to diff. Not a real workspace, so hide
+      // the attrs bar (matches the else-branch below the workspace init).
+      document.body.classList.remove('workspace-active');
+      currentRepoInWorkspace = currentWorkspace.repos[0];
+      currentRepo = currentRepoInWorkspace.path;
       document.getElementById('diffTabs').style.display = 'flex';
       document.body.classList.add('has-diff-tabs');
       diffCache = { uncommitted: null, branch: null };
@@ -389,7 +389,7 @@
       if (!currentRepo || currentRepo !== repoAtStart || currentDiffTab !== tabAtStart) return;
       diffCache[currentDiffTab] = data;
       if (data.branch) {
-        const repoName = currentRepoInProject ? currentRepoInProject.name : '';
+        const repoName = currentRepoInWorkspace ? currentRepoInWorkspace.name : '';
         document.getElementById('branchLabel').textContent = repoName ? `${repoName} @ ${data.branch}` : data.branch;
       }
       renderDiff(data);
@@ -524,7 +524,7 @@
       let bodyContent;
       if (isNotebook(file.filename)) {
         const fn = file.filename.replace(/'/g, "\\'");
-        const dt = currentDiffTab === 'project' ? 'uncommitted' : currentDiffTab;
+        const dt = currentDiffTab === 'workspace' ? 'uncommitted' : currentDiffTab;
         bodyContent = `<div style="padding:12px;text-align:center">
           <button onclick="renderNotebookDiff('${fn}','${dt}')" style="background:#388bfd26;color:#58a6ff;border:1px solid #388bfd;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px">View Notebook Diff</button>
         </div>`;
@@ -626,10 +626,10 @@
     return {scope: 'uncommitted', sha: null};
   }
 
-  function currentRepoRelativeToProject() {
+  function currentRepoRelativeToWorkspace() {
     if (!currentRepo) return null;
-    if (!currentProject || !currentProject.path) return currentRepo;
-    const p = currentProject.path.endsWith('/') ? currentProject.path : currentProject.path + '/';
+    if (!currentWorkspace || !currentWorkspace.path) return currentRepo;
+    const p = currentWorkspace.path.endsWith('/') ? currentWorkspace.path : currentWorkspace.path + '/';
     return currentRepo.startsWith(p) ? currentRepo.slice(p.length) : currentRepo;
   }
 
@@ -647,7 +647,7 @@
   function wireDiffCodeCommentSelection(container) {
     // Right-click on a selection inside any diff table → wrap selection
     // in a pending <mark> and open the composer near it. Mirrors the
-    // pattern used in projDocBody for doc comments.
+    // pattern used in workspaceDocBody for doc comments.
     container.addEventListener('contextmenu', (e) => {
       const sel = window.getSelection();
       const text = sel ? sel.toString() : '';
@@ -688,7 +688,7 @@
     const pop = document.getElementById('cmtPopover');
     if (!pop) return;
     const {scope, sha} = currentDiffScope();
-    const repo = currentRepoRelativeToProject();
+    const repo = currentRepoRelativeToWorkspace();
     const repoLabel = repo ? repo.split('/').pop() : '(no repo)';
     const scopeLabel = scope === 'commit' ? `commit ${(sha || '').slice(0, 7)}` : scope;
     const preview = ctx.text.length > 120 ? ctx.text.slice(0, 120) + '…' : ctx.text;
@@ -750,24 +750,24 @@
   }
 
   async function saveDiffComment(ctx, comment, errEl) {
-    if (!currentProject || !currentProject.path) {
-      if (errEl) errEl.textContent = 'no project loaded';
+    if (!currentWorkspace || !currentWorkspace.path) {
+      if (errEl) errEl.textContent = 'no workspace loaded';
       return false;
     }
     const {scope, sha} = currentDiffScope();
     const body = {
-      path: currentProject.path,
+      path: currentWorkspace.path,
       file: ctx.file,
       text: ctx.text,          // the highlighted code snippet — anchors the comment
       comment,
       kind: 'code',
-      repo: currentRepoRelativeToProject(),
+      repo: currentRepoRelativeToWorkspace(),
       // Reference labels only; NOT used to filter where the comment renders.
       scope,
       sha: sha || undefined,
     };
     try {
-      const r = await fetch('/api/project-comments', {
+      const r = await fetch('/api/workspace-comments', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
@@ -785,13 +785,13 @@
   }
 
   async function renderDiffComments(container) {
-    if (!currentProject || !currentProject.path) return;
+    if (!currentWorkspace || !currentWorkspace.path) return;
     let comments = [];
     try {
-      const r = await fetch('/api/project-comments?path=' + encodeURIComponent(currentProject.path));
+      const r = await fetch('/api/workspace-comments?path=' + encodeURIComponent(currentWorkspace.path));
       comments = r.ok ? await r.json() : [];
     } catch { return; }
-    const repo = currentRepoRelativeToProject();
+    const repo = currentRepoRelativeToWorkspace();
     // Anchor by text, not by line/scope. Match comments that belong to
     // this repo and this file — scope/sha survive as metadata labels
     // shown in each card, not as filters.
@@ -875,10 +875,10 @@
         if (!id) return;
         if (!confirm('Delete this comment?')) return;
         try {
-          await fetch('/api/project-comments', {
+          await fetch('/api/workspace-comments', {
             method: 'DELETE',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({path: currentProject.path, comment_id: id}),
+            body: JSON.stringify({path: currentWorkspace.path, comment_id: id}),
           });
         } catch {}
         await renderDiffComments(container);
@@ -1141,7 +1141,7 @@
   }
 
   // ─── Explorer secondary-click menu ────────────────────────────────────
-  // One delegated menu serves the project, workspace, framework, and repo
+  // One delegated menu serves the workspace, vault, framework, and repo
   // trees. Rows opt in with data-entry-kind/path; virtual rows (servers,
   // external links, Overview) deliberately do not expose filesystem actions.
   let _explorerContext = null;
@@ -1173,11 +1173,11 @@
   }
 
   function _canCreateExecutableNotebook(root) {
-    if (!root || !currentProject || root !== currentProject.path) return false;
-    return _workspaceRelativeNotebookPathOrNull(root, '__lab_notebook_probe__.ipynb') !== null;
+    if (!root || !currentWorkspace || root !== currentWorkspace.path) return false;
+    return _vaultRelativeNotebookPathOrNull(root, '__lab_notebook_probe__.ipynb') !== null;
   }
 
-  function openNewFileAtRoot(root, surface = 'project') {
+  function openNewFileAtRoot(root, surface = 'workspace') {
     const fileRoot = String(root || '').trim();
     if (!fileRoot) {
       explorerToast('No file root is available.', true);
@@ -1187,13 +1187,13 @@
       kind: 'folder',
       path: '',
       root: fileRoot,
-      surface: surface === 'repo' ? 'repo' : 'project',
+      surface: surface === 'repo' ? 'repo' : 'workspace',
     });
   }
   window.openNewFileAtRoot = openNewFileAtRoot;
 
-  function _sidebarFilesTitle(root, surface = 'project') {
-    const safeSurface = surface === 'repo' ? 'repo' : 'project';
+  function _sidebarFilesTitle(root, surface = 'workspace') {
+    const safeSurface = surface === 'repo' ? 'repo' : 'workspace';
     const createFile = `<button class="sidebar-title-action" type="button" data-new-file-root="${escAttr(root || '')}" data-new-file-surface="${safeSurface}" onclick="event.stopPropagation();openNewFileAtRoot(this.dataset.newFileRoot,this.dataset.newFileSurface)" title="Create a file at this Files root">＋ File</button>`;
     const createNotebook = _canCreateExecutableNotebook(root)
       ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
@@ -1208,9 +1208,9 @@
     if (!kind || !path) return null;
     const isRepoTree = row.classList.contains('tree-file') || row.classList.contains('tree-dir');
     const root = row.getAttribute('data-entry-root')
-      || (isRepoTree ? currentRepo : (currentProject && currentProject.path));
+      || (isRepoTree ? currentRepo : (currentWorkspace && currentWorkspace.path));
     if (!root) return null;
-    return {kind, path, root, row, surface: isRepoTree ? 'repo' : 'project'};
+    return {kind, path, root, row, surface: isRepoTree ? 'repo' : 'workspace'};
   }
 
   function closeExplorerContextMenu() {
@@ -1249,7 +1249,7 @@
     );
     const firstLabel = ctx.kind === 'folder' ? (folderOpen ? 'Collapse' : 'Expand') : 'Open';
     const firstIcon = ctx.kind === 'folder' ? (folderOpen ? '▾' : '▸') : '↗';
-    const notebookAction = ctx.surface === 'project' && _canCreateExecutableNotebook(ctx.root)
+    const notebookAction = ctx.surface === 'workspace' && _canCreateExecutableNotebook(ctx.root)
       ? _explorerMenuButton('new-notebook', '◉', 'New notebook here', '')
       : '';
     const linkTerminalAction = ctx.kind === 'file'
@@ -1293,8 +1293,8 @@
       const row = ctx.row;
       closeExplorerContextMenu();
       if (ctx.kind === 'file') {
-        if (ctx.surface === 'repo') openProjectFile(ctx.path);
-        else openProjectDoc(ctx.path, {root: ctx.root});
+        if (ctx.surface === 'repo') openWorkspaceFile(ctx.path);
+        else openWorkspaceDoc(ctx.path, {root: ctx.root});
       } else if (row && row.isConnected) {
         row.click();
       }
@@ -1340,7 +1340,7 @@
     document.getElementById('explorerEntryTitle').textContent = isRename
       ? `Rename ${ctx.kind}` : `New ${kind}`;
     document.getElementById('explorerEntryLabel').firstChild.textContent = isRename
-      ? 'New name ' : `Name in ${parent || 'workspace root'} `;
+      ? 'New name ' : `Name in ${parent || 'vault root'} `;
     document.getElementById('explorerEntrySubmit').textContent = isRename ? 'Rename' : 'Create';
     input.value = isRename ? ctx.path.split('/').pop() : '';
     input.placeholder = kind === 'folder' ? 'folder-name' : 'filename.ext';
@@ -1359,9 +1359,9 @@
   window.openExplorerEntryDialog = openExplorerEntryDialog;
 
   function openNewNotebookDialog(ctx = null) {
-    const root = (ctx && ctx.root) || (currentProject && currentProject.path);
+    const root = (ctx && ctx.root) || (currentWorkspace && currentWorkspace.path);
     if (!_canCreateExecutableNotebook(root)) {
-      explorerToast('Open a repository inside the active workspace to create an executable notebook.', true);
+      explorerToast('Open a repository inside the active vault to create an executable notebook.', true);
       return;
     }
     const modal = document.getElementById('explorerEntryModal');
@@ -1381,7 +1381,7 @@
     }).join('');
     parentSelect.value = parent;
 
-    const createContext = ctx || {kind: 'folder', path: parent, root, surface: 'project'};
+    const createContext = ctx || {kind: 'folder', path: parent, root, surface: 'workspace'};
     _explorerEntryState = {action: 'create-notebook', ctx: createContext, kind: 'notebook', parent};
     document.getElementById('explorerEntryTitle').textContent = 'New notebook';
     document.getElementById('explorerEntryLabel').firstChild.textContent = 'Notebook name ';
@@ -1429,7 +1429,7 @@
       const parent = isNotebook
         ? (document.getElementById('explorerEntryParent').value || '')
         : state.parent;
-      const response = await fetch('/api/project-entry', {
+      const response = await fetch('/api/workspace-entry', {
         method: isRename ? 'PATCH' : 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(isRename ? {
@@ -1490,7 +1490,7 @@
     button.disabled = true;
     error.textContent = '';
     try {
-      const response = await fetch('/api/project-entry', {
+      const response = await fetch('/api/workspace-entry', {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: ctx.root, entry: ctx.path}),
@@ -1519,12 +1519,12 @@
   }
 
   function _explorerClearDocCache(root, path, kind) {
-    if (typeof _projDocCache === 'undefined') return;
+    if (typeof _workspaceDocCache === 'undefined') return;
     const prefix = root + '|';
-    for (const key of _projDocCache.keys()) {
+    for (const key of _workspaceDocCache.keys()) {
       if (!key.startsWith(prefix)) continue;
       const cachedPath = key.slice(prefix.length);
-      if (_explorerPathAffected(cachedPath, path, kind)) _projDocCache.delete(key);
+      if (_explorerPathAffected(cachedPath, path, kind)) _workspaceDocCache.delete(key);
     }
   }
 
@@ -1534,28 +1534,28 @@
     const oldPath = ctx.path;
     const newPath = action === 'rename' ? result.renamed_to : result.entry;
     _explorerClearDocCache(ctx.root, oldPath, ctx.kind);
-    if (typeof _projectSidebarCache !== 'undefined') _projectSidebarCache.delete(ctx.root);
+    if (typeof _workspaceSidebarCache !== 'undefined') _workspaceSidebarCache.delete(ctx.root);
 
     if (ctx.surface === 'repo' && currentRepo === ctx.root) {
-      const previous = projectOpenFile;
+      const previous = workspaceOpenFile;
       const wasAffected = _explorerPathAffected(previous, oldPath, ctx.kind);
       let reopen = previous;
       if (action === 'rename' && wasAffected) reopen = _explorerRenamedActivePath(previous, oldPath, newPath, ctx.kind);
       if (action === 'delete' && wasAffected) reopen = null;
       if (action.startsWith('create') && kind === 'file') reopen = newPath;
-      await loadProjectView();
-      if (reopen) await openProjectFile(reopen);
+      await loadWorkspaceView();
+      if (reopen) await openWorkspaceFile(reopen);
       else if (action === 'delete' && wasAffected) {
-        projectOpenFile = null;
+        workspaceOpenFile = null;
         document.getElementById('content').innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
       }
       return;
     }
 
-    if (!currentProject || !currentProject.path) return;
-    const activeFileRoot = _sidebarScopedRoot(currentProject.path);
-    if (currentProject.path !== ctx.root && activeFileRoot !== ctx.root) return;
-    const previous = _projDocPath;
+    if (!currentWorkspace || !currentWorkspace.path) return;
+    const activeFileRoot = _sidebarScopedRoot(currentWorkspace.path);
+    if (currentWorkspace.path !== ctx.root && activeFileRoot !== ctx.root) return;
+    const previous = _workspaceDocPath;
     const wasAffected = _explorerPathAffected(previous, oldPath, ctx.kind);
     let reopen = previous;
     if (action === 'rename' && wasAffected) reopen = _explorerRenamedActivePath(previous, oldPath, newPath, ctx.kind);
@@ -1563,15 +1563,15 @@
     if (action.startsWith('create') && kind === 'file') reopen = newPath;
 
     if (document.body.classList.contains('self-active')) await selfPopulateSidebar();
-    else if (document.body.classList.contains('workspace-active')) await workspacePopulateSidebar();
-    else await _refreshProjectSidebar();
+    else if (document.body.classList.contains('vault-active')) await vaultPopulateSidebar();
+    else await _refreshWorkspaceSidebar();
 
-    if (reopen && reopen !== previous) await openProjectDoc(reopen, {root: ctx.root});
+    if (reopen && reopen !== previous) await openWorkspaceDoc(reopen, {root: ctx.root});
     else if (action === 'delete' && wasAffected) {
-      setLastProjectDoc(ctx.root, null);
+      setLastWorkspaceDoc(ctx.root, null);
       if (document.body.classList.contains('self-active')) selfShowWorkbench();
-      else if (document.body.classList.contains('workspace-active')) workspaceShowOverview();
-      else showProjectDashboard();
+      else if (document.body.classList.contains('vault-active')) vaultShowOverview();
+      else showWorkspaceDashboard();
     }
   }
 
@@ -1663,7 +1663,7 @@
     _explorerHistoryState = {mode: 'entry', ctx, commits: [], revisionCache: {}};
     const requestId = ++_explorerHistoryRequest;
     try {
-      const response = await fetch(`/api/project-entry/history?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&limit=100`);
+      const response = await fetch(`/api/workspace-entry/history?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&limit=100`);
       if (!response.ok) throw new Error(await _explorerResponseError(response));
       const data = await response.json();
       if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
@@ -1738,7 +1738,7 @@
           data = await response.json();
         } else {
           const ctx = state.ctx;
-          const response = await fetch(`/api/project-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
+          const response = await fetch(`/api/workspace-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
           if (!response.ok) throw new Error(await _explorerResponseError(response));
           data = await response.json();
         }
@@ -1818,7 +1818,7 @@
   document.addEventListener('scroll', closeExplorerContextMenu, true);
 
   // ─── Persistent sidebar-tree folder state ───────────────────────────────
-  // Each tree (self / per-project / shared-claude / cerebro) is a scope.
+  // Each tree (self / per-workspace / shared-claude / cerebro) is a scope.
   // Within a scope, folder paths map to true=open, false=closed. Absence of
   // a path means "use the renderer's default" (e.g. AUTO_OPEN_FOLDERS) so a
   // first visit still gets the sensible expanded set. Once the user toggles
@@ -1976,7 +1976,7 @@
     currentDiffTab = tab;
     document.getElementById('tabUncommitted').classList.toggle('active', tab === 'uncommitted');
     document.getElementById('tabBranch').classList.toggle('active', tab === 'branch');
-    document.getElementById('tabProject').classList.toggle('active', tab === 'project');
+    document.getElementById('tabWorkspace').classList.toggle('active', tab === 'workspace');
     // Update commit tab active states
     document.querySelectorAll('.commit-tab').forEach(el => el.classList.remove('active'));
     if (tab.startsWith('commit:')) {
@@ -1985,8 +1985,8 @@
         if (el.getAttribute('onclick')?.includes(sha)) el.classList.add('active');
       });
     }
-    if (tab === 'project') {
-      loadProjectView();
+    if (tab === 'workspace') {
+      loadWorkspaceView();
     } else if (tab.startsWith('commit:')) {
       const sha = tab.split(':')[1];
       diffCache[tab] ? renderDiff(diffCache[tab]) : loadCommitDiff(sha);
@@ -2004,7 +2004,7 @@
 
   async function refreshDiff() {
     if (!currentRepo) return;
-    if (currentDiffTab === 'project' || currentDiffTab.startsWith('commit:')) return;
+    if (currentDiffTab === 'workspace' || currentDiffTab.startsWith('commit:')) return;
     try {
       const res = await fetch(`/api/diff?repo=${encodeURIComponent(currentRepo)}&type=${currentDiffTab}`);
       const data = await res.json();
@@ -2046,7 +2046,7 @@
   }
 
   function getChangedLines(filepath) {
-    const tab = currentDiffTab === 'project' ? 'branch' : currentDiffTab;
+    const tab = currentDiffTab === 'workspace' ? 'branch' : currentDiffTab;
     const data = diffCache[tab];
     if (!data) return { added: new Set(), lineToHunk: {} };
     const file = data.files.find(f => f.filename === filepath);
@@ -2209,7 +2209,7 @@
       _modalFilepath = filepath;
       closeModal();
       diffCache = { uncommitted: null, branch: null };
-      if (currentDiffTab === 'project') loadProjectView();
+      if (currentDiffTab === 'workspace') loadWorkspaceView();
       else loadDiff();
     } catch (err) {
       alert('Error: ' + err.message);
@@ -2229,17 +2229,17 @@
       closeDeleteModal();
       closeModal();
       diffCache = { uncommitted: null, branch: null };
-      if (currentDiffTab === 'project') loadProjectView();
+      if (currentDiffTab === 'workspace') loadWorkspaceView();
       else loadDiff();
     } catch (err) {
       alert('Error: ' + err.message);
     }
   }
 
-  // ─── Project tab ───
+  // ─── Workspace tab ───
   let fileTree = null;
-  let projectOpenFile = null;
-  let projectEditMode = false;
+  let workspaceOpenFile = null;
+  let workspaceEditMode = false;
   let _repoFileRoot = null;
   function _activeRepoFileRoot() { return _repoFileRoot || currentRepo; }
   let showDotFiles = false;
@@ -2319,11 +2319,11 @@
     return '/' + parts.join('/');
   }
 
-  function _sidebarNormalizeWorktreeFolder(value, projectRoot = '') {
+  function _sidebarNormalizeWorktreeFolder(value, workspaceRoot = '') {
     const requested = String(value || '').trim();
     return requested.startsWith('~/')
       ? requested
-      : _sidebarNormalizeFolderPath(requested, projectRoot);
+      : _sidebarNormalizeFolderPath(requested, workspaceRoot);
   }
 
   function _sidebarFolderScopeList(value) {
@@ -2414,9 +2414,9 @@
   }
 
   function _sidebarFileConfigScopeKey() {
-    const project = typeof currentProject !== 'undefined' ? currentProject : null;
-    const projectPath = _sidebarNormalizeFolderPath(project && project.path);
-    return projectPath ? encodeURIComponent(projectPath) : '';
+    const workspace = typeof currentWorkspace !== 'undefined' ? currentWorkspace : null;
+    const workspacePath = _sidebarNormalizeFolderPath(workspace && workspace.path);
+    return workspacePath ? encodeURIComponent(workspacePath) : '';
   }
 
   function _sidebarFileConfigStorageKey(scopeKey) {
@@ -2424,9 +2424,9 @@
   }
 
   function _sidebarCanMigrateLegacyFileConfig() {
-    const project = typeof currentProject !== 'undefined' ? currentProject : null;
-    const name = String(project && project.name || '');
-    return !!project && name !== '__self__' && name !== '__workspace__';
+    const workspace = typeof currentWorkspace !== 'undefined' ? currentWorkspace : null;
+    const name = String(workspace && workspace.name || '');
+    return !!workspace && name !== '__self__' && name !== '__vault__';
   }
 
   function _loadSidebarFileConfig(scopeKey = _sidebarFileConfigScopeKey()) {
@@ -2435,7 +2435,7 @@
       const storageKey = _sidebarFileConfigStorageKey(scopeKey);
       let raw = localStorage.getItem(storageKey);
       // The old setting was browser-global. Preserve it once by assigning it
-      // to the first project opened after this upgrade; every other project
+      // to the first workspace opened after this upgrade; every other workspace
       // starts from defaults instead of inheriting those folders.
       if (raw === null && _sidebarCanMigrateLegacyFileConfig()
           && !localStorage.getItem(SIDEBAR_FILE_CONFIG_MIGRATION_KEY)) {
@@ -2455,7 +2455,7 @@
   let _sidebarFileConfigScope = _sidebarFileConfigScopeKey();
   let _sidebarFileConfig = _loadSidebarFileConfig(_sidebarFileConfigScope);
   showDotFiles = _sidebarFileConfig.showHidden;
-  let showProjectDotFiles = _sidebarFileConfig.showHidden;
+  let showWorkspaceDotFiles = _sidebarFileConfig.showHidden;
 
   function _storeSidebarFileConfig() {
     const storageKey = _sidebarFileConfigStorageKey(_sidebarFileConfigScope);
@@ -2469,7 +2469,7 @@
     _sidebarFileConfigScope = scopeKey;
     _sidebarFileConfig = _loadSidebarFileConfig(scopeKey);
     showDotFiles = _sidebarFileConfig.showHidden;
-    showProjectDotFiles = _sidebarFileConfig.showHidden;
+    showWorkspaceDotFiles = _sidebarFileConfig.showHidden;
     _sidebarAvailableExtensions = new Set();
     _sidebarRecentDiagnosticsPending = null;
     _sidebarClearWorktreeDiscovery();
@@ -2479,7 +2479,7 @@
   function _sidebarWorktreeBaseRoot() {
     if (currentRepo) return currentRepo;
     if (document.body && document.body.classList.contains('self-active')) return SELF_REPO_PATH;
-    if (currentProject && currentProject.path) return currentProject.path;
+    if (currentWorkspace && currentWorkspace.path) return currentWorkspace.path;
     return '';
   }
 
@@ -2493,17 +2493,17 @@
     return selected ? _sidebarFolderScope(selected) : null;
   }
 
-  function _sidebarProjectRoot(baseRoot) {
+  function _sidebarWorkspaceRoot(baseRoot) {
     const selected = _sidebarSelectedFolder(baseRoot);
     return selected ? selected.path : baseRoot;
   }
 
-  function _sidebarProjectLabel(baseRoot) {
+  function _sidebarWorkspaceLabel(baseRoot) {
     const selected = _sidebarSelectedFolder(baseRoot);
     return selected ? selected.label : 'Root';
   }
 
-  function _sidebarProjectColor(baseRoot) {
+  function _sidebarWorkspaceColor(baseRoot) {
     const selected = _sidebarSelectedFolder(baseRoot);
     return selected
       ? _sidebarValidColor(selected.color)
@@ -2524,9 +2524,9 @@
     const scopeRoot = String(baseRoot || '').trim();
     if (!scopeRoot) return '';
     if (currentRepo && String(currentRepo) === scopeRoot) return scopeRoot;
-    if (currentProject && String(currentProject.path || '') === scopeRoot) {
-      const registered = Array.isArray(currentProject.repos)
-        ? currentProject.repos.find(row => row && row.path)
+    if (currentWorkspace && String(currentWorkspace.path || '') === scopeRoot) {
+      const registered = Array.isArray(currentWorkspace.repos)
+        ? currentWorkspace.repos.find(row => row && row.path)
         : null;
       if (registered) return String(registered.path);
     }
@@ -2584,14 +2584,14 @@
   }
 
   async function _sidebarEnsureWorktrees(baseRoot = _sidebarWorktreeBaseRoot()) {
-    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
     if (!worktreeFolder) {
       _sidebarClearWorktreeDiscovery();
       return [];
     }
     try {
-      return await _sidebarDiscoverWorktrees(worktreeFolder, {baseRoot: projectRoot});
+      return await _sidebarDiscoverWorktrees(worktreeFolder, {baseRoot: workspaceRoot});
     } catch (error) {
       _sidebarClearWorktreeDiscovery();
       _sidebarRecentLog('warning', `worktree folder scan failed: ${error.message || error}`, {
@@ -2604,15 +2604,15 @@
 
   function _sidebarSelectedWorktree(baseRoot) {
     if (!_sidebarActiveWorktreeFolder(baseRoot)) return null;
-    const projectRoot = _sidebarProjectRoot(baseRoot);
-    const selected = String((_sidebarFileConfig.selectedWorktrees || {})[projectRoot] || '');
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
+    const selected = String((_sidebarFileConfig.selectedWorktrees || {})[workspaceRoot] || '');
     if (!selected) return null;
     return _sidebarWorktreeFolders.find(row => row.path === selected) || null;
   }
 
   function _sidebarScopedRoot(baseRoot) {
     const selected = _sidebarSelectedWorktree(baseRoot);
-    return selected ? selected.path : _sidebarProjectRoot(baseRoot);
+    return selected ? selected.path : _sidebarWorkspaceRoot(baseRoot);
   }
 
   function _sidebarWorktreeColor(path) {
@@ -2620,7 +2620,7 @@
   }
 
   function _sidebarWorktreePickerHtml(baseRoot) {
-    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
     const selectedPath = selected ? selected.path : '';
@@ -2633,7 +2633,7 @@
     const rootControl = worktreeFolder
       ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label>`
       : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
-    return `<div class="sidebar-worktree-picker" data-project-root="${escAttr(projectRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+    return `<div class="sidebar-worktree-picker" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
   }
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
@@ -2648,9 +2648,9 @@
         title: row.path,
       })),
     ];
-    return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Project folders">${scopes.map(scope => {
+    return `<div class="sidebar-file-scope-buttons" role="group" aria-label="Workspace folders">${scopes.map(scope => {
       const active = scope.path === selectedPath;
-      return `<button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path)}" onclick="sidebarSelectFolder(this)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.title)}" style="--sidebar-project-color:${escAttr(scope.color)}"><span class="sidebar-file-scope-dot"></span><span>${esc(scope.label)}</span></button>`;
+      return `<button type="button" class="sidebar-file-scope-button${active ? ' active' : ''}" data-base-root="${escAttr(baseRoot)}" data-folder-path="${escAttr(scope.path)}" onclick="sidebarSelectFolder(this)" aria-pressed="${active ? 'true' : 'false'}" title="${escAttr(scope.title)}" style="--sidebar-workspace-color:${escAttr(scope.color)}"><span class="sidebar-file-scope-dot"></span><span>${esc(scope.label)}</span></button>`;
     }).join('')}</div>`;
   }
 
@@ -2658,9 +2658,9 @@
     const folder = _sidebarSelectedFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
     if (!folder && !selected) return '';
-    const color = selected ? _sidebarWorktreeColor(selected.path) : _sidebarProjectColor(baseRoot);
+    const color = selected ? _sidebarWorktreeColor(selected.path) : _sidebarWorkspaceColor(baseRoot);
     const worktreeAttr = selected ? ` data-worktree-path="${escAttr(selected.path)}"` : '';
-    const label = selected ? `${_sidebarProjectLabel(baseRoot)} · ${selected.name}` : _sidebarProjectLabel(baseRoot);
+    const label = selected ? `${_sidebarWorkspaceLabel(baseRoot)} · ${selected.name}` : _sidebarWorkspaceLabel(baseRoot);
     return `<div class="sidebar-worktree-scope" data-file-scope-root="${escAttr(_sidebarScopedRoot(baseRoot))}"${worktreeAttr} style="--sidebar-worktree-color:${escAttr(color)}" title="Files from ${escAttr(label)}">`;
   }
 
@@ -2816,34 +2816,34 @@
     _sidebarLogRecentDiagnostics(files, rootPath, pending.reason);
   }
 
-  async function _sidebarFetchProjectFiles(projectPath) {
-    const url = `/api/project-files?path=${encodeURIComponent(projectPath)}&include_dotfiles=${showProjectDotFiles}`;
+  async function _sidebarFetchWorkspaceFiles(workspacePath) {
+    const url = `/api/workspace-files?path=${encodeURIComponent(workspacePath)}&include_dotfiles=${showWorkspaceDotFiles}`;
     const response = await fetch(url);
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       _sidebarRecentLog('error', 'recent files source fetch failed ' + JSON.stringify({
-        root: projectPath,
+        root: workspacePath,
         status: response.status,
         detail: body.detail || response.statusText || 'request failed',
       }), {
         action: 'sidebar.recent.fetch',
         event_type: 'sidebar.recent.fetch_failed',
-        target: projectPath,
+        target: workspacePath,
         status_code: response.status,
       });
-      throw new Error(body.detail || response.statusText || 'Could not load project files');
+      throw new Error(body.detail || response.statusText || 'Could not load workspace files');
     }
     const files = await response.json();
     if (!Array.isArray(files)) {
       _sidebarRecentLog('error', 'recent files source returned invalid payload ' + JSON.stringify({
-        root: projectPath,
+        root: workspacePath,
         payload_type: files === null ? 'null' : typeof files,
       }), {
         action: 'sidebar.recent.fetch',
         event_type: 'sidebar.recent.invalid_payload',
-        target: projectPath,
+        target: workspacePath,
       });
-      throw new Error('Invalid project files response');
+      throw new Error('Invalid workspace files response');
     }
     return files;
   }
@@ -2973,9 +2973,9 @@
     const baseRoot = button && button.getAttribute('data-base-root');
     if (!baseRoot) return;
     const selected = _sidebarSelectedWorktree(baseRoot);
-    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     return openRepositoryHistory({
-      root: selected ? (selected.repo || selected.path) : _sidebarWorktreeRepositoryRoot(projectRoot),
+      root: selected ? (selected.repo || selected.path) : _sidebarWorktreeRepositoryRoot(workspaceRoot),
       label: selected ? selected.name : 'main',
     });
   }
@@ -2988,13 +2988,13 @@
   }
 
   function openSidebarFileHistory(path, root = '') {
-    if (!path || !currentProject || !currentProject.path) return;
+    if (!path || !currentWorkspace || !currentWorkspace.path) return;
     return openExplorerHistory({
       kind: 'file',
       path: String(path),
-      root: root || currentProject.path,
+      root: root || currentWorkspace.path,
       row: null,
-      surface: 'project',
+      surface: 'workspace',
     });
   }
   window.openSidebarFileHistory = openSidebarFileHistory;
@@ -3003,7 +3003,7 @@
     const recent = resolved ? (files || []) : _sidebarRecentFiles(files);
     if (!recent.length) return '';
     let html = `<div class="sidebar-title sidebar-title-with-action"><span>Recently updated <span class="sidebar-title-count">${recent.length}</span></span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('recent')}</span></div>`;
-    const scopeRoot = root || (currentProject && currentProject.path ? currentProject.path : 'global');
+    const scopeRoot = root || (currentWorkspace && currentWorkspace.path ? currentWorkspace.path : 'global');
     const scope = `recent:${scopeRoot}`;
     const tree = _sidebarRecentTreeModel(recent);
 
@@ -3021,7 +3021,7 @@
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
         const safeRoot = String(scopeRoot).replace(/'/g, "\\'");
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openProjectDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
       });
       return nodeHtml;
     };
@@ -3032,7 +3032,7 @@
 
   function _sidebarConfigFolderCardHtml(row, {root = false, baseRoot = ''} = {}) {
     const path = root ? baseRoot : String(row && row.path || '');
-    const fallback = path.split('/').filter(Boolean).pop() || 'Project';
+    const fallback = path.split('/').filter(Boolean).pop() || 'Workspace';
     const label = root ? 'Root' : String(row && row.label || fallback);
     const color = root
       ? _sidebarValidColor((_sidebarFileConfig.rootScopeColors || {})[baseRoot])
@@ -3046,17 +3046,17 @@
     const identity = root
       ? `<div class="sidebar-config-folder-identity"><strong>Root</strong><code title="${escAttr(baseRoot)}">${esc(baseRoot)}</code></div>`
       : `<div class="sidebar-config-folder-fields">
-          <label>Name<input type="text" data-scope-label value="${escAttr(label)}" placeholder="Project name" /></label>
-          <label class="sidebar-config-folder-path">Folder or subfolder<input type="text" data-scope-path value="${escAttr(path)}" placeholder="projects/my-project or /absolute/path" autocomplete="off" spellcheck="false" /></label>
+          <label>Name<input type="text" data-scope-label value="${escAttr(label)}" placeholder="Workspace name" /></label>
+          <label class="sidebar-config-folder-path">Folder or subfolder<input type="text" data-scope-path value="${escAttr(path)}" placeholder="workspaces/my-workspace or /absolute/path" autocomplete="off" spellcheck="false" /></label>
         </div>`;
-    const remove = root ? '' : '<button class="sidebar-config-folder-remove" type="button" onclick="sidebarFileConfigRemoveFolder(this)" aria-label="Remove project folder" title="Remove project folder">&times;</button>';
+    const remove = root ? '' : '<button class="sidebar-config-folder-remove" type="button" onclick="sidebarFileConfigRemoveFolder(this)" aria-label="Remove workspace folder" title="Remove workspace folder">&times;</button>';
     return `<div class="sidebar-config-folder-card${root ? ' root' : ''}" data-scope-root="${root ? 'true' : 'false'}">
       <div class="sidebar-config-folder-card-head">${identity}${remove}</div>
       <div class="sidebar-config-folder-options">
         <label class="sidebar-config-folder-color">Color<input type="color" data-scope-color value="${escAttr(color)}" /></label>
         <label class="sidebar-config-folder-worktree">Worktree folder <span class="sidebar-config-worktree-input-row"><input type="text" data-scope-worktree value="${escAttr(worktreeFolder)}" placeholder="Optional path to worktrees" autocomplete="off" spellcheck="false" oninput="sidebarFileConfigWorktreeInput(this)" /><button type="button" onclick="sidebarFileConfigScanScope(this)">Scan</button></span><small>Optional. Paste the folder containing Git worktrees, or a direct-child worktree inside it.</small></label>
       </div>
-      <div class="sidebar-config-worktree-status" data-scope-status role="status">${worktreeFolder ? 'Scan to preview worktrees.' : 'No worktree folder — this project uses only its main folder.'}</div>
+      <div class="sidebar-config-worktree-status" data-scope-status role="status">${worktreeFolder ? 'Scan to preview worktrees.' : 'No worktree folder — this workspace uses only its main folder.'}</div>
       <div class="sidebar-config-worktree-colors" data-scope-worktree-colors></div>
     </div>`;
   }
@@ -3115,7 +3115,7 @@
       }
       const path = _sidebarFolderCardPath(card, baseRoot);
       if (!path) {
-        problem ||= 'Every project needs a folder path.';
+        problem ||= 'Every workspace needs a folder path.';
         return;
       }
       if (seen.has(path)) {
@@ -3175,9 +3175,9 @@
     sidebarFileConfigSyncState();
     modal.classList.add('active');
     const baseRoot = _sidebarWorktreeBaseRoot();
-    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     const activeCard = [...document.querySelectorAll('#sidebarConfigFolderScopes .sidebar-config-folder-card')]
-      .find(card => _sidebarFolderCardPath(card, baseRoot) === projectRoot);
+      .find(card => _sidebarFolderCardPath(card, baseRoot) === workspaceRoot);
     const scan = activeCard && activeCard.querySelector('.sidebar-config-worktree-input-row button');
     if (scan && _sidebarActiveWorktreeFolder(baseRoot)) void sidebarFileConfigScanScope(scan);
   }
@@ -3229,7 +3229,7 @@
     if (!folders.length) {
       host.innerHTML = '';
       status.classList.remove('error');
-      status.textContent = 'No matching Git worktrees found for this project.';
+      status.textContent = 'No matching Git worktrees found for this workspace.';
       return;
     }
     host.innerHTML = folders.map(row => `
@@ -3250,7 +3250,7 @@
       status.classList.remove('error');
       status.textContent = String(input.value || '').trim()
         ? 'Scan to preview worktrees.'
-        : 'No worktree folder — this project uses only its main folder.';
+        : 'No worktree folder — this workspace uses only its main folder.';
     }
   }
 
@@ -3260,27 +3260,27 @@
     const status = card && card.querySelector('[data-scope-status]');
     const colors = card && card.querySelector('[data-scope-worktree-colors]');
     const baseRoot = _sidebarWorktreeBaseRoot();
-    const projectRoot = _sidebarFolderCardPath(card, baseRoot);
+    const workspaceRoot = _sidebarFolderCardPath(card, baseRoot);
     const folder = String(input && input.value || '').trim();
     if (status) {
       status.classList.remove('error');
-      status.textContent = folder ? 'Scanning…' : 'No worktree folder — this project uses only its main folder.';
+      status.textContent = folder ? 'Scanning…' : 'No worktree folder — this workspace uses only its main folder.';
     }
     if (!folder) {
       if (colors) colors.innerHTML = '';
       return [];
     }
-    if (!projectRoot) {
+    if (!workspaceRoot) {
       if (status) {
         status.classList.add('error');
-        status.textContent = 'Enter this project folder before scanning its worktrees.';
+        status.textContent = 'Enter this workspace folder before scanning its worktrees.';
       }
       return null;
     }
     try {
-      const requested = _sidebarNormalizeWorktreeFolder(folder, projectRoot);
-      const repositoryRoot = _sidebarWorktreeRepositoryRoot(projectRoot);
-      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}&scope=${encodeURIComponent(projectRoot)}`);
+      const requested = _sidebarNormalizeWorktreeFolder(folder, workspaceRoot);
+      const repositoryRoot = _sidebarWorktreeRepositoryRoot(workspaceRoot);
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}&scope=${encodeURIComponent(workspaceRoot)}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
       const folders = Array.isArray(data.folders)
@@ -3315,12 +3315,12 @@
     else delete _sidebarFileConfig.selectedFolders[baseRoot];
     _sidebarClearWorktreeDiscovery();
     _storeSidebarFileConfig();
-    _projDocPath = null;
-    _projDocRoot = null;
-    projectOpenFile = null;
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
+    workspaceOpenFile = null;
     diffCache = {uncommitted: null, branch: null};
-    _lastProjectMtime = 0;
-    _projectSidebarCache.delete(baseRoot);
+    _lastWorkspaceMtime = 0;
+    _workspaceSidebarCache.delete(baseRoot);
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
     await _refreshSidebarAfterFileConfig();
@@ -3329,18 +3329,18 @@
   async function sidebarSelectWorktree(select) {
     const baseRoot = String(select && select.getAttribute('data-base-root') || '');
     if (!baseRoot) return;
-    const projectRoot = _sidebarProjectRoot(baseRoot);
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     const selected = String(select.value || '');
     _sidebarFileConfig.selectedWorktrees = {...(_sidebarFileConfig.selectedWorktrees || {})};
-    if (selected) _sidebarFileConfig.selectedWorktrees[projectRoot] = selected;
-    else delete _sidebarFileConfig.selectedWorktrees[projectRoot];
+    if (selected) _sidebarFileConfig.selectedWorktrees[workspaceRoot] = selected;
+    else delete _sidebarFileConfig.selectedWorktrees[workspaceRoot];
     _storeSidebarFileConfig();
-    _projDocPath = null;
-    _projDocRoot = null;
-    projectOpenFile = null;
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
+    workspaceOpenFile = null;
     diffCache = {uncommitted: null, branch: null};
-    _lastProjectMtime = 0;
-    _projectSidebarCache.delete(baseRoot);
+    _lastWorkspaceMtime = 0;
+    _workspaceSidebarCache.delete(baseRoot);
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
     await _refreshSidebarAfterFileConfig();
@@ -3359,11 +3359,11 @@
 
   async function _refreshSidebarAfterFileConfig() {
     if (document.body.classList.contains('self-active')) return selfPopulateSidebar();
-    if (document.body.classList.contains('workspace-active')) return workspacePopulateSidebar();
-    if (currentRepo) return loadProjectView();
-    if (currentProject && currentProject.is_project) {
-      _projectSidebarCache.delete(currentProject.path);
-      return _refreshProjectSidebar({preserveScroll: true});
+    if (document.body.classList.contains('vault-active')) return vaultPopulateSidebar();
+    if (currentRepo) return loadWorkspaceView();
+    if (currentWorkspace && currentWorkspace.is_workspace) {
+      _workspaceSidebarCache.delete(currentWorkspace.path);
+      return _refreshWorkspaceSidebar({preserveScroll: true});
     }
   }
 
@@ -3407,10 +3407,10 @@
     };
     _sidebarClearWorktreeDiscovery();
     showDotFiles = _sidebarFileConfig.showHidden;
-    showProjectDotFiles = _sidebarFileConfig.showHidden;
+    showWorkspaceDotFiles = _sidebarFileConfig.showHidden;
     _storeSidebarFileConfig();
-    if (currentProject && currentProject.path) {
-      const baseRoot = _sidebarWorktreeBaseRoot() || currentProject.path;
+    if (currentWorkspace && currentWorkspace.path) {
+      const baseRoot = _sidebarWorktreeBaseRoot() || currentWorkspace.path;
       _sidebarRecentDiagnosticsPending = {
         root: null,
         reason: 'file-sidebar-settings-save',
@@ -3475,20 +3475,20 @@
   function toggleDotFiles(checked) {
     showDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
-    showProjectDotFiles = checked;
+    showWorkspaceDotFiles = checked;
     _storeSidebarFileConfig();
-    loadProjectView();
+    loadWorkspaceView();
   }
 
-  function toggleProjectDotFiles(checked) {
-    showProjectDotFiles = checked;
+  function toggleWorkspaceDotFiles(checked) {
+    showWorkspaceDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
     _storeSidebarFileConfig();
-    if (currentProject) _projectSidebarCache.delete(currentProject.path);
-    showProjectInfo({preserveScroll: true});
+    if (currentWorkspace) _workspaceSidebarCache.delete(currentWorkspace.path);
+    showWorkspaceInfo({preserveScroll: true});
   }
 
-  async function loadProjectView() {
+  async function loadWorkspaceView() {
     if (!currentRepo) return;
     const baseRoot = currentRepo;
     await _sidebarEnsureWorktrees(baseRoot);
@@ -3519,7 +3519,7 @@
     let recentFiles = [];
     let sidebarFiles = [];
     try {
-      sidebarFiles = await _sidebarFetchProjectFiles(fileRoot);
+      sidebarFiles = await _sidebarFetchWorkspaceFiles(fileRoot);
       _sidebarRememberAvailableExtensions(sidebarFiles);
       recentFiles = await _sidebarResolveRecentFiles(sidebarFiles, fileRoot);
     } catch (_) {}
@@ -3550,13 +3550,13 @@
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
     const metadataByPath = new Map(sidebarFiles.map(file => [String(file.path || file.name || ''), file]));
     const sortedFiles = _sidebarSortNestedTree(filtered, metadataByPath, _sidebarCurrentSortMode('files'));
-    sb.innerHTML = '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
+    sb.innerHTML = '<div class="sidebar-title sidebar-title-with-action"><span>Workspace</span>' + _sidebarFileConfigCogHtml() + '</div>' +
       _sidebarRecentSelectorsHtml() +
       _sidebarFileScopeButtonsHtml(baseRoot) +
       _sidebarWorktreePickerHtml(baseRoot) +
       symlinkLegendHtml() +
       _sidebarWorktreeScopeStartHtml(baseRoot) +
-      _sidebarRecentSectionHtml(recentFiles, projectOpenFile, fileRoot, {resolved: true}) +
+      _sidebarRecentSectionHtml(recentFiles, workspaceOpenFile, fileRoot, {resolved: true}) +
       _sidebarFilesTitle(fileRoot, 'repo') +
       '<ul class="tree-node">' + renderTreeNodes(sortedFiles, changedFiles) + '</ul>' +
       _sidebarWorktreeScopeEndHtml(baseRoot);
@@ -3585,9 +3585,9 @@
         if (status === 'added') badge = '<span class="sidebar-badge added"></span>';
         else if (status === 'deleted') badge = '<span class="sidebar-badge deleted"></span>';
         else if (status) badge = '<span class="sidebar-badge modified"></span>';
-        const cls = projectOpenFile === node.path ? ' active' : '';
+        const cls = workspaceOpenFile === node.path ? ' active' : '';
         return `<li>
-          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openProjectFileFromFileClick('${node.path.replace(/'/g, "\\'")}')">
+          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openWorkspaceFileFromFileClick('${node.path.replace(/'/g, "\\'")}')">
             ${badge}${symlinkMarker(node)}${fileIconHtml(node.name, node)}${node.name}
           </div>
         </li>`;
@@ -3602,20 +3602,20 @@
     arrow.classList.toggle('collapsed');
   }
 
-  function openProjectFileFromFileClick(filepath) {
+  function openWorkspaceFileFromFileClick(filepath) {
     // Only this explicit Files/Recently Updated entry point may drive the
     // linked terminal. Generic opens are also used by refresh/restore flows.
     _termCancelPendingLinkedFileOpen();
     _termSyncFromFileClick(_activeRepoFileRoot(), filepath);
-    return openProjectFile(filepath);
+    return openWorkspaceFile(filepath);
   }
-  window.openProjectFileFromFileClick = openProjectFileFromFileClick;
+  window.openWorkspaceFileFromFileClick = openWorkspaceFileFromFileClick;
 
-  async function openProjectFile(filepath) {
+  async function openWorkspaceFile(filepath) {
     if (!currentRepo) return;
     const fileRoot = _activeRepoFileRoot();
-    projectOpenFile = filepath;
-    projectEditMode = false;
+    workspaceOpenFile = filepath;
+    workspaceEditMode = false;
     const content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Loading...</div>';
 
@@ -3633,13 +3633,13 @@
     if (/\.(diff|patch)$/i.test(filepath)) {
       try {
         await ensureHighlight().catch(() => {});
-        const res = await fetch(`/api/project-diff-file?path=${encodeURIComponent(fileRoot)}&file=${encodeURIComponent(filepath)}`);
+        const res = await fetch(`/api/workspace-diff-file?path=${encodeURIComponent(fileRoot)}&file=${encodeURIComponent(filepath)}`);
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
         const data = await res.json();
-        if (projectOpenFile !== filepath) return;
+        if (workspaceOpenFile !== filepath) return;
         renderStoredDiffDocument(filepath, data, content);
       } catch (err) {
-        if (projectOpenFile === filepath) content.innerHTML = `<div class="file-viewer-empty">Error: ${esc(err.message || err)}</div>`;
+        if (workspaceOpenFile === filepath) content.innerHTML = `<div class="file-viewer-empty">Error: ${esc(err.message || err)}</div>`;
       }
       return;
     }
@@ -3648,13 +3648,13 @@
       const res = await fetch(`/api/file?repo=${encodeURIComponent(fileRoot)}&path=${encodeURIComponent(filepath)}`);
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
       const data = await res.json();
-      renderProjectFileView(filepath, data.content);
+      renderWorkspaceFileView(filepath, data.content);
     } catch (err) {
       content.innerHTML = `<div class="file-viewer-empty">Error: ${err.message}</div>`;
     }
   }
 
-  function renderProjectFileView(filepath, fileContent) {
+  function renderWorkspaceFileView(filepath, fileContent) {
     const content = document.getElementById('content');
     const { added } = getChangedLines(filepath);
     const lang = getHljsLang(filepath);
@@ -3680,18 +3680,18 @@
     content.innerHTML = `
       <div class="file-viewer-header">
         <span class="fv-path">${esc(filepath)}</span>
-        <button onclick="startProjectEdit('${fn}')">Edit</button>
+        <button onclick="startWorkspaceEdit('${fn}')">Edit</button>
       </div>
       <div class="file-viewer-body">
         <table class="view-table">${rows}</table>
       </div>`;
 
     // Store content for edit mode
-    window._projectFileContent = fileContent;
+    window._workspaceFileContent = fileContent;
   }
 
-  function startProjectEdit(filepath) {
-    projectEditMode = true;
+  function startWorkspaceEdit(filepath) {
+    workspaceEditMode = true;
     const content = document.getElementById('content');
     const fn = filepath.replace(/'/g, "\\'");
     content.innerHTML = `
@@ -3700,14 +3700,14 @@
         <button class="btn-edit-active">Editing</button>
       </div>
       <div class="file-viewer-body">
-        <textarea id="projectEditor" spellcheck="false">${esc(window._projectFileContent || '')}</textarea>
+        <textarea id="workspaceEditor" spellcheck="false">${esc(window._workspaceFileContent || '')}</textarea>
       </div>
       <div class="file-viewer-actions">
-        <button class="btn-save" onclick="saveProjectFile('${fn}')">Save</button>
-        <button class="btn-cancel" onclick="openProjectFile('${fn}')">Cancel</button>
+        <button class="btn-save" onclick="saveWorkspaceFile('${fn}')">Save</button>
+        <button class="btn-cancel" onclick="openWorkspaceFile('${fn}')">Cancel</button>
       </div>`;
     // Tab support
-    const ta = document.getElementById('projectEditor');
+    const ta = document.getElementById('workspaceEditor');
     ta.addEventListener('keydown', function(e) {
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -3719,8 +3719,8 @@
     ta.focus();
   }
 
-  async function saveProjectFile(filepath) {
-    const ta = document.getElementById('projectEditor');
+  async function saveWorkspaceFile(filepath) {
+    const ta = document.getElementById('workspaceEditor');
     if (!ta || !currentRepo) return;
     try {
       const res = await fetch('/api/file', {
@@ -3731,8 +3731,8 @@
       const result = await res.json();
       if (!res.ok) { alert(result.detail || 'Error saving'); return; }
       diffCache = { uncommitted: null, branch: null };
-      window._projectFileContent = ta.value;
-      openProjectFile(filepath);
+      window._workspaceFileContent = ta.value;
+      openWorkspaceFile(filepath);
     } catch (err) {
       alert('Error: ' + err.message);
     }
@@ -3757,48 +3757,48 @@
   }
 
   // Notebook APIs deliberately accept only paths relative to the notebook's
-  // owning workspace. Project paths, however, are absolute. In a cross-workspace
-  // tab this root may differ from the shell's LAB_WORKSPACE_ROOT, so callers can
+  // owning vault. Workspace paths, however, are absolute. In a cross-vault
+  // tab this root may differ from the shell's LAB_VAULT_ROOT, so callers can
   // pass the owning catalog path. Never strip until containment is checked.
-  function _workspaceRelativeNotebookPath(projectPath, filepath, owningWorkspaceRoot = WORKSPACE_ROOT) {
-    const workspaceRoot = _normalizeAbsolutePath(owningWorkspaceRoot);
-    const projectRoot = _normalizeAbsolutePath(projectPath);
+  function _vaultRelativeNotebookPath(workspacePath, filepath, owningVaultRoot = VAULT_ROOT) {
+    const vaultRoot = _normalizeAbsolutePath(owningVaultRoot);
+    const workspaceRoot = _normalizeAbsolutePath(workspacePath);
     const file = String(filepath || '');
-    if (!workspaceRoot) throw new Error('Notebook workspace root is unavailable');
-    if (!projectRoot || !file || file.startsWith('/')) {
+    if (!vaultRoot) throw new Error('Notebook vault root is unavailable');
+    if (!workspaceRoot || !file || file.startsWith('/')) {
       throw new Error('Invalid notebook path');
     }
     if (file.split('/').some((part) => part === '..')) {
       throw new Error('Notebook path traversal is not allowed');
     }
 
-    const combined = _normalizeAbsolutePath(projectRoot + '/' + file);
-    const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
+    const combined = _normalizeAbsolutePath(workspaceRoot + '/' + file);
+    const rootPrefix = vaultRoot === '/' ? '/' : vaultRoot + '/';
     if (!combined || !combined.startsWith(rootPrefix)) {
-      throw new Error('Notebook is outside its owning workspace');
+      throw new Error('Notebook is outside its owning vault');
     }
     const relative = combined.slice(rootPrefix.length);
     if (!relative || relative.startsWith('/')
         || relative.split('/').some((part) => part === '..')) {
-      throw new Error('Invalid workspace-relative notebook path');
+      throw new Error('Invalid vault-relative notebook path');
     }
     return relative;
   }
 
-  function _workspaceRelativeNotebookPathOrNull(projectPath, filepath, owningWorkspaceRoot = WORKSPACE_ROOT) {
-    try { return _workspaceRelativeNotebookPath(projectPath, filepath, owningWorkspaceRoot); }
+  function _vaultRelativeNotebookPathOrNull(workspacePath, filepath, owningVaultRoot = VAULT_ROOT) {
+    try { return _vaultRelativeNotebookPath(workspacePath, filepath, owningVaultRoot); }
     catch (_) { return null; }
   }
 
-  function _notebookWorkspaceContext(project = currentProject) {
-    const workspaceId = typeof _projectWorkspaceId === 'function'
-      ? _projectWorkspaceId(project) : null;
-    const workspace = typeof _workspaceForProject === 'function'
-      ? _workspaceForProject(project) : null;
+  function _notebookVaultContext(workspace = currentWorkspace) {
+    const vaultId = typeof _workspaceVaultId === 'function'
+      ? _workspaceVaultId(workspace) : null;
+    const vault = typeof _vaultForWorkspace === 'function'
+      ? _vaultForWorkspace(workspace) : null;
     return {
-      workspaceId: workspaceId || null,
-      workspaceRoot: (workspace && workspace.path)
-        || (project && project.workspace_path) || WORKSPACE_ROOT,
+      vaultId: vaultId || null,
+      vaultRoot: (vault && vault.path)
+        || (workspace && workspace.vault_path) || VAULT_ROOT,
     };
   }
 
@@ -4649,7 +4649,7 @@
     </div>`;
   }
 
-  function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, workspaceId = null) {
+  function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, vaultId = null) {
     if (!wrap || !wrap.classList.contains('nb-cell-interactive')) return;
     const ta = wrap.querySelector('.nb-cell-edit-area');
     if (!ta) return;  // markdown cell
@@ -4774,7 +4774,7 @@
       }
       try {
         const body = { path: relPath, code, actor: 'human' };
-        if (workspaceId) body.workspace = workspaceId;
+        if (vaultId) body.vault = vaultId;
         if (cellId) body.cell_id = cellId;
         else if (cellIndex != null) body.cell_index = cellIndex;
         else if (!isNaN(insertAt)) body.insert_at = insertAt;
@@ -4798,7 +4798,7 @@
         // Successful Run on a pending cell promotes it to a committed cell —
         // remove from pending storage before re-render so it's not duplicated.
         if (isPending && pendingId) _removePending(relPath, pendingId);
-        openProjectDoc(filepath, { preserveScroll: true });
+        openWorkspaceDoc(filepath, { preserveScroll: true });
       } catch (err) {
         _showCellError(wrap, err.message || String(err));
         setRunning(false);
@@ -4857,8 +4857,8 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(cellId
-            ? { path: relPath, cell_id: cellId, ...(workspaceId ? {workspace: workspaceId} : {}) }
-            : { path: relPath, cell_index: cellIndex, ...(workspaceId ? {workspace: workspaceId} : {}) }),
+            ? { path: relPath, cell_id: cellId, ...(vaultId ? {vault: vaultId} : {}) }
+            : { path: relPath, cell_index: cellIndex, ...(vaultId ? {vault: vaultId} : {}) }),
         });
         if (!res.ok) {
           const e = await res.json().catch(() => ({ detail: res.statusText }));
@@ -4869,7 +4869,7 @@
         // reappear at the wrong index.
         _clearAllDraftsForPath(relPath);
         _clearAllSeenForPath(relPath);
-        openProjectDoc(filepath, { preserveScroll: true });
+        openWorkspaceDoc(filepath, { preserveScroll: true });
       } catch (err) {
         _showCellError(wrap, err.message || String(err));
         setRunning(false);
@@ -5052,8 +5052,8 @@
     const activePython = runtime && runtime.active && runtime.active.python;
     return `<dialog class="nb-runtime-dialog">
       <form method="dialog" class="nb-runtime-card">
-        <div class="nb-runtime-title"><div><strong>Project Runtime</strong><span>Shared by people and agents</span></div><button value="cancel" class="nb-runtime-close" title="Close">✕</button></div>
-        <p class="nb-runtime-help">Choose the exact Python environment for this project. Libraries that invoke CLI commands inherit the configured CLI paths inside the Jupyter kernel.</p>
+        <div class="nb-runtime-title"><div><strong>Workspace Runtime</strong><span>Shared by people and agents</span></div><button value="cancel" class="nb-runtime-close" title="Close">✕</button></div>
+        <p class="nb-runtime-help">Choose the exact Python environment for this workspace. Libraries that invoke CLI commands inherit the configured CLI paths inside the Jupyter kernel.</p>
         <div class="nb-runtime-grid">
           <label>Provider<select name="mode"><option value="local"${spec.mode === 'local' ? ' selected' : ''}>Local Jupyter</option><option value="darwin"${spec.mode === 'darwin' ? ' selected' : ''}>Darwin (legacy)</option></select></label>
           <label>Environment<select name="kind"><option value="managed"${spec.kind === 'managed' ? ' selected' : ''}>Managed by Lab</option><option value="existing"${spec.kind === 'existing' ? ' selected' : ''}>Existing Python</option></select></label>
@@ -5074,7 +5074,7 @@
     </dialog>`;
   }
 
-  function bindNbRuntimePanel(container, relPath, filepath, workspaceId = null) {
+  function bindNbRuntimePanel(container, relPath, filepath, vaultId = null) {
     const openBtn = container.querySelector('.nb-runtime-open');
     const dialog = container.querySelector('.nb-runtime-dialog');
     if (!openBtn || !dialog) return;
@@ -5119,7 +5119,7 @@
       const spec = readSpec();
       const res = await fetch('/api/nb/runtime', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: relPath, spec, ...(workspaceId ? {workspace: workspaceId} : {}) }),
+        body: JSON.stringify({ path: relPath, spec, ...(vaultId ? {vault: vaultId} : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data));
@@ -5129,7 +5129,7 @@
       saveBtn.disabled = true; buildBtn.disabled = true;
       try {
         const data = await save();
-        showLog(`Saved project runtime. Status: ${data.status}`, false);
+        showLog(`Saved workspace runtime. Status: ${data.status}`, false);
       } catch (err) {
         showLog(err.message || String(err), true);
       } finally {
@@ -5143,7 +5143,7 @@
         await save();
         const res = await fetch('/api/nb/runtime/build', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
+          body: JSON.stringify({ path: relPath, ...(vaultId ? {vault: vaultId} : {}) }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -5151,7 +5151,7 @@
           throw new Error([detail.message || detail, detail.log || ''].filter(Boolean).join('\n\n'));
         }
         showLog((data.built && data.built.log) || 'Runtime is ready. Import and CLI checks passed inside Jupyter.', false);
-        setTimeout(() => { dialog.close(); openProjectDoc(filepath, { preserveScroll: true }); }, 700);
+        setTimeout(() => { dialog.close(); openWorkspaceDoc(filepath, { preserveScroll: true }); }, 700);
       } catch (err) {
         showLog(err.message || String(err), true);
       } finally {
@@ -5161,11 +5161,11 @@
     });
   }
 
-  async function _requestNbKernelRestart(relPath, workspaceId = null) {
+  async function _requestNbKernelRestart(relPath, vaultId = null) {
     const res = await fetch('/api/nb/session/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
+      body: JSON.stringify({ path: relPath, ...(vaultId ? {vault: vaultId} : {}) }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({ detail: res.statusText }));
@@ -5176,8 +5176,8 @@
 
   const _nbRunAllState = new Map();
 
-  function _nbRunAllKey(relPath, workspaceId = null) {
-    return `${String(workspaceId || '')}::${String(relPath || '')}`;
+  function _nbRunAllKey(relPath, vaultId = null) {
+    return `${String(vaultId || '')}::${String(relPath || '')}`;
   }
 
   function _nbRunAllPresentation(state, restartFirst) {
@@ -5197,8 +5197,8 @@
     };
   }
 
-  function renderNbRunAllButtons(relPath, workspaceId, codeCellCount, kernelBusy = false) {
-    const state = _nbRunAllState.get(_nbRunAllKey(relPath, workspaceId));
+  function renderNbRunAllButtons(relPath, vaultId, codeCellCount, kernelBusy = false) {
+    const state = _nbRunAllState.get(_nbRunAllKey(relPath, vaultId));
     const disabled = state || kernelBusy || codeCellCount < 1 ? ' disabled' : '';
     const run = _nbRunAllPresentation(state, false);
     const restart = _nbRunAllPresentation(state, true);
@@ -5233,13 +5233,13 @@
     return detail.slice(0, 240);
   }
 
-  function bindNbRunAll(container, relPath, filepath, workspaceId = null) {
+  function bindNbRunAll(container, relPath, filepath, vaultId = null) {
     const runBtn = container.querySelector('.nb-run-all');
     const restartBtn = container.querySelector('.nb-restart-run-all');
     if (!runBtn || !restartBtn) return;
 
     async function runAll(restartFirst) {
-      const key = _nbRunAllKey(relPath, workspaceId);
+      const key = _nbRunAllKey(relPath, vaultId);
       if (_nbRunAllState.has(key)) return;
       const cells = Array.from(
         container.querySelectorAll('.nb-cell-interactive[data-cell-type="code"]'),
@@ -5270,7 +5270,7 @@
       let failure = null;
       try {
         if (restartFirst) {
-          await _requestNbKernelRestart(relPath, workspaceId);
+          await _requestNbKernelRestart(relPath, vaultId);
           state.phase = 'running';
         }
         for (let index = 0; index < cells.length; index += 1) {
@@ -5278,7 +5278,7 @@
           _syncNbRunAllButtons(container, state);
           const cell = cells[index];
           const body = { path: relPath, code: cell.code, actor: 'human' };
-          if (workspaceId) body.workspace = workspaceId;
+          if (vaultId) body.vault = vaultId;
           if (cell.cellId) body.cell_id = cell.cellId;
           else body.cell_index = cell.cellIndex;
           const res = await fetch('/api/nb/exec', {
@@ -5304,9 +5304,9 @@
         _nbRunAllState.delete(key);
         _syncNbRunAllButtons(container, null);
         if (_currentOpenNotebookRelPath() === relPath
-            && (!workspaceId || workspaceId === _projectWorkspaceId(currentProject))) {
+            && (!vaultId || vaultId === _workspaceVaultId(currentWorkspace))) {
           try {
-            await openProjectDoc(filepath, { preserveScroll: true });
+            await openWorkspaceDoc(filepath, { preserveScroll: true });
           } catch (err) {
             if (!failure) failure = err;
           }
@@ -5319,7 +5319,7 @@
     restartBtn.addEventListener('click', () => runAll(true));
   }
 
-  function bindNbInterruptKernel(container, relPath, workspaceId = null) {
+  function bindNbInterruptKernel(container, relPath, vaultId = null) {
     const btn = container.querySelector('.nb-interrupt-kernel');
     if (!btn) return;
     btn.addEventListener('click', async () => {
@@ -5330,7 +5330,7 @@
       try {
         const res = await fetch('/api/nb/session/interrupt', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: relPath, ...(workspaceId ? {workspace: workspaceId} : {}) }),
+          body: JSON.stringify({ path: relPath, ...(vaultId ? {vault: vaultId} : {}) }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -5352,7 +5352,7 @@
     });
   }
 
-  async function bindNbRestartKernel(container, relPath, filepath, workspaceId = null) {
+  async function bindNbRestartKernel(container, relPath, filepath, vaultId = null) {
     const btn = container.querySelector('.nb-restart-kernel');
     if (!btn) return;
     btn.addEventListener('click', async () => {
@@ -5362,7 +5362,7 @@
       const originalLabel = btn.getAttribute('data-nb-tooltip') || 'Restart kernel';
       _nbSetToolbarButtonLabel(btn, 'Restarting kernel');
       try {
-        await _requestNbKernelRestart(relPath, workspaceId);
+        await _requestNbKernelRestart(relPath, vaultId);
         btn.innerHTML = '<span aria-hidden="true">✓</span>';
         _nbSetToolbarButtonLabel(btn, 'Kernel restarted');
         setTimeout(() => {
@@ -5379,7 +5379,7 @@
     });
   }
 
-  function bindNbAddCellButton(container, relPath, filepath, workspaceId = null) {
+  function bindNbAddCellButton(container, relPath, filepath, vaultId = null) {
     const btn = container.querySelector('.nb-add-cell-btn');
     const cellsHost = container.querySelector('.nb-container');
     if (!btn || !cellsHost) return;
@@ -5391,7 +5391,7 @@
       tmp.innerHTML = html;
       const node = tmp.firstElementChild;
       cellsHost.appendChild(node);
-      bindNbCellInteractive(node, relPath, filepath, null, workspaceId);
+      bindNbCellInteractive(node, relPath, filepath, null, vaultId);
       const ta = node.querySelector('.nb-cell-edit-area');
       if (ta) ta.focus();
     });
@@ -5401,7 +5401,7 @@
   // inserts a pending cell at that position (data-insert-at), which on Run
   // POSTs `insert_at` so the new cell lands between existing cells instead
   // of being appended at the end.
-  function bindNbCellInserters(container, relPath, filepath, workspaceId = null) {
+  function bindNbCellInserters(container, relPath, filepath, vaultId = null) {
     container.querySelectorAll('.nb-cell-insert-btn').forEach((btn) => {
       const inserter = btn.closest('.nb-cell-inserter');
       if (!inserter) return;
@@ -5420,7 +5420,7 @@
         // Drop the new pending cell right after this inserter so it sits
         // exactly at the visual gap the user clicked.
         inserter.parentNode.insertBefore(node, inserter.nextElementSibling);
-        bindNbCellInteractive(node, relPath, filepath, null, workspaceId);
+        bindNbCellInteractive(node, relPath, filepath, null, vaultId);
         const ta = node.querySelector('.nb-cell-edit-area');
         if (ta) ta.focus();
       });
@@ -5736,41 +5736,41 @@
   document.getElementById('diffPopover').addEventListener('mouseenter', () => clearTimeout(popoverTimeout));
   document.getElementById('diffPopover').addEventListener('mouseleave', () => hideDiffPopover());
 
-  // ─── Workspace projections for the project sidebar (migration step 5) ──
-  // When workspace.json declares agents.projections / project.mounts, the
-  // Meta section renders THOSE rows — each labeled with its true workspace
+  // ─── Vault projections for the workspace sidebar (migration step 5) ──
+  // When vault.json declares agents.projections / workspace.mounts, the
+  // Meta section renders THOSE rows — each labeled with its true vault
   // origin — instead of the legacy hardcoded "(shared)" entries. Files open
-  // their workspace source inline; mounted directories jump to the
-  // Workspace tab where the real source tree lives. 30s TTL so an edit to
-  // workspace.json shows up without a reload.
-  let _wsProjCache = null;  // {projections, mounts, supported, ts}
-  async function loadWorkspaceProjections() {
+  // their vault source inline; mounted directories jump to the
+  // Vault tab where the real source tree lives. 30s TTL so an edit to
+  // vault.json shows up without a reload.
+  let _vaultProjectionCache = null;  // {projections, mounts, supported, ts}
+  async function loadVaultProjections() {
     const now = Date.now();
-    const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
-    if (_wsProjCache && _wsProjCache.workspace === workspaceId && (now - _wsProjCache.ts) < 30000) return _wsProjCache;
-    let out = { projections: [], mounts: [], supported: null, workspace: workspaceId, ts: now };
+    const vaultId = typeof _termVaultId === 'function' ? _termVaultId() : null;
+    if (_vaultProjectionCache && _vaultProjectionCache.vault === vaultId && (now - _vaultProjectionCache.ts) < 30000) return _vaultProjectionCache;
+    let out = { projections: [], mounts: [], supported: null, vault: vaultId, ts: now };
     try {
-      const suffix = workspaceId ? '?workspace=' + encodeURIComponent(workspaceId) : '';
-      const r = await fetch('/api/workspace/config' + suffix);
+      const suffix = vaultId ? '?vault=' + encodeURIComponent(vaultId) : '';
+      const r = await fetch('/api/vault/config' + suffix);
       if (r.ok) {
         const cfg = await r.json();
         const doc = (cfg.valid && cfg.config) || {};
         const agents = doc.agents || {};
-        const project = doc.project || {};
+        const workspace = doc.workspace || {};
         out = {
           projections: Array.isArray(agents.projections) ? agents.projections : [],
-          mounts: Array.isArray(project.mounts) ? project.mounts : [],
+          mounts: Array.isArray(workspace.mounts) ? workspace.mounts : [],
           supported: Array.isArray(agents.supported) ? agents.supported : null,
-          workspace: workspaceId,
+          vault: vaultId,
           ts: now,
         };
       }
     } catch {}
-    _wsProjCache = out;
+    _vaultProjectionCache = out;
     return out;
   }
 
-  function _wsProjectionMetaHtml(p) {
+  function _vaultProjectionMetaHtml(p) {
     if (!p) return '';
     const sup = p.supported;
     const enabled = (e) => e && typeof e === 'object'
@@ -5787,27 +5787,27 @@
     for (const src of sources) {
       const base = src.split('/').pop();
       const safe = src.replace(/'/g, "\\'");
-      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr('workspace/' + src + ' — canonical source; projected into every project')}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="ws-origin">workspace</span></span></a>`;
+      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr('vault/' + src + ' — canonical source; projected into every workspace')}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="vault-origin">vault</span></span></a>`;
     }
     for (const e of projections) {
       const base = e.target.split('/').pop();
       const safe = e.source.replace(/'/g, "\\'");
-      const title = `workspace/${e.source} → ${e.target}` +
+      const title = `vault/${e.source} → ${e.target}` +
         (e.mode ? ` (${e.mode}${e.when ? ', ' + e.when + ' only' : ''})` : '');
-      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr(title)}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="ws-origin">&#8592; ${selfEsc(e.source)}</span></span></a>`;
+      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr(title)}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="vault-origin">&#8592; ${selfEsc(e.source)}</span></span></a>`;
     }
     for (const e of mounts) {
-      const title = `workspace/${e.source} → ${e.target}` +
+      const title = `vault/${e.source} → ${e.target}` +
         (e.mode ? ` (${e.mode}${e.when ? ', ' + e.when + ' only' : ''})` : '') +
-        ' — opens the source tree in the Workspace tab';
-      html += `<div class="sidebar-folder sidebar-file-meta" onclick="goToWorkspace()" title="${escAttr(title)}" style="opacity:.7"><span class="folder-arrow">&#9654;</span>${selfEsc(e.target)}/<span class="ws-origin">&#8592; ${selfEsc(e.source)}</span></div>`;
+        ' — opens the source tree in the Vault tab';
+      html += `<div class="sidebar-folder sidebar-file-meta" onclick="goToVault()" title="${escAttr(title)}" style="opacity:.7"><span class="folder-arrow">&#9654;</span>${selfEsc(e.target)}/<span class="vault-origin">&#8592; ${selfEsc(e.source)}</span></div>`;
     }
     return html;
   }
 
   // ─── Focus mode ─────────────────────────────────────────────────────────
-  // Keeps the topbar (Home / workspace picker / project tabs / gear) visible
-  // while hiding the project attrs bar above the Overview strip and content.
+  // Keeps the topbar (Home / vault picker / workspace tabs / gear) visible
+  // while hiding the workspace attrs bar above the Overview strip and content.
   // Entering from the button also requests browser fullscreen and keeps the
   // display awake. Keep Alive exposes that wake lock independently beside the
   // Focus control. Esc exits Focus; both preferences persist across reloads.
@@ -5867,7 +5867,7 @@
     if (!menu) return;
     const button = document.querySelector('.lid-awake-toggle');
     if (button) button.setAttribute('aria-expanded', _lidAwakeMenuOpen ? 'true' : 'false');
-    if (!_lidAwakeMenuOpen || !button || !currentProject) {
+    if (!_lidAwakeMenuOpen || !button || !currentWorkspace) {
       menu.classList.remove('open');
       menu.innerHTML = '';
       return;
@@ -5935,7 +5935,7 @@
     if (_lidAwakeDeadlineMs && !_lidAwakeIsActive()) {
       _lidAwakeDeadlineMs = 0;
       _lidAwakeMenuOpen = false;
-      if (currentProject) renderRepoTabs();
+      if (currentWorkspace) renderRepoTabs();
       else _renderLidAwakeMenu();
       return;
     }
@@ -6058,7 +6058,7 @@
     } finally {
       password = null;
       _lidAwakeBusy = false;
-      if (currentProject) renderRepoTabs();
+      if (currentWorkspace) renderRepoTabs();
       else _renderLidAwakeMenu();
     }
   }
@@ -6097,7 +6097,7 @@
       _lidAwakeError = String(error && error.message || error);
     } finally {
       _lidAwakeBusy = false;
-      if (currentProject) renderRepoTabs();
+      if (currentWorkspace) renderRepoTabs();
       else _renderLidAwakeMenu();
     }
   }
@@ -6119,7 +6119,7 @@
       _lidAwakeMenuOpen = true;
     } finally {
       _lidAwakeBusy = false;
-      if (currentProject) renderRepoTabs();
+      if (currentWorkspace) renderRepoTabs();
       else _renderLidAwakeMenu();
     }
   }
@@ -6261,7 +6261,7 @@
       _exitFocusFullscreen();
     }
     // Re-render the strip so the button label flips.
-    try { if (currentProject) renderRepoTabs(); } catch {}
+    try { if (currentWorkspace) renderRepoTabs(); } catch {}
   }
   function toggleFocusMode() {
     const on = !document.body.classList.contains('focus-mode');
@@ -6277,7 +6277,7 @@
     try { localStorage.setItem(KEEP_ALIVE_KEY, on ? '1' : '0'); } catch {}
     if (on) void _acquireScreenWakeLock();
     else if (!_shouldKeepDisplayAwake()) _releaseScreenWakeLock();
-    try { if (currentProject) renderRepoTabs(); } catch {}
+    try { if (currentWorkspace) renderRepoTabs(); } catch {}
   }
   function toggleKeepAlive() {
     applyKeepAlive(!document.body.classList.contains('keep-alive'));
@@ -6288,7 +6288,7 @@
     _linkedTerminalSyncOn = !_linkedTerminalSyncOn;
     if (!_linkedTerminalSyncOn) _termCancelPendingLinkedFileOpen();
     try { localStorage.setItem(LINKED_TERMINAL_SYNC_KEY, _linkedTerminalSyncOn ? '1' : '0'); } catch {}
-    try { if (currentProject) renderRepoTabs(); } catch {}
+    try { if (currentWorkspace) renderRepoTabs(); } catch {}
   }
   window.toggleLinkedTerminalSync = toggleLinkedTerminalSync;
 
@@ -6336,7 +6336,7 @@
 
   function renderRepoTabs() {
     const container = document.getElementById('repoTabs');
-    if (!currentProject) {
+    if (!currentWorkspace) {
       _lidAwakeMenuOpen = false;
       _renderLidAwakeMenu();
       container.style.display = 'none';
@@ -6350,48 +6350,48 @@
     let html = '';
     const isSelf = document.body.classList.contains('self-active');
     const isAssistant = document.body.classList.contains('assistant-active');
-    const isWorkspace = document.body.classList.contains('workspace-active');
-    const proxyOpen = typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/');
+    const isVault = document.body.classList.contains('vault-active');
+    const proxyOpen = typeof _workspaceDocPath === 'string' && _workspaceDocPath.startsWith('__proxy__/');
     const notebookOpen = _contextSubView === 'notebooks'
-      || (typeof _projDocPath === 'string' && _projDocPath.toLowerCase().endsWith('.ipynb'));
-    const overviewActive = _contextSubView === 'overview' && !_projDocPath && !currentRepo && !proxyOpen;
+      || (typeof _workspaceDocPath === 'string' && _workspaceDocPath.toLowerCase().endsWith('.ipynb'));
+    const overviewActive = _contextSubView === 'overview' && !_workspaceDocPath && !currentRepo && !proxyOpen;
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      const assistantSection = _projDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'overview');
+      const assistantSection = _workspaceDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'overview');
       html += `<button class="repo-tab${assistantSection === 'overview' ? ' active' : ''}" data-assistant-section="overview" onclick="AssistantView.setSection('overview')" style="font-weight:600">&#x1F4CB; Overview</button>`;
       html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
       html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
     } else if (isSelf) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
-      for (const ws of (workspaceCatalog || [])) {
-        html += `<button class="repo-tab workspace-context-tab" style="--workspace-color:${escAttr(ws.color || '#8b949e')}" onclick="goToWorkspace('${String(ws.id).replace(/'/g, "\\'")}')"><span class="workspace-mark"></span>${esc(ws.name || ws.id)}</button>`;
+      for (const vault of (vaultCatalog || [])) {
+        html += `<button class="repo-tab vault-context-tab" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="goToVault('${String(vault.id).replace(/'/g, "\\'")}')"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
       }
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${_contextSubView === 'admin' ? ' active' : ''}" onclick="selfShowAdmin()">&#x2699; Admin</button>`;
-    } else if (isWorkspace) {
-      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="workspaceShowOverview()" style="font-weight:600">&#x1F4CB; Overview</button>`;
+    } else if (isVault) {
+      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="vaultShowOverview()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
-    } else if (currentProject.is_project) {
-      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showProjectDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
+    } else if (currentWorkspace.is_workspace) {
+      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showWorkspaceDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
-      html += `<button class="repo-tab${notebookOpen ? ' active' : ''}" onclick="openProjectNotebooks()" title="Lab Jupyter notebooks — no server configuration required">&#x25C9; Jupyter</button>`;
+      html += `<button class="repo-tab${notebookOpen ? ' active' : ''}" onclick="openWorkspaceNotebooks()" title="Lab Jupyter notebooks — no server configuration required">&#x25C9; Jupyter</button>`;
     }
 
-    // One tab per declared server (project.json proxies) — clicking it opens
+    // One tab per declared server (workspace.json proxies) — clicking it opens
     // the same inline iframe view as the sidebar Servers entry. The list
     // comes from the sidebar payload cache; on a cold load it's empty until
-    // _refreshProjectSidebar fetches project-info and re-calls us.
-    if (!isSelf && !isAssistant && !isWorkspace && currentProject.is_project) {
-      const cached = _projectSidebarCache.get(currentProject.path);
+    // _refreshWorkspaceSidebar fetches workspace-info and re-calls us.
+    if (!isSelf && !isAssistant && !isVault && currentWorkspace.is_workspace) {
+      const cached = _workspaceSidebarCache.get(currentWorkspace.path);
       const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
       proxies.forEach(p => {
         if (!p || !p.name) return;
         const name = String(p.name);
         const safeName = name.replace(/'/g, "\\'");
         const label = p.label || name;
-        const active = _projDocPath === '__proxy__/' + name ? ' active' : '';
-        html += `<button class="repo-tab${active}" onclick="openProjectProxy('${safeName}')">&#x1F310; ${esc(label)} <span style="color:#484f58;font-size:10px">:${esc(String(p.port || ''))}</span></button>`;
+        const active = _workspaceDocPath === '__proxy__/' + name ? ' active' : '';
+        html += `<button class="repo-tab${active}" onclick="openWorkspaceProxy('${safeName}')">&#x1F310; ${esc(label)} <span style="color:#484f58;font-size:10px">:${esc(String(p.port || ''))}</span></button>`;
       });
     }
 
@@ -6423,7 +6423,7 @@
   }
 
   function showScopedCodeSearch() {
-    if (!currentProject || !currentProject.path) return;
+    if (!currentWorkspace || !currentWorkspace.path) return;
     _contextSubView = 'code-search';
     if (document.body.classList.contains('self-active')) {
       const url = new URL(window.location);
@@ -6432,11 +6432,11 @@
       history.replaceState(history.state, '', url.pathname + url.search + url.hash);
     }
     currentRepo = null;
-    _projDocPath = null;
+    _workspaceDocPath = null;
     renderRepoTabs();
     const kind = document.body.classList.contains('self-active')
       ? 'framework'
-      : document.body.classList.contains('workspace-active') ? 'workspace' : 'project';
+      : document.body.classList.contains('vault-active') ? 'vault' : 'workspace';
     const content = document.getElementById('content');
     if (!content) return;
     content.innerHTML = `
@@ -6444,74 +6444,74 @@
         <div class="eyebrow">${esc(kind)} search</div>
         <h1>Code Search is in development</h1>
         <p>This tab will use AI to find and explain code only inside the path selected by the current tab.</p>
-        <span class="context-path">${esc(currentProject.path)}</span>
+        <span class="context-path">${esc(currentWorkspace.path)}</span>
       </div>`;
   }
   window.showScopedCodeSearch = showScopedCodeSearch;
 
-  let _projDocPath = null;
-  let _projDocRoot = null; // alternate file root selected by the worktree picker
-  let _projDocContent = null;
-  let _projDocEditing = false;
-  let _projDocEditContainer = null; // container that holds the active edit textarea
-  let _projComments = [];
-  let _projDocArtifact = null;  // project.json.artifacts[] entry whose `file` matches the open doc
-  // Doc-content cache for warm tab switches: key `${project.path}|${filepath}`
-  // → {content, comments, artifact}. Lets openProjectDoc paint a remembered
-  // file synchronously while the three /api/project-* fetches reconcile in
+  let _workspaceDocPath = null;
+  let _workspaceDocRoot = null; // alternate file root selected by the worktree picker
+  let _workspaceDocContent = null;
+  let _workspaceDocEditing = false;
+  let _workspaceDocEditContainer = null; // container that holds the active edit textarea
+  let _workspaceComments = [];
+  let _workspaceDocArtifact = null;  // workspace.json.artifacts[] entry whose `file` matches the open doc
+  // Doc-content cache for warm tab switches: key `${workspace.path}|${filepath}`
+  // → {content, comments, artifact}. Lets openWorkspaceDoc paint a remembered
+  // file synchronously while the three /api/workspace-* fetches reconcile in
   // the background. Only used for the text/markdown/csv/json path inside
   // _renderDocInto — notebooks/HTML/images have their own renderers and
   // are excluded. Survives tab switches; reset on full page reload.
-  const _projDocCache = new Map();
-  function _projDocCacheKey(projectPath, filepath) {
-    return (projectPath || '') + '|' + (filepath || '');
+  const _workspaceDocCache = new Map();
+  function _workspaceDocCacheKey(workspacePath, filepath) {
+    return (workspacePath || '') + '|' + (filepath || '');
   }
-  // Sidebar payload cache keyed by `currentProject.path`. Stores the
+  // Sidebar payload cache keyed by `currentWorkspace.path`. Stores the
   // last-known `{files, pinned, references}` triple so warm switches
   // can re-render the file tree synchronously from memory instead of
-  // waiting on /api/project-files + /api/project-info every time.
-  // `_refreshProjectSidebar` reconciles against the server in the
+  // waiting on /api/workspace-files + /api/workspace-info every time.
+  // `_refreshWorkspaceSidebar` reconciles against the server in the
   // background after a warm paint and writes through to this map.
-  const _projectSidebarCache = new Map();
-  // Same idea for the project server bar. Keyed by absolute project path.
-  const _projectAttrsCache = new Map();
+  const _workspaceSidebarCache = new Map();
+  // Same idea for the workspace server bar. Keyed by absolute workspace path.
+  const _workspaceAttrsCache = new Map();
 
-  // Per-project memory of the last file the user had open. Survives
-  // tab switches and reloads; map keyed by absolute project path.
+  // Per-workspace memory of the last file the user had open. Survives
+  // tab switches and reloads; map keyed by absolute workspace path.
   const LAST_DOC_KEY = 'labLastDoc-v1';
   function _lastDocMap() {
     try { return JSON.parse(localStorage.getItem(LAST_DOC_KEY) || '{}') || {}; }
     catch { return {}; }
   }
-  function setLastProjectDoc(projectPath, docPath) {
-    if (!projectPath) return;
+  function setLastWorkspaceDoc(workspacePath, docPath) {
+    if (!workspacePath) return;
     const m = _lastDocMap();
-    if (docPath) m[projectPath] = docPath; else delete m[projectPath];
+    if (docPath) m[workspacePath] = docPath; else delete m[workspacePath];
     try { localStorage.setItem(LAST_DOC_KEY, JSON.stringify(m)); } catch {}
   }
-  function getLastProjectDoc(projectPath) {
-    return _lastDocMap()[projectPath] || null;
+  function getLastWorkspaceDoc(workspacePath) {
+    return _lastDocMap()[workspacePath] || null;
   }
 
   // Notebook selection is remembered separately from the last ordinary
-  // project document. A user can move from a notebook to README.md and still
+  // workspace document. A user can move from a notebook to README.md and still
   // return to the same live kernel with one click on the built-in Jupyter tab.
   const LAST_NOTEBOOK_KEY = 'labLastNotebook-v1';
   function _lastNotebookMap() {
     try { return JSON.parse(localStorage.getItem(LAST_NOTEBOOK_KEY) || '{}') || {}; }
     catch { return {}; }
   }
-  function setLastProjectNotebook(projectPath, notebookPath) {
-    if (!projectPath || !notebookPath) return;
+  function setLastWorkspaceNotebook(workspacePath, notebookPath) {
+    if (!workspacePath || !notebookPath) return;
     const m = _lastNotebookMap();
-    m[projectPath] = notebookPath;
+    m[workspacePath] = notebookPath;
     try { localStorage.setItem(LAST_NOTEBOOK_KEY, JSON.stringify(m)); } catch {}
   }
-  function getLastProjectNotebook(projectPath) {
-    return _lastNotebookMap()[projectPath] || null;
+  function getLastWorkspaceNotebook(workspacePath) {
+    return _lastNotebookMap()[workspacePath] || null;
   }
 
-  function _projectNotebookEntries(files) {
+  function _workspaceNotebookEntries(files) {
     return (Array.isArray(files) ? files : [])
       .filter(f => f && f.type !== 'dir' && typeof f.path === 'string'
         && f.path.toLowerCase().endsWith('.ipynb'))
@@ -6519,29 +6519,29 @@
         || a.path.localeCompare(b.path));
   }
 
-  async function _loadProjectNotebookEntries(projectPath) {
-    const cached = _projectSidebarCache.get(projectPath);
-    if (cached && Array.isArray(cached.files)) return _projectNotebookEntries(cached.files);
-    const response = await fetch(`/api/project-files?path=${encodeURIComponent(projectPath)}`);
+  async function _loadWorkspaceNotebookEntries(workspacePath) {
+    const cached = _workspaceSidebarCache.get(workspacePath);
+    if (cached && Array.isArray(cached.files)) return _workspaceNotebookEntries(cached.files);
+    const response = await fetch(`/api/workspace-files?path=${encodeURIComponent(workspacePath)}`);
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
       throw new Error(detail.detail || `Could not list notebooks (${response.status})`);
     }
-    return _projectNotebookEntries(await response.json());
+    return _workspaceNotebookEntries(await response.json());
   }
 
-  function _renderProjectNotebookLauncher(notebooks) {
+  function _renderWorkspaceNotebookLauncher(notebooks) {
     const content = document.getElementById('content');
     if (!content) return;
-    const projectName = currentProject ? _projectDisplayName(currentProject) : 'this project';
-    const projectPath = currentProject && currentProject.path ? currentProject.path : '';
+    const workspaceName = currentWorkspace ? _workspaceDisplayName(currentWorkspace) : 'this workspace';
+    const workspacePath = currentWorkspace && currentWorkspace.path ? currentWorkspace.path : '';
     const cards = notebooks.map(entry => {
       const path = String(entry.path || '');
       const safePath = path.replace(/'/g, "\\'");
       const updated = entry.mtime
         ? `updated ${new Date(Number(entry.mtime) * 1000).toLocaleString()}`
         : 'not run yet';
-      return `<button type="button" onclick="openProjectDoc('${safePath}')" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer">
+      return `<button type="button" onclick="openWorkspaceDoc('${safePath}')" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer">
         <span style="font-size:22px;color:var(--accent)">&#x25C9;</span>
         <span style="min-width:0;flex:1"><strong style="display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(path.split('/').pop() || path)}</strong><span style="display:block;color:var(--text-dim);font:11px ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px">${esc(path)}</span></span>
         <span style="color:var(--text-dim);font-size:11px;white-space:nowrap">${esc(updated)}</span>
@@ -6549,28 +6549,28 @@
     }).join('');
     content.innerHTML = `<div style="padding:28px;max-width:900px">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
-        <div style="flex:1"><h1 style="color:var(--text-primary);font-size:24px;margin:0 0 5px">Jupyter <span style="color:var(--text-dim);font-weight:400">· ${esc(projectName)}</span></h1><p style="color:var(--text-secondary);font-size:13px;margin:0">Notebooks are scoped to this project. Every .ipynb keeps its own kernel; people and agents share it by file path.</p>${projectPath ? `<code style="display:block;color:var(--text-dim);font-size:11px;margin-top:6px;overflow-wrap:anywhere">${esc(projectPath)}</code>` : ''}</div>
+        <div style="flex:1"><h1 style="color:var(--text-primary);font-size:24px;margin:0 0 5px">Jupyter <span style="color:var(--text-dim);font-weight:400">· ${esc(workspaceName)}</span></h1><p style="color:var(--text-secondary);font-size:13px;margin:0">Notebooks are scoped to this workspace. Every .ipynb keeps its own kernel; people and agents share it by file path.</p>${workspacePath ? `<code style="display:block;color:var(--text-dim);font-size:11px;margin-top:6px;overflow-wrap:anywhere">${esc(workspacePath)}</code>` : ''}</div>
         <button type="button" onclick="openNewNotebookDialog()" style="background:var(--accent);color:#fff;border:0;border-radius:6px;padding:8px 13px;cursor:pointer">+ Notebook</button>
       </div>
       ${notebooks.length
         ? `<div style="display:flex;flex-direction:column;gap:9px">${cards}</div>`
-        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No .ipynb files in <strong style="color:var(--text-secondary)">${esc(projectName)}</strong> yet.<div style="font-size:12px;margin-top:7px">A notebook created in another project appears in that project's Jupyter tab.</div><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook here</button></div>`}
+        : `<div style="border:1px dashed var(--border);border-radius:8px;padding:36px;text-align:center;color:var(--text-dim)">No .ipynb files in <strong style="color:var(--text-secondary)">${esc(workspaceName)}</strong> yet.<div style="font-size:12px;margin-top:7px">A notebook created in another workspace appears in that workspace's Jupyter tab.</div><button type="button" onclick="openNewNotebookDialog()" style="margin-top:14px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer">Create the first notebook here</button></div>`}
     </div>`;
   }
 
-  async function openProjectNotebooks({showLauncher = false} = {}) {
-    if (!currentProject || !currentProject.is_project) return;
-    const projectPath = currentProject.path;
-    if (!showLauncher && typeof _projDocPath === 'string'
-        && _projDocPath.toLowerCase().endsWith('.ipynb')) {
-      return openProjectDoc(_projDocPath);
+  async function openWorkspaceNotebooks({showLauncher = false} = {}) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    const workspacePath = currentWorkspace.path;
+    if (!showLauncher && typeof _workspaceDocPath === 'string'
+        && _workspaceDocPath.toLowerCase().endsWith('.ipynb')) {
+      return openWorkspaceDoc(_workspaceDocPath);
     }
     _contextSubView = 'notebooks';
     currentRepo = null;
-    currentRepoInProject = null;
+    currentRepoInWorkspace = null;
     _repoFileRoot = null;
-    _projDocPath = '__notebooks__';
-    _projDocRoot = projectPath;
+    _workspaceDocPath = '__notebooks__';
+    _workspaceDocRoot = workspacePath;
     renderRepoTabs();
     _sidebarApplyForView();
     document.getElementById('diffTabs').style.display = 'none';
@@ -6578,29 +6578,29 @@
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="loading">Loading notebooks...</div>';
     try {
-      const notebooks = await _loadProjectNotebookEntries(projectPath);
-      if (!currentProject || currentProject.path !== projectPath || _projDocPath !== '__notebooks__') return;
-      const remembered = getLastProjectNotebook(projectPath);
+      const notebooks = await _loadWorkspaceNotebookEntries(workspacePath);
+      if (!currentWorkspace || currentWorkspace.path !== workspacePath || _workspaceDocPath !== '__notebooks__') return;
+      const remembered = getLastWorkspaceNotebook(workspacePath);
       const preferred = !showLauncher && remembered
         ? notebooks.find(entry => entry.path === remembered)
         : null;
-      if (preferred) return openProjectDoc(preferred.path);
-      if (!showLauncher && notebooks.length === 1) return openProjectDoc(notebooks[0].path);
-      _renderProjectNotebookLauncher(notebooks);
+      if (preferred) return openWorkspaceDoc(preferred.path);
+      if (!showLauncher && notebooks.length === 1) return openWorkspaceDoc(notebooks[0].path);
+      _renderWorkspaceNotebookLauncher(notebooks);
     } catch (err) {
-      if (content && currentProject && currentProject.path === projectPath
-          && _projDocPath === '__notebooks__') {
+      if (content && currentWorkspace && currentWorkspace.path === workspacePath
+          && _workspaceDocPath === '__notebooks__') {
         content.innerHTML = `<div class="no-repo"><p>Error: ${esc(err.message || err)}</p></div>`;
       }
     }
   }
-  window.openProjectNotebooks = openProjectNotebooks;
+  window.openWorkspaceNotebooks = openWorkspaceNotebooks;
 
   let _docModalEscHandler = null;
 
-  async function openProjectDocModal(filepath, { editing = false, root = null } = {}) {
-    if (!currentProject) return;
-    _projDocRoot = root || currentProject.path;
+  async function openWorkspaceDocModal(filepath, { editing = false, root = null } = {}) {
+    if (!currentWorkspace) return;
+    _workspaceDocRoot = root || currentWorkspace.path;
     const modal = document.getElementById('docViewModal');
     const body = document.getElementById('docModalBody');
     const titleEl = document.getElementById('docModalTitle');
@@ -6610,16 +6610,16 @@
     if (_docModalEscHandler) document.removeEventListener('keydown', _docModalEscHandler);
     _docModalEscHandler = (e) => { if (e.key === 'Escape') closeDocModal(); };
     document.addEventListener('keydown', _docModalEscHandler);
-    _projDocEditing = editing;
-    _projDocEditContainer = editing ? body : null;
+    _workspaceDocEditing = editing;
+    _workspaceDocEditContainer = editing ? body : null;
     await _renderDocInto(filepath, body);
-    if (!editing) _projDocEditing = false;
+    if (!editing) _workspaceDocEditing = false;
   }
 
   function closeDocModal() {
-    if (_projDocEditing) {
-      _projDocEditing = false;
-      _projDocEditContainer = null;
+    if (_workspaceDocEditing) {
+      _workspaceDocEditing = false;
+      _workspaceDocEditContainer = null;
     }
     const modal = document.getElementById('docViewModal');
     if (modal) modal.classList.remove('active');
@@ -6630,22 +6630,22 @@
   }
 
   // Shared render helper: handles all file types and writes into `container`.
-  // Sets the module-level _projDocContent / _projComments / _projDocArtifact globals
-  // that renderProjectDoc reads. Does NOT touch navigation state (_projDocPath,
-  // sidebar active highlights, setLastProjectDoc) — callers handle that.
-  // Renders an HTML file in the project doc pane with a Rendered/Code
+  // Sets the module-level _workspaceDocContent / _workspaceComments / _workspaceDocArtifact globals
+  // that renderWorkspaceDoc reads. Does NOT touch navigation state (_workspaceDocPath,
+  // sidebar active highlights, setLastWorkspaceDoc) — callers handle that.
+  // Renders an HTML file in the workspace doc pane with a Rendered/Code
   // toggle. Mirrors cerebroRenderHtml; the pref is shared via
   // localStorage so opening the same file in Cerebro keeps the same view.
-  async function _projectRenderHtml(container, filepath, absKey, mode) {
+  async function _workspaceRenderHtml(container, filepath, absKey, mode) {
     // Race guard against the user navigating away mid-fetch — same
     // shape as the one in _renderDocInto.
-    const _navProjectPath = (currentProject && currentProject.path) || null;
-    const docRoot = _projDocRoot || _navProjectPath;
+    const _navWorkspacePath = (currentWorkspace && currentWorkspace.path) || null;
+    const docRoot = _workspaceDocRoot || _navWorkspacePath;
     const _stillActiveNav = () => (
-      _projDocPath === filepath
-      && currentProject
-      && currentProject.path === _navProjectPath
-      && (_projDocRoot || currentProject.path) === docRoot
+      _workspaceDocPath === filepath
+      && currentWorkspace
+      && currentWorkspace.path === _navWorkspacePath
+      && (_workspaceDocRoot || currentWorkspace.path) === docRoot
     );
     const toolbar = `
       <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px">
@@ -6656,7 +6656,7 @@
         </span>
       </div>`;
     if (mode === 'rendered') {
-      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/workspace-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       // Skip the re-mount when the iframe is already pointed at this src
       // (and the toolbar reflects 'rendered'). The WS index-updated event
       // re-runs this render path on every save anywhere in content/, and
@@ -6672,7 +6672,7 @@
       container.innerHTML = `<div style="padding:24px">${toolbar}<iframe class="html-iframe" src="${src}" onload="applyIframeDarkMode(this)"></iframe></div>`;
     } else {
       try {
-        const r = await fetch(`/api/project-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`);
+        const r = await fetch(`/api/workspace-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`);
         if (!_stillActiveNav()) return;
         if (!r.ok) {
           const msg = await r.json().catch(() => ({}));
@@ -6696,39 +6696,39 @@
         const next = btn.getAttribute('data-mode');
         if (next === mode) return;
         setHtmlViewPref(absKey, next);
-        _projectRenderHtml(container, filepath, absKey, next);
+        _workspaceRenderHtml(container, filepath, absKey, next);
       });
     });
   }
 
   async function _renderDocInto(filepath, container, { preserveScroll = false } = {}) {
-    // Capture the project that owned this render call so an async paint
-    // landing AFTER the user has switched away to a different project
-    // (or a different file in the same project) bails instead of
-    // stomping the new view's content. _projDocPath is set
-    // synchronously by openProjectDoc / selectRepo before this function
+    // Capture the workspace that owned this render call so an async paint
+    // landing AFTER the user has switched away to a different workspace
+    // (or a different file in the same workspace) bails instead of
+    // stomping the new view's content. _workspaceDocPath is set
+    // synchronously by openWorkspaceDoc / selectRepo before this function
     // is called, so a mismatch here means a newer navigation has
     // already taken over `container` and we must not paint.
-    const _navProjectPath = (currentProject && currentProject.path) || null;
-    const docRoot = _projDocRoot || _navProjectPath;
+    const _navWorkspacePath = (currentWorkspace && currentWorkspace.path) || null;
+    const docRoot = _workspaceDocRoot || _navWorkspacePath;
     const _stillActiveNav = () => (
-      _projDocPath === filepath
-      && currentProject
-      && currentProject.path === _navProjectPath
-      && (_projDocRoot || currentProject.path) === docRoot
+      _workspaceDocPath === filepath
+      && currentWorkspace
+      && currentWorkspace.path === _navWorkspacePath
+      && (_workspaceDocRoot || currentWorkspace.path) === docRoot
     );
 
     // Image files
     const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
     if (imageExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
       if (!_stillActiveNav()) return;
-      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/workspace-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       container.innerHTML = `<div style="padding:24px;max-width:900px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
       return;
     }
 
     // PDF files: hand the raw bytes to the browser's built-in PDF viewer via
-    // an iframe. /api/project-asset serves them as application/pdf with no
+    // an iframe. /api/workspace-asset serves them as application/pdf with no
     // attachment disposition, so they display inline (zoom/page/print come
     // from the browser's own viewer chrome). Same anti-flicker guard as the
     // HTML viewer: the WS index-updated event re-runs this render on every
@@ -6736,31 +6736,31 @@
     // user's scroll/zoom — so leave a live iframe already pointed here alone.
     if (filepath.toLowerCase().endsWith('.pdf')) {
       if (!_stillActiveNav()) return;
-      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
+      const src = `/api/workspace-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       const existing = container.querySelector('iframe.pdf-iframe');
       if (existing && existing.getAttribute('src') === src) return;
       container.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span><a href="${src}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-secondary)">open ↗</a></div><iframe class="pdf-iframe" src="${esc(src)}" title="${esc(filepath)}"></iframe></div>`;
       return;
     }
 
-    // Video files: native <video> player streaming from /api/project-asset.
+    // Video files: native <video> player streaming from /api/workspace-asset.
     // FileResponse supports HTTP Range requests, so seeking works without
     // downloading the whole file. Same anti-flicker guard as the PDF
-    // iframe: watcher-triggered re-renders (project mtime poll, WS events)
+    // iframe: watcher-triggered re-renders (workspace mtime poll, WS events)
     // must leave an already-mounted player alone — recreating the element
     // would restart playback mid-watch.
     const videoExts = ['.mp4', '.webm', '.mov', '.m4v'];
     if (videoExts.some(ext => filepath.toLowerCase().endsWith(ext))) {
       if (!_stillActiveNav()) return;
-      const src = `/api/project-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
-      const existing = container.querySelector('video.project-video');
+      const src = `/api/workspace-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
+      const existing = container.querySelector('video.workspace-video');
       if (existing && existing.getAttribute('src') === src) return;
       container.innerHTML = `<div style="padding:24px;max-width:1100px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
           <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span>
           <a href="${esc(src)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-secondary)">open ↗</a>
         </div>
-        <video class="project-video" src="${esc(src)}" controls playsinline preload="metadata" style="width:100%;max-height:calc(100vh - 220px);background:#000;border-radius:6px;outline:none"></video>
+        <video class="workspace-video" src="${esc(src)}" controls playsinline preload="metadata" style="width:100%;max-height:calc(100vh - 220px);background:#000;border-radius:6px;outline:none"></video>
       </div>`;
       return;
     }
@@ -6770,7 +6770,7 @@
     if (/\.(html|htm)$/i.test(filepath)) {
       const absKey = docRoot + '/' + filepath;
       const mode = getHtmlViewPref(absKey);
-      _projectRenderHtml(container, filepath, absKey, mode);
+      _workspaceRenderHtml(container, filepath, absKey, mode);
       return;
     }
 
@@ -6779,7 +6779,7 @@
     if (/\.(diff|patch)$/i.test(filepath)) {
       try {
         await ensureHighlight().catch(() => {});
-        const response = await fetch(`/api/project-diff-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`);
+        const response = await fetch(`/api/workspace-diff-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`);
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.detail || `Failed to load diff (${response.status})`);
@@ -6799,16 +6799,16 @@
     // .ipynb write triggers the watcher, every open viewer re-renders.
     if (filepath.toLowerCase().endsWith('.ipynb')) {
       try {
-        // Execution is workspace-scoped, but notebooks in the framework Home
+        // Execution is vault-scoped, but notebooks in the framework Home
         // or another repository root are still useful documents. Render those
         // through the generic repository notebook endpoint without Run/Delete
-        // controls; only a notebook inside the active workspace gets a kernel.
-        const notebookWorkspace = _notebookWorkspaceContext(currentProject);
-        const notebookWorkspaceQuery = notebookWorkspace.workspaceId
-          ? `&workspace=${encodeURIComponent(notebookWorkspace.workspaceId)}` : '';
-        const relPath = docRoot === currentProject.path
-          ? _workspaceRelativeNotebookPathOrNull(
-              currentProject.path, filepath, notebookWorkspace.workspaceRoot,
+        // controls; only a notebook inside the active vault gets a kernel.
+        const notebookVault = _notebookVaultContext(currentWorkspace);
+        const notebookVaultQuery = notebookVault.vaultId
+          ? `&vault=${encodeURIComponent(notebookVault.vaultId)}` : '';
+        const relPath = docRoot === currentWorkspace.path
+          ? _vaultRelativeNotebookPathOrNull(
+              currentWorkspace.path, filepath, notebookVault.vaultRoot,
             )
           : null;
         if (!relPath) {
@@ -6823,7 +6823,7 @@
             ensureHighlight().catch(() => {}),
           ]);
           if (!_stillActiveNav()) return;
-          const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a workspace project to execute</span></div>`;
+          const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a vault workspace to execute</span></div>`;
           container.innerHTML = `<div style="padding:24px">${_renderNbJumpControls(readOnlyCells.length, _isNotebookCodeHidden(docRoot, filepath))}${readOnlyHeader}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
           activateNotebookScripts(container);
           _bindNbNavigation(container, docRoot, filepath, { restore: !preserveScroll });
@@ -6833,9 +6833,9 @@
         // A brand-new notebook 404s on /api/nb; treat that as "empty, ready to
         // receive its first cell" rather than an error.
         const [nbRes, sessRes, runtimeRes] = await Promise.all([
-          fetch(`/api/nb?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`),
-          fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`),
-          fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`),
+          fetch(`/api/nb?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`),
+          fetch(`/api/nb/session?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`),
+          fetch(`/api/nb/runtime?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`),
         ]);
         let nb = { path: relPath, cells: [], mtime: null };
         let notFound = false;
@@ -6855,7 +6855,7 @@
         // cross-checks each run against its on-disk marker, which makes this
         // pair a consistent view even during the final-cell replacement.
         const liveRes = await fetch(
-          `/api/nb/live?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`,
+          `/api/nb/live?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`,
         );
         const liveInfo = liveRes.ok ? await liveRes.json() : { executions: [] };
         if ((liveInfo.executions || []).length === 0
@@ -6864,12 +6864,12 @@
           // /live cross-check. Refetch once so that race cannot leave a newly
           // opened view showing a stale spinner with no live run behind it.
           const latestNbRes = await fetch(
-            `/api/nb?path=${encodeURIComponent(relPath)}${notebookWorkspaceQuery}`,
+            `/api/nb?path=${encodeURIComponent(relPath)}${notebookVaultQuery}`,
             { cache: 'no-store' },
           );
           if (latestNbRes.ok) nb = await latestNbRes.json();
         }
-        const notebookLiveKey = _nbLiveKey(notebookWorkspace.workspaceId, relPath);
+        const notebookLiveKey = _nbLiveKey(notebookVault.vaultId, relPath);
         if ((liveInfo.executions || []).length > 0) _nbLivePaths.add(notebookLiveKey);
         else _nbLivePaths.delete(notebookLiveKey);
 
@@ -6906,14 +6906,14 @@
         const updatedLabel = nb.mtime
           ? 'updated ' + new Date(nb.mtime * 1000).toLocaleString()
           : (notFound ? 'new notebook' : '');
-        const kernelLabel = provider === 'local' ? 'Project Jupyter kernel' : 'Remote Darwin kernel';
+        const kernelLabel = provider === 'local' ? 'Workspace Jupyter kernel' : 'Remote Darwin kernel';
         const sessionBadge = session
           ? `<span title="Dedicated kernel session pinned to this .ipynb file path; another notebook gets another kernel" class="nb-kernel-badge">${kernelLabel} · ${esc(session)}</span>`
           : '';
         const runtimeLabel = `Runtime: ${runtime.status || 'legacy'}`;
         const runtimeBadge = `<button class="nb-runtime-open nb-runtime-status-${esc(runtime.status || 'legacy')}" type="button" data-nb-tooltip="${escAttr(runtimeLabel)}" aria-label="${escAttr(runtimeLabel)}"><span aria-hidden="true">⚙</span></button>`;
         const notebookRunAllActive = _nbRunAllState.has(
-          _nbRunAllKey(relPath, notebookWorkspace.workspaceId),
+          _nbRunAllKey(relPath, notebookVault.vaultId),
         );
         const restartBtnHtml = session
           ? `<button class="nb-restart-kernel" type="button" data-nb-tooltip="Restart kernel" aria-label="Restart kernel"${notebookRunAllActive ? ' disabled' : ''}><span aria-hidden="true">↻</span></button>`
@@ -6923,12 +6923,12 @@
           : '';
         const runAllButtonsHtml = renderNbRunAllButtons(
           relPath,
-          notebookWorkspace.workspaceId,
+          notebookVault.vaultId,
           (nb.cells || []).filter(cell => cell && cell.cell_type === 'code').length,
           (liveInfo.executions || []).length > 0,
         );
         const toolbarActionsHtml = `${runtimeBadge}${runAllButtonsHtml}${interruptBtnHtml}${restartBtnHtml}`;
-        const notebookListBtnHtml = `<button class="nb-notebook-list" type="button" onclick="openProjectNotebooks({showLauncher:true})" title="Show every notebook in this project">☷ All notebooks</button>`;
+        const notebookListBtnHtml = `<button class="nb-notebook-list" type="button" onclick="openWorkspaceNotebooks({showLauncher:true})" title="Show every notebook in this workspace">☷ All notebooks</button>`;
         const header = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span>${notebookListBtnHtml}${sessionBadge}<span class="nb-notebook-updated">${updatedLabel}</span></div>`;
         const pendingList = _readPending(relPath);
         const liveByCell = new Map(
@@ -7031,11 +7031,11 @@
 
         const addBtnHtml = renderNbAddCellButton();
         // Race guard: notebook fetches can take seconds. If the user
-        // navigated to a different file (or project) while we were
+        // navigated to a different file (or workspace) while we were
         // fetching, do NOT stomp the new view's content with this
         // notebook's HTML.
         if (!_stillActiveNav()) return;
-        const notebookPositionScope = notebookWorkspace.workspaceId || notebookWorkspace.workspaceRoot;
+        const notebookPositionScope = notebookVault.vaultId || notebookVault.vaultRoot;
         container.innerHTML = `<div style="padding:24px">${_renderNbJumpControls(realCells.length, _isNotebookCodeHidden(notebookPositionScope, relPath), toolbarActionsHtml)}${header}${renderNbRuntimePanel(runtime, relPath)}<div class="nb-container">${cellsHostHtml}</div>${addBtnHtml}</div>`;
         activateNotebookScripts(container);
         _ensureNbElapsedTicker();
@@ -7043,15 +7043,15 @@
         // button + restart.
         container.querySelectorAll('.nb-cell-interactive').forEach((wrap) => {
           bindNbCellInteractive(
-            wrap, relPath, filepath, null, notebookWorkspace.workspaceId,
+            wrap, relPath, filepath, null, notebookVault.vaultId,
           );
         });
-        bindNbCellInserters(container, relPath, filepath, notebookWorkspace.workspaceId);
-        bindNbAddCellButton(container, relPath, filepath, notebookWorkspace.workspaceId);
-        bindNbRunAll(container, relPath, filepath, notebookWorkspace.workspaceId);
-        bindNbRestartKernel(container, relPath, filepath, notebookWorkspace.workspaceId);
-        bindNbInterruptKernel(container, relPath, notebookWorkspace.workspaceId);
-        bindNbRuntimePanel(container, relPath, filepath, notebookWorkspace.workspaceId);
+        bindNbCellInserters(container, relPath, filepath, notebookVault.vaultId);
+        bindNbAddCellButton(container, relPath, filepath, notebookVault.vaultId);
+        bindNbRunAll(container, relPath, filepath, notebookVault.vaultId);
+        bindNbRestartKernel(container, relPath, filepath, notebookVault.vaultId);
+        bindNbInterruptKernel(container, relPath, notebookVault.vaultId);
+        bindNbRuntimePanel(container, relPath, filepath, notebookVault.vaultId);
         _bindNbNavigation(
           container,
           notebookPositionScope,
@@ -7065,7 +7065,7 @@
       return;
     }
 
-    // All other files: fetch content + comments + artifact info, then renderProjectDoc
+    // All other files: fetch content + comments + artifact info, then renderWorkspaceDoc
     try {
       const lowerPath = filepath.toLowerCase();
       const needsMarked = /\.(md|markdown)$/.test(lowerPath);
@@ -7080,19 +7080,19 @@
       // here so the user sees the page immediately. The three fetches
       // below still fire to reconcile; we only re-render if the fresh
       // data differs (skip-on-match avoids flicker for unchanged docs).
-      const cacheKey = _projDocCacheKey(docRoot, filepath);
-      const cached = _projDocCache.get(cacheKey);
+      const cacheKey = _workspaceDocCacheKey(docRoot, filepath);
+      const cached = _workspaceDocCache.get(cacheKey);
       if (cached) {
-        _projDocContent = cached.content;
-        _projComments = cached.comments;
-        _projDocArtifact = cached.artifact;
+        _workspaceDocContent = cached.content;
+        _workspaceComments = cached.comments;
+        _workspaceDocArtifact = cached.artifact;
         if (!_stillActiveNav()) return;
-        renderProjectDoc(filepath, container);
+        renderWorkspaceDoc(filepath, container);
       }
       const [fileRes, commentsRes, infoRes] = await Promise.all([
-        fetch(`/api/project-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`),
-        fetch(`/api/project-comments?path=${encodeURIComponent(docRoot)}`),
-        fetch(`/api/project-info?path=${encodeURIComponent(docRoot)}`),
+        fetch(`/api/workspace-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`),
+        fetch(`/api/workspace-comments?path=${encodeURIComponent(docRoot)}`),
+        fetch(`/api/workspace-info?path=${encodeURIComponent(docRoot)}`),
       ]);
       if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
       const data = await fileRes.json();
@@ -7100,7 +7100,7 @@
       const info = infoRes.ok ? await infoRes.json() : {};
       const artifacts = Array.isArray(info.artifacts) ? info.artifacts : [];
       const newArtifact = artifacts.find(a => a && a.file === filepath) || null;
-      _projDocCache.set(cacheKey, {content: data.content, comments: newComments, artifact: newArtifact});
+      _workspaceDocCache.set(cacheKey, {content: data.content, comments: newComments, artifact: newArtifact});
       // Skip re-render if we already painted from cache and the server
       // returned identical data — avoids a flicker on every warm
       // switch when nothing has changed.
@@ -7113,51 +7113,51 @@
       // Race guard: drop a late fetch if the user has navigated away.
       // (We still updated the cache above, so the next visit benefits.)
       if (!_stillActiveNav()) return;
-      _projDocContent = data.content;
-      _projComments = newComments;
-      _projDocArtifact = newArtifact;
-      renderProjectDoc(filepath, container);
+      _workspaceDocContent = data.content;
+      _workspaceComments = newComments;
+      _workspaceDocArtifact = newArtifact;
+      renderWorkspaceDoc(filepath, container);
     } catch (err) {
       if (!_stillActiveNav()) return;
       container.innerHTML = `<div class="no-repo"><p>Error: ${err.message}</p></div>`;
     }
   }
 
-  function openProjectDocFromFileClick(filepath, {root = null} = {}) {
-    if (!currentProject) return;
-    const docRoot = root || currentProject.path;
+  function openWorkspaceDocFromFileClick(filepath, {root = null} = {}) {
+    if (!currentWorkspace) return;
+    const docRoot = root || currentWorkspace.path;
     _termCancelPendingLinkedFileOpen();
     _termSyncFromFileClick(docRoot, filepath);
-    return openProjectDoc(filepath, {root});
+    return openWorkspaceDoc(filepath, {root});
   }
-  window.openProjectDocFromFileClick = openProjectDocFromFileClick;
+  window.openWorkspaceDocFromFileClick = openWorkspaceDocFromFileClick;
 
-  async function openProjectDoc(filepath, {preserveScroll = false, root = null} = {}) {
-    if (!currentProject) return;
+  async function openWorkspaceDoc(filepath, {preserveScroll = false, root = null} = {}) {
+    if (!currentWorkspace) return;
     _clearNbNavigation();
     // Pseudo-paths starting with `__proxy__/` are not real files — they
     // refer to a declared local-dev-server proxy. Route to the iframe
     // renderer; everything else (active highlight, last-opened memory)
-    // is handled inside openProjectProxy.
+    // is handled inside openWorkspaceProxy.
     if (typeof filepath === 'string' && filepath.startsWith('__proxy__/')) {
       const name = filepath.slice('__proxy__/'.length);
-      return openProjectProxy(name);
+      return openWorkspaceProxy(name);
     }
-    const docRoot = root || (preserveScroll && _projDocRoot) || currentProject.path;
-    _projDocRoot = docRoot;
+    const docRoot = root || (preserveScroll && _workspaceDocRoot) || currentWorkspace.path;
+    _workspaceDocRoot = docRoot;
     _contextSubView = 'document';
-    _projDocPath = filepath;
+    _workspaceDocPath = filepath;
     if (document.body.classList.contains('assistant-active')) {
       window.LAB_ASSISTANT_DOCUMENT_OPEN = true;
     }
     if (filepath.toLowerCase().endsWith('.ipynb')) {
-      setLastProjectNotebook(currentProject.path, filepath);
+      setLastWorkspaceNotebook(currentWorkspace.path, filepath);
     }
     renderRepoTabs();
-    _projDocEditing = false;
-    setLastProjectDoc(docRoot, filepath);
+    _workspaceDocEditing = false;
+    setLastWorkspaceDoc(docRoot, filepath);
     // Coming back from a server view (which collapses the sidebar by
-    // default) — restore this project's own sidebar preference.
+    // default) — restore this workspace's own sidebar preference.
     _sidebarApplyForView();
     const content = document.getElementById('content');
     const prevScroll = preserveScroll ? content.scrollTop : 0;
@@ -7166,15 +7166,15 @@
     // the cache below. For cache misses (or non-text files we don't
     // cache: notebooks/HTML/images) we still show the spinner.
     if (!preserveScroll) {
-      const cacheKey = _projDocCacheKey(docRoot, filepath);
-      if (!_projDocCache.has(cacheKey)) {
+      const cacheKey = _workspaceDocCacheKey(docRoot, filepath);
+      if (!_workspaceDocCache.has(cacheKey)) {
         content.innerHTML = '<div class="loading">Loading...</div>';
       }
     }
 
     // Highlight active in sidebar. Match on data-filepath (exact path) so the
     // mark lands on a single entry even when multiple files share a basename.
-    // The sidebar rebuilders (_refreshProjectSidebar / selfPopulateSidebar)
+    // The sidebar rebuilders (_refreshWorkspaceSidebar / selfPopulateSidebar)
     // also bake .active into the HTML they emit, so this is just for the
     // immediate click — we don't have to wait for the next rebuild to repaint.
     document.querySelectorAll('.sidebar-file').forEach(el => el.classList.remove('active'));
@@ -7182,15 +7182,15 @@
 
     // preserveScroll early-return: skip re-render when content/comments/artifact unchanged
     if (preserveScroll) {
-      // Capture the project/file at entry so an async paint landing
+      // Capture the workspace/file at entry so an async paint landing
       // after the user has navigated to a different file bails instead
       // of stomping the new view.
-      const _navProjectPath = currentProject.path;
+      const _navWorkspacePath = currentWorkspace.path;
       const _stillActiveNav = () => (
-        _projDocPath === filepath && currentProject && currentProject.path === _navProjectPath
-        && _projDocRoot === docRoot
+        _workspaceDocPath === filepath && currentWorkspace && currentWorkspace.path === _navWorkspacePath
+        && _workspaceDocRoot === docRoot
       );
-      // Notebooks, images, video, and HTML iframes have no meaningful _projDocContent
+      // Notebooks, images, video, and HTML iframes have no meaningful _workspaceDocContent
       // to diff against — delegate straight to _renderDocInto so they get the correct
       // renderer (its per-type guards keep live players/iframes unmolested).
       const lower = filepath.toLowerCase();
@@ -7204,9 +7204,9 @@
       }
       try {
         const [fileRes, commentsRes, infoRes] = await Promise.all([
-          fetch(`/api/project-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`),
-          fetch(`/api/project-comments?path=${encodeURIComponent(docRoot)}`),
-          fetch(`/api/project-info?path=${encodeURIComponent(docRoot)}`),
+          fetch(`/api/workspace-file?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`),
+          fetch(`/api/workspace-comments?path=${encodeURIComponent(docRoot)}`),
+          fetch(`/api/workspace-info?path=${encodeURIComponent(docRoot)}`),
         ]);
         if (!fileRes.ok) { const e = await fileRes.json(); throw new Error(e.detail); }
         const data = await fileRes.json();
@@ -7218,18 +7218,18 @@
         // tab-switches in sync with WS-triggered refreshes — without
         // this write, the cache could stay stale after Claude/an
         // external editor edits the file while it's open.
-        _projDocCache.set(_projDocCacheKey(docRoot, filepath),
+        _workspaceDocCache.set(_workspaceDocCacheKey(docRoot, filepath),
           {content: data.content, comments: newComments, artifact: newArtifact});
-        if (data.content === _projDocContent
-            && JSON.stringify(newComments) === JSON.stringify(_projComments)
-            && JSON.stringify(newArtifact) === JSON.stringify(_projDocArtifact)) {
+        if (data.content === _workspaceDocContent
+            && JSON.stringify(newComments) === JSON.stringify(_workspaceComments)
+            && JSON.stringify(newArtifact) === JSON.stringify(_workspaceDocArtifact)) {
           return;
         }
         if (!_stillActiveNav()) return;
-        _projDocContent = data.content;
-        _projComments = newComments;
-        _projDocArtifact = newArtifact;
-        renderProjectDoc(filepath, content);
+        _workspaceDocContent = data.content;
+        _workspaceComments = newComments;
+        _workspaceDocArtifact = newArtifact;
+        renderWorkspaceDoc(filepath, content);
         content.scrollTop = prevScroll;
       } catch (err) {
         if (!_stillActiveNav()) return;
@@ -7241,9 +7241,9 @@
     await _renderDocInto(filepath, content);
   }
 
-  // ─── Project proxies (per-project reverse-proxy to a local dev server) ───
-  // Backed by /api/proxy/<project>/<name>/<path> + /ws/proxy/... in
-  // routes/proxy.py. Declared in servers.json (legacy project.json proxies
+  // ─── Workspace proxies (per-workspace reverse-proxy to a local dev server) ───
+  // Backed by /api/proxy/<workspace>/<name>/<path> + /ws/proxy/... in
+  // routes/proxy.py. Declared in servers.json (legacy workspace.json proxies
   // remain readable when the standalone file does not exist):
   //   {"servers": [{"name": "frontend", "host": "localhost", "port": 3000, "path": "/"}]}
   // The frontend treats each proxy as a pseudo-file so all the sidebar
@@ -7252,17 +7252,17 @@
   // `__proxy__/<name>` (chosen so it cannot collide with a real file
   // path since `__proxy__` starts with `__` which is reserved).
   function _proxyFromCachedSidebar(name) {
-    if (!currentProject || !currentProject.is_project) return null;
-    const cached = _projectSidebarCache.get(currentProject.path);
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return null;
+    const cached = _workspaceSidebarCache.get(currentWorkspace.path);
     if (!cached || !Array.isArray(cached.proxies)) return null;
     return cached.proxies.find(p => p && p.name === name) || null;
   }
 
-  function _proxyMountPath(projectId, name, workspaceId = null) {
-    if (workspaceId) {
-      return `/api/workspace-proxy/${encodeURIComponent(workspaceId)}/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}/`;
+  function _proxyMountPath(workspaceId, name, vaultId = null) {
+    if (vaultId) {
+      return `/api/vault-proxy/${encodeURIComponent(vaultId)}/${encodeURIComponent(workspaceId)}/${encodeURIComponent(name)}/`;
     }
-    return `/api/proxy/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}/`;
+    return `/api/proxy/${encodeURIComponent(workspaceId)}/${encodeURIComponent(name)}/`;
   }
 
   // Direct upstream URL (http://host:port/path) for a proxy entry,
@@ -7282,8 +7282,8 @@
   }
 
   function _proxyInitialUrl(p, name) {
-    const projectId = currentProject && currentProject.name;
-    if (!projectId || !name) return null;
+    const workspaceId = currentWorkspace && currentWorkspace.name;
+    if (!workspaceId || !name) return null;
     // Direct mode: iframe straight to the upstream origin. Faster + no
     // path rewriting needed, but the browser must be able to reach
     // the upstream host:port directly (so won't work over an SSH
@@ -7291,15 +7291,15 @@
     if (p && p.mode === 'direct') return _proxyDirectUrl(p);
     const path = (p && p.path) ? String(p.path) : '/';
     const initial = path.replace(/^\/+/, '');
-    return _proxyMountPath(projectId, name, _projectWorkspaceId(currentProject)) + initial;
+    return _proxyMountPath(workspaceId, name, _workspaceVaultId(currentWorkspace)) + initial;
   }
 
   // Inline iframe + controls bar. The controls let the user reload the
   // inner app, copy the proxied URL, pop it out into a new tab (so it
   // lives alongside other browser tabs), or expand into a borderless
   // fullscreen view that hides the rest of the lab UI chrome.
-  async function openProjectProxy(name) {
-    if (!currentProject || !currentProject.is_project) return;
+  async function openWorkspaceProxy(name) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     if (!name) return;
     // The iframe hosts a live, stateful app — never rebuild it when this
     // proxy is already the active view (file-watcher refreshes, sidebar
@@ -7308,16 +7308,16 @@
     // explicit way to restart it.
     const existingWrap = document.getElementById('proxyWrap');
     if (existingWrap && existingWrap.dataset.proxy === name && document.getElementById('proxyIframe')) {
-      _projDocPath = '__proxy__/' + name;
+      _workspaceDocPath = '__proxy__/' + name;
       renderRepoTabs();
       _sidebarApplyForView();
       return;
     }
     const p = _proxyFromCachedSidebar(name);
     const proxyPath = '__proxy__/' + name;
-    _projDocPath = proxyPath;
-    _projDocEditing = false;
-    setLastProjectDoc(currentProject.path, proxyPath);
+    _workspaceDocPath = proxyPath;
+    _workspaceDocEditing = false;
+    setLastWorkspaceDoc(currentWorkspace.path, proxyPath);
     // Server views default to a collapsed files sidebar so the embedded
     // app gets the full left + center width (per-view remembered state —
     // the Files edge handle still brings it back).
@@ -7326,7 +7326,7 @@
     // view was open, drop the repo selection and its diff tabs so the top
     // bar highlights this server's tab instead.
     currentRepo = null;
-    currentRepoInProject = null;
+    currentRepoInWorkspace = null;
     const diffTabsEl = document.getElementById('diffTabs');
     if (diffTabsEl) diffTabsEl.style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
@@ -7350,41 +7350,41 @@
           <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace">${esc(label)}</span>
           <span style="font-size:11px;color:var(--text-dim);font-family:ui-monospace,monospace">→ ${esc(host)}:${esc(String(port))}</span>
           <span style="flex:1"></span>
-          <button onclick="reloadProjectProxy('${safeName}')" title="Reload" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x21BB; Reload</button>
-          <button onclick="openProjectProxyTab('${safeName}')" title="Open in new browser tab" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Pop out &#x2197;</button>
-          <button onclick="copyProjectProxyInstallCmd('${safeName}', this)" title="Copy osacompile command to create a Chrome standalone-window app for this URL" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x1F4E6; Install</button>
-          <button onclick="copyProjectProxyUninstallCmd('${safeName}', this)" title="Copy command to remove the installed Chrome app from $HOME/Applications" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x1F5D1; Uninstall</button>
-          <button onclick="toggleProjectProxyFullscreen()" id="proxyFullscreenBtn" title="Expand to fill the viewport (Esc to exit)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x26F6; Fullscreen</button>
+          <button onclick="reloadWorkspaceProxy('${safeName}')" title="Reload" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x21BB; Reload</button>
+          <button onclick="openWorkspaceProxyTab('${safeName}')" title="Open in new browser tab" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Pop out &#x2197;</button>
+          <button onclick="copyWorkspaceProxyInstallCmd('${safeName}', this)" title="Copy osacompile command to create a Chrome standalone-window app for this URL" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x1F4E6; Install</button>
+          <button onclick="copyWorkspaceProxyUninstallCmd('${safeName}', this)" title="Copy command to remove the installed Chrome app from $HOME/Applications" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x1F5D1; Uninstall</button>
+          <button onclick="toggleWorkspaceProxyFullscreen()" id="proxyFullscreenBtn" title="Expand to fill the viewport (Esc to exit)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">&#x26F6; Fullscreen</button>
         </div>
         <iframe id="proxyIframe" src="${esc(url)}" style="flex:1;width:100%;border:0;background:#fff" onload="applyIframeDarkMode(this)"></iframe>
       </div>
     `;
   }
 
-  function reloadProjectProxy(name) {
+  function reloadWorkspaceProxy(name) {
     const iframe = document.getElementById('proxyIframe');
-    if (!iframe) return openProjectProxy(name);
+    if (!iframe) return openWorkspaceProxy(name);
     // Force a full reload (drops the HMR client too) instead of just
     // re-pointing the src — bypasses cached errored states.
     try { iframe.contentWindow.location.reload(); }
     catch { iframe.src = iframe.src; }
   }
 
-  function openProjectProxyTab(name) {
+  function openWorkspaceProxyTab(name) {
     const p = _proxyFromCachedSidebar(name);
     // Pop out via the same-origin /api/proxy mount so the new tab stays
     // on the lab origin (shared cookies, reachable wherever the lab is
     // reachable). Falls back to the direct upstream URL only if we
-    // can't build a proxy mount (no current project id).
+    // can't build a proxy mount (no current workspace id).
     const url = _proxyInitialUrl(p, name) || _proxyDirectUrl(p);
     if (url) window.open(url, '_blank', 'noopener');
   }
 
-  function _projectProxyAppName(name) {
+  function _workspaceProxyAppName(name) {
     return String(name || '').replace(/[^A-Za-z0-9_-]/g, '');
   }
 
-  function _copyProjectProxyCommand(cmd, btn) {
+  function _copyWorkspaceProxyCommand(cmd, btn) {
     const done = () => {
       if (!btn) return;
       const original = btn.innerHTML;
@@ -7404,7 +7404,7 @@
     }
   }
 
-  function copyProjectProxyInstallCmd(name, btn) {
+  function copyWorkspaceProxyInstallCmd(name, btn) {
     const p = _proxyFromCachedSidebar(name);
     const rel = _proxyInitialUrl(p, name);
     // Absolute URL: relative proxy mount paths become absolute by joining
@@ -7415,7 +7415,7 @@
     // pointing at this proxy URL. Proxy names created from the modal are
     // already limited to [A-Za-z0-9_-]; keep the generated filename under
     // that same contract so install and uninstall target the same path.
-    const safeName = _projectProxyAppName(name);
+    const safeName = _workspaceProxyAppName(name);
     if (!safeName) return;
     const safeUrl = String(url).replace(/["\\]/g, '');
     // Find-or-focus: `open -na ... --app=` ALWAYS spawns a new window, so
@@ -7444,21 +7444,21 @@
       `-e 'end if'`,
       `-e 'do shell script "open -na \\"Google Chrome\\" --args --app=\\"" & appUrl & "\\""'`,
     ].join(' ');
-    _copyProjectProxyCommand(cmd, btn);
+    _copyWorkspaceProxyCommand(cmd, btn);
   }
 
-  function copyProjectProxyUninstallCmd(name, btn) {
-    const safeName = _projectProxyAppName(name);
+  function copyWorkspaceProxyUninstallCmd(name, btn) {
+    const safeName = _workspaceProxyAppName(name);
     if (!safeName) return;
     const cmd = `rm -rf "$HOME/Applications/${safeName}.app"`;
-    _copyProjectProxyCommand(cmd, btn);
+    _copyWorkspaceProxyCommand(cmd, btn);
   }
 
   // Fullscreen: hide the sidebar, term panel, attrs/repo/diff strips so
   // the iframe fills the viewport. Esc exits. Same effect as the user's
   // browser fullscreen but keeps the lab origin (cookies, lab UI WS).
   let _proxyEscHandler = null;
-  function toggleProjectProxyFullscreen() {
+  function toggleWorkspaceProxyFullscreen() {
     const wrap = document.getElementById('proxyWrap');
     if (!wrap) return;
     const on = document.body.classList.toggle('proxy-fullscreen');
@@ -7466,7 +7466,7 @@
     if (btn) btn.innerHTML = on ? '&#x26F6; Exit fullscreen' : '&#x26F6; Fullscreen';
     if (on) {
       _proxyEscHandler = (ev) => {
-        if (ev.key === 'Escape') toggleProjectProxyFullscreen();
+        if (ev.key === 'Escape') toggleWorkspaceProxyFullscreen();
       };
       document.addEventListener('keydown', _proxyEscHandler);
     } else if (_proxyEscHandler) {
@@ -7476,13 +7476,13 @@
   }
 
   // Sidebar "blue dot" entry point — open the notebook AND scroll the first
-  // unread cell into view. Defaults to the same openProjectDoc path so the
+  // unread cell into view. Defaults to the same openWorkspaceDoc path so the
   // file lands the same way the user would by clicking the row, then waits
   // one paint to make sure the cell HTML is in the DOM before scrolling.
   // Used as the dot's onclick (with event.stopPropagation() at the call site
   // so the surrounding row click doesn't double-fire).
-  async function openProjectDocAndJumpToUnseen(filepath, root = null) {
-    await openProjectDoc(filepath, root ? {root} : {});
+  async function openWorkspaceDocAndJumpToUnseen(filepath, root = null) {
+    await openWorkspaceDoc(filepath, root ? {root} : {});
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const target = document.querySelector('#content .nb-cell-unseen');
@@ -7492,8 +7492,8 @@
   }
 
   function toggleCommentsPanel(btn) {
-    const collapsed = localStorage.getItem('projDocCommentsCollapsed') === '0' ? '1' : '0';
-    localStorage.setItem('projDocCommentsCollapsed', collapsed);
+    const collapsed = localStorage.getItem('workspaceDocCommentsCollapsed') === '0' ? '1' : '0';
+    localStorage.setItem('workspaceDocCommentsCollapsed', collapsed);
     // Scope lookups to the same render container as the clicked button so
     // inline-pane and modal don't interfere when both are in the DOM.
     const root = (btn && btn.closest('#content, #docModalBody')) || document;
@@ -7527,70 +7527,70 @@
     return out.join('/');
   }
 
-  function renderProjectDoc(filepath, container) {
+  function renderWorkspaceDoc(filepath, container) {
     if (!container) container = document.getElementById('content');
     const fn = filepath.replace(/'/g, "\\'");
-    const commentsCollapsed = localStorage.getItem('projDocCommentsCollapsed') !== '0';
+    const commentsCollapsed = localStorage.getItem('workspaceDocCommentsCollapsed') !== '0';
 
     // Two-column: doc left, comments right
     let html = `<div style="display:flex;gap:0;position:relative">`;
 
     // Doc column
-    html += `<div class="project-content" style="padding:24px;flex:1;min-width:0">`;
+    html += `<div class="workspace-content" style="padding:24px;flex:1;min-width:0">`;
     // Header with edit/save buttons
     html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">`;
     html += `<span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span>`;
-    if (!_projDocEditing) {
+    if (!_workspaceDocEditing) {
       html += `<button onclick="copyForGDocs(event)" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">&#x1F4CB; Copy</button>`;
-      html += `<button onclick="startProjectDocEdit()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Edit</button>`;
-      html += `<button onclick="linkProjectDocArtifact('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer" title="Attach the online URL (Google Doc, etc.) that mirrors this file">&#x1F517; Link</button>`;
-      const toggleColor = (!commentsCollapsed && _projComments.length > 0) ? '#388bfd' : '#8b949e';
-      const toggleBorder = (!commentsCollapsed && _projComments.length > 0) ? '#388bfd' : '#30363d';
+      html += `<button onclick="startWorkspaceDocEdit()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Edit</button>`;
+      html += `<button onclick="linkWorkspaceDocArtifact('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer" title="Attach the online URL (Google Doc, etc.) that mirrors this file">&#x1F517; Link</button>`;
+      const toggleColor = (!commentsCollapsed && _workspaceComments.length > 0) ? '#388bfd' : '#8b949e';
+      const toggleBorder = (!commentsCollapsed && _workspaceComments.length > 0) ? '#388bfd' : '#30363d';
       const toggleTitle = commentsCollapsed ? 'Show comments' : 'Hide comments';
-      const commentCount = _projComments.length > 0 ? ` (${_projComments.length})` : '';
+      const commentCount = _workspaceComments.length > 0 ? ` (${_workspaceComments.length})` : '';
       html += `<button id="commentsToggleBtn" onclick="toggleCommentsPanel(this)" style="background:#21262d;color:${toggleColor};border:1px solid ${toggleBorder};padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer" title="${toggleTitle}">&#x1F4AC;${commentCount}</button>`;
     } else {
-      html += `<button onclick="saveProjectDoc('${fn}')" style="background:#238636;color:#fff;border:1px solid #238636;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>`;
-      html += `<button onclick="cancelProjectDocEdit('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
+      html += `<button onclick="saveWorkspaceDoc('${fn}')" style="background:#238636;color:#fff;border:1px solid #238636;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>`;
+      html += `<button onclick="cancelWorkspaceDocEdit('${fn}')" style="background:#21262d;color:#8b949e;border:1px solid #30363d;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">Cancel</button>`;
     }
     html += `</div>`;
 
-    // "Published at" banner — surfaces the project.json.artifacts[] entry
+    // "Published at" banner — surfaces the workspace.json.artifacts[] entry
     // whose `file` field matches this doc. Reminds the user that this
     // local file has a canonical online version (GDoc, Confluence, etc.)
     // so edits can be mirrored there.
-    if (_projDocArtifact && _projDocArtifact.url) {
-      const label = _projDocArtifact.title || _projDocArtifact.type || 'online version';
+    if (_workspaceDocArtifact && _workspaceDocArtifact.url) {
+      const label = _workspaceDocArtifact.title || _workspaceDocArtifact.type || 'online version';
       html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;margin-bottom:16px;background:#0d1b2a;border:1px solid #1f3a5f;border-radius:6px;font-size:13px">`;
       html += `<span style="opacity:.7">&#x1F4CE; Published at</span>`;
-      html += `<a href="${esc(_projDocArtifact.url)}" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none;word-break:break-all;flex:1">${esc(label)}</a>`;
-      html += `<button onclick="linkProjectDocArtifact('${fn}')" style="background:transparent;color:#8b949e;border:1px solid #30363d;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Replace">Edit</button>`;
-      html += `<button onclick="unlinkProjectDocArtifact(${_projDocArtifact.id})" style="background:transparent;color:#8b949e;border:1px solid #30363d;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Remove link">&#x2716;</button>`;
+      html += `<a href="${esc(_workspaceDocArtifact.url)}" target="_blank" rel="noopener" style="color:#58a6ff;text-decoration:none;word-break:break-all;flex:1">${esc(label)}</a>`;
+      html += `<button onclick="linkWorkspaceDocArtifact('${fn}')" style="background:transparent;color:#8b949e;border:1px solid #30363d;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Replace">Edit</button>`;
+      html += `<button onclick="unlinkWorkspaceDocArtifact(${_workspaceDocArtifact.id})" style="background:transparent;color:#8b949e;border:1px solid #30363d;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Remove link">&#x2716;</button>`;
       html += `</div>`;
     }
 
-    if (_projDocEditing) {
-      html += `<textarea id="projDocEditor" spellcheck="false" style="width:100%;min-height:500px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;line-height:1.6;resize:vertical;outline:none;tab-size:4">${esc(_projDocContent)}</textarea>`;
+    if (_workspaceDocEditing) {
+      html += `<textarea id="workspaceDocEditor" spellcheck="false" style="width:100%;min-height:500px;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;line-height:1.6;resize:vertical;outline:none;tab-size:4">${esc(_workspaceDocContent)}</textarea>`;
     } else {
-      let rendered = _projDocContent;
+      let rendered = _workspaceDocContent;
       if (filepath.endsWith('.md')) {
         try {
           const renderer = new marked.Renderer();
           renderer.image = function(href, title, text) {
-            if (href && !href.startsWith('http') && !href.startsWith('data:') && currentProject) {
+            if (href && !href.startsWith('http') && !href.startsWith('data:') && currentWorkspace) {
               const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
               const resolvedHref = _resolveRelPath(dir, href);
-              href = `/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolvedHref)}&t=${_lastProjectMtime || Date.now()}`;
+              href = `/api/workspace-asset?path=${encodeURIComponent(_workspaceDocRoot || currentWorkspace.path)}&file=${encodeURIComponent(resolvedHref)}&t=${_lastWorkspaceMtime || Date.now()}`;
             }
             return `<img src="${href}" alt="${text || ''}"${title ? ` title="${title}"` : ''} style="max-width:100%;border-radius:4px;margin:8px 0">`;
           };
-          rendered = marked.parse(_projDocContent, { renderer });
-          // Rewrite relative src in iframes/embeds to use project-asset API
+          rendered = marked.parse(_workspaceDocContent, { renderer });
+          // Rewrite relative src in iframes/embeds to use workspace-asset API
           rendered = rendered.replace(/<iframe([^>]*) src="([^"]+)"([^>]*)>/g, (match, pre, src, post) => {
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
             const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
             const resolved = _resolveRelPath(dir, src);
-            const newSrc = `/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolved)}`;
+            const newSrc = `/api/workspace-asset?path=${encodeURIComponent(_workspaceDocRoot || currentWorkspace.path)}&file=${encodeURIComponent(resolved)}`;
             return `<iframe${pre} src="${newSrc}"${post} onload="applyIframeDarkMode(this)">`;
           });
           // Also rewrite other relative src (img etc) not already handled
@@ -7598,24 +7598,24 @@
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
             const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : '';
             const resolved = _resolveRelPath(dir, src);
-            return ` src="/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolved)}"`;
+            return ` src="/api/workspace-asset?path=${encodeURIComponent(_workspaceDocRoot || currentWorkspace.path)}&file=${encodeURIComponent(resolved)}"`;
           });
         } catch(e) {
-          rendered = `<pre>${esc(_projDocContent)}</pre>`;
+          rendered = `<pre>${esc(_workspaceDocContent)}</pre>`;
         }
       } else if (filepath.endsWith('.json')) {
         try {
-          const formatted = JSON.stringify(JSON.parse(_projDocContent), null, 2);
+          const formatted = JSON.stringify(JSON.parse(_workspaceDocContent), null, 2);
           rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow-x:auto">${hlLine(formatted, 'json')}</pre>`;
         } catch(e) {
-          rendered = `<pre>${esc(_projDocContent)}</pre>`;
+          rendered = `<pre>${esc(_workspaceDocContent)}</pre>`;
         }
       } else {
         const lang = filenameLang(filepath);
         if (lang) {
-          rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow-x:auto;line-height:1.5">${hlLine(_projDocContent, lang)}</pre>`;
+          rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow-x:auto;line-height:1.5">${hlLine(_workspaceDocContent, lang)}</pre>`;
         } else {
-          rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow-x:auto">${esc(_projDocContent)}</pre>`;
+          rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow-x:auto">${esc(_workspaceDocContent)}</pre>`;
         }
       }
       // Inline highlighting happens after innerHTML via highlightComments()
@@ -7631,7 +7631,7 @@
           return `${openTag}<span style="display:flex;align-items:center;gap:8px">${text}<button onclick="copySectionByHeading('${safeText}', ${level}, this)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0;opacity:0.5" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">Copy</button></span>${closeTag}`;
         });
       }
-      html += `<div id="projDocBody" class="nb-markdown">${rendered}</div>`;
+      html += `<div id="workspaceDocBody" class="nb-markdown">${rendered}</div>`;
     }
     html += `</div>`;
 
@@ -7644,8 +7644,8 @@
     html += `<span style="font-size:12px;color:#8b949e;font-weight:500;flex:1">Comments</span>`;
     html += `<button onclick="toggleCommentsPanel(this)" style="background:none;border:none;color:#484f58;font-size:16px;line-height:1;cursor:pointer;padding:0 2px" title="Close comments">&times;</button>`;
     html += `</div>`;
-    if (_projComments.length > 0) {
-      _projComments.forEach(c => {
+    if (_workspaceComments.length > 0) {
+      _workspaceComments.forEach(c => {
         html += `<div class="comment-card" data-comment-id="${c.id}" style="border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:10px;background:#161b22;font-size:14px">`;
         if (c.text) html += `<div style="color:#d29922;font-size:12px;margin-bottom:6px;font-style:italic">"${esc(c.text.substring(0, 60))}${c.text.length > 60 ? '...' : ''}"</div>`;
         html += `<div style="color:#e6edf3;line-height:1.5">${esc(c.comment)}</div>`;
@@ -7672,16 +7672,16 @@
     // Apply comment highlights after innerHTML so we can wrap Ranges that
     // span formatting tags (bold/italic/links) — not possible with string
     // replace on the raw HTML.
-    if (!_projDocEditing) {
-      const docBody = container.querySelector('#projDocBody');
+    if (!_workspaceDocEditing) {
+      const docBody = container.querySelector('#workspaceDocBody');
       if (docBody) {
-        _projComments.forEach(c => { if (c.text) highlightCommentInNode(docBody, c.text, c.id); });
+        _workspaceComments.forEach(c => { if (c.text) highlightCommentInNode(docBody, c.text, c.id); });
         renderMermaidBlocks(docBody);
       }
     }
 
-    if (_projDocEditing) {
-      const ta = container.querySelector('#projDocEditor');
+    if (_workspaceDocEditing) {
+      const ta = container.querySelector('#workspaceDocEditor');
       ta.addEventListener('keydown', function(e) {
         if (e.key === 'Tab') {
           e.preventDefault();
@@ -7696,7 +7696,7 @@
       // pending <mark> right away so the user sees what they're commenting
       // on while composing. Cleared on cancel; replaced by the saved mark
       // on submit via re-render.
-      const docBody = container.querySelector('#projDocBody');
+      const docBody = container.querySelector('#workspaceDocBody');
       if (docBody) {
         docBody.addEventListener('contextmenu', (e) => {
           const sel = window.getSelection();
@@ -7818,8 +7818,8 @@
     const root = ctr || document;
     const q = (id) => root.querySelector('#' + id);
     // Auto-expand the comments panel if it's currently collapsed
-    if (localStorage.getItem('projDocCommentsCollapsed') !== '0') {
-      localStorage.setItem('projDocCommentsCollapsed', '0');
+    if (localStorage.getItem('workspaceDocCommentsCollapsed') !== '0') {
+      localStorage.setItem('workspaceDocCommentsCollapsed', '0');
       const panel = q('commentsMargin');
       const btn = q('commentsToggleBtn');
       if (panel) panel.style.display = '';
@@ -7852,68 +7852,68 @@
     const input = root.querySelector('#commentInput');
     const comment = input.value.trim();
     if (!comment) return;
-    if (!currentProject) return;
+    if (!currentWorkspace) return;
     try {
-      await fetch('/api/project-comments', {
+      await fetch('/api/workspace-comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: _projDocRoot || currentProject.path, file: filepath, text: _pendingCommentText, comment }),
+        body: JSON.stringify({ path: _workspaceDocRoot || currentWorkspace.path, file: filepath, text: _pendingCommentText, comment }),
       });
       _pendingCommentText = '';
       _pendingCommentMark = null;  // the upcoming re-render rebuilds the DOM from scratch
-      openProjectDoc(filepath);
+      openWorkspaceDoc(filepath);
     } catch (err) { alert('Error: ' + err.message); }
   }
 
-  function startProjectDocEdit() {
-    if (!_projDocPath) return;
-    openProjectDocModal(_projDocPath, { editing: true, root: _projDocRoot || currentProject.path });
+  function startWorkspaceDocEdit() {
+    if (!_workspaceDocPath) return;
+    openWorkspaceDocModal(_workspaceDocPath, { editing: true, root: _workspaceDocRoot || currentWorkspace.path });
   }
 
-  function cancelProjectDocEdit(filepath) {
-    const editCtr = _projDocEditContainer;
-    _projDocEditing = false;
-    _projDocEditContainer = null;
-    if (editCtr) renderProjectDoc(filepath, editCtr);
+  function cancelWorkspaceDocEdit(filepath) {
+    const editCtr = _workspaceDocEditContainer;
+    _workspaceDocEditing = false;
+    _workspaceDocEditContainer = null;
+    if (editCtr) renderWorkspaceDoc(filepath, editCtr);
   }
 
-  async function saveProjectDoc(filepath) {
-    const editCtr = _projDocEditContainer;
-    const ta = editCtr ? editCtr.querySelector('#projDocEditor') : document.getElementById('projDocEditor');
-    if (!ta || !currentProject) return;
+  async function saveWorkspaceDoc(filepath) {
+    const editCtr = _workspaceDocEditContainer;
+    const ta = editCtr ? editCtr.querySelector('#workspaceDocEditor') : document.getElementById('workspaceDocEditor');
+    if (!ta || !currentWorkspace) return;
     try {
-      const res = await fetch('/api/project-file', {
+      const res = await fetch('/api/workspace-file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: _projDocRoot || currentProject.path, file: filepath, content: ta.value }),
+        body: JSON.stringify({ path: _workspaceDocRoot || currentWorkspace.path, file: filepath, content: ta.value }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.detail || 'Error saving'); return; }
-      _projDocContent = ta.value;
-      _projDocEditing = false;
-      _projDocEditContainer = null;
+      _workspaceDocContent = ta.value;
+      _workspaceDocEditing = false;
+      _workspaceDocEditContainer = null;
       // Re-render modal in read mode with saved content, then refresh inline pane.
-      if (editCtr) renderProjectDoc(filepath, editCtr);
+      if (editCtr) renderWorkspaceDoc(filepath, editCtr);
       const content = document.getElementById('content');
       if (content) _renderDocInto(filepath, content);
     } catch (err) { alert('Error: ' + err.message); }
   }
 
   async function resolveComment(commentId) {
-    if (!currentProject) return;
+    if (!currentWorkspace) return;
     try {
-      await fetch('/api/project-comments', {
+      await fetch('/api/workspace-comments', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: _projDocRoot || currentProject.path, comment_id: commentId }),
+        body: JSON.stringify({ path: _workspaceDocRoot || currentWorkspace.path, comment_id: commentId }),
       });
-      openProjectDoc(_projDocPath);
+      openWorkspaceDoc(_workspaceDocPath);
     } catch (err) { alert('Error: ' + err.message); }
   }
 
   let _completeActionId = null;
 
   function completeAction(actionId) {
-    if (!currentProject) return;
+    if (!currentWorkspace) return;
     _completeActionId = actionId;
     // Show floating completion box near the clicked item
     let box = document.getElementById('actionCompleteBox');
@@ -7948,18 +7948,18 @@
   }
 
   async function submitCompleteAction() {
-    if (!currentProject || !_completeActionId) return;
+    if (!currentWorkspace || !_completeActionId) return;
     const input = document.getElementById('actionArtifactsInput');
     const artifacts = input.value.split('\n').map(s => s.trim()).filter(Boolean);
     try {
-      await fetch('/api/project-action-complete', {
+      await fetch('/api/workspace-action-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, action_id: _completeActionId, artifacts }),
+        body: JSON.stringify({ path: currentWorkspace.path, action_id: _completeActionId, artifacts }),
       });
       _completeActionId = null;
       document.getElementById('actionCompleteBox').style.display = 'none';
-      showProjectInfo();
+      showWorkspaceInfo();
     } catch (err) { alert('Error: ' + err.message); }
   }
 
@@ -8000,7 +8000,7 @@
 
     // Set explicit styles for GDocs compatibility (it needs inline styles)
     clone.style.fontFamily = 'Arial, sans-serif';
-    // Flatten headings to a single plain-text node. renderProjectDoc wraps
+    // Flatten headings to a single plain-text node. renderWorkspaceDoc wraps
     // h2/h3 contents in a <span style="display:flex"> to host an inline
     // "Copy" button; the button is removed above, but leaving the span
     // means the body-text rule below assigns it font-size:11pt. Google
@@ -8071,8 +8071,8 @@
 
   async function copySectionByHeading(headingText, level, btn) {
     // Extract section from raw markdown: from the heading line to the next heading of same or higher level
-    if (!_projDocContent) return;
-    const lines = _projDocContent.split('\n');
+    if (!_workspaceDocContent) return;
+    const lines = _workspaceDocContent.split('\n');
     const hPrefix = '#'.repeat(parseInt(level)) + ' ';
     let startIdx = -1;
     // Find the heading line
@@ -8124,10 +8124,10 @@
     // Resolve relative image paths and convert to base64 for GDocs
     container.querySelectorAll('img').forEach(img => {
       const src = img.getAttribute('src');
-      if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/') && currentProject) {
-        const dir = (_projDocPath && _projDocPath.includes('/')) ? _projDocPath.substring(0, _projDocPath.lastIndexOf('/')) : '';
+      if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/') && currentWorkspace) {
+        const dir = (_workspaceDocPath && _workspaceDocPath.includes('/')) ? _workspaceDocPath.substring(0, _workspaceDocPath.lastIndexOf('/')) : '';
         const resolved = _resolveRelPath(dir, src);
-        img.src = `/api/project-asset?path=${encodeURIComponent(_projDocRoot || currentProject.path)}&file=${encodeURIComponent(resolved)}`;
+        img.src = `/api/workspace-asset?path=${encodeURIComponent(_workspaceDocRoot || currentWorkspace.path)}&file=${encodeURIComponent(resolved)}`;
       }
     });
     const imgs = container.querySelectorAll('img');
@@ -8166,17 +8166,17 @@
   }
 
   // Attach (or replace) the online URL for the current doc. Writes into
-  // project.json.artifacts[]. Same storage the `lab artifact add --file`
+  // workspace.json.artifacts[]. Same storage the `lab artifact add --file`
   // CLI touches, so either entry point is fine. Detects the artifact type
   // from the URL host for convenience.
-  async function linkProjectDocArtifact(filepath) {
-    if (!currentProject) return;
-    const existing = _projDocArtifact && _projDocArtifact.url ? _projDocArtifact.url : '';
+  async function linkWorkspaceDocArtifact(filepath) {
+    if (!currentWorkspace) return;
+    const existing = _workspaceDocArtifact && _workspaceDocArtifact.url ? _workspaceDocArtifact.url : '';
     const url = prompt('Online URL for ' + filepath + ' (Google Doc / Confluence / etc.)', existing);
     if (url === null) return;
     const clean = url.trim();
     if (!clean) return;
-    const title = prompt('Title (optional)', (_projDocArtifact && _projDocArtifact.title) || filepath.split('/').pop()) || '';
+    const title = prompt('Title (optional)', (_workspaceDocArtifact && _workspaceDocArtifact.title) || filepath.split('/').pop()) || '';
     const inferredType = (() => {
       if (/docs\.google\.com/.test(clean)) return 'google_doc';
       if (/sheets\.google\.com/.test(clean)) return 'spreadsheet';
@@ -8187,7 +8187,7 @@
       return 'url';
     })();
     try {
-      const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
       const info = await infoRes.json();
       const arts = Array.isArray(info.artifacts) ? [...info.artifacts] : [];
       const existingIdx = arts.findIndex(a => a && a.file === filepath);
@@ -8204,36 +8204,36 @@
       if (existingIdx >= 0) arts[existingIdx] = entry;
       else arts.push(entry);
       info.artifacts = arts;
-      await fetch(`/api/project-info`, {
+      await fetch(`/api/workspace-info`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, data: info }),
+        body: JSON.stringify({ path: currentWorkspace.path, data: info }),
       });
-      openProjectDoc(filepath, { preserveScroll: true });
+      openWorkspaceDoc(filepath, { preserveScroll: true });
     } catch (err) { alert('Error: ' + err.message); }
   }
 
-  async function unlinkProjectDocArtifact(artifactId) {
-    if (!currentProject || !artifactId) return;
+  async function unlinkWorkspaceDocArtifact(artifactId) {
+    if (!currentWorkspace || !artifactId) return;
     if (!confirm('Remove the online-version link from this doc?')) return;
     try {
-      const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
       const info = await infoRes.json();
       const arts = Array.isArray(info.artifacts) ? info.artifacts.filter(a => a && a.id !== artifactId) : [];
       info.artifacts = arts;
-      await fetch(`/api/project-info`, {
+      await fetch(`/api/workspace-info`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, data: info }),
+        body: JSON.stringify({ path: currentWorkspace.path, data: info }),
       });
-      openProjectDoc(_projDocPath, { preserveScroll: true });
+      openWorkspaceDoc(_workspaceDocPath, { preserveScroll: true });
     } catch (err) { alert('Error: ' + err.message); }
   }
 
   async function togglePin(filename) {
-    if (!currentProject) return;
+    if (!currentWorkspace) return;
     try {
-      const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
       const info = await infoRes.json();
       let pinned = Array.isArray(info.pinned) ? [...info.pinned] : [];
       const idx = pinned.indexOf(filename);
@@ -8243,49 +8243,49 @@
         pinned.push(filename);
       }
       info.pinned = pinned;
-      await fetch(`/api/project-info`, {
+      await fetch(`/api/workspace-info`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentProject.path, data: info }),
+        body: JSON.stringify({ path: currentWorkspace.path, data: info }),
       });
-      showProjectInfo();
+      showWorkspaceInfo();
     } catch(e) {}
   }
 
-  function showProjectDashboard() {
+  function showWorkspaceDashboard() {
     if (document.body.classList.contains('assistant-active') && window.AssistantView) {
       window.AssistantView.setSection('overview');
       return;
     }
     _contextSubView = 'overview';
     currentRepo = null;
-    currentRepoInProject = null;
+    currentRepoInWorkspace = null;
     _repoFileRoot = null;
     // Clear the doc path BEFORE rendering tabs — the Overview tab's active
     // state (and the sidebar view suffix) both read it. User explicitly
-    // chose Dashboard, so also drop the remembered doc for this project.
-    if (currentProject) setLastProjectDoc(currentProject.path, null);
-    _projDocPath = null;
-    _projDocRoot = null;
+    // chose Dashboard, so also drop the remembered doc for this workspace.
+    if (currentWorkspace) setLastWorkspaceDoc(currentWorkspace.path, null);
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
     renderRepoTabs();
-    // Restore the project's own sidebar preference (a server view may
+    // Restore the workspace's own sidebar preference (a server view may
     // have collapsed it).
     _sidebarApplyForView();
     // Hide diff tabs when on dashboard
     document.getElementById('diffTabs').style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
-    showProjectInfo();
+    showWorkspaceInfo();
   }
 
-  function selectProjectRepo(repoPath) {
+  function selectWorkspaceRepo(repoPath) {
     _contextSubView = 'repository';
-    currentRepoInProject = currentProject.repos.find(r => r.path === repoPath);
+    currentRepoInWorkspace = currentWorkspace.repos.find(r => r.path === repoPath);
     currentRepo = repoPath;
     _repoFileRoot = null;
     // The diff view replaces any open doc/server view — clear the doc path
     // so the server tab un-highlights and the sidebar preference resets.
-    _projDocPath = null;
-    _projDocRoot = null;
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
     renderRepoTabs();
     _sidebarApplyForView();
     // Show diff tabs when viewing a repo
@@ -8307,10 +8307,10 @@
 
   // Per-file "last viewed mtime" tracker. Persisted in localStorage so
   // the unseen-results indicator survives reloads. When a notebook is
-  // opened (openProjectDoc) we stamp its current mtime; any subsequent
+  // opened (openWorkspaceDoc) we stamp its current mtime; any subsequent
   // mtime advance means there are unseen outputs → amber dot.
   function _nbLastViewedKey(path) {
-    return 'nbLastViewed:' + (currentProject ? currentProject.path : '') + '|' + path;
+    return 'nbLastViewed:' + (currentWorkspace ? currentWorkspace.path : '') + '|' + path;
   }
   function _nbGetLastViewed(path) {
     try {
@@ -8323,11 +8323,11 @@
   }
 
   // ─── Sidebar git decorations (VS Code Explorer-style) ───────────────────
-  // Per-file status from GET /api/git-status?repo=<project path> (short-TTL
+  // Per-file status from GET /api/git-status?repo=<workspace path> (short-TTL
   // cached server-side). Applied by MUTATING row classes/badges in place —
   // never by rebuilding the tree — so open folders, scroll position, and
   // hover state all survive a repaint.
-  const _gitStatusByPath = new Map();  // project path -> {files, ignored, ts}
+  const _gitStatusByPath = new Map();  // workspace path -> {files, ignored, ts}
   let _gitStatusInFlight = false;
   const _GIT_STATUS_MIN_MS = 5000;     // client-side floor between fetches
   const _GIT_ROW_CLASSES = ['git-m', 'git-a', 'git-u', 'git-d', 'git-r', 'git-ignored'];
@@ -8399,10 +8399,10 @@
 
     // Folders: tint like VS Code — gold when anything under them is
     // modified/deleted/renamed, green when only added/untracked, dim when
-    // gitignored — plus a right-edge dot badge. Project-scoped folders only
+    // gitignored — plus a right-edge dot badge. Workspace-scoped folders only
     // (the shared `.claude/`, `.agents/`, `code/` meta trees live outside
-    // the project and keep their plain styling).
-    sidebar.querySelectorAll('.sidebar-folder[data-tree-scope^="project:"]').forEach(row => {
+    // the workspace and keep their plain styling).
+    sidebar.querySelectorAll('.sidebar-folder[data-tree-scope^="workspace:"]').forEach(row => {
       const p = row.getAttribute('data-tree-path') || '';
       let cls = '';
       if (p && statusFor(p)) {
@@ -8437,8 +8437,8 @@
   // Repaints synchronously from cache (a sidebar rebuild wipes the DOM
   // classes), then refreshes from the server unless the cache is fresh.
   async function _sidebarGitStatusRefresh() {
-    if (!currentProject || !currentProject.is_project || !currentProject.path) return;
-    const basePath = currentProject.path;
+    if (!currentWorkspace || !currentWorkspace.is_workspace || !currentWorkspace.path) return;
+    const basePath = currentWorkspace.path;
     const path = _sidebarScopedRoot(basePath);
     const cached = _gitStatusByPath.get(path);
     if (cached) _sidebarApplyGitStatus(cached);
@@ -8451,7 +8451,7 @@
       const data = await r.json();
       const entry = {files: data.files || {}, ignored: data.ignored || [], ts: Date.now()};
       _gitStatusByPath.set(path, entry);
-      if (currentProject && currentProject.path === basePath && _sidebarScopedRoot(basePath) === path) {
+      if (currentWorkspace && currentWorkspace.path === basePath && _sidebarScopedRoot(basePath) === path) {
         _sidebarApplyGitStatus(entry);
       }
     } catch (e) {
@@ -8461,42 +8461,42 @@
     }
   }
 
-  // Re-renders just the project file sidebar from scratch. Pulled out
-  // of showProjectInfo so the mtime poller can call it independently
+  // Re-renders just the workspace file sidebar from scratch. Pulled out
+  // of showWorkspaceInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
-  async function _refreshProjectSidebar({preserveScroll = false, _data = null} = {}) {
-    if (!currentProject || !currentProject.is_project) return;
+  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null} = {}) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
-    const projectPath = currentProject.path;
+    const workspacePath = currentWorkspace.path;
     const isAssistant = document.body.classList.contains('assistant-active');
-    await _sidebarEnsureWorktrees(projectPath);
-    const fileRoot = _sidebarScopedRoot(projectPath);
+    await _sidebarEnsureWorktrees(workspacePath);
+    const fileRoot = _sidebarScopedRoot(workspacePath);
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
     // Warm switch: when no `_data` override is passed but the cache has
-    // a payload for this project, paint instantly from the cache and
+    // a payload for this workspace, paint instantly from the cache and
     // then reconcile against the server in the background. The
     // recursive call with `_data` set skips the fetches entirely so
     // the second paint only re-runs the render body (no network).
     if (!_data) {
-      const cachedPayload = _projectSidebarCache.get(projectPath);
-      if (cachedPayload && cachedPayload.fileRoot !== fileRoot) _projectSidebarCache.delete(projectPath);
+      const cachedPayload = _workspaceSidebarCache.get(workspacePath);
+      if (cachedPayload && cachedPayload.fileRoot !== fileRoot) _workspaceSidebarCache.delete(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot === fileRoot) {
         // Synchronous warm paint — recursive call returns a Promise but
         // because `_data` short-circuits both fetches, all the render
         // work happens in the synchronous prefix.
-        _refreshProjectSidebar({preserveScroll, _data: cachedPayload});
+        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload});
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
-            const files = await _sidebarFetchProjectFiles(fileRoot);
+            const files = await _sidebarFetchWorkspaceFiles(fileRoot);
             const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
             let pinned = [], references = [], proxies = [];
             try {
-              const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`);
+              const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
               if (infoRes.ok) {
                 const info = await infoRes.json();
                 if (Array.isArray(info.pinned)) pinned = info.pinned;
@@ -8505,16 +8505,16 @@
               }
             } catch {}
             const fresh = {files, recentFiles, pinned, references, proxies, fileRoot};
-            if (!currentProject || currentProject.path !== projectPath
-                || _sidebarScopedRoot(projectPath) !== fileRoot) return;
-            const prev = _projectSidebarCache.get(projectPath);
-            _projectSidebarCache.set(projectPath, fresh);
+            if (!currentWorkspace || currentWorkspace.path !== workspacePath
+                || _sidebarScopedRoot(workspacePath) !== fileRoot) return;
+            const prev = _workspaceSidebarCache.get(workspacePath);
+            _workspaceSidebarCache.set(workspacePath, fresh);
             // Re-render only if (a) the data actually changed and (b)
-            // the user is still on this project.
+            // the user is still on this workspace.
             if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
-            _refreshProjectSidebar({preserveScroll: true, _data: fresh});
+            _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh});
           } catch (e) {
-            console.error('[_refreshProjectSidebar] reconcile failed:', e && e.stack || e);
+            console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
           }
         });
         return;
@@ -8534,13 +8534,13 @@
           : (_sidebarCurrentRecentMode() === 'mtime' ? _sidebarRecentFiles(files) : []);
       } else {
         // Cold path: fetch fresh + write to cache.
-        files = await _sidebarFetchProjectFiles(fileRoot);
+        files = await _sidebarFetchWorkspaceFiles(fileRoot);
         recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
         pinnedNames = [];
         references = [];
         proxies = [];
         try {
-          const infoRes = await fetch(`/api/project-info?path=${encodeURIComponent(currentProject.path)}`);
+          const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
           if (infoRes.ok) {
             const info = await infoRes.json();
             if (Array.isArray(info.pinned)) pinnedNames = info.pinned;
@@ -8548,14 +8548,14 @@
             if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
-        _projectSidebarCache.set(projectPath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
+        _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
       const pinnedSet = new Set(pinnedNames);
       const filesByName = new Map(fileEntries.map(f => [f.name, f]));
-      const worktreeSelected = fileRoot !== projectPath;
+      const worktreeSelected = fileRoot !== workspacePath;
       const pinnedFiles = worktreeSelected ? [] : pinnedNames.filter(n => fileEntries.some(f => f.name === n));
       // Pinned rows are shortcuts, not a move operation. Keep every pinned
       // file in the normal folder tree as well so its original context never
@@ -8567,7 +8567,7 @@
       // "Meta" files are demoted to a bottom section so the sidebar reads as
       // a working list of docs first, plumbing second. Still visible; just
       // out of the way of daily navigation.
-      const META_FILES = new Set(['project.json', 'servers.json', 'tasks.json', 'comments.json', 'CLAUDE.md']);
+      const META_FILES = new Set(['workspace.json', 'servers.json', 'tasks.json', 'comments.json', 'CLAUDE.md']);
       // Folders that should open automatically — docs is where 95% of the
       // reading lives, so showing it collapsed by default hides everything.
       const AUTO_OPEN_FOLDERS = new Set(['docs', 'notebooks', 'links']);
@@ -8578,15 +8578,15 @@
       // Active-file highlighting is baked into the rendered HTML (data-filepath
       // + .active class) so periodic sidebar rebuilds — from the mtime poller
       // and the index-updated WS event — preserve the red selection bar
-      // instead of dropping it and waiting for openProjectDoc to re-add it,
+      // instead of dropping it and waiting for openWorkspaceDoc to re-add it,
       // which made the selection blink.
-      const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
+      const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'overview')) ? ' active' : '';
       const dashboardLabel = isAssistant ? 'Overview' : 'Dashboard';
-      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showProjectDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showWorkspaceDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
-      sbHtml += _sidebarFileScopeButtonsHtml(projectPath);
-      sbHtml += _sidebarWorktreePickerHtml(projectPath);
+      sbHtml += _sidebarFileScopeButtonsHtml(workspacePath);
+      sbHtml += _sidebarWorktreePickerHtml(workspacePath);
       sbHtml += symlinkLegendHtml();
       if (pinnedFiles.length) sbHtml += `<div class="sidebar-title">Pinned <span class="sidebar-title-count">${pinnedFiles.length}</span></div>`;
       pinnedFiles.forEach(name => {
@@ -8594,10 +8594,10 @@
         const safeName = name.replace(/'/g, "\\'");
         const label = name.replace(/\.md$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const activeCls = activePath === name ? ' active' : '';
-        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openProjectDoc('${safeName}')" ondblclick="event.stopPropagation();openProjectDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
+        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openWorkspaceDoc('${safeName}')" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
       // Servers — proxied local dev servers declared in servers.json (or
-      // legacy project.json proxies). Each entry opens
+      // legacy workspace.json proxies). Each entry opens
       // an inline iframe through /api/proxy/<id>/<name>/<path>, with the
       // terminal panel still visible alongside so the user can iterate
       // (start/stop the server, tail logs, etc.) without leaving the
@@ -8614,18 +8614,18 @@
           const proxyPath = '__proxy__/' + name;
           const activeCls = activePath === proxyPath ? ' active' : '';
           const title = `${host}:${port}${p.path || '/'} — click to open inline · dbl-click to pop out`;
-          sbHtml += `<a class="sidebar-file${activeCls}" data-filepath="${esc(proxyPath)}" onclick="openProjectProxy('${safeName}')" ondblclick="event.stopPropagation();openProjectProxyTab('${safeName}')" title="${esc(title)}"><span class="sidebar-fname">&#x1F310; ${esc(label)}<span style="color:var(--text-dim);font-size:10px;margin-left:6px">:${esc(String(port))}</span></span></a>`;
+          sbHtml += `<a class="sidebar-file${activeCls}" data-filepath="${esc(proxyPath)}" onclick="openWorkspaceProxy('${safeName}')" ondblclick="event.stopPropagation();openWorkspaceProxyTab('${safeName}')" title="${esc(title)}"><span class="sidebar-fname">&#x1F310; ${esc(label)}<span style="color:var(--text-dim);font-size:10px;margin-left:6px">:${esc(String(port))}</span></span></a>`;
         });
       }
       // Tree scope key for the persistent folder-open state. Declared
       // OUTSIDE the `mainFiles.length > 0` block because the
       // external-references and shared `.claude/` blocks below also call
-      // `_treeIsOpen(_projTreeScope, …)`. A project with no mainFiles but
+      // `_treeIsOpen(_workspaceTreeScope, …)`. A workspace with no mainFiles but
       // some references (or just the shared CLAUDE.md row) would otherwise
-      // hit `ReferenceError: _projTreeScope is not defined` and blow out
+      // hit `ReferenceError: _workspaceTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
-      const _projTreeScope = 'project:' + (currentProject && currentProject.name ? currentProject.name : '') + ':' + fileRoot;
-      sbHtml += _sidebarWorktreeScopeStartHtml(projectPath);
+      const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
+      sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
       if (mainFiles.length > 0 || dirEntries.length > 0) {
@@ -8639,10 +8639,10 @@
             const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
             const d = treeFolderEntry(node, folder, fullPath);
             const autoOpen = depth === 0 && AUTO_OPEN_FOLDERS.has(folder);
-            const open = _treeIsOpen(_projTreeScope, fullPath, autoOpen);
+            const open = _treeIsOpen(_workspaceTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
-            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
             html += renderTree(node[folder], depth + 1, fullPath);
             html += '</div>';
@@ -8676,29 +8676,29 @@
               const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
               dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
             } else if (hasUnseen) {
-              dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
+              dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openWorkspaceDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
             }
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
             const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openProjectDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
         sbHtml += renderTree(tree, 0, '');
       }
-      sbHtml += _sidebarWorktreeScopeEndHtml(projectPath);
+      sbHtml += _sidebarWorktreeScopeEndHtml(workspacePath);
 
       // Virtual ``external-references/`` folder — URLs from
-      // project.json.references[]. They open in a new tab (not in the
+      // workspace.json.references[]. They open in a new tab (not in the
       // doc pane) since they're real external links. The folder is
       // auto-expanded like docs/ so curated reading lives in plain sight.
       if (references.length > 0) {
         const extId = 'folder-ext-' + Math.random().toString(36).substr(2, 6);
-        const _extOpen = _treeIsOpen(_projTreeScope, 'external-references', true);
+        const _extOpen = _treeIsOpen(_workspaceTreeScope, 'external-references', true);
         const _extArrow = _extOpen ? ' open' : '';
         const _extChildren = _extOpen ? ' open' : '';
-        sbHtml += `<div class="sidebar-folder" data-tree-scope="${escAttr(_projTreeScope)}" data-tree-path="external-references" data-tree-target="${extId}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${_extArrow}">▶</span>external-references/</div>`;
+        sbHtml += `<div class="sidebar-folder" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="external-references" data-tree-target="${extId}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${_extArrow}">▶</span>external-references/</div>`;
         sbHtml += `<div class="sidebar-folder-children${_extChildren}" id="${extId}">`;
         references.forEach(r => {
           const safeUrl = (r.url || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -8709,9 +8709,9 @@
         sbHtml += '</div>';
       }
 
-      // Plumbing — project.json, servers.json, tasks.json, CLAUDE.md, plus a deep-link
+      // Plumbing — workspace.json, servers.json, tasks.json, CLAUDE.md, plus a deep-link
       // to the shared `.claude/` that lives at the content root (one
-      // level up from every project). Bottom of the list, muted styling,
+      // level up from every workspace). Bottom of the list, muted styling,
       // still one click away.
       const hasMetaSection = metaFiles.length > 0;
       if (hasMetaSection) {
@@ -8721,27 +8721,27 @@
           const fname = f.name;
           const icon = fileIconHtml(fname, f);
           const activeCls = activePath === f.path ? ' active' : '';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openProjectDoc('${safePath}')" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
+          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openWorkspaceDoc('${safePath}')" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
         });
       } else if (!isAssistant) {
         sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       }
-      // Workspace-declared projections take precedence (migration step 5):
+      // Vault-declared projections take precedence (migration step 5):
       // each row shows its true origin instead of the vague "(shared)".
-      // Workspaces without workspace.json projections keep the legacy rows.
-      const wsProjHtml = isAssistant ? '' : _wsProjectionMetaHtml(await loadWorkspaceProjections());
+      // Vaults without vault.json projections keep the legacy rows.
+      const vaultProjectionHtml = isAssistant ? '' : _vaultProjectionMetaHtml(await loadVaultProjections());
       let sharedClaudeFid = null;
       let sharedCodeFid = null;
       if (isAssistant) {
         // The Assistant folder is client-global and self-contained. Do not
-        // append instructions or code from whichever workspace happens to be
+        // append instructions or code from whichever vault happens to be
         // active; its own AGENTS.md and files are already in the tree above.
-      } else if (wsProjHtml) {
-        sbHtml += wsProjHtml;
+      } else if (vaultProjectionHtml) {
+        sbHtml += vaultProjectionHtml;
       } else {
-      // Shared projects/CLAUDE.md — auto-loaded for every project
+      // Shared workspaces/CLAUDE.md — auto-loaded for every workspace
       // via Claude Code's CLAUDE.md walk-up. Renders inline in the doc pane.
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('projects/CLAUDE.md')" title="projects/CLAUDE.md — shared boilerplate applied to every project under projects/" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('CLAUDE.md')}CLAUDE.md (shared)</span></a>`;
+      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('workspaces/CLAUDE.md')" title="workspaces/CLAUDE.md — shared boilerplate applied to every workspace under workspaces/" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('CLAUDE.md')}CLAUDE.md (shared)</span></a>`;
       // Canonical cross-tool instructions at the monorepo root. CLAUDE.md is a
       // symlink to this; Codex / Copilot read AGENTS.md directly.
       sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions at the monorepo root (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}AGENTS.md (shared)</span></a>`;
@@ -8789,30 +8789,30 @@
       // Surface the underlying failure so it lands in the browser console
       // AND the server-side client-errors log (window.onerror -> /api/log).
       // Without this the catch silently degrades the sidebar to a bare
-      // "Project" title and we lose the actual reason every time.
-      console.error('[_refreshProjectSidebar] failed:', e && e.stack || e);
+      // "Workspace" title and we lose the actual reason every time.
+      console.error('[_refreshWorkspaceSidebar] failed:', e && e.stack || e);
       // Only wipe the sidebar if it's empty — otherwise we'd nuke the
       // previously-rendered file tree the user is still looking at, which
       // is strictly worse than leaving the old list visible while we log
       // the underlying error.
       if (!sidebar.children.length) {
-        sidebar.innerHTML = '<div class="sidebar-title">Project</div>';
+        sidebar.innerHTML = '<div class="sidebar-title">Workspace</div>';
       }
     }
   }
 
-  function paintProjectShell() {
-    if (!currentProject || !currentProject.is_project) return;
+  function paintWorkspaceShell() {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const content = document.getElementById('content');
     if (!content) return;
-    const repos = Array.isArray(currentProject.repos) ? currentProject.repos : [];
-    const desc = currentProject.description || 'Project dashboard';
+    const repos = Array.isArray(currentWorkspace.repos) ? currentWorkspace.repos : [];
+    const desc = currentWorkspace.description || 'Workspace dashboard';
     content.innerHTML = `
       <div style="padding:24px;max-width:900px">
         <div style="margin-bottom:28px">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(_projectDisplayName(currentProject))}</h1>
-            ${currentProject.status ? `<span style="color:var(--accent);font-size:13px;font-weight:600;background:rgba(88,166,255,.12);padding:2px 10px;border-radius:12px">${esc(currentProject.status)}</span>` : ''}
+            <h1 style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(_workspaceDisplayName(currentWorkspace))}</h1>
+            ${currentWorkspace.status ? `<span style="color:var(--accent);font-size:13px;font-weight:600;background:rgba(88,166,255,.12);padding:2px 10px;border-radius:12px">${esc(currentWorkspace.status)}</span>` : ''}
           </div>
           <p style="color:var(--text-secondary);font-size:16px;line-height:1.6;margin:0">${esc(desc)}</p>
         </div>
@@ -8831,69 +8831,69 @@
       </div>`;
   }
 
-  function _setProjectDisplayName(projectPath, displayName) {
-    const update = project => {
-      if (project && project.path === projectPath) project.display_name = displayName;
+  function _setWorkspaceDisplayName(workspacePath, displayName) {
+    const update = workspace => {
+      if (workspace && workspace.path === workspacePath) workspace.display_name = displayName;
     };
-    (projectsList || []).forEach(update);
-    (projTabsAll || []).forEach(update);
-    (workspaceCatalog || []).forEach(workspace => {
-      (workspace.project_rows || []).forEach(update);
+    (workspacesList || []).forEach(update);
+    (workspaceTabsAll || []).forEach(update);
+    (vaultCatalog || []).forEach(vault => {
+      (vault.workspace_rows || []).forEach(update);
     });
-    update(currentProject);
+    update(currentWorkspace);
   }
 
-  async function projectSaveDisplayName(event) {
+  async function workspaceSaveDisplayName(event) {
     if (event) event.preventDefault();
-    if (!currentProject || !currentProject.is_project) return false;
-    const input = document.getElementById('projectDisplayName');
-    const status = document.getElementById('projectDisplayNameStatus');
-    const projectId = currentProject.name;
-    const projectPath = currentProject.path;
-    const workspaceId = _projectWorkspaceId(currentProject);
-    const displayName = String(input && input.value || '').trim() || projectId;
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return false;
+    const input = document.getElementById('workspaceDisplayName');
+    const status = document.getElementById('workspaceDisplayNameStatus');
+    const workspaceId = currentWorkspace.name;
+    const workspacePath = currentWorkspace.path;
+    const vaultId = _workspaceVaultId(currentWorkspace);
+    const displayName = String(input && input.value || '').trim() || workspaceId;
     if (status) status.textContent = 'Saving…';
     try {
-      const suffix = workspaceId ? '?workspace=' + encodeURIComponent(workspaceId) : '';
-      const r = await fetch('/api/projects/' + encodeURIComponent(projectId) + '/field' + suffix, {
+      const suffix = vaultId ? '?vault=' + encodeURIComponent(vaultId) : '';
+      const r = await fetch('/api/workspaces/' + encodeURIComponent(workspaceId) + '/field' + suffix, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({field: 'name', value: displayName}),
       });
       const updated = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(updated.detail || 'Could not save the project name');
-      const savedName = String(updated.name || projectId);
-      _setProjectDisplayName(projectPath, savedName);
+      if (!r.ok) throw new Error(updated.detail || 'Could not save the workspace name');
+      const savedName = String(updated.name || workspaceId);
+      _setWorkspaceDisplayName(workspacePath, savedName);
       if (input) input.value = savedName;
-      if (currentProject && currentProject.path === projectPath) {
-        const heading = document.querySelector('[data-project-display-title]');
+      if (currentWorkspace && currentWorkspace.path === workspacePath) {
+        const heading = document.querySelector('[data-workspace-display-title]');
         if (heading) heading.textContent = savedName;
         document.title = savedName;
       }
-      projTabsRender();
+      workspaceTabsRender();
       if (status) status.textContent = 'Saved';
     } catch (e) {
       if (status) status.textContent = e.message || String(e);
     }
     return false;
   }
-  window.projectSaveDisplayName = projectSaveDisplayName;
+  window.workspaceSaveDisplayName = workspaceSaveDisplayName;
 
-  async function showProjectInfo({preserveScroll = false, keepShell = false} = {}) {
-    if (!currentProject || !currentProject.is_project) return;
-    const projectPath = currentProject.path;
+  async function showWorkspaceInfo({preserveScroll = false, keepShell = false} = {}) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    const workspacePath = currentWorkspace.path;
     const content = document.getElementById('content');
     const prevContentScroll = preserveScroll ? content.scrollTop : 0;
-    if (!preserveScroll && !keepShell) content.innerHTML = '<div class="loading">Loading project dashboard...</div>';
-    await _refreshProjectSidebar({preserveScroll});
+    if (!preserveScroll && !keepShell) content.innerHTML = '<div class="loading">Loading workspace dashboard...</div>';
+    await _refreshWorkspaceSidebar({preserveScroll});
 
     try {
       const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await Promise.all([
-        fetch(`/api/project-info?path=${encodeURIComponent(projectPath)}`),
-        fetch(`/api/project-actions?path=${encodeURIComponent(projectPath)}`),
-        fetch(`/api/project-onepager?path=${encodeURIComponent(projectPath)}`),
-        fetch(`/api/project-artifacts?path=${encodeURIComponent(projectPath)}`),
-        fetch(`/api/project-alerts?path=${encodeURIComponent(projectPath)}`),
+        fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`),
+        fetch(`/api/workspace-actions?path=${encodeURIComponent(workspacePath)}`),
+        fetch(`/api/workspace-onepager?path=${encodeURIComponent(workspacePath)}`),
+        fetch(`/api/workspace-artifacts?path=${encodeURIComponent(workspacePath)}`),
+        fetch(`/api/workspace-alerts?path=${encodeURIComponent(workspacePath)}`),
       ]);
 
       const info = await infoRes.json();
@@ -8901,15 +8901,15 @@
       const onepager = await onepagerRes.json();
       const artifacts = await artifactsRes.json();
       const alerts = await alertsRes.json();
-      if (!currentProject || currentProject.path !== projectPath) return;
+      if (!currentWorkspace || currentWorkspace.path !== workspacePath) return;
 
-      // project-info is the authoritative project.json read. Reconcile its
+      // workspace-info is the authoritative workspace.json read. Reconcile its
       // display name into every tab cache so a stale catalog response cannot
       // leave the active tab showing the folder id after Overview has updated.
-      const projectDisplayName = String(info.name || info.id || currentProject.name);
-      _setProjectDisplayName(projectPath, projectDisplayName);
-      document.title = projectDisplayName;
-      projTabsRender();
+      const workspaceDisplayName = String(info.name || info.id || currentWorkspace.name);
+      _setWorkspaceDisplayName(workspacePath, workspaceDisplayName);
+      document.title = workspaceDisplayName;
+      workspaceTabsRender();
 
       // Status color
       const statusColor = info.status === 'active' ? '#3fb950' : info.status === 'paused' ? '#d29922' : '#8b949e';
@@ -8919,7 +8919,7 @@
       // Header with prominent TLDR.
       html += `<div style="margin-bottom:28px">`;
       html += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">`;
-      html += `<h1 data-project-display-title style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(info.name || info.id)}</h1>`;
+      html += `<h1 data-workspace-display-title style="color:var(--text-primary);font-size:28px;font-weight:600;margin:0;flex:1">${esc(info.name || info.id)}</h1>`;
       html += `<span style="color:${statusColor};font-size:13px;font-weight:600;background:${statusColor}18;padding:2px 10px;border-radius:12px">${info.status}</span>`;
       html += `<button onclick="copyForGDocs(event)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">&#x1F4CB; Copy</button>`;
       html += `</div>`;
@@ -8931,13 +8931,13 @@
       html += `<span>Updated: ${info.updated}</span>`;
       html += `</div></div>`;
 
-      // The visible name is independent from the stable folder/project id.
-      // Saving goes through `lab project set`, never a direct project.json write.
-      html += `<form onsubmit="return projectSaveDisplayName(event)" style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--bg-secondary);margin:-12px 0 24px">`;
-      html += `<label style="display:flex;flex-direction:column;gap:4px;color:var(--text-secondary);font-size:11px;min-width:220px;flex:1">Name shown in tabs<input id="projectDisplayName" type="text" value="${escAttr(info.name || info.id)}" maxlength="80" placeholder="${escAttr(info.id)}" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 8px"></label>`;
+      // The visible name is independent from the stable folder/workspace id.
+      // Saving goes through `lab workspace set`, never a direct workspace.json write.
+      html += `<form onsubmit="return workspaceSaveDisplayName(event)" style="display:flex;align-items:end;gap:10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--bg-secondary);margin:-12px 0 24px">`;
+      html += `<label style="display:flex;flex-direction:column;gap:4px;color:var(--text-secondary);font-size:11px;min-width:220px;flex:1">Name shown in tabs<input id="workspaceDisplayName" type="text" value="${escAttr(info.name || info.id)}" maxlength="80" placeholder="${escAttr(info.id)}" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 8px"></label>`;
       html += `<button type="submit" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer">Save name</button>`;
-      html += `<span id="projectDisplayNameStatus" style="color:var(--text-dim);font-size:11px;min-width:42px"></span>`;
-      html += `<span style="width:100%;color:var(--text-dim);font-size:11px">Folder / project id stays <code>${esc(info.id)}</code>.</span>`;
+      html += `<span id="workspaceDisplayNameStatus" style="color:var(--text-dim);font-size:11px;min-width:42px"></span>`;
+      html += `<span style="width:100%;color:var(--text-dim);font-size:11px">Folder / workspace id stays <code>${esc(info.id)}</code>.</span>`;
       html += `</form>`;
 
       // Alerts banner
@@ -9015,14 +9015,14 @@
 
       // MPs column
       html += `<div style="border:1px solid #30363d;border-radius:8px;padding:16px;background:#161b22">`;
-      html += `<h3 style="color:#e6edf3;margin-bottom:12px;font-size:14px">Repositories <span style="color:#484f58;font-weight:400">${currentProject.repos.length}</span></h3>`;
-      currentProject.repos.forEach(r => {
-        html += `<div style="padding:6px 8px;margin-bottom:4px;border:1px solid #30363d;border-radius:6px;cursor:pointer;font-size:13px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background=''" onclick="selectProjectRepo('${r.path}')">`;
+      html += `<h3 style="color:#e6edf3;margin-bottom:12px;font-size:14px">Repositories <span style="color:#484f58;font-weight:400">${currentWorkspace.repos.length}</span></h3>`;
+      currentWorkspace.repos.forEach(r => {
+        html += `<div style="padding:6px 8px;margin-bottom:4px;border:1px solid #30363d;border-radius:6px;cursor:pointer;font-size:13px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background=''" onclick="selectWorkspaceRepo('${r.path}')">`;
         html += `<div style="color:#58a6ff;font-family:monospace">${esc(r.name)}</div>`;
         html += `<div style="color:#484f58;font-size:11px">${esc(r.branch)}</div>`;
         html += `</div>`;
       });
-      if (currentProject.repos.length === 0) {
+      if (currentWorkspace.repos.length === 0) {
         html += `<p style="color:#484f58;font-size:13px;font-style:italic">No repos yet</p>`;
       }
       html += `</div>`;
@@ -9070,19 +9070,19 @@
       }
 
       html += '</div>';
-      // Race guard: showProjectInfo fires several async fetches and only
+      // Race guard: showWorkspaceInfo fires several async fetches and only
       // writes to `content` at the end. If the user clicked a repo tab
-      // mid-flight, selectProjectRepo + loadDiff already painted the diff.
-      // Also bail if `_projDocPath` is set — selectRepo now fires
-      // showProjectInfo and openProjectDoc in parallel, and the doc paint
+      // mid-flight, selectWorkspaceRepo + loadDiff already painted the diff.
+      // Also bail if `_workspaceDocPath` is set — selectRepo now fires
+      // showWorkspaceInfo and openWorkspaceDoc in parallel, and the doc paint
       // owns `content` whenever a remembered doc was found.
-      if (currentRepo || _projDocPath) return;
+      if (currentRepo || _workspaceDocPath) return;
       content.innerHTML = html;
       if (preserveScroll) content.scrollTop = prevContentScroll;
 
     } catch (err) {
       if (currentRepo) return;
-      content.innerHTML = `<div class="no-repo"><p>Error loading project dashboard: ${err.message}</p></div>`;
+      content.innerHTML = `<div class="no-repo"><p>Error loading workspace dashboard: ${err.message}</p></div>`;
     }
   }
 
@@ -9097,28 +9097,28 @@
     copilot: ['claude-sonnet-4-6', 'gpt-5', 'gpt-4.1'],
   };
   let _settings = { defaultAgent: 'claude', model: null, theme: 'dark' };
-  let _workspaceAgentPolicy = null; // {supported: string[], default: string}
+  let _vaultAgentPolicy = null; // {supported: string[], default: string}
   let _setDraft = null;      // {defaultAgent, model, theme} while the modal is open
-  let _setProjDraft = null;  // {agent, model} override for the active project
+  let _setWorkspaceDraft = null;  // {agent, model} override for the active workspace
 
-  async function loadWorkspaceAgentPolicy({force = false} = {}) {
-    const workspaceId = _termWorkspaceId();
-    if (_workspaceAgentPolicy && _workspaceAgentPolicy.workspace === workspaceId && !force) return _workspaceAgentPolicy;
+  async function loadVaultAgentPolicy({force = false} = {}) {
+    const vaultId = _termVaultId();
+    if (_vaultAgentPolicy && _vaultAgentPolicy.vault === vaultId && !force) return _vaultAgentPolicy;
     try {
-      const suffix = workspaceId ? '?workspace=' + encodeURIComponent(workspaceId) : '';
-      const r = await fetch('/api/workspace/agents' + suffix);
+      const suffix = vaultId ? '?vault=' + encodeURIComponent(vaultId) : '';
+      const r = await fetch('/api/vault/agents' + suffix);
       if (r.ok) {
         const policy = await r.json();
         const supported = Array.isArray(policy.supported)
           ? policy.supported.filter(a => Object.prototype.hasOwnProperty.call(AGENT_LABELS, a))
           : [];
         if (supported.length) {
-          _workspaceAgentPolicy = {
-            workspace: workspaceId,
+          _vaultAgentPolicy = {
+            vault: vaultId,
             supported,
             default: supported.includes(policy.default) ? policy.default : supported[0],
           };
-          return _workspaceAgentPolicy;
+          return _vaultAgentPolicy;
         }
       }
     } catch {}
@@ -9126,7 +9126,7 @@
   }
 
   function supportedAgentIds() {
-    return (_workspaceAgentPolicy && _workspaceAgentPolicy.supported) || Object.keys(AGENT_LABELS);
+    return (_vaultAgentPolicy && _vaultAgentPolicy.supported) || Object.keys(AGENT_LABELS);
   }
 
   function applyTheme(theme) {
@@ -9206,17 +9206,17 @@
       (t) => { _setDraft.theme = t; applyTheme(t); _renderSettingsGlobal(); });
   }
 
-  // Dirty flags: the drafts CLAMP stored values that are workspace-disabled
+  // Dirty flags: the drafts CLAMP stored values that are vault-disabled
   // (for display), so saving must only write back fields the user actually
   // touched — otherwise saving a theme tweak would silently rewrite the
-  // default agent or clear a project override.
+  // default agent or clear a workspace override.
   let _setAgentTouched = false;
-  let _setProjTouched = false;
+  let _setWorkspaceTouched = false;
 
   async function openSettings() {
-    const policy = await loadWorkspaceAgentPolicy();
+    const policy = await loadVaultAgentPolicy();
     _setAgentTouched = false;
-    _setProjTouched = false;
+    _setWorkspaceTouched = false;
     _setDraft = {
       defaultAgent: policy.supported.includes(_settings.defaultAgent)
         ? _settings.defaultAgent
@@ -9227,42 +9227,42 @@
     };
     _renderSettingsGlobal();
 
-    // Per-project override (only when a real project tab is active).
-    const sec = document.getElementById('setProjectSection');
-    _setProjDraft = null;
-    const currentPid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
+    // Per-workspace override (only when a real workspace tab is active).
+    const sec = document.getElementById('setWorkspaceSection');
+    _setWorkspaceDraft = null;
+    const currentPid = (typeof currentWorkspace !== 'undefined' && currentWorkspace) ? currentWorkspace.name : null;
     const pid = currentPid && !currentPid.startsWith('__') ? currentPid : null;
     if (pid) {
-      document.getElementById('setProjectName').textContent = pid;
+      document.getElementById('setWorkspaceName').textContent = pid;
       sec.style.display = 'flex';
-      const pAgent = document.getElementById('setProjectAgent');
-      const pModel = document.getElementById('setProjectModel');
-      pAgent.innerHTML = '<option value="">Inherit workspace default</option>'
+      const pAgent = document.getElementById('setWorkspaceAgent');
+      const pModel = document.getElementById('setWorkspaceModel');
+      pAgent.innerHTML = '<option value="">Inherit vault default</option>'
         + policy.supported.map(a => `<option value="${a}">${AGENT_LABELS[a]}</option>`).join('');
       pAgent.value = '';
       _fillModelSelect(pModel, _setDraft.defaultAgent, '');
       try {
-        const r = await fetch('/api/projects/' + encodeURIComponent(pid));
+        const r = await fetch('/api/workspaces/' + encodeURIComponent(pid));
         if (r.ok) {
-          const proj = await r.json();
-          _setProjDraft = {
-            agent: policy.supported.includes(proj.agent) ? proj.agent : '',
-            model: proj.model || '',
+          const workspace = await r.json();
+          _setWorkspaceDraft = {
+            agent: policy.supported.includes(workspace.agent) ? workspace.agent : '',
+            model: workspace.model || '',
           };
-          pAgent.value = _setProjDraft.agent || '';
-          _fillModelSelect(pModel, _setProjDraft.agent || _setDraft.defaultAgent, _setProjDraft.model);
+          pAgent.value = _setWorkspaceDraft.agent || '';
+          _fillModelSelect(pModel, _setWorkspaceDraft.agent || _setDraft.defaultAgent, _setWorkspaceDraft.model);
         }
       } catch {}
       pAgent.onchange = (e) => {
-        _setProjDraft = _setProjDraft || { agent: '', model: '' };
-        _setProjDraft.agent = e.target.value;
-        _setProjTouched = true;
-        _fillModelSelect(pModel, e.target.value || _setDraft.defaultAgent, _setProjDraft.model);
+        _setWorkspaceDraft = _setWorkspaceDraft || { agent: '', model: '' };
+        _setWorkspaceDraft.agent = e.target.value;
+        _setWorkspaceTouched = true;
+        _fillModelSelect(pModel, e.target.value || _setDraft.defaultAgent, _setWorkspaceDraft.model);
       };
       pModel.onchange = (e) => {
-        _setProjDraft = _setProjDraft || { agent: '', model: '' };
-        _setProjDraft.model = e.target.value;
-        _setProjTouched = true;
+        _setWorkspaceDraft = _setWorkspaceDraft || { agent: '', model: '' };
+        _setWorkspaceDraft.model = e.target.value;
+        _setWorkspaceTouched = true;
       };
     } else {
       sec.style.display = 'none';
@@ -9288,7 +9288,7 @@
         autopilot: _setDraft.autopilot || {},
       };
       // Only write the default agent back when the user picked one — the
-      // draft may hold a display-only clamp of a workspace-disabled value.
+      // draft may hold a display-only clamp of a vault-disabled value.
       if (_setAgentTouched || _setDraft.defaultAgent === _settings.defaultAgent) {
         patch.defaultAgent = _setDraft.defaultAgent;
       }
@@ -9301,17 +9301,17 @@
       _settings = await r.json();
       applyTheme(_settings.theme);
 
-      const pid = (typeof currentProject !== 'undefined' && currentProject) ? currentProject.name : null;
-      if (_setProjDraft && _setProjTouched && pid) {
-        const pr = await fetch('/api/projects/' + encodeURIComponent(pid) + '/agent', {
+      const pid = (typeof currentWorkspace !== 'undefined' && currentWorkspace) ? currentWorkspace.name : null;
+      if (_setWorkspaceDraft && _setWorkspaceTouched && pid) {
+        const pr = await fetch('/api/workspaces/' + encodeURIComponent(pid) + '/agent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            agent: _setProjDraft.agent || null,
-            model: _setProjDraft.model || null,
+            agent: _setWorkspaceDraft.agent || null,
+            model: _setWorkspaceDraft.model || null,
           }),
         });
-        if (!pr.ok) throw new Error((await pr.json().catch(() => ({}))).detail || 'project override failed');
+        if (!pr.ok) throw new Error((await pr.json().catch(() => ({}))).detail || 'workspace override failed');
       }
       closeSettings();
     } catch (e) {
@@ -9347,123 +9347,123 @@
   // Drop the pre-paint "hide the placeholder" class now that JS owns
   // the page — error-state .no-repo messages can surface normally.
   document.documentElement.classList.remove('loading');
-  const urlProject = new URLSearchParams(location.search).get('project');
+  const urlWorkspace = new URLSearchParams(location.search).get('workspace');
   // When ?ui_check=1, skip all persistent timers + WS so Chrome's --dump-dom
   // can reach network idle and exit promptly. See scripts/check-ui.sh.
   const UI_CHECK = new URLSearchParams(location.search).get('ui_check') === '1';
 
-  // Project tab-strip state. MUST be declared before projTabsRefresh() is
+  // Workspace tab-strip state. MUST be declared before workspaceTabsRefresh() is
   // called below, or `let` TDZ throws "Cannot access X before initialization".
-  let projTabsHot = [];           // [{project_id, workspace}] with live sessions
-  let projTabsAll = [];           // projects from every registered workspace
-  let projTabsRefreshTimer = null;
-  let projTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
-  let projTabsDragPid = null;    // pid currently being dragged
+  let workspaceTabsHot = [];           // [{workspace_id, vault}] with live sessions
+  let workspaceTabsAll = [];           // workspaces from every registered vault
+  let workspaceTabsRefreshTimer = null;
+  let workspaceTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
+  let workspaceTabsDragId = null;    // pid currently being dragged
   let _contextSubView = 'overview';
-  const OPEN_WORKSPACES_KEY = 'labOpenWorkspaces-v1';
+  const OPEN_VAULTS_KEY = 'labOpenVaults-v1';
 
-  function _openWorkspaceIds() {
+  function _openVaultIds() {
     try {
-      const value = JSON.parse(localStorage.getItem(OPEN_WORKSPACES_KEY) || '[]');
+      const value = JSON.parse(localStorage.getItem(OPEN_VAULTS_KEY) || '[]');
       return Array.isArray(value) ? value.filter(v => typeof v === 'string') : [];
     } catch { return []; }
   }
 
-  function _setWorkspaceTabOpen(workspaceId, open) {
-    const ids = new Set(_openWorkspaceIds());
-    if (open) ids.add(workspaceId); else ids.delete(workspaceId);
-    try { localStorage.setItem(OPEN_WORKSPACES_KEY, JSON.stringify(Array.from(ids))); } catch {}
+  function _setVaultTabOpen(vaultId, open) {
+    const ids = new Set(_openVaultIds());
+    if (open) ids.add(vaultId); else ids.delete(vaultId);
+    try { localStorage.setItem(OPEN_VAULTS_KEY, JSON.stringify(Array.from(ids))); } catch {}
   }
 
-  function _workspaceById(workspaceId) {
-    return (workspaceCatalog || []).find(ws => ws && ws.id === workspaceId) || null;
+  function _vaultById(vaultId) {
+    return (vaultCatalog || []).find(vault => vault && vault.id === vaultId) || null;
   }
 
-  function _projectWorkspaceId(project) {
-    if (!project) return null;
-    if (project.workspace_id) return project.workspace_id;
-    if (project.workspace) return project.workspace;
-    const known = [...(projectsList || []), ...(projTabsAll || [])]
-      .find(candidate => candidate && candidate.path === project.path);
-    if (known && (known.workspace_id || known.workspace)) {
-      return known.workspace_id || known.workspace;
+  function _workspaceVaultId(workspace) {
+    if (!workspace) return null;
+    if (workspace.vault_id) return workspace.vault_id;
+    if (workspace.vault) return workspace.vault;
+    const known = [...(workspacesList || []), ...(workspaceTabsAll || [])]
+      .find(candidate => candidate && candidate.path === workspace.path);
+    if (known && (known.vault_id || known.vault)) {
+      return known.vault_id || known.vault;
     }
-    const normalizedPath = String(project.path || '').replace(/\/+$/, '');
-    const owner = (workspaceCatalog || []).find(ws => {
-      const root = String(ws && ws.path || '').replace(/\/+$/, '');
+    const normalizedPath = String(workspace.path || '').replace(/\/+$/, '');
+    const owner = (vaultCatalog || []).find(vault => {
+      const root = String(vault && vault.path || '').replace(/\/+$/, '');
       return root && (normalizedPath === root || normalizedPath.startsWith(root + '/'));
     });
     return owner ? owner.id : null;
   }
 
-  function _workspaceForProject(project) {
-    if (!project) return null;
-    const workspaceId = _projectWorkspaceId(project);
-    return _workspaceById(workspaceId) || {
-      id: workspaceId || '',
-      name: project.workspace_name || workspaceId || '',
-      color: project.workspace_color || '#8b949e',
-      path: project.workspace_path || '',
+  function _vaultForWorkspace(workspace) {
+    if (!workspace) return null;
+    const vaultId = _workspaceVaultId(workspace);
+    return _vaultById(vaultId) || {
+      id: vaultId || '',
+      name: workspace.vault_name || vaultId || '',
+      color: workspace.vault_color || '#8b949e',
+      path: workspace.vault_path || '',
     };
   }
 
-  function _termWorkspaceId() {
+  function _termVaultId() {
     if (document.body.classList.contains('self-active')) return null;
-    if (document.body.classList.contains('assistant-active')) return ASSISTANT_WORKSPACE_ID;
-    return _projectWorkspaceId(currentProject);
+    if (document.body.classList.contains('assistant-active')) return ASSISTANT_VAULT_ID;
+    return _workspaceVaultId(currentWorkspace);
   }
 
-  function _workspaceQuery(workspaceId = _termWorkspaceId()) {
-    return workspaceId ? '&workspace=' + encodeURIComponent(workspaceId) : '';
+  function _vaultQuery(vaultId = _termVaultId()) {
+    return vaultId ? '&vault=' + encodeURIComponent(vaultId) : '';
   }
 
-  function _termSessionsKey(projectId, workspaceId = _termWorkspaceId()) {
-    return String(workspaceId || 'framework') + '::' + String(projectId || '');
+  function _termSessionsKey(workspaceId, vaultId = _termVaultId()) {
+    return String(vaultId || 'framework') + '::' + String(workspaceId || '');
   }
 
   // Which tab (if any) looks blocked because a recent fetch for it hit
-  // fsguard's 503 (stalled workspace volume). error-report.js can't know
-  // which project a given fetch belongs to, so it just dispatches the
-  // event and we mark whatever project tab is currently active -- good
+  // fsguard's 503 (stalled vault volume). error-report.js can't know
+  // which workspace a given fetch belongs to, so it just dispatches the
+  // event and we mark whatever workspace tab is currently active -- good
   // enough to answer "is my SSD read stuck?" without precise attribution.
   // Cleared as soon as any later fetch succeeds.
   let tabBlocked = { pid: null, detail: null };
   window.addEventListener('lab:resource-unavailable', (ev) => {
-    const pid = (currentProject && currentProject.is_project) ? currentProject.name : null;
+    const pid = (currentWorkspace && currentWorkspace.is_workspace) ? currentWorkspace.name : null;
     if (!pid) return;
     tabBlocked = { pid, detail: (ev.detail && ev.detail.message) || 'resource is not available' };
-    if (typeof projTabsRender === 'function') projTabsRender();
+    if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
   });
   window.addEventListener('lab:resource-available', () => {
     if (!tabBlocked.pid) return;
     tabBlocked = { pid: null, detail: null };
-    if (typeof projTabsRender === 'function') projTabsRender();
+    if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
   });
 
-  // Project tabs the user has opened. The durable bit still lives in each
-  // project's own project.json, while workspace-home tabs live in browser
-  // state because they are navigation chrome rather than workspace data.
-  function projTabsOpenIds() {
-    return (projTabsAll || []).filter(p => p && p.tab_open).map(p => p.path);
+  // Workspace tabs the user has opened. The durable bit still lives in each
+  // workspace's own workspace.json, while vault-home tabs live in browser
+  // state because they are navigation chrome rather than vault data.
+  function workspaceTabsOpenIds() {
+    return (workspaceTabsAll || []).filter(p => p && p.tab_open).map(p => p.path);
   }
-  async function projTabsSetOpen(projectPath, open) {
-    if (!projectPath) return;
+  async function workspaceTabsSetOpen(workspacePath, open) {
+    if (!workspacePath) return;
     try {
-      const infoRes = await fetch('/api/project-info?path=' + encodeURIComponent(projectPath));
-      if (!infoRes.ok) throw new Error('project not found');
+      const infoRes = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
+      if (!infoRes.ok) throw new Error('workspace not found');
       const info = await infoRes.json();
       info.tab_open = !!open;
-      await fetch('/api/project-info', {
+      await fetch('/api/workspace-info', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: projectPath, data: info}),
+        body: JSON.stringify({path: workspacePath, data: info}),
       });
     } catch (e) { /* best-effort; next refresh will pick up the truth */ }
-    const p = (projTabsAll || []).find(x => x && x.path === projectPath);
+    const p = (workspaceTabsAll || []).find(x => x && x.path === workspacePath);
     if (p) p.tab_open = !!open;
   }
   // Knowledge-view state. Same hoisting rule — initCerebro uses these.
-  const CEREBRO_PROJECT_ID = '__cerebro__';
+  const CEREBRO_WORKSPACE_ID = '__cerebro__';
   let cerebroTreeData = [];
   let _cerebroTreePromise = null;
   let _cerebroTreeFetchedAt = 0;
@@ -9474,26 +9474,26 @@
   const cerebroExpanded = _treeLoadOpenSet('cerebro');  // dir paths currently open
 
   // Productivity self-view: the monorepo itself (commits + uncommitted + tasks).
-  // Pseudo-project like Cerebro; no folder under knowledge/projects/.
-  const SELF_PROJECT_ID = '__self__';
+  // Pseudo-workspace like Cerebro; no folder under knowledge/workspaces/.
+  const SELF_WORKSPACE_ID = '__self__';
   const SELF_REPO_PATH = window.LAB_MONOREPO_ROOT || '';  // populated by index.html
-  const WORKSPACE_ROOT = window.LAB_WORKSPACE_ROOT || '';  // active workspace; may differ from framework root
-  const ASSISTANT_PROJECT_ID = '__assistant__';
+  const VAULT_ROOT = window.LAB_VAULT_ROOT || '';  // active vault; may differ from framework root
   const ASSISTANT_WORKSPACE_ID = '__assistant__';
+  const ASSISTANT_VAULT_ID = '__assistant__';
   let ASSISTANT_ROOT = window.LAB_ASSISTANT_ROOT || '';
 
-  // Workspace view: one management surface per registered workspace. The
-  // selected workspace id travels in the URL and requests; no global switch.
-  const WORKSPACE_PROJECT_ID = '__workspace__';
-  let _workspaceCurrent = null;  // last `current` row painted by initWorkspaceView
+  // Vault view: one management surface per registered vault. The
+  // selected vault id travels in the URL and requests; no global switch.
+  const VAULT_WORKSPACE_ID = '__vault__';
+  let _vaultCurrent = null;  // last `current` row painted by initVaultView
 
-  // Per-project session pill cache (warm-switch fast path). Declared up
-  // here — alongside the other pseudo-project consts — instead of with
+  // Per-workspace session pill cache (warm-switch fast path). Declared up
+  // here — alongside the other pseudo-workspace consts — instead of with
   // the rest of the terminal-panel state lower in the script, because
   // initCerebro/initSelf now read it synchronously before their first
   // await. The terminal state block at ~line 5780 still hosts the rest
   // of the related globals; this is the one that needs to win the TDZ.
-  const _termSessionsCache = new Map(); // projectId -> sessions[]
+  const _termSessionsCache = new Map(); // workspaceId -> sessions[]
 
   // localStorage key prefix for per-view terminal-visibility. Same
   // hoisting rule as the consts above — the visibility helpers are
@@ -9548,16 +9548,16 @@
     return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
   }
 
-  function _termRecentScopeKey(projectId = _termActiveProjectId(), workspaceId = _termWorkspaceId()) {
-    return _termSessionsKey(projectId, workspaceId);
+  function _termRecentScopeKey(workspaceId = _termActiveWorkspaceId(), vaultId = _termVaultId()) {
+    return _termSessionsKey(workspaceId, vaultId);
   }
 
-  function _termMarkRecent(projectId, sessionName, workspaceId = _termWorkspaceId(), usedAt = Date.now()) {
-    if (!projectId || !sessionName) return;
+  function _termMarkRecent(workspaceId, sessionName, vaultId = _termVaultId(), usedAt = Date.now()) {
+    if (!workspaceId || !sessionName) return;
     const session = (termSessions || []).find(item => item && item.name === sessionName);
     const logical = session && session.logical_name;
     if (!logical) return;
-    const scope = _termRecentScopeKey(projectId, workspaceId);
+    const scope = _termRecentScopeKey(workspaceId, vaultId);
     const scoped = termRecentActivity[scope] && typeof termRecentActivity[scope] === 'object'
       ? termRecentActivity[scope] : {};
     scoped[logical] = Number(usedAt) || Date.now();
@@ -9704,7 +9704,7 @@
     _termApplySessionView();
   }
 
-  // Apply before the initial route dispatch so direct project/pseudo-project
+  // Apply before the initial route dispatch so direct workspace/pseudo-workspace
   // loads never flash the default switcher shape. Refit is intentionally off:
   // terminal state is declared later and no xterm exists yet.
   _termApplySessionView(false);
@@ -9723,7 +9723,7 @@
   let _dashServersAvailable = true;   // false once GET /api/servers 404s (not deployed yet)
   let _dashServersLoadErr = null;     // error from the GET (network/5xx)
   let _dashServersActionErr = null;   // error from the last start/stop
-  const _dashServersPending = new Set();  // project_ids with an in-flight action
+  const _dashServersPending = new Set();  // workspace_ids with an in-flight action
   let _dashTermsRows = [];
   let _dashTermsErr = null;
   const _dashTermsPending = new Set();    // session names / "group:<pid>" in-flight
@@ -9738,13 +9738,13 @@
   afterPageQuiet(loadRepos);
   if (!UI_CHECK) afterPageQuiet(() => setInterval(loadRepos, 8000), 1000);
   if (!UI_CHECK) afterPageQuiet(() => setInterval(refreshDiff, 5000), 1000);
-  // Project tab strip: initial render + periodic refresh.
-  afterPageQuiet(workspaceRefresh, 250);
-  afterPageQuiet(projTabsRefresh);
-  if (!UI_CHECK) afterPageQuiet(projTabsStartPolling, 1000);
+  // Workspace tab strip: initial render + periodic refresh.
+  afterPageQuiet(vaultRefresh, 250);
+  afterPageQuiet(workspaceTabsRefresh);
+  if (!UI_CHECK) afterPageQuiet(workspaceTabsStartPolling, 1000);
 
   // Cerebro view: when URL carries ?view=cerebro, we bypass the
-  // project/repo init path entirely and render the mdview-style browser.
+  // workspace/repo init path entirely and render the mdview-style browser.
   const initialParams = new URLSearchParams(location.search);
   const urlView = initialParams.get('view');
   const urlCerebroPath = initialParams.get('path') || '';
@@ -9754,14 +9754,14 @@
     initAssistant(initialParams.get('task') || '', {
       subview: initialParams.get('subview') || '',
       meeting: initialParams.get('meeting') || '',
-      project: initialParams.get('assistant_project') || '',
+      workspace: initialParams.get('assistant_workspace') || '',
     });
   } else if (urlView === 'productivity') {
     initSelf();
     if (initialParams.get('subview') === 'admin') selfShowAdmin();
     else if (initialParams.get('subview') === 'code-search') showScopedCodeSearch();
-  } else if (urlView === 'workspace') {
-    initWorkspaceView(initialParams.get('workspace') || currentWorkspaceId);
+  } else if (urlView === 'vault') {
+    initVaultView(initialParams.get('vault') || currentVaultId);
   } else if (urlView === 'code-search') {
     // Retired standalone route: keep old bookmarks useful by landing on the
     // framework-scoped Code Search subtab.
@@ -9772,94 +9772,94 @@
     selfShowAdmin();
   }
 
-  // Auto-refresh project view when any file in the project folder changes (mtime check)
-  let _lastProjectMtime = 0;
-  let _projMtimeMissPath = null; // project path the miss counter applies to
-  let _projMtimeMisses = 0;      // consecutive "directory missing" responses
-  let _projMtimeTick = 0;
-  let _projMtimeInFlight = false;
-  let _projMtimeFailures = 0;
-  let _projMtimeRetryAt = 0;
+  // Auto-refresh workspace view when any file in the workspace folder changes (mtime check)
+  let _lastWorkspaceMtime = 0;
+  let _workspaceMtimeMissPath = null; // workspace path the miss counter applies to
+  let _workspaceMtimeMisses = 0;      // consecutive "directory missing" responses
+  let _workspaceMtimeTick = 0;
+  let _workspaceMtimeInFlight = false;
+  let _workspaceMtimeFailures = 0;
+  let _workspaceMtimeRetryAt = 0;
   if (!UI_CHECK) setInterval(async () => {
     // A hidden tab can't show the refresh anyway, and the next visible
     // tick (≤1s away) catches up — don't let backgrounded windows keep
     // hitting the server (browser timer throttling made them poll ~1/min
-    // forever, including tabs whose project no longer existed).
+    // forever, including tabs whose workspace no longer existed).
     if (document.hidden) return;
-    if (!currentProject || !currentProject.is_project) return;
-    if (!currentProject.path) return;
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    if (!currentWorkspace.path) return;
     if (currentRepo) return;
-    if (_projDocEditing) return;
-    const projectPath = currentProject.path;
-    const fileRoot = typeof _sidebarScopedRoot === 'function' ? _sidebarScopedRoot(projectPath) : projectPath;
-    if (_projMtimeMissPath !== fileRoot) {
-      _projMtimeMissPath = fileRoot;
-      _projMtimeMisses = 0;
-      _projMtimeFailures = 0;
-      _projMtimeRetryAt = 0;
-      _lastProjectMtime = 0;
+    if (_workspaceDocEditing) return;
+    const workspacePath = currentWorkspace.path;
+    const fileRoot = typeof _sidebarScopedRoot === 'function' ? _sidebarScopedRoot(workspacePath) : workspacePath;
+    if (_workspaceMtimeMissPath !== fileRoot) {
+      _workspaceMtimeMissPath = fileRoot;
+      _workspaceMtimeMisses = 0;
+      _workspaceMtimeFailures = 0;
+      _workspaceMtimeRetryAt = 0;
+      _lastWorkspaceMtime = 0;
     }
     // Never stack recursive filesystem walks. Previously the one-second
     // interval launched another request while the prior request was still
     // waiting on the 10-second filesystem guard. One timeout could therefore
     // leave dozens of queued requests, producing the 503 cascade seen in the
     // logs even after the original scan had already failed.
-    if (_projMtimeInFlight || Date.now() < _projMtimeRetryAt) return;
-    _projMtimeTick += 1;
-    // Project dir gone (deleted / volume unplugged): after a few misses,
+    if (_workspaceMtimeInFlight || Date.now() < _workspaceMtimeRetryAt) return;
+    _workspaceMtimeTick += 1;
+    // Workspace dir gone (deleted / volume unplugged): after a few misses,
     // probe only once a minute so it self-heals if the volume comes back.
-    if (_projMtimeMisses >= 3 && _projMtimeTick % 60 !== 0) return;
-    _projMtimeInFlight = true;
+    if (_workspaceMtimeMisses >= 3 && _workspaceMtimeTick % 60 !== 0) return;
+    _workspaceMtimeInFlight = true;
     try {
-      const res = await fetch(`/api/project-mtime?path=${encodeURIComponent(fileRoot)}`);
-      if (!res.ok) throw new Error(`project mtime request failed (${res.status})`);
+      const res = await fetch(`/api/workspace-mtime?path=${encodeURIComponent(fileRoot)}`);
+      if (!res.ok) throw new Error(`workspace mtime request failed (${res.status})`);
       const { mtime } = await res.json();
       // A request for a tab we just navigated away from must not overwrite
-      // the new project's baseline or retry state.
-      if (!currentProject || currentProject.path !== projectPath
-          || (typeof _sidebarScopedRoot === 'function' && _sidebarScopedRoot(projectPath) !== fileRoot)) return;
-      _projMtimeFailures = 0;
-      _projMtimeRetryAt = 0;
-      if (mtime == null) { _projMtimeMisses += 1; return; }
-      _projMtimeMisses = 0;
-      if (_lastProjectMtime && mtime > _lastProjectMtime) {
+      // the new workspace's baseline or retry state.
+      if (!currentWorkspace || currentWorkspace.path !== workspacePath
+          || (typeof _sidebarScopedRoot === 'function' && _sidebarScopedRoot(workspacePath) !== fileRoot)) return;
+      _workspaceMtimeFailures = 0;
+      _workspaceMtimeRetryAt = 0;
+      if (mtime == null) { _workspaceMtimeMisses += 1; return; }
+      _workspaceMtimeMisses = 0;
+      if (_lastWorkspaceMtime && mtime > _lastWorkspaceMtime) {
         const isSelf = document.body.classList.contains('self-active');
-        const isWorkspaceView = document.body.classList.contains('workspace-active');
+        const isVaultView = document.body.classList.contains('vault-active');
         const isAssistant = document.body.classList.contains('assistant-active');
-        if (_projDocPath) {
+        if (_workspaceDocPath) {
           // Refresh the doc AND the sidebar — files added/removed in
-          // the project (e.g. a new HTML under tmp/) need to appear in
+          // the workspace (e.g. a new HTML under tmp/) need to appear in
           // the sidebar without forcing the user to navigate away. The
-          // self/workspace views use their own sidebar renderers (no
-          // project.json, no pinned/meta sections, no shared CLAUDE.md
-          // / .claude shortcuts); calling _refreshProjectSidebar here
-          // would stomp them with the project layout.
-          openProjectDoc(_projDocPath, {preserveScroll: true});
+          // self/vault views use their own sidebar renderers (no
+          // workspace.json, no pinned/meta sections, no shared CLAUDE.md
+          // / .claude shortcuts); calling _refreshWorkspaceSidebar here
+          // would stomp them with the workspace layout.
+          openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
           if (isSelf) selfPopulateSidebar();
-          else if (isWorkspaceView) workspacePopulateSidebar();
-          else _refreshProjectSidebar({preserveScroll: true});
+          else if (isVaultView) vaultPopulateSidebar();
+          else _refreshWorkspaceSidebar({preserveScroll: true});
         } else if (isSelf) {
           // Self view, no doc open → just refresh the sidebar so new
           // files appear without a full page reload.
           selfPopulateSidebar();
-        } else if (isWorkspaceView) {
-          workspacePopulateSidebar();
+        } else if (isVaultView) {
+          vaultPopulateSidebar();
         } else if (isAssistant) {
-          _refreshProjectSidebar({preserveScroll: true});
+          _refreshWorkspaceSidebar({preserveScroll: true});
           if (window.AssistantView) window.AssistantView.refresh();
         } else {
-          showProjectInfo({preserveScroll: true});
+          showWorkspaceInfo({preserveScroll: true});
         }
       }
-      _lastProjectMtime = mtime;
+      _lastWorkspaceMtime = mtime;
     } catch(e) {
-      if (currentProject && currentProject.path === projectPath) {
-        _projMtimeFailures += 1;
-        const backoffMs = Math.min(60_000, 1_000 * (2 ** _projMtimeFailures));
-        _projMtimeRetryAt = Date.now() + backoffMs;
+      if (currentWorkspace && currentWorkspace.path === workspacePath) {
+        _workspaceMtimeFailures += 1;
+        const backoffMs = Math.min(60_000, 1_000 * (2 ** _workspaceMtimeFailures));
+        _workspaceMtimeRetryAt = Date.now() + backoffMs;
       }
     } finally {
-      _projMtimeInFlight = false;
+      _workspaceMtimeInFlight = false;
     }
   }, 1000);
 
@@ -9869,13 +9869,13 @@
   // cadence here means at most one subprocess per tick across all clients.
   if (!UI_CHECK) setInterval(() => {
     if (document.hidden) return;
-    if (!currentProject || !currentProject.is_project) return;
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     if (currentRepo) return;
     _sidebarGitStatusRefresh();
   }, 6000);
 
   // ─── Terminal panel (tmux + PTY bridge) ───
-  // Visible whenever a project is active; scoped to that project. xterm.js
+  // Visible whenever a workspace is active; scoped to that workspace. xterm.js
   // and addons are vendored and lazy-loaded before the first attach. State
   // is declared before the init dispatch for the same TDZ reason the home
   // state is.
@@ -9885,7 +9885,7 @@
   let termWS = null;            // active WebSocket to /ws/term/<name>
   let termContainer = null;     // per-session <div> inside #termBody (active session)
   let termCurrentSession = null; // tmux session name currently attached
-  let termCurrentProjectId = null; // project/pseudo-project owning the active session
+  let termCurrentWorkspaceId = null; // workspace/pseudo-workspace owning the active session
   let termSessions = [];        // last known list from /api/term/sessions
   let termUserDetached = false; // distinguishes user-initiated close from dropped WS
   let termRefreshTimer = null;  // periodic poll of /api/term/sessions
@@ -9895,16 +9895,16 @@
   let _termWheelAccum = 0;            // accumulated deltaY for scroll throttling
   let termAttachRequestSeq = 0;       // latest requested attach; prevents out-of-order switches
   // Per-session xterm+WS cache so SESSION-PILL switches (within the same
-  // project, no navigation) don't wipe in-progress input.
+  // workspace, no navigation) don't wipe in-progress input.
   //
-  // Project-tab clicks now navigate in-page, so this cache survives across
-  // project switches. That makes the project id part of the identity: a
-  // delayed attach from project A must never be allowed to display while
-  // project B is active, even if both have a "claude" logical session.
-  const _termCache = new Map(); // "projectId::name" -> {projectId, name, xterm, fitAddon, ws, container, parkedAt}
-  // `_termSessionsCache` (projectId -> sessions[]) is the warm-switch
+  // Workspace-tab clicks now navigate in-page, so this cache survives across
+  // workspace switches. That makes the workspace id part of the identity: a
+  // delayed attach from workspace A must never be allowed to display while
+  // workspace B is active, even if both have a "claude" logical session.
+  const _termCache = new Map(); // "workspaceId::name" -> {workspaceId, name, xterm, fitAddon, ws, container, parkedAt}
+  // `_termSessionsCache` (workspaceId -> sessions[]) is the warm-switch
   // fast-path cache: it's declared at the top of the script (next to
-  // CEREBRO_PROJECT_ID / SELF_PROJECT_ID) so initCerebro/initSelf can
+  // CEREBRO_WORKSPACE_ID / SELF_WORKSPACE_ID) so initCerebro/initSelf can
   // read it synchronously without tripping the temporal dead zone.
   // Sessions the server has confirmed are gone ("no-session" exit frame)
   // OR that we've failed to reach N times in a row. While a name is in
@@ -9919,25 +9919,25 @@
   const TERM_RECONNECT_CAP_MS = 30000;
   const TERM_FAST_PARK_MS = 10 * 60 * 1000;
 
-  // Per-project "last selected" memory so leaving and returning to a project
+  // Per-workspace "last selected" memory so leaving and returning to a workspace
   // (full page reload) restores whichever session pill the user had active
   // instead of snapping back to the canonical "claude" pill.
   //
   // Keyed by logical_name (not tmux name) because the logical name is the
-  // project-relative identity and is stable across server/tmux restarts.
-  // Stored as a single JSON map {projectId: logicalName}.
+  // workspace-relative identity and is stable across server/tmux restarts.
+  // Stored as a single JSON map {workspaceId: logicalName}.
   const TERM_LAST_KEY = 'labTermLastSession';
-  function _termActiveProjectId() {
-    if (document.body.classList.contains('cerebro-active')) return CEREBRO_PROJECT_ID;
-    if (document.body.classList.contains('self-active')) return SELF_PROJECT_ID;
-    if (document.body.classList.contains('assistant-active')) return ASSISTANT_PROJECT_ID;
-    if (currentProject && currentProject.is_project) return currentProject.name;
+  function _termActiveWorkspaceId() {
+    if (document.body.classList.contains('cerebro-active')) return CEREBRO_WORKSPACE_ID;
+    if (document.body.classList.contains('self-active')) return SELF_WORKSPACE_ID;
+    if (document.body.classList.contains('assistant-active')) return ASSISTANT_WORKSPACE_ID;
+    if (currentWorkspace && currentWorkspace.is_workspace) return currentWorkspace.name;
     return null;
   }
-  async function termAutoSpawnEnabled(projectId, workspaceId = _termWorkspaceId()) {
-    if (!projectId) return true;
+  async function termAutoSpawnEnabled(workspaceId, vaultId = _termVaultId()) {
+    if (!workspaceId) return true;
     try {
-      const r = await fetch('/api/ui/term-autospawn?project_id=' + encodeURIComponent(projectId) + _workspaceQuery(workspaceId));
+      const r = await fetch('/api/ui/term-autospawn?workspace_id=' + encodeURIComponent(workspaceId) + _vaultQuery(vaultId));
       if (!r.ok) return true;
       const body = await r.json();
       return body.enabled !== false;
@@ -9945,40 +9945,40 @@
       return true;
     }
   }
-  async function termSetAutoSpawnEnabled(projectId, enabled, workspaceId = _termWorkspaceId()) {
-    if (!projectId) return;
+  async function termSetAutoSpawnEnabled(workspaceId, enabled, vaultId = _termVaultId()) {
+    if (!workspaceId) return;
     try {
       await fetch('/api/ui/term-autospawn', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, enabled: !!enabled, workspace: workspaceId}),
+        body: JSON.stringify({workspace_id: workspaceId, enabled: !!enabled, vault: vaultId}),
       });
     } catch {}
   }
-  function _termRememberLast(projectId, logicalName) {
-    if (!projectId || !logicalName) return;
+  function _termRememberLast(workspaceId, logicalName) {
+    if (!workspaceId || !logicalName) return;
     try {
       const raw = localStorage.getItem(TERM_LAST_KEY);
       const map = raw ? JSON.parse(raw) : {};
-      if (map[projectId] === logicalName) return;
-      map[projectId] = logicalName;
+      if (map[workspaceId] === logicalName) return;
+      map[workspaceId] = logicalName;
       localStorage.setItem(TERM_LAST_KEY, JSON.stringify(map));
     } catch {}
   }
-  function _termRecallLast(projectId) {
-    if (!projectId) return null;
+  function _termRecallLast(workspaceId) {
+    if (!workspaceId) return null;
     try {
       const raw = localStorage.getItem(TERM_LAST_KEY);
       if (!raw) return null;
       const map = JSON.parse(raw);
-      return map[projectId] || null;
+      return map[workspaceId] || null;
     } catch { return null; }
   }
-  function _termPickRestoreName(projectId) {
+  function _termPickRestoreName(workspaceId) {
     // Pick which session to attach when (re-)opening the panel: prefer the
     // user's last selection, fall back to canonical "claude", else first.
     if (!termSessions || termSessions.length === 0) return null;
-    const lastLogical = _termRecallLast(projectId);
+    const lastLogical = _termRecallLast(workspaceId);
     if (lastLogical) {
       const hit = termSessions.find(s => s.logical_name === lastLogical);
       if (hit) return hit.name;
@@ -9986,29 +9986,29 @@
     const claude = termSessions.find(s => s.logical_name === 'claude');
     return (claude || termSessions[0]).name;
   }
-  function _termCacheKey(projectId, name) {
-    return String(projectId || '') + '::' + String(name || '');
+  function _termCacheKey(workspaceId, name) {
+    return String(workspaceId || '') + '::' + String(name || '');
   }
   function _termCachedPaneIsFresh(cached) {
     if (!(cached && cached.ws && cached.ws.readyState === WebSocket.OPEN)) return false;
     if (cached.parkedAt && Date.now() - cached.parkedAt > TERM_FAST_PARK_MS) return false;
     return true;
   }
-  function _termIsScopeActive(projectId) {
-    return !!projectId && _termActiveProjectId() === projectId;
+  function _termIsScopeActive(workspaceId) {
+    return !!workspaceId && _termActiveWorkspaceId() === workspaceId;
   }
   function _termSessionMeta(name) {
     return (termSessions || []).find(s => s && s.name === name) || null;
   }
-  function _termSessionBelongsTo(projectId, name) {
+  function _termSessionBelongsTo(workspaceId, name) {
     const meta = _termSessionMeta(name);
-    return !!meta && (!meta.project_id || meta.project_id === projectId);
+    return !!meta && (!meta.workspace_id || meta.workspace_id === workspaceId);
   }
-  function _termCanAttach(projectId, name) {
-    return _termIsScopeActive(projectId) && _termSessionBelongsTo(projectId, name);
+  function _termCanAttach(workspaceId, name) {
+    return _termIsScopeActive(workspaceId) && _termSessionBelongsTo(workspaceId, name);
   }
-  function _termAttachRequestIsCurrent(seq, projectId, name) {
-    return seq === termAttachRequestSeq && _termCanAttach(projectId, name);
+  function _termAttachRequestIsCurrent(seq, workspaceId, name) {
+    return seq === termAttachRequestSeq && _termCanAttach(workspaceId, name);
   }
   function _termSetPaneActive(container, active) {
     if (!container) return;
@@ -10043,145 +10043,145 @@
   function _termFocusActiveSoon(container = termContainer, xterm = termXterm) {
     setTimeout(() => {
       if (container !== termContainer || xterm !== termXterm) return;
-      if (!termCurrentSession || !termCurrentProjectId) return;
+      if (!termCurrentSession || !termCurrentWorkspaceId) return;
       try { xterm && xterm.focus && xterm.focus(); } catch {}
     }, 0);
   }
 
-  // ─── Project tabs (Chrome-style) ───
+  // ─── Workspace tabs (Chrome-style) ───
   // State declarations are hoisted to the init block above (same TDZ reason
   // as the home view). Functions here; state is in the hoisted block so
-  // projTabsRefresh() can be called during init without tripping the
-  // temporal dead zone on `projTabsHot` / `projTabsRefreshTimer`.
+  // workspaceTabsRefresh() can be called during init without tripping the
+  // temporal dead zone on `workspaceTabsHot` / `workspaceTabsRefreshTimer`.
 
-  async function projTabsRefresh() {
+  async function workspaceTabsRefresh() {
     try {
       const [sessionsRes, all] = await Promise.all([
         fetch('/api/term/sessions'),
         fetchRepos(),
       ]);
       const sessionRows = sessionsRes.ok ? await sessionsRes.json() : [];
-      projTabsHot = (Array.isArray(sessionRows) ? sessionRows : [])
-        .filter(row => row && row.project_id && !String(row.project_id).startsWith('__'))
-        .map(row => ({project_id: row.project_id, workspace: row.workspace || ''}));
-      projTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_project);
+      workspaceTabsHot = (Array.isArray(sessionRows) ? sessionRows : [])
+        .filter(row => row && row.workspace_id && !String(row.workspace_id).startsWith('__'))
+        .map(row => ({workspace_id: row.workspace_id, vault: row.vault || ''}));
+      workspaceTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_workspace);
     } catch { /* leave stale state; next tick will retry */ }
-    projTabsRender();
+    workspaceTabsRender();
   }
 
-  function projTabsRender() {
-    const el = document.getElementById('projectTabs');
+  function workspaceTabsRender() {
+    const el = document.getElementById('workspaceTabs');
     if (!el) return;
     const selfActive = document.body.classList.contains('self-active');
     const assistantActive = document.body.classList.contains('assistant-active');
-    const workspaceActive = document.body.classList.contains('workspace-active');
-    const activeProjectPath = document.body.classList.contains('project-active') && currentProject
-      ? currentProject.path : null;
-    const activeWorkspaceId = workspaceActive && _workspaceCurrent
-      ? _workspaceCurrent.id : null;
+    const vaultActive = document.body.classList.contains('vault-active');
+    const activeWorkspacePath = document.body.classList.contains('workspace-active') && currentWorkspace
+      ? currentWorkspace.path : null;
+    const activeVaultId = vaultActive && _vaultCurrent
+      ? _vaultCurrent.id : null;
 
-    const workspaceIds = new Set(_openWorkspaceIds());
-    if (activeWorkspaceId) workspaceIds.add(activeWorkspaceId);
-    const currentProjectWorkspace = _projectWorkspaceId(currentProject);
-    if (currentProjectWorkspace) workspaceIds.add(currentProjectWorkspace);
+    const vaultIds = new Set(_openVaultIds());
+    if (activeVaultId) vaultIds.add(activeVaultId);
+    const currentWorkspaceVault = _workspaceVaultId(currentWorkspace);
+    if (currentWorkspaceVault) vaultIds.add(currentWorkspaceVault);
 
-    const projectTabs = [];
+    const workspaceTabs = [];
     const seenPaths = new Set();
-    const addProject = (project, hot = false) => {
-      if (!project || !project.path || seenPaths.has(project.path)) return;
-      seenPaths.add(project.path);
-      projectTabs.push({project, hot});
+    const addWorkspace = (workspace, hot = false) => {
+      if (!workspace || !workspace.path || seenPaths.has(workspace.path)) return;
+      seenPaths.add(workspace.path);
+      workspaceTabs.push({workspace, hot});
     };
-    for (const hot of projTabsHot || []) {
-      addProject((projTabsAll || []).find(project =>
-        project.name === hot.project_id && (!hot.workspace || project.workspace === hot.workspace)
+    for (const hot of workspaceTabsHot || []) {
+      addWorkspace((workspaceTabsAll || []).find(workspace =>
+        workspace.name === hot.workspace_id && (!hot.vault || workspace.vault === hot.vault)
       ), true);
     }
-    if (activeProjectPath) addProject((projTabsAll || []).find(project => project.path === activeProjectPath));
-    for (const path of projTabsOpenIds()) addProject((projTabsAll || []).find(project => project.path === path));
+    if (activeWorkspacePath) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === activeWorkspacePath));
+    for (const path of workspaceTabsOpenIds()) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === path));
 
-    const workspaceTabs = Array.from(workspaceIds)
-      .map(_workspaceById)
+    const vaultTabs = Array.from(vaultIds)
+      .map(_vaultById)
       .filter(Boolean)
       .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
     let html = LAB_IS_ADMIN ? `
-      <div class="proj-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_PROJECT_ID}" role="tab" title="Framework home">
+      <div class="workspace-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_WORKSPACE_ID}" role="tab" title="Framework home">
         <span class="label">&#x1F3E0; Home</span>
       </div>
-      <div class="proj-tab assistant-tab${assistantActive ? ' active' : ''}" data-kind="assistant" data-key="${ASSISTANT_PROJECT_ID}" role="tab" title="Global Assistant tasks">
+      <div class="workspace-tab assistant-tab${assistantActive ? ' active' : ''}" data-kind="assistant" data-key="${ASSISTANT_WORKSPACE_ID}" role="tab" title="Global Assistant tasks">
         <span class="label">&#x2726; Assistant</span>
       </div>` : '';
-    html += workspaceTabs.map(ws => {
-      const active = activeWorkspaceId === ws.id ? ' active' : '';
-      const color = projTabsEsc(ws.color || '#8b949e');
+    html += vaultTabs.map(vault => {
+      const active = activeVaultId === vault.id ? ' active' : '';
+      const color = workspaceTabsEsc(vault.color || '#8b949e');
       return `
-        <div class="proj-tab workspace-tab workspace-owned${active}" style="--workspace-color:${color}" data-kind="workspace" data-key="${projTabsEsc(ws.id)}" role="tab" title="Workspace · ${projTabsEsc(ws.path || '')}">
-          <span class="workspace-mark"></span>
-          <span class="label">${projTabsEsc(ws.name || ws.id)}</span>
-          <button class="x" title="Close workspace tab" data-x="${projTabsEsc(ws.id)}">&times;</button>
+        <div class="workspace-tab vault-tab vault-owned${active}" style="--vault-color:${color}" data-kind="vault" data-key="${workspaceTabsEsc(vault.id)}" role="tab" title="Vault · ${workspaceTabsEsc(vault.path || '')}">
+          <span class="vault-mark"></span>
+          <span class="label">${workspaceTabsEsc(vault.name || vault.id)}</span>
+          <button class="x" title="Close vault tab" data-x="${workspaceTabsEsc(vault.id)}">&times;</button>
         </div>`;
     }).join('');
-    html += projectTabs.map(({project, hot}) => {
-      const ws = _workspaceForProject(project);
-      const active = activeProjectPath === project.path ? ' active' : '';
-      const color = projTabsEsc((ws && ws.color) || '#8b949e');
-      const blocked = tabBlocked.pid === project.name ? ' blocked' : '';
+    html += workspaceTabs.map(({workspace, hot}) => {
+      const vault = _vaultForWorkspace(workspace);
+      const active = activeWorkspacePath === workspace.path ? ' active' : '';
+      const color = workspaceTabsEsc((vault && vault.color) || '#8b949e');
+      const blocked = tabBlocked.pid === workspace.name ? ' blocked' : '';
       return `
-        <div class="proj-tab workspace-owned${active}${blocked}" style="--workspace-color:${color}" data-kind="project" data-key="${projTabsEsc(project.path)}" data-pid="${projTabsEsc(project.name)}" data-workspace="${projTabsEsc(project.workspace || '')}" role="tab" title="${projTabsEsc((ws && (ws.name || ws.id)) || '')} · ${projTabsEsc(project.path)}">
-          <span class="workspace-mark"></span>
-          <span class="label">${projTabsEsc(_projectDisplayName(project))}</span>
-          <button class="x" title="Close project tab and its terminal sessions" data-x="${projTabsEsc(project.path)}">&times;</button>
+        <div class="workspace-tab vault-owned${active}${blocked}" style="--vault-color:${color}" data-kind="workspace" data-key="${workspaceTabsEsc(workspace.path)}" data-workspace-id="${workspaceTabsEsc(workspace.name)}" data-vault="${workspaceTabsEsc(workspace.vault || '')}" role="tab" title="${workspaceTabsEsc((vault && (vault.name || vault.id)) || '')} · ${workspaceTabsEsc(workspace.path)}">
+          <span class="vault-mark"></span>
+          <span class="label">${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
+          <button class="x" title="Close workspace tab and its terminal sessions" data-x="${workspaceTabsEsc(workspace.path)}">&times;</button>
         </div>`;
     }).join('');
     el.innerHTML = html;
 
-    el.querySelectorAll('.proj-tab').forEach(node => {
+    el.querySelectorAll('.workspace-tab').forEach(node => {
       node.addEventListener('click', (e) => {
         if (e.target.closest('.x')) return;  // X handled separately
         const kind = node.getAttribute('data-kind');
         const key = node.getAttribute('data-key');
         if (kind === 'productivity') { goToProductivity(); return; }
         if (kind === 'assistant') { goToAssistant(); return; }
-        if (kind === 'workspace') { goToWorkspace(key); return; }
-        if (kind === 'project' && key) goToProject(key);
+        if (kind === 'vault') { goToVault(key); return; }
+        if (kind === 'workspace' && key) goToWorkspace(key);
       });
     });
-    el.querySelectorAll('.proj-tab .x').forEach(btn => {
+    el.querySelectorAll('.workspace-tab .x').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const tab = btn.closest('.proj-tab');
-        projTabsClose({
+        const tab = btn.closest('.workspace-tab');
+        workspaceTabsClose({
           key: btn.getAttribute('data-x'),
           kind: tab && tab.getAttribute('data-kind'),
-          projectId: tab && tab.getAttribute('data-pid'),
-          workspace: tab && tab.getAttribute('data-workspace'),
+          workspaceId: tab && tab.getAttribute('data-workspace-id'),
+          vault: tab && tab.getAttribute('data-vault'),
         });
       });
     });
   }
 
-  function projTabsWireDnD(container) {
-    container.querySelectorAll('.proj-tab').forEach(tab => {
+  function workspaceTabsWireDnD(container) {
+    container.querySelectorAll('.workspace-tab').forEach(tab => {
       tab.addEventListener('dragstart', (e) => {
-        projTabsDragPid = tab.getAttribute('data-pid');
+        workspaceTabsDragId = tab.getAttribute('data-workspace-id');
         tab.classList.add('dragging');
         if (e.dataTransfer) {
           e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', projTabsDragPid);
+          e.dataTransfer.setData('text/plain', workspaceTabsDragId);
         }
       });
       tab.addEventListener('dragend', () => {
         tab.classList.remove('dragging');
-        container.querySelectorAll('.proj-tab.drop-before, .proj-tab.drop-after')
+        container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
           .forEach(t => t.classList.remove('drop-before', 'drop-after'));
-        projTabsDragPid = null;
+        workspaceTabsDragId = null;
       });
       tab.addEventListener('dragover', (e) => {
-        if (!projTabsDragPid) return;
+        if (!workspaceTabsDragId) return;
         e.preventDefault();  // allow drop
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        container.querySelectorAll('.proj-tab.drop-before, .proj-tab.drop-after')
+        container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
           .forEach(t => t.classList.remove('drop-before', 'drop-after'));
         const rect = tab.getBoundingClientRect();
         const before = (e.clientX - rect.left) < rect.width / 2;
@@ -10189,23 +10189,23 @@
       });
       tab.addEventListener('drop', async (e) => {
         e.preventDefault();
-        const src = projTabsDragPid;
-        const dst = tab.getAttribute('data-pid');
-        container.querySelectorAll('.proj-tab.drop-before, .proj-tab.drop-after')
+        const src = workspaceTabsDragId;
+        const dst = tab.getAttribute('data-workspace-id');
+        container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
           .forEach(t => t.classList.remove('drop-before', 'drop-after'));
         if (!src || !dst || src === dst) return;
         const rect = tab.getBoundingClientRect();
         const before = (e.clientX - rect.left) < rect.width / 2;
-        await projTabsReorder(src, dst, before);
+        await workspaceTabsReorder(src, dst, before);
       });
     });
   }
 
-  async function projTabsReorder(srcPid, dstPid, placeBefore) {
+  async function workspaceTabsReorder(srcPid, dstPid, placeBefore) {
     // Compute the NEW order from the current DOM (authoritative — respects
-    // the saved-order + append-new logic that projTabsRender runs).
-    const current = Array.from(document.querySelectorAll('#projectTabs .proj-tab'))
-      .map(n => n.getAttribute('data-pid'));
+    // the saved-order + append-new logic that workspaceTabsRender runs).
+    const current = Array.from(document.querySelectorAll('#workspaceTabs .workspace-tab'))
+      .map(n => n.getAttribute('data-workspace-id'));
     const srcIdx = current.indexOf(srcPid);
     if (srcIdx === -1) return;
     current.splice(srcIdx, 1);
@@ -10214,8 +10214,8 @@
     if (!placeBefore) dstIdx += 1;
     current.splice(dstIdx, 0, srcPid);
 
-    projTabsOrder = current;
-    projTabsRender();
+    workspaceTabsOrder = current;
+    workspaceTabsRender();
     // Persist server-side so the order survives reloads + other browsers.
     try {
       await fetch('/api/ui/tab-order', {
@@ -10226,43 +10226,43 @@
     } catch (e) { /* best-effort; local state already updated */ }
   }
 
-  function projTabsEsc(s) {
+  function workspaceTabsEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
       ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
     );
   }
 
-  async function projTabsClose({key, kind, projectId, workspace}) {
+  async function workspaceTabsClose({key, kind, workspaceId, vault}) {
     if (!key || kind === 'productivity') return;
-    if (kind === 'workspace') {
-      _setWorkspaceTabOpen(key, false);
-      const wasActive = document.body.classList.contains('workspace-active')
-        && _workspaceCurrent && _workspaceCurrent.id === key;
-      if (wasActive) goToProductivity(); else projTabsRender();
+    if (kind === 'vault') {
+      _setVaultTabOpen(key, false);
+      const wasActive = document.body.classList.contains('vault-active')
+        && _vaultCurrent && _vaultCurrent.id === key;
+      if (wasActive) goToProductivity(); else workspaceTabsRender();
       return;
     }
-    if (kind !== 'project' || !projectId) return;
-    if (!confirm(`Close "${projectId}"? This also closes its terminal sessions; saved agent conversations can resume when reopened.`)) return;
+    if (kind !== 'workspace' || !workspaceId) return;
+    if (!confirm(`Close "${workspaceId}"? This also closes its terminal sessions; saved agent conversations can resume when reopened.`)) return;
     try {
-      const suffix = workspace ? '?workspace=' + encodeURIComponent(workspace) : '';
-      await fetch('/api/term/sessions/project/' + encodeURIComponent(projectId) + suffix, {method: 'DELETE'});
+      const suffix = vault ? '?vault=' + encodeURIComponent(vault) : '';
+      await fetch('/api/term/sessions/workspace/' + encodeURIComponent(workspaceId) + suffix, {method: 'DELETE'});
     } catch (e) { /* best effort */ }
-    await projTabsSetOpen(key, false);
-    const wasActive = currentProject && currentProject.path === key;
-    await projTabsRefresh();
+    await workspaceTabsSetOpen(key, false);
+    const wasActive = currentWorkspace && currentWorkspace.path === key;
+    await workspaceTabsRefresh();
     if (wasActive) goToProductivity();
   }
 
-  function projTabsTogglePicker(ev) {
+  function workspaceTabsTogglePicker(ev) {
     if (ev) ev.stopPropagation();
-    const picker = document.getElementById('projTabsPicker');
+    const picker = document.getElementById('workspaceTabsPicker');
     if (!picker) return;
     const opening = !picker.classList.contains('open');
     picker.classList.toggle('open', opening);
     if (opening) {
-      projTabsRenderPicker();
+      workspaceTabsRenderPicker();
       const off = (e) => {
-        if (!picker.contains(e.target) && e.target.id !== 'projTabsPlusBtn') {
+        if (!picker.contains(e.target) && e.target.id !== 'workspaceTabsPlusBtn') {
           picker.classList.remove('open');
           document.removeEventListener('click', off);
         }
@@ -10271,67 +10271,67 @@
     }
   }
 
-  function projTabsRenderPicker() {
-    const picker = document.getElementById('projTabsPicker');
+  function workspaceTabsRenderPicker() {
+    const picker = document.getElementById('workspaceTabsPicker');
     if (!picker) return;
-    const openWorkspaces = new Set(_openWorkspaceIds());
-    const openProjects = new Set(projTabsOpenIds());
-    const workspaceRows = (workspaceCatalog || [])
-      .filter(ws => !openWorkspaces.has(ws.id))
-      .map(ws => `
-        <div class="row" data-workspace="${projTabsEsc(ws.id)}">
-          <span class="workspace-mark" style="--workspace-color:${projTabsEsc(ws.color || '#8b949e')}"></span>
-          <span>${projTabsEsc(ws.name || ws.id)}</span>
-          <span class="meta">workspace</span>
+    const openVaults = new Set(_openVaultIds());
+    const openWorkspaces = new Set(workspaceTabsOpenIds());
+    const vaultRows = (vaultCatalog || [])
+      .filter(vault => !openVaults.has(vault.id))
+      .map(vault => `
+        <div class="row" data-vault="${workspaceTabsEsc(vault.id)}">
+          <span class="vault-mark" style="--vault-color:${workspaceTabsEsc(vault.color || '#8b949e')}"></span>
+          <span>${workspaceTabsEsc(vault.name || vault.id)}</span>
+          <span class="meta">vault</span>
         </div>`).join('');
-    const candidates = (projTabsAll || []).filter(project => !openProjects.has(project.path));
-    if (!workspaceRows && candidates.length === 0) {
+    const candidates = (workspaceTabsAll || []).filter(workspace => !openWorkspaces.has(workspace.path));
+    if (!vaultRows && candidates.length === 0) {
       picker.innerHTML = '<div class="empty">Everything is already open.</div>';
       return;
     }
-    picker.innerHTML = workspaceRows + candidates.map(project => `
-      <div class="row" data-path="${projTabsEsc(project.path)}">
-        <span class="workspace-mark" style="--workspace-color:${projTabsEsc(project.workspace_color || '#8b949e')}"></span>
-        <span>${projTabsEsc(_projectDisplayName(project))}</span>
-        <span class="meta">${projTabsEsc(project.workspace_name || project.workspace || '')}</span>
+    picker.innerHTML = vaultRows + candidates.map(workspace => `
+      <div class="row" data-path="${workspaceTabsEsc(workspace.path)}">
+        <span class="vault-mark" style="--vault-color:${workspaceTabsEsc(workspace.vault_color || '#8b949e')}"></span>
+        <span>${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
+        <span class="meta">${workspaceTabsEsc(workspace.vault_name || workspace.vault || '')}</span>
       </div>`).join('');
     picker.querySelectorAll('.row').forEach(row => {
       row.addEventListener('click', () => {
         picker.classList.remove('open');
-        const workspaceId = row.getAttribute('data-workspace');
-        if (workspaceId) { goToWorkspace(workspaceId); return; }
+        const vaultId = row.getAttribute('data-vault');
+        if (vaultId) { goToVault(vaultId); return; }
         const path = row.getAttribute('data-path');
-        if (path) goToProject(path);
+        if (path) goToWorkspace(path);
       });
     });
   }
 
-  function projTabsStartPolling() {
-    if (projTabsRefreshTimer) return;
-    projTabsRefreshTimer = setInterval(projTabsRefresh, 5000);
+  function workspaceTabsStartPolling() {
+    if (workspaceTabsRefreshTimer) return;
+    workspaceTabsRefreshTimer = setInterval(workspaceTabsRefresh, 5000);
   }
 
-  async function termOpenForProject(projectId) {
-    // Show the panel and restore every session this project had.
+  async function termOpenForWorkspace(workspaceId) {
+    // Show the panel and restore every session this workspace had.
     //
     // "Restore every session" means: compare live tmux sessions against the
-    // saved list in project.json, and respawn any saved entry whose logical
+    // saved list in workspace.json, and respawn any saved entry whose logical
     // name isn't currently live. For claude entries this POST path re-uses
     // the saved claude_session_id via --resume. This is the key to
     // ``claude-2`` (and friends) coming back after a tab-close → reopen.
     //
     // Per-user opt-out of both auto-respawn and first-time auto-spawn via
     // ``localStorage.labTermAutoSpawn = "0"``. Explicitly closing the last
-    // terminal also disables only the first-time auto-spawn for this project
+    // terminal also disables only the first-time auto-spawn for this workspace
     // so a reload does not recreate a terminal the user just removed.
-    if (!projectId) { termClose(); return; }
-    if (!_termIsScopeActive(projectId)) return;
+    if (!workspaceId) { termClose(); return; }
+    if (!_termIsScopeActive(workspaceId)) return;
     document.body.classList.add('term-open');
     // Restore the user's last-known collapse state for this view
-    // (default = visible for projects).
+    // (default = visible for workspaces).
     _termApplyRememberedVisibility();
 
-    // Warm switch: this project has been opened earlier in the browser
+    // Warm switch: this workspace has been opened earlier in the browser
     // session, so we have its pill list in memory. Paint it instantly
     // and attach the cached session — no network wait, no respawn
     // detour. Background-refresh reconciles via termRefreshSessions
@@ -10339,86 +10339,86 @@
     // shows up `dead` (click to retry). Avoids the multi-second
     // "resuming N session(s)…" wait that fired on every tab click.
     const sessionCacheKey = typeof _termSessionsKey === 'function'
-      ? _termSessionsKey(projectId) : projectId;
+      ? _termSessionsKey(workspaceId) : workspaceId;
     const isWarmSwitch = _termSessionsCache.has(sessionCacheKey);
     if (isWarmSwitch) {
       termSessions = _termSessionsCache.get(sessionCacheKey) || [];
       termRenderSessionList();
       if (termSessions.length > 0) {
-        const pick = _termPickRestoreName(projectId);
-        if (pick && _termHasOpenCachedPane(projectId, pick)) {
-          termAttach(pick, projectId);
-          termRefreshSessions(projectId);  // background reconcile, no await
+        const pick = _termPickRestoreName(workspaceId);
+        if (pick && _termHasOpenCachedPane(workspaceId, pick)) {
+          termAttach(pick, workspaceId);
+          termRefreshSessions(workspaceId);  // background reconcile, no await
         } else {
-          console.info('[term] warm cache stale; reconciling before attach', projectId, pick);
+          console.info('[term] warm cache stale; reconciling before attach', workspaceId, pick);
           _termClientLog('info', 'terminal warm cache stale; reconciling before attach', {
             event_type: 'term.restore.stale_cache',
-            target: projectId,
+            target: workspaceId,
           });
-          await _termRestoreSessionsForProject(projectId);
+          await _termRestoreSessionsForWorkspace(workspaceId);
         }
       } else {
         termDetach();
         termShowEmpty();
         termSetStatus('idle', 'no session — click + New');
-        termRefreshSessions(projectId);  // background reconcile, no await
+        termRefreshSessions(workspaceId);  // background reconcile, no await
       }
       termStartPeriodicRefresh();
       return;
     }
 
-    // Cold open (first visit to this project this browser session). Full
-    // restore path: pull saved sessions out of project.json and respawn
+    // Cold open (first visit to this workspace this browser session). Full
+    // restore path: pull saved sessions out of workspace.json and respawn
     // any that aren't live in tmux. This is the path that surfaces saved
     // Claude conversations after a browser reload.
-    await _termRestoreSessionsForProject(projectId);
+    await _termRestoreSessionsForWorkspace(workspaceId);
     // Keep the dropdown + current attachment honest when sessions change out
     // from under us (manual `tmux kill-session`, server restart, etc.).
     termStartPeriodicRefresh();
   }
 
-  function _termHasOpenCachedPane(projectId, name) {
+  function _termHasOpenCachedPane(workspaceId, name) {
     if (typeof _termCache === 'undefined' || typeof _termCacheKey !== 'function') return false;
-    const cached = _termCache.get(_termCacheKey(projectId, name));
+    const cached = _termCache.get(_termCacheKey(workspaceId, name));
     return _termCachedPaneIsFresh(cached);
   }
 
-  async function _termTryWarmOpen(projectId) {
+  async function _termTryWarmOpen(workspaceId) {
     const sessionCacheKey = typeof _termSessionsKey === 'function'
-      ? _termSessionsKey(projectId) : projectId;
+      ? _termSessionsKey(workspaceId) : workspaceId;
     if (!_termSessionsCache.has(sessionCacheKey)) return false;
     termSessions = _termSessionsCache.get(sessionCacheKey) || [];
     termRenderSessionList();
     if (termSessions.length > 0) {
-      const pick = _termPickRestoreName(projectId);
-      if (pick && _termHasOpenCachedPane(projectId, pick)) {
-        termAttach(pick, projectId);
-        _termRefreshSessionsForProjectId(projectId);  // background reconcile
+      const pick = _termPickRestoreName(workspaceId);
+      if (pick && _termHasOpenCachedPane(workspaceId, pick)) {
+        termAttach(pick, workspaceId);
+        _termRefreshSessionsForWorkspaceId(workspaceId);  // background reconcile
       } else {
-        console.info('[term] warm cache stale; reconciling before attach', projectId, pick);
+        console.info('[term] warm cache stale; reconciling before attach', workspaceId, pick);
         _termClientLog('info', 'terminal warm cache stale; reconciling before attach', {
           event_type: 'term.restore.stale_cache',
-          target: projectId,
+          target: workspaceId,
         });
-        await _termRestoreSessionsForProject(projectId);
+        await _termRestoreSessionsForWorkspace(workspaceId);
       }
     } else {
       termDetach();
       termShowEmpty();
       termSetStatus('idle', 'no session — click + New');
-      _termRefreshSessionsForProjectId(projectId);  // background reconcile
+      _termRefreshSessionsForWorkspaceId(workspaceId);  // background reconcile
     }
     return true;
   }
 
-  async function _termRefreshSessionsForProjectId(projectId) {
+  async function _termRefreshSessionsForWorkspaceId(workspaceId) {
     // Returns true when the sessions fetch succeeded (server reachable);
     // callers use this to tell "session confirmed gone" apart from
     // "couldn't ask".
-    if (projectId === '__cerebro__' || projectId === '__self__' || projectId === '__logs__') {
-      return await termRefreshSessionsByProjectId(projectId);
+    if (workspaceId === '__cerebro__' || workspaceId === '__self__' || workspaceId === '__logs__') {
+      return await termRefreshSessionsByWorkspaceId(workspaceId);
     }
-    return await termRefreshSessions(projectId);
+    return await termRefreshSessions(workspaceId);
   }
 
   function _termClientLog(level, msg, extra = {}) {
@@ -10438,23 +10438,23 @@
     } catch {}
   }
 
-  async function _termRestoreSessionsForProject(projectId) {
-    const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
-    const workspaceQuery = typeof _workspaceQuery === 'function' ? _workspaceQuery(workspaceId) : '';
-    await _termRefreshSessionsForProjectId(projectId);
-    if (!_termIsScopeActive(projectId)) return;
+  async function _termRestoreSessionsForWorkspace(workspaceId) {
+    const vaultId = typeof _termVaultId === 'function' ? _termVaultId() : null;
+    const vaultQuery = typeof _vaultQuery === 'function' ? _vaultQuery(vaultId) : '';
+    await _termRefreshSessionsForWorkspaceId(workspaceId);
+    if (!_termIsScopeActive(workspaceId)) return;
 
     let saved = [];
     try {
-      const r = await fetch('/api/term/sessions/saved?project_id=' + encodeURIComponent(projectId) + workspaceQuery);
+      const r = await fetch('/api/term/sessions/saved?workspace_id=' + encodeURIComponent(workspaceId) + vaultQuery);
       if (r.ok) saved = await r.json();
     } catch (e) {
       _termClientLog('warning', 'terminal saved-session fetch failed', {
         event_type: 'term.restore.saved_fetch_failed',
-        target: projectId,
+        target: workspaceId,
       });
     }
-    if (!_termIsScopeActive(projectId)) return;
+    if (!_termIsScopeActive(workspaceId)) return;
 
     const liveLogicalNames = new Set(termSessions.map(s => s.logical_name).filter(Boolean));
     // Attached tmux aliases deliberately do not respawn as ordinary shell
@@ -10464,43 +10464,43 @@
       s && s.name && s.kind !== 'attached' && !liveLogicalNames.has(s.name)
     );
     const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
-    const projectAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(projectId, workspaceId);
-    if (!_termIsScopeActive(projectId)) return;
-    if (_termKillAllPending.has(_termSessionsKey(projectId, workspaceId))
-        || _termCloseTabsPending.has(_termSessionsKey(projectId, workspaceId))) return;
+    const workspaceAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(workspaceId, vaultId);
+    if (!_termIsScopeActive(workspaceId)) return;
+    if (_termKillAllPending.has(_termSessionsKey(workspaceId, vaultId))
+        || _termCloseTabsPending.has(_termSessionsKey(workspaceId, vaultId))) return;
 
     if (toRestore.length > 0 && globalAutoSpawn) {
       termSetStatus('idle', `resuming ${toRestore.length} session(s)…`);
       _termClientLog('info', 'terminal restoring saved sessions', {
         event_type: 'term.restore.saved',
-        target: projectId,
+        target: workspaceId,
       });
       await Promise.all(toRestore.map(s => fetch('/api/term/sessions', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          project_id: projectId,
-          workspace: workspaceId,
+          workspace_id: workspaceId,
+          vault: vaultId,
           kind: s.kind || 'claude',
           agent: s.agent,
           name: s.name,
-          // No explicit `auto`: the workspace's per-agent autopilot
+          // No explicit `auto`: the vault's per-agent autopilot
           // setting decides (an explicit value here would override it).
         }),
       }).catch(() => null)));
-      await _termRefreshSessionsForProjectId(projectId);
-      if (!_termIsScopeActive(projectId)) return;
+      await _termRefreshSessionsForWorkspaceId(workspaceId);
+      if (!_termIsScopeActive(workspaceId)) return;
     }
 
     if (termSessions.length > 0) {
-      const pick = _termPickRestoreName(projectId);
-      if (pick) termAttach(pick, projectId);
+      const pick = _termPickRestoreName(workspaceId);
+      if (pick) termAttach(pick, workspaceId);
       return;
     }
 
     termDetach();
     termShowEmpty();
-    if (projectAutoSpawn) {
+    if (workspaceAutoSpawn) {
       termSetStatus('idle', 'auto-spawning claude…');
       await termSpawnSession('claude', { startFresh: false });
     } else {
@@ -10518,17 +10518,17 @@
       // Skip a tick if a reorder is still writing — otherwise the GET can
       // beat the POST and stomp the user's fresh drop.
       if (_termReorderPending) return;
-      // Framework views win over a stale currentProject from the previous
-      // tab. Otherwise, use the loaded project or workspace id.
+      // Framework views win over a stale currentWorkspace from the previous
+      // tab. Otherwise, use the loaded workspace or vault id.
       let pid = null;
-      if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_PROJECT_ID;
-      else if (document.body.classList.contains('self-active')) pid = SELF_PROJECT_ID;
-      else if (document.body.classList.contains('assistant-active')) pid = ASSISTANT_PROJECT_ID;
-      else if (currentProject && currentProject.is_project) pid = currentProject.name;
+      if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_WORKSPACE_ID;
+      else if (document.body.classList.contains('self-active')) pid = SELF_WORKSPACE_ID;
+      else if (document.body.classList.contains('assistant-active')) pid = ASSISTANT_WORKSPACE_ID;
+      else if (currentWorkspace && currentWorkspace.is_workspace) pid = currentWorkspace.name;
       if (!pid) return;
       const prev = termCurrentSession;
-      const prevPid = termCurrentProjectId;
-      const ok = await _termRefreshSessionsForProjectId(pid);
+      const prevPid = termCurrentWorkspaceId;
+      const ok = await _termRefreshSessionsForWorkspaceId(pid);
       // Attached session disappeared from tmux (confirmed by a successful
       // fetch, not a blip) → restore it automatically.
       if (prev && ok && prevPid === pid && !termSessions.some(s => s.name === prev)) {
@@ -10579,17 +10579,17 @@
   }
 
   async function termReconnectOrRefresh() {
-    const pid = _termActiveProjectId();
+    const pid = _termActiveWorkspaceId();
     if (!pid) return;
     // User asked to retry — clear any dead/backoff state so termAttach
     // will make a fresh attempt instead of bouncing off _termMarkDead.
     termDeadSessions.clear();
     for (const k of Object.keys(termReconnectAttempts)) delete termReconnectAttempts[k];
     for (const k of Object.keys(_termAutoRestoreAt)) delete _termAutoRestoreAt[k];
-    await _termRefreshSessionsForProjectId(pid);
+    await _termRefreshSessionsForWorkspaceId(pid);
     if (!_termIsScopeActive(pid)) return;
     if (termSessions.length > 0) termAttach(termSessions[0].name, pid);
-    else await _termRestoreSessionsForProject(pid);
+    else await _termRestoreSessionsForWorkspace(pid);
   }
 
   function termToggleCollapse() {
@@ -10603,15 +10603,15 @@
 
   // Per-view persistence of "is the terminal panel collapsed?" so the
   // user's last toggle sticks across tab switches and reloads. The key
-  // is namespaced by the active project, workspace, or framework view.
+  // is namespaced by the active workspace, vault, or framework view.
   // (`_TERM_VIS_KEY_PREFIX` is declared higher up to avoid a TDZ when
   // these helpers run during the initial `?view=…` URL dispatch.)
   function _termVisibilityKey() {
     if (document.body.classList.contains('cerebro-active')) return _TERM_VIS_KEY_PREFIX + 'cerebro';
     if (document.body.classList.contains('self-active')) return _TERM_VIS_KEY_PREFIX + 'self';
     if (document.body.classList.contains('assistant-active')) return _TERM_VIS_KEY_PREFIX + 'assistant';
-    if (document.body.classList.contains('workspace-active')) return _TERM_VIS_KEY_PREFIX + 'workspace';
-    if (currentProject && currentProject.is_project) return _TERM_VIS_KEY_PREFIX + 'project:' + currentProject.name;
+    if (document.body.classList.contains('vault-active')) return _TERM_VIS_KEY_PREFIX + 'vault';
+    if (currentWorkspace && currentWorkspace.is_workspace) return _TERM_VIS_KEY_PREFIX + 'workspace:' + currentWorkspace.name;
     return _TERM_VIS_KEY_PREFIX + 'unknown';
   }
   function _termRememberVisibility(key, shown) {
@@ -10631,15 +10631,15 @@
     const shown = _termRecallVisibility(key, true);
     document.body.classList.toggle('term-collapsed', !shown);
     // The files sidebar piggy-backs on the same per-view entry point: every
-    // view init (project / self / cerebro) lands here, so this is the one
+    // view init (workspace / self / cerebro) lands here, so this is the one
     // place that restores the sidebar's per-view collapse state + width.
     _sidebarApplyForView();
   }
 
   // ─── Files-sidebar collapse + per-view width ───
   // Same UX as the terminal toggle, mirrored on the left edge. Both the
-  // collapsed flag and the dragged width are namespaced by view (project
-  // id / self / cerebro), so hiding or resizing the sidebar in one project
+  // collapsed flag and the dragged width are namespaced by view (workspace
+  // id / self / cerebro), so hiding or resizing the sidebar in one workspace
   // never leaks into another. The un-suffixed legacy key `labSidebarPct`
   // remains as the boot-time default for views without their own entry.
   // (The two key-prefix consts are hoisted next to _TERM_VIS_KEY_PREFIX —
@@ -10648,15 +10648,15 @@
     if (document.body.classList.contains('cerebro-active')) return 'cerebro';
     if (document.body.classList.contains('self-active')) return 'self';
     if (document.body.classList.contains('assistant-active')) return 'assistant';
-    if (document.body.classList.contains('workspace-active')) return 'workspace';
-    if (currentProject && currentProject.is_project) {
+    if (document.body.classList.contains('vault-active')) return 'vault';
+    if (currentWorkspace && currentWorkspace.is_workspace) {
       // Server (proxy) views get their own namespace so they can default
       // to a collapsed sidebar — the embedded app wants the full left +
-      // center width — without touching the project's normal preference.
-      if (typeof _projDocPath === 'string' && _projDocPath.startsWith('__proxy__/')) {
-        return 'proxy:' + currentProject.name + ':' + _projDocPath.slice('__proxy__/'.length);
+      // center width — without touching the workspace's normal preference.
+      if (typeof _workspaceDocPath === 'string' && _workspaceDocPath.startsWith('__proxy__/')) {
+        return 'proxy:' + currentWorkspace.name + ':' + _workspaceDocPath.slice('__proxy__/'.length);
       }
-      return 'project:' + currentProject.name;
+      return 'workspace:' + currentWorkspace.name;
     }
     return 'unknown';
   }
@@ -10758,9 +10758,9 @@
     };
 
     // Sidebar/main divider: dragging right grows the sidebar. The width is
-    // saved under the active view's key ONLY (per-project by request) —
+    // saved under the active view's key ONLY (per-workspace by request) —
     // the legacy global key is read as a fallback default but never
-    // written anymore, so resizing project A can't restyle project B.
+    // written anymore, so resizing workspace A can't restyle workspace B.
     wire('sidebarResizer', 'sidebar-resizing', (dx, startSidebar /*, startTerm*/) => {
       const nextPx = Math.max(MIN_SIDEBAR_PX, (startSidebar * vw() / 100) + dx);
       const termPx = currentTermPct() * vw() / 100;
@@ -10796,27 +10796,27 @@
     });
   })();
 
-  async function termRefreshSessions(projectId) {
-    projectId = projectId || (currentProject && currentProject.is_project ? currentProject.name : null);
-    if (!projectId) return;
-    const workspaceId = _termWorkspaceId();
-    const sessionCacheKey = _termSessionsKey(projectId, workspaceId);
+  async function termRefreshSessions(workspaceId) {
+    workspaceId = workspaceId || (currentWorkspace && currentWorkspace.is_workspace ? currentWorkspace.name : null);
+    if (!workspaceId) return;
+    const vaultId = _termVaultId();
+    const sessionCacheKey = _termSessionsKey(workspaceId, vaultId);
     let fresh = [];
     let ok = false;
     try {
-      const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(projectId) + _workspaceQuery(workspaceId));
+      const r = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(workspaceId) + _vaultQuery(vaultId));
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
     if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
-    // Stale-response guard. termOpenForProject's warm-switch path fires
+    // Stale-response guard. termOpenForWorkspace's warm-switch path fires
     // this refresh without awaiting, so by the time the response lands
     // the user may already be on a different tab. Cache the result but
     // don't touch globals or repaint — the active view's own refresh
     // will handle its own pills.
-    if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return ok;
+    if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return ok;
     // On a failed fetch (server restarting, network blip) fall back to the
-    // last successful list for this project instead of wiping the pills —
+    // last successful list for this workspace instead of wiping the pills —
     // the tmux sessions are almost certainly still alive, and the reconnect
     // loop needs their names to keep retrying.
     termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
@@ -10842,7 +10842,7 @@
   let _termGroupMenuOutside = null;
 
   function _termGroupScopeKey() {
-    return _termSessionsKey(_termActiveProjectId(), _termWorkspaceId());
+    return _termSessionsKey(_termActiveWorkspaceId(), _termVaultId());
   }
 
   function _termNormalizeGroupState(raw) {
@@ -11087,7 +11087,7 @@
     const enabled = new Set(_termReadNewOptions(scope));
     let visible = 0;
     picker.querySelectorAll('[data-term-option]').forEach(button => {
-      button.hidden = !enabled.has(button.dataset.termOption) || button.dataset.workspaceHidden === 'true';
+      button.hidden = !enabled.has(button.dataset.termOption) || button.dataset.vaultHidden === 'true';
       if (!button.hidden) visible += 1;
     });
     const empty = document.getElementById('termNewOptionsEmpty');
@@ -11196,27 +11196,27 @@
 
   const _termCloseTabsPending = new Set();
   async function termCloseTabs(names, groupName = '') {
-    const projectId = _termActiveProjectId(), workspaceId = _termWorkspaceId();
-    const scope = _termSessionsKey(projectId, workspaceId);
-    if (!projectId || !names.length || _termCloseTabsPending.has(scope)) return false;
+    const workspaceId = _termActiveWorkspaceId(), vaultId = _termVaultId();
+    const scope = _termSessionsKey(workspaceId, vaultId);
+    if (!workspaceId || !names.length || _termCloseTabsPending.has(scope)) return false;
     const label = groupName ? `group "${groupName}" (${names.length} tabs)` : 'this terminal tab';
     if (!confirm(`Close ${label}? Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
-    const isActive = () => projectId === _termActiveProjectId() && workspaceId === _termWorkspaceId();
+    const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
     _termCloseTabsPending.add(scope);
     const failures = [];
     try {
       const setting = await fetch('/api/ui/term-autospawn', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, workspace: workspaceId, enabled: false})});
+        body: JSON.stringify({workspace_id: workspaceId, vault: vaultId, enabled: false})});
       if (!setting.ok) throw new Error('Could not disable automatic session spawning.');
       for (const name of names) {
         try {
-          const response = await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true' + _workspaceQuery(workspaceId), {method: 'DELETE'});
+          const response = await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true' + _vaultQuery(vaultId), {method: 'DELETE'});
           if (!response.ok) {
             const result = await response.json().catch(() => ({}));
             throw new Error(result.detail || response.statusText || 'Request failed');
           }
           if (isActive() && termCurrentSession === name) termDetach();
-          _termEvictCache(name, projectId);
+          _termEvictCache(name, workspaceId);
         } catch (error) { failures.push(`${name}: ${error.message}`); }
       }
       _termSessionsCache.delete(scope);
@@ -11228,13 +11228,13 @@
     } finally {
       _termCloseTabsPending.delete(scope);
       if (isActive()) {
-        await _termRefreshSessionsForProjectId(projectId);
+        await _termRefreshSessionsForWorkspaceId(workspaceId);
         if (isActive() && !termCurrentSession) {
-          if (termSessions.length) termAttach(termSessions[0].name, projectId);
+          if (termSessions.length) termAttach(termSessions[0].name, workspaceId);
           else { termShowEmpty(); termSetStatus('idle', 'no session — click + New'); }
         }
       }
-      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+      if (typeof workspaceTabsRefresh === 'function') workspaceTabsRefresh();
     }
   }
 
@@ -11331,10 +11331,10 @@
   async function termRenameSession(name) {
     const session = _termSessionMeta(name);
     if (!session) return;
-    const projectId = _termActiveProjectId();
-    const workspaceId = _termWorkspaceId();
+    const workspaceId = _termActiveWorkspaceId();
+    const vaultId = _termVaultId();
     const logical = session.logical_name || '';
-    if (!projectId || !logical) return;
+    if (!workspaceId || !logical) return;
     const current = session.label || logical;
     const nextRaw = prompt('Rename terminal tab', current);
     if (nextRaw === null) return;
@@ -11344,31 +11344,31 @@
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          project_id: projectId,
-          workspace: workspaceId,
+          workspace_id: workspaceId,
+          vault: vaultId,
           name: logical,
           label: next || null,
         }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || r.statusText || 'rename failed');
-      if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
+      if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
       const updated = body.session || {};
       termSessions = (termSessions || []).map(s =>
         s.name === name ? {...s, label: updated.label || null, summary: updated.summary || s.summary} : s
       );
-      _termSessionsCache.set(_termSessionsKey(projectId, workspaceId), termSessions);
+      _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
       termRenderSessionList();
       _termClientLog('info', 'terminal tab renamed', {
         event_type: 'term.session.rename',
-        target: projectId,
+        target: workspaceId,
       });
     } catch (e) {
       console.warn('[term] rename failed', e);
       termSetStatus('err', 'rename failed');
       _termClientLog('warning', 'terminal tab rename failed: ' + (e && e.message || e), {
         event_type: 'term.session.rename_failed',
-        target: projectId,
+        target: workspaceId,
       });
     }
   }
@@ -11384,7 +11384,7 @@
     const statusSummaryText = document.getElementById('termStatusSummaryText');
     if (!el && !statusSummary) return;
     const session = (termSessions || []).find(s =>
-      s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId
+      s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId
     );
     if (!session) {
       if (el) {
@@ -11528,7 +11528,7 @@
     // rebuilds or reconnects a terminal. The active header always carries
     // the complete identity, even in compact mode.
     const visual = _termSessionVisual(s);
-    const active = (s.name === termCurrentSession && _termActiveProjectId() === termCurrentProjectId) ? ' active' : '';
+    const active = (s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId) ? ' active' : '';
     const recentMeta = _termSessionRecentMeta(s);
     const recent = recentMeta ? ' recent' : '';
     const logical = s.logical_name || '';
@@ -11671,11 +11671,11 @@
         if (termDeadSessions.has(name)) {
           _termClearDead(name);
           delete _termAutoRestoreAt[name];  // explicit click resets the crash-loop guard
-          const pid = _termActiveProjectId();
+          const pid = _termActiveWorkspaceId();
           (async () => {
             let refreshOk = false;
             if (pid) {
-              try { refreshOk = !!(await _termRefreshSessionsForProjectId(pid)); } catch {}
+              try { refreshOk = !!(await _termRefreshSessionsForWorkspaceId(pid)); } catch {}
             }
             if (termSessions.some(s => s.name === name)) termAttach(name, pid);
             else if (refreshOk && pid) _termSessionGone(name, pid);
@@ -11683,8 +11683,8 @@
           })();
           return;
         }
-        if (name !== termCurrentSession || _termActiveProjectId() !== termCurrentProjectId) {
-          termAttach(name, _termActiveProjectId());
+        if (name !== termCurrentSession || _termActiveWorkspaceId() !== termCurrentWorkspaceId) {
+          termAttach(name, _termActiveWorkspaceId());
         }
       });
     });
@@ -11882,13 +11882,13 @@
     // Divider moves are browser-local and do not need a server write.
     if (srcToken.startsWith('g:')) return;
 
-    // Persist server-side. Same project-id resolution used elsewhere.
-    let projectId = null;
-    if (document.body.classList.contains('cerebro-active')) projectId = CEREBRO_PROJECT_ID;
-    else if (document.body.classList.contains('self-active')) projectId = SELF_PROJECT_ID;
-    else if (document.body.classList.contains('assistant-active')) projectId = ASSISTANT_PROJECT_ID;
-    else if (currentProject && currentProject.is_project) projectId = currentProject.name;
-    if (!projectId) return;
+    // Persist server-side. Same workspace-id resolution used elsewhere.
+    let workspaceId = null;
+    if (document.body.classList.contains('cerebro-active')) workspaceId = CEREBRO_WORKSPACE_ID;
+    else if (document.body.classList.contains('self-active')) workspaceId = SELF_WORKSPACE_ID;
+    else if (document.body.classList.contains('assistant-active')) workspaceId = ASSISTANT_WORKSPACE_ID;
+    else if (currentWorkspace && currentWorkspace.is_workspace) workspaceId = currentWorkspace.name;
+    if (!workspaceId) return;
     // Suspend the periodic refresh while the POST is in flight: otherwise a
     // 5s-tick GET can race the POST and re-paint the old order, making the
     // reorder appear to "snap back".
@@ -11897,7 +11897,7 @@
       await fetch('/api/term/sessions/order', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, workspace: _termWorkspaceId(), order: sessionOrder}),
+        body: JSON.stringify({workspace_id: workspaceId, vault: _termVaultId(), order: sessionOrder}),
       });
     } catch (e) { /* best-effort; local order already reflects */ }
     // Small grace so filesystem writes + watcher ignore-list settle.
@@ -11924,7 +11924,7 @@
       return;
     }
     termCloseRecentSettings();
-    // Resolve workspace policy before revealing the menu so a disabled agent
+    // Resolve vault policy before revealing the menu so a disabled agent
     // never flashes as a clickable choice during the network round-trip.
     const scope = _termGroupScopeKey();
     await termRefreshAgentAvail(el);
@@ -11944,7 +11944,7 @@
     setTimeout(() => document.addEventListener('click', off), 0);
   }
 
-  // Workspace policy removes disabled agents from every + New menu. Enabled
+  // Vault policy removes disabled agents from every + New menu. Enabled
   // agents whose CLI is missing stay visible but disabled so the reason is
   // clear. Both checks are enforced again by the create-session endpoint.
   let _agentAvail = null;
@@ -11955,7 +11955,7 @@
         _agentAvail
           ? Promise.resolve(_agentAvail)
           : fetch('/api/agents/available').then(r => r.json()),
-        loadWorkspaceAgentPolicy(),
+        loadVaultAgentPolicy(),
       ]);
       _agentAvail = avail;
       policy = loadedPolicy;
@@ -11964,7 +11964,7 @@
     picker.querySelectorAll('button[data-agent]').forEach(btn => {
       const a = btn.dataset.agent;
       btn.hidden = !supported.has(a);
-      btn.dataset.workspaceHidden = String(btn.hidden);
+      btn.dataset.vaultHidden = String(btn.hidden);
       const ok = _agentAvail[a] !== false;
       btn.disabled = !ok;
       btn.style.opacity = ok ? '' : '0.45';
@@ -12068,16 +12068,16 @@
   }
 
   async function termOpenLinkModal(ctx) {
-    const projectId = _termActiveProjectId();
-    if (!ctx || ctx.kind !== 'file' || !projectId) {
-      explorerToast('Open the file from a project, workspace, or Framework tab to link a terminal.', true);
+    const workspaceId = _termActiveWorkspaceId();
+    if (!ctx || ctx.kind !== 'file' || !workspaceId) {
+      explorerToast('Open the file from a workspace, vault, or Framework tab to link a terminal.', true);
       return;
     }
-    const workspaceId = _termWorkspaceId();
+    const vaultId = _termVaultId();
     _termLinkModalState = {
-      ctx: {root: ctx.root, path: ctx.path, surface: ctx.surface || 'project'},
-      projectId,
+      ctx: {root: ctx.root, path: ctx.path, surface: ctx.surface || 'workspace'},
       workspaceId,
+      vaultId,
       fileName: _termLinkedFileName(ctx.path),
     };
     _termLinkPending = false;
@@ -12094,10 +12094,10 @@
       document.addEventListener('keydown', _termLinkEscHandler);
     }
     await termRefreshAgentAvail(modal);
-    try { await _termRefreshSessionsForProjectId(projectId); } catch {}
+    try { await _termRefreshSessionsForWorkspaceId(workspaceId); } catch {}
     if (!_termLinkModalState
-        || _termLinkModalState.projectId !== projectId
-        || _termLinkModalState.workspaceId !== workspaceId) return;
+        || _termLinkModalState.workspaceId !== workspaceId
+        || _termLinkModalState.vaultId !== vaultId) return;
     _termRenderLinkModal();
   }
   window.termOpenLinkModal = termOpenLinkModal;
@@ -12122,8 +12122,8 @@
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        project_id: state.projectId,
-        workspace: state.workspaceId,
+        workspace_id: state.workspaceId,
+        vault: state.vaultId,
         name: logical,
         label,
         linked_file: linkedFile,
@@ -12135,7 +12135,7 @@
     termSessions = (termSessions || []).map(row => row.name === session.name
       ? {...row, label: updated.label || null, linked_file: updated.linked_file || null}
       : row);
-    _termSessionsCache.set(_termSessionsKey(state.projectId, state.workspaceId), termSessions);
+    _termSessionsCache.set(_termSessionsKey(state.workspaceId, state.vaultId), termSessions);
     termRenderSessionList();
     return updated;
   }
@@ -12153,13 +12153,13 @@
     _termSetLinkStatus(`Linking ${state.fileName}…`);
     try {
       await _termSaveLinkedFile(session, {root: state.ctx.root, path: state.ctx.path});
-      const projectId = state.projectId;
+      const workspaceId = state.workspaceId;
       const name = session.name;
       termCloseLinkModal();
       document.body.classList.add('term-open');
       document.body.classList.remove('term-collapsed');
       _termRememberVisibility(_termVisibilityKey(), true);
-      termAttach(name, projectId);
+      termAttach(name, workspaceId);
       const copied = await clipboardCopy;
       explorerToast(`Linked ${state.fileName} to ${_termSessionDisplay(session)} · ${copied ? 'Absolute path copied' : 'Clipboard unavailable'}`);
     } catch (error) {
@@ -12246,16 +12246,16 @@
       _termLinkedFileMatches(session.linked_file, root, path));
     if (!matches.length) return;
     const current = matches.find(session =>
-      session.name === termCurrentSession && termCurrentProjectId === _termActiveProjectId());
+      session.name === termCurrentSession && termCurrentWorkspaceId === _termActiveWorkspaceId());
     const target = current || matches[0];
     if (!target) return;
-    const projectId = _termActiveProjectId();
-    if (!projectId) return;
+    const workspaceId = _termActiveWorkspaceId();
+    if (!workspaceId) return;
     document.body.classList.add('term-open');
     document.body.classList.remove('term-collapsed');
     _termRememberVisibility(_termVisibilityKey(), true);
     if (current) return;
-    termAttach(target.name, projectId);
+    termAttach(target.name, workspaceId);
   }
 
   function _termPreferredLinkedSidebarRow(linked) {
@@ -12313,13 +12313,13 @@
     const request = ++_termLinkedNavigationSeq;
     if (!_linkedTerminalSyncOn) return;
     const linked = _termLinkedFile(session && session.linked_file);
-    if (!linked || !currentProject) return;
+    if (!linked || !currentWorkspace) return;
     const repoRoot = typeof _activeRepoFileRoot === 'function'
       ? _termNormalizeLinkedRoot(_activeRepoFileRoot()) : '';
     if (currentRepo && repoRoot === linked.root) {
-      await openProjectFile(linked.path);
+      await openWorkspaceFile(linked.path);
     } else {
-      await openProjectDoc(linked.path, {root: linked.root});
+      await openWorkspaceDoc(linked.path, {root: linked.root});
     }
     if (request !== _termLinkedNavigationSeq) return;
     _termSelectLinkedSidebarRow(linked);
@@ -12332,20 +12332,20 @@
   let _termAttachPendingName = null;
   let _termAttachEscHandler = null;
 
-  function _termAttachProjectLabel(row) {
-    const projectId = String(row && row.project_id || '');
-    if (!projectId) return 'Unassigned';
-    if (projectId === SELF_PROJECT_ID) return 'Framework';
-    // Keep pseudo-project matching self-contained: terminal helper tests run
+  function _termAttachWorkspaceLabel(row) {
+    const workspaceId = String(row && row.workspace_id || '');
+    if (!workspaceId) return 'Unassigned';
+    if (workspaceId === SELF_WORKSPACE_ID) return 'Framework';
+    // Keep pseudo-workspace matching self-contained: terminal helper tests run
     // this function without evaluating the full application constant block.
-    if (projectId === '__assistant__') return 'Assistant';
-    if (projectId === CEREBRO_PROJECT_ID) return 'Cerebro';
-    if (projectId === WORKSPACE_PROJECT_ID) return 'Workspace';
-    return String(row.project_name || projectId);
+    if (workspaceId === '__assistant__') return 'Assistant';
+    if (workspaceId === CEREBRO_WORKSPACE_ID) return 'Cerebro';
+    if (workspaceId === VAULT_WORKSPACE_ID) return 'Vault';
+    return String(row.workspace_name || workspaceId);
   }
 
   function _termAttachGroupKey(row) {
-    return `${String(row && row.workspace || '')}\u0000${String(row && row.project_id || '')}`;
+    return `${String(row && row.vault || '')}\u0000${String(row && row.workspace_id || '')}`;
   }
 
   function _termAttachOrderedGroups(rows, scope, filter = '') {
@@ -12355,32 +12355,32 @@
       return [
         row && row.name,
         row && row.logical_name,
-        row && row.project_id,
-        row && row.project_name,
-        row && row.workspace,
+        row && row.workspace_id,
+        row && row.workspace_name,
+        row && row.vault,
         row && row.agent,
         row && row.kind,
       ].some(value => String(value || '').toLowerCase().includes(needle));
     });
-    const byProject = new Map();
+    const byWorkspace = new Map();
     filtered.forEach(row => {
       const key = _termAttachGroupKey(row);
-      if (!byProject.has(key)) {
-        byProject.set(key, {
+      if (!byWorkspace.has(key)) {
+        byWorkspace.set(key, {
           key,
-          projectId: String(row.project_id || ''),
-          projectName: _termAttachProjectLabel(row),
-          workspace: String(row.workspace || ''),
-          current: !!row.current_project || (
-            String(row.project_id || '') === String(scope && scope.projectId || '')
-            && String(row.workspace || '') === String(scope && scope.workspaceId || '')
+          workspaceId: String(row.workspace_id || ''),
+          workspaceName: _termAttachWorkspaceLabel(row),
+          vault: String(row.vault || ''),
+          current: !!row.current_workspace || (
+            String(row.workspace_id || '') === String(scope && scope.workspaceId || '')
+            && String(row.vault || '') === String(scope && scope.vaultId || '')
           ),
           rows: [],
         });
       }
-      byProject.get(key).rows.push(row);
+      byWorkspace.get(key).rows.push(row);
     });
-    const groups = Array.from(byProject.values());
+    const groups = Array.from(byWorkspace.values());
     groups.forEach(group => group.rows.sort((a, b) =>
       Number(!!a.has_ui_tab) - Number(!!b.has_ui_tab)
       || Number(b.created || b.created_at || 0) - Number(a.created || a.created_at || 0)
@@ -12388,9 +12388,9 @@
     ));
     groups.sort((a, b) =>
       Number(b.current) - Number(a.current)
-      || Number(!a.projectId) - Number(!b.projectId)
-      || a.projectName.localeCompare(b.projectName)
-      || a.workspace.localeCompare(b.workspace)
+      || Number(!a.workspaceId) - Number(!b.workspaceId)
+      || a.workspaceName.localeCompare(b.workspaceName)
+      || a.vault.localeCompare(b.vault)
     );
     return groups;
   }
@@ -12429,12 +12429,12 @@
     }
 
     list.innerHTML = groups.map(group => {
-      const projectId = group.projectId && group.projectId !== group.projectName
-        ? `<span class="term-attach-project-id">${termSessEsc(group.projectId)}</span>` : '';
-      const workspace = group.workspace
-        ? `<span class="term-attach-workspace">${termSessEsc(group.workspace)}</span>` : '';
+      const workspaceId = group.workspaceId && group.workspaceId !== group.workspaceName
+        ? `<span class="term-attach-workspace-id">${termSessEsc(group.workspaceId)}</span>` : '';
+      const vault = group.vault
+        ? `<span class="term-attach-vault">${termSessEsc(group.vault)}</span>` : '';
       const current = group.current
-        ? '<span class="term-attach-current-badge">Current project</span>' : '';
+        ? '<span class="term-attach-current-badge">Current workspace</span>' : '';
       const sections = [false, true].map(hasUiTab => {
         const sessions = group.rows.filter(row => !!row.has_ui_tab === hasUiTab);
         if (!sessions.length) return '';
@@ -12449,7 +12449,7 @@
           const kind = row.agent || row.kind;
           const kindBadge = kind ? `<span class="term-attach-badge">${termSessEsc(kind)}</span>` : '';
           const attachedBadge = hasUiTab ? '<span class="term-attach-badge live">attached</span>' : '';
-          const tabLocation = [row.tab_project_name || row.tab_project_id, row.tab_workspace]
+          const tabLocation = [row.tab_workspace_name || row.tab_workspace_id, row.tab_vault]
             .filter(Boolean).join(' · ');
           const title = hasUiTab
             ? `Already has a Lab terminal tab${tabLocation ? ` in ${tabLocation}` : ''}`
@@ -12465,8 +12465,8 @@
         }).join('');
         return `<div class="term-attach-state-title">${heading} · ${sessions.length}</div>${sessionRows}`;
       }).join('');
-      return `<section class="term-attach-project${group.current ? ' current' : ''}">
-        <div class="term-attach-project-head"><span class="term-attach-project-name">${termSessEsc(group.projectName)}</span>${projectId}${current}${workspace}<span class="term-attach-project-count">${group.rows.length}</span></div>
+      return `<section class="term-attach-workspace${group.current ? ' current' : ''}">
+        <div class="term-attach-workspace-head"><span class="term-attach-workspace-name">${termSessEsc(group.workspaceName)}</span>${workspaceId}${current}${vault}<span class="term-attach-workspace-count">${group.rows.length}</span></div>
         ${sections}
       </section>`;
     }).join('');
@@ -12485,8 +12485,8 @@
     const seq = ++_termAttachModalRequestSeq;
     list.innerHTML = '<div class="term-attach-empty">Loading live sessions…</div>';
     _termSetAttachStatus('Reading tmux sessions…');
-    const query = new URLSearchParams({project_id: scope.projectId});
-    if (scope.workspaceId) query.set('workspace', scope.workspaceId);
+    const query = new URLSearchParams({workspace_id: scope.workspaceId});
+    if (scope.vaultId) query.set('vault', scope.vaultId);
     try {
       const response = await fetch(`/api/term/sessions/attachable?${query}`);
       const rows = await response.json().catch(() => []);
@@ -12507,24 +12507,24 @@
       ev.preventDefault();
       ev.stopPropagation();
     }
-    const projectId = _termActiveProjectId();
-    if (!projectId) {
-      termSetStatus('err', 'open a project before attaching a session');
+    const workspaceId = _termActiveWorkspaceId();
+    if (!workspaceId) {
+      termSetStatus('err', 'open a workspace before attaching a session');
       return;
     }
-    const workspaceId = _termWorkspaceId();
-    const projectLabel = currentProject && currentProject.is_project
-      ? _projectDisplayName(currentProject)
-      : projectId;
+    const vaultId = _termVaultId();
+    const workspaceLabel = currentWorkspace && currentWorkspace.is_workspace
+      ? _workspaceDisplayName(currentWorkspace)
+      : workspaceId;
     _termAttachModalGeneration += 1;
-    _termAttachModalScope = {projectId, workspaceId, projectLabel};
+    _termAttachModalScope = {workspaceId, vaultId, workspaceLabel};
     _termAttachModalRows = [];
     _termAttachPendingName = null;
     document.getElementById('termNewPicker')?.classList.remove('open');
     const modal = document.getElementById('termAttachModal');
     const target = document.getElementById('termAttachTarget');
     const filter = document.getElementById('termAttachFilter');
-    if (target) target.textContent = `Add to ${projectLabel}${workspaceId ? ` · ${workspaceId}` : ''}`;
+    if (target) target.textContent = `Add to ${workspaceLabel}${vaultId ? ` · ${vaultId}` : ''}`;
     if (filter) filter.value = '';
     if (modal) modal.classList.add('active');
     if (!_termAttachEscHandler) {
@@ -12561,7 +12561,7 @@
     const sessionName = String(rawSessionName || '').trim();
     const scope = _termAttachModalScope;
     if (!sessionName || !scope) return;
-    const {projectId, workspaceId} = scope;
+    const {workspaceId, vaultId} = scope;
     const generation = _termAttachModalGeneration;
     _termAttachPendingName = sessionName;
     termRenderAttachModal();
@@ -12573,24 +12573,24 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          project_id: projectId,
-          workspace: workspaceId,
+          workspace_id: workspaceId,
+          vault: vaultId,
           name: sessionName,
         }),
       });
       const attached = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(attached.detail || response.statusText || 'attach failed');
       if (generation === _termAttachModalGeneration) termCloseAttachModal();
-      if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
+      if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
       _termClearDead(attached.name);
-      await _termRefreshSessionsForProjectId(projectId);
-      if (!_termIsScopeActive(projectId)) return;
+      await _termRefreshSessionsForWorkspaceId(workspaceId);
+      if (!_termIsScopeActive(workspaceId)) return;
       if (!termSessions.some(s => s && s.name === attached.name)) {
-        termSessions = [{...attached, project_id: attached.project_id || projectId}, ...termSessions];
-        _termSessionsCache.set(_termSessionsKey(projectId, workspaceId), termSessions);
+        termSessions = [{...attached, workspace_id: attached.workspace_id || workspaceId}, ...termSessions];
+        _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
         termRenderSessionList();
       }
-      termAttach(attached.name, projectId);
+      termAttach(attached.name, workspaceId);
     } catch (attachError) {
       failureMessage = attachError && attachError.message || 'Attach failed.';
       termSetStatus('err', 'attach failed');
@@ -12610,20 +12610,20 @@
   }
 
   async function termSpawnSession(kind, { startFresh = false, agent = null, name = null } = {}) {
-    // Resolve the project id the new session belongs to. Framework views can
-    // coexist with a stale currentProject from the previous tab, so check them first.
-    let projectId = null;
+    // Resolve the workspace id the new session belongs to. Framework views can
+    // coexist with a stale currentWorkspace from the previous tab, so check them first.
+    let workspaceId = null;
     if (document.body.classList.contains('cerebro-active')) {
-      projectId = CEREBRO_PROJECT_ID;
+      workspaceId = CEREBRO_WORKSPACE_ID;
     } else if (document.body.classList.contains('self-active')) {
-      projectId = SELF_PROJECT_ID;
+      workspaceId = SELF_WORKSPACE_ID;
     } else if (document.body.classList.contains('assistant-active')) {
-      projectId = ASSISTANT_PROJECT_ID;
-    } else if (currentProject && currentProject.is_project) {
-      projectId = currentProject.name;
+      workspaceId = ASSISTANT_WORKSPACE_ID;
+    } else if (currentWorkspace && currentWorkspace.is_workspace) {
+      workspaceId = currentWorkspace.name;
     }
-    if (!projectId) return;
-    const workspaceId = _termWorkspaceId();
+    if (!workspaceId) return;
+    const vaultId = _termVaultId();
 
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
@@ -12631,13 +12631,13 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          project_id: projectId,
-          workspace: workspaceId,
+          workspace_id: workspaceId,
+          vault: vaultId,
           kind,
-          agent,  // null → server resolves project override / global default
+          agent,  // null → server resolves workspace override / global default
           name,
           start_fresh: startFresh,
-          // No explicit `auto`: the workspace's per-agent autopilot
+          // No explicit `auto`: the vault's per-agent autopilot
           // setting decides (an explicit value here would override it).
         }),
       });
@@ -12648,25 +12648,25 @@
         return;
       }
       const created = await r.json();
-      await termSetAutoSpawnEnabled(projectId, true, workspaceId);
-      if (projectId !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return;
+      await termSetAutoSpawnEnabled(workspaceId, true, vaultId);
+      if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
       // Brand-new session — clear any stale dead/backoff state for this
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
       _termClearDead(created.name);
-      // Framework pseudo-projects use the project-id-aware helper.
-      if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === ASSISTANT_PROJECT_ID) {
-        await termRefreshSessionsByProjectId(projectId);
+      // Framework pseudo-workspaces use the workspace-id-aware helper.
+      if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === ASSISTANT_WORKSPACE_ID) {
+        await termRefreshSessionsByWorkspaceId(workspaceId);
       } else {
-        await termRefreshSessions(projectId);
+        await termRefreshSessions(workspaceId);
       }
-      if (!_termIsScopeActive(projectId)) return;
+      if (!_termIsScopeActive(workspaceId)) return;
       if (!termSessions.some(s => s && s.name === created.name)) {
-        termSessions = [{...created, project_id: created.project_id || projectId}, ...termSessions];
-        _termSessionsCache.set(_termSessionsKey(projectId, workspaceId), termSessions);
+        termSessions = [{...created, workspace_id: created.workspace_id || workspaceId}, ...termSessions];
+        _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
         termRenderSessionList();
       }
-      termAttach(created.name, projectId);
+      termAttach(created.name, workspaceId);
       return created;
     } catch (e) {
       alert('Failed to create session: ' + e.message);
@@ -12677,8 +12677,8 @@
 
   async function termKillCurrent() {
     if (!termCurrentSession) return;
-    const projectId = _termActiveProjectId();
-    const workspaceId = typeof _termWorkspaceId === 'function' ? _termWorkspaceId() : null;
+    const workspaceId = _termActiveWorkspaceId();
+    const vaultId = typeof _termVaultId === 'function' ? _termVaultId() : null;
     const session = (termSessions || []).find(s => s && s.name === termCurrentSession);
     const isAttached = session && session.kind === 'attached';
     const question = isAttached
@@ -12688,26 +12688,26 @@
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true', {method: 'DELETE'}); } catch {}
-    await termSetAutoSpawnEnabled(projectId, false, workspaceId);
-    if (projectId !== _termActiveProjectId()
-        || (typeof _termWorkspaceId === 'function' && workspaceId !== _termWorkspaceId())) return;
-    if (projectId === CEREBRO_PROJECT_ID || projectId === SELF_PROJECT_ID || projectId === '__assistant__') await termRefreshSessionsByProjectId(projectId);
-    else if (projectId) await termRefreshSessions(projectId);
-    if (!_termIsScopeActive(projectId)) return;
-    if (termSessions.length > 0) termAttach(termSessions[0].name, projectId);
+    await termSetAutoSpawnEnabled(workspaceId, false, vaultId);
+    if (workspaceId !== _termActiveWorkspaceId()
+        || (typeof _termVaultId === 'function' && vaultId !== _termVaultId())) return;
+    if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === '__assistant__') await termRefreshSessionsByWorkspaceId(workspaceId);
+    else if (workspaceId) await termRefreshSessions(workspaceId);
+    if (!_termIsScopeActive(workspaceId)) return;
+    if (termSessions.length > 0) termAttach(termSessions[0].name, workspaceId);
     else { termShowEmpty(); termSetStatus('idle', 'no session — click + New'); }
   }
 
   const _termKillAllPending = new Set();
   async function termKillAll() {
-    const projectId = _termActiveProjectId();
-    const workspaceId = _termWorkspaceId();
-    const scopeKey = _termSessionsKey(projectId, workspaceId);
-    if (!projectId || _termKillAllPending.has(scopeKey)) return;
-    const label = currentProject && currentProject.name === projectId
-      ? _projectDisplayName(currentProject) : dashTermGroupLabel(projectId);
+    const workspaceId = _termActiveWorkspaceId();
+    const vaultId = _termVaultId();
+    const scopeKey = _termSessionsKey(workspaceId, vaultId);
+    if (!workspaceId || _termKillAllPending.has(scopeKey)) return;
+    const label = currentWorkspace && currentWorkspace.name === workspaceId
+      ? _workspaceDisplayName(currentWorkspace) : dashTermGroupLabel(workspaceId);
     if (!confirm(`Kill all terminal sessions for "${label}"? Running work will stop and sessions will stay closed after reload. Attached external sessions will only be detached from Lab.`)) return;
-    const isActive = () => projectId === _termActiveProjectId() && workspaceId === _termWorkspaceId();
+    const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
     const names = new Set((termSessions || []).map(s => s.name));
     _termKillAllPending.add(scopeKey);
     const button = document.getElementById('termKillAllBtn');
@@ -12718,33 +12718,33 @@
       const setting = await fetch('/api/ui/term-autospawn', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: projectId, enabled: false, workspace: workspaceId}),
+        body: JSON.stringify({workspace_id: workspaceId, enabled: false, vault: vaultId}),
       });
       if (!setting.ok) throw new Error('Could not disable automatic session spawning.');
       if (isActive()) termDetach();
-      for (const name of names) _termEvictCache(name, projectId);
-      const response = await fetch('/api/term/sessions/project/' + encodeURIComponent(projectId)
-        + '?purge=true' + _workspaceQuery(workspaceId), {method: 'DELETE'});
+      for (const name of names) _termEvictCache(name, workspaceId);
+      const response = await fetch('/api/term/sessions/workspace/' + encodeURIComponent(workspaceId)
+        + '?purge=true' + _vaultQuery(vaultId), {method: 'DELETE'});
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || response.statusText || 'Request failed');
-      for (const name of result.killed || []) _termEvictCache(name, projectId);
+      for (const name of result.killed || []) _termEvictCache(name, workspaceId);
       _termSessionsCache.delete(scopeKey);
       if (!isActive()) return;
       termSessions = [];
       termRenderSessionList();
       termShowEmpty();
       termSetStatus('idle', 'all sessions closed — click + New');
-      await _termRefreshSessionsForProjectId(projectId);
+      await _termRefreshSessionsForWorkspaceId(workspaceId);
     } catch (error) {
       alert('Failed to kill all sessions: ' + error.message);
       if (isActive()) {
-        await _termRefreshSessionsForProjectId(projectId);
+        await _termRefreshSessionsForWorkspaceId(workspaceId);
         if (isActive()) termSetStatus('err', 'could not close all sessions');
       }
     } finally {
       _termKillAllPending.delete(scopeKey);
       if (button) button.disabled = false;
-      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+      if (typeof workspaceTabsRefresh === 'function') workspaceTabsRefresh();
     }
   }
 
@@ -12841,8 +12841,8 @@
     const file = _termClipboardImageFile(ev);
     if (!file) return;  // Let xterm handle normal text paste.
     if (!termWS || termWS.readyState !== WebSocket.OPEN || !termCurrentSession) return;
-    const projectId = _termActiveProjectId();
-    if (!projectId) return;
+    const workspaceId = _termActiveWorkspaceId();
+    if (!workspaceId) return;
     ev.preventDefault();
     ev.stopPropagation();
     termSetStatus('idle', 'saving pasted image...');
@@ -12852,8 +12852,8 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          project_id: projectId,
-          workspace: _termWorkspaceId(),
+          workspace_id: workspaceId,
+          vault: _termVaultId(),
           session_name: termCurrentSession,
           name: file.name || 'clipboard-image',
           mime: file.type || 'image/png',
@@ -12870,14 +12870,14 @@
       termSetStatus('live', 'pasted image · ' + path);
       _termClientLog('info', 'terminal image paste saved', {
         event_type: 'term.paste_image',
-        target: projectId,
+        target: workspaceId,
       });
     } catch (e) {
       console.warn('[term] image paste failed', e);
       termSetStatus('err', 'image paste failed');
       _termClientLog('warning', 'terminal image paste failed: ' + (e && e.message || e), {
         event_type: 'term.paste_image_failed',
-        target: projectId,
+        target: workspaceId,
       });
     }
   }
@@ -13006,7 +13006,7 @@
       el.className = 'term-empty';
       body.appendChild(el);
     }
-    el.innerHTML = `Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this project's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.`;
+    el.innerHTML = `Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this workspace's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.`;
     el.style.display = '';
     termXterm = null;
     termFitAddon = null;
@@ -13022,11 +13022,11 @@
   function termDetach(soft = false) {
     console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
     const prev = termCurrentSession;
-    const prevProjectId = termCurrentProjectId;
+    const prevWorkspaceId = termCurrentWorkspaceId;
     // Record activity at the moment a tab is left. This matters when a tab
     // stayed selected longer than the recent window: its attach timestamp may
     // be old, but the user was actively looking at it until right now.
-    if (typeof _termMarkRecent === 'function') _termMarkRecent(prevProjectId, prev);
+    if (typeof _termMarkRecent === 'function') _termMarkRecent(prevWorkspaceId, prev);
     termAttachRequestSeq += 1;  // cancel any attach still waiting on assets/layout
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
@@ -13038,20 +13038,20 @@
       // through tmux. The exit-frame handler in onmessage already
       // checks whether this WS is still the active one before marking
       // dead, so a tmux-side death while parked won't pop the recovery
-      // overlay over an unrelated project. (We did try nulling all
+      // overlay over an unrelated workspace. (We did try nulling all
       // listeners here — that turned out to break input echo on the
       // cache-hit re-attach because the WS was reused without rebinding.)
       const prevContainer = termContainer;
       _termSetPaneActive(prevContainer, false);
-      if (prev && prevProjectId && termWS && termXterm && prevContainer) {
+      if (prev && prevWorkspaceId && termWS && termXterm && prevContainer) {
         // Release the GPU context while parked — hidden panes render fine
         // (and cheaply) on the DOM renderer, and this keeps us well under
         // the browser's WebGL context cap no matter how many sessions are
         // cached. Re-enabled on the next attach.
         _termDisableWebgl(termXterm);
-        if (prevProjectId) {
-          _termCache.set(_termCacheKey(prevProjectId, prev), {
-            projectId: prevProjectId,
+        if (prevWorkspaceId) {
+          _termCache.set(_termCacheKey(prevWorkspaceId, prev), {
+            workspaceId: prevWorkspaceId,
             name: prev,
             xterm: termXterm,
             fitAddon: termFitAddon,
@@ -13060,7 +13060,7 @@
             parkedAt: Date.now(),
           });
         }
-        console.log('[term] parked', prev, 'project=', prevProjectId, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
+        console.log('[term] parked', prev, 'workspace=', prevWorkspaceId, 'ws.readyState=', termWS.readyState, 'cache size=', _termCache.size);
       } else {
         // If a pane was still connecting, it may not have a WebSocket yet.
         // Do not leave that orphaned container visible behind the next
@@ -13078,14 +13078,14 @@
         try { termWS.close(); } catch {}
         termWS = null;
       }
-      if (prev) _termEvictCache(prev, prevProjectId);
+      if (prev) _termEvictCache(prev, prevWorkspaceId);
     }
     termXterm = null;
     termFitAddon = null;
     termWS = null;
     termContainer = null;
     termCurrentSession = null;
-    termCurrentProjectId = null;
+    termCurrentWorkspaceId = null;
     const badge = document.getElementById('termAutoBadge');
     if (badge) badge.style.display = 'none';
   }
@@ -13108,30 +13108,30 @@
   // would fight the user (or a broken binary), so we stop and ask.
   const _termAutoRestoreAt = {};   // name -> ts of last auto-restore
   const TERM_AUTO_RESTORE_MIN_GAP_MS = 20000;
-  async function _termSessionGone(name, projectId) {
-    if (!_termIsScopeActive(projectId)) return;
-    if (_termKillAllPending.has(_termSessionsKey(projectId))
-        || _termCloseTabsPending.has(_termSessionsKey(projectId))) return;
+  async function _termSessionGone(name, workspaceId) {
+    if (!_termIsScopeActive(workspaceId)) return;
+    if (_termKillAllPending.has(_termSessionsKey(workspaceId))
+        || _termCloseTabsPending.has(_termSessionsKey(workspaceId))) return;
     const now = Date.now();
     if (now - (_termAutoRestoreAt[name] || 0) < TERM_AUTO_RESTORE_MIN_GAP_MS) {
-      _termMarkDead(name, 'session keeps ending: ' + name, projectId);
+      _termMarkDead(name, 'session keeps ending: ' + name, workspaceId);
       return;
     }
     _termAutoRestoreAt[name] = now;
     _termClientLog('info', 'terminal session gone — auto-restoring', {
       event_type: 'term.restore.auto',
-      target: String(projectId) + '::' + String(name),
+      target: String(workspaceId) + '::' + String(name),
     });
     // Drop the dead pane's client state so restore attaches fresh.
-    if (name === termCurrentSession && projectId === termCurrentProjectId) {
+    if (name === termCurrentSession && workspaceId === termCurrentWorkspaceId) {
       if (termWS) { try { termWS.close(); } catch {} termWS = null; }
       termCurrentSession = null;
-      termCurrentProjectId = null;
+      termCurrentWorkspaceId = null;
     }
-    _termEvictCache(name, projectId);
+    _termEvictCache(name, workspaceId);
     delete termReconnectAttempts[name];
     termSetStatus('idle', 'session ended — restoring…');
-    await _termRestoreSessionsForProject(projectId);
+    await _termRestoreSessionsForWorkspace(workspaceId);
   }
 
   // Endless capped-backoff reconnect after a WS drop. Waits the backoff,
@@ -13141,7 +13141,7 @@
   // confirms tmux no longer has the session. Deliberately no attempt cap:
   // transient outages (lab server restart, laptop sleep) heal on their
   // own, and the only terminal state is "confirmed gone".
-  function _termScheduleReconnect(name, projectId, myWS) {
+  function _termScheduleReconnect(name, workspaceId, myWS) {
     const attempts = (termReconnectAttempts[name] || 0) + 1;
     termReconnectAttempts[name] = attempts;
     const delay = _termBackoffMs(attempts);
@@ -13150,24 +13150,24 @@
     termReconnectTimer = setTimeout(async () => {
       termReconnectTimer = null;
       if (termWS !== null && termWS !== myWS) return;
-      if (!_termIsScopeActive(projectId)) return;
+      if (!_termIsScopeActive(workspaceId)) return;
       if (termDeadSessions.has(name)) return;
       let refreshOk = false;
-      try { refreshOk = !!(await _termRefreshSessionsForProjectId(projectId)); } catch {}
+      try { refreshOk = !!(await _termRefreshSessionsForWorkspaceId(workspaceId)); } catch {}
       if (termDeadSessions.has(name)) return;
-      if (_termCanAttach(projectId, name)) {
+      if (_termCanAttach(workspaceId, name)) {
         termWS = null;
         termCurrentSession = null;
-        termCurrentProjectId = null;
-        termAttach(name, projectId);
-      } else if (!_termIsScopeActive(projectId)) {
+        termCurrentWorkspaceId = null;
+        termAttach(name, workspaceId);
+      } else if (!_termIsScopeActive(workspaceId)) {
         return;
       } else if (refreshOk) {
-        _termSessionGone(name, projectId);
+        _termSessionGone(name, workspaceId);
       } else {
         // Server unreachable and the name isn't even in the last-known
         // list — keep the loop alive until the server answers.
-        _termScheduleReconnect(name, projectId, myWS);
+        _termScheduleReconnect(name, workspaceId, myWS);
       }
     }, delay);
   }
@@ -13175,17 +13175,17 @@
   // Mark a session dead: stop reconnecting, clear timers, render the
   // recovery overlay. Used as the crash-loop fallback (see
   // _termSessionGone) and from termAttach on an already-dead name.
-  function _termMarkDead(name, statusText, projectId = termCurrentProjectId || _termActiveProjectId()) {
-    console.log('[term] MARK DEAD', name, 'project=', projectId, statusText);
+  function _termMarkDead(name, statusText, workspaceId = termCurrentWorkspaceId || _termActiveWorkspaceId()) {
+    console.log('[term] MARK DEAD', name, 'workspace=', workspaceId, statusText);
     termDeadSessions.add(name);
     delete termReconnectAttempts[name];
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
-    if (name === termCurrentSession && projectId === termCurrentProjectId) {
+    if (name === termCurrentSession && workspaceId === termCurrentWorkspaceId) {
       termCurrentSession = null;
-      termCurrentProjectId = null;
+      termCurrentWorkspaceId = null;
     }
-    _termEvictCache(name, projectId);  // drop xterm+WS for this dead session
-    if (_termIsScopeActive(projectId)) {
+    _termEvictCache(name, workspaceId);  // drop xterm+WS for this dead session
+    if (_termIsScopeActive(workspaceId)) {
       if (statusText) termSetStatus('err', statusText);
       termShowRecovery();
       // Refresh the pill list so dead sessions drop out (tmux is gone)
@@ -13210,24 +13210,24 @@
   // Used by the WS onmessage handler so a stale closure can never crash
   // the page with "myXterm is not defined" — there's no `myXterm` to
   // reference; the lookup happens fresh on every frame.
-  function _xtermFor(name, projectId = termCurrentProjectId || _termActiveProjectId()) {
-    if (projectId === termCurrentProjectId && name === termCurrentSession && termXterm) return termXterm;
-    const entry = _termCache.get(_termCacheKey(projectId, name));
+  function _xtermFor(name, workspaceId = termCurrentWorkspaceId || _termActiveWorkspaceId()) {
+    if (workspaceId === termCurrentWorkspaceId && name === termCurrentSession && termXterm) return termXterm;
+    const entry = _termCache.get(_termCacheKey(workspaceId, name));
     return entry && entry.xterm ? entry.xterm : null;
   }
 
   // Evict a session from the xterm cache: close its WS, dispose the
   // Terminal instance, and remove its container from the DOM.
-  function _termEvictCache(name, projectId = termCurrentProjectId || _termActiveProjectId()) {
+  function _termEvictCache(name, workspaceId = termCurrentWorkspaceId || _termActiveWorkspaceId()) {
     const keys = [];
-    if (projectId) {
-      keys.push(_termCacheKey(projectId, name));
+    if (workspaceId) {
+      keys.push(_termCacheKey(workspaceId, name));
     } else {
       for (const [key, entry] of _termCache.entries()) {
         if (entry && entry.name === name) keys.push(key);
       }
     }
-    console.log('[term] EVICT', name, 'project=', projectId, 'keys=', keys);
+    console.log('[term] EVICT', name, 'workspace=', workspaceId, 'keys=', keys);
     for (const key of keys) {
       const entry = _termCache.get(key);
       if (!entry) continue;
@@ -13239,17 +13239,17 @@
     }
   }
 
-  async function termAttach(name, projectId = _termActiveProjectId()) {
-    projectId = projectId || _termActiveProjectId();
-    console.log('[term] termAttach', name, 'project=', projectId, 'currentSession=', termCurrentSession, 'currentProject=', termCurrentProjectId, 'cacheHas=', _termCache.has(_termCacheKey(projectId, name)));
-    if (!name || !projectId) return;
-    if (!_termCanAttach(projectId, name)) return;
+  async function termAttach(name, workspaceId = _termActiveWorkspaceId()) {
+    workspaceId = workspaceId || _termActiveWorkspaceId();
+    console.log('[term] termAttach', name, 'workspace=', workspaceId, 'currentSession=', termCurrentSession, 'currentWorkspace=', termCurrentWorkspaceId, 'cacheHas=', _termCache.has(_termCacheKey(workspaceId, name)));
+    if (!name || !workspaceId) return;
+    if (!_termCanAttach(workspaceId, name)) return;
     // A selection counts as recent immediately. termDetach records the
     // previous tab again when the user leaves it, keeping the timestamp true
     // to the end of a long viewing session.
-    if (typeof _termMarkRecent === 'function') _termMarkRecent(projectId, name);
+    if (typeof _termMarkRecent === 'function') _termMarkRecent(workspaceId, name);
     const attachRequestSeq = ++termAttachRequestSeq;
-    if (name === termCurrentSession && projectId === termCurrentProjectId && termWS && termWS.readyState === WebSocket.OPEN) {
+    if (name === termCurrentSession && workspaceId === termCurrentWorkspaceId && termWS && termWS.readyState === WebSocket.OPEN) {
       console.log('[term] early return — same session already open');
       _termShowPane(termContainer);
       _termFocusActiveSoon();
@@ -13271,29 +13271,29 @@
       termSetStatus('err', 'terminal assets failed to load');
       return;
     }
-    if (!_termAttachRequestIsCurrent(attachRequestSeq, projectId, name)) return;
+    if (!_termAttachRequestIsCurrent(attachRequestSeq, workspaceId, name)) return;
 
     // Park the current session: hide its container, stash refs in cache.
     termDetach(true);
     termUserDetached = false;  // fresh attach — future drops should trigger recovery
     termCurrentSession = name;
-    termCurrentProjectId = projectId;
-    // Persist the selection so a full page reload (project-tab navigation)
+    termCurrentWorkspaceId = workspaceId;
+    // Persist the selection so a full page reload (workspace-tab navigation)
     // can restore the same pill instead of snapping back to "claude".
     const _attachMeta = (termSessions || []).find(s => s.name === name);
     if (_attachMeta && _attachMeta.logical_name) {
-      _termRememberLast(projectId, _attachMeta.logical_name);
+      _termRememberLast(workspaceId, _attachMeta.logical_name);
     }
     console.log('[term] after soft detach, cache keys=', Array.from(_termCache.keys()));
     // Hide the empty/recovery overlay if visible.
     const _emptyEl = document.getElementById('termEmpty');
     if (_emptyEl) _emptyEl.style.display = 'none';
 
-    const scopeKey = _termCacheKey(projectId, name);
+    const scopeKey = _termCacheKey(workspaceId, name);
     let cached = _termCache.get(scopeKey);
     if (cached && cached.ws && cached.ws.readyState === WebSocket.OPEN && !_termCachedPaneIsFresh(cached)) {
-      console.info('[term] evicting aged parked pane before attach', name, projectId);
-      _termEvictCache(name, projectId);
+      console.info('[term] evicting aged parked pane before attach', name, workspaceId);
+      _termEvictCache(name, workspaceId);
       cached = null;
     }
     // Shared WS-open logic. `freshPane` is currently informational only —
@@ -13313,7 +13313,7 @@
     // "myXterm is not defined" because there is no closure-captured
     // identifier to fall out of scope.
     const _openWS = (freshPane, _attempt = 0) => {
-      if (termCurrentSession !== name || termCurrentProjectId !== projectId) return null;
+      if (termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId) return null;
       termSetStatus('idle', 'connecting to ' + name);
       // Pass the fitted geometry so the server forks the PTY at the right
       // size. Without it tmux attaches at 80x24 and reflows the whole
@@ -13338,7 +13338,7 @@
       if (!dims && _attempt < 20) {
         setTimeout(() => {
           // Abort the deferred dial if the user moved on meanwhile.
-          if (termCurrentSession !== name || termCurrentProjectId !== projectId || termUserDetached) return;
+          if (termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId || termUserDetached) return;
           _openWS(freshPane, _attempt + 1);
         }, 50);
         return null;
@@ -13349,7 +13349,7 @@
       const isParked = () => _termCache.get(scopeKey)?.ws === myWS;
       const isStale = () => {
         if (isParked()) return false;
-        return termWS !== myWS || termCurrentSession !== name || termCurrentProjectId !== projectId;
+        return termWS !== myWS || termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId;
       };
       const detachListeners = () => {
         try { myWS.onopen = null; } catch {}
@@ -13381,7 +13381,7 @@
         // The previous version sent `\x0c` on `freshPane=true` to force a
         // redraw, but `freshPane=true` fires on EVERY cache-miss connect —
         // including the common case where the user navigated away from a
-        // project tab (full page reload → cache empty → cache miss) and
+        // workspace tab (full page reload → cache empty → cache miss) and
         // came back. The tmux session is still alive with claude inside,
         // and any unsubmitted text in claude's input line was being wiped
         // by the Ctrl-L every reload. The user's "typed content is gone"
@@ -13402,15 +13402,15 @@
         if (msg.type === 'data') {
           // Resolve the live xterm at write-time — not a closure-captured
           // reference. See _openWS comment for the regression context.
-          const xt = _xtermFor(name, projectId);
+          const xt = _xtermFor(name, workspaceId);
           if (xt) xt.write(_termStripModes(msg.data));
         } else if (msg.type === 'exit') {
           // If this WS is parked (we're viewing a different session /
-          // project), don't surface the exit. The user has no UI for
+          // workspace), don't surface the exit. The user has no UI for
           // this pane right now, and the next attach will discover
           // the dead socket via cached.ws.readyState !== OPEN and
           // reconnect through _openWS.
-          if (name !== termCurrentSession || projectId !== termCurrentProjectId) return;
+          if (name !== termCurrentSession || workspaceId !== termCurrentWorkspaceId) return;
           if (msg.reason === 'no-session') {
             // Warm-switch race: the pill came from _termSessionsCache,
             // which can lag actual tmux state by up to one background
@@ -13421,25 +13421,25 @@
             // whatever the server now considers canonical. Same wait-
             // for-refresh-then-decide dance the close-loop reconnect
             // path already uses below.
-            const pid = _termActiveProjectId();
+            const pid = _termActiveWorkspaceId();
             (async () => {
               let refreshOk = false;
               if (pid) {
-                try { refreshOk = !!(await _termRefreshSessionsForProjectId(pid)); } catch {}
+                try { refreshOk = !!(await _termRefreshSessionsForWorkspaceId(pid)); } catch {}
               }
-              if (_termCanAttach(projectId, name)) {
+              if (_termCanAttach(workspaceId, name)) {
                 // tmux still has it — the "no-session" was stale.
                 // Reconnect without showing the recovery overlay.
                 termWS = null;
                 termCurrentSession = null;
-                termCurrentProjectId = null;
-                termAttach(name, projectId);
-              } else if (refreshOk && _termIsScopeActive(projectId)) {
+                termCurrentWorkspaceId = null;
+                termAttach(name, workspaceId);
+              } else if (refreshOk && _termIsScopeActive(workspaceId)) {
                 // Confirmed gone — respawn saved sessions and reattach
                 // instead of asking the user what to do.
-                _termSessionGone(name, projectId);
-              } else if (_termIsScopeActive(projectId)) {
-                _termMarkDead(name, 'session not found', projectId);
+                _termSessionGone(name, workspaceId);
+              } else if (_termIsScopeActive(workspaceId)) {
+                _termMarkDead(name, 'session not found', workspaceId);
               }
             })();
           } else {
@@ -13448,12 +13448,12 @@
         }
       };
       myWS.onclose = (ev) => {
-        console.log('[term] WS onclose name=', name, 'project=', projectId, 'currentSession=', termCurrentSession, 'currentProject=', termCurrentProjectId, 'userDetached=', termUserDetached, 'cacheHas=', _termCache.has(scopeKey), 'code=', ev.code);
+        console.log('[term] WS onclose name=', name, 'workspace=', workspaceId, 'currentSession=', termCurrentSession, 'currentWorkspace=', termCurrentWorkspaceId, 'userDetached=', termUserDetached, 'cacheHas=', _termCache.has(scopeKey), 'code=', ev.code);
         detachListeners();
         if (isStale()) return;
-        if (termUserDetached || termCurrentSession !== name || termCurrentProjectId !== projectId) return;
+        if (termUserDetached || termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId) return;
         if (termDeadSessions.has(name)) return;
-        _termScheduleReconnect(name, projectId, myWS);
+        _termScheduleReconnect(name, workspaceId, myWS);
       };
       myWS.onerror = () => {
         if (isStale()) { detachListeners(); return; }
@@ -13469,7 +13469,7 @@
       termFitAddon = cached.fitAddon;
       termWS = cached.ws;
       termContainer = cached.container;
-      termCurrentProjectId = projectId;
+      termCurrentWorkspaceId = workspaceId;
       _termCache.delete(scopeKey);
       _termShowPane(termContainer);
       _termEnableWebgl();
@@ -13492,7 +13492,7 @@
       termXterm = cached.xterm;
       termFitAddon = cached.fitAddon;
       termContainer = cached.container;
-      termCurrentProjectId = projectId;
+      termCurrentWorkspaceId = workspaceId;
       _termCache.delete(scopeKey);
       _termShowPane(termContainer);
       _termEnableWebgl();
@@ -13536,7 +13536,7 @@
     });
     myRO.observe(myContainer);
     termXterm.onData(data => {
-      if (termCurrentSession !== name || termCurrentProjectId !== projectId) return;
+      if (termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId) return;
       if (termContainer !== myContainer) return;
       if (termWS && termWS.readyState === WebSocket.OPEN) {
         termWS.send(JSON.stringify({ type: 'input', data }));
@@ -13571,83 +13571,84 @@
     _termRenderActiveSessionHeader();
   }
 
-  // Deep-link support: #/nb?path=projects/<id>/<rest>.ipynb
+  // Deep-link support: #/nb?path=workspaces/<id>/<rest>.ipynb
   // The fragment-style URL points at a notebook directly. We resolve the
-  // owning project, plant the doc in last-opened state so the existing
-  // `selectRepo → getLastProjectDoc → openProjectDoc` flow opens it, and
-  // rewrite the URL to the canonical ?project=<abs> form for refreshes.
-  let _nbHashProject = null;
+  // owning workspace, plant the doc in last-opened state so the existing
+  // `selectRepo → getLastWorkspaceDoc → openWorkspaceDoc` flow opens it, and
+  // rewrite the URL to the canonical ?workspace=<abs> form for refreshes.
+  let _nbHashWorkspace = null;
   (function consumeNbHash() {
     const hash = location.hash || '';
     const m = hash.match(/^#\/nb\?(.*)$/);
     if (!m) return;
     const params = new URLSearchParams(m[1]);
     const rel = params.get('path') || '';
-    const seg = rel.match(/^projects\/([^/]+)\/(.+\.ipynb)$/i);
+    const seg = rel.match(/^(?:workspaces|projects)\/([^/]+)\/(.+\.ipynb)$/i);
     if (!seg) return;
-    const projectId = seg[1];
+    const workspaceId = seg[1];
     const docPath = seg[2];
-    if (projectId === '.' || projectId === '..'
+    if (workspaceId === '.' || workspaceId === '..'
         || docPath.split('/').some((part) => part === '..')) return;
-    // A cross-workspace project tab already carries its absolute project in
-    // ?project=. Prefer that authoritative owner over the shell workspace;
-    // otherwise a Local notebook opened while the SSD workspace is active is
-    // remembered under the wrong project and silently falls back to read-only.
-    const explicitProject = _normalizeAbsolutePath(urlProject);
-    const projectSuffix = `/projects/${projectId}`;
-    let absProject = explicitProject && explicitProject.endsWith(projectSuffix)
-      ? explicitProject : null;
-    if (!absProject) {
-      const workspaceRoot = _normalizeAbsolutePath(WORKSPACE_ROOT);
-      if (!workspaceRoot) return;
-      const rootPrefix = workspaceRoot === '/' ? '/' : workspaceRoot + '/';
-      absProject = rootPrefix + 'projects/' + projectId;
+    // A cross-vault workspace tab already carries its absolute workspace in
+    // ?workspace=. Prefer that authoritative owner over the shell vault;
+    // otherwise a Local notebook opened while the SSD vault is active is
+    // remembered under the wrong workspace and silently falls back to read-only.
+    const explicitWorkspace = _normalizeAbsolutePath(urlWorkspace);
+    const workspaceFolder = rel.split('/')[0];
+    const workspaceSuffix = `/${workspaceFolder}/${workspaceId}`;
+    let absWorkspace = explicitWorkspace && explicitWorkspace.endsWith(workspaceSuffix)
+      ? explicitWorkspace : null;
+    if (!absWorkspace) {
+      const vaultRoot = _normalizeAbsolutePath(VAULT_ROOT);
+      if (!vaultRoot) return;
+      const rootPrefix = vaultRoot === '/' ? '/' : vaultRoot + '/';
+      absWorkspace = rootPrefix + workspaceFolder + '/' + workspaceId;
     }
-    setLastProjectDoc(absProject, docPath);
-    _nbHashProject = absProject;
+    setLastWorkspaceDoc(absWorkspace, docPath);
+    _nbHashWorkspace = absWorkspace;
     const url = new URL(location.href);
     url.hash = '';
-    url.searchParams.set('project', absProject);
+    url.searchParams.set('workspace', absWorkspace);
     history.replaceState(null, '', url);
   })();
-  const _effectiveProject = urlProject || _nbHashProject;
+  const _effectiveWorkspace = urlWorkspace || _nbHashWorkspace;
 
-  if (_effectiveProject) {
-    const provisionalName = (_effectiveProject.replace(/\/+$/, '').split('/').pop() || 'Project');
-    currentProject = {
+  if (_effectiveWorkspace) {
+    const provisionalName = (_effectiveWorkspace.replace(/\/+$/, '').split('/').pop() || 'Workspace');
+    currentWorkspace = {
       name: provisionalName,
-      path: _effectiveProject,
-      is_project: true,
-      description: 'Opening project dashboard...',
+      path: _effectiveWorkspace,
+      is_workspace: true,
+      description: 'Opening workspace dashboard...',
       repos: [],
     };
-    document.body.classList.remove('cerebro-active', 'self-active', 'assistant-active', 'workspace-active', 'has-diff-tabs');
-    document.body.classList.add('project-active');
+    document.body.classList.remove('cerebro-active', 'self-active', 'assistant-active', 'vault-active', 'has-diff-tabs');
+    document.body.classList.add('workspace-active');
     document.getElementById('diffTabs').style.display = 'none';
-    paintProjectShell();
+    paintWorkspaceShell();
     // Share the in-flight /api/repos promise with loadRepos +
-    // projTabsRefresh instead of firing a third network call (all three
+    // workspaceTabsRefresh instead of firing a third network call (all three
     // callers resolve to the same response on initial load).
-    fetchRepos().then(projects => {
-      projectsList = projects;
-      const proj = projects.find(p => p.path === _effectiveProject);
-      if (proj) {
-        selectRepo(proj.path);
+    fetchRepos().then(workspaces => {
+      workspacesList = workspaces;
+      const workspace = workspaces.find(p => p.path === _effectiveWorkspace);
+      if (workspace) {
+        selectRepo(workspace.path);
       }
     });
   } else if (urlRepo) {
-    fetchRepos().then(projects => {
-      projectsList = projects;
-      const proj = projects.find(p => p.repos.some(r => r.path === urlRepo));
-      if (proj) {
-        selectRepo(proj.path);
-        if (proj.repos.length > 1) {
-          const targetRepo = proj.repos.find(r => r.path === urlRepo);
-          if (targetRepo) selectProjectRepo(targetRepo.path);
+    fetchRepos().then(workspaces => {
+      workspacesList = workspaces;
+      const workspace = workspaces.find(p => p.repos.some(r => r.path === urlRepo));
+      if (workspace) {
+        selectRepo(workspace.path);
+        if (workspace.repos.length > 1) {
+          const targetRepo = workspace.repos.find(r => r.path === urlRepo);
+          if (targetRepo) selectWorkspaceRepo(targetRepo.path);
         }
       }
     });
-  } else if (urlView === 'cerebro' || urlView === 'assistant' || urlView === 'productivity' || urlView === 'workspace' || urlView === 'code-search' || urlView === 'logs') {
+  } else if (urlView === 'cerebro' || urlView === 'assistant' || urlView === 'productivity' || urlView === 'vault' || urlView === 'code-search' || urlView === 'logs') {
     // These views handle their own initialization above.
   } else {
     // No explicit target means the framework-owned Productivity home.
@@ -13660,16 +13661,16 @@
     goToProductivity();
   }
 
-  // ─── In-page navigation (project tabs + dashboard cards) ────────────────
+  // ─── In-page navigation (workspace tabs + dashboard cards) ────────────────
   //
-  // Project-tab clicks USED to do `window.location.href = '/?project=…'`
+  // Workspace-tab clicks USED to do `window.location.href = '/?workspace=…'`
   // which is a full page reload — the entire JS scope (including
-  // `_termCache`) was destroyed every time the user moved between projects,
+  // `_termCache`) was destroyed every time the user moved between workspaces,
   // and the brief blank-screen flash on every click was a real UX
   // annoyance. These helpers do the same logical navigation in-page via
   // history.pushState + view-class swap, mirroring the goHome pattern.
   //
-  // Bonus: `_termCache` survives now, so returning to a project the user
+  // Bonus: `_termCache` survives now, so returning to a workspace the user
   // recently visited is a cache HIT — the WS + xterm buffer come back
   // intact instead of the user seeing a fresh tmux re-attach replay.
   // Look for `[term] cache HIT` in DevTools to confirm on a return visit.
@@ -13681,56 +13682,56 @@
   function _swapViewState() {
     if (typeof termDetach === 'function') termDetach(true);
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'assistant-active', 'workspace-active',
-      'project-active', 'has-diff-tabs',
+      'cerebro-active', 'self-active', 'assistant-active', 'vault-active',
+      'workspace-active', 'has-diff-tabs',
     );
-    currentProject = null;
+    currentWorkspace = null;
     currentRepo = null;
-    currentRepoInProject = null;
+    currentRepoInWorkspace = null;
     const dt = document.getElementById('diffTabs');
     if (dt) dt.style.display = 'none';
   }
 
-  // Navigate to a real project by absolute path. `replace` is true when
+  // Navigate to a real workspace by absolute path. `replace` is true when
   // called from popstate (browser already updated URL — replaceState would
   // create a duplicate; do nothing).
-  function goToProject(path, opts = {}) {
+  function goToWorkspace(path, opts = {}) {
     if (!path) return;
     _swapViewState();
     if (!opts.replace) {
       const url = new URL(window.location);
-      url.searchParams.set('project', path);
+      url.searchParams.set('workspace', path);
       url.searchParams.delete('repo');
       url.searchParams.delete('view');
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
-      url.searchParams.delete('workspace');
+      url.searchParams.delete('vault');
       url.searchParams.delete('subview');
-      history.pushState({nav: 'project', path}, '', url.pathname + url.search + url.hash);
+      history.pushState({nav: 'workspace', path}, '', url.pathname + url.search + url.hash);
     }
     const dispatch = () => {
-      const proj = (projectsList || []).find(p => p.path === path);
-      if (proj) selectRepo(proj.path);
+      const workspace = (workspacesList || []).find(p => p.path === path);
+      if (workspace) selectRepo(workspace.path);
     };
-    if (projectsList && projectsList.length) {
+    if (workspacesList && workspacesList.length) {
       dispatch();
     } else {
-      fetchRepos().then(projects => { projectsList = projects; dispatch(); });
+      fetchRepos().then(workspaces => { workspacesList = workspaces; dispatch(); });
     }
   }
 
-  // Navigate to a project by its id (CLAUDE-style /p/<id> URLs in the DOM).
-  // Translates to a path lookup and delegates to goToProject. Falls back
-  // to the legacy server-side redirect if the project isn't in projectsList.
-  function goToProjectById(pid, opts = {}) {
+  // Navigate to a workspace by its id (CLAUDE-style /p/<id> URLs in the DOM).
+  // Translates to a path lookup and delegates to goToWorkspace. Falls back
+  // to the legacy server-side redirect if the workspace isn't in workspacesList.
+  function goToWorkspaceById(pid, opts = {}) {
     if (!pid) return;
-    const fromCache = (projectsList || []).find(p => p.name === pid);
-    if (fromCache && fromCache.path) { goToProject(fromCache.path, opts); return; }
-    fetchRepos().then(projects => {
-      projectsList = projects;
-      const proj = projects.find(p => p.name === pid);
-      if (proj && proj.path) goToProject(proj.path, opts);
+    const fromCache = (workspacesList || []).find(p => p.name === pid);
+    if (fromCache && fromCache.path) { goToWorkspace(fromCache.path, opts); return; }
+    fetchRepos().then(workspaces => {
+      workspacesList = workspaces;
+      const workspace = workspaces.find(p => p.name === pid);
+      if (workspace && workspace.path) goToWorkspace(workspace.path, opts);
       else window.location.href = '/p/' + encodeURIComponent(pid); // genuinely missing
     });
   }
@@ -13786,14 +13787,14 @@
     return `<div class="fm-block" style="margin:0 0 24px;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.6;white-space:normal">${rows}</div>`;
   }
 
-  // Renders any monorepo-relative "shared" file inline in the project doc
-  // pane — used by Meta sidebar entries for `projects/CLAUDE.md`
+  // Renders any monorepo-relative "shared" file inline in the workspace doc
+  // pane — used by Meta sidebar entries for `workspaces/CLAUDE.md`
   // and any file under the shared `.claude/`. For `.md` we use the same
-  // marked.js client renderer the project doc pane uses (so styling
+  // marked.js client renderer the workspace doc pane uses (so styling
   // matches the rest of the UI); for `.json/.csv` we use the same
   // viewers Cerebro uses; for `.html` we get the rendered/code toggle.
   async function openSharedFile(path) {
-    if (!currentProject) return;
+    if (!currentWorkspace) return;
     const content = document.getElementById('content');
     if (!content) return;
     // Highlight whichever Meta entry corresponds to this path. The CLAUDE.md
@@ -13802,7 +13803,7 @@
     document.querySelectorAll('.sidebar-file').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.sidebar-file').forEach(el => {
       const t = el.textContent.trim();
-      if (t.endsWith(lastSeg) || (path.endsWith('projects/CLAUDE.md') && t.includes('CLAUDE.md (shared)'))) {
+      if (t.endsWith(lastSeg) || (path.endsWith('workspaces/CLAUDE.md') && t.includes('CLAUDE.md (shared)'))) {
         el.classList.add('active');
       }
     });
@@ -13821,7 +13822,7 @@
 
     try {
       if (isHtml) {
-        // Reuse the same HTML toggle pattern as in-project HTML files —
+        // Reuse the same HTML toggle pattern as in-workspace HTML files —
         // sticky pref via the shared `htmlView:` localStorage namespace.
         const wrapper = document.createElement('div');
         wrapper.style.padding = '24px';
@@ -13879,7 +13880,7 @@
         rendered = `<pre style="background:var(--bg-secondary);padding:16px;border-radius:8px;border:1px solid var(--border);overflow:auto"><code${codeClass}>${esc(raw)}</code></pre>`;
       }
 
-      content.innerHTML = `<div class="project-content" style="padding:24px;max-width:900px">${header}${rendered}</div>`;
+      content.innerHTML = `<div class="workspace-content" style="padding:24px;max-width:900px">${header}${rendered}</div>`;
       if (isMd) renderMermaidBlocks(content);
       if (isCsv) cerebroAttachCSVFilter();
       if (window.hljs) {
@@ -13890,9 +13891,9 @@
     }
   }
 
-  // HTML render helper used by openSharedFile — mirrors _projectRenderHtml
+  // HTML render helper used by openSharedFile — mirrors _workspaceRenderHtml
   // but uses the cerebro asset/file endpoints and stays inside the given
-  // host element rather than reaching for currentProject's path.
+  // host element rather than reaching for currentWorkspace's path.
   async function _sharedRenderHtml(host, path, mode) {
     const toolbar = `
       <div style="display:flex;justify-content:flex-end;margin:0 0 8px">
@@ -13903,7 +13904,7 @@
       </div>`;
     if (mode === 'rendered') {
       const src = '/api/cerebro/asset?path=' + encodeURIComponent(path);
-      // Same iframe re-mount guard as _projectRenderHtml — avoids a white
+      // Same iframe re-mount guard as _workspaceRenderHtml — avoids a white
       // flash on every WS index-updated event.
       const existing = host.querySelector('iframe.html-iframe');
       const activeBtn = host.querySelector('.html-toolbar .html-toggle.active');
@@ -14083,15 +14084,15 @@
 
   async function goToCerebro(initialPath = '', opts = {}) {
     if (!LAB_IS_ADMIN) {
-      const data = await fetchWorkspaceCatalog();
-      const first = (data.workspaces || [])[0];
-      if (first) goToWorkspace(first.id, opts);
+      const data = await fetchVaultCatalog();
+      const first = (data.vaults || [])[0];
+      if (first) goToVault(first.id, opts);
       return;
     }
     _swapViewState();
     if (!opts.replace) {
       const url = new URL(window.location);
-      url.searchParams.delete('project');
+      url.searchParams.delete('workspace');
       url.searchParams.delete('repo');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
@@ -14105,21 +14106,21 @@
 
   async function goToProductivity(opts = {}) {
     if (!LAB_IS_ADMIN) {
-      const data = await fetchWorkspaceCatalog();
-      const first = (data.workspaces || [])[0];
-      if (first) goToWorkspace(first.id, opts);
+      const data = await fetchVaultCatalog();
+      const first = (data.vaults || [])[0];
+      if (first) goToVault(first.id, opts);
       return;
     }
     _swapViewState();
     _contextSubView = 'overview';
     if (!opts.replace) {
       const url = new URL(window.location);
-      url.searchParams.delete('project');
+      url.searchParams.delete('workspace');
       url.searchParams.delete('repo');
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
-      url.searchParams.delete('workspace');
+      url.searchParams.delete('vault');
       url.searchParams.set('view', 'productivity');
       if (opts.subview) url.searchParams.set('subview', opts.subview);
       else url.searchParams.delete('subview');
@@ -14132,9 +14133,9 @@
 
   async function goToAssistant(taskPath = '', opts = {}) {
     if (!LAB_IS_ADMIN) {
-      const data = await fetchWorkspaceCatalog();
-      const first = (data.workspaces || [])[0];
-      if (first) goToWorkspace(first.id, opts);
+      const data = await fetchVaultCatalog();
+      const first = (data.vaults || [])[0];
+      if (first) goToVault(first.id, opts);
       return;
     }
     _swapViewState();
@@ -14143,12 +14144,12 @@
     _contextSubView = section;
     if (!opts.replace) {
       const url = new URL(window.location);
-      url.searchParams.delete('project');
+      url.searchParams.delete('workspace');
       url.searchParams.delete('repo');
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
-      url.searchParams.delete('workspace');
+      url.searchParams.delete('vault');
       url.searchParams.set('view', 'assistant');
       if (section === 'meetings') {
         url.searchParams.set('subview', 'meetings');
@@ -14164,40 +14165,40 @@
         url.searchParams.delete('subview');
         url.searchParams.delete('task');
         url.searchParams.delete('meeting');
-        url.searchParams.delete('assistant_project');
+        url.searchParams.delete('assistant_workspace');
       }
       history.pushState({nav: 'assistant', task: taskPath, meeting: opts.meeting || ''}, '', url.pathname + url.search + url.hash);
     }
     initAssistant(taskPath, opts);
   }
 
-  function goToWorkspace(workspaceId, opts = {}) {
-    // Backwards compatibility for the old goToWorkspace({replace:true}) form.
-    if (workspaceId && typeof workspaceId === 'object') {
-      opts = workspaceId;
-      workspaceId = null;
+  function goToVault(vaultId, opts = {}) {
+    // Backwards compatibility for the old goToVault({replace:true}) form.
+    if (vaultId && typeof vaultId === 'object') {
+      opts = vaultId;
+      vaultId = null;
     }
-    workspaceId = workspaceId
-      || _projectWorkspaceId(currentProject)
-      || (_workspaceCurrent && _workspaceCurrent.id)
-      || currentWorkspaceId;
-    if (!workspaceId) return;
+    vaultId = vaultId
+      || _workspaceVaultId(currentWorkspace)
+      || (_vaultCurrent && _vaultCurrent.id)
+      || currentVaultId;
+    if (!vaultId) return;
     _swapViewState();
     _contextSubView = 'overview';
-    _setWorkspaceTabOpen(workspaceId, true);
+    _setVaultTabOpen(vaultId, true);
     if (!opts.replace) {
       const url = new URL(window.location);
-      url.searchParams.delete('project');
+      url.searchParams.delete('workspace');
       url.searchParams.delete('repo');
       url.searchParams.delete('path');
       url.searchParams.delete('file');
       url.searchParams.delete('tail');
       url.searchParams.delete('subview');
-      url.searchParams.set('view', 'workspace');
-      url.searchParams.set('workspace', workspaceId);
-      history.pushState({nav: 'workspace', workspace: workspaceId}, '', url.pathname + url.search + url.hash);
+      url.searchParams.set('view', 'vault');
+      url.searchParams.set('vault', vaultId);
+      history.pushState({nav: 'vault', vault: vaultId}, '', url.pathname + url.search + url.hash);
     }
-    initWorkspaceView(workspaceId);
+    initVaultView(vaultId);
   }
 
   // Compatibility entry points for old bookmarks and cached inline handlers.
@@ -14216,12 +14217,12 @@
   // entries on top of the history state the browser just restored.
   window.addEventListener('popstate', () => {
     const params = new URLSearchParams(location.search);
-    const project = params.get('project');
+    const workspace = params.get('workspace');
     const repo = params.get('repo');
     const view = params.get('view');
     const cerebroPath = params.get('path') || '';
-    if (project) {
-      goToProject(project, {replace: true});
+    if (workspace) {
+      goToWorkspace(workspace, {replace: true});
     } else if (view === 'cerebro') {
       goToCerebro(cerebroPath, {replace: true});
     } else if (view === 'assistant') {
@@ -14229,22 +14230,22 @@
         replace: true,
         subview: params.get('subview') || '',
         meeting: params.get('meeting') || '',
-        project: params.get('assistant_project') || '',
+        workspace: params.get('assistant_workspace') || '',
       });
     } else if (view === 'productivity') {
       goToProductivity({replace: true, subview: params.get('subview') || null});
-    } else if (view === 'workspace') {
-      goToWorkspace(params.get('workspace') || currentWorkspaceId, {replace: true});
+    } else if (view === 'vault') {
+      goToVault(params.get('vault') || currentVaultId, {replace: true});
     } else if (view === 'code-search') {
       goToCodeSearch({replace: true});
     } else if (view === 'logs') {
       goToLogs({replace: true});
     } else if (repo) {
       _swapViewState();
-      fetchRepos().then(projects => {
-        projectsList = projects;
-        const proj = projects.find(p => p.repos.some(r => r.path === repo));
-        if (proj) selectRepo(proj.path);
+      fetchRepos().then(workspaces => {
+        workspacesList = workspaces;
+        const workspace = workspaces.find(p => p.repos.some(r => r.path === repo));
+        if (workspace) selectRepo(workspace.path);
       });
     } else {
       goToProductivity({replace: true});
@@ -14254,14 +14255,14 @@
   function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   // ─── Dashboard: Servers section ─────────────────────────────────────────
-  // GET /api/servers → {"servers": [{project_id, workspace, path, port,
+  // GET /api/servers → {"servers": [{workspace_id, vault, path, port,
   // state: "running"|"starting"|"unhealthy"|"stopped", desired, healthy,
   // session_name, attach_command, session_created, restarts, has_stop,
-  // health_url}]}. Rows come from every registered workspace, sorted
-  // (workspace, project_id) — a project id can repeat across workspaces, so
-  // every lookup/action below is keyed on the (workspace, project_id) pair,
-  // never project_id alone. Start/stop/restart post to
-  // /api/servers/{workspace}/{project_id}/{start|stop|restart}.
+  // health_url}]}. Rows come from every registered vault, sorted
+  // (vault, workspace_id) — a workspace id can repeat across vaults, so
+  // every lookup/action below is keyed on the (vault, workspace_id) pair,
+  // never workspace_id alone. Start/stop/restart post to
+  // /api/servers/{vault}/{workspace_id}/{start|stop|restart}.
 
   // All three Admin sections (#dashKpis, #dashServers, #dashTerms) render
   // inside the active Productivity content host.
@@ -14303,7 +14304,7 @@
       <div class="s-summary dash-kpis">
         ${dashKpiTileHtml('Servers running', `${runningCount}/${servers.length}`)}
         ${dashKpiTileHtml('Unhealthy', unhealthyCount, unhealthyCount > 0)}
-        ${dashKpiTileHtml('Terminal sessions', termRows.length)}
+        ${dashKpiTileHtml('Terminals', termRows.length)}
         ${dashKpiTileHtml('Attached', attachedCount)}
       </div>`;
   }
@@ -14346,13 +14347,13 @@
   }
 
   function dashServerCardHtml(row) {
-    const pid = row.project_id;
-    const ws = row.workspace || '';
-    const key = ws + '/' + pid;
+    const pid = row.workspace_id;
+    const vault = row.vault || '';
+    const key = vault + '/' + pid;
     const pending = _dashServersPending.has(key);
     const cls = dashServerStateClass(row);
-    const wsBadge = ws
-      ? `<span class="ws-badge" title="workspace: ${escapeHtml(ws)}">${escapeHtml(ws)}</span>`
+    const vaultBadge = vault
+      ? `<span class="vault-badge" title="vault: ${escapeHtml(vault)}">${escapeHtml(vault)}</span>`
       : '';
     // Status line carries state via the dot + word pair only — the word
     // itself always renders in a plain text color, never the status color
@@ -14375,19 +14376,19 @@
       ? `<a class="mini-btn" href="${escapeHtml(openUrl)}" target="_blank" rel="noopener" title="Open ${escapeHtml(openUrl)} in a new tab">Open</a>`
       : '';
     const copyBtn = row.attach_command
-      ? `<button type="button" class="mini-btn" data-act="copy-attach" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" data-attach="${escapeHtml(row.attach_command)}" title="Copy tmux attach command: ${escapeHtml(row.attach_command)}">⧉ Copy</button>`
+      ? `<button type="button" class="mini-btn" data-act="copy-attach" data-workspace-id="${escapeHtml(pid)}" data-vault="${escapeHtml(vault)}" data-attach="${escapeHtml(row.attach_command)}" title="Copy tmux attach command: ${escapeHtml(row.attach_command)}">⧉ Copy</button>`
       : '';
     const actionBtns = row.status === 'stopped'
-      ? `<button type="button" class="mini-btn primary" data-act="start" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" ${pending ? 'disabled' : ''}>Start</button>`
-      : `<button type="button" class="mini-btn danger" data-act="stop" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" ${pending ? 'disabled' : ''}>Stop</button>
-         <button type="button" class="mini-btn" data-act="restart" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" ${pending ? 'disabled' : ''}>Restart</button>`;
+      ? `<button type="button" class="mini-btn primary" data-act="start" data-workspace-id="${escapeHtml(pid)}" data-vault="${escapeHtml(vault)}" ${pending ? 'disabled' : ''}>Start</button>`
+      : `<button type="button" class="mini-btn danger" data-act="stop" data-workspace-id="${escapeHtml(pid)}" data-vault="${escapeHtml(vault)}" ${pending ? 'disabled' : ''}>Stop</button>
+         <button type="button" class="mini-btn" data-act="restart" data-workspace-id="${escapeHtml(pid)}" data-vault="${escapeHtml(vault)}" ${pending ? 'disabled' : ''}>Restart</button>`;
     const titleAttr = row.path ? ` title="${escapeHtml(row.path)}"` : '';
     return `
-      <div class="srv-card srv-card-${cls}" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}"${titleAttr}>
+      <div class="srv-card srv-card-${cls}" data-workspace-id="${escapeHtml(pid)}" data-vault="${escapeHtml(vault)}"${titleAttr}>
         <div class="srv-card-body">
           <div class="srv-card-head">
             <span class="srv-name">${escapeHtml(pid)}</span>
-            ${wsBadge}
+            ${vaultBadge}
           </div>
           <div class="srv-status-line">
             <span class="srv-dot srv-dot-${cls}"></span>
@@ -14408,7 +14409,7 @@
     const err = _dashServersActionErr || _dashServersLoadErr;
     const errHtml = err ? `<div class="srv-err on">${escapeHtml(err)}</div>` : '';
     const body = rows.length === 0
-      ? '<div class="srv-empty">No projects with a server Makefile (server-start target).</div>'
+      ? '<div class="srv-empty">No workspaces with a server Makefile (server-start target).</div>'
       : `<div class="srv-grid">${rows.map(dashServerCardHtml).join('')}</div>`;
     el.innerHTML = `
       ${dashSectionHeadHtml(el, 'Servers', rows.length)}
@@ -14446,15 +14447,15 @@
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.getAttribute('data-act');
-    const pid = btn.getAttribute('data-pid');
-    const ws = btn.getAttribute('data-workspace') || '';
+    const pid = btn.getAttribute('data-workspace-id');
+    const vault = btn.getAttribute('data-vault') || '';
     if (act === 'copy-attach') {
       const cmd = btn.getAttribute('data-attach') || '';
       if (cmd) await _copyToClipboard(cmd, btn);
       return;
     }
     if (!pid || !['start', 'stop', 'restart'].includes(act)) return;
-    const key = ws + '/' + pid;
+    const key = vault + '/' + pid;
     if (_dashServersPending.has(key)) return;
     _dashServersPending.add(key);
     _dashServersActionErr = null;
@@ -14463,12 +14464,12 @@
     // the next poll reads as broken. Stop needs no such nudge — the card's
     // own "disabled" state already gives immediate feedback.
     if (act === 'start' || act === 'restart') {
-      const row = (_dashServersRows || []).find(r => (r.workspace || '') === ws && r.project_id === pid);
+      const row = (_dashServersRows || []).find(r => (r.vault || '') === vault && r.workspace_id === pid);
       if (row) row.status = 'starting';
     }
     dashServersRender();  // disable the card's buttons immediately
     try {
-      const url = '/api/servers/' + encodeURIComponent(ws) + '/' + encodeURIComponent(pid) + '/' + act;
+      const url = '/api/servers/' + encodeURIComponent(vault) + '/' + encodeURIComponent(pid) + '/' + act;
       const r = await fetch(url, {method: 'POST'});
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
@@ -14483,16 +14484,16 @@
 
   // ─── Dashboard: Terminals section ───────────────────────────────────────
   // GET /api/term/sessions — see term.py list_sessions() ~:982. Rows carry
-  // {name, created, attached, windows, workspace} from tmux plus
-  // {project_id, logical_name, kind, agent, cwd, created_at, label, summary,
-  // attach_command} from the runtime registry. Grouped by (workspace,
-  // project_id) — a project id can exist in two workspaces, so the group
-  // key must carry both; workspace-root sessions carry project_id
-  // "__self__" (SELF_PROJECT_ID) and are labeled "workspace". Sessions
-  // whose project_id couldn't be resolved at all (pre-existing orphaned
+  // {name, created, attached, windows, vault} from tmux plus
+  // {workspace_id, logical_name, kind, agent, cwd, created_at, label, summary,
+  // attach_command} from the runtime registry. Grouped by (vault,
+  // workspace_id) — a workspace id can exist in two vaults, so the group
+  // key must carry both; vault-root sessions carry workspace_id
+  // "__self__" (SELF_WORKSPACE_ID) and are labeled "vault". Sessions
+  // whose workspace_id couldn't be resolved at all (pre-existing orphaned
   // tmux sessions from before a naming-scheme change) fall back to a single
   // "(unassigned)" group with no "Close all" button, since there's no
-  // project id (or workspace) to scope that call to.
+  // workspace id (or vault) to scope that call to.
 
   function dashFmtAgo(unixSeconds) {
     if (!unixSeconds) return null;
@@ -14504,12 +14505,12 @@
   }
 
   function dashTermGroupKey(s) {
-    if (!s.project_id) return '__unknown__';
-    return (s.workspace || '') + '/' + s.project_id;
+    if (!s.workspace_id) return '__unknown__';
+    return (s.vault || '') + '/' + s.workspace_id;
   }
 
   function dashTermGroupLabel(pid) {
-    if (pid === SELF_PROJECT_ID) return 'workspace';
+    if (pid === SELF_WORKSPACE_ID) return 'vault';
     if (pid === '__unknown__') return '(unassigned)';
     return pid;
   }
@@ -14534,21 +14535,21 @@
 
   function dashTermGroupHtml(key, sessions) {
     const first = sessions[0] || {};
-    const pid = first.project_id || '__unknown__';
-    const ws = first.workspace || '';
+    const pid = first.workspace_id || '__unknown__';
+    const vault = first.vault || '';
     const label = dashTermGroupLabel(pid);
-    const wsBadge = (key !== '__unknown__' && ws)
-      ? `<span class="ws-badge" title="workspace: ${escapeHtml(ws)}">${escapeHtml(ws)}</span>`
+    const vaultBadge = (key !== '__unknown__' && vault)
+      ? `<span class="vault-badge" title="vault: ${escapeHtml(vault)}">${escapeHtml(vault)}</span>`
       : '';
     const pending = _dashTermsPending.has('group:' + key);
     const closeAllBtn = key === '__unknown__'
       ? ''
-      : `<button type="button" class="mini-btn danger" data-act="term-close-all" data-pid="${escapeHtml(pid)}" data-workspace="${escapeHtml(ws)}" data-key="${escapeHtml(key)}" ${pending ? 'disabled' : ''}>Close all</button>`;
+      : `<button type="button" class="mini-btn danger" data-act="term-close-all" data-workspace-id="${escapeHtml(pid)}" data-vault="${escapeHtml(vault)}" data-key="${escapeHtml(key)}" ${pending ? 'disabled' : ''}>Close all</button>`;
     return `
       <div class="term-card">
         <div class="term-card-head">
           <span class="term-card-label">${escapeHtml(label)}</span>
-          ${wsBadge}
+          ${vaultBadge}
           <span class="count">${sessions.length}</span>
           ${closeAllBtn}
         </div>
@@ -14613,14 +14614,14 @@
       dashTermsRender();
       try {
         await fetch('/api/term/sessions/' + encodeURIComponent(name), {method: 'DELETE'});
-      } catch (err) { /* best-effort, matches projTabsClose/termKillCurrent */ }
+      } catch (err) { /* best-effort, matches workspaceTabsClose/termKillCurrent */ }
       _dashTermsPending.delete(name);
       await dashTermsRefresh();
-      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+      if (typeof workspaceTabsRefresh === 'function') workspaceTabsRefresh();
     } else if (act === 'term-close-all') {
-      const pid = btn.getAttribute('data-pid');
-      const ws = btn.getAttribute('data-workspace') || '';
-      const key = btn.getAttribute('data-key') || (ws + '/' + pid);
+      const pid = btn.getAttribute('data-workspace-id');
+      const vault = btn.getAttribute('data-vault') || '';
+      const key = btn.getAttribute('data-key') || (vault + '/' + pid);
       if (!pid || _dashTermsPending.has('group:' + key)) return;
       const sessions = (_dashTermsRows || []).filter(s => dashTermGroupKey(s) === key);
       const label = dashTermGroupLabel(pid);
@@ -14628,11 +14629,11 @@
       _dashTermsPending.add('group:' + key);
       dashTermsRender();
       try {
-        await fetch('/api/term/sessions/project/' + encodeURIComponent(pid) + '?workspace=' + encodeURIComponent(ws), {method: 'DELETE'});
+        await fetch('/api/term/sessions/workspace/' + encodeURIComponent(pid) + '?vault=' + encodeURIComponent(vault), {method: 'DELETE'});
       } catch (err) { /* best-effort */ }
       _dashTermsPending.delete('group:' + key);
       await dashTermsRefresh();
-      if (typeof projTabsRefresh === 'function') projTabsRefresh();
+      if (typeof workspaceTabsRefresh === 'function') workspaceTabsRefresh();
     }
   }
 
@@ -14664,36 +14665,36 @@
     _dashPollTimer = setInterval(dashPollTick, 5000);
   }
 
-  // ─── Project server bar (below top tabs, above diff tabs) ───
-  // Deliberately narrow: project planning metadata belongs in project files,
+  // ─── Workspace server bar (below top tabs, above diff tabs) ───
+  // Deliberately narrow: workspace planning metadata belongs in workspace files,
   // so this chrome only exposes the local-server configuration.
 
   async function refreshAttrsBar() {
-    const bar = document.getElementById('projectAttrsBar');
+    const bar = document.getElementById('workspaceAttrsBar');
     if (!bar) return;
-    if (!currentProject || !currentProject.is_project) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) {
       bar.innerHTML = '';
-      document.body.classList.remove('project-active');
+      document.body.classList.remove('workspace-active');
       return;
     }
-    const pid = currentProject.name;
-    const projectPath = currentProject.path;
+    const pid = currentWorkspace.name;
+    const workspacePath = currentWorkspace.path;
 
-    // Warm switch: paint synchronously from the last-known project record.
+    // Warm switch: paint synchronously from the last-known workspace record.
     // Background reconcile re-paints only on change. Cache miss falls
     // through to the foreground fetch below.
-    const cached = _projectAttrsCache.get(projectPath);
+    const cached = _workspaceAttrsCache.get(workspacePath);
     if (cached) {
       _renderAttrsBarFromRecord(bar, pid, cached);
       Promise.resolve().then(async () => {
         try {
-          const r = await fetch('/api/project-info?path=' + encodeURIComponent(projectPath));
+          const r = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
           if (!r.ok) return;
           const fresh = await r.json();
-          const prev = _projectAttrsCache.get(projectPath);
-          _projectAttrsCache.set(projectPath, fresh);
+          const prev = _workspaceAttrsCache.get(workspacePath);
+          _workspaceAttrsCache.set(workspacePath, fresh);
           if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
-          if (!currentProject || currentProject.path !== projectPath) return;
+          if (!currentWorkspace || currentWorkspace.path !== workspacePath) return;
           _renderAttrsBarFromRecord(bar, pid, fresh);
         } catch {}
       });
@@ -14702,17 +14703,17 @@
 
     let p = null;
     try {
-      const r = await fetch('/api/project-info?path=' + encodeURIComponent(projectPath));
+      const r = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
       if (r.ok) p = await r.json();
     } catch {}
     if (!p) { bar.innerHTML = ''; return; }
-    _projectAttrsCache.set(projectPath, p);
+    _workspaceAttrsCache.set(workspacePath, p);
     _renderAttrsBarFromRecord(bar, pid, p);
   }
 
   // Extracted from refreshAttrsBar so both the cold and warm-switch
   // paths share one render. Pure DOM write — no network, no state
-  // mutation. Reads only the server declarations on project record `p`.
+  // mutation. Reads only the server declarations on workspace record `p`.
   function _renderAttrsBarFromRecord(bar, pid, p) {
     const proxyCount = Array.isArray(p.proxies) ? p.proxies.length : 0;
     const proxiesLabel = proxyCount ? `${proxyCount} server${proxyCount === 1 ? '' : 's'}` : 'add server';
@@ -14720,7 +14721,7 @@
 
     bar.innerHTML = `
       <span class="ab-spacer"></span>
-      <span class="ab-chip" data-act="proxies" title="manage proxied local servers for this project">&#x1F310; <span class="v ${proxiesCls}">${escapeHtml(proxiesLabel)}</span></span>
+      <span class="ab-chip" data-act="proxies" title="manage proxied local servers for this workspace">&#x1F310; <span class="v ${proxiesCls}">${escapeHtml(proxiesLabel)}</span></span>
     `;
     bar.querySelectorAll('[data-act]').forEach(chip => {
       chip.addEventListener('click', (e) => {
@@ -14731,27 +14732,27 @@
     });
   }
 
-  // ─── Proxies modal (manage project-root servers.json from the UI) ───
+  // ─── Proxies modal (manage workspace-root servers.json from the UI) ───
   // Opened from the attrs-bar "Servers" chip. Saved proxies render as
   // management cards; fields only become editable after an explicit Edit.
   // Optional make commands power Start / Restart and Stop controls through
-  // routes/proxy.py. Saving migrates legacy project.json proxies to servers.json.
+  // routes/proxy.py. Saving migrates legacy workspace.json proxies to servers.json.
   let _proxiesEscHandler = null;
   let _proxiesRowSeq = 0;
-  let _proxiesProjectPath = null;
-  let _proxiesProjectId = null;
+  let _proxiesWorkspacePath = null;
   let _proxiesWorkspaceId = null;
+  let _proxiesVaultId = null;
   let _proxiesListDirty = false;
   let _proxiesHasConfigFile = false;
 
   async function openProxiesModal() {
-    if (!currentProject || !currentProject.is_project) return;
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const overlay = document.getElementById('proxiesModal');
     if (!overlay) return;
-    _proxiesProjectPath = currentProject.path;
-    _proxiesProjectId = currentProject.name;
-    _proxiesWorkspaceId = _projectWorkspaceId(currentProject);
-    const projectPath = _proxiesProjectPath;
+    _proxiesWorkspacePath = currentWorkspace.path;
+    _proxiesWorkspaceId = currentWorkspace.name;
+    _proxiesVaultId = _workspaceVaultId(currentWorkspace);
+    const workspacePath = _proxiesWorkspacePath;
     const err = document.getElementById('proxiesError');
     const addBtn = document.getElementById('proxiesAddBtn');
     const saveBtn = document.getElementById('proxiesSaveBtn');
@@ -14761,19 +14762,19 @@
     if (saveBtn) saveBtn.disabled = false;
     _proxiesHasConfigFile = false;
     if (createBtn) createBtn.disabled = true;
-    const cached = _projectSidebarCache.get(currentProject.path);
+    const cached = _workspaceSidebarCache.get(currentWorkspace.path);
     const proxies = (cached && Array.isArray(cached.proxies)) ? cached.proxies : [];
     _renderProxiesRows(proxies);
     overlay.classList.add('active');
     _proxiesEscHandler = (ev) => { if (ev.key === 'Escape') closeProxiesModal(); };
     document.addEventListener('keydown', _proxiesEscHandler);
     await reloadProxyConfig(true);
-    if (projectPath === _proxiesProjectPath && addBtn) addBtn.disabled = false;
+    if (workspacePath === _proxiesWorkspacePath && addBtn) addBtn.disabled = false;
   }
 
   function _serverConfigUrl(endpoint) {
-    const params = new URLSearchParams({project_id: _proxiesProjectId || ''});
-    if (_proxiesWorkspaceId) params.set('workspace', _proxiesWorkspaceId);
+    const params = new URLSearchParams({workspace_id: _proxiesWorkspaceId || ''});
+    if (_proxiesVaultId) params.set('vault', _proxiesVaultId);
     return `${endpoint}?${params.toString()}`;
   }
 
@@ -14794,9 +14795,9 @@
   }
 
   async function reloadProxyConfig(initialLoad = false) {
-    if (!_proxiesProjectId) return false;
+    if (!_proxiesWorkspaceId) return false;
     if (!initialLoad && _proxyRowsAreDirty() && !confirm('Discard unsaved server changes and reload servers.json?')) return false;
-    const projectPath = _proxiesProjectPath;
+    const workspacePath = _proxiesWorkspacePath;
     const err = document.getElementById('proxiesError');
     const reloadBtn = document.getElementById('proxiesReloadBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
@@ -14807,7 +14808,7 @@
       const r = await fetch(_serverConfigUrl('/api/server-config'));
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || `GET server-config → ${r.status}`);
-      if (projectPath !== _proxiesProjectPath || projectPath !== (currentProject && currentProject.path)) return false;
+      if (workspacePath !== _proxiesWorkspacePath || workspacePath !== (currentWorkspace && currentWorkspace.path)) return false;
       _renderProxiesRows(Array.isArray(body.servers) ? body.servers : []);
       _proxiesHasConfigFile = body.source === 'servers.json';
       if (_proxiesHasConfigFile) _setProxyConfigSource('servers.json · automatic');
@@ -14819,7 +14820,7 @@
       if (err) { err.textContent = `Could not refresh servers: ${e.message || e}`; err.classList.add('on'); }
       return false;
     } finally {
-      if (projectPath === _proxiesProjectPath) {
+      if (workspacePath === _proxiesWorkspacePath) {
         if (reloadBtn) reloadBtn.disabled = false;
         _syncProxyCreateButton(false);
       }
@@ -14827,7 +14828,7 @@
   }
 
   async function createProxyConfigTemplate() {
-    if (!_proxiesProjectId) return;
+    if (!_proxiesWorkspaceId) return;
     const err = document.getElementById('proxiesError');
     const reloadBtn = document.getElementById('proxiesReloadBtn');
     if (err) { err.textContent = ''; err.classList.remove('on'); }
@@ -14854,8 +14855,8 @@
       _proxiesHasConfigFile = true;
       _renderProxiesRows(Array.isArray(body.servers) ? body.servers : []);
       _setProxyConfigSource('servers.json · template ready for your agent');
-      _projectSidebarCache.delete(_proxiesProjectPath);
-      _projectAttrsCache.delete(_proxiesProjectPath);
+      _workspaceSidebarCache.delete(_proxiesWorkspacePath);
+      _workspaceAttrsCache.delete(_proxiesWorkspacePath);
     } catch (e) {
       _setProxyConfigSource('Could not create servers.json');
       if (err) { err.textContent = e.message || String(e); err.classList.add('on'); }
@@ -15091,20 +15092,20 @@
     return {proxies: out, errors};
   }
 
-  function _proxyWorkspaceQuery() {
-    return _proxiesWorkspaceId ? `?workspace=${encodeURIComponent(_proxiesWorkspaceId)}` : '';
+  function _proxyVaultQuery() {
+    return _proxiesVaultId ? `?vault=${encodeURIComponent(_proxiesVaultId)}` : '';
   }
 
   async function proxyServerAction(rowId, action) {
     const row = document.querySelector(`#proxiesRows .proxies-card[data-row-id="${rowId}"]`);
-    if (!row || !_proxiesProjectId) return;
+    if (!row || !_proxiesWorkspaceId) return;
     const values = _proxyRowValues(row);
     const status = row.querySelector('.proxies-action-status');
     const buttons = Array.from(row.querySelectorAll('[data-proxy-action]'));
     buttons.forEach(btn => { btn.disabled = true; btn.classList.add('busy'); });
     if (status) { status.textContent = `${action === 'stop' ? 'Stopping' : 'Starting / restarting'} ${values.label || values.name}…`; status.className = 'proxies-action-status'; }
     try {
-      const url = `/api/proxies/${encodeURIComponent(_proxiesProjectId)}/${encodeURIComponent(values.name)}/${action}${_proxyWorkspaceQuery()}`;
+      const url = `/api/proxies/${encodeURIComponent(_proxiesWorkspaceId)}/${encodeURIComponent(values.name)}/${action}${_proxyVaultQuery()}`;
       const r = await fetch(url, {method: 'POST'});
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || `${action} failed (${r.status})`);
@@ -15127,7 +15128,7 @@
       if (err) { err.textContent = errors.join(' · '); err.classList.add('on'); }
       return;
     }
-    if (!_proxiesProjectPath) { closeProxiesModal(); return; }
+    if (!_proxiesWorkspacePath) { closeProxiesModal(); return; }
     if (saveBtn) saveBtn.disabled = true;
     try {
       const put = await fetch(_serverConfigUrl('/api/server-config'), {
@@ -15145,24 +15146,24 @@
       return;
     }
     // Invalidate caches that hold the stale proxies list, then refresh.
-    _projectSidebarCache.delete(_proxiesProjectPath);
-    _projectAttrsCache.delete(_proxiesProjectPath);
+    _workspaceSidebarCache.delete(_proxiesWorkspacePath);
+    _workspaceAttrsCache.delete(_proxiesWorkspacePath);
     closeProxiesModal();
     if (typeof refreshAttrsBar === 'function') refreshAttrsBar();
-    if (typeof _refreshProjectSidebar === 'function') _refreshProjectSidebar({preserveScroll: true});
+    if (typeof _refreshWorkspaceSidebar === 'function') _refreshWorkspaceSidebar({preserveScroll: true});
   }
 
   // ─── Client-global Assistant view ───
 
   async function termOpenForAssistant() {
-    if (!_termIsScopeActive(ASSISTANT_PROJECT_ID)) return;
+    if (!_termIsScopeActive(ASSISTANT_WORKSPACE_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-    if (await _termTryWarmOpen(ASSISTANT_PROJECT_ID)) {
+    if (await _termTryWarmOpen(ASSISTANT_WORKSPACE_ID)) {
       termStartPeriodicRefresh();
       return;
     }
-    await _termRestoreSessionsForProject(ASSISTANT_PROJECT_ID);
+    await _termRestoreSessionsForWorkspace(ASSISTANT_WORKSPACE_ID);
     termStartPeriodicRefresh();
   }
 
@@ -15171,20 +15172,20 @@
       goToProductivity({replace: true});
       return;
     }
-    document.body.classList.remove('cerebro-active', 'self-active', 'workspace-active', 'project-active');
+    document.body.classList.remove('cerebro-active', 'self-active', 'vault-active', 'workspace-active');
     document.body.classList.add('assistant-active');
     document.title = 'Assistant';
-    currentProject = {
-      name: ASSISTANT_PROJECT_ID,
+    currentWorkspace = {
+      name: ASSISTANT_WORKSPACE_ID,
       path: ASSISTANT_ROOT,
-      is_project: true,
+      is_workspace: true,
       repos: [],
-      workspace_id: ASSISTANT_WORKSPACE_ID,
-      workspace: ASSISTANT_WORKSPACE_ID,
+      vault_id: ASSISTANT_VAULT_ID,
+      vault: ASSISTANT_VAULT_ID,
     };
     _sidebarActivateFileConfig();
-    _projDocPath = null;
-    _projDocRoot = null;
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
     const section = options.subview === 'meetings' ? 'meetings'
       : (options.subview === 'tasks' || /^tasks-[1-5]$/.test(options.subview || '') || initialTask ? 'tasks' : 'overview');
@@ -15192,16 +15193,16 @@
     const diffTabs = document.getElementById('diffTabs');
     if (diffTabs) diffTabs.style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
-    if (typeof projTabsRender === 'function') projTabsRender();
+    if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
     if (window.AssistantView) window.AssistantView.init({
       section,
       task: initialTask,
       meeting: options.meeting || '',
-      project: options.project || '',
+      workspace: options.workspace || '',
     });
     renderRepoTabs();
     _sidebarApplyForView();
-    if (ASSISTANT_ROOT) _refreshProjectSidebar();
+    if (ASSISTANT_ROOT) _refreshWorkspaceSidebar();
     afterPageQuiet(() => {
       if (ASSISTANT_ROOT && !UI_CHECK) termOpenForAssistant();
     });
@@ -15210,13 +15211,13 @@
   function assistantSectionShell(section) {
     if (!document.body.classList.contains('assistant-active')) return;
     _contextSubView = section === 'overview' ? 'overview' : section;
-    _projDocPath = null;
-    _projDocRoot = null;
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
     currentRepo = null;
     renderRepoTabs();
     _sidebarApplyForView();
-    if (ASSISTANT_ROOT) _refreshProjectSidebar({preserveScroll: true});
+    if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true});
   }
   window.assistantSectionShell = assistantSectionShell;
 
@@ -15224,33 +15225,33 @@
 
   async function initSelf() {
     if (!LAB_IS_ADMIN) {
-      const data = await fetchWorkspaceCatalog();
-      const first = (data.workspaces || [])[0];
-      if (first) goToWorkspace(first.id, {replace: true});
+      const data = await fetchVaultCatalog();
+      const first = (data.vaults || [])[0];
+      if (first) goToVault(first.id, {replace: true});
       return;
     }
     document.body.classList.add('self-active');
     document.title = 'Home';
-    // Set up a synthetic currentProject so openProjectDoc(), the sidebar, and
-    // the terminal panel all work exactly like a real project tab.
-    currentProject = {
+    // Set up a synthetic currentWorkspace so openWorkspaceDoc(), the sidebar, and
+    // the terminal panel all work exactly like a real workspace tab.
+    currentWorkspace = {
       name: '__self__',
       path: SELF_REPO_PATH,
-      is_project: true,
+      is_workspace: true,
       repos: [],
-      workspace_id: null,
+      vault_id: null,
     };
     _sidebarActivateFileConfig();
     document.getElementById('diffTabs').style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
     // Re-render the tab strip so the Productivity tab flips to `.active`
-    // immediately. On in-page navigation (the common case) projTabsAll
+    // immediately. On in-page navigation (the common case) workspaceTabsAll
     // is already populated so all tabs render correctly. On the very
-    // first page load with `?view=productivity` projTabsAll may still
-    // be empty for ~50ms — the in-flight projTabsRefresh() will repaint
+    // first page load with `?view=productivity` workspaceTabsAll may still
+    // be empty for ~50ms — the in-flight workspaceTabsRefresh() will repaint
     // with the full tab list as soon as it returns. Mirrors what
     // initCerebro and selectRepo already do.
-    if (typeof projTabsRender === 'function') projTabsRender();
+    if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
     renderRepoTabs();
 
     // Paint the workbench scaffold synchronously. The refresh fills in
@@ -15263,14 +15264,14 @@
     });
   }
 
-  // Shared file-tree row renderer for the self + workspace sidebars. One
+  // Shared file-tree row renderer for the self + vault sidebars. One
   // implementation (not a sixth render site): both views feed it a
   // buildSidebarTree() node and differ only in tree scope (persisted
   // expand state), top-level auto-open folders, and active path. Rows use
   // the same fileIconHtml icons, symlink markers, notebook running/unseen
   // dots, and data-filepath hooks the git decorations poller keys on.
   const _AUTO_OPEN_SELF = new Set(['apps', 'docs', 'knowledge']);
-  const _AUTO_OPEN_WORKSPACE = new Set(['projects', 'content', 'docs']);
+  const _AUTO_OPEN_VAULT = new Set(['workspaces', 'content', 'docs']);
 
   function renderSidebarFileTree(node, depth, parentPath, opts) {
     const {scope, autoOpen, activePath, root} = opts;
@@ -15291,12 +15292,12 @@
     });
     treeFiles(node, sortMode).forEach(f => {
       const safePath = f.path.replace(/'/g, "\\'");
-      const safeRoot = String(root || (currentProject && currentProject.path) || '').replace(/'/g, "\\'");
+      const safeRoot = String(root || (currentWorkspace && currentWorkspace.path) || '').replace(/'/g, "\\'");
       const fname = f.path.split('/').pop();
       const icon = fileIconHtml(fname, f);
       const activeCls = activePath === f.path ? ' active' : '';
-      // Notebook running / unseen dots — same logic as the project view's
-      // _refreshProjectSidebar so these views surface in-flight notebooks
+      // Notebook running / unseen dots — same logic as the workspace view's
+      // _refreshWorkspaceSidebar so these views surface in-flight notebooks
       // too. Running wins over unseen since "currently executing" is the
       // more urgent state.
       if (f.pending) _recentlyPending.set(f.path, Date.now());
@@ -15311,25 +15312,25 @@
         const dotTitle = f.pending ? 'A cell is currently running' : 'Cell just finished';
         dotHtml = `<span class="nb-running-dot" title="${dotTitle}"></span>`;
       } else if (hasUnseen) {
-        dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openProjectDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
+        dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openWorkspaceDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openProjectDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openProjectDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }
 
   // Populate #sidebar with a file tree rooted at SELF_REPO_PATH.
-  // Mirrors the pattern used by showProjectInfo() for real projects.
+  // Mirrors the pattern used by showWorkspaceInfo() for real workspaces.
   async function selfPopulateSidebar() {
     const sidebar = document.getElementById('sidebar');
     try {
       const baseRoot = SELF_REPO_PATH;
       await _sidebarEnsureWorktrees(baseRoot);
       const fileRoot = _sidebarScopedRoot(baseRoot);
-      const files = await _sidebarFetchProjectFiles(fileRoot);
+      const files = await _sidebarFetchWorkspaceFiles(fileRoot);
       const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('self-active')
-          || !currentProject || currentProject.path !== baseRoot
+          || !currentWorkspace || currentWorkspace.path !== baseRoot
           || _sidebarScopedRoot(baseRoot) !== fileRoot) return;
       _sidebarRememberAvailableExtensions(files);
       _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
@@ -15339,7 +15340,7 @@
       // future sidebar rebuild — mtime poll, WS index-updated — keeps the
       // current file highlighted. Without this the active class is only
       // applied imperatively after rebuild and the selection flickers.
-      const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
+      const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const workbenchActive = !activePath ? ' active' : '';
       let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
@@ -15355,10 +15356,10 @@
       sbHtml += renderSidebarFileTree(tree, 0, '', {scope: `self:${fileRoot}`, autoOpen: _AUTO_OPEN_SELF, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(baseRoot);
 
-      // Meta section — mirrors the per-project sidebar so `.claude/`
+      // Meta section — mirrors the per-workspace sidebar so `.claude/`
       // (shared skills, agents, hooks, settings) is one click away from
       // the productivity tab too. The `.claude/` placeholder is filled
-      // async by /api/cerebro/tree, same as the project view.
+      // async by /api/cerebro/tree, same as the workspace view.
       sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
       // Canonical cross-tool instructions at the monorepo root (CLAUDE.md → AGENTS.md).
       sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}AGENTS.md</span></a>`;
@@ -15389,7 +15390,7 @@
       sidebar.innerHTML = sbHtml;
 
       // Populate both `.claude/` and `code/` placeholders from one
-      // /api/cerebro/tree fetch. Same scope as the project view so
+      // /api/cerebro/tree fetch. Same scope as the workspace view so
       // expand state syncs across tabs.
       _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
     } catch(e) {
@@ -15400,7 +15401,7 @@
   // Render the Productivity workbench scaffold into #content. The refresh
   // functions look for element IDs inside here.
   function selfPaintWorkbench() {
-    _projDocPath = null;
+    _workspaceDocPath = null;
     _contextSubView = 'overview';
     renderRepoTabs();
     const content = document.getElementById('content');
@@ -15412,9 +15413,9 @@
         </div>
         <div class="s-toolbar">
           <button class="refresh-btn" onclick="selfRefreshWorkbench()">Refresh</button>
-          <button class="refresh-btn" onclick="openProjectDoc('AGENTS.md')">AGENTS.md</button>
-          <button class="refresh-btn" onclick="openProjectDoc('Makefile')">Makefile</button>
-          <button class="refresh-btn" onclick="openProjectDoc('README.md')">README.md</button>
+          <button class="refresh-btn" onclick="openWorkspaceDoc('AGENTS.md')">AGENTS.md</button>
+          <button class="refresh-btn" onclick="openWorkspaceDoc('Makefile')">Makefile</button>
+          <button class="refresh-btn" onclick="openWorkspaceDoc('README.md')">README.md</button>
         </div>
         <div class="s-summary" id="selfSummary">
           <div class="s-metric"><span>Open tasks</span><strong>...</strong></div>
@@ -15455,7 +15456,7 @@
 
   // Return to the workbench from a doc view.
   function selfShowWorkbench() {
-    _projDocPath = null;
+    _workspaceDocPath = null;
     _contextSubView = 'overview';
     const url = new URL(window.location);
     url.searchParams.set('view', 'productivity');
@@ -15472,7 +15473,7 @@
 
   function selfShowAdmin() {
     if (!LAB_IS_ADMIN) return;
-    _projDocPath = null;
+    _workspaceDocPath = null;
     _contextSubView = 'admin';
     const url = new URL(window.location);
     url.searchParams.set('view', 'productivity');
@@ -15487,7 +15488,7 @@
         <div class="s-head"><h1>Admin</h1></div>
         <div class="s-workbench-grid">
           <div class="s-section admin-access-section">
-            <h2>Users &amp; workspace access</h2>
+            <h2>Users &amp; vault access</h2>
             <form class="admin-access-toolbar" onsubmit="return adminCreateUser(event)">
               <label>User name<input id="adminNewUsername" autocomplete="off" required placeholder="username"></label>
               <label>Display name<input id="adminNewName" autocomplete="off" placeholder="Name"></label>
@@ -15495,21 +15496,21 @@
               <label>Password<input id="adminNewPassword" type="password" autocomplete="new-password" required placeholder="Password"></label>
               <button class="refresh-btn" type="submit">Add user</button>
             </form>
-            <div class="admin-user-list" id="adminUsersList"><div class="ws-muted">Loading users…</div></div>
+            <div class="admin-user-list" id="adminUsersList"><div class="vault-muted">Loading users…</div></div>
           </div>
           <div class="s-section admin-access-section">
-            <h2>Add workspace</h2>
-            <form class="admin-access-toolbar admin-workspace-form" onsubmit="return adminAddWorkspace(event)">
-              <label>Name<input id="adminWorkspaceName" placeholder="Team workspace"></label>
-              <label>Path<input id="adminWorkspacePath" required placeholder="/absolute/path/to/workspace"></label>
-              <label style="flex-direction:row;align-items:center;padding-bottom:7px"><input id="adminWorkspaceCreate" type="checkbox"> Create if missing</label>
-              <button class="refresh-btn" type="submit">Add workspace</button>
+            <h2>Add vault</h2>
+            <form class="admin-access-toolbar admin-vault-form" onsubmit="return adminAddVault(event)">
+              <label>Name<input id="adminVaultName" placeholder="Team vault"></label>
+              <label>Path<input id="adminVaultPath" required placeholder="/absolute/path/to/vault"></label>
+              <label style="flex-direction:row;align-items:center;padding-bottom:7px"><input id="adminVaultCreate" type="checkbox"> Create if missing</label>
+              <button class="refresh-btn" type="submit">Add vault</button>
             </form>
-            <div class="admin-user-status" id="adminWorkspaceStatus"></div>
+            <div class="admin-user-status" id="adminVaultStatus"></div>
           </div>
           <div class="s-section admin-access-section assistant-config-section">
             <h2>Assistant</h2>
-            <p class="ws-muted">Choose the one client-global folder that stores Assistant tasks, notes, instructions, and terminal state. It must live outside the Lab framework checkout.</p>
+            <p class="vault-muted">Choose the one client-global folder that stores Assistant tasks, notes, instructions, and terminal state. It must live outside the Lab framework checkout.</p>
             <form class="admin-access-toolbar admin-assistant-form" onsubmit="return adminSaveAssistant(event)">
               <label>Folder<input id="adminAssistantPath" required placeholder="/absolute/path/to/assistant"></label>
               <button class="refresh-btn" type="submit">Use folder</button>
@@ -15554,22 +15555,22 @@
   }
   window.selfShowAdmin = selfShowAdmin;
 
-  let _adminAccessWorkspaces = [];
+  let _adminAccessVaults = [];
 
   function adminRenderUsers(users) {
     const host = document.getElementById('adminUsersList');
     if (!host) return;
     if (!users.length) {
-      host.innerHTML = '<div class="ws-muted">No users.</div>';
+      host.innerHTML = '<div class="vault-muted">No users.</div>';
       return;
     }
     host.innerHTML = users.map(user => {
       const builtIn = user.built_in === true;
-      const permissions = _adminAccessWorkspaces.map(workspace => {
-        const checked = (user.workspaces || []).includes(workspace.id) ? ' checked' : '';
+      const permissions = _adminAccessVaults.map(vault => {
+        const checked = (user.vaults || []).includes(vault.id) ? ' checked' : '';
         const disabled = user.role === 'admin' || builtIn ? ' disabled' : '';
-        return `<label><input type="checkbox" data-workspace-permission="${escAttr(workspace.id)}"${checked}${disabled}>${selfEsc(workspace.name || workspace.id)}</label>`;
-      }).join('') || '<span class="ws-muted">Add a workspace before assigning access.</span>';
+        return `<label><input type="checkbox" data-vault-permission="${escAttr(vault.id)}"${checked}${disabled}>${selfEsc(vault.name || vault.id)}</label>`;
+      }).join('') || '<span class="vault-muted">Add a vault before assigning access.</span>';
       return `<div class="admin-user-row" data-admin-user="${escAttr(user.username)}">
         <div class="admin-user-head">
           <div class="admin-user-identity"><strong>${selfEsc(user.name)}</strong><code>${selfEsc(user.username)}${builtIn ? ' · built-in' : ''}</code></div>
@@ -15579,7 +15580,7 @@
           ${builtIn ? '<span class="admin-built-in-badge">Fixed admin</span>' : '<button class="refresh-btn" type="button" onclick="adminSaveUser(this)">Save</button>'}
         </div>
         <div class="admin-permissions">${permissions}</div>
-        <div class="admin-user-status" data-user-status>${builtIn ? 'Built-in local administrator. Username and password are fixed.' : (user.role === 'admin' ? 'Admins can access every workspace.' : '')}</div>
+        <div class="admin-user-status" data-user-status>${builtIn ? 'Built-in local administrator. Username and password are fixed.' : (user.role === 'admin' ? 'Admins can access every vault.' : '')}</div>
       </div>`;
     }).join('');
   }
@@ -15587,16 +15588,16 @@
   async function adminLoadAccess() {
     const host = document.getElementById('adminUsersList');
     try {
-      const [usersRes, workspacesRes] = await Promise.all([
+      const [usersRes, vaultsRes] = await Promise.all([
         fetch('/api/admin/users'),
-        fetchWorkspaceCatalog(),
+        fetchVaultCatalog(),
       ]);
       if (!usersRes.ok) throw new Error((await usersRes.json().catch(() => ({}))).detail || 'Could not load users');
       const usersBody = await usersRes.json();
-      _adminAccessWorkspaces = Array.isArray(workspacesRes.workspaces) ? workspacesRes.workspaces : [];
+      _adminAccessVaults = Array.isArray(vaultsRes.vaults) ? vaultsRes.vaults : [];
       adminRenderUsers(usersBody.users || []);
     } catch (e) {
-      if (host) host.innerHTML = `<div class="ws-muted">${selfEsc(e.message || e)}</div>`;
+      if (host) host.innerHTML = `<div class="vault-muted">${selfEsc(e.message || e)}</div>`;
     }
   }
   window.adminLoadAccess = adminLoadAccess;
@@ -15610,7 +15611,7 @@
     const payload = {
       role: row.querySelector('[data-user-role]').value,
       disabled: row.querySelector('[data-user-disabled]').checked,
-      workspaces: Array.from(row.querySelectorAll('[data-workspace-permission]:checked')).map(input => input.getAttribute('data-workspace-permission')),
+      vaults: Array.from(row.querySelectorAll('[data-vault-permission]:checked')).map(input => input.getAttribute('data-vault-permission')),
     };
     if (password) payload.password = password;
     button.disabled = true;
@@ -15639,7 +15640,7 @@
       name: document.getElementById('adminNewName').value.trim() || null,
       role: document.getElementById('adminNewRole').value,
       password: document.getElementById('adminNewPassword').value,
-      workspaces: [],
+      vaults: [],
     };
     try {
       const response = await fetch('/api/admin/users', {
@@ -15656,39 +15657,39 @@
   }
   window.adminCreateUser = adminCreateUser;
 
-  async function adminAddWorkspace(event) {
+  async function adminAddVault(event) {
     if (event) event.preventDefault();
-    const status = document.getElementById('adminWorkspaceStatus');
+    const status = document.getElementById('adminVaultStatus');
     const payload = {
-      name: document.getElementById('adminWorkspaceName').value.trim() || null,
-      path: document.getElementById('adminWorkspacePath').value.trim(),
-      create: document.getElementById('adminWorkspaceCreate').checked,
+      name: document.getElementById('adminVaultName').value.trim() || null,
+      path: document.getElementById('adminVaultPath').value.trim(),
+      create: document.getElementById('adminVaultCreate').checked,
     };
     if (status) status.textContent = 'Adding…';
     try {
-      const response = await fetch('/api/workspaces', {
+      const response = await fetch('/api/vaults', {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Could not add workspace');
-      workspaceCatalog = [];
-      _workspaceCatalogInFlight = null;
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || 'Could not add vault');
+      vaultCatalog = [];
+      _vaultCatalogInFlight = null;
       _reposInFlight = null;
       event.target.reset();
-      if (status) status.textContent = 'Workspace added';
+      if (status) status.textContent = 'Vault added';
       await adminLoadAccess();
-      await projTabsRefresh();
+      await workspaceTabsRefresh();
     } catch (e) {
       if (status) status.textContent = e.message || String(e);
     }
     return false;
   }
-  window.adminAddWorkspace = adminAddWorkspace;
+  window.adminAddVault = adminAddVault;
 
   function adminAssistantSummary(data) {
     if (!data || !data.configured) return 'Not configured. Choose a folder to initialize the Assistant database.';
     if (!data.exists) return 'The configured folder is unavailable. Choose it again or select a new folder.';
     const open = (data.tasks || []).filter(task => task.status !== 'done').length;
-    return `Using this folder · ${(data.projects || []).length} project${(data.projects || []).length === 1 ? '' : 's'} · ${open} open task${open === 1 ? '' : 's'}`;
+    return `Using this folder · ${(data.workspaces || []).length} workspace${(data.workspaces || []).length === 1 ? '' : 's'} · ${open} open task${open === 1 ? '' : 's'}`;
   }
 
   async function adminLoadAssistant() {
@@ -15729,8 +15730,8 @@
       if (!response.ok) throw new Error(data.detail || 'Could not configure Assistant');
       ASSISTANT_ROOT = data.root || '';
       window.LAB_ASSISTANT_ROOT = ASSISTANT_ROOT;
-      if (oldRoot) _projectSidebarCache.delete(oldRoot);
-      if (ASSISTANT_ROOT) _projectSidebarCache.delete(ASSISTANT_ROOT);
+      if (oldRoot) _workspaceSidebarCache.delete(oldRoot);
+      if (ASSISTANT_ROOT) _workspaceSidebarCache.delete(ASSISTANT_ROOT);
       if (input) input.value = ASSISTANT_ROOT;
       if (status) status.textContent = adminAssistantSummary(data);
       const open = document.getElementById('adminAssistantOpen');
@@ -15755,7 +15756,7 @@
     const stamp = row.ts || row.timestamp || '';
     const level = String(row.level || '').toUpperCase();
     const message = row.msg || row.message || row.raw || JSON.stringify(row);
-    const lines = [`[${row.workspace || 'workspace'}] ${stamp} ${level} ${message}`.trim()];
+    const lines = [`[${row.vault || 'vault'}] ${stamp} ${level} ${message}`.trim()];
     const context = {};
     [
       'logger', 'source', 'path', 'method', 'status_code', 'duration_ms',
@@ -15811,7 +15812,7 @@
     const status = document.getElementById('adminLogStatus');
     const file = output && output.getAttribute('data-log-file') || 'errors.log';
     const label = _adminLogLabel(file);
-    if (!confirm(`Flush ${file} across all registered workspaces? This cannot be undone.`)) return;
+    if (!confirm(`Flush ${file} across all registered vaults? This cannot be undone.`)) return;
     if (button) button.disabled = true;
     if (status) status.textContent = `Flushing ${label}…`;
     try {
@@ -15821,10 +15822,10 @@
       const cleared = Array.isArray(data.cleared) ? data.cleared.length : 0;
       const failed = Array.isArray(data.failed) ? data.failed : [];
       if (failed.length) {
-        throw new Error(`cleared ${cleared}; failed: ${failed.map(row => row.workspace).join(', ')}`);
+        throw new Error(`cleared ${cleared}; failed: ${failed.map(row => row.vault).join(', ')}`);
       }
       await adminRefreshLogs(file);
-      if (status) status.textContent = `Flushed ${label} in ${cleared} workspace${cleared === 1 ? '' : 's'}`;
+      if (status) status.textContent = `Flushed ${label} in ${cleared} vault${cleared === 1 ? '' : 's'}`;
     } catch (e) {
       if (status) status.textContent = 'Flush failed: ' + (e.message || e);
     } finally {
@@ -15834,10 +15835,10 @@
   window.adminFlushLogs = adminFlushLogs;
 
   // Toggle hidden-files visibility for the productivity sidebar.
-  // Mirrors toggleProjectDotFiles() but re-renders via selfPopulateSidebar()
-  // instead of showProjectInfo().
+  // Mirrors toggleWorkspaceDotFiles() but re-renders via selfPopulateSidebar()
+  // instead of showWorkspaceInfo().
   function selfToggleDotFiles(checked) {
-    showProjectDotFiles = checked;
+    showWorkspaceDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
     _storeSidebarFileConfig();
     selfPopulateSidebar();
@@ -15926,7 +15927,7 @@
     }
     list.innerHTML = rows.slice(0, 8).map(row => {
       const safePath = row.file ? row.file.replace(/'/g, "\\'") : '';
-      const open = row.file ? ` onclick="openProjectDoc('${safePath}')"` : '';
+      const open = row.file ? ` onclick="openWorkspaceDoc('${safePath}')"` : '';
       return `<li class="s-attention-row"${open}>
         <span class="s-attention-kind">${selfEsc(row.kind)}</span>
         <span class="s-attention-title">${selfEsc(row.title)}</span>
@@ -15951,7 +15952,7 @@
     const count = document.getElementById('selfTasksCount');
     let doc = {tasks: []};
     try {
-      const r = await fetch('/api/projects/' + SELF_PROJECT_ID + '/tasks');
+      const r = await fetch('/api/workspaces/' + SELF_WORKSPACE_ID + '/tasks');
       if (r.ok) doc = await r.json();
     } catch {}
     const tasks = (doc.tasks || []).slice();
@@ -15981,7 +15982,7 @@
 
   async function selfToggleTaskDone(taskId, done) {
     try {
-      await fetch(`/api/tasks/${SELF_PROJECT_ID}/${taskId}/status`, {
+      await fetch(`/api/tasks/${SELF_WORKSPACE_ID}/${taskId}/status`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({status: done ? 'done' : 'reopened'}),
@@ -16000,7 +16001,7 @@
       const r = await fetch('/api/tasks', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({project_id: SELF_PROJECT_ID, title, priority: prio.value}),
+        body: JSON.stringify({workspace_id: SELF_WORKSPACE_ID, title, priority: prio.value}),
       });
       if (!r.ok) {
         const msg = await r.json().catch(() => ({}));
@@ -16048,7 +16049,7 @@
         const name = selfEsc(f.filename);
         const fileLabel = isDeleted
           ? `<span class="s-file-link disabled">${name}</span>`
-          : `<button type="button" class="s-file-link" onclick="openProjectDoc('${safePath}')">${name}</button>`;
+          : `<button type="button" class="s-file-link" onclick="openWorkspaceDoc('${safePath}')">${name}</button>`;
         return `<li class="s-area-file">${fileLabel}<span class="stats"><span class="adds">+${f.additions || 0}</span><span class="dels">-${f.deletions || 0}</span></span></li>`;
       }).join('');
       const more = group.files.length > 8 ? `<li class="s-area-more">+${group.files.length - 8} more</li>` : '';
@@ -16084,232 +16085,232 @@
     return commits;
   }
 
-  // Terminal panel for the Productivity pseudo-project: claude session at repo root.
-  // Terminal panel for the Productivity pseudo-project: sessions rooted at the
-  // repo root. Mirrors termOpenForCerebro() exactly, substituting SELF_PROJECT_ID.
+  // Terminal panel for the Productivity pseudo-workspace: claude session at repo root.
+  // Terminal panel for the Productivity pseudo-workspace: sessions rooted at the
+  // repo root. Mirrors termOpenForCerebro() exactly, substituting SELF_WORKSPACE_ID.
   async function termOpenForSelf() {
-    if (!_termIsScopeActive(SELF_PROJECT_ID)) return;
+    if (!_termIsScopeActive(SELF_WORKSPACE_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-    if (await _termTryWarmOpen(SELF_PROJECT_ID)) {
+    if (await _termTryWarmOpen(SELF_WORKSPACE_ID)) {
       termStartPeriodicRefresh();
       return;
     }
-    await _termRestoreSessionsForProject(SELF_PROJECT_ID);
+    await _termRestoreSessionsForWorkspace(SELF_WORKSPACE_ID);
     termStartPeriodicRefresh();
   }
 
-  // Terminal panel for the Workspace pseudo-project: sessions start at the
-  // active workspace root and persist independently from every real project.
-  async function termOpenForWorkspace() {
-    if (!_termIsScopeActive(WORKSPACE_PROJECT_ID)) return;
+  // Terminal panel for the Vault pseudo-workspace: sessions start at the
+  // active vault root and persist independently from every real workspace.
+  async function termOpenForVault() {
+    if (!_termIsScopeActive(VAULT_WORKSPACE_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-    if (await _termTryWarmOpen(WORKSPACE_PROJECT_ID)) {
+    if (await _termTryWarmOpen(VAULT_WORKSPACE_ID)) {
       termStartPeriodicRefresh();
       return;
     }
-    await _termRestoreSessionsForProject(WORKSPACE_PROJECT_ID);
+    await _termRestoreSessionsForWorkspace(VAULT_WORKSPACE_ID);
     termStartPeriodicRefresh();
   }
 
-  // ─── Workspace view (workspace-scoped management surface) ───
-  // Mirrors initSelf(): synthetic currentProject rooted at the selected
-  // registered workspace so its files/config/projects can stay open beside
-  // tabs from every other workspace.
+  // ─── Vault view (vault-scoped management surface) ───
+  // Mirrors initSelf(): synthetic currentWorkspace rooted at the selected
+  // registered vault so its files/config/workspaces can stay open beside
+  // tabs from every other vault.
 
-  async function initWorkspaceView(workspaceId) {
+  async function initVaultView(vaultId) {
     // The initial `?view=…` dispatch calls us directly without
     // _swapViewState, so strip mutually exclusive view classes here.
     document.body.classList.remove(
-      'cerebro-active', 'self-active', 'assistant-active', 'project-active',
+      'cerebro-active', 'self-active', 'assistant-active', 'workspace-active',
     );
-    document.body.classList.add('workspace-active');
-    document.title = 'Workspace';
+    document.body.classList.add('vault-active');
+    document.title = 'Vault';
     const dt = document.getElementById('diffTabs');
     if (dt) dt.style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
-    // Re-render the tab strip so the workspace tab flips to `.active`
-    // immediately (same first-load caveat as initSelf: projTabsRefresh
+    // Re-render the tab strip so the vault tab flips to `.active`
+    // immediately (same first-load caveat as initSelf: workspaceTabsRefresh
     // repaints with the full list once it returns).
-    _projDocPath = null;
+    _workspaceDocPath = null;
 
     // Scaffold synchronously; the fetch below fills in the real content.
     const content = document.getElementById('content');
-    if (content) content.innerHTML = '<div class="s-inner ws-overview"><div class="loading">Loading workspace…</div></div>';
+    if (content) content.innerHTML = '<div class="s-inner vault-overview"><div class="loading">Loading vault…</div></div>';
 
-    const data = await fetchWorkspaceCatalog();
+    const data = await fetchVaultCatalog();
     // The user may have navigated away while the fetch was in flight.
-    if (!document.body.classList.contains('workspace-active')) return;
-    const current = ((data && data.workspaces) || []).find(w => w.id === workspaceId)
-      || ((data && data.workspaces) || []).find(w => w.active)
+    if (!document.body.classList.contains('vault-active')) return;
+    const current = ((data && data.vaults) || []).find(w => w.id === vaultId)
+      || ((data && data.vaults) || []).find(w => w.active)
       || null;
-    _workspaceCurrent = current;
+    _vaultCurrent = current;
     if (!current || !current.path) {
-      if (content) content.innerHTML = '<div class="s-inner ws-overview"><div class="loading">Could not load the active workspace.</div></div>';
+      if (content) content.innerHTML = '<div class="s-inner vault-overview"><div class="loading">Could not load the active vault.</div></div>';
       return;
     }
-    _setWorkspaceTabOpen(current.id, true);
-    document.title = 'Workspace — ' + (current.name || current.id);
-    // Synthetic project rooted at the workspace root (same trick as the
+    _setVaultTabOpen(current.id, true);
+    document.title = 'Vault — ' + (current.name || current.id);
+    // Synthetic workspace rooted at the vault root (same trick as the
     // self view) so the doc pane, sidebar, and pollers treat it like a
-    // real project.
-    currentProject = {
-      name: WORKSPACE_PROJECT_ID,
+    // real workspace.
+    currentWorkspace = {
+      name: VAULT_WORKSPACE_ID,
       path: current.path,
-      is_project: true,
+      is_workspace: true,
       repos: [],
-      workspace_id: current.id,
-      workspace_name: current.name || current.id,
-      workspace_color: current.color || '#8b949e',
+      vault_id: current.id,
+      vault_name: current.name || current.id,
+      vault_color: current.color || '#8b949e',
     };
     _sidebarActivateFileConfig();
-    if (typeof projTabsRender === 'function') projTabsRender();
+    if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
     renderRepoTabs();
     _sidebarApplyForView();
-    workspacePaintOverview(current);
+    vaultPaintOverview(current);
     afterPageQuiet(() => {
-      workspacePopulateSidebar();
-      workspaceRefreshCards();
-      if (!UI_CHECK) termOpenForWorkspace();
+      vaultPopulateSidebar();
+      vaultRefreshCards();
+      if (!UI_CHECK) termOpenForVault();
     });
   }
 
   // Overview scaffold: header (name + id badge + active pill + path) and
   // the three cards. Reuses the productivity workbench's .s-inner /
   // .s-workbench-grid / .s-section card classes so it reads like the
-  // existing dashboards. workspaceRefreshCards() fills the card bodies.
-  function workspacePaintOverview(current) {
-    _projDocPath = null;
+  // existing dashboards. vaultRefreshCards() fills the card bodies.
+  function vaultPaintOverview(current) {
+    _workspaceDocPath = null;
     _contextSubView = 'overview';
     renderRepoTabs();
     const content = document.getElementById('content');
     if (!content) return;
     content.innerHTML = `
-      <div class="s-inner ws-overview">
-        <div class="s-head ws-ov-head">
+      <div class="s-inner vault-overview">
+        <div class="s-head vault-ov-head">
           <h1>${selfEsc(current.name || current.id)}
-            <span class="ws-badge" title="workspace id">${selfEsc(current.id)}</span></h1>
+            <span class="vault-badge" title="vault id">${selfEsc(current.id)}</span></h1>
         </div>
-        <div class="ws-ov-path" title="${escAttr(current.path)}">${selfEsc(current.path)}</div>
-        <div class="s-workbench-grid ws-ov-grid">
-          <div class="s-section" id="wsAppearanceCard">
+        <div class="vault-ov-path" title="${escAttr(current.path)}">${selfEsc(current.path)}</div>
+        <div class="s-workbench-grid vault-ov-grid">
+          <div class="s-section" id="vaultAppearanceCard">
             <h2>Appearance</h2>
-            <form class="ws-appearance-form" onsubmit="return workspaceSaveAppearance(event)">
+            <form class="vault-appearance-form" onsubmit="return vaultSaveAppearance(event)">
               <label>Name or alias
-                <input id="wsAppearanceName" type="text" value="${escAttr(current.name || current.id)}" maxlength="80" required>
+                <input id="vaultAppearanceName" type="text" value="${escAttr(current.name || current.id)}" maxlength="80" required>
               </label>
               <label>Tab color
-                <span class="ws-color-row">
-                  <input id="wsAppearanceColor" type="color" value="${escAttr(current.color || '#8b949e')}" oninput="this.nextElementSibling.textContent=this.value">
-                  <span class="ws-color-value">${selfEsc(current.color || '#8b949e')}</span>
+                <span class="vault-color-row">
+                  <input id="vaultAppearanceColor" type="color" value="${escAttr(current.color || '#8b949e')}" oninput="this.nextElementSibling.textContent=this.value">
+                  <span class="vault-color-value">${selfEsc(current.color || '#8b949e')}</span>
                 </span>
               </label>
-              <div class="ws-card-actions"><button class="refresh-btn" type="submit">Save appearance</button><span class="ws-appearance-status" id="wsAppearanceStatus"></span></div>
+              <div class="vault-card-actions"><button class="refresh-btn" type="submit">Save appearance</button><span class="vault-appearance-status" id="vaultAppearanceStatus"></span></div>
             </form>
           </div>
-          <div class="s-section" id="wsConfigCard">
+          <div class="s-section" id="vaultConfigCard">
             <h2>Configuration</h2>
-            <div class="ws-card-body" id="wsConfigBody"><div class="ws-muted">Loading…</div></div>
+            <div class="vault-card-body" id="vaultConfigBody"><div class="vault-muted">Loading…</div></div>
           </div>
-          <div class="s-section" id="wsAgentsCard">
+          <div class="s-section" id="vaultAgentsCard">
             <h2>Agents</h2>
-            <div class="ws-card-body" id="wsAgentsBody"><div class="ws-muted">Loading…</div></div>
+            <div class="vault-card-body" id="vaultAgentsBody"><div class="vault-muted">Loading…</div></div>
           </div>
-          <div class="s-section" id="wsProjectsCard">
-            <h2>Projects <span class="count" id="wsProjectsCount"></span>
-              <button class="refresh-btn" type="button" onclick="openWorkspaceProjectModal()">+ New project</button></h2>
-            <ul class="ws-proj-list" id="wsProjectsList"><li class="s-empty">Loading…</li></ul>
+          <div class="s-section" id="vaultWorkspacesCard">
+            <h2>Workspaces <span class="count" id="vaultWorkspacesCount"></span>
+              <button class="refresh-btn" type="button" onclick="openVaultWorkspaceModal()">+ New workspace</button></h2>
+            <ul class="vault-workspace-list" id="vaultWorkspacesList"><li class="s-empty">Loading…</li></ul>
           </div>
         </div>
       </div>`;
   }
 
   // Return to the overview from a doc view (sidebar "Overview" link).
-  function workspaceShowOverview() {
-    _projDocPath = null;
+  function vaultShowOverview() {
+    _workspaceDocPath = null;
     _contextSubView = 'overview';
     renderRepoTabs();
     document.querySelectorAll('#sidebar .sidebar-file').forEach(el => el.classList.remove('active'));
-    if (_workspaceCurrent && currentProject && currentProject.name === WORKSPACE_PROJECT_ID) {
-      workspacePaintOverview(_workspaceCurrent);
-      afterFirstPaint(() => workspaceRefreshCards());
+    if (_vaultCurrent && currentWorkspace && currentWorkspace.name === VAULT_WORKSPACE_ID) {
+      vaultPaintOverview(_vaultCurrent);
+      afterFirstPaint(() => vaultRefreshCards());
     } else {
-      initWorkspaceView(_workspaceCurrent && _workspaceCurrent.id);
+      initVaultView(_vaultCurrent && _vaultCurrent.id);
     }
   }
 
-  async function workspaceSaveAppearance(event) {
+  async function vaultSaveAppearance(event) {
     if (event) event.preventDefault();
-    if (!_workspaceCurrent) return false;
-    const nameEl = document.getElementById('wsAppearanceName');
-    const colorEl = document.getElementById('wsAppearanceColor');
-    const status = document.getElementById('wsAppearanceStatus');
+    if (!_vaultCurrent) return false;
+    const nameEl = document.getElementById('vaultAppearanceName');
+    const colorEl = document.getElementById('vaultAppearanceColor');
+    const status = document.getElementById('vaultAppearanceStatus');
     const name = (nameEl && nameEl.value || '').trim();
     const color = colorEl && colorEl.value;
     if (status) status.textContent = 'Saving…';
     try {
-      const r = await fetch('/api/workspaces/' + encodeURIComponent(_workspaceCurrent.id) + '/appearance', {
+      const r = await fetch('/api/vaults/' + encodeURIComponent(_vaultCurrent.id) + '/appearance', {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name, color}),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'save failed');
       const updated = await r.json();
-      _workspaceCurrent.name = updated.name;
-      _workspaceCurrent.color = updated.color;
-      const catalogRow = _workspaceById(_workspaceCurrent.id);
+      _vaultCurrent.name = updated.name;
+      _vaultCurrent.color = updated.color;
+      const catalogRow = _vaultById(_vaultCurrent.id);
       if (catalogRow) Object.assign(catalogRow, updated);
-      if (currentProject) {
-        currentProject.workspace_name = updated.name;
-        currentProject.workspace_color = updated.color;
+      if (currentWorkspace) {
+        currentWorkspace.vault_name = updated.name;
+        currentWorkspace.vault_color = updated.color;
       }
-      workspacePaintOverview(_workspaceCurrent);
-      projTabsRender();
-      const savedStatus = document.getElementById('wsAppearanceStatus');
+      vaultPaintOverview(_vaultCurrent);
+      workspaceTabsRender();
+      const savedStatus = document.getElementById('vaultAppearanceStatus');
       if (savedStatus) savedStatus.textContent = 'Saved';
     } catch (e) {
       if (status) status.textContent = e.message || String(e);
     }
     return false;
   }
-  window.workspaceSaveAppearance = workspaceSaveAppearance;
+  window.vaultSaveAppearance = vaultSaveAppearance;
 
-  async function workspaceRefreshCards() {
-    if (!document.body.classList.contains('workspace-active')) return;
+  async function vaultRefreshCards() {
+    if (!document.body.classList.contains('vault-active')) return;
     await Promise.all([
-      workspaceRenderConfigCard(),
-      workspaceRenderAgentsCard(),
-      workspaceRenderProjectsCard(),
+      vaultRenderConfigCard(),
+      vaultRenderAgentsCard(),
+      vaultRenderWorkspacesCard(),
     ]);
   }
 
-  // "Configuration" card: workspace.json status from /api/workspace/config.
+  // "Configuration" card: vault.json status from /api/vault/config.
   // The file is optional — absent is a normal, valid state. The card offers
   // a starter-file button when absent and, in every state, a "Copy setup
-  // prompt" button that produces a state-aware prompt for the workspace
+  // prompt" button that produces a state-aware prompt for the vault
   // agent (structure reference + the current validation problems).
-  let _wsCfgLast = null;
+  let _vaultCfgLast = null;
 
-  async function workspaceRenderConfigCard() {
-    const body = document.getElementById('wsConfigBody');
+  async function vaultRenderConfigCard() {
+    const body = document.getElementById('vaultConfigBody');
     if (!body) return;
     let cfg = null;
     try {
-      const r = await fetch('/api/workspace/config?workspace=' + encodeURIComponent(_workspaceCurrent.id));
+      const r = await fetch('/api/vault/config?vault=' + encodeURIComponent(_vaultCurrent.id));
       if (r.ok) cfg = await r.json();
     } catch {}
     if (!body.isConnected) return;  // view repainted/navigated meanwhile
-    _wsCfgLast = cfg;
+    _vaultCfgLast = cfg;
     if (!cfg) {
-      body.innerHTML = '<div class="ws-muted">Could not load workspace.json status.</div>';
+      body.innerHTML = '<div class="vault-muted">Could not load vault.json status.</div>';
       return;
     }
-    const copyBtn = '<button class="refresh-btn" onclick="wsCopySetupPrompt(this)" title="Copy a prompt for your workspace agent: expected workspace.json structure plus the current validation state">Copy setup prompt</button>';
+    const copyBtn = '<button class="refresh-btn" onclick="vaultCopySetupPrompt(this)" title="Copy a prompt for your vault agent: expected vault.json structure plus the current validation state">Copy setup prompt</button>';
     if (!cfg.present) {
       body.innerHTML = [
-        '<div class="ws-muted">workspace.json not present (optional).</div>',
-        `<div class="ws-card-actions"><button class="refresh-btn" onclick="wsCreateConfig(this)">Create workspace config</button>${copyBtn}</div>`,
+        '<div class="vault-muted">vault.json not present (optional).</div>',
+        `<div class="vault-card-actions"><button class="refresh-btn" onclick="vaultCreateConfig(this)">Create vault config</button>${copyBtn}</div>`,
       ].join('');
       return;
     }
@@ -16317,48 +16318,59 @@
     const warnings = cfg.warnings || [];
     const rows = [];
     if (cfg.valid) {
-      rows.push(`<div class="ws-cfg-status ok">✓ workspace.json is valid${warnings.length ? ' (with warnings)' : ''}</div>`);
+      rows.push(`<div class="vault-cfg-status ok">✓ vault.json is valid${warnings.length ? ' (with warnings)' : ''}</div>`);
     } else {
-      rows.push('<div class="ws-cfg-status err">✗ workspace.json has problems</div>');
+      rows.push('<div class="vault-cfg-status err">✗ vault.json has problems</div>');
     }
-    for (const e of errors) rows.push(`<div class="ws-cfg-issue err">${selfEsc(e)}</div>`);
-    for (const w of warnings) rows.push(`<div class="ws-cfg-issue warn">${selfEsc(w)}</div>`);
-    rows.push(`<div class="ws-card-actions"><button class="refresh-btn" onclick="openProjectDoc('workspace.json')">Open workspace.json</button>${copyBtn}</div>`);
+    for (const e of errors) rows.push(`<div class="vault-cfg-issue err">${selfEsc(e)}</div>`);
+    for (const w of warnings) rows.push(`<div class="vault-cfg-issue warn">${selfEsc(w)}</div>`);
+    rows.push(`<div class="vault-card-actions"><button class="refresh-btn" onclick="openVaultConfig()">Open vault config</button>${copyBtn}</div>`);
     body.innerHTML = rows.join('');
   }
 
-  // The setup prompt handed to the workspace agent. Self-contained: the
-  // agent works inside the workspace repo and may not have framework docs.
-  function _wsSetupPromptText() {
-    const cfg = _wsCfgLast || {};
-    const root = cfg.root || (_workspaceCurrent && _workspaceCurrent.path) || '(workspace root)';
-    const configUrl = location.origin + '/api/workspace/config?workspace=' +
-      encodeURIComponent((_workspaceCurrent && _workspaceCurrent.id) || '');
+  function openVaultConfig() {
+    // Legacy vaults retain their source filename until the first config update.
+    const source = _vaultCfgLast && _vaultCfgLast.source === 'workspace.json'
+      ? 'workspace.json' : 'vault.json';
+    openWorkspaceDoc(source);
+  }
+  window.openVaultConfig = openVaultConfig;
+
+  // The setup prompt handed to the vault agent. Self-contained: the
+  // agent works inside the vault repo and may not have framework docs.
+  function _vaultSetupPromptText() {
+    const cfg = _vaultCfgLast || {};
+    const root = cfg.root || (_vaultCurrent && _vaultCurrent.path) || '(vault root)';
+    const configUrl = location.origin + '/api/vault/config?vault=' +
+      encodeURIComponent((_vaultCurrent && _vaultCurrent.id) || '');
     const issues = [];
     for (const e of (cfg.errors || [])) issues.push('- ERROR: ' + e);
     for (const w of (cfg.warnings || [])) issues.push('- warning: ' + w);
     let state;
     if (!cfg.present) {
-      state = 'There is no workspace.json yet. Create it at ' + root + '/workspace.json.';
+      state = 'There is no vault.json yet. Create it at ' + root + '/vault.json.';
+    } else if (cfg.source === 'workspace.json') {
+      state = 'Shared config is still stored at ' + root + '/workspace.json. Create vault.json with the same settings, translating the old project section to workspace. The config API below returns normalized fields. Preserve the legacy source file.';
+      if (issues.length) state += '\nResolve these validation issues: \n' + issues.join('\n');
     } else if (!cfg.valid) {
-      state = 'workspace.json exists but is INVALID. Fix these problems:\n' + issues.join('\n');
+      state = 'vault.json exists but is INVALID. Fix these problems:\n' + issues.join('\n');
     } else if (issues.length) {
-      state = 'workspace.json exists and is valid, but has warnings to clean up:\n' + issues.join('\n');
+      state = 'vault.json exists and is valid, but has warnings to clean up:\n' + issues.join('\n');
     } else {
-      state = 'workspace.json exists and is valid. Review it against the structure below and extend it to describe what this workspace actually uses.';
+      state = 'vault.json exists and is valid. Review it against the structure below and extend it to describe what this vault actually uses.';
     }
     return [
-      "Set up this workspace's workspace.json — the declarative configuration Neurona",
-      'reads at the workspace root. Work from the workspace root: ' + root,
+      "Set up this vault's vault.json — the declarative configuration Neurona",
+      'reads at the vault root. Work from the vault root: ' + root,
       '',
       'Current state: ' + state,
       '',
       'Expected structure (version 1). Everything except "version" is optional —',
-      'describe only what this workspace actually uses:',
+      'describe only what this vault actually uses:',
       '',
       '{',
       '  "version": 1,',
-      '  "id": "workspace-id",',
+      '  "id": "vault-id",',
       '  "name": "Readable Name",',
       '  "agents": {',
       '    "supported": ["claude", "codex", "copilot"],',
@@ -16369,8 +16381,8 @@
       '      {"source": "agents/instructions.md", "target": ".github/copilot-instructions.md", "mode": "adapter", "when": "copilot"}',
       '    ]',
       '  },',
-      '  "project": {',
-      '    "template": "templates/project",',
+      '  "workspace": {',
+      '    "template": "templates/workspace",',
       '    "features": ["tasks", "docs", "notebooks", "prs", "diffs"],',
       '    "mounts": [',
       '      {"source": "skills", "target": ".agents/skills", "mode": "symlink"},',
@@ -16395,68 +16407,68 @@
       'Field notes:',
       '- "version" is required, an integer, currently 1. Unknown top-level fields are',
       '  ignored with a warning, so stay within this schema.',
-      '- "agents.supported" lists the agent CLIs this workspace uses ("claude",',
+      '- "agents.supported" lists the agent CLIs this vault uses ("claude",',
       '  "codex", "copilot"); "agents.default" must be one of them.',
       '- "agents.projections" map one tool-neutral source file to the per-tool',
       '  surfaces (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md).',
       '  "mode" is "symlink" | "adapter" | "copy"; "when" limits an entry to one',
       '  supported agent.',
-      '- "project.features" are the surfaces projects get; "project.mounts" are',
-      '  shared sources linked into each project (e.g. skills -> .agents/skills).',
+      '- "workspace.features" are the surfaces workspaces get; "workspace.mounts" are',
+      '  shared sources linked into each workspace (e.g. skills -> .agents/skills).',
       '- "notebooks" selects the executor ("darwin" is the only provider today).',
       '- "display" holds UI hints: "autoOpen", "hide", "showProjectionOrigin".',
       '',
       'How to work:',
-      '1. Look at what actually exists in the workspace tree (agents/, skills/,',
-      '   code/, templates/, projects/, repositories/) and write configuration that',
+      '1. Look at what actually exists in the vault tree (agents/, skills/,',
+      '   code/, templates/, workspaces/, repositories/) and write configuration that',
       '   matches reality, not aspiration.',
       '2. Write valid JSON (no comments, no trailing commas) at',
-      '   ' + root + '/workspace.json.',
+      '   ' + root + '/vault.json.',
       '3. Projections declare intent. If you also apply them, use relative symlinks',
       '   and never overwrite a real file — only replace links that already point',
-      '   into workspace sources, or files whose first line marks them generated.',
+      '   into vault sources, or files whose first line marks them generated.',
       '4. Verify when done: ' + configUrl + ' must show',
-      '   "valid": true with an empty "errors" list. The Workspace tab\'s',
+      '   "valid": true with an empty "errors" list. The Vault tab\'s',
       '   Configuration card shows the same.',
     ].join('\n');
   }
 
-  async function wsCopySetupPrompt(btn) {
-    await _copyToClipboard(_wsSetupPromptText(), btn);
+  async function vaultCopySetupPrompt(btn) {
+    await _copyToClipboard(_vaultSetupPromptText(), btn);
   }
-  window.wsCopySetupPrompt = wsCopySetupPrompt;
+  window.vaultCopySetupPrompt = vaultCopySetupPrompt;
 
-  async function wsCreateConfig(btn) {
+  async function vaultCreateConfig(btn) {
     if (btn) btn.disabled = true;
     try {
-      const r = await fetch('/api/workspace/config/init?workspace=' + encodeURIComponent(_workspaceCurrent.id), { method: 'POST' });
+      const r = await fetch('/api/vault/config/init?vault=' + encodeURIComponent(_vaultCurrent.id), { method: 'POST' });
       if (!r.ok) {
         const detail = (await r.json().catch(() => ({}))).detail || 'create failed';
         if (btn) { btn.textContent = String(detail); btn.disabled = false; }
         return;
       }
-      _wsCfgLast = await r.json();
+      _vaultCfgLast = await r.json();
       // Hand the user the next step in one motion: starter written, prompt
       // for the agent already on the clipboard.
-      await _copyToClipboard(_wsSetupPromptText(), btn);
-      await workspaceRenderConfigCard();
+      await _copyToClipboard(_vaultSetupPromptText(), btn);
+      await vaultRenderConfigCard();
     } finally {
       if (btn && btn.isConnected) btn.disabled = false;
     }
   }
-  window.wsCreateConfig = wsCreateConfig;
+  window.vaultCreateConfig = vaultCreateConfig;
 
-  // "Agents" card: workspace.json controls which agent choices appear in
+  // "Agents" card: vault.json controls which agent choices appear in
   // every terminal/settings menu. Autopilot remains a launch setting edited
-  // in Settings; availability is toggled here at workspace scope.
-  async function workspaceRenderAgentsCard() {
-    const body = document.getElementById('wsAgentsBody');
+  // in Settings; availability is toggled here at vault scope.
+  async function vaultRenderAgentsCard() {
+    const body = document.getElementById('vaultAgentsBody');
     if (!body) return;
     let s = _settings;
-    // force: the workspace agent may have edited workspace.json directly
+    // force: the vault agent may have edited vault.json directly
     // (that's the documented flow) — a cached policy would keep stale
     // agents in every menu until a full reload.
-    let policy = await loadWorkspaceAgentPolicy({force: true});
+    let policy = await loadVaultAgentPolicy({force: true});
     try {
       const r = await fetch('/api/settings');
       if (r.ok) { s = await r.json(); _settings = s; }
@@ -16471,22 +16483,22 @@
       const available = enabled.has(a);
       const flag = on && flags[a] ? ` (${flags[a]})` : '';
       const lastEnabled = available && enabled.size === 1;
-      return `<label class="ws-agent-row${available ? '' : ' off'}">
+      return `<label class="vault-agent-row${available ? '' : ' off'}">
         <input type="checkbox" ${available ? 'checked' : ''} ${lastEnabled ? 'disabled' : ''}
-               onchange="workspaceToggleAgent('${a}', this.checked, this)"
-               title="${lastEnabled ? 'At least one agent must remain enabled' : `Show ${escAttr(AGENT_LABELS[a])} in workspace menus`}">
-        <span class="ws-agent-name">${selfEsc(AGENT_LABELS[a])}</span>
-        ${available && a === defaultAgent ? '<span class="ws-agent-default">default</span>' : ''}
-        <span class="ws-agent-auto${on ? ' on' : ''}">autopilot ${on ? 'on' : 'off'}${selfEsc(flag)}</span>
+               onchange="vaultToggleAgent('${a}', this.checked, this)"
+               title="${lastEnabled ? 'At least one agent must remain enabled' : `Show ${escAttr(AGENT_LABELS[a])} in vault menus`}">
+        <span class="vault-agent-name">${selfEsc(AGENT_LABELS[a])}</span>
+        ${available && a === defaultAgent ? '<span class="vault-agent-default">default</span>' : ''}
+        <span class="vault-agent-auto${on ? ' on' : ''}">autopilot ${on ? 'on' : 'off'}${selfEsc(flag)}</span>
       </label>`;
     });
-    rows.unshift('<div class="ws-agent-hint">Enabled agents appear in every <strong>+ New</strong> menu.</div>');
-    rows.push('<div class="ws-card-actions"><button class="refresh-btn" onclick="openSettings()">Launch settings</button></div>');
+    rows.unshift('<div class="vault-agent-hint">Enabled agents appear in every <strong>+ New</strong> menu.</div>');
+    rows.push('<div class="vault-card-actions"><button class="refresh-btn" onclick="openSettings()">Launch settings</button></div>');
     body.innerHTML = rows.join('');
   }
 
-  async function workspaceToggleAgent(agent, checked, checkbox) {
-    const policy = await loadWorkspaceAgentPolicy();
+  async function vaultToggleAgent(agent, checked, checkbox) {
+    const policy = await loadVaultAgentPolicy();
     const next = new Set(policy.supported || []);
     if (checked) next.add(agent);
     else next.delete(agent);
@@ -16494,73 +16506,73 @@
       if (checkbox) checkbox.checked = true;
       return;
     }
-    const card = document.getElementById('wsAgentsBody');
+    const card = document.getElementById('vaultAgentsBody');
     if (card) card.querySelectorAll('input,button').forEach(el => { el.disabled = true; });
     try {
-      const r = await fetch('/api/workspace/agents', {
+      const r = await fetch('/api/vault/agents', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          workspace: _workspaceCurrent && _workspaceCurrent.id,
+          vault: _vaultCurrent && _vaultCurrent.id,
           supported: Object.keys(AGENT_LABELS).filter(a => next.has(a)),
         }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'update failed');
-      _workspaceAgentPolicy = Object.assign({workspace: _workspaceCurrent && _workspaceCurrent.id}, await r.json());
-      await Promise.all([workspaceRenderAgentsCard(), workspaceRenderConfigCard()]);
+      _vaultAgentPolicy = Object.assign({vault: _vaultCurrent && _vaultCurrent.id}, await r.json());
+      await Promise.all([vaultRenderAgentsCard(), vaultRenderConfigCard()]);
     } catch (e) {
       if (card && card.isConnected) {
-        card.innerHTML = `<div class="ws-cfg-issue err">${selfEsc(e.message || e)}</div>`;
-        setTimeout(() => workspaceRenderAgentsCard(), 1800);
+        card.innerHTML = `<div class="vault-cfg-issue err">${selfEsc(e.message || e)}</div>`;
+        setTimeout(() => vaultRenderAgentsCard(), 1800);
       }
     }
   }
-  window.workspaceToggleAgent = workspaceToggleAgent;
+  window.vaultToggleAgent = vaultToggleAgent;
 
-  let _workspaceProjectCreateBusy = false;
+  let _vaultWorkspaceCreateBusy = false;
 
-  function openWorkspaceProjectModal() {
-    if (!_workspaceCurrent || _workspaceCurrent.unavailable) return;
-    const modal = document.getElementById('workspaceProjectModal');
-    const form = document.getElementById('workspaceProjectForm');
-    const context = document.getElementById('workspaceProjectContext');
-    const error = document.getElementById('workspaceProjectError');
+  function openVaultWorkspaceModal() {
+    if (!_vaultCurrent || _vaultCurrent.unavailable) return;
+    const modal = document.getElementById('vaultWorkspaceModal');
+    const form = document.getElementById('vaultWorkspaceForm');
+    const context = document.getElementById('vaultWorkspaceContext');
+    const error = document.getElementById('vaultWorkspaceError');
     if (!modal || !form) return;
     form.reset();
-    if (context) context.textContent = _workspaceCurrent.name || _workspaceCurrent.id;
+    if (context) context.textContent = _vaultCurrent.name || _vaultCurrent.id;
     if (error) {
       error.textContent = '';
       error.classList.remove('on');
     }
     modal.classList.add('active');
     setTimeout(() => {
-      const input = document.getElementById('workspaceProjectId');
+      const input = document.getElementById('vaultWorkspaceId');
       if (input) input.focus();
     }, 0);
   }
-  window.openWorkspaceProjectModal = openWorkspaceProjectModal;
+  window.openVaultWorkspaceModal = openVaultWorkspaceModal;
 
-  function closeWorkspaceProjectModal() {
-    if (_workspaceProjectCreateBusy) return;
-    const modal = document.getElementById('workspaceProjectModal');
+  function closeVaultWorkspaceModal() {
+    if (_vaultWorkspaceCreateBusy) return;
+    const modal = document.getElementById('vaultWorkspaceModal');
     if (modal) modal.classList.remove('active');
   }
-  window.closeWorkspaceProjectModal = closeWorkspaceProjectModal;
+  window.closeVaultWorkspaceModal = closeVaultWorkspaceModal;
 
-  function _workspaceProjectCsv(value) {
+  function _vaultWorkspaceCsv(value) {
     return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
   }
 
-  async function submitWorkspaceProject(event) {
+  async function submitVaultWorkspace(event) {
     if (event) event.preventDefault();
-    if (_workspaceProjectCreateBusy || !_workspaceCurrent) return false;
-    const form = document.getElementById('workspaceProjectForm');
-    const error = document.getElementById('workspaceProjectError');
-    const submit = document.getElementById('workspaceProjectSubmit');
+    if (_vaultWorkspaceCreateBusy || !_vaultCurrent) return false;
+    const form = document.getElementById('vaultWorkspaceForm');
+    const error = document.getElementById('vaultWorkspaceError');
+    const submit = document.getElementById('vaultWorkspaceSubmit');
     if (!form) return false;
 
-    const workspaceId = _workspaceCurrent.id;
-    _workspaceProjectCreateBusy = true;
+    const vaultId = _vaultCurrent.id;
+    _vaultWorkspaceCreateBusy = true;
     if (submit) {
       submit.disabled = true;
       submit.textContent = 'Creating…';
@@ -16571,112 +16583,112 @@
     }
 
     try {
-      const response = await fetch('/api/projects', {
+      const response = await fetch('/api/workspaces', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           id: form.elements.id.value.trim(),
-          workspace: workspaceId,
+          vault: vaultId,
           description: form.elements.description.value.trim(),
           priority: form.elements.priority.value || null,
           due: form.elements.due.value || null,
-          tags: _workspaceProjectCsv(form.elements.tags.value),
-          labels: _workspaceProjectCsv(form.elements.labels.value),
+          tags: _vaultWorkspaceCsv(form.elements.tags.value),
+          labels: _vaultWorkspaceCsv(form.elements.labels.value),
         }),
       });
       const created = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(created.detail || 'project creation failed');
+      if (!response.ok) throw new Error(created.detail || 'workspace creation failed');
 
       // A catalog request that started before creation may not contain the
       // new row. Let it settle, then fetch an authoritative post-create list.
-      const pendingCatalog = _workspaceCatalogInFlight;
+      const pendingCatalog = _vaultCatalogInFlight;
       if (pendingCatalog) await pendingCatalog;
-      const data = await fetchWorkspaceCatalog();
-      const workspaces = (data && data.workspaces) || [];
-      const refreshed = workspaces.find(row => row.id === workspaceId);
-      if (refreshed) _workspaceCurrent = refreshed;
-      projectsList = workspaces.flatMap(row => row.project_rows || []);
-      const project = projectsList.find(row =>
-        row.workspace === workspaceId && row.name === created.id);
+      const data = await fetchVaultCatalog();
+      const vaults = (data && data.vaults) || [];
+      const refreshed = vaults.find(row => row.id === vaultId);
+      if (refreshed) _vaultCurrent = refreshed;
+      workspacesList = vaults.flatMap(row => row.workspace_rows || []);
+      const workspace = workspacesList.find(row =>
+        row.vault === vaultId && row.name === created.id);
 
-      _workspaceProjectCreateBusy = false;
-      closeWorkspaceProjectModal();
-      if (project && project.path) goToProject(project.path);
-      else await workspaceRenderProjectsCard();
+      _vaultWorkspaceCreateBusy = false;
+      closeVaultWorkspaceModal();
+      if (workspace && workspace.path) goToWorkspace(workspace.path);
+      else await vaultRenderWorkspacesCard();
     } catch (e) {
       if (error) {
         error.textContent = e.message || String(e);
         error.classList.add('on');
       }
     } finally {
-      _workspaceProjectCreateBusy = false;
+      _vaultWorkspaceCreateBusy = false;
       if (submit) {
         submit.disabled = false;
-        submit.textContent = 'Create project';
+        submit.textContent = 'Create workspace';
       }
     }
     return false;
   }
-  window.submitWorkspaceProject = submitWorkspaceProject;
+  window.submitVaultWorkspace = submitVaultWorkspace;
 
-  // "Projects" card: the shown workspace's project ids from
-  // /api/workspaces/projects. Rows open the project the same way Home's
-  // active-workspace rows do (goToProjectById → in-page nav).
-  async function workspaceRenderProjectsCard() {
-    const list = document.getElementById('wsProjectsList');
-    const count = document.getElementById('wsProjectsCount');
+  // "Workspaces" card: the shown vault's workspace ids from
+  // /api/vaults/workspaces. Rows open the workspace the same way Home's
+  // active-vault rows do (goToWorkspaceById → in-page nav).
+  async function vaultRenderWorkspacesCard() {
+    const list = document.getElementById('vaultWorkspacesList');
+    const count = document.getElementById('vaultWorkspacesCount');
     if (!list) return;
     if (!list.isConnected) return;
-    const ws = _workspaceCurrent;
-    if (!ws) {
+    const vault = _vaultCurrent;
+    if (!vault) {
       if (count) count.textContent = '';
-      list.innerHTML = '<li class="s-empty">Could not load projects.</li>';
+      list.innerHTML = '<li class="s-empty">Could not load workspaces.</li>';
       return;
     }
-    if (ws.unavailable) {
+    if (vault.unavailable) {
       if (count) count.textContent = '';
-      list.innerHTML = `<li class="s-empty">${selfEsc(ws.detail || 'workspace volume unavailable')}</li>`;
+      list.innerHTML = `<li class="s-empty">${selfEsc(vault.detail || 'vault volume unavailable')}</li>`;
       return;
     }
-    const projects = ws.project_rows || [];
-    if (count) count.textContent = projects.length ? String(projects.length) : '';
-    if (!projects.length) {
-      list.innerHTML = '<li class="s-empty">No projects yet.</li>';
+    const workspaces = vault.workspace_rows || [];
+    if (count) count.textContent = workspaces.length ? String(workspaces.length) : '';
+    if (!workspaces.length) {
+      list.innerHTML = '<li class="s-empty">No workspaces yet.</li>';
       return;
     }
-    list.innerHTML = projects.map(project => `
-      <li class="ws-proj-row" data-path="${escAttr(project.path)}" role="button" tabindex="0" title="Open ${escAttr(_projectDisplayName(project))}">
-        <span class="ws-proj-name">${selfEsc(_projectDisplayName(project))}</span>
+    list.innerHTML = workspaces.map(workspace => `
+      <li class="vault-workspace-row" data-path="${escAttr(workspace.path)}" role="button" tabindex="0" title="Open ${escAttr(_workspaceDisplayName(workspace))}">
+        <span class="vault-workspace-name">${selfEsc(_workspaceDisplayName(workspace))}</span>
         <span class="p-caret">›</span>
       </li>`).join('');
-    list.querySelectorAll('.ws-proj-row').forEach(row => {
-      row.addEventListener('click', () => goToProject(row.getAttribute('data-path')));
+    list.querySelectorAll('.vault-workspace-row').forEach(row => {
+      row.addEventListener('click', () => goToWorkspace(row.getAttribute('data-path')));
     });
   }
 
-  // Populate #sidebar with the workspace root's real file tree. Same
+  // Populate #sidebar with the vault root's real file tree. Same
   // renderer as the self view (renderSidebarFileTree) — icons, git
   // decorations, notebook dots, hidden-files toggle, symlink legend. No
-  // Meta section: the workspace tab shows the root exactly as on disk.
-  async function workspacePopulateSidebar() {
+  // Meta section: the vault tab shows the root exactly as on disk.
+  async function vaultPopulateSidebar() {
     const sidebar = document.getElementById('sidebar');
-    if (!sidebar || !currentProject || currentProject.name !== WORKSPACE_PROJECT_ID) return;
-    const rootPath = currentProject.path;
+    if (!sidebar || !currentWorkspace || currentWorkspace.name !== VAULT_WORKSPACE_ID) return;
+    const rootPath = currentWorkspace.path;
     try {
       await _sidebarEnsureWorktrees(rootPath);
       const fileRoot = _sidebarScopedRoot(rootPath);
-      const files = await _sidebarFetchProjectFiles(fileRoot);
+      const files = await _sidebarFetchWorkspaceFiles(fileRoot);
       const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
-      if (!document.body.classList.contains('workspace-active')) return;
-      if (!currentProject || currentProject.path !== rootPath) return;
+      if (!document.body.classList.contains('vault-active')) return;
+      if (!currentWorkspace || currentWorkspace.path !== rootPath) return;
       if (_sidebarScopedRoot(rootPath) !== fileRoot) return;
       _sidebarRememberAvailableExtensions(files);
       _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
       _rememberNotebookFolders(fileRoot, files);
 
-      const activePath = _projDocRoot === fileRoot ? (_projDocPath || null) : null;
+      const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const overviewActive = !activePath ? ' active' : '';
-      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${overviewActive}" data-ws-overview="1" onclick="workspaceShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
+      let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${overviewActive}" data-vault-overview="1" onclick="vaultShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(rootPath);
       sbHtml += _sidebarWorktreePickerHtml(rootPath);
@@ -16684,31 +16696,31 @@
       sbHtml += _sidebarWorktreeScopeStartHtml(rootPath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
-      sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `workspace:${fileRoot}`, autoOpen: _AUTO_OPEN_WORKSPACE, activePath, root: fileRoot});
+      sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `vault:${fileRoot}`, autoOpen: _AUTO_OPEN_VAULT, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(rootPath);
       sidebar.innerHTML = sbHtml;
       // Fast first decoration pass (cached + rate-limited server-side);
       // the shared 6s poll keeps it fresh afterwards.
       _sidebarGitStatusRefresh();
     } catch (e) {
-      sidebar.innerHTML = '<div class="sidebar-title">Workspace</div>';
+      sidebar.innerHTML = '<div class="sidebar-title">Vault</div>';
     }
   }
 
-  // Toggle hidden-files visibility for the workspace sidebar. Mirrors
+  // Toggle hidden-files visibility for the vault sidebar. Mirrors
   // selfToggleDotFiles().
-  function workspaceToggleDotFiles(checked) {
-    showProjectDotFiles = checked;
+  function vaultToggleDotFiles(checked) {
+    showWorkspaceDotFiles = checked;
     _sidebarFileConfig.showHidden = checked;
     _storeSidebarFileConfig();
-    workspacePopulateSidebar();
+    vaultPopulateSidebar();
   }
 
   async function initCerebro(initialPath) {
     document.body.classList.add('cerebro-active');
     document.title = 'Cerebro';
     // Re-render the tab strip so the Cerebro tab shows up as active.
-    if (typeof projTabsRender === 'function') projTabsRender();
+    if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
     // Open ancestors of the initial file so it's visible in the tree.
     if (initialPath) {
       const parts = initialPath.split('/');
@@ -16868,7 +16880,7 @@
         const fm = body.frontmatter || {};
         const fmChips = Object.keys(fm).length ? (
           '<div class="fm-chips">' +
-          ['date', 'type', 'scope', 'projects', 'tags', 'people'].filter(k => k in fm).map(k => {
+          ['date', 'type', 'scope', 'workspaces', 'tags', 'people'].filter(k => k in fm).map(k => {
             const v = Array.isArray(fm[k]) ? fm[k].join(', ') : String(fm[k] == null ? '' : fm[k]);
             return `<span class="fm-chip"><b>${cerebroEsc(k)}:</b> ${cerebroEsc(v)}</span>`;
           }).join('') + '</div>'
@@ -16942,7 +16954,7 @@
   }
 
   // Sticky per-file HTML-view preference (rendered vs source). Both the
-  // Cerebro viewer and the project doc pane use this so a file viewed in
+  // Cerebro viewer and the workspace doc pane use this so a file viewed in
   // one place comes back the same way the next time.
   function getHtmlViewPref(absPath, fallback = 'rendered') {
     try { return localStorage.getItem('htmlView:' + absPath) || fallback; } catch { return fallback; }
@@ -17026,7 +17038,7 @@
       </div>`;
     if (mode === 'rendered') {
       const src = '/api/cerebro/asset?path=' + encodeURIComponent(full);
-      // Same iframe re-mount guard as _projectRenderHtml — avoids a white
+      // Same iframe re-mount guard as _workspaceRenderHtml — avoids a white
       // flash on every WS index-updated event.
       const existing = pane.querySelector('iframe.html-iframe');
       const activeBtn = pane.querySelector('.html-toolbar .html-toggle.active');
@@ -17088,34 +17100,34 @@
     });
   }
 
-  // Terminal panel for the Knowledge pseudo-project: claude session rooted at knowledge/.
+  // Terminal panel for the Knowledge pseudo-workspace: claude session rooted at knowledge/.
   async function termOpenForCerebro() {
-    // Mirror termOpenForProject, but wired to the __cerebro__ pseudo-project.
-    if (!_termIsScopeActive(CEREBRO_PROJECT_ID)) return;
+    // Mirror termOpenForWorkspace, but wired to the __cerebro__ pseudo-workspace.
+    if (!_termIsScopeActive(CEREBRO_WORKSPACE_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-    if (await _termTryWarmOpen(CEREBRO_PROJECT_ID)) {
+    if (await _termTryWarmOpen(CEREBRO_WORKSPACE_ID)) {
       termStartPeriodicRefresh();
       return;
     }
-    await _termRestoreSessionsForProject(CEREBRO_PROJECT_ID);
+    await _termRestoreSessionsForWorkspace(CEREBRO_WORKSPACE_ID);
     termStartPeriodicRefresh();
   }
 
-  async function termRefreshSessionsByProjectId(pid) {
+  async function termRefreshSessionsByWorkspaceId(pid) {
     // Fetches the live session list and re-renders the pill row.
     let fresh = [];
     let ok = false;
-    const workspaceId = _termWorkspaceId();
-    const sessionCacheKey = _termSessionsKey(pid, workspaceId);
+    const vaultId = _termVaultId();
+    const sessionCacheKey = _termSessionsKey(pid, vaultId);
     try {
-      const r = await fetch('/api/term/sessions?project_id=' + encodeURIComponent(pid) + _workspaceQuery(workspaceId));
+      const r = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(pid) + _vaultQuery(vaultId));
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
     if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard — see termRefreshSessions for why.
-    if (pid !== _termActiveProjectId() || workspaceId !== _termWorkspaceId()) return ok;
+    if (pid !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return ok;
     // Failed fetch → keep the last-known list (see termRefreshSessions).
     termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
     if (ok) {
@@ -17140,31 +17152,31 @@
   const _nbLivePaths = new Set();
   let _nbLiveEventChain = Promise.resolve();
 
-  function _nbLiveKey(workspaceId, relPath) {
-    return `${String(workspaceId || '')}::${String(relPath || '')}`;
+  function _nbLiveKey(vaultId, relPath) {
+    return `${String(vaultId || '')}::${String(relPath || '')}`;
   }
 
   function _currentOpenNotebookRelPath() {
-    if (!currentProject || !_projDocPath || !/\.ipynb$/i.test(_projDocPath)) return null;
-    const root = _projDocRoot || currentProject.path;
-    if (root !== currentProject.path) return null;
-    const workspace = _notebookWorkspaceContext(currentProject);
-    return _workspaceRelativeNotebookPathOrNull(
-      currentProject.path, _projDocPath, workspace.workspaceRoot,
+    if (!currentWorkspace || !_workspaceDocPath || !/\.ipynb$/i.test(_workspaceDocPath)) return null;
+    const root = _workspaceDocRoot || currentWorkspace.path;
+    if (root !== currentWorkspace.path) return null;
+    const vault = _notebookVaultContext(currentWorkspace);
+    return _vaultRelativeNotebookPathOrNull(
+      currentWorkspace.path, _workspaceDocPath, vault.vaultRoot,
     );
   }
 
-  async function _reconcileOpenNotebook(relPath, workspaceId = null) {
+  async function _reconcileOpenNotebook(relPath, vaultId = null) {
     if (_currentOpenNotebookRelPath() !== relPath) return;
-    if (workspaceId && workspaceId !== _projectWorkspaceId(currentProject)) return;
-    await openProjectDoc(_projDocPath, { preserveScroll: true });
+    if (vaultId && vaultId !== _workspaceVaultId(currentWorkspace)) return;
+    await openWorkspaceDoc(_workspaceDocPath, { preserveScroll: true });
   }
 
   async function _handleNotebookExecutionEvent(event) {
     if (!event || !event.path) return;
     const relPath = String(event.path);
-    const workspaceId = String(event.workspace || '');
-    const liveKey = _nbLiveKey(workspaceId, relPath);
+    const vaultId = String(event.vault || '');
+    const liveKey = _nbLiveKey(vaultId, relPath);
     const phase = String(event.phase || '');
     const terminal = phase === 'finished' || phase === 'failed' || phase === 'interrupted';
     if (phase === 'started' || phase === 'output' || phase === 'execution-count') {
@@ -17172,22 +17184,22 @@
     }
     if (terminal) _nbLivePaths.delete(liveKey);
 
-    if (workspaceId && workspaceId !== _projectWorkspaceId(currentProject)) return;
+    if (vaultId && vaultId !== _workspaceVaultId(currentWorkspace)) return;
     if (_currentOpenNotebookRelPath() !== relPath) return;
     if (phase === 'started' || terminal) {
-      await _reconcileOpenNotebook(relPath, workspaceId);
+      await _reconcileOpenNotebook(relPath, vaultId);
       return;
     }
     if (phase !== 'output' && phase !== 'execution-count') return;
 
     const cellId = String(event.cell_id || '');
     if (!cellId) {
-      await _reconcileOpenNotebook(relPath, workspaceId);
+      await _reconcileOpenNotebook(relPath, vaultId);
       return;
     }
     let wrap = document.querySelector(`.nb-cell-interactive[data-cell-id="${CSS.escape(cellId)}"]`);
     if (!wrap) {
-      await _reconcileOpenNotebook(relPath, workspaceId);
+      await _reconcileOpenNotebook(relPath, vaultId);
       return;
     }
 
@@ -17195,7 +17207,7 @@
     const currentSequence = Number(wrap.getAttribute('data-live-sequence'));
     if (!Number.isFinite(incomingSequence) || !Number.isFinite(currentSequence)
         || incomingSequence > currentSequence + 1) {
-      await _reconcileOpenNotebook(relPath, workspaceId);
+      await _reconcileOpenNotebook(relPath, vaultId);
       return;
     }
     // Reconciliation may already have included this event in its /live
@@ -17218,7 +17230,7 @@
         // The started snapshot should always include the running placeholder.
         // If an extension/external mutation removed it, reconcile rather than
         // inventing incomplete notebook chrome in-place.
-        await _reconcileOpenNotebook(relPath, workspaceId);
+        await _reconcileOpenNotebook(relPath, vaultId);
         return;
       }
       if (event.reset || event.operation === 'clear') body.innerHTML = '';
@@ -17236,8 +17248,8 @@
     wrap.setAttribute('data-live-sequence', String(incomingSequence));
   }
 
-  // WS live refresh — re-render current view (home panel or project view)
-  // on index-updated. The project view also has a 2s mtime poller as
+  // WS live refresh — re-render current view (home panel or workspace view)
+  // on index-updated. The workspace view also has a 2s mtime poller as
   // fallback, but WS refreshes within ~50ms so the sidebar + dashboard
   // reflect new files without a manual reload.
   let _liveWsSubscribed = false;
@@ -17260,12 +17272,12 @@
         // so /api/nb/live supplies the complete sequence snapshot before new
         // deltas arrive.
         const reconnectNotebook = hasConnected ? _currentOpenNotebookRelPath() : null;
-        const reconnectWorkspaceId = reconnectNotebook && currentProject
-          ? _projectWorkspaceId(currentProject) : null;
+        const reconnectVaultId = reconnectNotebook && currentWorkspace
+          ? _workspaceVaultId(currentWorkspace) : null;
         hasConnected = true;
         if (reconnectNotebook) {
           _nbLiveEventChain = _nbLiveEventChain
-            .then(() => _reconcileOpenNotebook(reconnectNotebook, reconnectWorkspaceId))
+            .then(() => _reconcileOpenNotebook(reconnectNotebook, reconnectVaultId))
             .catch(() => {});
         }
       };
@@ -17282,33 +17294,33 @@
           if (event.ts && event.ts === lastTs) return;
           lastTs = event.ts;
           if (document.body.classList.contains('self-active')
-                     && !currentRepo && !_projDocEditing) {
-            if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
+                     && !currentRepo && !_workspaceDocEditing) {
+            if (_workspaceDocPath) openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
             else {
               selfRefreshWorkbench();
               selfPopulateSidebar();
             }
-          } else if (document.body.classList.contains('workspace-active')
-                     && !currentRepo && !_projDocEditing) {
-            if (_projDocPath) openProjectDoc(_projDocPath, {preserveScroll: true});
-            else workspacePopulateSidebar();
+          } else if (document.body.classList.contains('vault-active')
+                     && !currentRepo && !_workspaceDocEditing) {
+            if (_workspaceDocPath) openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
+            else vaultPopulateSidebar();
           } else if (document.body.classList.contains('assistant-active')) {
-            if (_projDocPath) {
-              openProjectDoc(_projDocPath, {preserveScroll: true});
+            if (_workspaceDocPath) {
+              openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
             } else if (window.AssistantView) {
               window.AssistantView.refresh();
             }
-            if (ASSISTANT_ROOT) _refreshProjectSidebar({preserveScroll: true});
-          } else if (currentProject && currentProject.is_project
-                     && !currentRepo && !_projDocEditing) {
+            if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true});
+          } else if (currentWorkspace && currentWorkspace.is_workspace
+                     && !currentRepo && !_workspaceDocEditing) {
             const liveNotebook = _currentOpenNotebookRelPath();
-            if (_projDocPath) {
-              const liveKey = _nbLiveKey(_projectWorkspaceId(currentProject), liveNotebook);
+            if (_workspaceDocPath) {
+              const liveKey = _nbLiveKey(_workspaceVaultId(currentWorkspace), liveNotebook);
               if (!(liveNotebook && _nbLivePaths.has(liveKey))) {
-                openProjectDoc(_projDocPath, {preserveScroll: true});
+                openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
               }
             } else if (!document.body.classList.contains('self-active')) {
-              showProjectInfo({preserveScroll: true});
+              showWorkspaceInfo({preserveScroll: true});
             }
           }
         } catch {}

@@ -1,5 +1,5 @@
 """Unit tests for core.fsguard: the 503-on-stall guard around blocking
-filesystem calls against a (possibly wedged) workspace volume."""
+filesystem calls against a (possibly wedged) vault volume."""
 from __future__ import annotations
 
 import errno
@@ -21,68 +21,68 @@ def _reset_inflight():
     fsguard._inflight = 0
 
 
-# ─── workspace_name() ───────────────────────────────────────────────────────
+# ─── vault_name() ───────────────────────────────────────────────────────
 
 
-def test_workspace_name_matches_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ws_dir = tmp_path / "workspaces" / "productivity"
+def test_vault_name_matches_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws_dir = tmp_path / "vaults" / "productivity"
     ws_dir.mkdir(parents=True)
     lab_home = tmp_path / ".lab-home"
     lab_home.mkdir()
-    (lab_home / "workspaces.toml").write_text(
+    (lab_home / "vaults.toml").write_text(
         'active = "ssd"\n\n'
-        "[[workspaces]]\n"
+        "[[vaults]]\n"
         'id = "ssd"\n'
         'name = "ssd"\n'
         f'path = "{ws_dir}"\n'
     )
     monkeypatch.setenv("LAB_HOME", str(lab_home))
 
-    assert fsguard.workspace_name(ws_dir) == "ssd"
+    assert fsguard.vault_name(ws_dir) == "ssd"
 
 
-def test_workspace_name_registry_read_fresh_each_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Registry ids/names can be renamed while the server runs; workspace_name
+def test_vault_name_registry_read_fresh_each_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Registry ids/names can be renamed while the server runs; vault_name
     must reflect the current file, not a cached value."""
-    ws_dir = tmp_path / "workspaces" / "productivity"
+    ws_dir = tmp_path / "vaults" / "productivity"
     ws_dir.mkdir(parents=True)
     lab_home = tmp_path / ".lab-home"
     lab_home.mkdir()
-    registry = lab_home / "workspaces.toml"
+    registry = lab_home / "vaults.toml"
     registry.write_text(
-        "[[workspaces]]\n"
+        "[[vaults]]\n"
         'id = "old-id"\n'
         'name = "old-name"\n'
         f'path = "{ws_dir}"\n'
     )
     monkeypatch.setenv("LAB_HOME", str(lab_home))
 
-    assert fsguard.workspace_name(ws_dir) == "old-name"
+    assert fsguard.vault_name(ws_dir) == "old-name"
 
     registry.write_text(
-        "[[workspaces]]\n"
+        "[[vaults]]\n"
         'id = "ssd"\n'
         'name = "ssd"\n'
         f'path = "{ws_dir}"\n'
     )
-    assert fsguard.workspace_name(ws_dir) == "ssd"
+    assert fsguard.vault_name(ws_dir) == "ssd"
 
 
-def test_workspace_name_falls_back_to_lab_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ws_dir = tmp_path / "workspaces" / "myws"
+def test_vault_name_falls_back_to_lab_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws_dir = tmp_path / "vaults" / "myws"
     ws_dir.mkdir(parents=True)
-    (ws_dir / "lab.toml").write_text('[workspace]\nname = "My Workspace"\n')
+    (ws_dir / "lab.toml").write_text('[vault]\nname = "My Vault"\n')
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home-empty"))
 
-    assert fsguard.workspace_name(ws_dir) == "My Workspace"
+    assert fsguard.vault_name(ws_dir) == "My Vault"
 
 
-def test_workspace_name_falls_back_to_dir_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ws_dir = tmp_path / "workspaces" / "bare"
+def test_vault_name_falls_back_to_dir_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ws_dir = tmp_path / "vaults" / "bare"
     ws_dir.mkdir(parents=True)
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home-empty"))
 
-    assert fsguard.workspace_name(ws_dir) == "bare"
+    assert fsguard.vault_name(ws_dir) == "bare"
 
 
 # ─── guarded() ──────────────────────────────────────────────────────────────
@@ -100,8 +100,8 @@ def test_guarded_timeout_raises_503_with_exact_detail(tmp_path: Path, monkeypatc
     elapsed = time.monotonic() - started
 
     assert exc_info.value.status_code == 503
-    expected_name = fsguard.workspace_name(tmp_path)
-    assert exc_info.value.detail == f"resource is not available for workspace {expected_name}"
+    expected_name = fsguard.vault_name(tmp_path)
+    assert exc_info.value.detail == f"resource is not available for vault {expected_name}"
     # Should fail fast at the timeout, not wait for the full blocking call.
     assert elapsed < 0.25
 
@@ -116,8 +116,8 @@ def test_guarded_eintr_oserror_mapped_to_503(tmp_path: Path, monkeypatch: pytest
         fsguard.guarded(tmp_path, _stalled)
 
     assert exc_info.value.status_code == 503
-    expected_name = fsguard.workspace_name(tmp_path)
-    assert exc_info.value.detail == f"resource is not available for workspace {expected_name}"
+    expected_name = fsguard.vault_name(tmp_path)
+    assert exc_info.value.detail == f"resource is not available for vault {expected_name}"
 
 
 def test_guarded_bare_interrupted_error_mapped_to_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,8 +166,8 @@ def test_guarded_saturated_pool_fails_fast(tmp_path: Path, monkeypatch: pytest.M
     elapsed = time.monotonic() - started
 
     assert exc_info.value.status_code == 503
-    expected_name = fsguard.workspace_name(tmp_path)
-    assert exc_info.value.detail == f"resource is not available for workspace {expected_name}"
+    expected_name = fsguard.vault_name(tmp_path)
+    assert exc_info.value.detail == f"resource is not available for vault {expected_name}"
     assert elapsed < 0.05
 
 
@@ -175,7 +175,7 @@ def test_guarded_timeout_logs_error(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     """A stall must land an ERROR-level log entry (routed to errors.log by
     the server's levelno filter), not just the 503 to the caller."""
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home-empty"))
-    expected_name = fsguard.workspace_name(tmp_path)
+    expected_name = fsguard.vault_name(tmp_path)
     with caplog.at_level(logging.ERROR, logger="core.fsguard"):
         with pytest.raises(HTTPException):
             fsguard.guarded(tmp_path, time.sleep, 0.3, timeout=0.05)
@@ -191,7 +191,7 @@ def test_guarded_timeout_logs_error(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 def test_guarded_eintr_logs_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab-home-empty"))
-    expected_name = fsguard.workspace_name(tmp_path)
+    expected_name = fsguard.vault_name(tmp_path)
 
     def _stalled(*_args):
         raise OSError(errno.EINTR, "interrupted system call")

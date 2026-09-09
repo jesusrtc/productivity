@@ -7,10 +7,12 @@ nested tree for the Obsidian-style browser. Markdown rendering goes through
 ``/api/markdown``.
 
 Everything under ``content/`` is included — wikis, logs, meetings,
-roadmaps, skills, templates, AND the whole ``projects/`` subtree — so one
-view covers both Cerebro content and per-project docs.
+roadmaps, skills, templates, AND the whole ``workspaces/`` subtree — so one
+view covers both Cerebro content and per-workspace docs.
 """
 from __future__ import annotations
+
+from lab import naming
 
 import mimetypes
 import os
@@ -46,21 +48,24 @@ def _resolve_cerebro_path(root: Path, path: str) -> Path:
     content_root = (root / "content").resolve()
     shared_claude = (root / ".claude").resolve()
     shared_agents = (root / ".agents").resolve()
-    shared_projects = (root / "projects").resolve()  # projects/ is a top-level sibling now
-    # Canonical root instructions surfaced in every project's Meta section.
+    shared_workspaces = (naming.workspaces_dir(root)).resolve()  # workspaces/ is a top-level sibling now
+    # Canonical root instructions surfaced in every workspace's Meta section.
     # CLAUDE.md is a symlink to AGENTS.md, so both resolve to the same file.
     shared_files = {(root / "AGENTS.md").resolve(), (root / "CLAUDE.md").resolve()}
+    relative = Path(path)
+    if relative.parts and relative.parts[0] == "workspaces":
+        relative = naming.workspaces_dir(root).relative_to(root).joinpath(*relative.parts[1:])
     candidates = (
-        (root / path).resolve(),          # monorepo-relative — .claude/..., .agents/..., projects/... land here
+        (root / relative).resolve(),      # vault-relative, including legacy workspace storage
         (content_root / path).resolve(),  # content-relative — code/..., wikis/..., etc.
     )
     for target in candidates:
         if target in shared_files:
             return target
-        for allowed_root in (content_root, shared_claude, shared_agents, shared_projects):
+        for allowed_root in (content_root, shared_claude, shared_agents, shared_workspaces):
             if target == allowed_root or allowed_root in target.parents:
                 return target
-    raise HTTPException(status_code=400, detail="path escapes content/, .claude/, .agents/ or projects/")
+    raise HTTPException(status_code=400, detail="path escapes content/, .claude/, .agents/ or workspaces/")
 
 
 # Dirs we don't want to crawl into, ever. Mostly ignored caches + vendor
@@ -94,7 +99,7 @@ def _symlink_fields(path: Path) -> dict:
 
 def _node(path: Path, rel: Path, include_hidden: bool) -> dict | None:
     name = path.name
-    # `.claude/` carries the project's shared skills/agents/hooks. We
+    # `.claude/` carries the workspace's shared skills/agents/hooks. We
     # surface it by default so it's browseable from Cerebro; the only
     # subpath we hide is `.claude/logs/`, handled in `_build`.
     if not include_hidden and name.startswith(".") and name not in (".", ".claude"):
@@ -190,7 +195,7 @@ def cerebro_asset(path: str, request: Request):
 def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
     """Return the Cerebro tree — ``content/`` plus the monorepo-root ``.claude/``.
 
-    Top-level entries are the children of ``content/`` (wikis, projects,
+    Top-level entries are the children of ``content/`` (wikis, workspaces,
     logs, etc.) with one virtual addition: the monorepo's ``.claude/``
     (skills, agents, hooks, settings) is surfaced as a top-level ``.claude``
     node so users can browse shared tooling without leaving Cerebro. Paths
@@ -218,7 +223,7 @@ def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
             shared_node.update(_symlink_fields(shared))
             nodes.insert(0, shared_node)
         # Also surface the tool-neutral `.agents/` (config, memory, shared skills)
-        # so it's browseable from every project's Meta section, like `.claude/`.
+        # so it's browseable from every workspace's Meta section, like `.claude/`.
         shared_agents = root / ".agents"
         if shared_agents.is_dir():
             agents_node = {
@@ -229,18 +234,18 @@ def cerebro_tree(request: Request, include_hidden: bool = False) -> list[dict]:
             }
             agents_node.update(_symlink_fields(shared_agents))
             nodes.insert(0, agents_node)
-        # Surface the top-level `projects/` (popped out of content/) so projects
+        # Surface the top-level `workspaces/` (popped out of content/) so workspaces
         # stay browseable in Cerebro, exactly as they were when nested under content/.
-        projects = root / "projects"
-        if projects.is_dir():
-            projects_node = {
-                "name": "projects",
-                "path": "projects",
+        workspaces = naming.workspaces_dir(root)
+        if workspaces.is_dir():
+            workspaces_node = {
+                "name": "workspaces",
+                "path": workspaces.relative_to(root).as_posix(),
                 "type": "dir",
-                "children": _build(projects, Path("projects"), include_hidden),
+                "children": _build(workspaces, workspaces.relative_to(root), include_hidden),
             }
-            projects_node.update(_symlink_fields(projects))
-            nodes.insert(0, projects_node)
+            workspaces_node.update(_symlink_fields(workspaces))
+            nodes.insert(0, workspaces_node)
         return nodes
 
     return fsguard.guarded(root, _build_tree)

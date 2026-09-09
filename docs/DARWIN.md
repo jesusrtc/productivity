@@ -97,7 +97,7 @@ For anything not covered here, read `~/.claude/skills/darwin-cli/SKILL.md` and `
 The lab server (default `:3333`, overridable via `make start PORT=NNNN`) exposes a notebook executor that wraps `darwin code execute` and writes the result straight to an `.ipynb` on disk. Use `lab notebook exec` instead of running `darwin code execute` directly whenever you want the run to appear in an open notebook view (your UI **and** an agent can share the same notebook this way):
 
 ```bash
-lab notebook exec projects/<id>/notebooks/<name>.ipynb --code 'print(1+1)'
+lab notebook exec workspaces/<id>/notebooks/<name>.ipynb --code 'print(1+1)'
 ```
 
 The command discovers the active server, authenticates with Lab's private local
@@ -109,7 +109,7 @@ remains available to API clients; resolve its actual URL from any shell via
 
 ```json
 {
-  "path":   "projects/<id>/notebooks/<name>.ipynb",
+  "path":   "workspaces/<id>/notebooks/<name>.ipynb",
   "code":   "print('hello darwin')",
   "kernel": "python3",      // optional: python3 | pyspark | spark-scala | r | python3-gpu
   "timeout": 600             // optional, seconds
@@ -120,7 +120,7 @@ Behavior:
 
 - **Kernel session is pinned to the file.** The server derives a deterministic session id (`lab-<sha1[:12]>` of the relative path) so every cell appended to the same `.ipynb` lands on the same Darwin kernel. Variables persist between cells naturally.
 - **The `.ipynb` on disk is the source of truth.** The endpoint loads the file (creating it if missing), appends a new code cell with the `cell_outputs` Darwin returned, bumps `execution_count`, and saves atomically.
-- **The watcher does the rest.** Because the file lives under the active workspace, the watcher fires `index-updated` on the WebSocket; every open notebook view in the SPA re-renders. The same flow works whether the run came from the UI's editor or from `curl` on a terminal.
+- **The watcher does the rest.** Because the file lives under the active vault, the watcher fires `index-updated` on the WebSocket; every open notebook view in the SPA re-renders. The same flow works whether the run came from the UI's editor or from `curl` on a terminal.
 - **Cell-level errors (NameError, SQL syntax, ...) still return 200** and land in the notebook as an `error` cell — the way Jupyter would. The endpoint only 4xx/5xx's when the `darwin` CLI itself fails (auth expired → 401, pod cold → 503, CLI missing → 503).
 
 ### From Claude Code
@@ -130,7 +130,7 @@ token="$(tr -d '\n' < "${LAB_HOME:-$HOME/.lab}/local-cli-token")"
 curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H "Authorization: Bearer ${token}" \
   -H 'Content-Type: application/json' \
-  -d '{"path":"projects/<id>/notebooks/scratch.ipynb","code":"import pandas as pd; pd.__version__"}' | jq .
+  -d '{"path":"workspaces/<id>/notebooks/scratch.ipynb","code":"import pandas as pd; pd.__version__"}' | jq .
 unset token
 ```
 
@@ -138,7 +138,7 @@ Lab creates that token with mode `0600` when the server starts. It is accepted
 only over loopback and only for `/api/nb/*`; never commit, log, or share it.
 Prefer `lab notebook exec` unless you are implementing an API client.
 
-Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=projects/<id>/notebooks/scratch.ipynb`.
+Open the notebook in the SPA: `$(scripts/lab-url.sh)/#/nb?path=workspaces/<id>/notebooks/scratch.ipynb`.
 
 ### Helpers
 

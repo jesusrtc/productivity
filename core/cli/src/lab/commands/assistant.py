@@ -52,61 +52,61 @@ def init_cmd() -> None:
     click.echo(f"initialized Assistant database at {target}")
 
 
-@assistant_group.group("project")
-def project_group() -> None:
-    """Manage Assistant project-to-workspace mappings."""
+@assistant_group.group("workspace")
+def workspace_group() -> None:
+    """Manage Assistant workspace-to-vault mappings."""
 
 
-@project_group.command("ls")
-def project_ls() -> None:
-    rows = list(assistant_db.iter_projects(_root()))
+@workspace_group.command("ls")
+def workspace_ls() -> None:
+    rows = list(assistant_db.iter_workspaces(_root()))
     if not rows:
-        click.echo("no Assistant projects")
+        click.echo("no Assistant workspaces")
         return
     for row in rows:
         click.echo(
-            f"{row['id']:<24} {row.get('workspace') or '--':<12} "
-            f"{row.get('project_path') or '--'}"
+            f"{row['id']:<24} {row.get('vault') or '--':<12} "
+            f"{row.get('workspace_path') or '--'}"
         )
 
 
-@project_group.command("add")
-@click.argument("project_id")
+@workspace_group.command("add")
+@click.argument("workspace_id")
 @click.option("--name", required=True)
-@click.option("--workspace", "workspace_id", required=True)
-@click.option("--path", "project_path", type=click.Path(path_type=Path), required=True)
-def project_add(project_id: str, name: str, workspace_id: str, project_path: Path) -> None:
+@click.option("--vault", "vault_id", required=True)
+@click.option("--path", "workspace_path", type=click.Path(path_type=Path), required=True)
+def workspace_add(workspace_id: str, name: str, vault_id: str, workspace_path: Path) -> None:
     root = _root()
-    registry = paths.read_workspace_registry()
+    registry = paths.read_vault_registry()
     row = next(
-        (item for item in registry.get("workspaces") or [] if item.get("id") == workspace_id),
+        (item for item in registry.get("vaults") or [] if item.get("id") == vault_id),
         None,
     )
     if row is None:
-        raise click.ClickException(f"registered workspace {workspace_id!r} not found")
-    workspace_path = Path(str(row["path"])).expanduser().resolve()
-    resolved_project = project_path.expanduser().resolve()
-    if workspace_path != resolved_project and workspace_path not in resolved_project.parents:
+        raise click.ClickException(f"registered vault {vault_id!r} not found")
+    vault_path = Path(str(row["path"])).expanduser().resolve()
+    resolved_workspace = workspace_path.expanduser().resolve()
+    if vault_path != resolved_workspace and vault_path not in resolved_workspace.parents:
         raise click.ClickException(
-            f"project path {resolved_project} is not inside workspace {workspace_path}"
+            f"workspace path {resolved_workspace} is not inside vault {vault_path}"
         )
     try:
-        source = assistant_db.create_project(
+        source = assistant_db.create_workspace(
             root,
-            project_id,
+            workspace_id,
             name=name,
-            workspace=workspace_id,
-            workspace_path=workspace_path,
-            project_path=resolved_project,
+            vault=vault_id,
+            vault_path=vault_path,
+            workspace_path=resolved_workspace,
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(f"created {project_id} at {source}")
+    click.echo(f"created {workspace_id} at {source}")
 
 
 @assistant_group.command("add")
 @click.argument("title")
-@click.option("--project", "project_id", required=True)
+@click.option("--workspace", "workspace_id", required=True)
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
 @click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
 @click.option("--due", default=None)
@@ -114,7 +114,7 @@ def project_add(project_id: str, name: str, workspace_id: str, project_path: Pat
 @click.option("--tag", "tags", multiple=True)
 def add_task(
     title: str,
-    project_id: str,
+    workspace_id: str,
     priority: str,
     status: str,
     due: str | None,
@@ -125,7 +125,7 @@ def add_task(
         source = assistant_db.create_task(
             _root(),
             title,
-            project_id=project_id,
+            workspace_id=workspace_id,
             priority=priority,
             status=status,
             due=due,
@@ -141,8 +141,8 @@ def add_task(
 @assistant_group.command("ls")
 @click.option("--status", default="open", help="open or one exact lifecycle status")
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default=None)
-@click.option("--project", "project_id", default=None)
-def list_tasks(status: str, priority: str | None, project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def list_tasks(status: str, priority: str | None, workspace_id: str | None) -> None:
     if status != "open" and status not in assistant_db.STATUSES:
         raise click.ClickException(f"unknown status {status!r}")
     rows = []
@@ -153,7 +153,7 @@ def list_tasks(status: str, priority: str | None, project_id: str | None) -> Non
             continue
         if priority and task["priority"] != priority:
             continue
-        if project_id and task["project"] != project_id:
+        if workspace_id and task["workspace"] != workspace_id:
             continue
         rows.append(task)
     if not rows:
@@ -162,7 +162,7 @@ def list_tasks(status: str, priority: str | None, project_id: str | None) -> Non
     for task in rows:
         click.echo(
             f"{task['id']}  {task['status']:<11} {task['priority']}  "
-            f"{task['project']:<18} {task['title']}"
+            f"{task['workspace']:<18} {task['title']}"
         )
 
 
@@ -207,7 +207,7 @@ def subtask_group() -> None:
 @subtask_group.command("add")
 @click.argument("title")
 @click.option("--parent", "parent_id", required=True)
-@click.option("--project", "project_id", default=None, help="Owning project; defaults to the parent task project.")
+@click.option("--workspace", "workspace_id", default=None, help="Owning workspace; defaults to the parent task workspace.")
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
 @click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
 @click.option("--due", default=None)
@@ -216,7 +216,7 @@ def subtask_group() -> None:
 def add_subtask(
     title: str,
     parent_id: str,
-    project_id: str | None,
+    workspace_id: str | None,
     priority: str,
     status: str,
     due: str | None,
@@ -228,7 +228,7 @@ def add_subtask(
             _root(),
             title,
             parent=parent_id,
-            project=project_id,
+            workspace=workspace_id,
             priority=priority,
             status=status,
             due=due,
@@ -245,12 +245,12 @@ def add_subtask(
 @click.option("--parent", "parent_id", default=None)
 @click.option("--status", default="open", help="open or one exact lifecycle status")
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default=None)
-@click.option("--project", "project_id", default=None)
+@click.option("--workspace", "workspace_id", default=None)
 def list_subtasks(
     parent_id: str | None,
     status: str,
     priority: str | None,
-    project_id: str | None,
+    workspace_id: str | None,
 ) -> None:
     if status != "open" and status not in assistant_db.STATUSES:
         raise click.ClickException(f"unknown status {status!r}")
@@ -262,7 +262,7 @@ def list_subtasks(
             continue
         if priority and subtask["priority"] != priority:
             continue
-        if project_id and subtask["project"] != project_id:
+        if workspace_id and subtask["workspace"] != workspace_id:
             continue
         if parent_id and subtask["parent"] != parent_id:
             continue
@@ -273,7 +273,7 @@ def list_subtasks(
     for subtask in rows:
         click.echo(
             f"{subtask['id']}  {subtask['status']:<15} {subtask['priority']}  "
-            f"{subtask['project']:<18} {subtask['parent']}  {subtask['title']}"
+            f"{subtask['workspace']:<18} {subtask['parent']}  {subtask['title']}"
         )
 
 
@@ -317,13 +317,13 @@ def meeting_group() -> None:
 
 @meeting_group.command("add")
 @click.argument("title")
-@click.option("--project", "project_id", required=True)
+@click.option("--workspace", "workspace_id", required=True)
 @click.option("--date", default=None, help="Meeting date in YYYY-MM-DD format")
 @click.option("--attendee", "attendees", multiple=True)
 @click.option("--tag", "tags", multiple=True)
 def add_meeting(
     title: str,
-    project_id: str,
+    workspace_id: str,
     date: str | None,
     attendees: tuple[str, ...],
     tags: tuple[str, ...],
@@ -332,7 +332,7 @@ def add_meeting(
         source = assistant_db.create_meeting(
             _root(),
             title,
-            project_id=project_id,
+            workspace_id=workspace_id,
             date=date,
             attendees=list(attendees),
             tags=list(tags),
@@ -344,11 +344,11 @@ def add_meeting(
 
 
 @meeting_group.command("ls")
-@click.option("--project", "project_id", default=None)
-def list_meetings(project_id: str | None) -> None:
+@click.option("--workspace", "workspace_id", default=None)
+def list_meetings(workspace_id: str | None) -> None:
     rows = [
         meeting for meeting in assistant_db.iter_meetings(_root())
-        if not project_id or meeting["project"] == project_id
+        if not workspace_id or meeting["workspace"] == workspace_id
     ]
     if not rows:
         click.echo("no Assistant meeting notes")
@@ -357,7 +357,7 @@ def list_meetings(project_id: str | None) -> None:
     for meeting in rows:
         click.echo(
             f"{meeting['id']}  {meeting.get('date') or '--':<10} "
-            f"{meeting['project']:<18} {meeting['title']}"
+            f"{meeting['workspace']:<18} {meeting['title']}"
         )
 
 

@@ -156,10 +156,10 @@ function query(path, params) {
   return `${path}?${qs.toString()}`;
 }
 
-async function projectEntries() {
+async function workspaceEntries() {
   let dirs = [];
   try {
-    dirs = (await readdir(join(repoRoot, 'projects'), { withFileTypes: true }))
+    dirs = (await readdir(join(repoRoot, 'workspaces'), { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort();
@@ -168,12 +168,12 @@ async function projectEntries() {
   }
   const entries = [];
   for (const name of dirs) {
-    const abs = join(repoRoot, 'projects', name);
-    const projectJson = join(abs, 'project.json');
+    const abs = join(repoRoot, 'workspaces', name);
+    const workspaceJson = join(abs, 'workspace.json');
     let repos = [];
-    if (existsSync(projectJson)) {
+    if (existsSync(workspaceJson)) {
       try {
-        const data = JSON.parse(await readFile(projectJson, 'utf8'));
+        const data = JSON.parse(await readFile(workspaceJson, 'utf8'));
         const worktrees = Array.isArray(data.worktrees) ? data.worktrees : [];
         repos = worktrees
           .map((wt) => {
@@ -184,8 +184,8 @@ async function projectEntries() {
           .filter(Boolean)
           .map((dir) => {
             if (dir.startsWith('/')) return dir;
-            const projectRelative = join(abs, dir);
-            if (existsSync(projectRelative)) return projectRelative;
+            const workspaceRelative = join(abs, dir);
+            if (existsSync(workspaceRelative)) return workspaceRelative;
             return join(repoRoot, dir);
           });
       } catch {}
@@ -228,24 +228,24 @@ async function routes() {
   const md = await markdownRoute();
   if (md) routesOut.push(md);
 
-  for (const project of await projectEntries()) {
+  for (const workspace of await workspaceEntries()) {
     routesOut.push({
-      label: `project-${project.name}`,
-      path: query('/', { project: project.abs }),
-      bodyClass: 'project-active',
+      label: `workspace-${workspace.name}`,
+      path: query('/', { workspace: workspace.abs }),
+      bodyClass: 'workspace-active',
       selector: '#content h1',
     });
     routesOut.push({
-      label: `project-redirect-${project.name}`,
-      path: `/p/${encodeURIComponent(project.name)}`,
-      bodyClass: 'project-active',
+      label: `workspace-redirect-${workspace.name}`,
+      path: `/p/${encodeURIComponent(workspace.name)}`,
+      bodyClass: 'workspace-active',
       selector: '#content h1',
     });
-    for (const repo of project.repos) {
+    for (const repo of workspace.repos) {
       routesOut.push({
-        label: `repo-${project.name}-${basename(repo)}`,
+        label: `repo-${workspace.name}-${basename(repo)}`,
         path: query('/', { repo }),
-        bodyClass: 'project-active',
+        bodyClass: 'workspace-active',
         selector: '#content h1',
       });
     }

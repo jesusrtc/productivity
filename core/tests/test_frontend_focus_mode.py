@@ -115,7 +115,7 @@ const localStorage = {
   setItem(key, value) { stored[key] = value; },
 };
 const window = {};
-let currentProject = null;
+let currentWorkspace = null;
 function renderRepoTabs() { renderCount += 1; }
 """ % json.dumps(initial_storage or {}) + wake_lock_source + _focus_mode_source() + """
 (async () => {
@@ -148,7 +148,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_focus_mode_keeps_home_and_project_tabs_visible() -> None:
+def test_focus_mode_keeps_home_and_workspace_tabs_visible() -> None:
     css = _focus_mode_css_source()
 
     assert "body.focus-mode .topbar" not in css

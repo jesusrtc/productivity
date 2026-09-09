@@ -3,7 +3,7 @@
 The persistent Lab server port for a framework checkout is `LAB_PORT` in its
 root `.env`. Keep `.env.example` tracked as the client-editable template and
 keep `.env` ignored so each installation can choose its own port. If `.env`
-does not define a valid port, fall back to active workspace `lab.toml`
+does not define a valid port, fall back to active vault `lab.toml`
 `[server].port`, then `3333`.
 
 `make start PORT=NNNN` and `lab start --port NNNN` remain one-run overrides.

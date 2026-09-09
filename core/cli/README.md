@@ -11,7 +11,7 @@ pytest -v
 
 ## Subcommand overview (Plan 1)
 
-- `lab project new|ls|status|set|archive|rm`
+- `lab workspace new|ls|status|set|archive|rm`
 - `lab task new|ls|show|set|done|reopen|block|unblock`
 
 Run `lab --help` for everything.

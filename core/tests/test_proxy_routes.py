@@ -32,9 +32,9 @@ def test_self_proxy_response_fails_fast_with_explanation() -> None:
     assert b"localhost:8080" in response.body
 
 
-def test_workspace_proxy_mount_keeps_scope_in_the_path() -> None:
+def test_vault_proxy_mount_keeps_scope_in_the_path() -> None:
     assert _proxy_mount_path("local", "demo", "web") == (
-        "/api/workspace-proxy/local/demo/web/"
+        "/api/vault-proxy/local/demo/web/"
     )
     assert _proxy_mount_path(None, "demo", "web") == "/api/proxy/demo/web/"
 
@@ -57,13 +57,13 @@ def test_lab_appstate_not_rewritten_from_proxy_referer(client) -> None:
 
 
 def test_unreachable_proxy_placeholder_does_not_enter_error_log(
-    client, monorepo, seed_project
+    client, monorepo, seed_workspace
 ) -> None:
-    project = seed_project("demo")
-    project_json = project / "project.json"
-    data = json.loads(project_json.read_text())
+    workspace = seed_workspace("demo")
+    workspace_json = workspace / "workspace.json"
+    data = json.loads(workspace_json.read_text())
     data["proxies"] = [{"name": "missing", "port": 9}]
-    project_json.write_text(json.dumps(data, indent=2))
+    workspace_json.write_text(json.dumps(data, indent=2))
 
     response = client.get("/api/proxy/demo/missing/")
 
@@ -73,15 +73,15 @@ def test_unreachable_proxy_placeholder_does_not_enter_error_log(
     assert not any(r.get("path") == "/api/proxy/demo/missing/" for r in errors)
 
 
-def _configure_proxy(project, **entry) -> None:
-    project_json = project / "project.json"
-    data = json.loads(project_json.read_text())
+def _configure_proxy(workspace, **entry) -> None:
+    workspace_json = workspace / "workspace.json"
+    data = json.loads(workspace_json.read_text())
     data["proxies"] = [{"name": "web", "port": 3000, **entry}]
-    project_json.write_text(json.dumps(data, indent=2))
+    workspace_json.write_text(json.dumps(data, indent=2))
 
 
-def _configure_server_file(project, *servers) -> None:
-    (project / "servers.json").write_text(json.dumps({"servers": list(servers)}, indent=2))
+def _configure_server_file(workspace, *servers) -> None:
+    (workspace / "servers.json").write_text(json.dumps({"servers": list(servers)}, indent=2))
 
 
 def _stub_tmux(monkeypatch, *, running: bool = False):
@@ -98,17 +98,17 @@ def _stub_tmux(monkeypatch, *, running: bool = False):
     return calls
 
 
-def test_list_proxies_includes_commands_and_mode(client, seed_project) -> None:
-    project = seed_project("demo")
+def test_list_proxies_includes_commands_and_mode(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
     _configure_proxy(
-        project,
+        workspace,
         label="Web app",
         mode="direct",
         start_command="make server-start",
         stop_command="make server-stop",
     )
 
-    response = client.get("/api/proxies?project_id=demo")
+    response = client.get("/api/proxies?workspace_id=demo")
 
     assert response.status_code == 200
     assert response.json() == [{
@@ -123,10 +123,10 @@ def test_list_proxies_includes_commands_and_mode(client, seed_project) -> None:
     }]
 
 
-def test_servers_json_overrides_legacy_project_proxies(client, seed_project) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, label="Legacy")
-    _configure_server_file(project, {
+def test_servers_json_overrides_legacy_workspace_proxies(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, label="Legacy")
+    _configure_server_file(workspace, {
         "name": "api",
         "label": "API",
         "port": 8123,
@@ -134,32 +134,32 @@ def test_servers_json_overrides_legacy_project_proxies(client, seed_project) -> 
         "start_command": "make server-start",
     })
 
-    response = client.get("/api/proxies?project_id=demo")
+    response = client.get("/api/proxies?workspace_id=demo")
 
     assert response.status_code == 200
     assert [server["name"] for server in response.json()] == ["api"]
     assert response.json()[0]["path"] == "/docs"
 
 
-def test_get_server_config_reports_legacy_source(client, seed_project) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, start_command="make server-start")
+def test_get_server_config_reports_legacy_source(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, start_command="make server-start")
 
-    response = client.get("/api/server-config?project_id=demo")
+    response = client.get("/api/server-config?workspace_id=demo")
 
     assert response.status_code == 200
-    assert response.json()["source"] == "project.json"
+    assert response.json()["source"] == "workspace.json"
     assert response.json()["is_legacy"] is True
     assert response.json()["servers"][0]["start_command"] == "make server-start"
 
 
-def test_put_server_config_creates_file_without_mutating_project_json(
-    client, seed_project,
+def test_put_server_config_creates_file_without_mutating_workspace_json(
+    client, seed_workspace,
 ) -> None:
-    project = seed_project("demo")
-    project_before = (project / "project.json").read_text()
+    workspace = seed_workspace("demo")
+    workspace_before = (workspace / "workspace.json").read_text()
 
-    response = client.put("/api/server-config?project_id=demo", json={
+    response = client.put("/api/server-config?workspace_id=demo", json={
         "servers": [{
             "name": "web",
             "port": 5173,
@@ -169,54 +169,54 @@ def test_put_server_config_creates_file_without_mutating_project_json(
     })
 
     assert response.status_code == 200, response.text
-    saved = json.loads((project / "servers.json").read_text())
+    saved = json.loads((workspace / "servers.json").read_text())
     assert saved["servers"][0]["host"] == "localhost"
     assert saved["servers"][0]["path"] == "/"
-    assert (project / "project.json").read_text() == project_before
+    assert (workspace / "workspace.json").read_text() == workspace_before
 
 
-def test_invalid_servers_json_is_reported(client, seed_project) -> None:
-    project = seed_project("demo")
-    (project / "servers.json").write_text('{"servers": [{"name": "web"}]}')
+def test_invalid_servers_json_is_reported(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
+    (workspace / "servers.json").write_text('{"servers": [{"name": "web"}]}')
 
-    response = client.get("/api/server-config?project_id=demo")
+    response = client.get("/api/server-config?workspace_id=demo")
 
     assert response.status_code == 422
     assert "port must be between" in response.json()["detail"]
 
 
-def test_put_empty_server_config_creates_agent_template(client, seed_project) -> None:
-    project = seed_project("demo")
+def test_put_empty_server_config_creates_agent_template(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
 
-    response = client.put("/api/server-config?project_id=demo", json={"servers": []})
+    response = client.put("/api/server-config?workspace_id=demo", json={"servers": []})
 
     assert response.status_code == 200, response.text
-    assert json.loads((project / "servers.json").read_text()) == {"servers": []}
+    assert json.loads((workspace / "servers.json").read_text()) == {"servers": []}
 
 
-def test_makefile_detection_endpoint_is_not_exposed(client, seed_project) -> None:
-    seed_project("demo")
+def test_makefile_detection_endpoint_is_not_exposed(client, seed_workspace) -> None:
+    seed_workspace("demo")
 
-    response = client.get("/api/server-config/detect?project_id=demo")
+    response = client.get("/api/server-config/detect?workspace_id=demo")
 
     assert response.status_code == 404
 
 
-def test_project_info_overlays_servers_json_for_sidebar(client, seed_project) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, label="Legacy")
-    _configure_server_file(project, {"name": "web", "port": 3001})
+def test_workspace_info_overlays_servers_json_for_sidebar(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, label="Legacy")
+    _configure_server_file(workspace, {"name": "web", "port": 3001})
 
-    response = client.get("/api/project-info?path=demo")
+    response = client.get("/api/workspace-info?path=demo")
 
     assert response.status_code == 200
     assert response.json()["server_config_source"] == "servers.json"
     assert [server["name"] for server in response.json()["proxies"]] == ["web"]
 
 
-def test_proxy_start_requires_configured_command(client, seed_project) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project)
+def test_proxy_start_requires_configured_command(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace)
 
     response = client.post("/api/proxies/demo/web/start")
 
@@ -224,9 +224,9 @@ def test_proxy_start_requires_configured_command(client, seed_project) -> None:
     assert response.json()["detail"] == "proxy has no start command configured"
 
 
-def test_proxy_controls_reject_non_make_commands(client, seed_project) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, start_command="npm run dev")
+def test_proxy_controls_reject_non_make_commands(client, seed_workspace) -> None:
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, start_command="npm run dev")
 
     response = client.post("/api/proxies/demo/web/start")
 
@@ -234,9 +234,9 @@ def test_proxy_controls_reject_non_make_commands(client, seed_project) -> None:
     assert response.json()["detail"] == "start command must be a make command"
 
 
-def test_proxy_start_runs_make_in_tmux(client, seed_project, monkeypatch) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, start_command="make server-start")
+def test_proxy_start_runs_make_in_tmux(client, seed_workspace, monkeypatch) -> None:
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, start_command="make server-start")
     calls = _stub_tmux(monkeypatch)
 
     response = client.post("/api/proxies/demo/web/start")
@@ -250,10 +250,10 @@ def test_proxy_start_runs_make_in_tmux(client, seed_project, monkeypatch) -> Non
 
 
 def test_proxy_start_uses_active_named_tmux_socket(
-    client, seed_project, monkeypatch,
+    client, seed_workspace, monkeypatch,
 ) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, start_command="make server-start")
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, start_command="make server-start")
     calls = _stub_tmux(monkeypatch)
     monkeypatch.setattr(
         proxy_mod.term_routes, "_active_tmux_socket", lambda: "lab-fresh"
@@ -271,11 +271,11 @@ def test_proxy_start_uses_active_named_tmux_socket(
 
 
 def test_proxy_restart_stops_old_session_before_starting(
-    client, seed_project, monkeypatch,
+    client, seed_workspace, monkeypatch,
 ) -> None:
-    project = seed_project("demo")
+    workspace = seed_workspace("demo")
     _configure_proxy(
-        project,
+        workspace,
         start_command="make server-start",
         stop_command="make server-stop",
     )
@@ -291,10 +291,10 @@ def test_proxy_restart_stops_old_session_before_starting(
 
 
 def test_proxy_stop_runs_make_and_kills_managed_session(
-    client, seed_project, monkeypatch,
+    client, seed_workspace, monkeypatch,
 ) -> None:
-    project = seed_project("demo")
-    _configure_proxy(project, stop_command="make server-stop")
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace, stop_command="make server-stop")
     calls = _stub_tmux(monkeypatch, running=True)
 
     response = client.post("/api/proxies/demo/web/stop")
@@ -302,19 +302,19 @@ def test_proxy_stop_runs_make_and_kills_managed_session(
     assert response.status_code == 200
     assert response.json()["action"] == "stopped"
     assert calls[0][0] == ["make", "server-stop"]
-    assert calls[0][1]["cwd"] == str(project)
+    assert calls[0][1]["cwd"] == str(workspace)
     assert calls[1][0][:3] == ["tmux", "kill-session", "-t"]
 
 
-def test_proxy_control_targets_requested_workspace(
+def test_proxy_control_targets_requested_vault(
     client, monorepo, tmp_path, monkeypatch,
 ) -> None:
-    """A project tab from another workspace must start its own server there."""
-    other_root = tmp_path / "other-workspace"
-    project = other_root / "projects" / "demo"
-    project.mkdir(parents=True)
+    """A workspace tab from another vault must start its own server there."""
+    other_root = tmp_path / "other-vault"
+    workspace = other_root / "workspaces" / "demo"
+    workspace.mkdir(parents=True)
     (other_root / "content").mkdir()
-    (project / "project.json").write_text(json.dumps({
+    (workspace / "workspace.json").write_text(json.dumps({
         "id": "demo",
         "proxies": [{
             "name": "web",
@@ -323,50 +323,50 @@ def test_proxy_control_targets_requested_workspace(
         }],
     }))
 
-    registry = paths.read_workspace_registry()
-    paths.write_workspace_registry({
+    registry = paths.read_vault_registry()
+    paths.write_vault_registry({
         "active": registry.get("active"),
-        "workspaces": [
-            *(registry.get("workspaces") or []),
+        "vaults": [
+            *(registry.get("vaults") or []),
             {"id": "other", "name": "Other", "path": str(other_root)},
         ],
     })
     monkeypatch.delenv("LAB_TMUX_PREFIX", raising=False)
-    proxy_mod.term_routes._WORKSPACE_LABEL_CACHE.clear()
+    proxy_mod.term_routes._VAULT_LABEL_CACHE.clear()
     calls = _stub_tmux(monkeypatch)
 
-    response = client.post("/api/proxies/demo/web/start?workspace=other")
+    response = client.post("/api/proxies/demo/web/start?vault=other")
 
     assert response.status_code == 200, response.text
     argv, _kwargs = calls[-1]
-    assert argv[argv.index("-c") + 1] == str(project)
+    assert argv[argv.index("-c") + 1] == str(workspace)
     assert response.json()["session_name"].startswith("neurona-demo-server-web-")
     assert not response.json()["session_name"].startswith("neurona-other-")
 
 
-def test_workspace_scoped_proxy_reads_the_requested_workspace(
+def test_vault_scoped_proxy_reads_the_requested_vault(
     client, tmp_path,
 ) -> None:
-    """The iframe proxy must not fall back to the server's active workspace."""
-    other_root = tmp_path / "other-workspace"
-    project = other_root / "projects" / "demo"
-    project.mkdir(parents=True)
+    """The iframe proxy must not fall back to the server's active vault."""
+    other_root = tmp_path / "other-vault"
+    workspace = other_root / "workspaces" / "demo"
+    workspace.mkdir(parents=True)
     (other_root / "content").mkdir()
-    (project / "project.json").write_text(json.dumps({"id": "demo"}))
-    _configure_server_file(project, {
+    (workspace / "workspace.json").write_text(json.dumps({"id": "demo"}))
+    _configure_server_file(workspace, {
         "name": "web",
         "host": "localhost",
         "port": 9,
     })
-    paths.write_workspace_registry({
+    paths.write_vault_registry({
         "active": "other",
-        "workspaces": [{"id": "other", "name": "Other", "path": str(other_root)}],
+        "vaults": [{"id": "other", "name": "Other", "path": str(other_root)}],
     })
 
-    response = client.get("/api/workspace-proxy/other/demo/web/")
+    response = client.get("/api/vault-proxy/other/demo/web/")
 
     # Port 9 is expected to be unreachable in the test environment. A 502
-    # proves the scoped route found the other workspace's declaration; the
-    # active fixture workspace would return 404.
+    # proves the scoped route found the other vault's declaration; the
+    # active fixture vault would return 404.
     assert response.status_code == 502, response.text
     assert b"Dev server not reachable" in response.content

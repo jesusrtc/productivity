@@ -3,7 +3,7 @@
 Generated: 2026-06-23
 
 This document is a migration guide for agents upgrading older Lab checkouts to
-the workspace-aware framework layout.
+the vault-aware framework layout.
 
 ## Current Readiness
 
@@ -27,7 +27,7 @@ Not run:
 - `make perf-prod`
 
 Important: the current remote `origin/main` only includes commits through
-`a3b5be7`. The workspace/framework split is still in the working tree until it
+`a3b5be7`. The vault/framework split is still in the working tree until it
 is committed and pushed. A fresh clone from the remote will not include the
 pending migration until that happens.
 
@@ -51,18 +51,18 @@ Expected behavior:
   `core/.venv`.
 - The `lab`, `core`, `lab-server`, and `gdiff` shims point at this checkout
   from `~/.local/bin`.
-- Runtime state is written into the active workspace under `.lab/state/`.
-- Global workspace registry is limited to `~/.lab/workspaces.toml`.
-- The framework checkout does not need `projects/` or user apps to run.
+- Runtime state is written into the active vault under `.lab/state/`.
+- Global vault registry is limited to `~/.lab/vaults.toml`.
+- The framework checkout does not need `workspaces/` or user apps to run.
 
-## Pending Commit: Workspace/Framework Split
+## Pending Commit: Vault/Framework Split
 
 This is the uncommitted migration batch currently in the working tree.
 
 Purpose:
 
 - Make this repository the reusable Lab framework.
-- Move user work into separate workspace repositories.
+- Move user work into separate vault repositories.
 - Keep framework code out of root `apps/`.
 - Put the installable `lab` CLI under `core/cli/`.
 - Keep the backend/UI under `core/`.
@@ -70,28 +70,28 @@ Purpose:
 Major changes:
 
 - `README.md` now documents the framework install and first-run flow.
-- `AGENTS.md` now tells agents that user workspaces are external and selected
-  with `lab workspace` or `LAB_WORKSPACE`.
+- `AGENTS.md` now tells agents that user vaults are external and selected
+  with `lab vault` or `LAB_VAULT`.
 - `Makefile` installs two editable packages: `core/cli` for `lab`, and `core`
   for the backend/UI.
 - `core/cli/` is the new installable CLI package.
-- `core/src/core/routes/workspace.py` adds workspace API endpoints for the UI.
-- `core/src/core/static/js/lab-app.js` adds the workspace dropdown and switch
+- `core/src/core/routes/vault.py` adds vault API endpoints for the UI.
+- `core/src/core/static/js/lab-app.js` adds the vault dropdown and switch
   behavior.
-- Runtime state moves to the active workspace under `.lab/state/`.
+- Runtime state moves to the active vault under `.lab/state/`.
 - `scripts/lab-url.sh` resolves the running server URL through the active
-  workspace state instead of a hardcoded port.
+  vault state instead of a hardcoded port.
 - Root `apps/` framework internals are removed. Root `apps/` is reserved for
-  workspace/client apps only.
+  vault/client apps only.
 - Retired or user-owned apps such as old `darwin-backups`, `trustim-ir-cli`,
   and `trustim-investigation` no longer belong in the framework checkout.
 
 Agent migration notes:
 
-- Do not hand-edit `project.json`, `tasks.json`, or `.index.json`.
-- Use `lab init`, `lab workspace use`, `lab project`, and `lab task`.
+- Do not hand-edit `workspace.json`, `tasks.json`, or `.index.json`.
+- Use `lab init`, `lab vault use`, `lab workspace`, and `lab task`.
 - Keep `.agents/memory/` repo-local, not under `~/.claude`.
-- Start project dev servers from the workspace path, not from old clone paths.
+- Start workspace dev servers from the vault path, not from old clone paths.
 - Do not hardcode `localhost:3333`; use `scripts/lab-url.sh` or the CLI.
 
 ## Commit History Guide
@@ -135,8 +135,8 @@ Migration impact:
 
 Agent checks:
 
-- Avoid scanning all workspaces or repositories during shell load.
-- Keep inactive workspaces out of the default index path.
+- Avoid scanning all vaults or repositories during shell load.
+- Keep inactive vaults out of the default index path.
 
 ### 0d9cadf - Keep lab page loads under latency budget
 
@@ -200,7 +200,7 @@ Migration impact:
 
 Agent checks:
 
-- Preserve workspace/project local UI state during migration.
+- Preserve vault/workspace local UI state during migration.
 - Do not wipe `.lab/state/` unless explicitly resetting runtime state.
 
 ### 35876c8 - Speed up lab initial page loads
@@ -218,8 +218,8 @@ Agent checks:
 Commits:
 
 - `37f73d8` Assert logs terminal priority
-- `9a3cef9` Prioritize active terminal pseudo-projects
-- `99d7b72` Avoid tmux in logs pseudo-project test
+- `9a3cef9` Prioritize active terminal pseudo-workspaces
+- `99d7b72` Avoid tmux in logs pseudo-workspace test
 - `fddcdc3` Split lab shell assets
 - `31d2737` Improve lab startup latency and proxy safety
 - `512377d` Add lab log viewer and lazy heavy assets
@@ -271,18 +271,18 @@ Agent checks:
 - Never hardcode port `3333`.
 - Use `scripts/lab-url.sh`, `.lab/state/server.port`, or the CLI.
 
-### cbddcc6 - Per-project reverse proxy for local dev servers
+### cbddcc6 - Per-workspace reverse proxy for local dev servers
 
 Migration impact:
 
-- Projects can declare proxy entries for local dev servers.
+- Workspaces can declare proxy entries for local dev servers.
 
 Agent checks:
 
-- Start project servers from the workspace path.
-- Verify proxy target ports after moving a workspace.
+- Start workspace servers from the vault path.
+- Verify proxy target ports after moving a vault.
 - If a migrated server still listens from an old path, stop it and restart from
-  the new workspace checkout.
+  the new vault checkout.
 
 ## Migrating An Older Flat Checkout
 
@@ -293,16 +293,16 @@ Recommended agent procedure:
 
 1. Clone or update the framework repo.
 2. Run `make install` in the framework repo.
-3. Create a new workspace:
+3. Create a new vault:
 
    ```bash
    lab init ~/work/my-lab
    ```
 
-4. Copy user-owned folders from the old checkout into the workspace:
+4. Copy user-owned folders from the old checkout into the vault:
 
    ```bash
-   rsync -a old-checkout/projects/ ~/work/my-lab/projects/
+   rsync -a old-checkout/workspaces/ ~/work/my-lab/workspaces/
    rsync -a old-checkout/content/ ~/work/my-lab/content/
    rsync -a old-checkout/docs/ ~/work/my-lab/docs/
    rsync -a old-checkout/skills/ ~/work/my-lab/skills/
@@ -311,19 +311,19 @@ Recommended agent procedure:
    rsync -a old-checkout/.agents/memory/ ~/work/my-lab/.agents/memory/
    ```
 
-5. Copy only user-owned apps into workspace `apps/`. Do not copy framework
+5. Copy only user-owned apps into vault `apps/`. Do not copy framework
    internals such as old `apps/lab`. Do not restore retired Darwin runner code.
-6. Register and activate the workspace:
+6. Register and activate the vault:
 
    ```bash
-   lab workspace use ~/work/my-lab
+   lab vault use ~/work/my-lab
    lab index rebuild
    lab start
    ```
 
 7. Open the URL printed by `lab start`.
-8. Check project proxies and restart any project dev servers from the new
-   workspace path.
+8. Check workspace proxies and restart any workspace dev servers from the new
+   vault path.
 
 Do not copy generated runtime state unless intentionally preserving active UI
 state:
@@ -338,17 +338,17 @@ state:
 
 Before declaring an old checkout migrated:
 
-- `lab workspace current` points at the new workspace.
-- `lab project ls` lists expected projects.
+- `lab vault current` points at the new vault.
+- `lab workspace ls` lists expected workspaces.
 - `lab index rebuild` succeeds.
 - `lab start` starts the backend and writes `.lab/state/server.port`.
 - `scripts/lab-url.sh` returns the running URL.
-- UI loads the dashboard for the active workspace.
-- Project proxy ports are served by processes whose cwd is inside the new
-  workspace.
+- UI loads the dashboard for the active vault.
+- Workspace proxy ports are served by processes whose cwd is inside the new
+  vault.
 - No server is still listening from the old checkout path.
 - `make test` passes in the framework repo.
-- Any remaining old apps are either moved into workspace `apps/` or documented
+- Any remaining old apps are either moved into vault `apps/` or documented
   as standalone repos.
 
 ## Known Portability Notes
@@ -360,4 +360,4 @@ Before declaring an old checkout migrated:
 - macOS launchd agent install is machine-local; run `make agent-install` only
   when intentionally enabling always-on startup on that machine.
 - Documentation may contain example user paths. Framework runtime code should
-  not depend on `/Volumes/SSD`, old clone paths, or a specific workspace name.
+  not depend on `/Volumes/SSD`, old clone paths, or a specific vault name.

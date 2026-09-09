@@ -1,3 +1,5 @@
+from lab import naming
+
 import json
 import os
 import re
@@ -8,24 +10,24 @@ from pathlib import Path
 def _monorepo_root(root: str | Path | None = None) -> Path:
     """Best-effort monorepo root.
 
-    Honors an explicit root, ``LAB_WORKSPACE``, then ``LAB_ROOT`` (so tests can
+    Honors an explicit root, ``LAB_VAULT``, then ``LAB_ROOT`` (so tests can
     point at a fixture tree). Otherwise falls back to the package's filesystem location: this module lives at
     ``<root>/core/src/core/diff_parser.py``, so the root is three
     levels above the package dir.
     """
     if root is not None:
         return Path(root)
-    env_workspace = os.environ.get("LAB_WORKSPACE")
-    if env_workspace:
-        return Path(env_workspace)
+    env_vault = os.environ.get("LAB_VAULT") or os.environ.get(naming.LEGACY_ROOT_ENV)
+    if env_vault:
+        return Path(env_vault)
     env_root = os.environ.get("LAB_ROOT")
     if env_root:
         return Path(env_root)
     return Path(__file__).resolve().parents[3]
 
 
-def _projects_dir(root: str | Path | None = None) -> Path:
-    return _monorepo_root(root) / "projects"
+def _workspaces_dir(root: str | Path | None = None) -> Path:
+    return naming.workspaces_dir(_monorepo_root(root))
 
 
 def get_branch(repo: str) -> str:
@@ -423,29 +425,29 @@ def get_file_tree(repo: str) -> list[dict]:
     return root
 
 
-def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
-    """Scan <monorepo>/projects/*/project.json and return project dicts.
+def _discover_monorepo_workspaces(root: str | Path | None = None) -> list[dict]:
+    """Scan <monorepo>/workspaces/*/workspace.json and return workspace dicts.
 
     Shape matches what the UI expects:
-      {"name": str, "is_project": bool, "path": str, "repos": [str]}
+      {"name": str, "is_workspace": bool, "path": str, "repos": [str]}
 
-    `repos` is derived from `project.json.worktrees` (new schema: list of
+    `repos` is derived from `workspace.json.worktrees` (new schema: list of
     {mp, dir, branch}). The `dir` entry is assumed to be either an absolute
     path or a path relative to the monorepo root.
     """
-    projects_dir = _projects_dir(root)
-    if not projects_dir.is_dir():
+    workspaces_dir = _workspaces_dir(root)
+    if not workspaces_dir.is_dir():
         return []
 
     mono_root = _monorepo_root(root)
     out: list[dict] = []
-    for proj_dir in sorted(projects_dir.iterdir()):
-        if not proj_dir.is_dir():
+    for workspace_dir in sorted(workspaces_dir.iterdir()):
+        if not workspace_dir.is_dir():
             continue
-        # Support both new (project.json) and legacy hidden (.project.json)
-        pj = proj_dir / "project.json"
+        # Support both new (workspace.json) and legacy hidden (.workspace.json)
+        pj = naming.workspace_metadata_file(workspace_dir)
         if not pj.is_file():
-            pj = proj_dir / ".project.json"
+            pj = workspace_dir / ".workspace.json"
         if not pj.is_file():
             continue
         try:
@@ -456,10 +458,10 @@ def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
         # New schema: worktrees = [{mp, dir, branch}, ...]
         # Legacy schema: repos = [<abs-path>, ...] (flat list of paths)
         #
-        # ``dir`` from `lab project add` is the worktree's *basename* (e.g.
-        # "im-test-davi-vision"), meant to be relative to this project's
+        # ``dir`` from `lab workspace add` is the worktree's *basename* (e.g.
+        # "im-test-davi-vision"), meant to be relative to this workspace's
         # folder. We try that first, then fall back to monorepo-root for
-        # older entries that stored a full "projects/…/…" path.
+        # older entries that stored a full "workspaces/…/…" path.
         repos: list[str] = []
         worktrees = data.get("worktrees") or []
 
@@ -468,15 +470,15 @@ def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
             if p.is_absolute():
                 return str(p) if p.is_dir() else None
             candidates = [
-                (proj_dir / p).resolve(),   # basename relative to project
+                (workspace_dir / p).resolve(),   # basename relative to workspace
                 (mono_root / p).resolve(),  # full path relative to root
             ]
             for c in candidates:
                 if c.is_dir() and (c / ".git").exists() or c.is_dir():
                     return str(c)
-            # Last resort: return the project-relative form even if missing,
+            # Last resort: return the workspace-relative form even if missing,
             # so the UI at least shows *something* the user can diagnose.
-            return str((proj_dir / p).resolve())
+            return str((workspace_dir / p).resolve())
 
         if isinstance(worktrees, list):
             for wt in worktrees:
@@ -497,18 +499,18 @@ def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
                 if isinstance(r, str):
                     repos.append(r)
 
-        project_id = data.get("id") or proj_dir.name
+        workspace_id = data.get("id") or workspace_dir.name
         display_name = data.get("name")
         if not isinstance(display_name, str) or not display_name.strip():
-            display_name = project_id
+            display_name = workspace_id
         out.append({
-            # ``name`` remains the stable project id for backward-compatible
+            # ``name`` remains the stable workspace id for backward-compatible
             # API consumers. ``display_name`` is presentation-only and may
-            # change without renaming the project directory or terminal ids.
-            "name": project_id,
+            # change without renaming the workspace directory or terminal ids.
+            "name": workspace_id,
             "display_name": display_name,
-            "is_project": True,
-            "path": str(proj_dir),
+            "is_workspace": True,
+            "path": str(workspace_dir),
             "repos": repos,
             "tab_open": bool(data.get("tab_open", False)),
         })
@@ -517,21 +519,21 @@ def _discover_monorepo_projects(root: str | Path | None = None) -> list[dict]:
 
 
 def get_registered_repos(root: str | Path | None = None) -> list[dict]:
-    """Return project dicts the UI expects.
+    """Return workspace dicts the UI expects.
 
-    Primary source: auto-discovered projects from
-    ``<monorepo>/projects/*/project.json``.
+    Primary source: auto-discovered workspaces from
+    ``<monorepo>/workspaces/*/workspace.json``.
 
     Fallback: ``/tmp/gdiff-repos.json`` (the legacy registry), when no
-    monorepo projects are found or the monorepo layout is absent.
+    monorepo workspaces are found or the monorepo layout is absent.
 
     Each entry:
-      {"name": str, "display_name": str, "is_project": bool,
+      {"name": str, "display_name": str, "is_workspace": bool,
        "path": str, "repos": [str]}
     """
-    monorepo_projects = _discover_monorepo_projects(root)
-    if monorepo_projects:
-        return monorepo_projects
+    monorepo_workspaces = _discover_monorepo_workspaces(root)
+    if monorepo_workspaces:
+        return monorepo_workspaces
 
     try:
         with open("/tmp/gdiff-repos.json") as f:
@@ -547,7 +549,7 @@ def get_registered_repos(root: str | Path | None = None) -> list[dict]:
         return [
             {
                 "name": os.path.basename(p),
-                "is_project": False,
+                "is_workspace": False,
                 "path": p,
                 "repos": [p],
             }

@@ -12,8 +12,8 @@ def _request(root):
     )
 
 
-def test_post_project_new_creates_on_disk(client, monorepo) -> None:
-    r = client.post("/api/projects", json={
+def test_post_workspace_new_creates_on_disk(client, monorepo) -> None:
+    r = client.post("/api/workspaces", json={
         "id": "alpha",
         "description": "Alpha description",
         "priority": "P1",
@@ -25,77 +25,77 @@ def test_post_project_new_creates_on_disk(client, monorepo) -> None:
     assert body["id"] == "alpha"
     assert body["priority"] == "P1"
 
-    on_disk = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "workspaces" / "alpha" / "workspace.json").read_text())
     assert on_disk["description"] == "Alpha description"
     assert on_disk["tags"] == ["x", "y"]
 
 
-def test_post_project_new_rejects_duplicate(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.post("/api/projects", json={"id": "alpha"})
+def test_post_workspace_new_rejects_duplicate(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces", json={"id": "alpha"})
     assert r.status_code == 400
     assert "already exists" in r.json()["detail"].lower()
 
 
-def test_post_project_new_rejects_bad_id(client) -> None:
-    r = client.post("/api/projects", json={"id": "Bad ID!"})
+def test_post_workspace_new_rejects_bad_id(client) -> None:
+    r = client.post("/api/workspaces", json={"id": "Bad ID!"})
     assert r.status_code == 400
 
 
-def test_post_project_new_targets_registered_workspace_without_switching(
+def test_post_workspace_new_targets_registered_vault_without_switching(
     client, monorepo, tmp_path,
 ) -> None:
     other = tmp_path / "other"
-    (other / "projects").mkdir(parents=True)
+    (other / "workspaces").mkdir(parents=True)
     (other / "content").mkdir()
-    paths.write_workspace_registry({
+    paths.write_vault_registry({
         "active": "main",
-        "workspaces": [
+        "vaults": [
             {"id": "main", "name": "main", "path": str(monorepo)},
             {"id": "other", "name": "other", "path": str(other)},
         ],
     })
 
-    r = client.post("/api/projects", json={"id": "elsewhere", "workspace": "other"})
+    r = client.post("/api/workspaces", json={"id": "elsewhere", "vault": "other"})
 
     assert r.status_code == 200, r.text
-    assert (other / "projects" / "elsewhere" / "project.json").is_file()
-    assert not (monorepo / "projects" / "elsewhere").exists()
-    assert paths.read_workspace_registry()["active"] == "main"
+    assert (other / "workspaces" / "elsewhere" / "workspace.json").is_file()
+    assert not (monorepo / "workspaces" / "elsewhere").exists()
+    assert paths.read_vault_registry()["active"] == "main"
 
 
-def test_post_project_new_unknown_workspace_is_404(client) -> None:
-    r = client.post("/api/projects", json={"id": "alpha", "workspace": "missing"})
+def test_post_workspace_new_unknown_vault_is_404(client) -> None:
+    r = client.post("/api/workspaces", json={"id": "alpha", "vault": "missing"})
     assert r.status_code == 404
 
 
-def test_project_name_is_a_display_alias_and_id_stays_stable(
-    client, monorepo, seed_project,
+def test_workspace_name_is_a_display_alias_and_id_stays_stable(
+    client, monorepo, seed_workspace,
 ) -> None:
-    seed_project("remotion-manim")
+    seed_workspace("remotion-manim")
 
     r = client.post(
-        "/api/projects/remotion-manim/field",
+        "/api/workspaces/remotion-manim/field",
         json={"field": "name", "value": "Video Studio"},
     )
 
     assert r.status_code == 200, r.text
     assert r.json()["id"] == "remotion-manim"
     assert r.json()["name"] == "Video Studio"
-    assert (monorepo / "projects" / "remotion-manim").is_dir()
+    assert (monorepo / "workspaces" / "remotion-manim").is_dir()
 
     repos = client.get("/api/repos")
-    project = next(row for row in repos.json() if row["name"] == "remotion-manim")
-    assert project["display_name"] == "Video Studio"
+    workspace = next(row for row in repos.json() if row["name"] == "remotion-manim")
+    assert workspace["display_name"] == "Video Studio"
 
 
-def test_project_name_update_accepts_unregistered_active_workspace_id(
-    client, monorepo, seed_project,
+def test_workspace_name_update_accepts_unregistered_active_vault_id(
+    client, monorepo, seed_workspace,
 ) -> None:
-    seed_project("remotion-manim")
+    seed_workspace("remotion-manim")
 
     r = client.post(
-        f"/api/projects/remotion-manim/field?workspace={monorepo.name}",
+        f"/api/workspaces/remotion-manim/field?vault={monorepo.name}",
         json={"field": "name", "value": "Motion Lab"},
     )
 
@@ -103,41 +103,41 @@ def test_project_name_update_accepts_unregistered_active_workspace_id(
     assert r.json()["name"] == "Motion Lab"
 
 
-def test_project_name_update_targets_registered_workspace_without_switching(
+def test_workspace_name_update_targets_registered_vault_without_switching(
     client, monorepo, tmp_path,
 ) -> None:
     other = tmp_path / "other"
-    (other / "projects").mkdir(parents=True)
+    (other / "workspaces").mkdir(parents=True)
     (other / "content").mkdir()
-    paths.write_workspace_registry({
+    paths.write_vault_registry({
         "active": "main",
-        "workspaces": [
+        "vaults": [
             {"id": "main", "name": "main", "path": str(monorepo)},
             {"id": "other", "name": "other", "path": str(other)},
         ],
     })
     created = client.post(
-        "/api/projects",
-        json={"id": "remotion-manim", "workspace": "other"},
+        "/api/workspaces",
+        json={"id": "remotion-manim", "vault": "other"},
     )
     assert created.status_code == 200, created.text
 
     r = client.post(
-        "/api/projects/remotion-manim/field?workspace=other",
+        "/api/workspaces/remotion-manim/field?vault=other",
         json={"field": "name", "value": "Animations"},
     )
 
     assert r.status_code == 200, r.text
-    stored = json.loads((other / "projects" / "remotion-manim" / "project.json").read_text())
+    stored = json.loads((other / "workspaces" / "remotion-manim" / "workspace.json").read_text())
     assert stored["id"] == "remotion-manim"
     assert stored["name"] == "Animations"
-    assert paths.read_workspace_registry()["active"] == "main"
+    assert paths.read_vault_registry()["active"] == "main"
 
 
-def test_post_task_new(client, seed_project) -> None:
-    seed_project("alpha")
+def test_post_task_new(client, seed_workspace) -> None:
+    seed_workspace("alpha")
     r = client.post("/api/tasks", json={
-        "project_id": "alpha",
+        "workspace_id": "alpha",
         "title": "Draft",
         "priority": "P1",
         "tags": ["review"],
@@ -152,9 +152,9 @@ def test_post_task_new(client, seed_project) -> None:
 def test_post_self_task_uses_framework_root(tmp_path, monkeypatch) -> None:
     from core.routes import mutation as mutation_routes
 
-    workspace = tmp_path / "workspace"
+    vault = tmp_path / "vault"
     framework = tmp_path / "framework"
-    (workspace / "content").mkdir(parents=True)
+    (vault / "content").mkdir(parents=True)
     (framework / "content").mkdir(parents=True)
     seen: dict[str, object] = {}
 
@@ -175,30 +175,30 @@ def test_post_self_task_uses_framework_root(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(mutation_routes, "_run_lab", fake_run_lab)
 
     body = mutation_routes.NewTask(
-        project_id="__self__",
+        workspace_id="__self__",
         title="Framework task",
         priority="P1",
     )
-    created = mutation_routes.create_task(body, _request(workspace))
+    created = mutation_routes.create_task(body, _request(vault))
 
     assert seen["root"] == framework
-    assert seen["args"][:5] == ["task", "new", "Framework task", "--project", "__self__"]
+    assert seen["args"][:5] == ["task", "new", "Framework task", "--workspace", "__self__"]
     assert created["title"] == "Framework task"
-    assert not (workspace / "content" / ".self-tasks.json").exists()
+    assert not (vault / "content" / ".self-tasks.json").exists()
 
 
-def test_post_task_status_done(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/tasks", json={"project_id": "alpha", "title": "t", "priority": "P2"})
+def test_post_task_status_done(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/tasks", json={"workspace_id": "alpha", "title": "t", "priority": "P2"})
     r = client.post("/api/tasks/alpha/1/status", json={"status": "done"})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "done"
     assert r.json()["closed_at"] is not None
 
 
-def test_post_task_status_blocked_requires_reason(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/tasks", json={"project_id": "alpha", "title": "t", "priority": "P2"})
+def test_post_task_status_blocked_requires_reason(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/tasks", json={"workspace_id": "alpha", "title": "t", "priority": "P2"})
     r = client.post("/api/tasks/alpha/1/status", json={"status": "blocked"})
     assert r.status_code == 400
 
@@ -207,35 +207,35 @@ def test_post_task_status_blocked_requires_reason(client, seed_project) -> None:
     assert r.json()["blocker"] == "waiting on x"
 
 
-def test_post_task_update_field(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/tasks", json={"project_id": "alpha", "title": "t", "priority": "P2"})
+def test_post_task_update_field(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/tasks", json={"workspace_id": "alpha", "title": "t", "priority": "P2"})
     r = client.post("/api/tasks/alpha/1/update", json={"field": "priority", "value": "P0"})
     assert r.status_code == 200
     assert r.json()["priority"] == "P0"
 
 
-def test_post_pr(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.post("/api/projects/alpha/prs", json={
+def test_post_pr(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/prs", json={
         "url": "https://example/pr/1", "mp": "lipy-davi", "title": "t", "status": "open",
     })
     assert r.status_code == 200, r.text
     assert r.json()["prs"][0]["url"] == "https://example/pr/1"
 
 
-def test_delete_pr(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/projects/alpha/prs", json={"url": "https://example/1"})
-    client.post("/api/projects/alpha/prs", json={"url": "https://example/2"})
-    r = client.delete("/api/projects/alpha/prs/0")
+def test_delete_pr(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/workspaces/alpha/prs", json={"url": "https://example/1"})
+    client.post("/api/workspaces/alpha/prs", json={"url": "https://example/2"})
+    r = client.delete("/api/workspaces/alpha/prs/0")
     assert r.status_code == 200
     assert [p["url"] for p in r.json()["prs"]] == ["https://example/2"]
 
 
-def test_post_artifact(client, seed_project) -> None:
-    seed_project("alpha")
-    r = client.post("/api/projects/alpha/artifacts", json={
+def test_post_artifact(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/artifacts", json={
         "url": "https://docs.google.com/x", "type": "google_doc", "title": "D",
     })
     assert r.status_code == 200
@@ -244,10 +244,10 @@ def test_post_artifact(client, seed_project) -> None:
     assert arts[0]["type"] == "google_doc"
 
 
-def test_delete_artifact(client, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/projects/alpha/artifacts", json={"url": "https://a"})
-    r = client.delete("/api/projects/alpha/artifacts/1")
+def test_delete_artifact(client, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/workspaces/alpha/artifacts", json={"url": "https://a"})
+    r = client.delete("/api/workspaces/alpha/artifacts/1")
     assert r.status_code == 200
     assert r.json()["artifacts"] == []
 
@@ -255,39 +255,39 @@ def test_delete_artifact(client, seed_project) -> None:
 # ─── tab_open persistence ────────────────────────────────────────────────
 
 
-def test_post_tab_open_persists_to_project_json(client, monorepo, seed_project) -> None:
-    seed_project("alpha")
-    r = client.post("/api/projects/alpha/tab", json={"open": True})
+def test_post_tab_open_persists_to_workspace_json(client, monorepo, seed_workspace) -> None:
+    seed_workspace("alpha")
+    r = client.post("/api/workspaces/alpha/tab", json={"open": True})
     assert r.status_code == 200, r.text
     assert r.json()["tab_open"] is True
 
-    on_disk = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "workspaces" / "alpha" / "workspace.json").read_text())
     assert on_disk["tab_open"] is True
 
 
-def test_post_tab_close_persists_to_project_json(client, monorepo, seed_project) -> None:
-    seed_project("alpha")
-    client.post("/api/projects/alpha/tab", json={"open": True})
-    r = client.post("/api/projects/alpha/tab", json={"open": False})
+def test_post_tab_close_persists_to_workspace_json(client, monorepo, seed_workspace) -> None:
+    seed_workspace("alpha")
+    client.post("/api/workspaces/alpha/tab", json={"open": True})
+    r = client.post("/api/workspaces/alpha/tab", json={"open": False})
     assert r.status_code == 200, r.text
     assert r.json()["tab_open"] is False
 
-    on_disk = json.loads((monorepo / "projects" / "alpha" / "project.json").read_text())
+    on_disk = json.loads((monorepo / "workspaces" / "alpha" / "workspace.json").read_text())
     assert on_disk["tab_open"] is False
 
 
-def test_post_tab_unknown_project_returns_404(client) -> None:
-    r = client.post("/api/projects/nonexistent/tab", json={"open": True})
+def test_post_tab_unknown_workspace_returns_404(client) -> None:
+    r = client.post("/api/workspaces/nonexistent/tab", json={"open": True})
     assert r.status_code == 404
 
 
-def test_repos_includes_tab_open_field(client, monorepo, seed_project) -> None:
-    seed_project("alpha")
-    seed_project("beta")
-    client.post("/api/projects/alpha/tab", json={"open": True})
+def test_repos_includes_tab_open_field(client, monorepo, seed_workspace) -> None:
+    seed_workspace("alpha")
+    seed_workspace("beta")
+    client.post("/api/workspaces/alpha/tab", json={"open": True})
     r = client.get("/api/repos")
     assert r.status_code == 200
-    by_name = {p["name"]: p for p in r.json() if p.get("is_project")}
+    by_name = {p["name"]: p for p in r.json() if p.get("is_workspace")}
     assert by_name["alpha"]["tab_open"] is True
     # beta never had tab_open written; defaults to False.
     assert by_name["beta"]["tab_open"] is False

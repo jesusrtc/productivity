@@ -83,12 +83,12 @@ class TestJsonFormatter:
         rec = self._make_record(
             name="core.client_errors",
             msg="TypeError: undefined is not a function",
-            extra={"source": "client", "path_info": "/?project=xyz",
+            extra={"source": "client", "path_info": "/?workspace=xyz",
                    "session_id": "abc-123"},
         )
         d = self._format(rec)
         assert d["source"] == "client"
-        assert d["path"] == "/?project=xyz"
+        assert d["path"] == "/?workspace=xyz"
         assert d["session_id"] == "abc-123"
 
     def test_request_path_info_wins_for_server_records(self):
@@ -171,7 +171,7 @@ class TestJsonFormatter:
 class TestClientLogIngest:
     """End-to-end through FastAPI. We re-use the existing ``client``
     fixture (and therefore the real lifespan hook that attaches the
-    file handlers under workspace-local ``.lab/state/logs``). Tests assert both the HTTP
+    file handlers under vault-local ``.lab/state/logs``). Tests assert both the HTTP
     contract and, where relevant, the file output."""
 
     def test_happy_path_records_to_file(self, client, monorepo: Path):
@@ -292,18 +292,18 @@ class TestClientLogIngest:
         r = client.post("/api/log/client", json={"events": [
             {
                 "level": "error",
-                "msg": "frontend fetch GET /api/project-files failed: Failed to fetch",
-                "path": "/?project=test",
+                "msg": "frontend fetch GET /api/workspace-files failed: Failed to fetch",
+                "path": "/?workspace=test",
                 "action": "fetch",
-                "target": "/api/project-files",
-                "href": "/api/project-files?path=/tmp/test",
+                "target": "/api/workspace-files",
+                "href": "/api/workspace-files?path=/tmp/test",
             },
             {
                 "level": "error",
-                "msg": "[_refreshProjectSidebar] failed: TypeError: Failed to fetch\n"
+                "msg": "[_refreshWorkspaceSidebar] failed: TypeError: Failed to fetch\n"
                        "    at window.fetch (http://localhost:8080/static/js/lib/error-report.js:210:14)\n"
-                       "    at _refreshProjectSidebar (http://localhost:8080/static/js/lab-app.js:4017:32)",
-                "path": "/?project=test",
+                       "    at _refreshWorkspaceSidebar (http://localhost:8080/static/js/lab-app.js:4017:32)",
+                "path": "/?workspace=test",
                 "action": "console.error",
             },
         ]})
@@ -491,7 +491,7 @@ class TestLogTailApi:
         assert r.status_code == 200
         assert r.json()["entries"] == [{"raw": "not json"}]
 
-    def test_consolidated_tail_merges_and_labels_workspaces(
+    def test_consolidated_tail_merges_and_labels_vaults(
         self, client, tmp_path: Path, monkeypatch,
     ):
         from core.routes import log as log_route
@@ -504,19 +504,19 @@ class TestLogTailApi:
         (second / "errors.log").write_text(json.dumps({"ts": "2026-01-01T00:00:01Z", "msg": "one"}) + "\n")
         monkeypatch.setattr(
             log_route,
-            "_workspace_log_dirs",
+            "_vault_log_dirs",
             lambda _request: [("alpha", first), ("beta", second)],
         )
 
         r = client.get("/api/log/tail/all?file=errors.log&tail=10")
 
         assert r.status_code == 200
-        assert [(row["workspace"], row["msg"]) for row in r.json()["entries"]] == [
+        assert [(row["vault"], row["msg"]) for row in r.json()["entries"]] == [
             ("beta", "one"),
             ("alpha", "two"),
         ]
 
-    def test_consolidated_clear_truncates_selected_log_in_every_workspace(
+    def test_consolidated_clear_truncates_selected_log_in_every_vault(
         self, client, tmp_path: Path, monkeypatch,
     ):
         from core.routes import log as log_route
@@ -530,7 +530,7 @@ class TestLogTailApi:
             (log_dir / "frontend.log").write_text('{"msg":"keep"}\n')
         monkeypatch.setattr(
             log_route,
-            "_workspace_log_dirs",
+            "_vault_log_dirs",
             lambda _request: [("alpha", first), ("beta", second)],
         )
 
@@ -550,11 +550,11 @@ class TestLogTailApi:
         assert (second / "frontend.log").read_text() == '{"msg":"keep"}\n'
 
     def test_consolidated_clear_rejects_unsupported_log(self, client):
-        r = client.delete("/api/log/clear/all?file=../project.json")
+        r = client.delete("/api/log/clear/all?file=../workspace.json")
         assert r.status_code == 400
 
     def test_log_tail_rejects_path_traversal(self, client):
-        r = client.get("/api/log/tail?file=../project.json&tail=10")
+        r = client.get("/api/log/tail?file=../workspace.json&tail=10")
         assert r.status_code == 400
 
     def test_log_tail_rejects_removed_legacy_logs(self, client):

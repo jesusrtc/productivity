@@ -1,12 +1,12 @@
-# Project notebook runtimes
+# Workspace notebook runtimes
 
-Lab can run a project's notebooks on a host-local Jupyter kernel using the
+Lab can run a workspace's notebooks on a host-local Jupyter kernel using the
 client's exact Python environment. The notebook file, kernel session, and API
 are shared by the browser UI and agents.
 
 ## Create the notebook in the repository
 
-Open the project or workspace Files sidebar and select **+ Notebook**. Choose
+Open the workspace or vault Files sidebar and select **+ Notebook**. Choose
 the repository folder and filename; Lab writes a valid `.ipynb` at that exact
 location and opens it immediately. You can also secondary-click a folder and
 choose **New notebook here**.
@@ -19,10 +19,10 @@ kernel only when they target the same path.
 
 ## Configure from the notebook
 
-Open a `.ipynb` under `projects/<id>/`, select **Runtime**, and configure:
+Open a `.ipynb` under `workspaces/<id>/`, select **Runtime**, and configure:
 
 - **Managed by Lab**: choose a Python executable/version and package specs.
-  Lab builds a versioned venv under `.lab/state/runtimes/<project>/`.
+  Lab builds a versioned venv under `.lab/state/runtimes/<workspace>/`.
 - **Existing Python**: provide the path to a client-managed Python environment.
   Lab validates it without installing or changing anything.
 - Package pins, editable local libraries, required imports, CLI directories,
@@ -32,9 +32,9 @@ Open a `.ipynb` under `projects/<id>/`, select **Runtime**, and configure:
 interpreter. Imports and CLI checks run inside that kernel, not in the Lab
 server. A runtime only becomes active after every check passes.
 
-Relative paths are resolved from `projects/<id>/`. Absolute client-host paths
+Relative paths are resolved from `workspaces/<id>/`. Absolute client-host paths
 are supported for existing interpreters, SDKs, CLI installations, and working
-directories. Runtime configuration is stored in `projects/<id>/runtime.json`;
+directories. Runtime configuration is stored in `workspaces/<id>/runtime.json`;
 generated environments and build logs remain under `.lab/state/runtimes/`.
 
 Libraries that invoke subprocesses work normally. The kernel process receives
@@ -44,27 +44,27 @@ run from their terminal. This execution path does not use Docker.
 
 ## Human workflow
 
-Every project has a built-in **Jupyter** tab beside **Overview** and **Code
-Search**. It opens the project's last-used notebook directly; when there is no
-selection yet, it shows the project notebooks and a **+ Notebook** action. This
+Every workspace has a built-in **Jupyter** tab beside **Overview** and **Code
+Search**. It opens the workspace's last-used notebook directly; when there is no
+selection yet, it shows the workspace notebooks and a **+ Notebook** action. This
 is part of Lab's own notebook runtime, so it does not require a `servers.json`
 entry, host, port, reverse proxy, or separate JupyterLab process.
 
-The launcher displays the current project name and path because notebooks are
-project-scoped: a notebook created in project A appears in project A's Jupyter
-tab, not project B's. From an open notebook, **All notebooks** returns to the
-project launcher.
+The launcher displays the current workspace name and path because notebooks are
+workspace-scoped: a notebook created in workspace A appears in workspace A's Jupyter
+tab, not workspace B's. From an open notebook, **All notebooks** returns to the
+workspace launcher.
 
 Notebook code cells are editable in place. Use **Run** or Cmd/Ctrl+Enter,
 insert cells between existing cells, restart the kernel, or interrupt a long
 cell. Drafts survive navigation. Every execution is written back to the real
 `.ipynb`, including outputs and a stable nbformat cell id.
 
-Notebook links use `#/nb?path=projects/<id>/<file>.ipynb`. When the project is
-open in a cross-workspace tab, Lab resolves the path against that project's
-owning workspace and carries the workspace id on every notebook request; it
+Notebook links use `#/nb?path=workspaces/<id>/<file>.ipynb`. When the workspace is
+open in a cross-vault tab, Lab resolves the path against that workspace's
+owning vault and carries the vault id on every notebook request; it
 does not accidentally execute a same-named path under the shell's active
-workspace.
+vault.
 
 ## Live agent and human execution
 
@@ -105,16 +105,16 @@ agent run is active and are not mistaken for the source actually executing.
 
 ## Agent workflow
 
-Agents should use the `lab` command from either the workspace root or a project
+Agents should use the `lab` command from either the vault root or a workspace
 directory. It discovers the running Lab server, authenticates with an
 owner-readable local CLI token, resolves the notebook against the selected
-workspace, and routes the cell through the same live executor as the browser:
+vault, and routes the cell through the same live executor as the browser:
 
 ```bash
-lab notebook exec projects/acme/notebooks/analysis.ipynb \
+lab notebook exec workspaces/acme/notebooks/analysis.ipynb \
   --code 'from client_sdk import load_table; print(load_table())'
 
-# From projects/acme/, a project-relative path works too. Reuse the stable id
+# From workspaces/acme/, a workspace-relative path works too. Reuse the stable id
 # to modify and rerun an existing cell rather than appending a new one.
 lab notebook exec notebooks/analysis.ipynb \
   --cell-id 9f27a1c34d10 --file /tmp/analysis-cell.py
@@ -134,7 +134,7 @@ curl -s -X POST "$(scripts/lab-url.sh)/api/nb/exec" \
   -H "Authorization: Bearer ${token}" \
   -H 'Content-Type: application/json' \
   -d '{
-    "path":"projects/acme/notebooks/analysis.ipynb",
+    "path":"workspaces/acme/notebooks/analysis.ipynb",
     "actor":"agent",
     "code":"from client_sdk import load_table\nprint(load_table())"
   }'
@@ -147,9 +147,9 @@ routes. Treat it as a local capability: do not commit, log, or share it. Remote
 API clients continue to authenticate through `/api/auth/login` and use the
 returned session cookie.
 
-If the notebook's project is not in the server process's active workspace,
-include its registered workspace id in the JSON body, for example
-`"workspace":"local"`. Browser Run, interrupt, restart, runtime, and replay
+If the notebook's workspace is not in the server process's active vault,
+include its registered vault id in the JSON body, for example
+`"vault":"local"`. Browser Run, interrupt, restart, runtime, and replay
 requests add this automatically.
 
 To rerun an existing cell through the API, read `/api/nb?path=...` and send its stable
@@ -171,4 +171,4 @@ The event phases are `started`, `execution-count`, `output`, `finished`,
 `interrupted`, and `failed`; nonterminal deltas carry the run sequence and
 stable cell id.
 
-Projects without `runtime.json` continue to use the existing Darwin provider.
+Workspaces without `runtime.json` continue to use the existing Darwin provider.
