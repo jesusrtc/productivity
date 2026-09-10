@@ -11,6 +11,7 @@ file link leaves `linked_scope` intact. Terminal clicks restore the sidebar scop
 and optional file only when the existing browser-local Sync linked switch is on.
 
 Terminal tabs use the worktree color (project folder color for main), with a
-left-edge accent. Recent inactive tabs use a green background tint (or the
-user's configured recent color); preserve the active tab's blue treatment. Colors follow local sidebar
-settings, falling back to the color saved with the scope in other browsers.
+5px left-edge accent. Recent inactive tabs show a small green dot (or the user's
+configured recent color), without tinting the tab background. Preserve the
+active tab's blue treatment. Colors follow local sidebar settings, falling back
+to the color saved with the scope in other browsers.

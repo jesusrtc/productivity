@@ -199,8 +199,8 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     assert "_termMarkRecent(prevWorkspaceId, prev);" in source
     assert "_termMarkRecent(workspaceId, name);" in source
     assert ".term-sessions .sess.recent:not(.active)" in css
-    assert ".term-sessions .sess.recent:not(.active)::after" not in css
-    assert ".term-sessions .sess.recent:not(.active) { background: color-mix" in css
+    assert ".term-sessions .sess.recent:not(.active)::after" in css
+    assert ".term-sessions .sess.recent:not(.active) { background:" not in css
     assert ".term-panel.term-sessions-horizontal .term-sessions .sess.recent:not(.active)" not in css
     assert "var(--term-recent-color, var(--green))" in css
     assert ".term-recent-color-control" in css
@@ -2698,8 +2698,8 @@ process.stdout.write(JSON.stringify({main: _termScopeColor(scope),
 ''')
     assert result == {'main': '#123abc', 'worktree': '#abcdef', 'otherBrowser': '#111111'}
     css = LAB_SHELL_CSS.read_text()
-    assert '.sess.recent:not(.active) { background: color-mix(in srgb, var(--term-recent-color' in css
-    assert '.sess .sess-scope-accent { position: absolute; top: 3px; bottom: 3px; left: 0;' in css
+    assert '.sess.recent:not(.active)::after' in css
+    assert '.sess .sess-scope-accent { position: absolute; top: 3px; bottom: 3px; left: 0; width: 5px;' in css
     assert '.sess[data-linked-scope]:not(.active) { background:' not in css
 
 
