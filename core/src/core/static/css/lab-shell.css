@@ -1897,12 +1897,11 @@
   .term-session-tooltip-label { position: sticky; top: 0; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
   .term-session-tooltip-items { display: flex; flex-direction: column; gap: 7px; max-height: min(34vh, calc(13.5em + 28px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
   .term-session-tooltip-meta { margin-top: 8px; padding-top: 7px; color: var(--text-dim); border-top: 1px solid #414852; white-space: pre-line; }
-  .term-sessions .sess.recent:not(.active) { box-shadow: inset 3px 0 0 var(--term-recent-color, var(--green)); }
+  .term-sessions .sess.recent:not(.active) { background: color-mix(in srgb, var(--term-recent-color, var(--green)) 20%, #0a0e13); }
 
-  /* Project identity and recent activity use separate edges. */
+  /* Project identity uses the left edge; recent activity uses the background. */
   .term-sessions .sess[data-linked-scope] { position: relative; }
-  .term-sessions .sess[data-linked-scope]:not(.active) { background: color-mix(in srgb, var(--term-scope-color) 12%, #0a0e13); }
-  .term-sessions .sess .sess-scope-accent { position: absolute; top: 3px; bottom: 3px; right: 0; width: 3px; border-radius: 2px; background: var(--term-scope-color); pointer-events: none; }
+  .term-sessions .sess .sess-scope-accent { position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-scope-color); pointer-events: none; }
 
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
   /* Dead session: server told us the tmux session is gone, or the

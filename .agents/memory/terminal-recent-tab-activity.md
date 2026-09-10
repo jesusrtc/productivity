@@ -11,7 +11,7 @@ browser-local, defaults to 60 minutes, and uses preset choices in the terminal
 settings modal: 15m, 30m, 1h, 3h, 6h, 12h, or 24h. Persist the user's marker color
 there too; the native color input deliberately allows any six-digit hex color.
 
-Keep the selected tab's existing blue treatment. Inactive recent tabs get only
-a narrow user-selected-color inset bar on the left: no tinted background,
-colored border, dot, or top-bar variant. This keeps the selected state visually
-dominant in every terminal rail orientation.
+Keep the selected tab's existing blue treatment. Inactive recent tabs use a
+background tint in the configured recent color (green by default). The vertical
+left-edge line identifies the linked project/worktree and does not indicate
+recency. Both cues remain visible together in every terminal rail orientation.
