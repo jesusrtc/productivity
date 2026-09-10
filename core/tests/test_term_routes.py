@@ -2272,3 +2272,54 @@ def test_dead_active_named_socket_fails_without_reseeding_from_backend(
     assert response.status_code == 409
     assert "lab terminal rotate" in response.json()["detail"]
     assert not any("new-session" in argv for argv in calls)
+
+
+@pytest.mark.parametrize("has_worktree", [False, True])
+def test_terminal_scope_survives_file_unlink_and_restore(
+    client, seed_workspace, isolated_prefix, monorepo: Path, has_worktree: bool,
+) -> None:
+    seed_workspace("demo")
+    base = monorepo / "workspaces" / "demo"
+    project = base / "project"
+    project.mkdir()
+    worktree = base / "feature" if has_worktree else None
+    if worktree:
+        worktree.mkdir()
+    scope = {"base_root": str(base), "project_root": str(project),
+             "root": str(worktree or project), "worktree": str(worktree) if worktree else None,
+             "label": "Project", "color": "#123abc", "config_scope": "demo"}
+    response = client.post("/api/term/sessions", json={
+        "workspace_id": "demo", "kind": "terminal", "name": "scoped",
+        "linked_scope": scope, "start_fresh": True,
+    })
+    assert response.status_code == 200, response.text
+    created = response.json()
+    assert created["cwd"] == scope["root"]
+    assert created["linked_scope"] == scope
+
+    # File association can cascade to a different project without moving a running shell.
+    new_scope = {**scope, "project_root": str(base), "root": str(base), "worktree": None}
+    linked = client.patch("/api/term/sessions/metadata", json={
+        "workspace_id": "demo", "name": created["logical_name"],
+        "linked_file": {"root": str(base), "path": "README.md"}, "linked_scope": new_scope,
+    })
+    assert linked.status_code == 200, linked.text
+    rows = client.get("/api/term/sessions?workspace_id=demo").json()
+    assert rows[0]["cwd"] == scope["root"]
+    assert rows[0]["linked_scope"] == new_scope
+    removed = client.patch("/api/term/sessions/metadata", json={
+        "workspace_id": "demo", "name": created["logical_name"], "linked_file": None,
+    })
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["session"]["linked_scope"] == new_scope
+    assert "linked_file" not in removed.json()["session"]
+    saved = client.get("/api/term/sessions/saved?workspace_id=demo").json()
+    assert saved[0]["linked_scope"] == new_scope
+
+    client.delete('/api/term/sessions/' + created["name"])
+    restored = client.post("/api/term/sessions", json={
+        "workspace_id": "demo", "kind": "terminal", "name": created["logical_name"],
+    })
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["linked_scope"] == new_scope
+    assert restored.json()["cwd"] == new_scope["root"]

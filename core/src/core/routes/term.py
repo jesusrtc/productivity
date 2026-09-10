@@ -69,7 +69,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import yaml
 
 from lab import paths as lab_paths
@@ -1528,7 +1528,7 @@ def _reconstruct_meta_entry(
                 entry["claude_session_id"] = s["claude_session_id"]
             if s.get("agent_session_id"):
                 entry["agent_session_id"] = s["agent_session_id"]
-            for key in ("label", "summary", "linked_file"):
+            for key in ("label", "summary", "linked_file", "linked_scope"):
                 if s.get(key):
                     entry[key] = s[key]
             break
@@ -2012,10 +2012,22 @@ def _pick_unique_logical_name(preferred: str, taken_logical_names: set[str]) -> 
 # ─── API models ─────────────────────────────────────────────────────────────
 
 
+class LinkedScope(BaseModel):
+    # Sidebar identity is independent of the process cwd and optional file link.
+    base_root: str = Field(min_length=1, max_length=4096)
+    project_root: str = Field(min_length=1, max_length=4096)
+    root: str = Field(min_length=1, max_length=4096)
+    worktree: str | None = Field(default=None, max_length=4096)
+    label: str = Field(default="Root", max_length=512)
+    color: str = Field(default="#6e7681", pattern=r"^#[0-9a-fA-F]{6}$")
+    config_scope: str = Field(default="", max_length=4096)
+
+
 class NewSession(BaseModel):
     workspace_id: str | None = None
     vault: str | None = None
     cwd: str | None = None
+    linked_scope: LinkedScope | None = None
     # "claude" spawns `claude` with --permission-mode auto + --session-id
     # (generated UUID on first launch, saved to workspace.json, reused via
     # --resume on subsequent creates of the same name).
@@ -2082,7 +2094,7 @@ def _sessions_for_root(
         logical = row.get("logical_name")
         saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
         if saved:
-            for key in ("label", "summary", "linked_file"):
+            for key in ("label", "summary", "linked_file", "linked_scope"):
                 if saved.get(key):
                     row[key] = saved[key]
         rows.append(row)
@@ -2348,6 +2360,7 @@ class SessionMetadata(BaseModel):
     # A terminal has one primary file. Several terminals may independently
     # point at the same file (for example, one Codex and one Copilot tab).
     linked_file: LinkedFile | None = None
+    linked_scope: LinkedScope | None = None
 
 
 class PastedImage(BaseModel):
@@ -2474,6 +2487,12 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
                 raise HTTPException(status_code=400, detail="linked_file path is too long")
             entry["linked_file"] = {"root": file_root, "path": file_path}
 
+    if "linked_scope" in fields:
+        if body.linked_scope is None:
+            entry.pop("linked_scope", None)
+        else:
+            entry["linked_scope"] = body.linked_scope.model_dump()
+
     data["sessions"] = sessions
     _save_workspace(root, body.workspace_id, data)
 
@@ -2495,7 +2514,13 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
                 meta[tmux_name]["linked_file"] = entry["linked_file"]
             else:
                 meta[tmux_name].pop("linked_file", None)
+        if "linked_scope" in fields:
+            if entry.get("linked_scope"):
+                meta[tmux_name]["linked_scope"] = entry["linked_scope"]
+            else:
+                meta[tmux_name].pop("linked_scope", None)
         _save_meta(root, meta)
+    _invalidate_workspace_term_caches()
 
     log.info(
         "terminal session metadata updated",
@@ -2820,9 +2845,19 @@ def create_session(body: NewSession, request: Request) -> dict:
                 )
             agent = supported[0]
 
+    # Restores reuse their saved scope; new terminals capture the sidebar scope.
+    saved_scope = None
+    if body.workspace_id and not body.start_fresh:
+        saved_session = _workspace_session_by_name(root, body.workspace_id).get(
+            _sanitize(body.name or agent or "bash"), {}
+        )
+        saved_scope = saved_session.get("linked_scope")
+    linked_scope = body.linked_scope.model_dump() if body.linked_scope else saved_scope
     # Resolve cwd.
     if body.cwd:
         cwd = Path(body.cwd).resolve()
+    elif linked_scope:
+        cwd = Path(linked_scope["root"]).resolve()
     elif body.workspace_id:
         cwd = _workspace_cwd(root, body.workspace_id)
     else:
@@ -2879,7 +2914,7 @@ def create_session(body: NewSession, request: Request) -> dict:
                 info.get("logical_name") or preferred_sane
             )
             if saved:
-                for key in ("label", "summary", "linked_file"):
+                for key in ("label", "summary", "linked_file", "linked_scope"):
                     if saved.get(key):
                         row[key] = saved[key]
         log.info(
@@ -3069,6 +3104,8 @@ def create_session(body: NewSession, request: Request) -> dict:
     # display-name lookup even though reopening still starts a fresh session).
     if body.workspace_id:
         entry: dict = {"name": logical, "kind": kind}
+        if linked_scope:
+            entry["linked_scope"] = linked_scope
         if agent:
             entry["agent"] = agent
         if claude_session_id:
@@ -3078,10 +3115,10 @@ def create_session(body: NewSession, request: Request) -> dict:
         _upsert_workspace_session(root, body.workspace_id, entry)
         saved = _workspace_session_by_name(root, body.workspace_id).get(logical)
         if saved:
-            for key in ("label", "summary", "linked_file"):
+            for key in ("label", "summary", "linked_file", "linked_scope"):
                 if saved.get(key):
                     meta[tmux_name][key] = saved[key]
-            if saved.get("label") or saved.get("summary") or saved.get("linked_file"):
+            if any(saved.get(key) for key in ("label", "summary", "linked_file", "linked_scope")):
                 _save_meta(root, meta)
         _invalidate_workspace_term_caches()
 

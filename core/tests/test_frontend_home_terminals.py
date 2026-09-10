@@ -98,6 +98,7 @@ def test_new_session_and_polling_target_home_from_a_vault():
 view('vault', {name: '__vault__', vault_id: 'ssd', is_workspace: true});
 classes.add('term-open');
 const requests = [], refreshes = [];
+const _termSelectedScope = () => ({root: '/selected/project', project_root: '/selected/project'});
 const fetch = async (url, opts) => {
   requests.push(JSON.parse(opts.body));
   return {ok: true, json: async () => ({name: 'new-home-terminal'})};
@@ -124,4 +125,6 @@ console.log(JSON.stringify({requests, refreshes}));
         section('  function termStartPeriodicRefresh()', '  function termStopPeriodicRefresh()'))
     assert result['requests'][0]['workspace_id'] == '__self__'
     assert result['requests'][0]['vault'] is None
+    assert result['requests'][0]['cwd'] == '/selected/project'
+    assert result['requests'][0]['linked_scope']['project_root'] == '/selected/project'
     assert result['refreshes'] == ['__self__', '__self__']

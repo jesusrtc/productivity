@@ -2600,3 +2600,120 @@ console.log(JSON.stringify({{planned,unchanged:beforeState===JSON.stringify(orig
     assert result['planned']['order'] == expected_order
     assert result['planned']['tabMembership'].get('a') == expected_group
     assert result['planned']['tabGroups'][0]['collapsed'] is True
+
+
+def test_terminal_scope_captures_project_and_optional_worktree_and_cascades_file() -> None:
+    helpers = _js_between("function _termSelectedScope(", "function _termScopeColor(")
+    result = _run_node(r'''
+let worktree = null;
+const _sidebarFileConfigScope = 'demo';
+const _sidebarFileConfig = {folderScopes: [{path: '/base/forge', label: 'Forge', color: '#123abc'}]};
+const _sidebarWorktreeBaseRoot = () => '/base';
+const _sidebarSelectedWorktree = () => worktree;
+const _sidebarWorkspaceRoot = () => '/base/forge';
+const _sidebarScopedRoot = () => worktree?.path || '/base/forge';
+const _sidebarWorkspaceLabel = () => 'Forge';
+const _sidebarWorkspaceColor = () => '#123abc';
+const _sidebarWorktreeColor = () => '#abcdef';
+const _sidebarValidColor = value => value || '#6e7681';
+const _termLinkedAbsolutePath = (root, path) => root + '/' + path;
+''' + helpers + r'''
+(async () => {
+  const main = _termSelectedScope();
+  worktree = {path: '/trees/feature', name: 'feature'};
+  const feature = _termSelectedScope();
+  const file = await _termScopeForFile({root: '/trees/feature', path: 'README.md'});
+  const other = await _termScopeForFile({root: '/base/forge', path: 'README.md'});
+  process.stdout.write(JSON.stringify({main, feature, file, other}));
+})().catch(error => { console.error(error); process.exit(1); });
+''')
+    assert result['main']['root'] == '/base/forge'
+    assert result['main']['worktree'] is None
+    assert result['main']['color'] == '#123abc'
+    assert result['feature']['root'] == '/trees/feature'
+    assert result['feature']['project_root'] == '/base/forge'
+    assert result['feature']['color'] == '#abcdef'
+    assert result['file'] == result['feature']
+    assert result['other'] == result['main']
+
+
+def test_terminal_scope_sync_is_opt_in_and_cancels_stale_choices() -> None:
+    helper = _js_between('async function _termSyncLinkedScope(', 'function _termCancelPendingLinkedFileOpen()')
+    result = _run_node(r'''
+let _linkedTerminalSyncOn = false, _termLinkedNavigationSeq = 3;
+const scope = {base_root: '/base', project_root: '/project', root: '/trees/feature',
+  worktree: '/trees/feature', label: 'Forge · feature', color: '#abcdef'};
+let _sidebarFileConfig = {folderScopes: [{path: '/project', worktreeFolder: '/trees'}]};
+const _sidebarWorktreeBaseRoot = () => '/base';
+const _sidebarScopedRoot = () => '/base';
+const _sidebarFolderScope = path => _sidebarFileConfig.folderScopes.find(row => row.path === path);
+const _sidebarActiveWorktreeFolder = () => '/trees';
+const calls = [];
+const content = {innerHTML: 'old file'};
+const document = {getElementById: () => content};
+const _storeSidebarFileConfig = () => calls.push('store');
+const _sidebarClearWorktreeDiscovery = () => calls.push('clear');
+const _workspaceSidebarCache = new Map();
+let _workspaceDocPath, _workspaceDocRoot, workspaceOpenFile, diffCache, _lastWorkspaceMtime;
+const _refreshSidebarAfterFileConfig = async () => calls.push('refresh');
+''' + helper + r'''
+(async () => {
+  await _termSyncLinkedScope(scope, 3);
+  const off = [...calls];
+  _linkedTerminalSyncOn = true;
+  await _termSyncLinkedScope(scope, 2);
+  const stale = [...calls];
+  await _termSyncLinkedScope(scope, 3);
+  process.stdout.write(JSON.stringify({off, stale, calls, content: content.innerHTML, config: _sidebarFileConfig}));
+})().catch(error => { console.error(error); process.exit(1); });
+''')
+    assert result['off'] == result['stale'] == []
+    assert result['calls'] == ['store', 'clear', 'refresh']
+    assert 'Select a file from the tree' in result['content']
+    assert result['config']['selectedFolders']['/base'] == '/project'
+    assert result['config']['selectedWorktrees']['/project'] == '/trees/feature'
+
+
+def test_terminal_scope_color_tracks_config_without_overwriting_recent_marker() -> None:
+    helper = _js_between('function _termScopeColor(', 'async function termLinkCurrentScope(')
+    result = _run_node(r'''
+const _sidebarFileConfigScope = 'demo';
+const _sidebarFileConfig = {worktreeColors: {'/trees/feature': '#abcdef'},
+  folderScopes: [{path: '/project', color: '#123abc'}]};
+const _loadSidebarFileConfig = () => ({});
+const _sidebarValidColor = value => value || '#6e7681';
+''' + helper + r'''
+const scope = {base_root: '/base', project_root: '/project', config_scope: 'demo', color: '#111111'};
+process.stdout.write(JSON.stringify({main: _termScopeColor(scope),
+  worktree: _termScopeColor({...scope, worktree: '/trees/feature'}),
+  otherBrowser: _termScopeColor({...scope, config_scope: 'other'})}));
+''')
+    assert result == {'main': '#123abc', 'worktree': '#abcdef', 'otherBrowser': '#111111'}
+    css = LAB_SHELL_CSS.read_text()
+    assert '.sess.recent:not(.active) { box-shadow: inset 3px 0 0 var(--term-recent-color' in css
+    assert '.sess .sess-scope-accent' in css
+
+
+def test_scoped_terminal_image_paste_uses_absolute_path() -> None:
+    helper = _js_between('async function _termHandlePaste(ev)', 'function termEnsureXterm()')
+    result = _run_node(r'''
+const sent = [];
+const termWS = {readyState: 1, send: value => sent.push(JSON.parse(value))};
+const WebSocket = {OPEN: 1};
+const termCurrentSession = 'worktree-terminal';
+const _termClipboardImageFile = () => ({name: 'image.png', type: 'image/png'});
+const _termActiveWorkspaceId = () => 'demo';
+const _termVaultId = () => 'local';
+const _termReadFileAsDataUrl = async () => 'data:image/png;base64,AA==';
+const termSetStatus = () => {};
+const _termClientLog = () => {};
+const fetch = async () => ({ok: true, json: async () => ({
+  path: '.lab/terminal-pastes/image.png', absolute_path: '/workspace/.lab/terminal-pastes/image.png',
+})});
+''' + helper + r'''
+(async () => {
+  await _termHandlePaste({preventDefault() {}, stopPropagation() {}});
+  process.stdout.write(JSON.stringify(sent));
+})().catch(error => { console.error(error); process.exit(1); });
+''')
+    assert result == [{'type': 'input', 'data': '/workspace/.lab/terminal-pastes/image.png'}]

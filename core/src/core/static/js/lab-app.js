@@ -2635,7 +2635,7 @@
     const rootControl = worktreeFolder
       ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label>`
       : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
-    return `<div class="sidebar-worktree-picker" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+    return `<div class="sidebar-worktree-picker" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree; its running directory stays unchanged">Link current terminal</button><input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
   }
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
@@ -3306,6 +3306,7 @@
   }
 
   async function sidebarSelectFolder(button) {
+    _termCancelPendingLinkedFileOpen();
     const baseRoot = String(button && button.getAttribute('data-base-root') || '');
     if (!baseRoot) return;
     const requested = String(button.getAttribute('data-folder-path') || '');
@@ -3329,6 +3330,7 @@
   }
 
   async function sidebarSelectWorktree(select) {
+    _termCancelPendingLinkedFileOpen();
     const baseRoot = String(select && select.getAttribute('data-base-root') || '');
     if (!baseRoot) return;
     const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
@@ -3357,6 +3359,7 @@
     document.querySelectorAll(`.sidebar-worktree-scope[data-worktree-path="${CSS.escape(path)}"]`).forEach(scope => {
       scope.style.setProperty('--sidebar-worktree-color', color);
     });
+    termRenderSessionList();
   }
 
   async function _refreshSidebarAfterFileConfig() {
@@ -3419,6 +3422,7 @@
       };
     }
     closeSidebarFileConfig();
+    termRenderSessionList();
     void _refreshSidebarAfterFileConfig();
     return false;
   }
@@ -11333,9 +11337,13 @@
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
     const ariaLabel = `${display} · ${visual.badge}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
-    const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
+    const scopeTitle = s.linked_scope ? `Folder: ${s.linked_scope.label} · ${s.linked_scope.root}` : '';
+    const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle, scopeTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
-    return `<span class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+    const scope = s.linked_scope;
+    const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
+    return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+      ${scope ? `<span class="sess-scope-accent" title="${termSessEsc(scope.label + ' · ' + scope.root)}" aria-hidden="true"></span>` : ''}
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
@@ -11780,6 +11788,131 @@
   let _termLinkEscHandler = null;
   let _termLinkedNavigationSeq = 0;
 
+  function _termSelectedScope(baseRoot = _sidebarWorktreeBaseRoot()) {
+    if (!baseRoot) return null;
+    const worktree = _sidebarSelectedWorktree(baseRoot);
+    return {
+      base_root: baseRoot,
+      project_root: _sidebarWorkspaceRoot(baseRoot),
+      root: _sidebarScopedRoot(baseRoot),
+      worktree: worktree?.path || null,
+      label: _sidebarWorkspaceLabel(baseRoot) + (worktree ? ` · ${worktree.name}` : ''),
+      color: worktree ? _sidebarWorktreeColor(worktree.path) : _sidebarWorkspaceColor(baseRoot),
+      config_scope: _sidebarFileConfigScope,
+    };
+  }
+
+  function _termPathWithin(path, root) {
+    return path === root || path.startsWith(root.replace(/\/+$/, '') + '/');
+  }
+
+  async function _termScopeForFile(ctx) {
+    const selected = _termSelectedScope();
+    const absolute = _termLinkedAbsolutePath(ctx.root, ctx.path);
+    if (selected && _termPathWithin(absolute, selected.root)
+        && !(_sidebarFileConfig.folderScopes || []).some(row =>
+          row.path.length > selected.root.length && _termPathWithin(absolute, row.path))) return selected;
+    const baseRoot = selected?.base_root || ctx.root;
+    const config = _sidebarFileConfig;
+    const configScope = _sidebarFileConfigScope;
+    const projects = [{path: baseRoot, label: 'Root', color: config.rootScopeColors?.[baseRoot],
+      worktreeFolder: config.rootWorktreeFolders?.[baseRoot] || config.worktreeFolder},
+      ...(config.folderScopes || [])];
+    const candidates = [];
+    for (const project of projects) {
+      candidates.push({project, root: project.path, worktree: null, label: project.label, color: project.color});
+      if (!project.worktreeFolder) continue;
+      const query = new URLSearchParams({path: project.worktreeFolder,
+        repo: _sidebarWorktreeRepositoryRoot(project.path), scope: project.path});
+      const response = await fetch(`/api/sidebar-worktrees?${query}`);
+      if (!response.ok) throw new Error('Could not resolve the file’s worktree.');
+      const data = await response.json();
+      for (const row of data.folders || []) {
+        candidates.push({project, root: row.path, worktree: row.path,
+          label: `${project.label} · ${row.name}`, color: config.worktreeColors?.[row.path]});
+      }
+    }
+    const match = candidates.filter(row => _termPathWithin(absolute, row.root))
+      .sort((a, b) => b.root.length - a.root.length)[0];
+    return {base_root: baseRoot, project_root: match?.project.path || ctx.root,
+      root: match?.root || ctx.root, worktree: match?.worktree || null,
+      label: match?.label || ctx.root.split('/').pop() || 'Root',
+      color: _sidebarValidColor(match?.color), config_scope: configScope};
+  }
+
+  function _termScopeColor(scope) {
+    const config = scope.config_scope === _sidebarFileConfigScope
+      ? _sidebarFileConfig : _loadSidebarFileConfig(scope.config_scope);
+    const color = scope.worktree ? config.worktreeColors?.[scope.worktree]
+      : scope.project_root === scope.base_root ? config.rootScopeColors?.[scope.base_root]
+      : config.folderScopes?.find(row => row.path === scope.project_root)?.color;
+    return _sidebarValidColor(color || scope.color);
+  }
+
+  async function termLinkCurrentScope(button) {
+    const session = (termSessions || []).find(row => row.name === termCurrentSession);
+    if (!session?.logical_name || termCurrentWorkspaceId !== _termActiveWorkspaceId()) {
+      explorerToast('Select a terminal to link.', true);
+      return;
+    }
+    const scope = _termSelectedScope(button.getAttribute('data-base-root'));
+    const workspaceId = _termActiveWorkspaceId();
+    const vaultId = _termVaultId();
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/term/sessions/metadata', {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({workspace_id: workspaceId, vault: vaultId,
+          name: session.logical_name, linked_scope: scope}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || 'Could not link terminal.');
+      if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
+      termSessions = termSessions.map(row => row.name === session.name
+        ? {...row, linked_scope: body.session.linked_scope} : row);
+      _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
+      termRenderSessionList();
+      explorerToast(`Terminal linked to ${scope.label}. Running directory unchanged.`);
+    } catch (error) {
+      explorerToast(error.message || String(error), true);
+    } finally { button.disabled = false; }
+  }
+  window.termLinkCurrentScope = termLinkCurrentScope;
+
+  async function _termSyncLinkedScope(scope, request) {
+    if (!scope || !_linkedTerminalSyncOn || request !== _termLinkedNavigationSeq) return;
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    if (scope.base_root !== baseRoot) return;
+    if (_sidebarScopedRoot(baseRoot) === scope.root) return;
+    // Preserve the saved identity even when this browser has not configured the folder yet.
+    if (scope.project_root !== baseRoot && !_sidebarFolderScope(scope.project_root)) {
+      _sidebarFileConfig.folderScopes.push({path: scope.project_root,
+        label: scope.label.split(' · ')[0], color: scope.color, worktreeFolder: ''});
+    }
+    _sidebarFileConfig.selectedFolders = {..._sidebarFileConfig.selectedFolders,
+      [baseRoot]: scope.project_root === baseRoot ? '' : scope.project_root};
+    _sidebarFileConfig.selectedWorktrees = {..._sidebarFileConfig.selectedWorktrees,
+      [scope.project_root]: scope.worktree || ''};
+    if (scope.worktree && !_sidebarActiveWorktreeFolder(baseRoot)) {
+      const parent = scope.worktree.slice(0, scope.worktree.lastIndexOf('/')) || '/';
+      const folder = _sidebarFolderScope(scope.project_root);
+      if (folder) folder.worktreeFolder = parent;
+      else _sidebarFileConfig.rootWorktreeFolders = {..._sidebarFileConfig.rootWorktreeFolders,
+        [baseRoot]: parent};
+    }
+    _storeSidebarFileConfig();
+    _sidebarClearWorktreeDiscovery();
+    _workspaceDocPath = null;
+    _workspaceDocRoot = null;
+    workspaceOpenFile = null;
+    diffCache = {uncommitted: null, branch: null};
+    _lastWorkspaceMtime = 0;
+    _workspaceSidebarCache.delete(baseRoot);
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
+    await _refreshSidebarAfterFileConfig();
+  }
+
   function _termCancelPendingLinkedFileOpen() {
     _termLinkedNavigationSeq += 1;
   }
@@ -11872,7 +12005,12 @@
       return;
     }
     const vaultId = _termVaultId();
+    const linkedScope = await _termScopeForFile(ctx).catch(error => {
+      explorerToast(error.message, true); return null;
+    });
+    if (!linkedScope || workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
     _termLinkModalState = {
+      linkedScope,
       ctx: {root: ctx.root, path: ctx.path, surface: ctx.surface || 'workspace'},
       workspaceId,
       vaultId,
@@ -11925,13 +12063,16 @@
         name: logical,
         label,
         linked_file: linkedFile,
+        ...(linkedFile ? {linked_scope: state.linkedScope} : {}),
       }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || response.statusText || 'link failed');
     const updated = body.session || {};
+    if (state.workspaceId !== _termActiveWorkspaceId() || state.vaultId !== _termVaultId()) return updated;
     termSessions = (termSessions || []).map(row => row.name === session.name
-      ? {...row, label: updated.label || null, linked_file: updated.linked_file || null}
+      ? {...row, label: updated.label || null, linked_file: updated.linked_file || null,
+          linked_scope: updated.linked_scope || row.linked_scope || null}
       : row);
     _termSessionsCache.set(_termSessionsKey(state.workspaceId, state.vaultId), termSessions);
     termRenderSessionList();
@@ -12000,6 +12141,7 @@
       startFresh: true,
       agent,
       name: state.fileName,
+      linkedScope: state.linkedScope,
     });
     if (!created || _termLinkModalState !== state) {
       if (_termLinkModalState === state) {
@@ -12110,6 +12252,8 @@
   async function _termOpenLinkedFile(session) {
     const request = ++_termLinkedNavigationSeq;
     if (!_linkedTerminalSyncOn) return;
+    await _termSyncLinkedScope(session && session.linked_scope, request);
+    if (!_linkedTerminalSyncOn || request !== _termLinkedNavigationSeq) return;
     const linked = _termLinkedFile(session && session.linked_file);
     if (!linked || !currentWorkspace) return;
     const repoRoot = typeof _activeRepoFileRoot === 'function'
@@ -12406,11 +12550,12 @@
     termSpawnSession(kind, { startFresh: true, agent });
   }
 
-  async function termSpawnSession(kind, { startFresh = false, agent = null, name = null } = {}) {
+  async function termSpawnSession(kind, { startFresh = false, agent = null, name = null, linkedScope = null } = {}) {
     const workspaceId = _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
 
+    const scope = linkedScope || _termSelectedScope();
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
     try {
       const r = await fetch('/api/term/sessions', {
@@ -12423,6 +12568,8 @@
           agent,  // null → server resolves workspace override / global default
           name,
           start_fresh: startFresh,
+          linked_scope: scope,
+          cwd: scope?.root || null,
           // No explicit `auto`: the vault's per-agent autopilot
           // setting decides (an explicit value here would override it).
         }),
@@ -12648,7 +12795,8 @@
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.detail || r.statusText || 'paste failed');
-      const path = body.path || body.absolute_path;
+      // Terminals may now start in a project/worktree outside the workspace root.
+      const path = body.absolute_path || body.path;
       if (!path) throw new Error('paste response missing path');
       if (termWS && termWS.readyState === WebSocket.OPEN) {
         termWS.send(JSON.stringify({ type: 'input', data: path }));
