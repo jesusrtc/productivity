@@ -221,8 +221,10 @@
   }
 
   function ensureMarked() {
-    if (window.marked) return Promise.resolve();
-    return loadScriptOnce('/static/vendor/marked@12.0.1/marked.min.js');
+    return Promise.all([
+      window.marked ? Promise.resolve() : loadScriptOnce('/static/vendor/marked@12.0.1/marked.min.js'),
+      window.DOMPurify ? Promise.resolve() : loadScriptOnce('/static/vendor/dompurify@3.4.15/purify.min.js'),
+    ]);
   }
 
   let _mermaidReady;
@@ -3845,7 +3847,7 @@
     let bodyHtml = '';
     if (cell.cell_type === 'markdown') {
       try {
-        bodyHtml = `<div class="nb-markdown">${marked.parse(cell.source)}</div>`;
+        bodyHtml = `<div class="nb-markdown">${LabMarkdown.render(cell.source)}</div>`;
       } catch (e) {
         bodyHtml = `<div class="nb-source">${esc(cell.source)}</div>`;
       }
@@ -4576,7 +4578,7 @@
     // Markdown stays read-only for now — edit is code-only in v1.
     if (!isCode) {
       let bodyHtml = '';
-      try { bodyHtml = `<div class="nb-markdown">${marked.parse(cell.source)}</div>`; }
+      try { bodyHtml = `<div class="nb-markdown">${LabMarkdown.render(cell.source)}</div>`; }
       catch (e) { bodyHtml = `<div class="nb-source">${esc(cell.source)}</div>`; }
       const markdownCellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
       return `<div class="nb-cell nb-cell-interactive nb-cell-no-outputs" data-cell-index="${index}"${markdownCellIdAttr} data-cell-type="markdown">
@@ -5549,7 +5551,7 @@
       const changedKind = (lineKinds || []).find(kind => kind !== 'context');
       const changedClass = changedKind ? ` nb-history-markdown-${changedKind}` : '';
       try {
-        sourceHtml = `<div class="nb-history-markdown${changedClass}">${marked.parse(cell.source || '')}</div>`;
+        sourceHtml = `<div class="nb-history-markdown${changedClass}">${LabMarkdown.render(cell.source || '')}</div>`;
       } catch (_) {
         sourceHtml = _renderNotebookHistoryCodeSource(cell, lineKinds || []);
       }
@@ -7584,7 +7586,7 @@
             }
             return `<img src="${href}" alt="${text || ''}"${title ? ` title="${title}"` : ''} style="max-width:100%;border-radius:4px;margin:8px 0">`;
           };
-          rendered = marked.parse(_workspaceDocContent, { renderer });
+          rendered = LabMarkdown.render(_workspaceDocContent, { renderer });
           // Rewrite relative src in iframes/embeds to use workspace-asset API
           rendered = rendered.replace(/<iframe([^>]*) src="([^"]+)"([^>]*)>/g, (match, pre, src, post) => {
             if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('/api/')) return match;
@@ -7623,14 +7625,6 @@
       // selection crosses inline tags (e.g. "a **bold** word" renders as
       // `a <strong>bold</strong> word` — no substring match), so we walk
       // live text nodes instead and wrap a Range, which tolerates tags.
-      // Inject copy buttons next to h2/h3 headers
-      if (filepath.endsWith('.md')) {
-        rendered = rendered.replace(/(<h([23])[^>]*>)(.*?)(<\/h[23]>)/g, (match, openTag, level, text, closeTag) => {
-          const plainText = text.replace(/<[^>]+>/g, '').trim();
-          const safeText = plainText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-          return `${openTag}<span style="display:flex;align-items:center;gap:8px">${text}<button onclick="copySectionByHeading('${safeText}', ${level}, this)" style="background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0;opacity:0.5" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">Copy</button></span>${closeTag}`;
-        });
-      }
       html += `<div id="workspaceDocBody" class="nb-markdown">${rendered}</div>`;
     }
     html += `</div>`;
@@ -7675,6 +7669,15 @@
     if (!_workspaceDocEditing) {
       const docBody = container.querySelector('#workspaceDocBody');
       if (docBody) {
+        if (filepath.endsWith('.md')) docBody.querySelectorAll('h2,h3').forEach(heading => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'markdown-copy-action';
+          button.textContent = 'Copy';
+          button.title = 'Copy this section, excluding collapsed blocks';
+          button.addEventListener('click', () => copySectionByHeading(button));
+          heading.appendChild(button);
+        });
         _workspaceComments.forEach(c => { if (c.text) highlightCommentInNode(docBody, c.text, c.id); });
         renderMermaidBlocks(docBody);
       }
@@ -7964,205 +7967,14 @@
   }
 
   async function copyForGDocs(e) {
-    // Copy rendered content as rich text (with inline images) for pasting into Google Docs
-    const content = document.getElementById('content');
-    if (!content) return;
-
-    const btn = e ? (e.target.closest ? e.target.closest('button') : null) : null;
-    if (btn) { btn.innerHTML = '&#x23F3; Copying...'; btn.style.color = '#d29922'; }
-
-    // Temporarily force light mode for copying
-    const wasDark = !document.body.classList.contains('light-mode');
-    if (wasDark) document.body.classList.add('light-mode');
-
-    // Create offscreen container with the content
-    const container = document.createElement('div');
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
-
-    // Clone and clean up interactive elements
-    const clone = content.cloneNode(true);
-    clone.querySelectorAll('button, textarea, input, .view-toggle, #commentInputBox, #commentsMargin').forEach(el => el.remove());
-
-    // Convert images to inline base64 so they paste into GDocs
-    const imgs = clone.querySelectorAll('img');
-    await Promise.all(Array.from(imgs).map(async (img) => {
-      try {
-        const resp = await fetch(img.src);
-        const blob = await resp.blob();
-        const dataUrl = await new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-        img.src = dataUrl;
-      } catch(err) {}
-    }));
-
-    // Set explicit styles for GDocs compatibility (it needs inline styles)
-    clone.style.fontFamily = 'Arial, sans-serif';
-    // Flatten headings to a single plain-text node. renderWorkspaceDoc wraps
-    // h2/h3 contents in a <span style="display:flex"> to host an inline
-    // "Copy" button; the button is removed above, but leaving the span
-    // means the body-text rule below assigns it font-size:11pt. Google
-    // Docs respects that inner span size and shrinks the heading. With
-    // no descendants, Docs maps the tag cleanly to its native Heading
-    // style (size 16 + no bold for H2, etc.) — which is what the user
-    // expects from a gdocs paste.
-    clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(el => {
-      el.textContent = el.textContent.trim();
-      el.removeAttribute('style');
-      el.style.fontFamily = 'Arial, sans-serif';
-    });
-    // Body-text rules skip anything that sits inside a heading — redundant
-    // with the flattening above, but keeps us safe if a heading ever does
-    // carry preserved inline formatting in a future code path.
-    clone.querySelectorAll('p, li, span, div, td, th, summary, details').forEach(el => {
-      if (el.closest('h1, h2, h3, h4, h5, h6')) return;
-      el.style.fontFamily = 'Arial, sans-serif';
-      el.style.fontSize = '11pt';
-      el.style.lineHeight = '1.15';
-      el.style.color = '#000';
-    });
-    clone.querySelectorAll('ul, ol').forEach(el => { el.style.fontFamily = 'Arial, sans-serif'; el.style.paddingLeft = '24pt'; });
-    clone.querySelectorAll('code').forEach(el => el.style.cssText = 'font-family:Courier New,monospace;font-size:10pt;background:#f0f0f0;padding:1pt 3pt;color:#000;');
-    clone.querySelectorAll('pre').forEach(el => el.style.cssText = 'font-family:Courier New,monospace;font-size:10pt;background:#f0f0f0;padding:8pt;margin:6pt 0;color:#000;');
-    clone.querySelectorAll('a').forEach(el => { el.style.color = '#1155cc'; el.style.fontFamily = 'Arial, sans-serif'; });
-    clone.querySelectorAll('img').forEach(el => el.style.cssText = 'max-width:100%;height:auto;margin:8pt 0;');
-    // Map every dark-theme text shade to pure black so the paste looks
-    // like native Google Docs text instead of a washed-out gray. Anything
-    // that was a lighter muted color in the UI (#8b949e, #484f58) still
-    // reads fine as black in GDocs and matches the user's light-mode
-    // reading experience.
-    clone.querySelectorAll('*').forEach(el => {
-      if (el.style.color && /#(e6edf3|8b949e|484f58|d29922)/i.test(el.style.color)) el.style.color = '#000';
-      if (el.style.background && (el.style.background.includes('#161b22') || el.style.background.includes('#0d1117'))) el.style.background = '#ffffff';
-    });
-
-    container.appendChild(clone);
-    document.body.appendChild(container);
-
-    // Copy as rich HTML via Clipboard API (preserves images)
-    try {
-      const html = container.innerHTML;
-      const blob = new Blob([html], { type: 'text/html' });
-      await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
-    } catch(err) {
-      // Fallback to execCommand
-      const range = document.createRange();
-      range.selectNodeContents(container);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      document.execCommand('copy');
-      sel.removeAllRanges();
-    }
-    document.body.removeChild(container);
-
-    // Restore dark mode if it was active
-    if (wasDark) document.body.classList.remove('light-mode');
-
-    // Visual feedback
-    if (btn) {
-      btn.innerHTML = '&#x2714; Copied';
-      btn.style.color = '#3fb950';
-      setTimeout(() => { btn.innerHTML = '&#x1F4CB; Copy'; btn.style.color = ''; }, 1500);
-    }
+    const root = document.getElementById('workspaceDocBody') || document.getElementById('content');
+    return LabMarkdown.copy(root, {button: e && e.target.closest('button')});
   }
 
-  async function copySectionByHeading(headingText, level, btn) {
-    // Extract section from raw markdown: from the heading line to the next heading of same or higher level
-    if (!_workspaceDocContent) return;
-    const lines = _workspaceDocContent.split('\n');
-    const hPrefix = '#'.repeat(parseInt(level)) + ' ';
-    let startIdx = -1;
-    // Find the heading line
-    for (let i = 0; i < lines.length; i++) {
-      const stripped = lines[i].replace(/^#+\s+/, '').trim();
-      if (stripped === headingText && lines[i].trimStart().startsWith(hPrefix)) {
-        startIdx = i;
-        break;
-      }
-    }
-    if (startIdx === -1) return;
-    // Find the end: next heading of same or higher level
-    let endIdx = lines.length;
-    for (let i = startIdx + 1; i < lines.length; i++) {
-      const match = lines[i].match(/^(#{1,6})\s/);
-      if (match && match[1].length <= parseInt(level)) {
-        endIdx = i;
-        break;
-      }
-    }
-    const section = lines.slice(startIdx, endIdx).join('\n').trim();
-
-    // Copy as rich text (rendered) for Google Docs pasting
-    await ensureMarked().catch(() => {});
-    const rendered = window.marked ? marked.parse(section) : `<pre>${esc(section)}</pre>`;
-    const container = document.createElement('div');
-    container.innerHTML = rendered;
-    container.style.cssText = 'font-family:Arial,sans-serif;color:#000000;background:#ffffff;';
-    // Same rule as copyForGDocs: flatten headings + skip their descendants
-    // when applying body-text styles, so GDocs maps the tag to its native
-    // Heading style (size 16, no bold for H2, etc.) instead of a custom
-    // Normal-text-with-overrides paragraph.
-    container.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(el => {
-      el.textContent = el.textContent.trim();
-      el.removeAttribute('style');
-      el.style.fontFamily = 'Arial, sans-serif';
+  async function copySectionByHeading(button) {
+    return LabMarkdown.copy(document.getElementById('workspaceDocBody'), {
+      heading: button.closest('h1,h2,h3,h4,h5,h6'), button,
     });
-    container.querySelectorAll('p, li, span, div, td, th').forEach(el => {
-      if (el.closest('h1, h2, h3, h4, h5, h6')) return;
-      el.style.fontFamily = 'Arial, sans-serif';
-      el.style.fontSize = '11pt';
-      el.style.lineHeight = '1.15';
-      el.style.color = '#000';
-    });
-    container.querySelectorAll('code').forEach(el => el.style.cssText = 'font-family:Courier New,monospace;font-size:10pt;background:#f0f0f0;padding:1pt 3pt;');
-    container.querySelectorAll('pre').forEach(el => el.style.cssText = 'font-family:Courier New,monospace;font-size:10pt;background:#f0f0f0;padding:8pt;margin:6pt 0;');
-    container.querySelectorAll('img').forEach(el => el.style.cssText = 'max-width:100%;height:auto;margin:8pt 0;');
-
-    // Resolve relative image paths and convert to base64 for GDocs
-    container.querySelectorAll('img').forEach(img => {
-      const src = img.getAttribute('src');
-      if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/api/') && currentWorkspace) {
-        const dir = (_workspaceDocPath && _workspaceDocPath.includes('/')) ? _workspaceDocPath.substring(0, _workspaceDocPath.lastIndexOf('/')) : '';
-        const resolved = _resolveRelPath(dir, src);
-        img.src = `/api/workspace-asset?path=${encodeURIComponent(_workspaceDocRoot || currentWorkspace.path)}&file=${encodeURIComponent(resolved)}`;
-      }
-    });
-    const imgs = container.querySelectorAll('img');
-    await Promise.all(Array.from(imgs).map(async (img) => {
-      try {
-        const resp = await fetch(img.src);
-        const blob = await resp.blob();
-        const dataUrl = await new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-        img.src = dataUrl;
-      } catch(err) {}
-    }));
-
-    container.style.position = 'fixed';
-    container.style.left = '-9999px';
-    document.body.appendChild(container);
-    const range = document.createRange();
-    range.selectNodeContents(container);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand('copy');
-    sel.removeAllRanges();
-    document.body.removeChild(container);
-
-    if (btn) {
-      const orig = btn.textContent;
-      btn.textContent = 'Copied';
-      btn.style.color = '#3fb950';
-      btn.style.opacity = '1';
-      setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.style.opacity = ''; }, 1500);
-    }
   }
 
   // Attach (or replace) the online URL for the current doc. Writes into
@@ -13814,7 +13626,7 @@
           // marked so headings/code/lists look like any other .md.
           const { fm, body } = _parseFrontmatter(raw);
           const fmHtml = _renderFrontmatterBlock(fm);
-          rendered = fmHtml + marked.parse(body);
+          rendered = fmHtml + LabMarkdown.render(body);
         } catch (e) {
           rendered = `<pre>${esc(raw)}</pre>`;
         }

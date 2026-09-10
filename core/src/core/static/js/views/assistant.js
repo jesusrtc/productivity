@@ -719,7 +719,7 @@
   async function renderDocumentPane(detail, kind, focusHeading = '') {
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     const body = detail.body || '';
-    const markdown = window.marked ? window.marked.parse(body) : `<pre>${e(body)}</pre>`;
+    const markdown = window.marked && window.DOMPurify ? window.LabMarkdown.render(body) : `<pre>${e(body)}</pre>`;
     const metadata = detail.metadata || {};
     const workspace = detail.workspace || {};
     const host = document.getElementById('assistantModalDocument');
@@ -739,9 +739,9 @@
     <div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
     const markdownHost = document.getElementById('assistantModalMarkdown');
     rewriteImages(markdownHost, detail.path);
-    addCopyButtons(markdownHost, body, detail.path);
-    document.getElementById('assistantCopyPlain').onclick = event => copyPlain(body, event.currentTarget);
-    document.getElementById('assistantCopyRich').onclick = event => copyRich(body, detail.path, event.currentTarget);
+    addCopyButtons(markdownHost);
+    document.getElementById('assistantCopyPlain').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget, plainOnly: true});
+    document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget});
     if (focusHeading) {
       const target = Array.from(markdownHost.querySelectorAll('h1, h2, h3'))
         .find(heading => heading.firstChild && heading.firstChild.textContent.trim() === focusHeading);
@@ -752,44 +752,23 @@
     }
   }
 
-  function markdownSection(body, headingText, level) {
-    const lines = body.split('\n');
-    const prefix = '#'.repeat(level) + ' ';
-    const start = lines.findIndex(line => line.trimStart().startsWith(prefix)
-      && line.replace(/^\s*#+\s+/, '').trim() === headingText);
-    if (start < 0) return '';
-    let end = lines.length;
-    for (let index = start + 1; index < lines.length; index += 1) {
-      const match = lines[index].match(/^\s*(#{1,6})\s/);
-      if (match && match[1].length <= level) { end = index; break; }
-    }
-    return lines.slice(start, end).join('\n').trim();
-  }
-
-  function markdownSectionBody(body, headingText, level) {
-    const section = markdownSection(body, headingText, level);
-    return section.split('\n').slice(1).join('\n').trim();
-  }
-
-  function addCopyButtons(host, body, documentPath) {
+  function addCopyButtons(host) {
     host.querySelectorAll('h1, h2, h3').forEach(heading => {
-      const level = Number(heading.tagName.slice(1));
       const headingText = heading.textContent.trim();
       const actions = document.createElement('span');
       actions.className = 'assistant-copy-actions';
       if (headingText.toLowerCase() === 'generate content') {
-        const generated = markdownSectionBody(body, headingText, level);
         const copy = document.createElement('button');
         copy.type = 'button';
         copy.className = 'primary';
         copy.textContent = 'Copy content';
         copy.title = 'Copy formatted content and embedded images for email or another app';
-        copy.addEventListener('click', () => copyRich(generated, documentPath, copy));
+        copy.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, includeHeading: false, button: copy}));
         const plain = document.createElement('button');
         plain.type = 'button';
         plain.textContent = 'Plain text';
-        plain.title = 'Copy the generated Markdown as plain text';
-        plain.addEventListener('click', () => copyPlain(generated, plain));
+        plain.title = 'Copy expanded content as plain text';
+        plain.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, includeHeading: false, button: plain, plainOnly: true}));
         actions.append(copy, plain);
         heading.appendChild(actions);
         return;
@@ -797,62 +776,16 @@
       const slack = document.createElement('button');
       slack.type = 'button';
       slack.textContent = 'Slack';
-      slack.title = 'Copy this Markdown section';
-      slack.addEventListener('click', () => copyPlain(markdownSection(body, headingText, level), slack));
+      slack.title = 'Copy expanded section text';
+      slack.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, button: slack, plainOnly: true}));
       const gdoc = document.createElement('button');
       gdoc.type = 'button';
       gdoc.textContent = 'GDoc';
       gdoc.title = 'Copy this section as formatted rich text';
-      gdoc.addEventListener('click', () => copyRich(markdownSection(body, headingText, level), documentPath, gdoc));
+      gdoc.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, button: gdoc}));
       actions.append(slack, gdoc);
       heading.appendChild(actions);
     });
-  }
-
-  async function copyPlain(text, button) {
-    const original = button.textContent;
-    try {
-      await navigator.clipboard.writeText(text || '');
-      button.textContent = 'Copied';
-    } catch (_) {
-      button.textContent = 'Failed';
-    }
-    setTimeout(() => { button.textContent = original; }, 1200);
-  }
-
-  async function copyRich(markdown, documentPath, button) {
-    const original = button.textContent;
-    if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
-    const container = document.createElement('div');
-    container.innerHTML = window.marked ? window.marked.parse(markdown) : `<pre>${e(markdown)}</pre>`;
-    rewriteImages(container, documentPath);
-    await Promise.all(Array.from(container.querySelectorAll('img')).map(async img => {
-      try {
-        const response = await fetch(img.src);
-        const blob = await response.blob();
-        img.src = await new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-      } catch (_) {}
-    }));
-    container.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(node => { node.style.fontFamily = 'Arial, sans-serif'; });
-    container.querySelectorAll('p,li,td,th').forEach(node => {
-      node.style.fontFamily = 'Arial, sans-serif';
-      node.style.fontSize = '11pt';
-      node.style.color = '#000';
-    });
-    try {
-      const html = new Blob([container.innerHTML], {type: 'text/html'});
-      const plain = new Blob([markdown], {type: 'text/plain'});
-      await navigator.clipboard.write([new ClipboardItem({'text/html': html, 'text/plain': plain})]);
-      button.textContent = 'Copied';
-    } catch (_) {
-      await copyPlain(markdown, button);
-      return;
-    }
-    setTimeout(() => { button.textContent = original; }, 1200);
   }
 
   async function refresh(options = {}) {

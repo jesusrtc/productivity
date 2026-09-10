@@ -618,6 +618,7 @@ def create_app() -> FastAPI:
         _TEMPLATES_DIR / "index.html",
         _STATIC_DIR / "js" / "lab-app.js",
         _STATIC_DIR / "js" / "views" / "assistant.js",
+        _STATIC_DIR / "js" / "lib" / "markdown-content.js",
         _STATIC_DIR / "css" / "lab-shell.css",
         _STATIC_DIR / "js" / "lib" / "error-report.js",
     )

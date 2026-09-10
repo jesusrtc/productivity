@@ -735,6 +735,23 @@
   .nb-markdown p { margin: 4px 0; }
   .nb-markdown code { background: #21262d; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
   .nb-markdown pre { background: #161b22; padding: 8px; border-radius: 4px; margin: 4px 0; overflow-x: auto; }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content) img { max-width: 100%; height: auto; border-radius: 4px; }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content) details {
+    margin: 12px 0; padding: 0 12px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary);
+  }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content) summary {
+    padding: 8px 0; cursor: pointer; font-weight: 600;
+  }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content) summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 3px;
+  }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content) details[open] { padding-bottom: 10px; }
+  .markdown-copy-action {
+    margin-left: 10px; vertical-align: middle; padding: 2px 8px;
+    border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+    background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px;
+  }
   .nb-outputs { border-top: 1px solid #30363d; }
   .nb-output { padding: 8px 12px; font-family: monospace; font-size: 12px; line-height: 18px; white-space: pre-wrap; word-wrap: break-word; color: #8b949e; }
   .nb-output-stderr { color: #d29922; }
