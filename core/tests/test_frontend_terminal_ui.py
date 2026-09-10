@@ -690,7 +690,7 @@ process.stdout.write(JSON.stringify(tooltip));
     assert "Another request" in result["innerHTML"]
     assert "Newest request" in result["innerHTML"]
     assert "tmux-name" in result["innerHTML"]
-    assert result["style"] == {"left": "78px", "top": "30px"}
+    assert result["style"] == {"left": "8px", "top": "74px"}
     assert result["onpointerenter"] is True
     assert result["onpointerleave"] is True
 
@@ -755,6 +755,10 @@ process.stdout.write(JSON.stringify({
     agent_session_name: 'Old generated title',
     agent_session_requests: ['First task', 'New task'],
   }),
+  project: _termSessionDisplay({logical_name: 'codex-1', linked_scope: {label: 'Forge · feature', project_root: '/repo/forge'}}),
+  file: _termSessionDisplay({logical_name: 'README', label: 'README.md', linked_file: {path: 'docs/README.md'}, linked_scope: {label: 'Forge · feature'}}),
+  root: _termSessionDisplay({logical_name: 'codex-1', linked_scope: {label: 'Root', project_root: '/repo/lab'}}),
+  renamedProject: _termSessionDisplay({label: 'Review', linked_scope: {label: 'Forge'}}),
   fallback: _termSessionDisplay({name: 'tmux-name', logical_name: 'codex-3'}),
 }));
 """
@@ -765,6 +769,10 @@ process.stdout.write(JSON.stringify({
         "manual": "My tab",
         "stale": "codex-3",
         "fallback": "codex-3",
+        "project": "Forge",
+        "file": "Forge",
+        "root": "lab",
+        "renamedProject": "Review",
     }
 
 

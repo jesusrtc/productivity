@@ -10931,7 +10931,17 @@
   function _termSessionDisplay(s) {
     if (!s) return '';
     const manual = String(s.label || '').trim();
-    if (manual) return manual;
+    const scope = s.linked_scope;
+    const fileName = String(s.linked_file?.path || '').split('/').pop();
+    // File linking previously saved the basename as the display label.
+    // Keep explicit renames, while letting those automatic labels use the project.
+    if (manual && !(scope && manual === fileName)) return manual;
+    if (scope) {
+      const project = String(scope.label || '').split(' · ')[0].trim();
+      const folder = String(scope.project_root || scope.root || '').replace(/\/+$/, '').split('/').pop();
+      if (project && project !== 'Root') return project;
+      if (folder) return folder;
+    }
     const requestCount = Array.isArray(s.agent_session_requests)
       ? s.agent_session_requests.filter(Boolean).length
       : 0;
@@ -11010,11 +11020,22 @@
   function _termSessionTooltipPayload(s, statusTitle) {
     const context = _termSessionContext(s);
     const linked = String(s && s.linked_file && s.linked_file.path || '').trim();
+    const scope = s && s.linked_scope;
+    const projectLabel = String(scope?.label || '').split(' · ')[0];
+    const projectName = projectLabel && projectLabel !== 'Root' ? projectLabel
+      : String(scope?.project_root || scope?.root || '').replace(/\/+$/, '').split('/').pop();
+    const identity = scope ? [
+      `Project: ${projectName}`,
+      `Worktree: ${scope.worktree ? String(scope.label || '').split(' · ').slice(1).join(' · ') || scope.worktree.split('/').pop() : 'main'}`,
+      `Folder: ${scope.root}`,
+      linked ? `File: ${linked}` : '',
+    ].filter(Boolean) : (linked ? [`File: ${linked}`] : []);
     return JSON.stringify({
+      ...(identity.length ? {identity} : {}),
       label: context.label,
       items: context.items,
       isObjective: context.isObjective,
-      meta: [s && s.name, linked ? `Linked file: ${linked}` : '', statusTitle, 'Double-click to rename'].filter(Boolean),
+      meta: [s && s.name, statusTitle, 'Double-click to rename'].filter(Boolean),
     });
   }
 
@@ -11081,6 +11102,7 @@
         el.innerHTML = '';
         delete el._labHeaderHtml;
         el.removeAttribute('title');
+        el.removeAttribute('data-tooltip');
         el.className = 'term-active-session';
       }
       if (statusSummary) {
@@ -11101,10 +11123,11 @@
     const linked = String(session.linked_file && session.linked_file.path || '').trim();
     if (el) {
       el.className = `term-active-session on ${visual.kind}`;
+      el.setAttribute?.('data-tooltip', _termSessionTooltipPayload(session, ''));
       el.removeAttribute('title');
       const subline = summary
         ? `${context.label} · ${summary}`
-        : (linked ? `Linked · ${linked}` : '');
+        : (linked && !session.linked_scope ? `Linked · ${linked}` : '');
       const html = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${subline ? `<span class="summary">${termSessEsc(subline)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
       if (el._labHeaderHtml !== html) {
         el._labHeaderHtml = html;
@@ -11189,7 +11212,9 @@
     // Native `title` tooltips wait for the browser's dwell timer. This
     // fixed-position tooltip is populated and laid out in the pointer/focus
     // event itself, so the task appears immediately and is keyboard-visible.
+    const identity = Array.isArray(payload.identity) ? payload.identity : [];
     tooltip.innerHTML = `
+      ${identity.length ? `<div class="term-session-tooltip-identity" style="margin-bottom:8px;white-space:pre-line">${identity.map(termSessEsc).join('<br>')}</div>` : ''}
       <div class="term-session-tooltip-context">
         <div class="term-session-tooltip-label">${termSessEsc(context.label)}</div>
         <div class="term-session-tooltip-items">${_termContextRowsHtml(context)}</div>
@@ -11205,14 +11230,15 @@
     const anchorRect = anchor.getBoundingClientRect();
     const tipRect = tooltip.getBoundingClientRect();
     const gap = 8;
-    let left = anchorRect.right + gap;
-    if (left + tipRect.width > window.innerWidth - gap) {
-      left = Math.max(gap, anchorRect.left - tipRect.width - gap);
-    }
-    const top = Math.max(
-      gap,
-      Math.min(anchorRect.top, window.innerHeight - tipRect.height - gap),
-    );
+    const left = Math.max(gap, Math.min(
+      anchorRect.left + anchorRect.width / 2 - tipRect.width / 2,
+      window.innerWidth - tipRect.width - gap,
+    ));
+    const above = anchorRect.top - tipRect.height - gap;
+    const top = above >= gap ? above : Math.max(gap, Math.min(
+      anchorRect.top + anchorRect.height + gap,
+      window.innerHeight - tipRect.height - gap,
+    ));
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
   }
@@ -11234,8 +11260,7 @@
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
     const ariaLabel = `${display} · ${visual.badge}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
-    const scopeTitle = s.linked_scope ? `Folder: ${s.linked_scope.label} · ${s.linked_scope.root}` : '';
-    const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle, scopeTitle].filter(Boolean).join(' · '));
+    const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';

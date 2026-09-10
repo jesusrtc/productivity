@@ -252,7 +252,7 @@
   <div class="term-resizer" id="termResizer" title="Drag to resize"></div>
   <div class="term-header">
     <span class="title">Terminal</span>
-    <span class="term-active-session" id="termActiveSession" aria-live="polite" ondblclick="termRenameCurrent()"></span>
+    <span class="term-active-session" id="termActiveSession" aria-live="polite" tabindex="0" onpointerenter="_termShowSessionTooltip(this)" onpointerleave="_termScheduleSessionTooltipHide()" onfocus="_termShowSessionTooltip(this)" onblur="_termScheduleSessionTooltipHide()" ondblclick="termRenameCurrent()"></span>
     <button id="termCopyAttachBtn" onclick="termCopyAttachCmd()" title="Copy read-only tmux attach command">&#x1F4CB;</button>
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
   </div>

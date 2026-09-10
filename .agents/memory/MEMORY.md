@@ -105,3 +105,5 @@
 - [Terminal project/worktree links](terminal-project-worktree-links.md) — new terminals inherit the selected folder and cwd; file links cascade, unlink preserves scope, and colors coexist with recent highlights
 
 - [Meta is agent context, not skills](meta-is-agent-context-not-skills.md) — show the launch guide and local instructions; keep workspace skills and settings in Files
+
+- [Terminal tabs show project names](terminal-tabs-show-project-names.md) — default linked labels use the project; worktree/file details appear at the top of hover cards on tabs and the header
