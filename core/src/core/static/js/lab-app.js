@@ -5741,74 +5741,31 @@
   document.getElementById('diffPopover').addEventListener('mouseenter', () => clearTimeout(popoverTimeout));
   document.getElementById('diffPopover').addEventListener('mouseleave', () => hideDiffPopover());
 
-  // ─── Vault projections for the workspace sidebar (migration step 5) ──
-  // When vault.json declares agents.projections / workspace.mounts, the
-  // Meta section renders THOSE rows — each labeled with its true vault
-  // origin — instead of the legacy hardcoded "(shared)" entries. Files open
-  // their vault source inline; mounted directories jump to the
-  // Vault tab where the real source tree lives. 30s TTL so an edit to
-  // vault.json shows up without a reload.
-  let _vaultProjectionCache = null;  // {projections, mounts, supported, ts}
-  async function loadVaultProjections() {
-    const now = Date.now();
-    const vaultId = typeof _termVaultId === 'function' ? _termVaultId() : null;
-    if (_vaultProjectionCache && _vaultProjectionCache.vault === vaultId && (now - _vaultProjectionCache.ts) < 30000) return _vaultProjectionCache;
-    let out = { projections: [], mounts: [], supported: null, vault: vaultId, ts: now };
-    try {
-      const suffix = vaultId ? '?vault=' + encodeURIComponent(vaultId) : '';
-      const r = await fetch('/api/vault/config' + suffix);
-      if (r.ok) {
-        const cfg = await r.json();
-        const doc = (cfg.valid && cfg.config) || {};
-        const agents = doc.agents || {};
-        const workspace = doc.workspace || {};
-        out = {
-          projections: Array.isArray(agents.projections) ? agents.projections : [],
-          mounts: Array.isArray(workspace.mounts) ? workspace.mounts : [],
-          supported: Array.isArray(agents.supported) ? agents.supported : null,
-          vault: vaultId,
-          ts: now,
-        };
-      }
-    } catch {}
-    _vaultProjectionCache = out;
-    return out;
+  // Meta contains agent instructions; skills stay in the workspace file tree.
+  function _agentContextMetaHtml() {
+    return `<a class="sidebar-file sidebar-file-meta" onclick="openAgentContext()" title="Read the Lab context supplied when an agent starts"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}Lab agent context</span></a>`;
   }
 
-  function _vaultProjectionMetaHtml(p) {
-    if (!p) return '';
-    const sup = p.supported;
-    const enabled = (e) => e && typeof e === 'object'
-      && (!e.when || !sup || sup.includes(e.when));
-    const projections = p.projections.filter(enabled)
-      .filter(e => typeof e.source === 'string' && e.source && typeof e.target === 'string' && e.target);
-    const mounts = p.mounts.filter(enabled)
-      .filter(e => typeof e.source === 'string' && e.source && typeof e.target === 'string' && e.target);
-    if (!projections.length && !mounts.length) return '';
-    let html = '';
-    // The canonical source files themselves, one row each (deduped) — the
-    // file agents actually read is one click away, same as before.
-    const sources = [...new Set(projections.map(e => e.source))];
-    for (const src of sources) {
-      const base = src.split('/').pop();
-      const safe = src.replace(/'/g, "\\'");
-      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr('vault/' + src + ' — canonical source; projected into every workspace')}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="vault-origin">vault</span></span></a>`;
+  async function openAgentContext() {
+    const modal = document.getElementById('docViewModal');
+    const body = document.getElementById('docModalBody');
+    document.getElementById('docModalTitle').textContent = 'Lab agent context';
+    body.innerHTML = '<div class="loading">Loading…</div>';
+    modal.classList.add('active');
+    _workspaceDocEditing = false;
+    if (_docModalEscHandler) document.removeEventListener('keydown', _docModalEscHandler);
+    _docModalEscHandler = event => { if (event.key === 'Escape') closeDocModal(); };
+    document.addEventListener('keydown', _docModalEscHandler);
+    try {
+      const response = await fetch('/api/agents/context/guide');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Could not load agent context.');
+      body.innerHTML = `<pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:20px">${esc(data.content)}</pre>`;
+    } catch (error) {
+      body.innerHTML = `<div class="empty">${esc(error.message)}</div>`;
     }
-    for (const e of projections) {
-      const base = e.target.split('/').pop();
-      const safe = e.source.replace(/'/g, "\\'");
-      const title = `vault/${e.source} → ${e.target}` +
-        (e.mode ? ` (${e.mode}${e.when ? ', ' + e.when + ' only' : ''})` : '');
-      html += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('${safe}')" title="${escAttr(title)}" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml(base)}${selfEsc(base)}<span class="vault-origin">&#8592; ${selfEsc(e.source)}</span></span></a>`;
-    }
-    for (const e of mounts) {
-      const title = `vault/${e.source} → ${e.target}` +
-        (e.mode ? ` (${e.mode}${e.when ? ', ' + e.when + ' only' : ''})` : '') +
-        ' — opens the source tree in the Vault tab';
-      html += `<div class="sidebar-folder sidebar-file-meta" onclick="goToVault()" title="${escAttr(title)}" style="opacity:.7"><span class="folder-arrow">&#9654;</span>${selfEsc(e.target)}/<span class="vault-origin">&#8592; ${selfEsc(e.source)}</span></div>`;
-    }
-    return html;
   }
+  window.openAgentContext = openAgentContext;
 
   // ─── Focus mode ─────────────────────────────────────────────────────────
   // Keeps the topbar (Home / vault picker / workspace tabs / gear) visible
@@ -8380,16 +8337,15 @@
       _sidebarRememberAvailableExtensions(fileEntries);
       _sidebarMaybeLogRecentDiagnostics(fileEntries, fileRoot);
 
-      // "Meta" files are demoted to a bottom section so the sidebar reads as
-      // a working list of docs first, plumbing second. Still visible; just
-      // out of the way of daily navigation.
-      const META_FILES = new Set(['workspace.json', 'servers.json', 'tasks.json', 'comments.json', 'CLAUDE.md']);
+      // Only agent instruction documents belong in Meta. Workspace settings
+      // and local skills stay in Files, rooted at the selected folder/worktree.
+      const META_FILES = new Set(['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']);
       // Folders that should open automatically — docs is where 95% of the
       // reading lives, so showing it collapsed by default hides everything.
       const AUTO_OPEN_FOLDERS = new Set(['docs', 'notebooks', 'links']);
 
-      const metaFiles = worktreeSelected ? [] : otherFiles.filter(f => !f.path.includes('/') && META_FILES.has(f.name));
-      const mainFiles = worktreeSelected ? otherFiles : otherFiles.filter(f => !(f.path === f.name && META_FILES.has(f.name)));
+      const metaFiles = otherFiles.filter(f => META_FILES.has(f.path));
+      const mainFiles = otherFiles.filter(f => !META_FILES.has(f.path));
 
       // Active-file highlighting is baked into the rendered HTML (data-filepath
       // + .active class) so periodic sidebar rebuilds — from the mtime poller
@@ -8525,79 +8481,20 @@
         sbHtml += '</div>';
       }
 
-      // Plumbing — workspace.json, servers.json, tasks.json, CLAUDE.md, plus a deep-link
-      // to the shared `.claude/` that lives at the content root (one
-      // level up from every workspace). Bottom of the list, muted styling,
-      // still one click away.
-      const hasMetaSection = metaFiles.length > 0;
-      if (hasMetaSection) {
-        sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
-        metaFiles.forEach(f => {
-          const safePath = f.path.replace(/'/g, "\\'");
-          const fname = f.name;
-          const icon = fileIconHtml(fname, f);
-          const activeCls = activePath === f.path ? ' active' : '';
-          sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="openWorkspaceDoc('${safePath}')" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}')" style="opacity:.55"><span class="sidebar-fname">${icon}${fname}</span></a>`;
-        });
-      } else if (!isAssistant) {
-        sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
-      }
-      // Vault-declared projections take precedence (migration step 5):
-      // each row shows its true origin instead of the vague "(shared)".
-      // Vaults without vault.json projections keep the legacy rows.
-      const vaultProjectionHtml = isAssistant ? '' : _vaultProjectionMetaHtml(await loadVaultProjections());
-      let sharedClaudeFid = null;
-      let sharedCodeFid = null;
-      if (isAssistant) {
-        // The Assistant folder is client-global and self-contained. Do not
-        // append instructions or code from whichever vault happens to be
-        // active; its own AGENTS.md and files are already in the tree above.
-      } else if (vaultProjectionHtml) {
-        sbHtml += vaultProjectionHtml;
-      } else {
-      // Shared workspaces/CLAUDE.md — auto-loaded for every workspace
-      // via Claude Code's CLAUDE.md walk-up. Renders inline in the doc pane.
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('workspaces/CLAUDE.md')" title="workspaces/CLAUDE.md — shared boilerplate applied to every workspace under workspaces/" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('CLAUDE.md')}CLAUDE.md (shared)</span></a>`;
-      // Canonical cross-tool instructions at the monorepo root. CLAUDE.md is a
-      // symlink to this; Codex / Copilot read AGENTS.md directly.
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions at the monorepo root (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}AGENTS.md (shared)</span></a>`;
-      // Shared `.claude/` from the monorepo root, rendered as an
-      // expandable folder. Children fetched from /api/cerebro/tree; each
-      // file opens inline via openSharedFile. Placeholder rendered first;
-      // populated by the async fetch below so the rest of the sidebar
-      // doesn't wait on it.
-      sharedClaudeFid = 'sf-claude-' + Math.random().toString(36).substr(2, 6);
-      const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
-      const _shClArrow = _shClOpen ? ' open' : '';
-      const _shClChildren = _shClOpen ? ' open' : '';
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — shared skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/ (shared)</div>`;
-      sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
-      // Shared `.agents/` (config, memory, cross-tool skills) from the monorepo
-      // root — same expandable/async pattern as `.claude/`.
-      const sharedAgentsFid = 'sf-agents-' + Math.random().toString(36).substr(2, 6);
-      const _shAgOpen = _treeIsOpen('shared-agents', '.agents', false);
-      const _shAgArrow = _shAgOpen ? ' open' : '';
-      const _shAgChildren = _shAgOpen ? ' open' : '';
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-agents" data-tree-path=".agents" data-tree-target="${sharedAgentsFid}" onclick="_treeToggleFolder(this)" title=".agents/ — shared config, memory & skills (cross-tool: Claude / Codex / Copilot)" style="opacity:.7"><span class="folder-arrow${_shAgArrow}">▶</span>.agents/ (shared)</div>`;
-      sbHtml += `<div class="sidebar-folder-children${_shAgChildren}" id="${sharedAgentsFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
-      // `content/code/` — source for code-* skills. Same shared/async
-      // pattern as `.claude/`.
-      sharedCodeFid = 'sf-code-' + Math.random().toString(36).substr(2, 6);
-      const _shCdOpen = _treeIsOpen('shared-code', 'code', false);
-      const _shCdArrow = _shCdOpen ? ' open' : '';
-      const _shCdChildren = _shCdOpen ? ' open' : '';
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-code" data-tree-path="code" data-tree-target="${sharedCodeFid}" onclick="_treeToggleFolder(this)" title="content/code/ — source for code-* skills" style="opacity:.7"><span class="folder-arrow${_shCdArrow}">▶</span>code/ (shared)</div>`;
-      sbHtml += `<div class="sidebar-folder-children${_shCdChildren}" id="${sharedCodeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
-      }
+      sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
+      if (!isAssistant) sbHtml += _agentContextMetaHtml();
+      metaFiles.forEach(f => {
+        const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(fileRoot)}})`;
+        const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(fileRoot)}})`;
+        const activeCls = activePath === f.path ? ' active' : '';
+        sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" data-entry-kind="file" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(f.path)}</span></a>`;
+      });
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
       // rendered above — re-sync so they appear/update as soon as the list
       // is known (cold load fetch or background reconcile).
       renderRepoTabs();
-      // Populate both `.claude/` and `code/` placeholders from one
-      // /api/cerebro/tree fetch (legacy rows only).
-      if (sharedClaudeFid) _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
       // Git decorations: the rebuild wiped the row classes — repaint from
       // cache synchronously, then fetch fresh in the background if stale.
       _sidebarGitStatusRefresh();
@@ -13875,31 +13772,6 @@
     });
   }
 
-  // Populate both `.claude/` and `code/` placeholders in the Meta
-  // section. Called after every sidebar render. The fid args are kept
-  // for back-compat but we no longer use them — the placeholder host is
-  // looked up via a stable data-attribute selector so that races
-  // between sidebar re-renders and the (slow, ~1.4s) /api/cerebro/tree
-  // fetch don't strand the "loading…" placeholder.
-  //
-  // Caches the response in `cerebroTreeData` so the second+ render in a
-  // session paints synchronously with no network — the tree is reused
-  // by the Cerebro view's `cerebroRefresh` for the same reason.
-  function _populateSharedMetaPlaceholders(_claudeFid, _codeFid) {
-    // Cache hit: paint immediately, then fire a background reconcile
-    // so the next render also sees fresh data.
-    if (cerebroTreeData && cerebroTreeData.length) {
-      _renderMetaFromCerebroTree(cerebroTreeData);
-      afterPageQuiet(() => _fetchCerebroTree({force: true}).then(t => {
-        if (t && t.length) _renderMetaFromCerebroTree(t);
-      }).catch(err => console.error('[populateSharedMeta] background:', err)), 1500);
-      return;
-    }
-    afterPageQuiet(() => _fetchCerebroTree().then(t => {
-      _renderMetaFromCerebroTree(t || []);
-    }).catch(err => console.error('[populateSharedMeta] failed:', err)), 1500);
-  }
-
   function _fetchCerebroTree({force = false} = {}) {
     const fresh = cerebroTreeData && cerebroTreeData.length
       && (Date.now() - _cerebroTreeFetchedAt) < CEREBRO_TREE_TTL_MS;
@@ -13914,106 +13786,6 @@
       })
       .finally(() => { _cerebroTreePromise = null; });
     return _cerebroTreePromise;
-  }
-
-  function _renderMetaFromCerebroTree(tree) {
-    const ts = tree || [];
-    // Look up the host via the folder's stable data attributes — the
-    // children container is its next DOM sibling. Survives sidebar
-    // re-renders that mint new random fids each time.
-    const claudeHost = document.querySelector(
-      '.sidebar-folder[data-tree-scope="shared-claude"][data-tree-path=".claude"] + .sidebar-folder-children'
-    );
-    const codeHost = document.querySelector(
-      '.sidebar-folder[data-tree-scope="shared-code"][data-tree-path="code"] + .sidebar-folder-children'
-    );
-    const agentsHost = document.querySelector(
-      '.sidebar-folder[data-tree-scope="shared-agents"][data-tree-path=".agents"] + .sidebar-folder-children'
-    );
-    _renderSharedMetaPlaceholder({
-      host: claudeHost,
-      node: ts.find(n => n && n.name === '.claude'),
-      basePath: '.claude',
-      scope: 'shared-claude',
-      labelPrefix: '.claude/',
-    });
-    _renderSharedMetaPlaceholder({
-      host: agentsHost,
-      node: ts.find(n => n && n.name === '.agents'),
-      basePath: '.agents',
-      scope: 'shared-agents',
-      labelPrefix: '.agents/',
-    });
-    _renderSharedMetaPlaceholder({
-      host: codeHost,
-      node: ts.find(n => n && n.name === 'code'),
-      basePath: 'code',
-      scope: 'shared-code',
-      labelPrefix: 'code/',
-    });
-  }
-
-  function _renderSharedMetaPlaceholder({host, node, basePath, scope, labelPrefix}) {
-    if (!host) return;
-    if (!node || !node.children || !node.children.length) {
-      host.innerHTML = `<div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">(empty)</div>`;
-      return;
-    }
-    host.innerHTML = renderSharedClaudeTree(node.children, basePath, scope);
-    host.querySelectorAll('a.sidebar-file').forEach(a => {
-      const onclickAttr = a.getAttribute('onclick') || '';
-      const m = onclickAttr.match(/openSharedFile\('([^']+)'\)/);
-      if (m) a.title = m[1];
-    });
-    // Folder tooltips show the full cerebro-relative path. Folders and
-    // their children-containers are DOM siblings, so we hop up by:
-    // folder → its parent container → that container's
-    // previousElementSibling (the enclosing folder), repeat.
-    host.querySelectorAll('.sidebar-folder').forEach(d => {
-      const parts = [];
-      let cur = d;
-      while (cur && cur !== host) {
-        if (cur.classList && cur.classList.contains('sidebar-folder')) {
-          const label = (cur.firstChild && cur.firstChild.nextSibling ? cur.firstChild.nextSibling.textContent : cur.textContent).trim();
-          parts.unshift(label.replace(/\/$/, ''));
-        }
-        const parent = cur.parentElement;
-        if (!parent || parent === host) break;
-        cur = parent.previousElementSibling;
-      }
-      d.title = labelPrefix + parts.join('/') + '/';
-    });
-  }
-
-  // Renders a shared subtree (fetched from /api/cerebro/tree) as a
-  // collapsible folder structure in the Meta sidebar section. File
-  // clicks call openSharedFile with the cerebro-relative path.
-  //
-  // `scope` controls expand-state namespacing in _treeIsOpen — pass
-  // 'shared-claude' for the `.claude/` tree, 'shared-code' for the
-  // `code/` tree, etc. State is keyed (scope, path), so distinct
-  // scopes keep their open-folder sets separate.
-  function renderSharedClaudeTree(nodes, basePath, scope = 'shared-claude') {
-    let html = '';
-    const dirs = nodes.filter(n => n.type === 'dir');
-    const files = nodes.filter(n => n.type !== 'dir');
-    dirs.forEach(d => {
-      const fid = 'sf-' + Math.random().toString(36).substr(2, 6);
-      const fullPath = basePath + '/' + d.name;
-      const open = _treeIsOpen(scope, fullPath, false);
-      const arrowCls = open ? ' open' : '';
-      const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(d.name)}/</div>`;
-      html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-      html += renderSharedClaudeTree(d.children || [], fullPath, scope);
-      html += '</div>';
-    });
-    files.forEach(f => {
-      const safePath = (basePath + '/' + f.name).replace(/'/g, "\\'");
-      const icon = fileIconHtml(f.name, f);
-      html += `<a class="sidebar-file${symlinkClass(f)}"${symlinkTitle(f)} onclick="openSharedFile('${safePath}')" style="opacity:.85"><span class="sidebar-fname">${icon}${esc(f.name)}</span></a>`;
-    });
-    return html;
   }
 
   async function goToCerebro(initialPath = '', opts = {}) {
@@ -15289,43 +15061,14 @@
       sbHtml += renderSidebarFileTree(tree, 0, '', {scope: `self:${fileRoot}`, autoOpen: _AUTO_OPEN_SELF, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(baseRoot);
 
-      // Meta section — mirrors the per-workspace sidebar so `.claude/`
-      // (shared skills, agents, hooks, settings) is one click away from
-      // the productivity tab too. The `.claude/` placeholder is filled
-      // async by /api/cerebro/tree, same as the workspace view.
       sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
-      // Canonical cross-tool instructions at the monorepo root (CLAUDE.md → AGENTS.md).
-      sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="openSharedFile('AGENTS.md')" title="AGENTS.md — canonical shared instructions (CLAUDE.md symlinks to it)" style="opacity:.7"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}AGENTS.md</span></a>`;
-      const sharedClaudeFid = 'sf-claude-self-' + Math.random().toString(36).substr(2, 6);
-      const _shClOpen = _treeIsOpen('shared-claude', '.claude', false);
-      const _shClArrow = _shClOpen ? ' open' : '';
-      const _shClChildren = _shClOpen ? ' open' : '';
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-claude" data-tree-path=".claude" data-tree-target="${sharedClaudeFid}" onclick="_treeToggleFolder(this)" title=".claude/ — skills, agents, hooks, settings (monorepo root)" style="opacity:.7"><span class="folder-arrow${_shClArrow}">▶</span>.claude/</div>`;
-      sbHtml += `<div class="sidebar-folder-children${_shClChildren}" id="${sharedClaudeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
-      const sharedAgentsFid = 'sf-agents-self-' + Math.random().toString(36).substr(2, 6);
-      const _shAgOpen = _treeIsOpen('shared-agents', '.agents', false);
-      const _shAgArrow = _shAgOpen ? ' open' : '';
-      const _shAgChildren = _shAgOpen ? ' open' : '';
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-agents" data-tree-path=".agents" data-tree-target="${sharedAgentsFid}" onclick="_treeToggleFolder(this)" title=".agents/ — shared config, memory & skills (cross-tool)" style="opacity:.7"><span class="folder-arrow${_shAgArrow}">▶</span>.agents/</div>`;
-      sbHtml += `<div class="sidebar-folder-children${_shAgChildren}" id="${sharedAgentsFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
-
-      // `content/code/` — the source for code-* skills (hello.py,
-      // spike_analysis.py, etc.). Same placeholder-then-async pattern
-      // as .claude/. Tree scope 'shared-code' keeps its expand state
-      // separate from .claude/.
-      const sharedCodeFid = 'sf-code-self-' + Math.random().toString(36).substr(2, 6);
-      const _shCdOpen = _treeIsOpen('shared-code', 'code', false);
-      const _shCdArrow = _shCdOpen ? ' open' : '';
-      const _shCdChildren = _shCdOpen ? ' open' : '';
-      sbHtml += `<div class="sidebar-folder sidebar-file-meta" data-tree-scope="shared-code" data-tree-path="code" data-tree-target="${sharedCodeFid}" onclick="_treeToggleFolder(this)" title="content/code/ — source for code-* skills" style="opacity:.7"><span class="folder-arrow${_shCdArrow}">▶</span>code/</div>`;
-      sbHtml += `<div class="sidebar-folder-children${_shCdChildren}" id="${sharedCodeFid}"><div style="padding:6px 16px 6px 32px;font-size:11px;color:var(--text-dim)">loading…</div></div>`;
-
+      sbHtml += _agentContextMetaHtml();
+      for (const path of ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']) {
+        if (!files.some(file => file.path === path)) continue;
+        const action = `openWorkspaceDoc(${JSON.stringify(path)}, {root:${JSON.stringify(fileRoot)}})`;
+        sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="${escAttr(action)}"><span class="sidebar-fname">${fileIconHtml(path)}${esc(path)}</span></a>`;
+      }
       sidebar.innerHTML = sbHtml;
-
-      // Populate both `.claude/` and `code/` placeholders from one
-      // /api/cerebro/tree fetch. Same scope as the workspace view so
-      // expand state syncs across tabs.
-      _populateSharedMetaPlaceholders(sharedClaudeFid, sharedCodeFid);
     } catch(e) {
       sidebar.innerHTML = '<div class="sidebar-title">Home</div>';
     }
@@ -16310,10 +16053,7 @@
       '  "workspace": {',
       '    "template": "templates/workspace",',
       '    "features": ["tasks", "docs", "notebooks", "prs", "diffs"],',
-      '    "mounts": [',
-      '      {"source": "skills", "target": ".agents/skills", "mode": "symlink"},',
-      '      {"source": "skills", "target": ".claude/skills", "mode": "symlink", "when": "claude"}',
-      '    ]',
+      '    "mounts": []',
       '  },',
       '  "notebooks": {',
       '    "enabled": true,',
@@ -16340,7 +16080,7 @@
       '  "mode" is "symlink" | "adapter" | "copy"; "when" limits an entry to one',
       '  supported agent.',
       '- "workspace.features" are the surfaces workspaces get; "workspace.mounts" are',
-      '  shared sources linked into each workspace (e.g. skills -> .agents/skills).',
+      '  optional data mounts. Skills belong locally to each workspace; do not mount shared skill directories.',
       '- "notebooks" selects the executor ("local" uses the configured Jupyter runtime).',
       '- "display" holds UI hints: "autoOpen", "hide", "showProjectionOrigin".',
       '',

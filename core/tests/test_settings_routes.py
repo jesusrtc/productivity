@@ -44,3 +44,15 @@ def test_settings_autopilot_roundtrip(client, monorepo) -> None:
 
     r = client.post("/api/settings", json={"autopilot": {"gemini": True}})
     assert r.status_code == 400
+
+
+def test_agent_context_reads_the_installed_launch_guide(client, monkeypatch):
+    import sys
+    import types
+    guide = '# Framework instructions\nRead local workspace instructions too.\n'
+    module = types.ModuleType('lab.agent_context')
+    module.read_context = lambda: guide
+    monkeypatch.setitem(sys.modules, 'lab.agent_context', module)
+    response = client.get('/api/agents/context/guide')
+    assert response.status_code == 200
+    assert response.json() == {'content': guide}

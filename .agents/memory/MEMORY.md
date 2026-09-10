@@ -101,3 +101,5 @@
 - [Terminal latency needs a browser frame baseline](terminal-browser-latency-baseline.md) — browser input-to-render probe includes an empty-page frame control; endpoint budgets exclude test-only index rebuilds
 
 - [Terminal project/worktree links](terminal-project-worktree-links.md) — new terminals inherit the selected folder and cwd; file links cascade, unlink preserves scope, and colors coexist with recent highlights
+
+- [Meta is agent context, not skills](meta-is-agent-context-not-skills.md) — show the launch guide and local instructions; keep workspace skills and settings in Files

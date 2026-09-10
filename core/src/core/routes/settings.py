@@ -87,3 +87,13 @@ def agents_sync(request: Request, dry_run: bool = False) -> dict:
     """Run ``lab agents sync`` (AGENTS.md + memory + skill symlinks). Idempotent."""
     root = auth.request_root(request)
     return agentsync.sync_all(root, dry_run=dry_run)
+
+
+@router.get("/api/agents/context/guide")
+def agent_launch_context() -> dict:
+    """Read the same installed framework guide used by the agent launcher."""
+    try:
+        from lab.agent_context import read_context
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="The installed Lab CLI does not expose launch context yet.") from exc
+    return {"content": read_context()}
