@@ -256,8 +256,9 @@
     <button id="termSettingsBtn" onclick="termOpenSettings()" title="Terminal settings" aria-label="Terminal settings">&#x2699;</button>
   </div>
   <div class="term-stage">
-    <!-- Session switcher. Appearance is configured in Terminal settings. -->
+    <!-- Session labels adapt to the width of the draggable rail. -->
     <div class="term-sessions" id="termSessionList" role="tablist" aria-label="Terminals" aria-orientation="vertical"></div>
+    <div class="term-sessions-resizer" id="termSessionsResizer" role="separator" tabindex="0" aria-label="Resize terminal tabs" aria-orientation="vertical" aria-controls="termSessionList" aria-valuemin="62" aria-valuemax="220" aria-valuenow="220" title="Drag to resize terminal tabs. Arrow keys also adjust the width."></div>
     <div class="term-console">
       <div class="term-status" id="termStatus"><span class="dot"></span><span id="termStatusText">no session</span><span id="termAutoBadge" class="auto-badge" style="display:none" title="Claude running with --permission-mode auto">auto</span></div>
       <div id="termStatusSummary" class="term-status-summary" aria-live="polite" hidden><span id="termStatusSummaryLabel" class="term-status-summary-label">Requests</span><div id="termStatusSummaryText" class="term-status-summary-text"></div></div>
@@ -277,8 +278,8 @@
       <h3>Tab appearance</h3>
       <div class="row-2">
         <label for="termOrientationSelect">Layout<select id="termOrientationSelect" onchange="termSetSessionView('orientation',this.value)"><option value="vertical">Vertical</option><option value="horizontal">Horizontal</option></select></label>
-        <label for="termDetailSelect">Tab labels<select id="termDetailSelect" onchange="termSetSessionView('detail',this.value)"><option value="compact">Icons only</option><option value="full">Icons and text</option><option value="text">Text only</option></select></label>
       </div>
+      <p>Drag the border between the vertical tabs and the terminal to resize the tab bar. Labels appear automatically when there is room.</p>
       <h3 id="termNewOptionsTitle">Available terminals in + New</h3>
       <p>Choose which options appear for this workspace. Vault availability still applies.</p>
       <div id="termNewOptions" class="term-new-options" role="group" aria-labelledby="termNewOptionsTitle">

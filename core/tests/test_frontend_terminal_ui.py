@@ -147,7 +147,7 @@ def test_workspace_server_iframe_carries_its_vault_in_the_mount_path() -> None:
     assert "if (workspace.vault) return workspace.vault;" in source
 
 
-def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
+def test_terminal_sessions_support_orientation_and_responsive_labels() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
     source = LAB_APP.read_text(encoding="utf-8")
@@ -158,7 +158,8 @@ def test_terminal_sessions_support_independent_orientation_and_detail() -> None:
     assert 'id="termActiveSession"' in html
     assert 'ondblclick="termRenameCurrent()"' in html
     assert 'id="termOrientationSelect"' in html
-    assert 'id="termDetailSelect"' in html
+    assert 'id="termDetailSelect"' not in html
+    assert 'id="termSessionsResizer" role="separator"' in html
     assert ".term-stage { display: flex; flex: 1;" in css
     assert ".term-sessions { display: flex; flex-direction: column;" in css
     assert "width: 62px" in css
@@ -443,59 +444,82 @@ def test_terminal_agent_activity_scraping_and_attention_ui_are_removed() -> None
     assert ".term-sessions .sess .stat" not in css
 
 
-def test_terminal_session_view_controls_persist_independently() -> None:
-    view_helpers = _js_between(
-        "function _termApplySessionView(refit = true)",
-        "// Same TDZ hoist for the files-sidebar",
+def test_terminal_rail_drag_adapts_labels_and_persists_width() -> None:
+    helpers = _js_between(
+        "  function _termSessionWidthBounds(panelWidth)",
+        "  // Apply before the initial route dispatch",
     )
-    result = _run_node(
-        """
-const classes = new Set();
-const stored = {};
-const panel = {classList: {toggle(value, on) {
+    result = _run_node(r"""
+const stored = {}, classes = new Set(), events = {}, attrs = {};
+let panelWidth = 640, actualWidth = 220, captured = null, observe;
+let termSessionWidth = null, termSessionOrientation = 'vertical';
+const _TERM_SESSION_WIDTH_KEY = 'width';
+const termXterm = null;
+const frames = [];
+function requestAnimationFrame(fn) { frames.push(fn); return frames.length; }
+function flush() { while (frames.length) frames.shift()(); }
+const classList = {add() {}, remove() {}, toggle(value, on) {
   if (on) classes.add(value); else classes.delete(value);
-}}};
-function makeButton() {
-  return {textContent: '', title: '', attrs: {}, setAttribute(name, value) { this.attrs[name] = value; }};
-}
-const orientationBtn = makeButton();
-const detailBtn = makeButton();
-const sessionList = makeButton();
-const document = {getElementById(id) {
-  if (id === 'termPanel') return panel;
-  if (id === 'termSessionList') return sessionList;
-  if (id === 'termOrientationBtn') return orientationBtn;
-  if (id === 'termDetailBtn') return detailBtn;
-  return null;
 }};
-const localStorage = {setItem(key, value) { stored[key] = value; }};
-const _TERM_SESSION_ORIENTATION_KEY = 'orientation';
-const _TERM_SESSION_DETAIL_KEY = 'detail';
-let termSessionOrientation = 'vertical';
-let termSessionDetail = 'compact';
-function requestAnimationFrame() {}
-""" + view_helpers + """
-termToggleSessionOrientation();
-termToggleSessionDetail();
-process.stdout.write(JSON.stringify({
-  classes: Array.from(classes).sort(),
-  stored,
-  orientationText: orientationBtn.textContent,
-  orientationPressed: orientationBtn.attrs['aria-pressed'],
-  detailText: detailBtn.textContent,
-  detailPressed: detailBtn.attrs['aria-pressed'],
-  ariaOrientation: sessionList.attrs['aria-orientation'],
-}));
-"""
-    )
-
-    assert result["classes"] == ["term-sessions-full", "term-sessions-horizontal"]
-    assert result["stored"] == {"orientation": "horizontal", "detail": "full"}
-    assert result["orientationText"] == "↕"
-    assert result["orientationPressed"] == "true"
-    assert result["detailText"] == "◉"
-    assert result["detailPressed"] == "true"
-    assert result["ariaOrientation"] == "horizontal"
+const panel = {classList, getBoundingClientRect: () => ({width: panelWidth}),
+  style: {setProperty(key, value) { actualWidth = parseFloat(value); }}};
+const rail = {setAttribute() {}, getBoundingClientRect: () => ({width: actualWidth})};
+const resizer = {classList, focus() {}, setAttribute(k, v) { attrs[k] = v; },
+  addEventListener(k, fn) { events[k] = fn; },
+  setPointerCapture(id) { captured = id; },
+  hasPointerCapture(id) { return captured === id; },
+  releasePointerCapture() { captured = null; }};
+const document = {body: {classList}, addEventListener(k, fn) { events[k] = fn; }, getElementById(id) {
+  return {termPanel: panel, termSessionList: rail, termSessionsResizer: resizer}[id];
+}};
+const localStorage = {setItem(k, v) { stored[k] = v; }};
+class ResizeObserver { constructor(fn) { observe = fn; } observe() {} }
+""" + helpers + r"""
+_termApplySessionView(false);
+_termInitSessionResize();
+const event = (x, extra = {}) => ({button: 0, pointerId: 1, clientX: x, preventDefault() {}, ...extra});
+const snapshot = () => ({width: actualWidth, full: classes.has('term-sessions-full'), narrow: classes.has('term-sessions-narrow')});
+events.pointerdown(event(220));
+events.pointermove(event(-100)); flush();
+const compact = snapshot();
+events.pointerup(event(-100)); flush();
+const savedCompact = stored.width;
+events.pointerdown(event(62));
+events.pointermove(event(140)); flush();
+const middle = snapshot();
+events.pointermove(event(400)); flush();
+const full = snapshot();
+events.pointerup(event(400)); flush();
+const savedFull = stored.width;
+panelWidth = 280; observe(); flush();
+const narrowPanel = snapshot();
+panelWidth = 640; observe(); flush();
+const restored = snapshot();
+events.pointerdown(event(220));
+events.pointermove(event(62)); flush();
+events.pointercancel(event(62)); flush();
+const canceled = snapshot();
+events.keydown(event(0, {key: 'Home'})); flush();
+const keyboardCompact = snapshot();
+events.keydown(event(0, {key: 'End'})); flush();
+termSessionOrientation = 'horizontal'; _termApplySessionView(false);
+const horizontalFull = classes.has('term-sessions-full');
+panelWidth = 300; observe(); flush();
+const horizontalCompact = !classes.has('term-sessions-full');
+process.stdout.write(JSON.stringify({compact, middle, full, savedCompact, savedFull,
+  narrowPanel, restored, canceled, keyboardCompact, horizontalFull, horizontalCompact, captured}));
+""")
+    assert result['compact'] == {'width': 62, 'full': False, 'narrow': True}
+    assert result['middle'] == {'width': 140, 'full': True, 'narrow': True}
+    assert result['full'] == {'width': 220, 'full': True, 'narrow': False}
+    assert result['savedCompact'] == '62'
+    assert result['savedFull'] == '220'
+    assert result['narrowPanel'] == {'width': 100, 'full': False, 'narrow': True}
+    assert result['restored'] == result['full']
+    assert result['canceled'] == result['full']
+    assert result['keyboardCompact'] == result['compact']
+    assert result['horizontalFull'] and result['horizontalCompact']
+    assert result['captured'] is None
 
 
 def test_terminal_active_session_details_move_to_header() -> None:

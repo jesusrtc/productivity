@@ -1834,9 +1834,12 @@
   .term-divider.dragging { opacity: .45; cursor: grabbing; }
   .term-divider.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
   .term-divider.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
-  /* Full detail is independent of orientation. In a vertical rail the rows
-     expand; in a horizontal strip they keep the original compact pill shape. */
-  .term-panel.term-sessions-full .term-sessions { width: clamp(160px, 34%, 220px); padding: 8px; }
+  .term-panel .term-sessions { width: var(--term-sessions-width, 62px); }
+  .term-sessions-resizer { width: 6px; margin: 0 -3px; flex-shrink: 0; cursor: ew-resize; touch-action: none; z-index: 1; }
+  .term-sessions-resizer:hover, .term-sessions-resizer:focus-visible, .term-sessions-resizer.dragging { background: var(--accent); outline: none; }
+  .term-panel.term-sessions-horizontal .term-sessions-resizer { display: none; }
+  /* Labels follow available space; narrower rows retain their icons. */
+  .term-panel.term-sessions-full .term-sessions { padding: 8px 6px; }
   .term-panel.term-sessions-full .term-sessions .sess { justify-content: flex-start; height: auto; padding: 7px 8px; }
   .term-panel.term-sessions-full .term-sessions .sess .sess-order { display: none; }
   .term-panel.term-sessions-full .term-sessions .sess .sess-label { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1844,6 +1847,7 @@
   .term-panel.term-sessions-full .term-sessions .sess .k { display: inline; flex-shrink: 0; font-size: 9px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
   .term-panel.term-sessions-full .term-sessions .sess.claude .k { color: var(--green); }
   .term-panel.term-sessions-full .term-sessions .sess.terminal .k { color: var(--yellow); }
+  .term-panel.term-sessions-narrow .term-sessions .sess .k { display: none; }
 
   /* Horizontal orientation puts the same switcher above the console. Compact
      mode stays icon-only; full mode restores the old scrollable tab pills. */
@@ -1899,7 +1903,6 @@
   .term-new-label { display: none; }
   .term-sessions-full .term-new-label { display: inline; }
   .term-sessions-horizontal .term-new-tab { width: auto; min-width: 36px; align-self: flex-start; }
-  .term-panel.term-sessions-text .term-sessions .sess .sess-icon, .term-panel.term-sessions-text .term-sessions .sess .k { display: none; }
   .term-tab-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex-shrink: 0; }
   .term-tab-group-label { display: flex; align-items: center; gap: 3px; min-width: 0; max-width: 100%; padding: 6px 3px; color: var(--term-group-color); border: 1px solid var(--term-group-color); border-radius: 5px; background: color-mix(in srgb, var(--term-group-color) 10%, var(--bg-secondary)); cursor: pointer; font-size: 11px; }
   .term-tab-group-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

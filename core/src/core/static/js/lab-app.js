@@ -9492,7 +9492,7 @@
   // TDZ on `_TERM_VIS_KEY_PREFIX`.
   const _TERM_VIS_KEY_PREFIX = 'labTermShown:';
   const _TERM_SESSION_ORIENTATION_KEY = 'labTermSessionOrientation';
-  const _TERM_SESSION_DETAIL_KEY = 'labTermSessionDetail';
+  const _TERM_SESSION_WIDTH_KEY = 'labTermSessionWidth';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
   const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
   const _TERM_RECENT_COLOR_KEY = 'labTermRecentColor';
@@ -9500,7 +9500,7 @@
   const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
   const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149', '#db61a2', '#39c5cf', '#8b949e'];
   let termSessionOrientation = 'vertical';
-  let termSessionDetail = 'compact';
+  let termSessionWidth = null;
   let termRecentMinutes = 60;
   let termRecentColor = '#3fb950';
   let termRecentActivity = {};
@@ -9508,9 +9508,10 @@
     if (localStorage.getItem(_TERM_SESSION_ORIENTATION_KEY) === 'horizontal') {
       termSessionOrientation = 'horizontal';
     }
-    if (['full', 'text'].includes(localStorage.getItem(_TERM_SESSION_DETAIL_KEY))) {
-      termSessionDetail = localStorage.getItem(_TERM_SESSION_DETAIL_KEY);
-    }
+    const storedWidth = parseFloat(localStorage.getItem(_TERM_SESSION_WIDTH_KEY));
+    if (Number.isFinite(storedWidth)) termSessionWidth = Math.max(62, Math.min(220, storedWidth));
+    // Preserve the old compact preference as an initial width, then use drag sizing.
+    else if (localStorage.getItem('labTermSessionDetail') === 'compact') termSessionWidth = 62;
     const storedRecentMinutes = localStorage.getItem(_TERM_RECENT_MINUTES_KEY);
     if (storedRecentMinutes !== null) termRecentMinutes = _termNormalizeRecentMinutes(storedRecentMinutes);
     termRecentColor = _termNormalizeRecentColor(localStorage.getItem(_TERM_RECENT_COLOR_KEY));
@@ -9608,7 +9609,6 @@
     _termRenderNewOptionsSettings();
     _termApplyRecentSettings();
     document.getElementById('termOrientationSelect').value = termSessionOrientation;
-    document.getElementById('termDetailSelect').value = termSessionDetail;
     document.getElementById('termSettingsModal').classList.add('active');
     document.getElementById('termOrientationSelect').focus();
   }
@@ -9638,39 +9638,33 @@
     if (setting === 'orientation' && ['vertical', 'horizontal'].includes(value)) {
       termSessionOrientation = value;
       try { localStorage.setItem(_TERM_SESSION_ORIENTATION_KEY, value); } catch {}
-    } else if (setting === 'detail' && ['compact', 'full', 'text'].includes(value)) {
-      termSessionDetail = value;
-      try { localStorage.setItem(_TERM_SESSION_DETAIL_KEY, value); } catch {}
     }
     _termApplySessionView();
+  }
+
+  function _termSessionWidthBounds(panelWidth) {
+    return {min: 62, max: Math.max(62, Math.min(220, panelWidth - 180))};
   }
 
   function _termApplySessionView(refit = true) {
     const panel = document.getElementById('termPanel');
     const sessionList = document.getElementById('termSessionList');
-    const orientationBtn = document.getElementById('termOrientationBtn');
-    const detailBtn = document.getElementById('termDetailBtn');
+    const resizer = document.getElementById('termSessionsResizer');
     const horizontal = termSessionOrientation === 'horizontal';
-    const full = termSessionDetail !== 'compact';
+    const panelWidth = panel?.getBoundingClientRect().width || 640;
+    const bounds = _termSessionWidthBounds(panelWidth);
+    const preferred = termSessionWidth ?? Math.max(160, Math.min(220, panelWidth * .34));
+    const width = Math.max(bounds.min, Math.min(bounds.max, preferred));
     if (panel) {
+      panel.style.setProperty('--term-sessions-width', width + 'px');
       panel.classList.toggle('term-sessions-horizontal', horizontal);
-      panel.classList.toggle('term-sessions-full', full);
-      panel.classList.toggle('term-sessions-text', termSessionDetail === 'text');
+      panel.classList.toggle('term-sessions-full', horizontal ? panelWidth >= 420 : width >= 112);
+      panel.classList.toggle('term-sessions-narrow', !horizontal && width < 180);
     }
     if (sessionList) sessionList.setAttribute('aria-orientation', horizontal ? 'horizontal' : 'vertical');
-    if (orientationBtn) {
-      const text = horizontal ? 'Use vertical session rail' : 'Use horizontal session tabs';
-      orientationBtn.textContent = horizontal ? '↕' : '↔';
-      orientationBtn.title = text;
-      orientationBtn.setAttribute('aria-label', text);
-      orientationBtn.setAttribute('aria-pressed', horizontal ? 'true' : 'false');
-    }
-    if (detailBtn) {
-      const text = full ? 'Use compact session icons' : 'Show full session names and agents';
-      detailBtn.textContent = full ? '◉' : 'Aa';
-      detailBtn.title = text;
-      detailBtn.setAttribute('aria-label', text);
-      detailBtn.setAttribute('aria-pressed', full ? 'true' : 'false');
+    if (resizer) {
+      resizer.setAttribute('aria-valuemax', String(bounds.max));
+      resizer.setAttribute('aria-valuenow', String(Math.round(width)));
     }
     if (!refit) return;
     requestAnimationFrame(() => {
@@ -9682,21 +9676,72 @@
   }
 
   function termToggleSessionOrientation() {
-    termSessionOrientation = termSessionOrientation === 'horizontal' ? 'vertical' : 'horizontal';
-    try { localStorage.setItem(_TERM_SESSION_ORIENTATION_KEY, termSessionOrientation); } catch {}
-    _termApplySessionView();
+    termSetSessionView('orientation', termSessionOrientation === 'horizontal' ? 'vertical' : 'horizontal');
   }
 
-  function termToggleSessionDetail() {
-    termSessionDetail = termSessionDetail === 'full' ? 'compact' : 'full';
-    try { localStorage.setItem(_TERM_SESSION_DETAIL_KEY, termSessionDetail); } catch {}
-    _termApplySessionView();
+  function _termInitSessionResize() {
+    const panel = document.getElementById('termPanel');
+    const rail = document.getElementById('termSessionList');
+    const resizer = document.getElementById('termSessionsResizer');
+    if (!panel || !rail || !resizer) return;
+    let drag = null;
+    let frame = null;
+    const apply = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => { frame = null; _termApplySessionView(); });
+    };
+    const setWidth = value => {
+      const bounds = _termSessionWidthBounds(panel.getBoundingClientRect().width);
+      termSessionWidth = Math.max(bounds.min, Math.min(bounds.max, value));
+      apply();
+    };
+    const save = () => {
+      try { localStorage.setItem(_TERM_SESSION_WIDTH_KEY, String(termSessionWidth)); } catch {}
+    };
+    resizer.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || drag || termSessionOrientation !== 'vertical') return;
+      drag = {id: event.pointerId, x: event.clientX, width: rail.getBoundingClientRect().width, previous: termSessionWidth};
+      resizer.setPointerCapture(event.pointerId);
+      resizer.focus();
+      resizer.classList.add('dragging');
+      document.body.classList.add('term-resizing');
+      event.preventDefault();
+    });
+    document.addEventListener('pointermove', event => {
+      if (!drag || event.pointerId !== drag.id) return;
+      setWidth(drag.width + event.clientX - drag.x);
+    });
+    const finish = (event, cancel = false) => {
+      if (!drag || event.pointerId !== drag.id) return;
+      if (cancel) { termSessionWidth = drag.previous; apply(); }
+      else { setWidth(drag.width + event.clientX - drag.x); save(); }
+      drag = null;
+      resizer.classList.remove('dragging');
+      document.body.classList.remove('term-resizing');
+      if (resizer.hasPointerCapture(event.pointerId)) resizer.releasePointerCapture(event.pointerId);
+    };
+    document.addEventListener('pointerup', event => finish(event));
+    document.addEventListener('pointercancel', event => finish(event, true));
+    resizer.addEventListener('lostpointercapture', event => finish(event, true));
+    resizer.addEventListener('keydown', event => {
+      if (termSessionOrientation !== 'vertical') return;
+      const bounds = _termSessionWidthBounds(panel.getBoundingClientRect().width);
+      const width = rail.getBoundingClientRect().width;
+      const next = {ArrowLeft: width - 10, ArrowRight: width + 10, Home: bounds.min, End: bounds.max}[event.key];
+      if (next === undefined) return;
+      event.preventDefault();
+      setWidth(next);
+      save();
+    });
+    // Also adapt when the surrounding terminal panel or browser changes size.
+    new ResizeObserver(apply).observe(panel);
   }
 
   // Apply before the initial route dispatch so direct workspace/pseudo-workspace
   // loads never flash the default switcher shape. Refit is intentionally off:
   // terminal state is declared later and no xterm exists yet.
   _termApplySessionView(false);
+  _termInitSessionResize();
   // Same TDZ hoist for the files-sidebar per-view persistence: the apply
   // helper runs inside _termApplyRememberedVisibility during the same
   // initial `?view=…` dispatch.
