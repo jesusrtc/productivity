@@ -9,7 +9,6 @@ from pathlib import Path
 import click
 
 from lab import paths, storage
-from lab.agent_instructions import NOTEBOOK_AGENT_SECTION
 
 
 def _write_if_missing(path: Path, content: str) -> None:
@@ -111,18 +110,10 @@ def _init_vault_files(root: Path, *, name: str, include_example: bool) -> None:
         root / "content" / "updates",
         root / "content" / "logs",
         root / "content" / "wikis",
-        root / ".agents" / "memory",
     ):
         d.mkdir(parents=True, exist_ok=True)
 
     _write_if_missing(root / "README.md", f"# {name}\n\nLab vault.\n")
-    _write_if_missing(
-        root / "AGENTS.md",
-        "# Lab vault instructions\n\n"
-        "Use `lab` for workspace and task state. Do not hand-edit `workspace.json` "
-        "or `tasks.json`.\n\n"
-        f"{NOTEBOOK_AGENT_SECTION}\n",
-    )
     _write_if_missing(
         root / "lab.toml",
         "[vault]\n"
@@ -161,7 +152,6 @@ def _init_vault_files(root: Path, *, name: str, include_example: bool) -> None:
     _write_if_missing(root / "content" / "updates" / ".gitkeep", "")
     _write_if_missing(root / "content" / "logs" / ".gitkeep", "")
     _write_if_missing(root / "content" / "wikis" / ".gitkeep", "")
-    _write_if_missing(root / ".agents" / "memory" / "MEMORY.md", "# Memory index\n")
     _write_if_missing(
         root / "skills" / "example-skill" / "SKILL.md",
         "---\nname: example-skill\ndescription: Example vault skill.\n---\n\n# Example skill\n",

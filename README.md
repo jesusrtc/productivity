@@ -18,11 +18,19 @@ cd ~/work/my-lab
 lab start
 ```
 
-`lab init` creates a vault repo with `workspaces/`, `content/`, `docs/`, `skills/`, `scripts/`, `apps/`, `repositories/`, `.agents/memory/`, and vault-local `.lab/state/`.
+`lab init` creates a vault repo with `workspaces/`, `content/`, `docs/`, `skills/`, `scripts/`, `apps/`, `repositories/`, and vault-local `.lab/state/`.
 
 Use `lab vault list` and `lab vault use <path>` to select the default vault. In the UI, workspaces from multiple vaults can remain open together. Home is the permanent framework destination; Assistant manages tasks across vaults.
 
 The naming hierarchy is **Vault → Workspace → Terminal**. See [Naming and compatibility](docs/NAMING.md) for commands, configuration, and support for existing Local and SSD vaults.
+
+## Agent context
+
+Lab supplies framework capabilities when it launches an agent. Workspaces own
+their instructions, skills, and memory; Lab creates no agent files or symlinks.
+Use `lab context` for the guide and `lab agents run codex` (or `claude` /
+`copilot`) when launching manually. See [Agent context](docs/AGENT-CONTEXT.md)
+for migration from the old symlink setup.
 
 ## Layout
 
@@ -31,4 +39,4 @@ The naming hierarchy is **Vault → Workspace → Terminal**. See [Naming and co
 - `apps/` - reserved for vault/client apps; framework code should not live here.
 - `docs/productivity-framework-proposal.md` - vault/framework split proposal and migration plan.
 
-Generated runtime state belongs in the active vault under `.lab/state/`; global config is limited to `~/.lab/vaults.toml`.
+Generated runtime state belongs in the active vault under `.lab/state/`; client-wide configuration and migration audits live under `~/.lab/`.

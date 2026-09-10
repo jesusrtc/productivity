@@ -26,7 +26,8 @@ def test_lab_init_creates_vault_and_registers(tmp_path: Path, monkeypatch) -> No
     assert (vault / "workspaces" / "example" / "workspace.json").is_file()
     assert (vault / "apps" / "example-cli" / "lab-app.toml").is_file()
     assert (vault / "content" / "README.md").is_file()
-    assert "lab notebook exec" in (vault / "AGENTS.md").read_text()
+    assert not (vault / "AGENTS.md").exists()
+    assert not (vault / ".agents").exists()
     assert (vault / "repositories" / ".gitignore").read_text() == "*\n!.gitignore\n!README.md\n"
     assert (vault / ".lab" / "state" / "indexes").is_dir()
 

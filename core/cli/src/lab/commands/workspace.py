@@ -12,77 +12,12 @@ import click
 
 from lab import mp as mp_mod
 from lab import paths, storage
-from lab.agent_instructions import NOTEBOOK_AGENT_SECTION
 from lab.commands._helpers import require_valid_id as _require_valid_id
 from lab.model import ModelError, Priority, Workspace, WorkspaceStatus
 from lab.util import split_csv
 
 
 _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
-
-# Written once into every new workspace's AGENTS.md (canonical; CLAUDE.md is a
-# symlink to it, same convention `lab agents sync` uses elsewhere) so the
-# dev-server convention travels with the workspace from day one instead of
-# depending on someone remembering to add it later. See docs/SERVERS.md in
-# the framework repo for the full contract.
-_WORKSPACE_AGENTS_MD_TEMPLATE = """# {name}
-
-{description}
-
-{notebook_section}
-
-## Dev server
-
-If this workspace runs a local dev server, add a root `Makefile` that follows
-the Lab server convention so the dashboard can discover and control it:
-
-- `SERVER_PORT` — the port the server listens on.
-- `server-start:` — required, runs the server in the **foreground** (it is
-  launched inside a tmux session, not backgrounded with `&`).
-- `server-stop:` — optional, best-effort cleanup of strays.
-- `SERVER_HEALTH_URL` — optional; defaults to `http://127.0.0.1:<SERVER_PORT>/`.
-  Prefer a real `/healthz` endpoint (cheap, no disk access, returns 200) over
-  the default `/` if you own the server code.
-
-```make
-SERVER_PORT = 80NN
-SERVER_HEALTH_URL = http://127.0.0.1:80NN/healthz   # optional
-
-server-start:
-\t<command that runs in the foreground>
-
-server-stop:
-\t-pkill -f '<pattern matching the server-start command>'
-```
-
-Once the Makefile is in place, this workspace's server shows up on the Lab
-dashboard with start/stop controls and live health status. Full contract:
-docs/SERVERS.md in the framework repo.
-"""
-
-
-def _write_workspace_agents_md(pdir: Path, workspace: "Workspace") -> None:
-    """Seed AGENTS.md (+ CLAUDE.md symlink) for a brand-new workspace.
-
-    Idempotent by construction (only ever called once, right after the
-    workspace directory is created) and never overwrites — if either file
-    somehow already exists this is a no-op, hand edits always win.
-    """
-    agents_md = pdir / "AGENTS.md"
-    claude_md = pdir / "CLAUDE.md"
-    if not agents_md.exists():
-        description = workspace.description or "New workspace."
-        agents_md.write_text(
-            _WORKSPACE_AGENTS_MD_TEMPLATE.format(
-                name=workspace.id,
-                description=description,
-                notebook_section=NOTEBOOK_AGENT_SECTION,
-            ),
-            encoding="utf-8",
-        )
-    if not claude_md.exists() and not claude_md.is_symlink():
-        claude_md.symlink_to("AGENTS.md")
-
 
 def _now_local() -> datetime:
     """Timezone-aware now in the local zone (so ``isoformat`` includes offset)."""
@@ -189,7 +124,6 @@ def new(workspace_id: str, description: str, priority: str | None, due: str | No
 
         storage.write_json(paths.workspace_file(root, workspace.id), workspace.to_dict())
         storage.write_json(paths.tasks_file(root, workspace.id), {"next_id": 1, "tasks": []})
-        _write_workspace_agents_md(pdir, workspace)
     except Exception:
         if pdir.exists():
             shutil.rmtree(pdir, ignore_errors=True)

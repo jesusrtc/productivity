@@ -1,4 +1,4 @@
-"""Global lab/agent settings + the cross-tool agent-sync trigger.
+"""Global lab/agent settings and read-only framework context checks.
 
 Reads/writes ``.agents/config.json`` through the validated ``lab.settings``
 library (no subprocess — the server already depends on ``lab``). The settings
@@ -84,9 +84,15 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
 
 @router.post("/api/agents/sync")
 def agents_sync(request: Request, dry_run: bool = False) -> dict:
-    """Run ``lab agents sync`` (AGENTS.md + memory + skill symlinks). Idempotent."""
+    """Compatibility endpoint; no longer creates or links agent files."""
     root = auth.request_root(request)
     return agentsync.sync_all(root, dry_run=dry_run)
+
+
+@router.get("/api/agents/context")
+def agents_context(request: Request) -> dict:
+    """Report packaged context readiness without writing to the workspace."""
+    return agentsync.doctor_all(auth.request_root(request), include_cli=True)
 
 
 @router.get("/api/agents/context/guide")

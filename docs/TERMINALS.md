@@ -74,3 +74,11 @@ sessions on any still-draining socket remain available.
 The global routing file is `$LAB_HOME/tmux-sockets.json` (normally
 `~/.lab/tmux-sockets.json`). It is atomically replaced and normalized to at
 most two generations. Do not edit it by hand; use `lab terminal`.
+
+## Framework context in agent terminals
+
+New Claude, Codex, and Copilot terminals use `lab agents run` to add the
+packaged Lab capability guide while preserving each workspace's instructions.
+The wrapper execs the agent; no persistent helper process or workspace agent
+files are created. Plain shell tabs and attached sessions are unchanged.
+See [Agent context](AGENT-CONTEXT.md) for manual launches and legacy-link cleanup.

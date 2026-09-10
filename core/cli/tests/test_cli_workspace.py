@@ -35,10 +35,10 @@ def test_workspace_new_creates_directory_and_files(monorepo: Path) -> None:
 
     tasks = json.loads((pdir / "tasks.json").read_text())
     assert tasks == {"next_id": 1, "tasks": []}
-    agents = (pdir / "AGENTS.md").read_text()
-    assert "## Lab notebooks (live execution)" in agents
-    assert "lab notebook exec" in agents
-    assert (pdir / "CLAUDE.md").resolve() == (pdir / "AGENTS.md").resolve()
+    assert not (pdir / "AGENTS.md").exists()
+    assert not (pdir / "CLAUDE.md").is_symlink()
+    assert not (pdir / ".agents").exists()
+    assert not (pdir / ".claude").exists()
 
 
 def test_workspace_new_with_priority_due_tags_labels(monorepo: Path) -> None:
@@ -74,136 +74,6 @@ def test_workspace_new_rejects_bad_id(monorepo: Path) -> None:
     assert "must match" in result.output.lower()
     # The invalid id should never create a directory.
     assert not (monorepo / "workspaces" / "Bad ID!").exists()
-
-
-# ─── `lab agents sync` — AGENTS.md canonical + CLAUDE.md/Copilot/memory links ──
-# These supersede the never-implemented `lab workspace relink` design. They
-# monkeypatch HOME so the sync's ~/.claude + ~/.codex writes land in a temp dir.
-
-
-def test_agents_sync_links_workspace_claude_md(monorepo: Path, seed_workspace,
-                                             monkeypatch, tmp_path) -> None:
-    """A hand-written workspace CLAUDE.md becomes a symlink to a canonical AGENTS.md."""
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    pdir = seed_workspace("legacy")
-    (pdir / "CLAUDE.md").write_text("# legacy workspace instructions\n")
-    runner = CliRunner()
-    result = runner.invoke(main, ["agents", "sync"])
-    assert result.exit_code == 0, result.output
-    agents = pdir / "AGENTS.md"
-    claude = pdir / "CLAUDE.md"
-    assert agents.is_file() and not agents.is_symlink()
-    assert "legacy workspace instructions" in agents.read_text()
-    assert "lab notebook exec" in agents.read_text()
-    assert claude.is_symlink()
-    assert claude.resolve() == agents.resolve()
-    local_settings = json.loads((pdir / ".claude" / "settings.local.json").read_text())
-    assert local_settings["autoMemoryDirectory"] == str((pdir / ".agents" / "memory").resolve())
-
-
-def test_agents_sync_root_instructions_and_memory(monorepo: Path,
-                                                  monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    runner = CliRunner()
-    result = runner.invoke(main, ["agents", "sync"])
-    assert result.exit_code == 0, result.output
-    # Root CLAUDE.md (a real file in the fixture) → moved to AGENTS.md + symlinked.
-    assert (monorepo / "AGENTS.md").is_file()
-    assert (monorepo / "CLAUDE.md").is_symlink()
-    cop = monorepo / ".github" / "copilot-instructions.md"
-    assert cop.is_symlink()
-    assert cop.resolve() == (monorepo / "AGENTS.md").resolve()
-    # Repo-local memory dir + index created, and AGENTS.md carries the rule.
-    assert (monorepo / ".agents" / "memory" / "MEMORY.md").is_file()
-    local_settings = json.loads((monorepo / ".claude" / "settings.local.json").read_text())
-    assert local_settings["autoMemoryDirectory"] == str((monorepo / ".agents" / "memory").resolve())
-    assert "Memory (repo-local" in (monorepo / "AGENTS.md").read_text()
-    assert "lab notebook exec" in (monorepo / "AGENTS.md").read_text()
-
-
-def test_agents_sync_is_idempotent(monorepo: Path, seed_workspace,
-                                   monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    seed_workspace("one")
-    runner = CliRunner()
-    first = runner.invoke(main, ["agents", "sync"])
-    assert first.exit_code == 0, first.output
-    second = runner.invoke(main, ["agents", "sync"])
-    assert second.exit_code == 0, second.output
-    assert "nothing to do" in second.output
-
-
-def test_agents_sync_notebooks_only_does_not_create_memory_or_skill_state(
-    monorepo: Path, seed_workspace
-) -> None:
-    workspace = seed_workspace("notebook-workspace")
-    (workspace / "AGENTS.md").write_text("# notebook workspace\n")
-    runner = CliRunner()
-
-    result = runner.invoke(main, ["agents", "sync", "--notebooks-only"])
-
-    assert result.exit_code == 0, result.output
-    assert "Lab notebooks section" in result.output
-    assert "lab notebook exec" in (monorepo / "AGENTS.md").read_text()
-    assert "lab notebook exec" in (workspace / "AGENTS.md").read_text()
-    assert not (workspace / ".agents").exists()
-    assert not (workspace / ".claude").exists()
-
-
-def test_agents_sync_links_shared_skills(monorepo: Path, seed_workspace,
-                                         monkeypatch, tmp_path) -> None:
-    """Canonical .claude/skills is exposed via .agents/skills at root + per workspace."""
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    (monorepo / ".claude" / "skills" / "demo").mkdir(parents=True)
-    (monorepo / ".claude" / "skills" / "demo" / "SKILL.md").write_text("# demo\n")
-    pdir = seed_workspace("p")
-    runner = CliRunner()
-    r = runner.invoke(main, ["agents", "sync"])
-    assert r.exit_code == 0, r.output
-    # Root tool-neutral alias.
-    root_alias = monorepo / ".agents" / "skills"
-    assert root_alias.is_symlink()
-    assert (root_alias / "demo" / "SKILL.md").is_file()
-    # Each workspace sees the shared skills via both the Claude and tool-neutral paths.
-    for sub in (".claude/skills", ".agents/skills"):
-        link = pdir / sub
-        assert link.is_symlink(), sub
-        assert (link / "demo" / "SKILL.md").is_file(), sub
-    assert not (tmp_path / "home" / ".codex" / "prompts").exists()
-
-
-def test_agents_doctor_passes_after_sync(monorepo: Path, seed_workspace,
-                                         monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    (monorepo / ".claude" / "skills" / "demo").mkdir(parents=True)
-    (monorepo / ".claude" / "skills" / "demo" / "SKILL.md").write_text("# demo\n")
-    seed_workspace("p")
-    runner = CliRunner()
-
-    sync = runner.invoke(main, ["agents", "sync"])
-    assert sync.exit_code == 0, sync.output
-    result = runner.invoke(main, ["agents", "doctor"])
-
-    assert result.exit_code == 0, result.output
-    assert "root CLAUDE.md -> AGENTS.md" in result.output
-    assert "root Claude auto-memory -> repo memory" in result.output
-    assert "GitHub Copilot CLI" in result.output
-
-
-def test_agents_doctor_require_cli_fails_when_cli_missing(monorepo: Path,
-                                                         monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    from lab import agentsync
-
-    monkeypatch.setattr(agentsync.shutil, "which", lambda cmd: None)
-    runner = CliRunner()
-    sync = runner.invoke(main, ["agents", "sync"])
-    assert sync.exit_code == 0, sync.output
-
-    result = runner.invoke(main, ["agents", "doctor", "--require-cli"])
-
-    assert result.exit_code != 0
-    assert "agent setup has problems" in result.output
 
 
 def test_workspace_ls_empty(monorepo: Path) -> None:

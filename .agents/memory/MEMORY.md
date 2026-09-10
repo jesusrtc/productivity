@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspaces own their agent context](workspaces-own-agent-context.md) — inject packaged Lab capabilities at launch; no workspace instruction seeding or symlinks; preserve provider and workspace rules
+
 - [Markdown copy respects disclosure state](markdown-copy-respects-disclosures.md) — native details/summary folds; copy excludes closed blocks and flattens open blocks from the live view for every clipboard format
 
 - [Terminal labels follow rail width](terminal-tabs-resize-labels-automatically.md) — drag the tabs/console separator between compact icons and full labels; persist width and adapt labels automatically

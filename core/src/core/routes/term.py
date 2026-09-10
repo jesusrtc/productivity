@@ -60,6 +60,7 @@ import signal
 import sqlite3
 import struct
 import subprocess
+import sys
 import termios
 import time
 import tomllib
@@ -3030,6 +3031,13 @@ def create_session(body: NewSession, request: Request) -> dict:
         # kind == "terminal"
         shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
         cmd_argv = [shell, "-l"]
+
+    if kind == "claude":
+        # The wrapper execs the provider with process-local framework context.
+        # It does not create files in cwd or alter the provider's repository rules.
+        # Pin Lab commands to this terminal's owning vault, not the active global one.
+        cmd_argv = [sys.executable, "-m", "lab", "agents", "run", "--vault", str(root),
+                    agent, "--", *cmd_argv[1:]]
 
     # Spawn tmux. We pass argv via shell so tmux can parse it; simpler for
     # claude's flag expansion and matches what users see in `tmux ls`.

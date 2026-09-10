@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 import textwrap
 import uuid
 from pathlib import Path
@@ -2049,7 +2050,7 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_workspace, isolated_
     uuid.UUID(session_id)
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == (
-        f"copilot --session-id {session_id}"
+        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} copilot -- --session-id {session_id}"
     )
     assert r.json()["auto"] is False
 
@@ -2063,7 +2064,7 @@ def test_copilot_launch_appends_autopilot_flag(client, seed_workspace, isolated_
     session_id = r.json()["agent_session_id"]
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == (
-        f"copilot --session-id {session_id} --autopilot"
+        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} copilot -- --session-id {session_id} --autopilot"
     )
 
 
@@ -2095,7 +2096,7 @@ def test_copilot_explicit_auto_false_overrides_vault(client, seed_workspace, iso
     session_id = r.json()["agent_session_id"]
     state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
     assert state["sessions"][r.json()["name"]]["cmd"] == (
-        f"copilot --session-id {session_id}"
+        f"{term_route._shell_quote(sys.executable)} -m lab agents run --vault {term_route._shell_quote(str(monorepo))} copilot -- --session-id {session_id}"
     )
 
 
@@ -2323,3 +2324,27 @@ def test_terminal_scope_survives_file_unlink_and_restore(
     assert restored.status_code == 200, restored.text
     assert restored.json()["linked_scope"] == new_scope
     assert restored.json()["cwd"] == new_scope["root"]
+
+
+@pytest.mark.parametrize('agent', ['claude', 'codex', 'copilot'])
+def test_agent_launch_uses_context_wrapper_without_workspace_files(
+    client, seed_workspace, isolated_prefix, monorepo, tmp_path, monkeypatch, agent
+):
+    import shlex
+    from core.routes import term as term_route
+    workspace = seed_workspace('context-demo')
+    (workspace / 'AGENTS.md').write_text('Workspace-specific rules\n')
+    before = {p.name for p in workspace.iterdir()}
+    real_which = term_route.shutil.which
+    monkeypatch.setattr(term_route.shutil, 'which',
+                        lambda name: '/fake/' + name if name in {'claude', 'codex', 'copilot'} else real_which(name))
+    response = client.post('/api/term/sessions', json={
+        'workspace_id': 'context-demo', 'kind': 'claude', 'agent': agent,
+    })
+    assert response.status_code == 200, response.text
+    state = json.loads((tmp_path / 'fake-tmux-state.json').read_text())
+    command = shlex.split(state['sessions'][response.json()['name']]['cmd'])
+    assert command[:8] == [sys.executable, '-m', 'lab', 'agents', 'run', '--vault', str(monorepo), agent]
+    assert command[8] == '--'
+    assert {p.name for p in workspace.iterdir()} == before
+    assert (workspace / 'AGENTS.md').read_text() == 'Workspace-specific rules\n'

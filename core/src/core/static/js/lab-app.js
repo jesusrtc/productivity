@@ -9040,14 +9040,14 @@
     const hint = document.getElementById('setResyncHint');
     const old = hint.textContent;
     btn.disabled = true;
-    hint.textContent = 'syncing…';
+    hint.textContent = 'checking…';
     try {
-      const r = await fetch('/api/agents/sync', { method: 'POST' });
+      const r = await fetch('/api/agents/context');
+      if (!r.ok) throw new Error('context check failed');
       const data = await r.json();
-      const n = (data.actions || []).length;
-      hint.textContent = n ? `done — ${n} change(s).` : 'already in sync.';
+      hint.textContent = data.ok ? 'Lab context is ready for new agent sessions.' : 'Lab context is missing; reinstall the Lab CLI.';
     } catch (e) {
-      hint.textContent = 'sync failed: ' + (e.message || e);
+      hint.textContent = 'check failed: ' + (e.message || e);
     } finally {
       btn.disabled = false;
       setTimeout(() => { hint.textContent = old; }, 6000);

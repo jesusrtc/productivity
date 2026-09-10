@@ -428,11 +428,10 @@ push: push-productivity push-content ## push both repos, then run `g push`
 
 # One-shot first-time bootstrap: ensures a compatible Python (creating a
 # dedicated miniconda env if needed), installs venvs + CLI shims, updates
-# existing clones listed in repositories.list (idempotent), and unifies agent context —
-# making AGENTS.md canonical with CLAUDE.md / Copilot / memory symlinked to it
-# (see `lab agents sync`).
-setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python + install + update repos + sync agents)
-	@$(LAB_VENV)/bin/python -m lab agents sync || true
+# existing clones listed in repositories.list (idempotent), and checks packaged
+# agent context. Workspace instructions, skills, and memory remain user-owned.
+setup: _ensure-python install pull-repos ## first-time bootstrap (ensure python + install + update repos + check context)
+	@$(LAB_VENV)/bin/python -m lab agents doctor || true
 	@echo
 	@echo "setup complete."
 	@echo "  - lab CLI:    $(BIN_DIR)/lab"

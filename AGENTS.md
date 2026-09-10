@@ -34,7 +34,11 @@ the running notebook, open `$(scripts/lab-url.sh)/#/nb?path=<path>`.
 
 ## On workspace work
 
-When you're in `workspaces/<id>/`, read that workspace's `CLAUDE.md` too. It's auto-generated and contains the workspace's objective and tool references.
+Workspaces own their instructions, skills, and memory policy. Read applicable
+workspace-owned `AGENTS.md` / `CLAUDE.md` files when present; Lab does not generate
+or link them. Framework capability guidance is supplied by `lab agents run` at
+launch and can be read with `lab context` (or `lab context markdown`,
+`lab context notebooks`, `lab context servers`).
 
 ## On workspace server tabs
 
@@ -70,8 +74,9 @@ dir. This applies to every agent (Claude Code, Codex, Copilot):
   productivity repo); per-workspace memory lives at `workspaces/<id>/.agents/memory/`
   and travels with that workspace folder. Use whichever matches the scope of the fact.
 
-Claude Code auto-memory is redirected by `.claude/settings.local.json`
-(`autoMemoryDirectory`) to the repo-local memory directory; `lab agents sync`
-may also leave a `~/.claude/projects/.../memory` symlink as a compatibility
-fallback for older Claude installs. Do not write memory anywhere under
-`~/.claude`.
+This framework checkout's Claude Code auto-memory is redirected by its own
+`.claude/settings.local.json` (`autoMemoryDirectory`) to the repo-local memory
+directory. This is the framework repository's policy, not a policy imposed on
+user workspaces. `lab agents sync` is now read-only; `lab agents detach` removes
+recognized legacy instruction/skill links without touching their targets.
+Do not write this repository's memory under `~/.claude`.

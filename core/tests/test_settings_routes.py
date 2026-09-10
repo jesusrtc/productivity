@@ -46,6 +46,22 @@ def test_settings_autopilot_roundtrip(client, monorepo) -> None:
     assert r.status_code == 400
 
 
+def test_context_checks_and_legacy_sync_leave_instructions_untouched(client, monorepo):
+    agents = monorepo / "AGENTS.md"
+    agents.write_text("User-owned instructions\n")
+    claude = monorepo / "CLAUDE.md"
+    claude.symlink_to("AGENTS.md")
+    response = client.get("/api/agents/context")
+    assert response.status_code == 200
+    assert response.json()["ok"]
+    assert response.json()["legacy_links"]
+    response = client.post("/api/agents/sync")
+    assert response.status_code == 200
+    assert response.json()["actions"] == []
+    assert agents.read_text() == "User-owned instructions\n"
+    assert claude.is_symlink()
+
+
 def test_agent_context_reads_the_installed_launch_guide(client, monkeypatch):
     import sys
     import types
