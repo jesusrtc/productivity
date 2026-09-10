@@ -81,3 +81,5 @@
 - [Sidebar sections sort independently](sidebar-section-sort-modes-are-independent.md) — Recently updated and Files persist separate Updated/Name/Type sort modes; keep folders first and make narrow controls readable
 
 - [Vault → Workspace → Terminal](vault-workspace-terminal-naming.md) — consistent entity names throughout UI, CLI, APIs, code, configuration, and docs; old names only at compatibility boundaries.
+
+- [Vaults are sections inside Home](vaults-are-home-sections.md) — vault navigation stays beneath Home alongside Overview and Admin; only workspaces open separate tabs

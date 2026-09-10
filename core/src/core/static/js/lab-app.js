@@ -6361,16 +6361,17 @@
       html += `<button class="repo-tab${assistantSection === 'overview' ? ' active' : ''}" data-assistant-section="overview" onclick="AssistantView.setSection('overview')" style="font-weight:600">&#x1F4CB; Overview</button>`;
       html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
       html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
-    } else if (isSelf) {
-      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="selfShowWorkbench()" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
-      for (const vault of (vaultCatalog || [])) {
-        html += `<button class="repo-tab vault-context-tab" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="goToVault('${String(vault.id).replace(/'/g, "\\'")}')"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
+    } else if (isSelf || isVault) {
+      if (LAB_IS_ADMIN) {
+        html += `<button class="repo-tab${isSelf && overviewActive ? ' active' : ''}" onclick="${isSelf ? 'selfShowWorkbench()' : 'goToProductivity()'}" style="font-weight:600">&#x1F4CB; Overview</button>`;
+        html += `<button class="repo-tab${isSelf && codeSearchActive ? ' active' : ''}" onclick="${isSelf ? 'showScopedCodeSearch()' : "goToProductivity({subview:'code-search'})"}">&#x1F50D; Code Search</button>`;
       }
-      if (LAB_IS_ADMIN) html += `<button class="repo-tab${_contextSubView === 'admin' ? ' active' : ''}" onclick="selfShowAdmin()">&#x2699; Admin</button>`;
-    } else if (isVault) {
-      html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="vaultShowOverview()" style="font-weight:600">&#x1F4CB; Overview</button>`;
-      if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
+      for (const vault of (vaultCatalog || [])) {
+        const active = isVault && _vaultCurrent && _vaultCurrent.id === vault.id;
+        const action = active ? 'vaultShowOverview()' : `goToVault(${JSON.stringify(vault.id)})`;
+        html += `<button class="repo-tab vault-context-tab${active ? ' active' : ''}" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="${escAttr(action)}"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
+      }
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
     } else if (currentWorkspace.is_workspace) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showWorkspaceDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${codeSearchActive ? ' active' : ''}" onclick="showScopedCodeSearch()">&#x1F50D; Code Search</button>`;
@@ -9359,21 +9360,6 @@
   let workspaceTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
   let workspaceTabsDragId = null;    // pid currently being dragged
   let _contextSubView = 'overview';
-  const OPEN_VAULTS_KEY = 'labOpenVaults-v1';
-
-  function _openVaultIds() {
-    try {
-      const value = JSON.parse(localStorage.getItem(OPEN_VAULTS_KEY) || '[]');
-      return Array.isArray(value) ? value.filter(v => typeof v === 'string') : [];
-    } catch { return []; }
-  }
-
-  function _setVaultTabOpen(vaultId, open) {
-    const ids = new Set(_openVaultIds());
-    if (open) ids.add(vaultId); else ids.delete(vaultId);
-    try { localStorage.setItem(OPEN_VAULTS_KEY, JSON.stringify(Array.from(ids))); } catch {}
-  }
-
   function _vaultById(vaultId) {
     return (vaultCatalog || []).find(vault => vault && vault.id === vaultId) || null;
   }
@@ -9440,8 +9426,7 @@
   });
 
   // Workspace tabs the user has opened. The durable bit still lives in each
-  // workspace's own workspace.json, while vault-home tabs live in browser
-  // state because they are navigation chrome rather than vault data.
+  // workspace's own workspace.json. Vaults are sections inside Home.
   function workspaceTabsOpenIds() {
     return (workspaceTabsAll || []).filter(p => p && p.tab_open).map(p => p.path);
   }
@@ -10076,14 +10061,6 @@
     const vaultActive = document.body.classList.contains('vault-active');
     const activeWorkspacePath = document.body.classList.contains('workspace-active') && currentWorkspace
       ? currentWorkspace.path : null;
-    const activeVaultId = vaultActive && _vaultCurrent
-      ? _vaultCurrent.id : null;
-
-    const vaultIds = new Set(_openVaultIds());
-    if (activeVaultId) vaultIds.add(activeVaultId);
-    const currentWorkspaceVault = _workspaceVaultId(currentWorkspace);
-    if (currentWorkspaceVault) vaultIds.add(currentWorkspaceVault);
-
     const workspaceTabs = [];
     const seenPaths = new Set();
     const addWorkspace = (workspace, hot = false) => {
@@ -10099,28 +10076,14 @@
     if (activeWorkspacePath) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === activeWorkspacePath));
     for (const path of workspaceTabsOpenIds()) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === path));
 
-    const vaultTabs = Array.from(vaultIds)
-      .map(_vaultById)
-      .filter(Boolean)
-      .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
-
-    let html = LAB_IS_ADMIN ? `
-      <div class="workspace-tab self-tab${selfActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_WORKSPACE_ID}" role="tab" title="Framework home">
+    let html = `
+      <div class="workspace-tab self-tab${selfActive || vaultActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_WORKSPACE_ID}" role="tab" title="Home">
         <span class="label">&#x1F3E0; Home</span>
-      </div>
+      </div>`;
+    if (LAB_IS_ADMIN) html += `
       <div class="workspace-tab assistant-tab${assistantActive ? ' active' : ''}" data-kind="assistant" data-key="${ASSISTANT_WORKSPACE_ID}" role="tab" title="Global Assistant tasks">
         <span class="label">&#x2726; Assistant</span>
-      </div>` : '';
-    html += vaultTabs.map(vault => {
-      const active = activeVaultId === vault.id ? ' active' : '';
-      const color = workspaceTabsEsc(vault.color || '#8b949e');
-      return `
-        <div class="workspace-tab vault-tab vault-owned${active}" style="--vault-color:${color}" data-kind="vault" data-key="${workspaceTabsEsc(vault.id)}" role="tab" title="Vault · ${workspaceTabsEsc(vault.path || '')}">
-          <span class="vault-mark"></span>
-          <span class="label">${workspaceTabsEsc(vault.name || vault.id)}</span>
-          <button class="x" title="Close vault tab" data-x="${workspaceTabsEsc(vault.id)}">&times;</button>
-        </div>`;
-    }).join('');
+      </div>`;
     html += workspaceTabs.map(({workspace, hot}) => {
       const vault = _vaultForWorkspace(workspace);
       const active = activeWorkspacePath === workspace.path ? ' active' : '';
@@ -10142,7 +10105,6 @@
         const key = node.getAttribute('data-key');
         if (kind === 'productivity') { goToProductivity(); return; }
         if (kind === 'assistant') { goToAssistant(); return; }
-        if (kind === 'vault') { goToVault(key); return; }
         if (kind === 'workspace' && key) goToWorkspace(key);
       });
     });
@@ -10233,13 +10195,6 @@
 
   async function workspaceTabsClose({key, kind, workspaceId, vault}) {
     if (!key || kind === 'productivity') return;
-    if (kind === 'vault') {
-      _setVaultTabOpen(key, false);
-      const wasActive = document.body.classList.contains('vault-active')
-        && _vaultCurrent && _vaultCurrent.id === key;
-      if (wasActive) goToProductivity(); else workspaceTabsRender();
-      return;
-    }
     if (kind !== 'workspace' || !workspaceId) return;
     if (!confirm(`Close "${workspaceId}"? This also closes its terminal sessions; saved agent conversations can resume when reopened.`)) return;
     try {
@@ -10273,22 +10228,13 @@
   function workspaceTabsRenderPicker() {
     const picker = document.getElementById('workspaceTabsPicker');
     if (!picker) return;
-    const openVaults = new Set(_openVaultIds());
     const openWorkspaces = new Set(workspaceTabsOpenIds());
-    const vaultRows = (vaultCatalog || [])
-      .filter(vault => !openVaults.has(vault.id))
-      .map(vault => `
-        <div class="row" data-vault="${workspaceTabsEsc(vault.id)}">
-          <span class="vault-mark" style="--vault-color:${workspaceTabsEsc(vault.color || '#8b949e')}"></span>
-          <span>${workspaceTabsEsc(vault.name || vault.id)}</span>
-          <span class="meta">vault</span>
-        </div>`).join('');
     const candidates = (workspaceTabsAll || []).filter(workspace => !openWorkspaces.has(workspace.path));
-    if (!vaultRows && candidates.length === 0) {
-      picker.innerHTML = '<div class="empty">Everything is already open.</div>';
+    if (candidates.length === 0) {
+      picker.innerHTML = '<div class="empty">All workspaces are already open.</div>';
       return;
     }
-    picker.innerHTML = vaultRows + candidates.map(workspace => `
+    picker.innerHTML = candidates.map(workspace => `
       <div class="row" data-path="${workspaceTabsEsc(workspace.path)}">
         <span class="vault-mark" style="--vault-color:${workspaceTabsEsc(workspace.vault_color || '#8b949e')}"></span>
         <span>${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
@@ -10297,8 +10243,6 @@
     picker.querySelectorAll('.row').forEach(row => {
       row.addEventListener('click', () => {
         picker.classList.remove('open');
-        const vaultId = row.getAttribute('data-vault');
-        if (vaultId) { goToVault(vaultId); return; }
         const path = row.getAttribute('data-path');
         if (path) goToWorkspace(path);
       });
@@ -14184,7 +14128,6 @@
     if (!vaultId) return;
     _swapViewState();
     _contextSubView = 'overview';
-    _setVaultTabOpen(vaultId, true);
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.delete('workspace');
@@ -16115,8 +16058,8 @@
 
   // ─── Vault view (vault-scoped management surface) ───
   // Mirrors initSelf(): synthetic currentWorkspace rooted at the selected
-  // registered vault so its files/config/workspaces can stay open beside
-  // tabs from every other vault.
+  // registered vault. It renders inside Home while preserving the owning
+  // vault scope for files, workspaces, and terminals.
 
   async function initVaultView(vaultId) {
     // The initial `?view=…` dispatch calls us directly without
@@ -16129,7 +16072,7 @@
     const dt = document.getElementById('diffTabs');
     if (dt) dt.style.display = 'none';
     document.body.classList.remove('has-diff-tabs');
-    // Re-render the tab strip so the vault tab flips to `.active`
+    // Re-render the tab strip so Home stays `.active`
     // immediately (same first-load caveat as initSelf: workspaceTabsRefresh
     // repaints with the full list once it returns).
     _workspaceDocPath = null;
@@ -16149,7 +16092,6 @@
       if (content) content.innerHTML = '<div class="s-inner vault-overview"><div class="loading">Could not load the active vault.</div></div>';
       return;
     }
-    _setVaultTabOpen(current.id, true);
     document.title = 'Vault — ' + (current.name || current.id);
     // Synthetic workspace rooted at the vault root (same trick as the
     // self view) so the doc pane, sidebar, and pollers treat it like a
@@ -16192,6 +16134,7 @@
             <span class="vault-badge" title="vault id">${selfEsc(current.id)}</span></h1>
         </div>
         <div class="vault-ov-path" title="${escAttr(current.path)}">${selfEsc(current.path)}</div>
+        ${LAB_IS_ADMIN ? '<div class="s-toolbar"><button class="refresh-btn" onclick="showScopedCodeSearch()">Search this vault</button></div>' : ''}
         <div class="s-workbench-grid vault-ov-grid">
           <div class="s-section" id="vaultAppearanceCard">
             <h2>Appearance</h2>
@@ -16266,6 +16209,7 @@
       }
       vaultPaintOverview(_vaultCurrent);
       workspaceTabsRender();
+      renderRepoTabs();
       const savedStatus = document.getElementById('vaultAppearanceStatus');
       if (savedStatus) savedStatus.textContent = 'Saved';
     } catch (e) {

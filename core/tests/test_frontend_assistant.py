@@ -10,8 +10,8 @@ def test_assistant_is_permanent_tab_immediately_after_home() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     home = source.index("&#x1F3E0; Home")
     assistant = source.index("&#x2726; Assistant", home)
-    vault_tabs = source.index("vaultTabs.map", home)
-    assert home < assistant < vault_tabs
+    workspace_tabs = source.index("workspaceTabs.map", home)
+    assert home < assistant < workspace_tabs
 
 
 def test_assistant_navigation_and_terminal_are_global() -> None:
