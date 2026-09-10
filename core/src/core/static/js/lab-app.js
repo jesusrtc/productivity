@@ -9354,9 +9354,9 @@
 
   // Workspace tab-strip state. MUST be declared before workspaceTabsRefresh() is
   // called below, or `let` TDZ throws "Cannot access X before initialization".
-  let workspaceTabsHot = [];           // [{workspace_id, vault}] with live sessions
   let workspaceTabsAll = [];           // workspaces from every registered vault
   let workspaceTabsRefreshTimer = null;
+  const _vaultResourceRequests = new Set();
   let workspaceTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
   let workspaceTabsDragId = null;    // pid currently being dragged
   let _contextSubView = 'overview';
@@ -10041,21 +10041,15 @@
   // State declarations are hoisted to the init block above (same TDZ reason
   // as the home view). Functions here; state is in the hoisted block so
   // workspaceTabsRefresh() can be called during init without tripping the
-  // temporal dead zone on `workspaceTabsHot` / `workspaceTabsRefreshTimer`.
+  // temporal dead zone on `workspaceTabsAll` / `workspaceTabsRefreshTimer`.
 
   async function workspaceTabsRefresh() {
     try {
-      const [sessionsRes, all] = await Promise.all([
-        fetch('/api/term/sessions'),
-        fetchRepos(),
-      ]);
-      const sessionRows = sessionsRes.ok ? await sessionsRes.json() : [];
-      workspaceTabsHot = (Array.isArray(sessionRows) ? sessionRows : [])
-        .filter(row => row && row.workspace_id && !String(row.workspace_id).startsWith('__'))
-        .map(row => ({workspace_id: row.workspace_id, vault: row.vault || ''}));
+      const all = await fetchRepos();
       workspaceTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_workspace);
     } catch { /* leave stale state; next tick will retry */ }
     workspaceTabsRender();
+    vaultRefreshWorkspaceResources();
   }
 
   function workspaceTabsRender() {
@@ -10068,16 +10062,11 @@
       ? currentWorkspace.path : null;
     const workspaceTabs = [];
     const seenPaths = new Set();
-    const addWorkspace = (workspace, hot = false) => {
+    const addWorkspace = workspace => {
       if (!workspace || !workspace.path || seenPaths.has(workspace.path)) return;
       seenPaths.add(workspace.path);
-      workspaceTabs.push({workspace, hot});
+      workspaceTabs.push(workspace);
     };
-    for (const hot of workspaceTabsHot || []) {
-      addWorkspace((workspaceTabsAll || []).find(workspace =>
-        workspace.name === hot.workspace_id && (!hot.vault || workspace.vault === hot.vault)
-      ), true);
-    }
     if (activeWorkspacePath) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === activeWorkspacePath));
     for (const path of workspaceTabsOpenIds()) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === path));
 
@@ -10089,7 +10078,7 @@
       <div class="workspace-tab assistant-tab${assistantActive ? ' active' : ''}" data-kind="assistant" data-key="${ASSISTANT_WORKSPACE_ID}" role="tab" title="Global Assistant tasks">
         <span class="label">&#x2726; Assistant</span>
       </div>`;
-    html += workspaceTabs.map(({workspace, hot}) => {
+    html += workspaceTabs.map(workspace => {
       const vault = _vaultForWorkspace(workspace);
       const active = activeWorkspacePath === workspace.path ? ' active' : '';
       const color = workspaceTabsEsc((vault && vault.color) || '#8b949e');
@@ -10098,7 +10087,7 @@
         <div class="workspace-tab vault-owned${active}${blocked}" style="--vault-color:${color}" data-kind="workspace" data-key="${workspaceTabsEsc(workspace.path)}" data-workspace-id="${workspaceTabsEsc(workspace.name)}" data-vault="${workspaceTabsEsc(workspace.vault || '')}" role="tab" title="${workspaceTabsEsc((vault && (vault.name || vault.id)) || '')} · ${workspaceTabsEsc(workspace.path)}">
           <span class="vault-mark"></span>
           <span class="label">${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
-          <button class="x" title="Close workspace tab and its terminal sessions" data-x="${workspaceTabsEsc(workspace.path)}">&times;</button>
+          <button class="x" title="Close workspace tab (resources keep running)" data-x="${workspaceTabsEsc(workspace.path)}">&times;</button>
         </div>`;
     }).join('');
     el.innerHTML = html;
@@ -10201,15 +10190,10 @@
   async function workspaceTabsClose({key, kind, workspaceId, vault}) {
     if (!key || kind === 'productivity') return;
     if (kind !== 'workspace' || !workspaceId) return;
-    if (!confirm(`Close "${workspaceId}"? This also closes its terminal sessions; saved agent conversations can resume when reopened.`)) return;
-    try {
-      const suffix = vault ? '?vault=' + encodeURIComponent(vault) : '';
-      await fetch('/api/term/sessions/workspace/' + encodeURIComponent(workspaceId) + suffix, {method: 'DELETE'});
-    } catch (e) { /* best effort */ }
-    await workspaceTabsSetOpen(key, false);
     const wasActive = currentWorkspace && currentWorkspace.path === key;
+    await workspaceTabsSetOpen(key, false);
+    if (wasActive && currentWorkspace?.path === key) goToVault(vault);
     await workspaceTabsRefresh();
-    if (wasActive) goToProductivity();
   }
 
   function workspaceTabsTogglePicker(ev) {
@@ -14540,7 +14524,7 @@
       dashTermsRender();
       try {
         await fetch('/api/term/sessions/' + encodeURIComponent(name), {method: 'DELETE'});
-      } catch (err) { /* best-effort, matches workspaceTabsClose/termKillCurrent */ }
+      } catch (err) { /* best-effort, matches termKillCurrent */ }
       _dashTermsPending.delete(name);
       await dashTermsRefresh();
       if (typeof workspaceTabsRefresh === 'function') workspaceTabsRefresh();
@@ -16553,6 +16537,43 @@
   // "Workspaces" card: the shown vault's workspace ids from
   // /api/vaults/workspaces. Rows open the workspace the same way Home's
   // active-vault rows do (goToWorkspaceById → in-page nav).
+  function vaultWorkspaceResourceLabel(resources) {
+    return [['terminals', 'terminal'], ['servers', 'server'], ['kernels', 'kernel']]
+      .filter(([key]) => resources[key] > 0)
+      .map(([key, label]) => `${resources[key]} ${label}${resources[key] === 1 ? '' : 's'}`)
+      .join(' · ') || 'No active resources';
+  }
+
+  async function vaultRefreshWorkspaceResources() {
+    const list = document.getElementById('vaultWorkspacesList');
+    const vault = _vaultCurrent;
+    if (!list?.isConnected || !vault || vault.unavailable || _vaultResourceRequests.has(vault.id)) return;
+    _vaultResourceRequests.add(vault.id);
+    try {
+      const response = await fetch('/api/vaults/resources?vault=' + encodeURIComponent(vault.id));
+      if (!response.ok) throw new Error('Could not load resources');
+      const resources = await response.json();
+      if (!list.isConnected || _vaultCurrent?.id !== vault.id) return;
+      list.querySelectorAll('.vault-workspace-resources').forEach(badge => {
+        const counts = resources.workspaces[badge.getAttribute('data-workspace-id')] || {};
+        const label = vaultWorkspaceResourceLabel(counts);
+        badge.textContent = label;
+        badge.classList.toggle('active', Object.values(counts).some(count => count > 0));
+        badge.title = label;
+      });
+    } catch {
+      if (list.isConnected && _vaultCurrent?.id === vault.id) {
+        list.querySelectorAll('.vault-workspace-resources').forEach(badge => {
+          badge.textContent = 'Resources unavailable';
+          badge.classList.remove('active');
+          badge.title = 'Could not refresh running resources; retrying automatically';
+        });
+      }
+    } finally {
+      _vaultResourceRequests.delete(vault.id);
+    }
+  }
+
   async function vaultRenderWorkspacesCard() {
     const list = document.getElementById('vaultWorkspacesList');
     const count = document.getElementById('vaultWorkspacesCount');
@@ -16578,11 +16599,13 @@
     list.innerHTML = workspaces.map(workspace => `
       <li class="vault-workspace-row" data-path="${escAttr(workspace.path)}" role="button" tabindex="0" title="Open ${escAttr(_workspaceDisplayName(workspace))}">
         <span class="vault-workspace-name">${selfEsc(_workspaceDisplayName(workspace))}</span>
+        <span class="vault-workspace-resources" data-workspace-id="${escAttr(workspace.name)}">Loading resources…</span>
         <span class="p-caret">›</span>
       </li>`).join('');
     list.querySelectorAll('.vault-workspace-row').forEach(row => {
       row.addEventListener('click', () => goToWorkspace(row.getAttribute('data-path')));
     });
+    vaultRefreshWorkspaceResources();
   }
 
   // Populate #sidebar with the vault root's real file tree. Same

@@ -473,6 +473,19 @@ async def interrupt(root: Path, rel_path: str, handle: RuntimeHandle) -> bool:
     return await asyncio.to_thread(session.process.interrupt)
 
 
+def live_notebook_paths(root: Path) -> list[str]:
+    """Snapshot running kernels without starting or interrupting any sessions."""
+    root_key = str(root.resolve())
+    with _sessions_guard:
+        sessions = [(path, session) for (owner, path), session in _sessions.items() if owner == root_key]
+    live = []
+    for path, session in sessions:
+        manager = session.process.manager
+        if manager is not None and manager.is_alive():
+            live.append(path)
+    return live
+
+
 def execute_ephemeral(
     handle: RuntimeHandle,
     code: str,

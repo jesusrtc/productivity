@@ -422,3 +422,40 @@ def list_vault_workspaces(request: Request) -> dict:
             entry["detail"] = exc.detail
         vaults.append(entry)
     return {"active": payload["active"], "vaults": vaults}
+
+
+@router.get("/api/vaults/resources")
+def vault_workspace_resources(request: Request, vault: str) -> dict:
+    """Live resource counts, independent of which workspace tabs are open."""
+    from core import notebook_kernel
+    from core.routes import servers, term
+
+    auth.require_vault(request, vault)
+    root = _vault_root(request, vault)
+    terminals = fsguard.guarded(root, term._sessions_for_root, root, None, include_agent_details=False)
+    server_rows = [row for row in servers.list_servers(request)["servers"] if row["vault"] == vault]
+    # A managed server owns a tmux session; count that process as a server once.
+    server_sessions = {row["session_name"] for row in server_rows if row.get("session_name")}
+    live_terminal_names = {row["name"] for row in terminals}
+    counts: dict[str, dict[str, int]] = {}
+
+    def add(workspace_id: str | None, resource: str) -> None:
+        if not workspace_id or workspace_id.startswith("__"):
+            return
+        counts.setdefault(workspace_id, {"terminals": 0, "servers": 0, "kernels": 0})[resource] += 1
+
+    for row in terminals:
+        if row["name"] not in server_sessions:
+            add(row.get("workspace_id"), "terminals")
+    for row in server_rows:
+        if row.get("session_name") in live_terminal_names or row["status"] in {"running", "external", "starting", "unhealthy"}:
+            add(row["workspace_id"], "servers")
+    workspace_root = naming.workspaces_dir(root).resolve()
+    for path in notebook_kernel.live_notebook_paths(root):
+        try:
+            relative = (root / path).resolve().relative_to(workspace_root)
+        except ValueError:
+            continue
+        if len(relative.parts) > 1:
+            add(relative.parts[0], "kernels")
+    return {"vault": vault, "workspaces": counts}
