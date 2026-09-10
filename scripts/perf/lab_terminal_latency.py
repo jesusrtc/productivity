@@ -4,7 +4,8 @@
 Run with core/.venv/bin/python scripts/perf/lab_terminal_latency.py.
 Creates and removes its own unsaved terminal; never types into a user terminal.
 Uses the same local signed-session mechanism as scripts/check-ui.sh. Measures
-transport latency, not browser paint or physical keyboard-to-screen latency.
+transport latency by default. Add --browser for synthetic keyboard-to-render
+latency and an empty-page frame baseline (not physical keyboard/display delay).
 """
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ def percentiles(values: list[float]) -> dict[str, float]:
     }
 
 
-async def measure(samples: int, interval: float) -> None:
+async def measure(samples: int, interval: float, browser: bool = False) -> None:
     base = subprocess.check_output([str(ROOT / 'scripts/lab-url.sh')], text=True).strip()
     user = auth.get_user(os.environ.get('UI_CHECK_USER', 'admin'))
     if user is None:
@@ -67,6 +68,12 @@ async def measure(samples: int, interval: float) -> None:
                 raise RuntimeError('Could not find the newly created benchmark terminal')
             command = shlex.join([sys.executable, '-u', '-c', code])
             subprocess.run(_tmux_command(socket, 'respawn-pane', '-k', '-t', name, command), check=True)
+            if browser:
+                subprocess.run([
+                    'node', str(ROOT / 'scripts/perf/lab_terminal_render_latency.mjs'),
+                    base, name, marker, str(samples),
+                ], cwd=ROOT, check=True)
+                return
             uri = base.replace('http:', 'ws:').replace('https:', 'wss:')
             uri += '/ws/term/' + quote(name, safe='') + '?cols=120&rows=32'
             async with websockets.connect(uri, additional_headers={
@@ -125,9 +132,10 @@ async def measure(samples: int, interval: float) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--browser', action='store_true', help='Also exercise xterm input, parsing, and rendering in Chrome')
     parser.add_argument('--samples', type=int, default=200)
     parser.add_argument('--interval', type=float, default=.025, help='Seconds between keys')
     args = parser.parse_args()
     if args.samples < 20 or args.interval < 0:
         parser.error('Use at least 20 samples and a nonnegative interval')
-    asyncio.run(measure(args.samples, args.interval))
+    asyncio.run(measure(args.samples, args.interval, args.browser))

@@ -97,3 +97,5 @@
 - [Terminal polling preserves unchanged DOM](terminal-polling-preserves-dom.md) — skip unchanged tab/header DOM replacement while preserving updates and focus
 
 - [Terminal connect filesystem work stays off the event loop](terminal-connect-filesystem-off-event-loop.md) — authentication/discovery/access checks run in a worker; local authenticated echo benchmark covers polling load
+
+- [Terminal latency needs a browser frame baseline](terminal-browser-latency-baseline.md) — browser input-to-render probe includes an empty-page frame control; endpoint budgets exclude test-only index rebuilds

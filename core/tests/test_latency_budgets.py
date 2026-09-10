@@ -14,15 +14,27 @@ constant rather than silently bumping the threshold.
 from __future__ import annotations
 
 import os
-import statistics
 import time
-from pathlib import Path
 from typing import Callable
 
 import pytest
 
 
 pytestmark = pytest.mark.slow
+
+
+@pytest.fixture()
+def latency_client(client):
+    """Measure the ASGI request, without the functional fixture's index rebuild.
+
+    MaterializedClient refreshes the entire workspace index before each call
+    so tests which edit fixture files see them immediately. Production uses a
+    background watcher instead. These cases make no filesystem edits between
+    samples, so materialize once, outside the timer, and retain normal auth,
+    routing, middleware, logging, and response serialization in every sample.
+    """
+    client._rebuild()
+    return client._inner
 
 
 def _time_ns(f: Callable[[], None]) -> int:
@@ -69,7 +81,7 @@ class TestTermSessionsLatency:
     on every workspace tab. With mocked tmux (no subprocess spawn) it
     should be near-trivial. Budget: p95 < 20ms."""
 
-    def test_list_sessions_budget(self, client, mock_tmux_alive, monkeypatch):
+    def test_list_sessions_budget(self, latency_client, mock_tmux_alive, monkeypatch):
         from core.routes import term as term_route
 
         # Exercise row shaping with a busy vault rather than an empty
@@ -99,8 +111,12 @@ class TestTermSessionsLatency:
             lambda *_args: detail_calls.append("pane"),
         )
 
-        samples = [_time_ns(lambda: client.get("/api/term/sessions"))
-                   for _ in range(30)]
+        def _list():
+            response = latency_client.get("/api/term/sessions")
+            assert response.status_code == 200
+            assert len(response.json()) == len(listing)
+
+        samples = [_time_ns(_list) for _ in range(30)]
         _assert_p95(samples, budget_ms=20.0, name="GET /api/term/sessions")
         assert detail_calls == []
 
@@ -135,7 +151,7 @@ class TestClientLogPostLatency:
     """``POST /api/log/client`` 10-event batch p95 < 15ms. Includes
     Pydantic validation + file write on the rotating handler (buffered)."""
 
-    def test_batch_post_budget(self, client, monkeypatch):
+    def test_batch_post_budget(self, latency_client, monkeypatch):
         # Reset + raise rate limit so the budget run doesn't self-throttle.
         from core.routes import log as log_route
         monkeypatch.setattr(log_route, "_rate_count", 0, raising=False)
@@ -148,7 +164,7 @@ class TestClientLogPostLatency:
         ]}
 
         def _post():
-            r = client.post("/api/log/client", json=payload)
+            r = latency_client.post("/api/log/client", json=payload)
             assert r.status_code == 200
 
         samples = [_time_ns(_post) for _ in range(30)]
@@ -159,8 +175,13 @@ class TestPingLatency:
     """Ultra-minimal health check. If this budget fails, we have an
     instrumentation overhead issue somewhere in the middleware chain."""
 
-    def test_ping_budget(self, client):
-        samples = [_time_ns(lambda: client.get("/api/ping")) for _ in range(30)]
+    def test_ping_budget(self, latency_client):
+        def _ping():
+            response = latency_client.get("/api/ping")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}
+
+        samples = [_time_ns(_ping) for _ in range(30)]
         _assert_p95(samples, budget_ms=10.0, name="GET /api/ping")
 
 
@@ -177,11 +198,11 @@ class TestWSHandshakeLatency:
     for the has-session call → safe_send → close. Executor round-trip is
     the bulk of the cost on this box."""
 
-    def test_ws_handshake_first_byte_budget(self, client, mock_tmux_dead):
+    def test_ws_handshake_first_byte_budget(self, latency_client, mock_tmux_dead):
         os.environ.setdefault("LAB_TMUX_PREFIX", "lab-")
 
         def _connect():
-            with client.websocket_connect("/ws/term/lab-latency") as ws:
+            with latency_client.websocket_connect("/ws/term/lab-latency") as ws:
                 frame = ws.receive_json()
                 assert frame["reason"] == "no-session"
 
