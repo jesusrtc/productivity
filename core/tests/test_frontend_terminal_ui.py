@@ -790,29 +790,30 @@ process.stdout.write(JSON.stringify({requests, objective}));
     }
 
 
-def test_vault_view_opens_its_own_terminal_scope() -> None:
+def test_vault_view_opens_shared_home_terminal_scope() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     term_open = _js_between(
-        "async function termOpenForVault()",
+        "async function termOpenForSelf()",
         "// ─── Vault view",
     )
     result = _run_node(
         """
 const classes = new Set(['vault-active']);
 const calls = [];
-const VAULT_WORKSPACE_ID = '__vault__';
+const SELF_WORKSPACE_ID = '__self__';
+const termCurrentWorkspaceId = null, termCurrentSession = null;
 const document = {body: {classList: {
   add(value) { classes.add(value); },
   contains(value) { return classes.has(value); },
 }}};
-function _termIsScopeActive(pid) { return pid === VAULT_WORKSPACE_ID; }
+function _termIsScopeActive(pid) { return pid === SELF_WORKSPACE_ID; }
 function _termApplyRememberedVisibility() { calls.push('visibility'); }
 async function _termTryWarmOpen(pid) { calls.push('warm:' + pid); return false; }
 async function _termRestoreSessionsForWorkspace(pid) { calls.push('restore:' + pid); }
 function termStartPeriodicRefresh() { calls.push('refresh'); }
 """ + term_open + """
 (async () => {
-  await termOpenForVault();
+  await termOpenForSelf();
   process.stdout.write(JSON.stringify({calls, termOpen: classes.has('term-open')}));
 })().catch((err) => { console.error(err && err.stack || err); process.exit(1); });
 """
@@ -821,11 +822,11 @@ function termStartPeriodicRefresh() { calls.push('refresh'); }
     assert result["termOpen"] is True
     assert result["calls"] == [
         "visibility",
-        "warm:__vault__",
-        "restore:__vault__",
+        "warm:__self__",
+        "restore:__self__",
         "refresh",
     ]
-    assert "if (!UI_CHECK) termOpenForVault();" in source
+    assert "if (!UI_CHECK) termOpenForSelf();" in source
 
 
 def test_terminal_new_menu_hides_vault_disabled_agents() -> None:

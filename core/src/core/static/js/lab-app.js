@@ -9392,8 +9392,13 @@
     };
   }
 
+  function _termHomeViewActive() {
+    return document.body.classList.contains('self-active')
+      || document.body.classList.contains('vault-active');
+  }
+
   function _termVaultId() {
-    if (document.body.classList.contains('self-active')) return null;
+    if (_termHomeViewActive()) return null;
     if (document.body.classList.contains('assistant-active')) return ASSISTANT_VAULT_ID;
     return _workspaceVaultId(currentWorkspace);
   }
@@ -9913,7 +9918,7 @@
   const TERM_LAST_KEY = 'labTermLastSession';
   function _termActiveWorkspaceId() {
     if (document.body.classList.contains('cerebro-active')) return CEREBRO_WORKSPACE_ID;
-    if (document.body.classList.contains('self-active')) return SELF_WORKSPACE_ID;
+    if (_termHomeViewActive()) return LAB_IS_ADMIN ? SELF_WORKSPACE_ID : null;
     if (document.body.classList.contains('assistant-active')) return ASSISTANT_WORKSPACE_ID;
     if (currentWorkspace && currentWorkspace.is_workspace) return currentWorkspace.name;
     return null;
@@ -10463,11 +10468,7 @@
       if (_termReorderPending) return;
       // Framework views win over a stale currentWorkspace from the previous
       // tab. Otherwise, use the loaded workspace or vault id.
-      let pid = null;
-      if (document.body.classList.contains('cerebro-active')) pid = CEREBRO_WORKSPACE_ID;
-      else if (document.body.classList.contains('self-active')) pid = SELF_WORKSPACE_ID;
-      else if (document.body.classList.contains('assistant-active')) pid = ASSISTANT_WORKSPACE_ID;
-      else if (currentWorkspace && currentWorkspace.is_workspace) pid = currentWorkspace.name;
+      const pid = _termActiveWorkspaceId();
       if (!pid) return;
       const prev = termCurrentSession;
       const prevPid = termCurrentWorkspaceId;
@@ -10551,9 +10552,8 @@
   // these helpers run during the initial `?view=…` URL dispatch.)
   function _termVisibilityKey() {
     if (document.body.classList.contains('cerebro-active')) return _TERM_VIS_KEY_PREFIX + 'cerebro';
-    if (document.body.classList.contains('self-active')) return _TERM_VIS_KEY_PREFIX + 'self';
+    if (_termHomeViewActive()) return _TERM_VIS_KEY_PREFIX + 'self';
     if (document.body.classList.contains('assistant-active')) return _TERM_VIS_KEY_PREFIX + 'assistant';
-    if (document.body.classList.contains('vault-active')) return _TERM_VIS_KEY_PREFIX + 'vault';
     if (currentWorkspace && currentWorkspace.is_workspace) return _TERM_VIS_KEY_PREFIX + 'workspace:' + currentWorkspace.name;
     return _TERM_VIS_KEY_PREFIX + 'unknown';
   }
@@ -10740,7 +10740,7 @@
   })();
 
   async function termRefreshSessions(workspaceId) {
-    workspaceId = workspaceId || (currentWorkspace && currentWorkspace.is_workspace ? currentWorkspace.name : null);
+    workspaceId = workspaceId || _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
     const sessionCacheKey = _termSessionsKey(workspaceId, vaultId);
@@ -11826,11 +11826,7 @@
     if (srcToken.startsWith('g:')) return;
 
     // Persist server-side. Same workspace-id resolution used elsewhere.
-    let workspaceId = null;
-    if (document.body.classList.contains('cerebro-active')) workspaceId = CEREBRO_WORKSPACE_ID;
-    else if (document.body.classList.contains('self-active')) workspaceId = SELF_WORKSPACE_ID;
-    else if (document.body.classList.contains('assistant-active')) workspaceId = ASSISTANT_WORKSPACE_ID;
-    else if (currentWorkspace && currentWorkspace.is_workspace) workspaceId = currentWorkspace.name;
+    const workspaceId = _termActiveWorkspaceId();
     if (!workspaceId) return;
     // Suspend the periodic refresh while the POST is in flight: otherwise a
     // 5s-tick GET can race the POST and re-paint the old order, making the
@@ -12456,9 +12452,8 @@
       return;
     }
     const vaultId = _termVaultId();
-    const workspaceLabel = currentWorkspace && currentWorkspace.is_workspace
-      ? _workspaceDisplayName(currentWorkspace)
-      : workspaceId;
+    const workspaceLabel = workspaceId === SELF_WORKSPACE_ID ? 'Home'
+      : (currentWorkspace && currentWorkspace.is_workspace ? _workspaceDisplayName(currentWorkspace) : workspaceId);
     _termAttachModalGeneration += 1;
     _termAttachModalScope = {workspaceId, vaultId, workspaceLabel};
     _termAttachModalRows = [];
@@ -12553,18 +12548,7 @@
   }
 
   async function termSpawnSession(kind, { startFresh = false, agent = null, name = null } = {}) {
-    // Resolve the workspace id the new session belongs to. Framework views can
-    // coexist with a stale currentWorkspace from the previous tab, so check them first.
-    let workspaceId = null;
-    if (document.body.classList.contains('cerebro-active')) {
-      workspaceId = CEREBRO_WORKSPACE_ID;
-    } else if (document.body.classList.contains('self-active')) {
-      workspaceId = SELF_WORKSPACE_ID;
-    } else if (document.body.classList.contains('assistant-active')) {
-      workspaceId = ASSISTANT_WORKSPACE_ID;
-    } else if (currentWorkspace && currentWorkspace.is_workspace) {
-      workspaceId = currentWorkspace.name;
-    }
+    const workspaceId = _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
 
@@ -13622,8 +13606,8 @@
   // active terminal session into _termCache (soft-park, NOT eviction) and
   // strips the mutually-exclusive body classes; the destination init will
   // assert its own.
-  function _swapViewState() {
-    if (typeof termDetach === 'function') termDetach(true);
+  function _swapViewState({preserveHomeTerminal = false} = {}) {
+    if ((!preserveHomeTerminal || !_termHomeViewActive()) && typeof termDetach === 'function') termDetach(true);
     document.body.classList.remove(
       'cerebro-active', 'self-active', 'assistant-active', 'vault-active',
       'workspace-active', 'has-diff-tabs',
@@ -14054,7 +14038,7 @@
       if (first) goToVault(first.id, opts);
       return;
     }
-    _swapViewState();
+    _swapViewState({preserveHomeTerminal: true});
     _contextSubView = 'overview';
     if (!opts.replace) {
       const url = new URL(window.location);
@@ -14126,7 +14110,7 @@
       || (_vaultCurrent && _vaultCurrent.id)
       || currentVaultId;
     if (!vaultId) return;
-    _swapViewState();
+    _swapViewState({preserveHomeTerminal: true});
     _contextSubView = 'overview';
     if (!opts.replace) {
       const url = new URL(window.location);
@@ -16034,6 +16018,11 @@
     if (!_termIsScopeActive(SELF_WORKSPACE_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
+    // Home sections keep the mounted terminal, selection, and connection intact.
+    if (termCurrentWorkspaceId === SELF_WORKSPACE_ID && termCurrentSession) {
+      termStartPeriodicRefresh();
+      return;
+    }
     if (await _termTryWarmOpen(SELF_WORKSPACE_ID)) {
       termStartPeriodicRefresh();
       return;
@@ -16042,24 +16031,10 @@
     termStartPeriodicRefresh();
   }
 
-  // Terminal panel for the Vault pseudo-workspace: sessions start at the
-  // active vault root and persist independently from every real workspace.
-  async function termOpenForVault() {
-    if (!_termIsScopeActive(VAULT_WORKSPACE_ID)) return;
-    document.body.classList.add('term-open');
-    _termApplyRememberedVisibility();
-    if (await _termTryWarmOpen(VAULT_WORKSPACE_ID)) {
-      termStartPeriodicRefresh();
-      return;
-    }
-    await _termRestoreSessionsForWorkspace(VAULT_WORKSPACE_ID);
-    termStartPeriodicRefresh();
-  }
-
   // ─── Vault view (vault-scoped management surface) ───
   // Mirrors initSelf(): synthetic currentWorkspace rooted at the selected
   // registered vault. It renders inside Home while preserving the owning
-  // vault scope for files, workspaces, and terminals.
+  // vault scope for files and workspaces. Terminals belong to Home.
 
   async function initVaultView(vaultId) {
     // The initial `?view=…` dispatch calls us directly without
@@ -16068,6 +16043,7 @@
       'cerebro-active', 'self-active', 'assistant-active', 'workspace-active',
     );
     document.body.classList.add('vault-active');
+    if (!LAB_IS_ADMIN) document.body.classList.remove('term-open');
     document.title = 'Vault';
     const dt = document.getElementById('diffTabs');
     if (dt) dt.style.display = 'none';
@@ -16113,7 +16089,7 @@
     afterPageQuiet(() => {
       vaultPopulateSidebar();
       vaultRefreshCards();
-      if (!UI_CHECK) termOpenForVault();
+      if (!UI_CHECK) termOpenForSelf();
     });
   }
 
