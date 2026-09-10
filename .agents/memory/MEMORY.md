@@ -91,3 +91,9 @@
 - [Home shares one terminal area](home-shares-one-terminal-area.md) — Overview, Admin, and all vault sections use the existing Home terminal scope, selection, connection, and settings
 
 - [Closing workspace tabs preserves resources](workspace-close-preserves-resources.md) — close is navigation only; vault rows show live terminals, servers, and notebook kernels, independent of open tabs
+
+- [Terminal metadata closes SQLite connections](terminal-metadata-closes-sqlite-connections.md) — use `contextlib.closing`; SQLite transaction contexts leave handles open and can exhaust the server's descriptor limit
+
+- [Terminal polling preserves unchanged DOM](terminal-polling-preserves-dom.md) — skip unchanged tab/header DOM replacement while preserving updates and focus
+
+- [Terminal connect filesystem work stays off the event loop](terminal-connect-filesystem-off-event-loop.md) — authentication/discovery/access checks run in a worker; local authenticated echo benchmark covers polling load

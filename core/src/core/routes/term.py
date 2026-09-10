@@ -64,6 +64,7 @@ import termios
 import time
 import tomllib
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -992,9 +993,9 @@ def _copilot_session_metadata(
         objective = None
         if store.is_file() and not cleared:
             try:
-                with sqlite3.connect(
+                with closing(sqlite3.connect(
                     f"file:{store}?mode=ro", uri=True, timeout=0.2,
-                ) as conn:
+                )) as conn:
                     row = conn.execute(
                         """
                         SELECT title, overview
@@ -1096,9 +1097,9 @@ def _codex_session_metadata_by_tty(
         if directories:
             cwd_where = f" AND cwd IN ({','.join('?' for _ in directories)})"
             cwd_params = directories
-        with sqlite3.connect(
+        with closing(sqlite3.connect(
             f"file:{threads_path}?mode=ro", uri=True, timeout=0.2,
-        ) as conn:
+        )) as conn:
             thread_rows = conn.execute(
                 f"""
                 SELECT id, title, name, preview
@@ -1115,9 +1116,9 @@ def _codex_session_metadata_by_tty(
             return {}
         thread_ids = list(threads)
         placeholders = ",".join("?" for _ in thread_ids)
-        with sqlite3.connect(
+        with closing(sqlite3.connect(
             f"file:{logs_path}?mode=ro", uri=True, timeout=0.2,
-        ) as conn:
+        )) as conn:
             candidates = conn.execute(
                 f"""
                 SELECT process_uuid, thread_id, MAX(ts) AS last_seen
@@ -1155,9 +1156,9 @@ def _codex_session_metadata_by_tty(
         if best and live_process_uuids:
             process_placeholders = ",".join("?" for _ in live_process_uuids)
             earliest_known = min(row[0] for row in best.values())
-            with sqlite3.connect(
+            with closing(sqlite3.connect(
                 f"file:{logs_path}?mode=ro", uri=True, timeout=0.2,
-            ) as conn:
+            )) as conn:
                 starts = conn.execute(
                     f"""
                     SELECT process_uuid, thread_id, ts AS started_at
@@ -1193,9 +1194,9 @@ def _codex_session_metadata_by_tty(
         if live_thread_ids and history_path.is_file():
             live_placeholders = ",".join("?" for _ in live_thread_ids)
             try:
-                with sqlite3.connect(
+                with closing(sqlite3.connect(
                     f"file:{history_path}?mode=ro", uri=True, timeout=0.2,
-                ) as conn:
+                )) as conn:
                     task_rows = conn.execute(
                         f"""
                         SELECT thread_id, item_json, rollout_ordinal
@@ -3285,6 +3286,20 @@ def _clamp_dim(raw: str | None, default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
 
+def _term_ws_context(websocket: WebSocket, name: str) -> tuple[list[str], str | None] | None:
+    """Resolve and authorize a connection off the shared event loop."""
+    if auth.user_from_connection(websocket) is None:
+        return None
+    active_root: Path = websocket.app.state.index_cache.root
+    vaults = _known_vaults(active_root)
+    root = _resolve_session_vault_root(name, active_root, vaults)
+    session_meta = _load_meta(root).get(name) or {}
+    _require_workspace_access(
+        websocket, active_root, root, session_meta.get("workspace_id"),
+    )
+    return _tmux_discovery_prefixes(root), session_meta.get("tmux_socket")
+
+
 @router.websocket("/ws/term/{name}")
 async def term_ws(websocket: WebSocket, name: str) -> None:
     """Bridge a browser xterm.js to `tmux attach -t <name>` via a PTY.
@@ -3304,23 +3319,17 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
       server -> client:  {"type":"data","data":"..."}        # PTY bytes (utf-8)
                          {"type":"exit"}                      # tmux attach exited
     """
-    user = auth.user_from_connection(websocket)
-    if user is None:
-        await websocket.close(code=4401)
-        return
-    active_root: Path = websocket.app.state.index_cache.root
-    vaults = _known_vaults(active_root)
-    root = _resolve_session_vault_root(name, active_root, vaults)
-    meta = _load_meta(root)
-    session_meta = meta.get(name) or {}
-    workspace_id = session_meta.get("workspace_id")
-    known_socket = session_meta.get("tmux_socket")
+    # Vault discovery, permission checks, and metadata reads can touch slow
+    # disks. They must not pause every already-connected terminal's byte loop.
     try:
-        _require_workspace_access(websocket, active_root, root, workspace_id)
+        context = await asyncio.to_thread(_term_ws_context, websocket, name)
     except HTTPException as exc:
         await websocket.close(code=4403 if exc.status_code == 403 else 4404)
         return
-    prefixes = _tmux_discovery_prefixes(root)
+    if context is None:
+        await websocket.close(code=4401)
+        return
+    prefixes, known_socket = context
     loop = asyncio.get_running_loop()
     path_info = f"/ws/term/{name}"
     init_cols = _clamp_dim(websocket.query_params.get("cols"), 80, 2, 1000)

@@ -296,13 +296,13 @@ class TestTermWSExecutorOffload:
 
         ready = threading.Event()
 
-        def _slow_has_session(name: str) -> bool:
+        def _slow_find_socket(name: str, known_socket=None):
             ready.set()
             time.sleep(0.5)  # simulated blocking tmux call
-            return False  # still take the no-session path
+            return None  # still take the no-session path
 
         monkeypatch.setattr(term_route, "_tmux_available", lambda: True)
-        monkeypatch.setattr(term_route, "_tmux_has_session", _slow_has_session)
+        monkeypatch.setattr(term_route, "_tmux_find_session_socket", _slow_find_socket)
 
         # Fire the WS in a background thread.
         def _ws_connect():
@@ -312,7 +312,7 @@ class TestTermWSExecutorOffload:
         with ThreadPoolExecutor(max_workers=2) as pool:
             ws_future = pool.submit(_ws_connect)
             # Wait until the slow call has started.
-            assert ready.wait(timeout=2.0), "slow _tmux_has_session never ran"
+            assert ready.wait(timeout=2.0), "slow socket lookup never ran"
             # Now hit an HTTP endpoint; if the event loop is stalled,
             # this will time out. With executor offload it should return
             # in well under the 0.5s sleep.
@@ -347,3 +347,47 @@ def test_send_race_errors_tuple_contains_expected_classes():
     assert isinstance(ex_cd, tuple(
         c for c in _WS_SEND_RACE_ERRORS if isinstance(c, type)
     )), "ConnectionError family not covered"
+
+
+def test_vault_discovery_during_connect_leaves_event_loop_responsive(monkeypatch, tmp_path):
+    """A stalled volume during attach must not stall established WS traffic."""
+    import threading
+    from types import SimpleNamespace
+    from core.routes import term
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def discover(root):
+        entered.set()
+        assert release.wait(2), 'event loop was blocked by vault discovery'
+        return []
+
+    monkeypatch.setattr(term.auth, 'user_from_connection', lambda ws: {'username': 'test'})
+    monkeypatch.setattr(term, '_known_vaults', discover)
+    monkeypatch.setattr(term, '_resolve_session_vault_root', lambda *args: tmp_path)
+    monkeypatch.setattr(term, '_load_meta', lambda root: {})
+    monkeypatch.setattr(term, '_require_workspace_access', lambda *args: None)
+    monkeypatch.setattr(term, '_tmux_discovery_prefixes', lambda root: ['lab-'])
+    monkeypatch.setattr(term, '_tmux_available', lambda: False)
+    ws = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(index_cache=SimpleNamespace(root=tmp_path))),
+        query_params={}, accept=AsyncMock(), close=AsyncMock(), send_text=AsyncMock(),
+    )
+
+    async def run():
+        connection = asyncio.create_task(term.term_ws(ws, 'lab-test'))
+        try:
+            async with asyncio.timeout(1):
+                while not entered.is_set():
+                    await asyncio.sleep(.001)
+            # This coroutine stands in for another terminal's echo task: it
+            # must run while discovery is still blocked on the worker thread.
+            assert not connection.done()
+        finally:
+            release.set()
+        await connection
+
+    asyncio.run(run())
+    ws.accept.assert_awaited_once()
+    assert json.loads(ws.send_text.call_args.args[0]) == {'type': 'exit', 'reason': 'no-session'}

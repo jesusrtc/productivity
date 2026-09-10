@@ -9947,6 +9947,11 @@
           <button class="x" title="Close workspace tab (resources keep running)" data-x="${workspaceTabsEsc(workspace.path)}">&times;</button>
         </div>`;
     }).join('');
+    // Polling should preserve the existing nodes, listeners, and focus when
+    // the visible tabs have not changed. Compare source markup, not innerHTML
+    // (the browser normalizes entities and attribute serialization).
+    if (el._labTabsHtml === html) return;
+    el._labTabsHtml = html;
     el.innerHTML = html;
 
     el.querySelectorAll('.workspace-tab').forEach(node => {
@@ -11173,6 +11178,7 @@
     if (!session) {
       if (el) {
         el.innerHTML = '';
+        delete el._labHeaderHtml;
         el.removeAttribute('title');
         el.className = 'term-active-session';
       }
@@ -11198,7 +11204,11 @@
       const subline = summary
         ? `${context.label} · ${summary}`
         : (linked ? `Linked · ${linked}` : '');
-      el.innerHTML = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${subline ? `<span class="summary">${termSessEsc(subline)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+      const html = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${subline ? `<span class="summary">${termSessEsc(subline)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+      if (el._labHeaderHtml !== html) {
+        el._labHeaderHtml = html;
+        el.innerHTML = html;
+      }
     }
     if (statusSummary) {
       statusSummary.removeAttribute('title');
@@ -11341,10 +11351,13 @@
     }
     const el = document.getElementById('termSessionList');
     if (!el) return;
-    _termHideSessionTooltip();
     _termRenderActiveSessionHeader();
     if (!termSessions || termSessions.length === 0) {
-      el.innerHTML = _termNewButtonHtml();
+      const html = _termNewButtonHtml();
+      if (el._labTabsHtml === html) return;
+      el._labTabsHtml = html;
+      _termHideSessionTooltip();
+      el.innerHTML = html;
       return;
     }
     const groupState = _termReadGroupState();
@@ -11416,7 +11429,12 @@
       else html += renderRow(row);
     });
     flushDivider();
-    el.innerHTML = html + _termNewButtonHtml();
+    html += _termNewButtonHtml();
+    // Unchanged polls must not recreate every tab or dismiss its tooltip.
+    if (el._labTabsHtml === html) return;
+    el._labTabsHtml = html;
+    _termHideSessionTooltip();
+    el.innerHTML = html;
     el.querySelectorAll('[data-tab-group]').forEach(node => {
       node.addEventListener('click', () => termUpdateTabGroup(node.dataset.tabGroup, 'toggle'));
       node.addEventListener('contextmenu', event => {

@@ -46,8 +46,8 @@ def test_terminal_actions_live_in_settings_and_context_menus() -> None:
     assert 'id="termDangerTitle">Danger zone' in html
     assert 'onclick="termKillAll()"' in html
     assert "row('close', 'Close tab', true)" in source
-    assert "el.innerHTML = html + _termNewButtonHtml()" in source
-    assert "el.innerHTML = _termNewButtonHtml()" in source
+    assert "html += _termNewButtonHtml()" in source
+    assert "const html = _termNewButtonHtml()" in source
 
 
 def test_framework_top_tab_is_labeled_home() -> None:

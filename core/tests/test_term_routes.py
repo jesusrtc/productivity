@@ -18,6 +18,30 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture()
+def metadata_connections_closed(monkeypatch):
+    """Keep read connections alive so GC cannot mask leaked file handles."""
+    connect = sqlite3.connect
+    connections = []
+
+    def tracked_connect(*args, **kwargs):
+        conn = connect(*args, **kwargs)
+        if kwargs.get("uri"):
+            connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+    yield
+    try:
+        assert connections, "The metadata lookup must open a database"
+        for conn in connections:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                conn.execute("SELECT 1")
+    finally:
+        for conn in connections:
+            conn.close()
+
+
 def _write_fake_tmux(bin_dir: Path, state_file: Path) -> Path:
     """Write a fake ``tmux`` binary that persists sessions to a JSON file.
 
@@ -592,7 +616,7 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
 
 
 def test_codex_metadata_returns_all_user_requests_after_clear(
-    monkeypatch, tmp_path: Path,
+    monkeypatch, tmp_path: Path, metadata_connections_closed,
 ) -> None:
     import core.routes.term as term_mod
 
@@ -668,7 +692,7 @@ def test_codex_metadata_returns_all_user_requests_after_clear(
 
 
 def test_codex_metadata_uses_empty_thread_started_by_clear(
-    monkeypatch, tmp_path: Path,
+    monkeypatch, tmp_path: Path, metadata_connections_closed,
 ) -> None:
     import core.routes.term as term_mod
 
@@ -784,7 +808,7 @@ def test_copilot_metadata_drops_placeholder_and_starts_after_clear(
 
 
 def test_copilot_metadata_prefers_latest_ai_checkpoint_summary(
-    monkeypatch, tmp_path: Path,
+    monkeypatch, tmp_path: Path, metadata_connections_closed,
 ) -> None:
     import core.routes.term as term_mod
 
@@ -816,6 +840,35 @@ def test_copilot_metadata_prefers_latest_ai_checkpoint_summary(
     assert term_mod._copilot_session_metadata("copilot-id") == (
         None, "Implement terminal history", ["Do work"],
     )
+
+
+@pytest.mark.parametrize("provider", ["codex", "copilot"])
+def test_metadata_closes_connections_on_missing_tables(
+    monkeypatch, tmp_path: Path, metadata_connections_closed, provider,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    if provider == "codex":
+        codex_home = tmp_path / ".codex"
+        codex_home.mkdir()
+        (codex_home / "state_5.sqlite").touch()
+        (codex_home / "logs_2.sqlite").touch()
+        monkeypatch.setattr(term_mod, "_CODEX_METADATA_CACHE", None)
+        monkeypatch.setattr(
+            term_mod.subprocess, "run",
+            lambda *_args, **_kwargs: subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="123 ttys001\n",
+            ),
+        )
+        assert term_mod._codex_session_metadata_by_tty({"ttys001"}) == {}
+    else:
+        (tmp_path / "session-store.db").touch()
+        monkeypatch.setattr(term_mod, "_AGENT_METADATA_CACHE", {})
+        assert term_mod._copilot_session_metadata("copilot-id") == (
+            None, None, [],
+        )
 
 
 def test_claude_metadata_uses_post_clear_requests_and_current_recap(
