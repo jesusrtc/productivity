@@ -11400,6 +11400,22 @@
     ))}px`;
   }
 
+  function _termSessionAssociationHtml(session) {
+    if (_termActiveWorkspaceId() === '__self__') return _termHomeAssociationHtml(session);
+    const scope = session.linked_scope;
+    const config = scope ? (scope.config_scope === _sidebarFileConfigScope
+      ? _sidebarFileConfig : _loadSidebarFileConfig(scope.config_scope)) : null;
+    const folder = config?.folderScopes?.find(row => row.path === scope.project_root);
+    const savedAlias = String(scope?.label || '').split(' · ')[0].trim();
+    const alias = folder?.label || (savedAlias && savedAlias !== 'Root' ? savedAlias : 'main');
+    const worktree = String(scope?.worktree || '').replace(/\/+$/, '').split('/').pop();
+    const label = worktree && alias === 'main' ? worktree : alias;
+    const checkout = worktree ? 'worktree' : 'main';
+    const color = scope ? _termScopeColor(scope) : '#8b949e';
+    const title = `${alias} · ${worktree ? `Git worktree ${worktree}` : 'Main folder'}${scope?.root ? `: ${scope.root}` : ''}`;
+    return `<span class="term-home-association term-folder-association" data-checkout="${checkout}" style="--term-association-color:${color}" title="${termSessEsc(title)}"><span>${termSessEsc(label)}</span>${worktree || alias !== 'main' ? `<small>${checkout}</small>` : ''}</span>`;
+  }
+
   function _termSessionPillHtml(s, index) {
     const display = _termSessionDisplay(s);
     // Compact/full visibility is CSS-controlled so switching detail never
@@ -11422,13 +11438,11 @@
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
     return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
-      ${scope ? `<span class="sess-scope-accent" title="${termSessEsc(scope.label + ' · ' + scope.root)}" aria-hidden="true"></span>` : ''}
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
-      ${_termHomeAssociationHtml(s)}
+      ${_termSessionAssociationHtml(s)}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
-      <span class="k">${termSessEsc(visual.badge)}</span>
     </span>`;
   }
 

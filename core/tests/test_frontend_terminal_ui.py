@@ -171,7 +171,8 @@ def test_terminal_sessions_support_orientation_and_responsive_labels() -> None:
     assert 'class="sess-order"' in source
     assert 'class="agent"' in source
     assert 'class="sess-label' in source
-    assert 'class="k"' in source
+    assert 'class="k"' not in source
+    assert '${_termSessionAssociationHtml(s)}' in source
     assert "(e.clientY - rect.top) < rect.height / 2" in source
     assert "(e.clientX - rect.left) < rect.width / 2" in source
     assert 'aria-selected="${active ? \'true\' : \'false\'}"' in source
@@ -2698,7 +2699,8 @@ process.stdout.write(JSON.stringify({main: _termScopeColor(scope),
     assert result == {'main': '#123abc', 'worktree': '#abcdef', 'otherBrowser': '#111111'}
     css = LAB_SHELL_CSS.read_text()
     assert '.sess.recent:not(.active)::after' in css
-    assert '.sess .sess-scope-accent { position: absolute; top: 3px; bottom: 3px; left: 0; width: 5px;' in css
+    assert '.sess-scope-accent' not in css
+    assert '.term-home-association::before' in css
     assert '.sess[data-linked-scope]:not(.active) { background:' not in css
 
 
