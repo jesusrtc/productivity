@@ -823,6 +823,18 @@
   .nb-cell-actions .nb-cell-run:hover { background: var(--accent); color: #fff; }
   .nb-cell-actions .nb-cell-expand { font-size: 15px; line-height: 1; }
   #docModalBody .nb-cell-expand { display: none; }
+  .nb-cell.nb-cell-expanded {
+    outline: 2px solid #58a6ff; outline-offset: 2px;
+    animation: nb-expanded-highlight 3s ease-out;
+  }
+  @keyframes nb-expanded-highlight {
+    0%, 35% { outline-color: #58a6ff; box-shadow: 0 0 18px rgba(88,166,255,.4); }
+    65% { outline-color: #58a6ff; box-shadow: 0 0 8px rgba(88,166,255,.2); }
+    100% { outline-color: transparent; box-shadow: 0 0 0 transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nb-cell.nb-cell-expanded { animation: none; }
+  }
   .nb-cell-actions button:disabled { opacity: 0.5; cursor: progress; }
   /* Armed delete-confirm state — red, attention-grabbing, gently pulsing so
      the user notices the button changed before the 3-second timeout. */

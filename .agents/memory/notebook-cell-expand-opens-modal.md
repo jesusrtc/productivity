@@ -7,3 +7,6 @@ over remembered reading position and reveals hidden code without changing the
 global hide-code setting. Markdown cells can expand too; unsaved draft cells
 cannot. Hide the expand button inside the already expanded modal, and keep the
 underlying notebook's expand handler usable after closing the modal.
+
+On opening, give the selected cell a blue running-style glow for three seconds,
+then fade it away. This is a navigation highlight, separate from execution state.

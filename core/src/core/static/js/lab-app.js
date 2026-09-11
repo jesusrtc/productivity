@@ -4548,6 +4548,10 @@
         if (target) {
           target.scrollIntoView({ behavior: 'auto', block: 'start' });
           record(target);
+          if (initialCell) {
+            target.classList.add('nb-cell-expanded');
+            setTimeout(() => target.classList.remove('nb-cell-expanded'), 3000);
+          }
         }
       }));
     } else {
