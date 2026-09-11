@@ -821,6 +821,8 @@
   .nb-cell-actions button:hover { color: var(--text-primary); border-color: var(--accent); }
   .nb-cell-actions .nb-cell-run { color: var(--accent); border-color: var(--accent); }
   .nb-cell-actions .nb-cell-run:hover { background: var(--accent); color: #fff; }
+  .nb-cell-actions .nb-cell-expand { font-size: 15px; line-height: 1; }
+  #docModalBody .nb-cell-expand { display: none; }
   .nb-cell-actions button:disabled { opacity: 0.5; cursor: progress; }
   /* Armed delete-confirm state — red, attention-grabbing, gently pulsing so
      the user notices the button changed before the 3-second timeout. */
@@ -1184,7 +1186,7 @@
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-cell-edit-wrap {
     display:none;
   }
-  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"].nb-cell-no-outputs:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned),
+  .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"].nb-cell-no-outputs:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek),
   .nb-container.nb-code-hidden > .nb-cell-inserter { display:none; }
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"] > .nb-outputs { border-top:0; }
   .nb-container.nb-code-hidden > .nb-cell:is(.nb-code-pinned, .nb-code-peek) > .nb-outputs { border-top:1px solid var(--border); }

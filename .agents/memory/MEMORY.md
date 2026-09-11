@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notebook cell Expand](notebook-cell-expand-opens-modal.md) — open the same file modal at the clicked stable cell, preserving its repository root and revealing hidden code
+
 - [Notebook cells do not scroll vertically](notebook-cells-do-not-scroll-vertically.md) — fully expand or hide code and ordinary outputs; preserve scrolling only in client-authored HTML
 
 - [Terminal file drops and clean copy](terminal-file-drop-and-clean-copy.md) — sidebar files paste absolute paths through xterm; copying removes decorative frame rails while preserving content pipes

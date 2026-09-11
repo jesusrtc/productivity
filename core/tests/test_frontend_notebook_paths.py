@@ -827,6 +827,7 @@ function _highlightCellSource(value) { return esc(value); }
 function _renderNbOutput(output) {
   return `<div class="nb-output">${esc(output.content || '')}</div>`;
 }
+function _renderNbExpandButton() { return '<button data-nb-expand-cell>⤢</button>'; }
 function _renderNbPinCodeButton() {
   return '<button data-nb-pin-code>Pin code</button>';
 }
@@ -927,3 +928,38 @@ def test_notebook_live_execution_replays_and_applies_ordered_ws_deltas() -> None
     assert "const liveKey = _nbLiveKey(vaultId, relPath);" in live_block
     assert "const idxAttr = clientPending ? 'new' : String(index);" in source
     assert "if (draftKey && !isServerRunning)" in source
+
+
+def test_expand_notebook_cell_preserves_file_root_and_stable_cell_identity() -> None:
+    helpers = _js_between(
+        "function _renderNbExpandButton()",
+        "function _renderNbPinCodeButton()",
+    )
+    resolver = _js_between(
+        "function _resolveNotebookPosition(cells, saved)",
+        "function _notebookRunningCell(notebook)",
+    )
+    result = _run_node(
+        helpers + resolver + """
+const opened = [];
+function openWorkspaceDocModal(path, options) { opened.push({path, ...options}); }
+function cell(id, index) {
+  return {getAttribute(name) { return name === 'data-cell-id' ? id : String(index); }};
+}
+const selected = cell('stable-cell', 2);
+const button = {closest() { return selected; }};
+_openNotebookCellModal(button, 'analysis/report.ipynb', '/vault/worktrees/client');
+const cellsAfterInsertion = [cell('inserted', 0), cell('other', 1), cell('old', 2), cell('stable-cell', 3)];
+const restored = _resolveNotebookPosition(cellsAfterInsertion, opened[0].notebookCell);
+_openNotebookCellModal({closest() { return cell(null, 'new'); }}, 'draft.ipynb', '/vault');
+process.stdout.write(JSON.stringify({opened, restoredId: restored.getAttribute('data-cell-id'),
+  restoredIndex: restored.getAttribute('data-cell-index'), button: _renderNbExpandButton()}));
+"""
+    )
+    assert result["opened"] == [{
+        "path": "analysis/report.ipynb", "root": "/vault/worktrees/client",
+        "notebookCell": {"cellId": "stable-cell", "index": 2},
+    }]
+    assert result["restoredId"] == "stable-cell"
+    assert result["restoredIndex"] == "3"
+    assert 'aria-label="Open notebook at this cell"' in result["button"]

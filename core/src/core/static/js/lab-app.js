@@ -3867,6 +3867,37 @@
     return `<div class="nb-output${stderrCls}"${attrs}>${esc(o.content || '')}</div>`;
   }
 
+  function _renderNbExpandButton() {
+    return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell" aria-label="Open notebook at this cell">⤢</button>`;
+  }
+
+  function _openNotebookCellModal(button, filepath, root) {
+    const cell = button.closest('.nb-cell[data-cell-index]');
+    if (!cell || cell.getAttribute('data-cell-index') === 'new') return;
+    return openWorkspaceDocModal(filepath, {
+      root,
+      notebookCell: {
+        cellId: cell.getAttribute('data-cell-id') || null,
+        index: Number(cell.getAttribute('data-cell-index')),
+      },
+    });
+  }
+
+  function _bindNotebookCellExpansion(notebook, filepath, root) {
+    if (!notebook) return;
+    // Keep this binding on the underlying notebook while the modal owns the
+    // navigation toolbar, so closing the modal leaves Expand usable again.
+    if (notebook._nbExpandClick) notebook.removeEventListener('click', notebook._nbExpandClick);
+    notebook._nbExpandClick = (event) => {
+      const button = event.target.closest('[data-nb-expand-cell]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void _openNotebookCellModal(button, filepath, root);
+    };
+    notebook.addEventListener('click', notebook._nbExpandClick);
+  }
+
   function _renderNbPinCodeButton() {
     return `<button class="nb-code-pin" type="button" data-nb-pin-code aria-pressed="false" title="Keep this code visible while code is hidden">Pin code</button>`;
   }
@@ -3916,9 +3947,7 @@
     const cellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
     const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
     const cellTypeAttr = ` data-cell-type="${escAttr(String(cell.cell_type || 'cell'))}"`;
-    const codeHeaderActions = cell.cell_type === 'code'
-      ? `<div class="nb-cell-actions">${_renderNbPinCodeButton()}</div>`
-      : '';
+    const codeHeaderActions = `<div class="nb-cell-actions">${cell.cell_type === 'code' ? _renderNbPinCodeButton() : ''}${Number.isInteger(index) ? _renderNbExpandButton() : ''}</div>`;
     return `<div class="nb-cell${statusCls}${outputStateCls}"${indexAttr}${cellIdAttr}${cellTypeAttr}>
       <div class="nb-cell-header">
         <span class="nb-type">${cell.cell_type}</span>
@@ -4347,7 +4376,9 @@
     _nbNavigationRefreshRunning = null;
   }
 
-  function _bindNbNavigation(container, scope, path, { restore = true } = {}) {
+  function _bindNbNavigation(container, scope, path, {
+    restore = true, filepath = path, root = scope, initialCell = null,
+  } = {}) {
     _clearNbNavigation();
     const cells = _notebookCommittedCells(container);
     const notebook = container && container.querySelector('.nb-container');
@@ -4358,6 +4389,7 @@
     let codeHidden = _isNotebookCodeHidden(scope, path);
 
     _applyNotebookCodePins(notebook, scope, path);
+    _bindNotebookCellExpansion(notebook, filepath, root);
 
     let frame = null;
     let active = true;
@@ -4369,6 +4401,7 @@
         || cell.classList.contains('nb-cell-pending')
         || cell.classList.contains('nb-cell-running')
         || cell.classList.contains('nb-code-pinned')
+        || cell.classList.contains('nb-code-peek')
       ));
       return visible.length ? visible : cells;
     }
@@ -4457,6 +4490,8 @@
     let activateCodeCell = null;
     if (notebook) {
       activateCodeCell = (event) => {
+        const expand = event.target.closest('[data-nb-expand-cell]');
+        if (expand) return;
         const cell = _activateNotebookCodeCell(
           notebook, event.target, scope, path, codeHidden,
         );
@@ -4489,7 +4524,7 @@
     window.addEventListener('scroll', scheduleRecord, { passive: true });
     window.addEventListener('resize', scheduleRecord, { passive: true });
 
-    if (restore) {
+    if (restore || initialCell) {
       // Let the newly-injected cell DOM settle before scrolling, then reopen
       // at the most recently read cell (or the first cell on a notebook that
       // has no saved position yet). Running work never steals the viewport;
@@ -4497,11 +4532,16 @@
       requestAnimationFrame(() => requestAnimationFrame(() => {
         if (!active || !container.isConnected) return;
         const resolved = _resolveNotebookPosition(
-          cells, _readNotebookPosition(scope, path),
+          cells, initialCell || _readNotebookPosition(scope, path),
         );
+        // Expanding a cell explicitly requests that cell, even when global
+        // code hiding would otherwise skip an outputless source cell.
+        if (initialCell && resolved) {
+          _activateNotebookCodeCell(notebook, resolved, scope, path, codeHidden);
+        }
         const visible = navigableCells();
         const resolvedIndex = Math.max(0, cells.indexOf(resolved));
-        const target = visible.includes(resolved)
+        const target = initialCell || visible.includes(resolved)
           ? resolved
           : (visible.find(cell => cells.indexOf(cell) >= resolvedIndex)
             || visible[visible.length - 1]);
@@ -4629,6 +4669,7 @@
       return `<div class="nb-cell nb-cell-interactive nb-cell-no-outputs" data-cell-index="${index}"${markdownCellIdAttr} data-cell-type="markdown">
         <div class="nb-cell-header">
           <span class="nb-type">${cell.cell_type}</span>
+          <div class="nb-cell-actions">${_renderNbExpandButton()}</div>
         </div>
         ${bodyHtml}
         ${outputsHtml}
@@ -4682,7 +4723,7 @@
         <div class="nb-cell-actions">
           <span class="nb-cell-busy" style="display:none">running…</span>
           <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
-          ${clientPending ? '' : _renderNbPinCodeButton()}
+          ${clientPending ? '' : _renderNbPinCodeButton() + _renderNbExpandButton()}
           <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)"${serverBusyAttr}>▶ Run</button>
           <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}"${serverBusyAttr}>✕</button>
         </div>
@@ -6654,7 +6695,7 @@
     return openWorkspaceDocModal(String(folder || '').replace(/\/$/, '') + '/', {root});
   }
 
-  async function openWorkspaceDocModal(filepath, { editing = false, root = null } = {}) {
+  async function openWorkspaceDocModal(filepath, { editing = false, root = null, notebookCell = null } = {}) {
     if (!currentWorkspace) return;
     const docRoot = root || currentWorkspace.path;
     if (!filepath.endsWith('/')) _workspaceDocRoot = docRoot;
@@ -6675,7 +6716,7 @@
       body.innerHTML = '<div class="loading" style="padding:24px">Select a file to preview.</div>';
       return;
     }
-    await _renderDocInto(filepath, body);
+    await _renderDocInto(filepath, body, { notebookCell });
     if (!editing && generation === _docModalFilesGeneration) _workspaceDocEditing = false;
   }
 
@@ -6767,7 +6808,7 @@
     });
   }
 
-  async function _renderDocInto(filepath, container, { preserveScroll = false } = {}) {
+  async function _renderDocInto(filepath, container, { preserveScroll = false, notebookCell = null } = {}) {
     // Capture the workspace that owned this render call so an async paint
     // landing AFTER the user has switched away to a different workspace
     // (or a different file in the same workspace) bails instead of
@@ -6780,7 +6821,9 @@
     const docRoot = _workspaceDocRoot || _navWorkspacePath;
     const _stillActiveNav = () => (
       (container.id !== 'docModalBody' || modalGeneration === _docModalFilesGeneration)
-      && _workspaceDocPath === filepath
+      && (container.id === 'docModalBody'
+        ? document.getElementById('docModalTitle').textContent === filepath
+        : _workspaceDocPath === filepath)
       && currentWorkspace
       && currentWorkspace.path === _navWorkspacePath
       && (_workspaceDocRoot || currentWorkspace.path) === docRoot
@@ -6894,7 +6937,7 @@
           const readOnlyHeader = `<div class="nb-notebook-header"><span class="nb-notebook-path">${esc(filepath)}</span><span class="nb-kernel-badge">read-only notebook</span><span class="nb-notebook-updated">Move or copy into a vault workspace to execute</span></div>`;
           container.innerHTML = `<div style="padding:24px">${_renderNbJumpControls(readOnlyCells.length, _isNotebookCodeHidden(docRoot, filepath))}${readOnlyHeader}<div class="nb-container">${readOnlyCells.map((c, i) => renderNotebookCell(c, null, i)).join('')}</div></div>`;
           activateNotebookScripts(container);
-          _bindNbNavigation(container, docRoot, filepath, { restore: !preserveScroll });
+          _bindNbNavigation(container, docRoot, filepath, { restore: !preserveScroll, filepath, root: docRoot, initialCell: notebookCell });
           return;
         }
 
@@ -7124,7 +7167,7 @@
           container,
           notebookPositionScope,
           relPath,
-          { restore: !preserveScroll },
+          { restore: !preserveScroll, filepath, root: docRoot, initialCell: notebookCell },
         );
       } catch (err) {
         if (!_stillActiveNav()) return;
