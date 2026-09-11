@@ -759,6 +759,26 @@
     border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
     background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px;
   }
+  .markdown-code-block {
+    position: relative; margin: 12px 0; padding-top: 34px; min-width: 0;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px;
+  }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content, .nb-history-markdown) .markdown-code-block > pre {
+    margin: 0; border: 0; border-radius: 0 0 6px 6px; overflow-x: auto;
+    background: var(--bg-secondary); color: var(--text-primary);
+  }
+  :is(.nb-markdown, .workspace-content, .doc, .md-content, .nb-history-markdown) .markdown-code-block > pre > code {
+    display: block; background: transparent; padding: 0;
+  }
+  .markdown-code-copy {
+    position: absolute; top: 5px; right: 8px; padding: 3px 9px;
+    border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .markdown-code-copy:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+  .markdown-code-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .markdown-code-copy:disabled { cursor: default; }
   .nb-outputs { border-top: 1px solid #30363d; }
   .nb-output { padding: 8px 12px; font-family: monospace; font-size: 12px; line-height: 18px; white-space: pre-wrap; word-wrap: break-word; color: #8b949e; }
   .nb-output-stderr { color: #d29922; }

@@ -9,9 +9,59 @@
     });
   }
 
+  let parser;
   function render(markdown, options) {
-    return sanitize(window.marked.parse(markdown, options));
+    if (!parser) parser = new window.marked.Marked({extensions: [{
+      name: 'disclosure',
+      level: 'block',
+      start(source) { return source.match(/^ {0,3}<\/?(?:details|summary)\b/im)?.index; },
+      tokenizer(source) {
+        // Consume only the disclosure tags, so Markdown in the body is lexed
+        // normally even without blank lines. Fenced/indented code stays opaque
+        // to this tokenizer, including literal </details> inside a code sample.
+        const match = /^ {0,3}(?:<\/?details\b(?:[^>"']|"[^"]*"|'[^']*')*>|<summary\b(?:[^>"']|"[^"]*"|'[^']*')*>[\s\S]*?<\/summary\s*>)[ \t]*(?:\n|$)?/i.exec(source);
+        if (match) return {type: 'disclosure', raw: match[0]};
+      },
+      renderer(token) { return token.raw; },
+    }]});
+    const host = document.createElement('div');
+    host.innerHTML = sanitize(parser.parse(markdown, options));
+    host.querySelectorAll('pre > code').forEach(code => {
+      const pre = code.parentElement;
+      const block = document.createElement('div');
+      block.className = 'markdown-code-block';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'markdown-code-copy';
+      button.textContent = 'Copy';
+      button.setAttribute('aria-label', 'Copy code');
+      button.setAttribute('aria-live', 'polite');
+      button.title = 'Copy code';
+      pre.replaceWith(block);
+      block.append(button, pre);
+    });
+    return host.innerHTML;
   }
+
+  document.addEventListener('click', async event => {
+    const button = event.target.closest?.('button.markdown-code-copy');
+    if (!button || button.disabled) return;
+    const code = button.closest('.markdown-code-block')?.querySelector('pre > code');
+    if (!code) return;
+    event.preventDefault();
+    event.stopPropagation();
+    button.disabled = true;
+    try {
+      // Read only the code, preserving indentation and line breaks verbatim.
+      await writeClipboard('', code.textContent, true);
+      button.textContent = 'Copied';
+    } catch (error) {
+      button.textContent = 'Copy failed';
+      console.warn('Could not copy code', error);
+    } finally {
+      setTimeout(() => { button.textContent = 'Copy'; button.disabled = false; }, 1500);
+    }
+  });
 
   function cloneVisible(root, {heading, includeHeading = true} = {}) {
     const clone = document.createElement('div');

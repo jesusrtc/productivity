@@ -257,7 +257,13 @@
         diagram.className = 'lab-mermaid';
         diagram.style.cssText = 'overflow:auto;margin:16px 0;text-align:center';
         diagram.innerHTML = svg;
-        code.parentElement.replaceWith(diagram);
+        if (code.parentElement.parentElement.classList.contains('markdown-code-block')) {
+          // Keep the original source available to the code-copy button.
+          code.parentElement.hidden = true;
+          code.parentElement.after(diagram);
+        } else {
+          code.parentElement.replaceWith(diagram);
+        }
       } catch (error) {
         code.dataset.mermaidState = 'error';
         const notice = document.createElement('div');

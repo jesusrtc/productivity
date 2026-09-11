@@ -32,9 +32,12 @@ print("hello")
 </details>
 ````
 
-Keep blank lines before and after the Markdown inside HTML blocks. Add `open`
-only when the block should start expanded. Blocks may be nested. `> Query` is
-an ordinary blockquote, not a disclosure. Code is displayed, not executed.
+Disclosures support fenced code such as `sql`, `python`, or an unlabeled fence,
+including immediately after `</summary>` without a blank line. Each code block
+has a **Copy** button at the upper right that copies only its code, preserving
+indentation and line breaks. Add `open` only when the block should start
+expanded. Blocks may be nested. `> Query` is an ordinary blockquote, not a
+disclosure. Code is displayed, not executed.
 
 Google Docs copy snapshots the current view: closed blocks and their labels
 are omitted, open blocks become regular text with a bold summary label, and

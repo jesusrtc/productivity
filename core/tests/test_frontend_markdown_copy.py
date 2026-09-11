@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import time
 
 import pytest
 
@@ -18,9 +19,13 @@ def test_markdown_disclosures_and_clipboard(tmp_path):
               or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
     if not Path(chrome).is_file():
         pytest.skip('Chrome is required for the real DOM/clipboard regression check')
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node is required for the Chrome DevTools driver')
     app = (STATIC / 'js/lab-app.js').read_text()
     wrappers = app[app.index('  async function copyForGDocs(e) {'):
                    app.index('  // Attach (or replace) the online URL')]
+    mermaid = app[app.index('  let _mermaidReady;'):app.index('  function ensureHighlight()')]
     assistant = (STATIC / 'js/views/assistant.js').read_text()
     actions = assistant[assistant.index('  function addCopyButtons('):
                         assistant.index('  async function refresh(')]
@@ -97,6 +102,7 @@ GENERATED_SECRET
     checks = r'''
 (async () => {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const settleCopy = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
   const source = document.getElementById('workspaceDocBody');
   source.innerHTML = LabMarkdown.render(MARKDOWN);
   const closed = source.querySelector('details');
@@ -116,6 +122,73 @@ GENERATED_SECRET
     copied.push({html: await (await item.getType('text/html')).text(), plain: await (await item.getType('text/plain')).text()});
   }, writeText: async plain => copied.push({plain})};
   Object.defineProperty(navigator, 'clipboard', {value: clipboard, configurable:true});
+  // Tight disclosures used to become raw HTML or a multiline inline-code span.
+  const tight = document.createElement('div');
+  tight.className = 'nb-markdown';
+  tight.innerHTML = LabMarkdown.render([
+    '<details open><summary>Queries</summary>',
+    '### Canonical-view query (`u_trustim`)',
+    '```sql',
+    'SELECT',
+    '  \'<details></details> & "quoted"\' AS example,',
+    '  count(*) AS total  ',
+    'FROM samples;',
+    '```',
+    '<details><summary>Nested</summary>',
+    '~~~python',
+    'print("nested")',
+    '~~~',
+    '</details>',
+    '</details>',
+    '',
+    '```',
+    '  plain code  ',
+    '',
+    'last line',
+    '```',
+    '',
+    '````markdown',
+    '<details><summary>Literal example</summary>',
+    '```sql',
+    'SELECT 1;',
+    '```',
+    '</details>',
+    '````',
+  ].join('\n'));
+  document.body.appendChild(tight);
+  assert(tight.querySelectorAll('details').length === 2, 'literal disclosure tags stay inside fenced code');
+  assert(tight.querySelector('details h3 code').textContent === 'u_trustim', 'heading Markdown inside tight disclosure');
+  const sql = tight.querySelector('details > .markdown-code-block > pre > code.language-sql');
+  assert(sql && sql.textContent === 'SELECT\n  \'<details></details> & "quoted"\' AS example,\n  count(*) AS total  \nFROM samples;\n', 'SQL fence preserves source');
+  assert(tight.querySelector('details details code.language-python'), 'nested tight disclosure and tilde fence');
+  assert(tight.querySelectorAll('button.markdown-code-copy').length === 4, 'one copy button per fenced block');
+  const sqlButton = sql.closest('.markdown-code-block').querySelector('button');
+  sqlButton.click();
+  await settleCopy();
+  assert(copied.at(-1).plain === sql.textContent && !copied.at(-1).html, 'code copy is exact plain text without controls or fences');
+  assert(sqlButton.textContent === 'Copied' && tight.querySelector('details').open, 'copy feedback without toggling fold');
+  const plainCode = tight.querySelector('pre > code:not([class])');
+  plainCode.closest('.markdown-code-block').querySelector('button').click();
+  await settleCopy();
+  assert(copied.at(-1).plain === '  plain code  \n\nlast line\n', 'unlabeled code copy preserves whitespace');
+  assert(!LabMarkdown.cloneVisible(tight).querySelector('button'), 'document copy excludes code-copy controls');
+  const diagram = document.createElement('div');
+  diagram.innerHTML = LabMarkdown.render('```mermaid\ngraph TD; A-->B;\n```');
+  document.body.appendChild(diagram);
+  window.loadScriptOnce = async () => {};
+  window.mermaid = {initialize() {}, render: async () => ({svg:'<svg><text>Rendered diagram</text></svg>'})};
+  await renderMermaidBlocks(diagram);
+  assert(diagram.querySelector('pre[hidden]') && diagram.querySelector('svg'), 'rendered diagram retains hidden source for copy');
+  diagram.querySelector('button').click();
+  await settleCopy();
+  assert(copied.at(-1).plain === 'graph TD; A-->B;\n', 'diagram copy uses source');
+  assert(!LabMarkdown.cloneVisible(diagram).querySelector('pre'), 'document copy excludes hidden diagram source');
+
+  // Per-call renderers still apply inside disclosures and do not leak.
+  const custom = new marked.Renderer();
+  custom.image = () => '<img src="/resolved.png">';
+  assert(LabMarkdown.render('<details><summary>Image</summary>\n![x](a.png)\n</details>', {renderer:custom}).includes('/resolved.png'), 'custom renderer preserved');
+  assert(LabMarkdown.render('![x](a.png)').includes('src="a.png"'), 'custom renderer stays local');
   const button = document.getElementById('copy');
   const event = {target:button};
   const sourceBefore = source.innerHTML;
@@ -178,12 +251,21 @@ GENERATED_SECRET
   };
   assert(await copyForGDocs(event), 'legacy fallback succeeds');
   assert(!copied.at(-1).plain.includes('HIDDEN_PROMPT') && !copied.at(-1).html.includes('HIDDEN_PROMPT'), 'fallback filters both MIME types');
+  clipboard.writeText = async () => { throw new Error('denied'); };
+  const literalCode = tight.querySelector('code.language-markdown');
+  literalCode.closest('.markdown-code-block').querySelector('button').click();
+  await settleCopy();
+  assert(copied.at(-1).plain === literalCode.textContent && !copied.at(-1).html, 'code copy fallback preserves literal Markdown');
   await LabMarkdown.copy(source, {plainOnly:true});
   assert(!copied.at(-1).plain.includes('HIDDEN_PROMPT'), 'explicit plain copy filters closed content');
   clipboard.writeText = async () => { throw new Error('denied'); };
   document.execCommand = () => false;
   assert(!(await LabMarkdown.copy(source, {button, plainOnly:true})), 'failure reported');
   assert(button.textContent === 'Copy failed' && !button.disabled, 'failure feedback restores button');
+  const failedButton = tight.querySelector('code.language-python').closest('.markdown-code-block').querySelector('button');
+  failedButton.click();
+  await settleCopy();
+  assert(failedButton.textContent === 'Copy failed', 'code-copy failure feedback');
   document.execCommand = originalExec;
   assert(!document.querySelector('textarea'), 'fallback cleanup');
   document.getElementById('result').textContent = 'PASS: disclosure rendering, safety, live state, nested folds, section boundaries, Assistant, both clipboard formats and fallback';
@@ -193,26 +275,34 @@ GENERATED_SECRET
     page.write_text('<!doctype html><meta charset="utf-8"><body><button id="copy">Copy</button>'
                     '<div id="workspaceDocBody"></div><pre id="result">PENDING</pre>' + scripts
                     + '<script>const MARKDOWN = ' + json.dumps(markdown) + ';\n'
-                    + wrappers + actions + checks + '</script>')
+                    + wrappers + mermaid + actions + checks + '</script>')
+    profile = tmp_path / 'chrome-profile'
     process = subprocess.Popen([
         chrome, '--headless', '--disable-gpu', '--no-sandbox', '--no-first-run',
         '--no-default-browser-check', '--allow-file-access-from-files',
-        '--user-data-dir=' + str(tmp_path / 'chrome-profile'),
-        '--dump-dom', '--virtual-time-budget=5000', page.as_uri(),
+        '--user-data-dir=' + str(profile),
+        '--remote-debugging-port=0', 'about:blank',
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
-        stdout, stderr = process.communicate(timeout=15)
-    except subprocess.TimeoutExpired as error:
-        # Chrome on macOS can emit its completed DOM and then hang during shutdown.
-        stdout = (error.stdout or b'').decode()
-        stderr = (error.stderr or b'').decode()
+        # Use the same real-time CDP driver as check-ui; --dump-dom's virtual
+        # clock can finish before asynchronous FileReader/Blob clipboard I/O.
+        deadline = time.monotonic() + 10
+        while not (profile / 'DevToolsActivePort').exists():
+            assert process.poll() is None and time.monotonic() < deadline, 'Chrome did not start'
+            time.sleep(0.05)
+        result = subprocess.run([
+            node, str(ROOT / 'scripts/chrome-dump-auth.mjs'), str(profile),
+            page.as_uri(), str(tmp_path / 'rendered.html'),
+        ], capture_output=True, text=True, timeout=20,
+            env={**os.environ, 'LAB_UI_AUTH_COOKIE': ''})
+        assert result.returncode == 0, result.stderr
+        stdout = (tmp_path / 'rendered.html').read_text()
     finally:
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
         process.wait(timeout=5)
-    (tmp_path / 'rendered.html').write_text(stdout)
     import re
     result = re.search(r'<pre id="result">(.*?)</pre>', stdout, re.S)
-    assert result and result[1].startswith('PASS:'), (result[1] if result else stdout[-1000:]) + stderr[-1000:]
+    assert result and result[1].startswith('PASS:'), result[1] if result else stdout[-1000:]
