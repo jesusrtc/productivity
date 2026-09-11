@@ -135,3 +135,5 @@
 - [Scoped proxy compatibility](scoped-proxy-compatibility.md) — scoped Referer rewriting, auth parsing, legacy aliases, and matching Vite/React Router base paths
 
 - [Terminal tabs activate Home sections](terminal-tabs-activate-home-sections.md) — terminal clicks navigate to Overview/vault/Logs, preserve the exact warm session, and ignore stale navigation callbacks
+
+- [Worktree tabs use scope names](terminal-worktree-tabs-use-scope-name.md) — agent icon plus folder alias/worktree name, no session name or generic worktree badge

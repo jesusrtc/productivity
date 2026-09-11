@@ -2010,7 +2010,9 @@
   .term-sessions-full .term-sessions .term-folder-association small { display: inline; }
   .term-sessions-narrow .term-sessions .term-folder-association { max-width: 45%; }
   .term-sessions-full.term-sessions-narrow .term-sessions .term-folder-association small { display: none; }
-  .term-sessions-full.term-sessions-narrow .term-sessions .term-folder-association[data-checkout="worktree"]::after { content: '⑂'; font-size: 11px; }
+  .term-sessions .term-folder-association[data-checkout="worktree"] { max-width: 100%; font-size: inherit; }
+  .term-sessions-full .term-sessions .term-folder-association[data-checkout="worktree"] { flex: 1; }
+  .term-sessions .term-folder-association[data-checkout="worktree"] span { max-width: none; }
   .term-sessions-full .term-new-label { display: inline; }
   .term-sessions-horizontal .term-new-tab { width: auto; min-width: 36px; align-self: flex-start; }
   .term-tab-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex-shrink: 0; }
