@@ -9203,6 +9203,45 @@
     if (name) void termAttach(name, '__self__');
   }
 
+  let _termTabActivationSeq = 0;
+
+  async function _termActivateTab(name) {
+    const request = ++_termTabActivationSeq;
+    const workspaceId = _termActiveWorkspaceId();
+    const session = (termSessions || []).find(row => row.name === name);
+    if (!session || !workspaceId) return;
+    if (workspaceId === '__self__') {
+      const section = _termHomeAssociation(session);
+      // Remember the exact clicked session before navigation restores the
+      // section's latest terminal (there may be several with the same badge).
+      _termRememberLast(workspaceId, session.logical_name);
+      if (section !== _termHomeSection()) {
+        if (section.startsWith('vault:')) await goToVault(section.slice(6));
+        else await goToProductivity({subview: section === 'logs' ? 'logs' : 'overview'});
+      } else if (section === 'home' && (_contextSubView !== 'overview' || _workspaceDocPath || currentRepo)) {
+        selfShowWorkbench();
+      }
+      if (section !== _termHomeSection()) return;
+    }
+    if (request !== _termTabActivationSeq || !_termIsScopeActive(workspaceId)) return;
+    void _termOpenLinkedFile(session);
+    // A click is an explicit retry, including when the socket died while parked.
+    if (termDeadSessions.has(name)) {
+      _termClearDead(name);
+      delete _termAutoRestoreAt[name];
+      let refreshOk = false;
+      try { refreshOk = !!(await _termRefreshSessionsForWorkspaceId(workspaceId)); } catch {}
+      if (request !== _termTabActivationSeq || !_termIsScopeActive(workspaceId)) return;
+      if (!termSessions.some(s => s.name === name)) {
+        if (refreshOk) _termSessionGone(name, workspaceId);
+        else termShowRecovery();
+        return;
+      }
+    }
+    // The mounted-session fast path also cancels an older pending attach.
+    await termAttach(name, workspaceId);
+  }
+
   function _termHomeAssociationHtml(session) {
     if (_termActiveWorkspaceId() !== '__self__') return '';
     const id = _termHomeAssociation(session);
@@ -11684,29 +11723,7 @@
           return;
         }
         _termSelectTab(null);
-        const session = (termSessions || []).find(row => row.name === name);
-        if (session) void _termOpenLinkedFile(session);
-        // Clicking a dead pill is an explicit retry: clear the block and
-        // let termAttach try again. Refresh first so we don't hand it a
-        // name tmux has already reaped.
-        if (termDeadSessions.has(name)) {
-          _termClearDead(name);
-          delete _termAutoRestoreAt[name];  // explicit click resets the crash-loop guard
-          const pid = _termActiveWorkspaceId();
-          (async () => {
-            let refreshOk = false;
-            if (pid) {
-              try { refreshOk = !!(await _termRefreshSessionsForWorkspaceId(pid)); } catch {}
-            }
-            if (termSessions.some(s => s.name === name)) termAttach(name, pid);
-            else if (refreshOk && pid) _termSessionGone(name, pid);
-            else termShowRecovery();
-          })();
-          return;
-        }
-        if (name !== termCurrentSession || _termActiveWorkspaceId() !== termCurrentWorkspaceId) {
-          termAttach(name, _termActiveWorkspaceId());
-        }
+        void _termActivateTab(name);
       });
     });
     el.querySelectorAll('[data-divider-options]').forEach(divider => {
@@ -14310,7 +14327,7 @@
       url.searchParams.set('vault', vaultId);
       history.pushState({nav: 'vault', vault: vaultId}, '', url.pathname + url.search + url.hash);
     }
-    initVaultView(vaultId);
+    return initVaultView(vaultId);
   }
 
   // Compatibility entry points for old bookmarks and cached inline handlers.
@@ -15369,7 +15386,9 @@
     // Paint the workbench scaffold synchronously. The refresh fills in
     // tasks, changed areas, and recent commits after first paint.
     selfPaintWorkbench();
+    const homeWorkspace = currentWorkspace;
     afterPageQuiet(() => {
+      if (currentWorkspace !== homeWorkspace || !document.body.classList.contains('self-active')) return;
       selfPopulateSidebar();
       selfRefreshWorkbench();
       if (!UI_CHECK) termOpenForSelf();
@@ -16283,7 +16302,15 @@
   // registered vault. It renders inside Home while preserving the owning
   // vault scope for files and workspaces. Terminals belong to Home.
 
+  let _vaultViewRequestSeq = 0;
+
   async function initVaultView(vaultId) {
+    const request = ++_vaultViewRequestSeq;
+    // Publish the destination before awaiting the catalog so a terminal click
+    // during loading can navigate back out of this vault correctly.
+    currentWorkspace = {name: VAULT_WORKSPACE_ID, vault_id: vaultId,
+      path: (vaultCatalog || []).find(v => v.id === vaultId)?.path || '',
+      is_workspace: true, repos: []};
     // The initial `?view=…` dispatch calls us directly without
     // _swapViewState, so strip mutually exclusive view classes here.
     document.body.classList.remove(
@@ -16306,7 +16333,7 @@
 
     const data = await fetchVaultCatalog();
     // The user may have navigated away while the fetch was in flight.
-    if (!document.body.classList.contains('vault-active')) return;
+    if (request !== _vaultViewRequestSeq || !document.body.classList.contains('vault-active')) return;
     const current = ((data && data.vaults) || []).find(w => w.id === vaultId)
       || ((data && data.vaults) || []).find(w => w.active)
       || null;
@@ -16333,7 +16360,9 @@
     renderRepoTabs();
     _sidebarApplyForView();
     vaultPaintOverview(current);
+    const vaultWorkspace = currentWorkspace;
     afterPageQuiet(() => {
+      if (currentWorkspace !== vaultWorkspace || !document.body.classList.contains('vault-active')) return;
       vaultPopulateSidebar();
       vaultRefreshCards();
       if (!UI_CHECK) termOpenForSelf();

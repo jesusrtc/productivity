@@ -133,3 +133,5 @@
 - [Terminal tabs use folder badges](terminal-tabs-use-folder-badges.md) — replace provider text and vertical bars with colored Home/Logs or folder-alias badges and explicit worktree indicators
 
 - [Scoped proxy compatibility](scoped-proxy-compatibility.md) — scoped Referer rewriting, auth parsing, legacy aliases, and matching Vite/React Router base paths
+
+- [Terminal tabs activate Home sections](terminal-tabs-activate-home-sections.md) — terminal clicks navigate to Overview/vault/Logs, preserve the exact warm session, and ignore stale navigation callbacks

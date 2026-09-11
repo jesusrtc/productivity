@@ -31,7 +31,7 @@ const document = {body: {classList: {
   remove: (...names) => names.forEach(name => classes.delete(name)),
 }}, getElementById: () => null};
 let LAB_IS_ADMIN = true;
-let _contextSubView = 'overview', vaultCatalog = [], termSessions = [];
+let _contextSubView = 'overview', _workspaceDocPath = null, vaultCatalog = [], termSessions = [];
 const storage = new Map();
 const localStorage = {getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v)};
 const SELF_WORKSPACE_ID = '__self__', CEREBRO_WORKSPACE_ID = '__cerebro__';
@@ -211,3 +211,123 @@ view('vault', {vault_id: 'ssd'});
 console.log(JSON.stringify({selected: _termHomeRestoreName(), section: _termReadHomeAssociations().one.section}));
 ''', section('  function _termRememberLast(', '  function _termRecallLast('))
     assert result == {'selected': 'one', 'section': 'vault:ssd'}
+
+
+def test_terminal_clicks_restore_exact_live_panes_and_owning_sections():
+    result = run('''
+console.log = () => {};
+const TERM_LAST_KEY = 'last', TERM_FAST_PARK_MS = 600000;
+let termAttachRequestSeq = 0, termCurrentSession = null, termCurrentWorkspaceId = null;
+let termXterm = null, termWS = null, termContainer = null, termFitAddon = null;
+let termUserDetached = false, termReconnectTimer = null;
+const termDeadSessions = new Set(), _termCache = new Map();
+const WebSocket = {OPEN: 1};
+const ensureTerminalLibs = async () => {};
+const termSetStatus = () => {}, termRenderSessionList = () => {};
+const _termEnableWebgl = () => {}, _termDisableWebgl = () => {};
+const _termOpenLinkedFile = async () => {};
+const panes = new Map();
+const termEnsureXterm = () => { throw Error('Must reuse live transcript'); };
+vaultCatalog = [{id: 'ssd', path: '/ssd'}, {id: 'local', path: '/local'}];
+termSessions = ['home-old', 'home-new', 'ssd-old', 'ssd-new', 'local', 'logs'].map(name =>
+  ({name, logical_name: name, workspace_id: '__self__'}));
+for (const s of termSessions) {
+  const owner = s.name.startsWith('ssd') ? 'vault:ssd' : s.name === 'local' ? 'vault:local'
+    : s.name === 'logs' ? 'logs' : 'home';
+  _termSaveHomeAssociation(s.logical_name, owner, s.name.endsWith('new') ? 200 : 100);
+  const pane = {style: {}, transcript: s.name + ': prompt working'};
+  panes.set(s.name, pane);
+  _termCache.set('__self__::' + s.name, {name: s.name, workspaceId: '__self__',
+    xterm: pane, container: pane, ws: {readyState: 1}, fitAddon: {fit() {}}});
+}
+document.getElementById = id => id === 'termBody'
+  ? {querySelectorAll: () => [...panes.values()]} : null;
+const navigation = [];
+async function goToVault(id) {
+  view('vault', {vault_id: id}); _contextSubView = 'overview'; navigation.push(id);
+  _termSelectHomeSection();
+}
+async function goToProductivity(opts) {
+  view('self', {}); _contextSubView = opts.subview || 'overview'; navigation.push(_contextSubView);
+  _termSelectHomeSection();
+}
+const selfShowWorkbench = () => { _contextSubView = 'overview'; _termSelectHomeSection(); };
+view('self', {});
+await termAttach('home-old', '__self__');
+await goToVault('ssd');
+await Promise.resolve();
+// Output continues into the parked pane while the user works in SSD.
+panes.get('home-old').transcript += ': more progress';
+const selected = [];
+for (const name of ['home-old', 'ssd-old', 'logs', 'local', 'home-old']) {
+  await _termActivateTab(name);
+  // A delayed section restore must not replace the exact clicked terminal.
+  _termSelectHomeSection(); await Promise.resolve();
+  selected.push([termCurrentSession, _termHomeSection(), termXterm === panes.get(name), termXterm.transcript]);
+}
+process.stdout.write(JSON.stringify({selected, navigation}));
+''', section('  function _termRememberLast(', '  function _termRecallLast('),
+        section('  function _termCacheKey(', '  // ─── Workspace tabs'),
+        section('  function termDetach(', '  // Compute the next reconnect delay'),
+        section('  async function termAttach(', '  function termSetStatus'))
+    assert [row[:3] for row in result['selected']] == [
+        ['home-old', 'home', True], ['ssd-old', 'vault:ssd', True],
+        ['logs', 'logs', True], ['local', 'vault:local', True], ['home-old', 'home', True],
+    ]
+    assert result['selected'][-1][3] == 'home-old: prompt working: more progress'
+    assert result['navigation'] == ['ssd', 'overview', 'ssd', 'logs', 'local', 'overview']
+
+
+def test_newer_terminal_click_wins_during_vault_navigation():
+    result = run('''
+const TERM_LAST_KEY = 'last';
+termSessions = [{name: 'ssd', logical_name: 'ssd'}, {name: 'logs', logical_name: 'logs'}];
+_termSaveHomeAssociation('ssd', 'vault:ssd', 100);
+_termSaveHomeAssociation('logs', 'logs', 200);
+const termDeadSessions = new Set();
+const _termIsScopeActive = id => id === _termActiveWorkspaceId();
+const _termOpenLinkedFile = async () => {};
+const selected = [];
+const termAttach = name => selected.push(name);
+let finishVault;
+const goToVault = async id => {
+  view('vault', {vault_id: id});
+  await new Promise(resolve => finishVault = resolve);
+};
+const goToProductivity = async opts => { view('self', {}); _contextSubView = opts.subview; };
+view('self', {});
+const old = _termActivateTab('ssd');
+await _termActivateTab('logs');
+finishVault(); await old;
+console.log(JSON.stringify({selected, section: _termHomeSection()}));
+''', section('  function _termRememberLast(', '  function _termRecallLast('))
+    assert result == {'selected': ['logs'], 'section': 'logs'}
+
+
+def test_vault_navigation_ignores_older_catalog_and_deferred_work():
+    result = run('''
+const VAULT_WORKSPACE_ID = '__vault__', UI_CHECK = false;
+let _vaultCurrent = null;
+const pending = [], quiet = [], painted = [], background = [];
+vaultCatalog = [{id: 'ssd', path: '/ssd'}, {id: 'local', path: '/local'}];
+const fetchVaultCatalog = () => new Promise(resolve => pending.push(resolve));
+const _sidebarActivateFileConfig = () => {}, workspaceTabsRender = () => {};
+const renderRepoTabs = () => {}, _sidebarApplyForView = () => {};
+const vaultPaintOverview = current => painted.push(current.id);
+const afterPageQuiet = fn => quiet.push(fn);
+const vaultPopulateSidebar = () => background.push('sidebar');
+const vaultRefreshCards = () => background.push('cards');
+const termOpenForSelf = () => background.push('terminal');
+view('self', {});
+const old = initVaultView('ssd');
+const firstSection = _termHomeSection();
+const newer = initVaultView('local');
+const secondSection = _termHomeSection();
+pending[1]({vaults: vaultCatalog}); await newer;
+pending[0]({vaults: vaultCatalog}); await old;
+view('self', {});
+quiet.forEach(fn => fn());
+console.log(JSON.stringify({firstSection, secondSection, painted, background}));
+''', section('  let _vaultViewRequestSeq =', '  // Overview scaffold:'))
+    assert result == {'firstSection': 'vault:ssd', 'secondSection': 'vault:local',
+                      'painted': ['local'], 'background': []}
