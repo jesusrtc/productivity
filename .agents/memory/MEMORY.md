@@ -129,3 +129,5 @@
 - [Workspace new-tab button](workspace-new-tab-button.md) — small + beside the tabs; picker selects a vault and creates or opens a workspace in that vault
 
 - [Terminal tabs use folder badges](terminal-tabs-use-folder-badges.md) — replace provider text and vertical bars with colored Home/Logs or folder-alias badges and explicit worktree indicators
+
+- [Scoped proxy compatibility](scoped-proxy-compatibility.md) — scoped Referer rewriting, auth parsing, legacy aliases, and matching Vite/React Router base paths

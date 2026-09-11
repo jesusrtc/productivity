@@ -499,6 +499,11 @@ def _proxy_mount_path(vault: str | None, workspace_id: str, name: str) -> str:
 
 
 @router.api_route(
+    "/api/workspace-proxy/{vault}/{workspace_id}/{name}/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    include_in_schema=False,
+)
+@router.api_route(
     "/api/vault-proxy/{vault}/{workspace_id}/{name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
@@ -609,6 +614,7 @@ async def proxy_http(
     return resp
 
 
+@router.websocket("/ws/workspace-proxy/{vault}/{workspace_id}/{name}/{path:path}")
 @router.websocket("/ws/vault-proxy/{vault}/{workspace_id}/{name}/{path:path}")
 @router.websocket("/ws/proxy/{workspace_id}/{name}/{path:path}")
 async def proxy_ws(

@@ -327,14 +327,19 @@ async def _request_log_middleware(request: Request, call_next):
     return response
 
 
-# Captures the `/api/proxy/<workspace>/<name>` prefix from a Referer URL.
+# Captures both scoped and unscoped proxy mounts from a Referer URL.
 # Used by the rewrite middleware below to forward absolute-path
 # sub-resource requests (e.g. `/api/data`, `/socket.io/...`) from a
 # proxied iframe back through the matching proxy mount.
 import re as _re  # local alias to avoid colliding with `re` imports elsewhere
 
 _PROXY_REFERER_RE = _re.compile(
-    r"^https?://[^/]+(/api/proxy/[^/]+/[^/]+)(?:/|$)"
+    r"^https?://[^/]+(/api/(?:(?:vault|workspace)-proxy/[^/]+|proxy)/[^/]+/[^/]+)(?:/|$)"
+)
+_PROXY_MOUNT_PREFIXES = tuple(
+    f"/{transport}/{kind}/"
+    for transport in ("api", "ws")
+    for kind in ("proxy", "vault-proxy", "workspace-proxy")
 )
 _PROXY_REFERER_SKIP_PREFIXES = (
     # Shared Lab endpoints that embedded/proxied apps intentionally call.
@@ -354,17 +359,15 @@ async def _proxy_referer_rewrite(request: Request, call_next):
     actually came from inside that iframe and silently rewrite the
     target path to land under the same proxy mount.
 
-    Skipped when the path is already under `/api/proxy/` or
-    `/ws/proxy/` (already targeting the proxy explicitly), so the
-    middleware never recurses.
+    Scoped vault mounts and the legacy workspace spelling follow the same
+    rules. Explicit HTTP/WS proxy paths are never rewritten a second time.
 
     Lab UI requests (Referer == lab root, e.g. `http://localhost:3333/`)
     don't match the proxy-mount regex and pass through untouched.
     """
     path = request.url.path
     if (
-        path.startswith("/api/proxy/")
-        or path.startswith("/ws/proxy/")
+        path.startswith(_PROXY_MOUNT_PREFIXES)
         or any(path.startswith(prefix) for prefix in _PROXY_REFERER_SKIP_PREFIXES)
     ):
         return await call_next(request)

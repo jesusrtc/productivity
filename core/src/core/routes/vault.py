@@ -275,7 +275,13 @@ def _vault_agent_policy(root: Path) -> dict:
 @router.get("/api/vault/agents")
 def get_vault_agents(request: Request, vault: str | None = None) -> dict:
     """Return the effective agent choices for the active vault."""
-    root = _vault_root(request, vault)
+    from core.routes import term
+
+    if vault == term.ASSISTANT_VAULT_ID:
+        auth.require_admin(request)
+        root = term._vault_root_for(auth.request_root(request), vault)
+    else:
+        root = _vault_root(request, vault)
     return fsguard.guarded(root, _vault_agent_policy, root)
 
 

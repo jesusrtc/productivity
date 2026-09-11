@@ -520,9 +520,9 @@ async def _json_request_body(request: Request) -> dict[str, Any]:
 
 def _vault_from_route_path(path: str) -> str | None:
     patterns = (
-        r"^/api/vault-proxy/([^/]+)(?:/|$)",
+        r"^/api/(?:vault|workspace)-proxy/([^/]+)(?:/|$)",
         r"^/api/servers/([^/]+)(?:/|$)",
-        r"^/ws/vault-proxy/([^/]+)(?:/|$)",
+        r"^/ws/(?:vault|workspace)-proxy/([^/]+)(?:/|$)",
         r"^/api/vaults/([^/]+)/(?:appearance)(?:/|$)",
     )
     for pattern in patterns:

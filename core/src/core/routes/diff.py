@@ -505,8 +505,16 @@ def api_repos(request: Request):
 
 
 @router.get("/api/workspace-info")
-def api_workspace_info(path: str):
+def api_workspace_info(path: str, request: Request):
     workspace_path = _resolve_workspace_path(path)
+    from lab import paths
+
+    assistant_root = paths.assistant_root()
+    if assistant_root is not None and workspace_path.resolve() == assistant_root.resolve():
+        auth.require_admin(request)
+        # Assistant owns Markdown rather than workspace.json. The shared
+        # document viewer still asks for optional artifact metadata.
+        return {"id": "__assistant__", "name": "Assistant", "artifacts": []}
     info = _read_workspace_info(workspace_path)
     if info is None:
         raise HTTPException(status_code=404, detail="No workspace.json found")

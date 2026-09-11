@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import httpx
+import pytest
 from starlette.datastructures import URL
 
 from core.routes import proxy as proxy_mod
@@ -370,3 +372,66 @@ def test_vault_scoped_proxy_reads_the_requested_vault(
     # active fixture vault would return 404.
     assert response.status_code == 502, response.text
     assert b"Dev server not reachable" in response.content
+
+
+@pytest.mark.parametrize("kind", ["proxy", "vault-proxy", "workspace-proxy"])
+@pytest.mark.parametrize("resource", ["/api/data?x=1", "/__vinext_original-stack-trace"])
+def test_scoped_proxy_forwards_absolute_subresources(
+    client, seed_workspace, monkeypatch, kind, resource,
+):
+    workspace = seed_workspace("demo")
+    _configure_proxy(workspace)
+    monkeypatch.setattr(proxy_mod, "_vault_root", lambda request, vault: workspace.parent.parent)
+    calls = []
+
+    async def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(proxy_mod.httpx, "AsyncClient", lambda **kwargs: real_client(
+        transport=httpx.MockTransport(upstream), **kwargs,
+    ))
+    mount = f"/api/{kind}/" + ("other/" if kind != "proxy" else "") + "demo/web/"
+    response = client.post(resource, headers={"referer": "http://testserver" + mount}, content=b"payload")
+    assert response.status_code == 200, response.text
+    assert str(calls[0].url) == "http://localhost:3000" + resource
+    assert calls[0].content == b"payload"
+
+
+@pytest.mark.parametrize("kind", ["proxy", "vault-proxy", "workspace-proxy"])
+def test_proxy_rewrite_preserves_explicit_mounts_and_shared_endpoints(kind):
+    import asyncio
+    from starlette.requests import Request
+    from core.main import _proxy_referer_rewrite
+
+    async def check(path):
+        request = Request({
+            "type": "http", "method": "GET", "scheme": "http",
+            "server": ("testserver", 80), "path": path, "raw_path": path.encode(),
+            "query_string": b"", "headers": [(b"referer", b"http://testserver/api/vault-proxy/v/demo/web/")],
+        })
+        async def next_handler(req):
+            return req.scope["path"]
+        return await _proxy_referer_rewrite(request, next_handler)
+
+    for path in (f"/api/{kind}/v/demo/web/a", f"/ws/{kind}/v/demo/web/a", "/api/log/client", "/api/appstate/demo"):
+        assert asyncio.run(check(path)) == path
+
+
+def test_legacy_workspace_proxy_retains_vault_access_checks(client, monkeypatch):
+    from fastapi import HTTPException
+    seen = []
+    def denied(request, vault):
+        seen.append(vault)
+        raise HTTPException(403, "vault access denied")
+    monkeypatch.setattr(proxy_mod, "_vault_root", denied)
+    assert client.get("/api/workspace-proxy/private/demo/web/asset.js").status_code == 403
+    assert seen == ["private"]
+
+
+@pytest.mark.parametrize("transport", ["api", "ws"])
+@pytest.mark.parametrize("kind", ["vault-proxy", "workspace-proxy"])
+def test_proxy_auth_resolves_vault_for_both_spellings(transport, kind):
+    from core.auth import _vault_from_route_path
+    assert _vault_from_route_path(f"/{transport}/{kind}/private/demo/web/") == "private"
