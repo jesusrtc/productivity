@@ -113,3 +113,5 @@
 - [Terminal tabs show project names](terminal-tabs-show-project-names.md) — default linked labels use the project; worktree/file details appear at the top of hover cards on tabs and the header
 
 - [Terminal drag links](terminal-drag-links.md) — drag tabs onto files/folders/worktrees; one-to-one file ownership, shared folder ownership, independent context-menu unlink
+
+- [Terminal startup and disposal](terminal-startup-and-disposal.md) — dispatch views after state initialization; guard xterm 5.3 viewport callbacks when disposing terminals

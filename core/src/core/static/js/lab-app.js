@@ -9496,43 +9496,6 @@
     document.addEventListener('visibilitychange', () => { if (!document.hidden) dashPollTick(); });
   }
 
-  afterPageQuiet(loadRepos);
-  if (!UI_CHECK) afterPageQuiet(() => setInterval(loadRepos, 8000), 1000);
-  if (!UI_CHECK) afterPageQuiet(() => setInterval(refreshDiff, 5000), 1000);
-  // Workspace tab strip: initial render + periodic refresh.
-  afterPageQuiet(vaultRefresh, 250);
-  afterPageQuiet(workspaceTabsRefresh);
-  if (!UI_CHECK) afterPageQuiet(workspaceTabsStartPolling, 1000);
-
-  // Cerebro view: when URL carries ?view=cerebro, we bypass the
-  // workspace/repo init path entirely and render the mdview-style browser.
-  const initialParams = new URLSearchParams(location.search);
-  const urlView = initialParams.get('view');
-  const urlCerebroPath = initialParams.get('path') || '';
-  if (urlView === 'cerebro') {
-    initCerebro(urlCerebroPath);
-  } else if (urlView === 'assistant') {
-    initAssistant(initialParams.get('task') || '', {
-      subview: initialParams.get('subview') || '',
-      meeting: initialParams.get('meeting') || '',
-      workspace: initialParams.get('assistant_workspace') || '',
-    });
-  } else if (urlView === 'productivity') {
-    initSelf();
-    if (initialParams.get('subview') === 'admin') selfShowAdmin();
-    else if (initialParams.get('subview') === 'code-search') showScopedCodeSearch();
-  } else if (urlView === 'vault') {
-    initVaultView(initialParams.get('vault') || currentVaultId);
-  } else if (urlView === 'code-search') {
-    // Retired standalone route: keep old bookmarks useful by landing on the
-    // framework-scoped Code Search subtab.
-    initSelf();
-    showScopedCodeSearch();
-  } else if (urlView === 'logs') {
-    initSelf();
-    selfShowAdmin();
-  }
-
   // Auto-refresh workspace view when any file in the workspace folder changes (mtime check)
   let _lastWorkspaceMtime = 0;
   let _workspaceMtimeMissPath = null; // workspace path the miss counter applies to
@@ -9638,8 +9601,7 @@
   // ─── Terminal panel (tmux + PTY bridge) ───
   // Visible whenever a workspace is active; scoped to that workspace. xterm.js
   // and addons are vendored and lazy-loaded before the first attach. State
-  // is declared before the init dispatch for the same TDZ reason the home
-  // state is.
+  // is initialized before the startup dispatch at the end of this script.
 
   let termXterm = null;         // xterm.js Terminal instance (active session)
   let termFitAddon = null;      // addon that sizes xterm to its container (active)
@@ -12882,6 +12844,21 @@
     }
   }
 
+  function _termGuardViewportDisposal(xt) {
+    const dispose = xt.dispose.bind(xt);
+    xt.dispose = () => {
+      // xterm 5.3 leaves viewport timers/animation frames queued on disposal.
+      // Their callbacks otherwise read dimensions from the disposed renderer.
+      // Keep this version-specific workaround here, not in the immutable vendor asset.
+      const viewport = xt._core?.viewport;
+      if (viewport) {
+        viewport.syncScrollArea = () => {};
+        viewport._innerRefresh = () => {};
+      }
+      dispose();
+    };
+  }
+
   function termEnsureXterm() {
     // Kept for the cache-miss fresh-connect path in termAttach; creates the
     // xterm+fitAddon and assigns to module-level termXterm/termFitAddon.
@@ -12905,6 +12882,7 @@
       scrollback: 20000,
       convertEol: false,
     });
+    _termGuardViewportDisposal(termXterm);
     termFitAddon = new FitAddon.FitAddon();
     termXterm.loadAddon(termFitAddon);
     // Wheel handler on the shared #termBody — routes to whatever session is
@@ -13612,48 +13590,6 @@
     history.replaceState(null, '', url);
   })();
   const _effectiveWorkspace = urlWorkspace || _nbHashWorkspace;
-
-  if (_effectiveWorkspace) {
-    const provisionalName = (_effectiveWorkspace.replace(/\/+$/, '').split('/').pop() || 'Workspace');
-    currentWorkspace = {
-      name: provisionalName,
-      path: _effectiveWorkspace,
-      is_workspace: true,
-      description: 'Opening workspace dashboard...',
-      repos: [],
-    };
-    document.body.classList.remove('cerebro-active', 'self-active', 'assistant-active', 'vault-active', 'has-diff-tabs');
-    document.body.classList.add('workspace-active');
-    document.getElementById('diffTabs').style.display = 'none';
-    paintWorkspaceShell();
-    // Share the in-flight /api/repos promise with loadRepos +
-    // workspaceTabsRefresh instead of firing a third network call (all three
-    // callers resolve to the same response on initial load).
-    fetchRepos().then(workspaces => {
-      workspacesList = workspaces;
-      const workspace = workspaces.find(p => p.path === _effectiveWorkspace);
-      if (workspace) {
-        selectRepo(workspace.path);
-      }
-    });
-  } else if (urlRepo) {
-    fetchRepos().then(workspaces => {
-      workspacesList = workspaces;
-      const workspace = workspaces.find(p => p.repos.some(r => r.path === urlRepo));
-      if (workspace) {
-        selectRepo(workspace.path);
-        if (workspace.repos.length > 1) {
-          const targetRepo = workspace.repos.find(r => r.path === urlRepo);
-          if (targetRepo) selectWorkspaceRepo(targetRepo.path);
-        }
-      }
-    });
-  } else if (urlView === 'cerebro' || urlView === 'assistant' || urlView === 'productivity' || urlView === 'vault' || urlView === 'code-search' || urlView === 'logs') {
-    // These views handle their own initialization above.
-  } else {
-    // No explicit target means the framework-owned Productivity home.
-    initSelf();
-  }
 
   // Compatibility handler for cached markup that still calls goHome().
   function goHome(ev) {
@@ -17205,3 +17141,85 @@
     connect();
   }
   if (!UI_CHECK) subscribeLiveWS();
+
+  // Start views only after all script state is initialized. afterPageQuiet
+  // can run synchronously when this lazy-loaded script arrives after load.
+  afterPageQuiet(loadRepos);
+  if (!UI_CHECK) afterPageQuiet(() => setInterval(loadRepos, 8000), 1000);
+  if (!UI_CHECK) afterPageQuiet(() => setInterval(refreshDiff, 5000), 1000);
+  // Workspace tab strip: initial render + periodic refresh.
+  afterPageQuiet(vaultRefresh, 250);
+  afterPageQuiet(workspaceTabsRefresh);
+  if (!UI_CHECK) afterPageQuiet(workspaceTabsStartPolling, 1000);
+
+  // Cerebro view: when URL carries ?view=cerebro, we bypass the
+  // workspace/repo init path entirely and render the mdview-style browser.
+  const initialParams = new URLSearchParams(location.search);
+  const urlView = initialParams.get('view');
+  const urlCerebroPath = initialParams.get('path') || '';
+  if (urlView === 'cerebro') {
+    initCerebro(urlCerebroPath);
+  } else if (urlView === 'assistant') {
+    initAssistant(initialParams.get('task') || '', {
+      subview: initialParams.get('subview') || '',
+      meeting: initialParams.get('meeting') || '',
+      workspace: initialParams.get('assistant_workspace') || '',
+    });
+  } else if (urlView === 'productivity') {
+    initSelf();
+    if (initialParams.get('subview') === 'admin') selfShowAdmin();
+    else if (initialParams.get('subview') === 'code-search') showScopedCodeSearch();
+  } else if (urlView === 'vault') {
+    initVaultView(initialParams.get('vault') || currentVaultId);
+  } else if (urlView === 'code-search') {
+    // Retired standalone route: keep old bookmarks useful by landing on the
+    // framework-scoped Code Search subtab.
+    initSelf();
+    showScopedCodeSearch();
+  } else if (urlView === 'logs') {
+    initSelf();
+    selfShowAdmin();
+  }
+
+  // Workspace and default-Home startup also wait for all state declarations.
+  if (_effectiveWorkspace) {
+    const provisionalName = (_effectiveWorkspace.replace(/\/+$/, '').split('/').pop() || 'Workspace');
+    currentWorkspace = {
+      name: provisionalName,
+      path: _effectiveWorkspace,
+      is_workspace: true,
+      description: 'Opening workspace dashboard...',
+      repos: [],
+    };
+    document.body.classList.remove('cerebro-active', 'self-active', 'assistant-active', 'vault-active', 'has-diff-tabs');
+    document.body.classList.add('workspace-active');
+    document.getElementById('diffTabs').style.display = 'none';
+    paintWorkspaceShell();
+    // Share the in-flight /api/repos promise with loadRepos +
+    // workspaceTabsRefresh instead of firing a third network call (all three
+    // callers resolve to the same response on initial load).
+    fetchRepos().then(workspaces => {
+      workspacesList = workspaces;
+      const workspace = workspaces.find(p => p.path === _effectiveWorkspace);
+      if (workspace) {
+        selectRepo(workspace.path);
+      }
+    });
+  } else if (urlRepo) {
+    fetchRepos().then(workspaces => {
+      workspacesList = workspaces;
+      const workspace = workspaces.find(p => p.repos.some(r => r.path === urlRepo));
+      if (workspace) {
+        selectRepo(workspace.path);
+        if (workspace.repos.length > 1) {
+          const targetRepo = workspace.repos.find(r => r.path === urlRepo);
+          if (targetRepo) selectWorkspaceRepo(targetRepo.path);
+        }
+      }
+    });
+  } else if (urlView === 'cerebro' || urlView === 'assistant' || urlView === 'productivity' || urlView === 'vault' || urlView === 'code-search' || urlView === 'logs') {
+    // These views were initialized by the dispatch above.
+  } else {
+    // No explicit target means the framework-owned Productivity home.
+    initSelf();
+  }
