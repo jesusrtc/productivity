@@ -111,6 +111,9 @@
   .workspace-tabs-picker .picker-vault { display: flex; align-items: center; gap: 12px; padding: 4px 6px 10px; color: var(--text-secondary); font-size: 12px; }
   .workspace-tabs-picker .picker-vault select { flex: 1; min-width: 0; }
   .workspace-tabs-picker .picker-heading { border-top: 1px solid var(--border); margin-top: 6px; padding: 12px 10px 6px; color: var(--text-dim); font-size: 11px; }
+  .workspace-tabs-picker .picker-vault-group { border-top: 1px solid var(--border); padding: 6px 0; }
+  .workspace-tabs-picker .picker-vault-name { display: flex; align-items: center; gap: 4px; padding: 6px 10px; color: var(--vault-color); font-size: 12px; font-weight: 600; }
+  .workspace-tabs-picker .picker-vault-group .row { padding-left: 27px; }
   .workspace-tabs-plus:focus-visible, .workspace-tabs-picker button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .view-toggle { display: flex; gap: 0; }
   .view-toggle button { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); padding: 5px 12px; font-size: 12px; cursor: pointer; }

@@ -10126,40 +10126,69 @@
   });
   window.addEventListener('resize', () => workspaceTabsClosePicker());
 
-  function workspaceTabsRenderPicker(vaultId) {
+  function workspaceTabsRenderPicker(vaultId = '', creating = false) {
     const picker = document.getElementById('workspaceTabsPicker');
     if (!picker) return;
     const vaults = (vaultCatalog || []).filter(vault => !vault.unavailable);
-    const preferred = vaultId || (currentWorkspace && _workspaceVaultId(currentWorkspace)) || currentVaultId;
-    const vault = vaults.find(row => row.id === preferred) || vaults[0];
-    if (!vault) {
+    if (!vaults.length) {
       picker.innerHTML = '<div class="empty">No vaults available. Add a vault in Home.</div>';
       return;
     }
+    if (creating) {
+      picker.innerHTML = `
+        <button type="button" class="row" data-action="back">← Back</button>
+        <div class="picker-heading">New workspace · Choose a vault</div>
+        ${vaults.map(vault => `
+          <button type="button" class="row" data-create-vault="${workspaceTabsEsc(vault.id)}">
+            <span class="vault-mark" style="--vault-color:${workspaceTabsEsc(vault.color || '#8b949e')}"></span>
+            <span class="label">${workspaceTabsEsc(vault.name || vault.id)}</span>
+          </button>`).join('')}`;
+      picker.querySelector('[data-action="back"]').addEventListener('click', () => {
+        workspaceTabsRenderPicker(vaultId);
+        picker.querySelector('[data-action="create"]')?.focus();
+      });
+      picker.querySelectorAll('[data-create-vault]').forEach(row => {
+        row.addEventListener('click', () => {
+          const vault = vaults.find(vault => vault.id === row.getAttribute('data-create-vault'));
+          workspaceTabsClosePicker();
+          openVaultWorkspaceModal(vault);
+        });
+      });
+      return;
+    }
     const openWorkspaces = new Set(workspaceTabsOpenIds());
-    const candidates = (vault.workspace_rows || []).filter(workspace => workspace.is_workspace);
+    const selectedVault = vaults.find(vault => vault.id === vaultId);
+    const shownVaults = selectedVault ? [selectedVault] : vaults;
     picker.innerHTML = `
-      <label class="picker-vault">Vault<select aria-label="Vault">${vaults.map(row => `
-        <option value="${workspaceTabsEsc(row.id)}"${row.id === vault.id ? ' selected' : ''}>${workspaceTabsEsc(row.name || row.id)}</option>`).join('')}</select></label>
       ${LAB_IS_ADMIN ? '<button type="button" class="row" data-action="create"><span aria-hidden="true">+</span><span>New workspace</span></button>' : ''}
-      <button type="button" class="row" data-action="vault"><span class="vault-mark" style="--vault-color:${workspaceTabsEsc(vault.color || '#8b949e')}"></span><span>Open vault</span></button>
       <div class="picker-heading">Open existing workspace</div>
-      ${candidates.length ? candidates.map(workspace => `
-        <button type="button" class="row" data-path="${workspaceTabsEsc(workspace.path)}">
-          <span class="label">${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
-          ${openWorkspaces.has(workspace.path) ? '<span class="meta">Open</span>' : ''}
-        </button>`).join('') : '<div class="empty">No workspaces in this vault yet.</div>'}`;
+      <label class="picker-vault">From<select aria-label="Workspace vault">
+        <option value="">All vaults</option>
+        ${vaults.map(vault => `<option value="${workspaceTabsEsc(vault.id)}"${vault.id === selectedVault?.id ? ' selected' : ''}>${workspaceTabsEsc(vault.name || vault.id)}</option>`).join('')}
+      </select></label>
+      ${shownVaults.map(vault => {
+        const candidates = (vault.workspace_rows || []).filter(workspace => workspace.is_workspace);
+        return `<section class="picker-vault-group" style="--vault-color:${workspaceTabsEsc(vault.color || '#8b949e')}" aria-label="${workspaceTabsEsc(vault.name || vault.id)}">
+          <div class="picker-vault-name"><span class="vault-mark"></span>${workspaceTabsEsc(vault.name || vault.id)}</div>
+          ${candidates.length ? candidates.map(workspace => `
+            <button type="button" class="row" data-path="${workspaceTabsEsc(workspace.path)}">
+              <span class="label">${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
+              ${openWorkspaces.has(workspace.path) ? '<span class="meta">Open</span>' : ''}
+            </button>`).join('') : '<div class="empty">No workspaces in this vault yet.</div>'}
+        </section>`;
+      }).join('')}`;
     picker.querySelector('select').addEventListener('change', event => {
       workspaceTabsRenderPicker(event.target.value);
       picker.querySelector('select')?.focus();
     });
     picker.querySelector('[data-action="create"]')?.addEventListener('click', () => {
-      workspaceTabsClosePicker();
-      openVaultWorkspaceModal(vault);
-    });
-    picker.querySelector('[data-action="vault"]').addEventListener('click', () => {
-      workspaceTabsClosePicker();
-      goToVault(vault.id);
+      if (selectedVault) {
+        workspaceTabsClosePicker();
+        openVaultWorkspaceModal(selectedVault);
+      } else {
+        workspaceTabsRenderPicker(vaultId, true);
+        picker.querySelector('[data-create-vault]')?.focus();
+      }
     });
     picker.querySelectorAll('[data-path]').forEach(row => {
       row.addEventListener('click', () => {

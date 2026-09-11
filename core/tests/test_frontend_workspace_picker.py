@@ -5,30 +5,43 @@ from .test_frontend_terminal_ui import _js_between, _run_node
 def test_picker_selects_vault_and_opens_existing_or_new_workspace():
     result = _run_node(r'''
 const assert = require('assert/strict');
-const a = {id:'a', name:'Local', workspace_rows:[{name:'demo', path:'/a/demo', is_workspace:true}]};
-const b = {id:'b', name:'SSD', workspace_rows:[{name:'demo', path:'/b/demo', is_workspace:true}]};
+const a = {id:'a', name:'Local', color:'#123456', workspace_rows:[{name:'demo', path:'/a/demo', is_workspace:true}]};
+const b = {id:'b', name:'SSD', color:'#abcdef', workspace_rows:[{name:'demo', path:'/b/demo', is_workspace:true}]};
 const vaultCatalog = [a,b,{id:'offline',unavailable:true}];
 const currentWorkspace = {vault:'a'}, currentVaultId = 'a', LAB_IS_ADMIN = true;
 const _workspaceVaultId = w => w.vault, _workspaceDisplayName = w => w.name;
 const workspaceTabsOpenIds = () => ['/a/demo'];
 const workspaceTabsEsc = s => String(s);
-let opened, created, closed = 0, vaultOpened;
+let opened, created, closed = 0;
 const goToWorkspace = path => opened = path;
-const goToVault = id => vaultOpened = id;
 const openVaultWorkspaceModal = vault => created = vault;
 const workspaceTabsClosePicker = () => closed++;
 const controls = {};
 const control = key => controls[key] ||= {addEventListener(type, fn){this[type]=fn;},focus(){}};
 const picker = {
   innerHTML:'', querySelector:control,
-  querySelectorAll:() => [...picker.innerHTML.matchAll(/data-path="([^"]+)"/g)].map(m => {
-    const row = control(m[1]); row.getAttribute = () => m[1]; return row;
-  }),
+  querySelectorAll:selector => {
+    const attr = selector.slice(1,-1);
+    return [...picker.innerHTML.matchAll(new RegExp(attr + '="([^"]+)"', 'g'))].map(m => {
+      const row = control(m[1]); row.getAttribute = () => m[1]; return row;
+    });
+  },
 };
 const document = {getElementById:()=>picker};
 ''' + _js_between('  function workspaceTabsRenderPicker(', '  function workspaceTabsStartPolling()') + r'''
 workspaceTabsRenderPicker();
 assert(picker.innerHTML.includes('/a/demo'));
+assert(picker.innerHTML.includes('/b/demo'));
+assert(picker.innerHTML.includes('All vaults'));
+assert(picker.innerHTML.includes('--vault-color:#123456'));
+assert(picker.innerHTML.includes('--vault-color:#abcdef'));
+assert(picker.innerHTML.indexOf('aria-label="Local"') < picker.innerHTML.indexOf('/a/demo'));
+assert(picker.innerHTML.indexOf('aria-label="SSD"') < picker.innerHTML.indexOf('/b/demo'));
+assert(!picker.innerHTML.includes('Open vault'));
+controls['[data-action="create"]'].click();
+assert(picker.innerHTML.includes('Choose a vault'));
+controls['b'].click(); assert.equal(created,b);
+controls['[data-action="back"]'].click();
 assert(picker.innerHTML.includes('>Open</span>'));
 assert(!picker.innerHTML.includes('offline'));
 controls['select'].change({target:{value:'b'}});
@@ -36,7 +49,6 @@ assert(picker.innerHTML.includes('/b/demo'));
 assert(!picker.innerHTML.includes('/a/demo'));
 controls['/b/demo'].click(); assert.equal(opened, '/b/demo');
 controls['[data-action="create"]'].click(); assert.equal(created, b);
-controls['[data-action="vault"]'].click(); assert.equal(vaultOpened, 'b');
 b.workspace_rows = []; workspaceTabsRenderPicker('b');
 assert(picker.innerHTML.includes('No workspaces in this vault yet.'));
 controls['[data-action="create"]'].click(); assert.equal(created, b);
