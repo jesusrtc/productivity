@@ -1,3 +1,17 @@
+  // Semantic usage events are sent only by completed user actions. No polling,
+  // document names, file paths, terminal content, or automatic restoration.
+  window.labFeatureUsage = function (feature) {
+    if (typeof UI_CHECK !== 'undefined' && UI_CHECK) return;
+    const now = new Date();
+    const day = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+    try {
+      void fetch('/api/log/usage', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({day, feature}), keepalive: true,
+      }).catch(() => {});
+    } catch {} // Recording must never interrupt the feature itself.
+  };
+
   let currentRepo = null;
   const LAB_USER = window.LAB_USER || {};
   const LAB_IS_ADMIN = window.LAB_IS_ADMIN === true;
@@ -1464,6 +1478,7 @@
       });
       if (!response.ok) throw new Error(await _explorerResponseError(response));
       const result = await response.json();
+      window.labFeatureUsage?.(`${isRename ? 'Rename' : 'Create'} ${isNotebook ? 'notebook' : state.kind}`);
       const savedState = isNotebook
         ? {...state, action: 'create-file', kind: 'file', parent}
         : state;
@@ -1515,6 +1530,7 @@
         body: JSON.stringify({path: ctx.root, entry: ctx.path}),
       });
       if (!response.ok) throw new Error(await _explorerResponseError(response));
+      window.labFeatureUsage?.(`Delete ${ctx.kind}`);
       closeExplorerDeleteDialog();
       await _explorerAfterMutation({action: 'delete', ctx, kind: ctx.kind}, {entry: ctx.path});
       explorerToast(`Deleted ${ctx.path}`);
@@ -6245,6 +6261,7 @@
   function toggleFocusMode() {
     const on = !document.body.classList.contains('focus-mode');
     applyFocusMode(on);
+    window.labFeatureUsage?.(on ? 'Enable Focus mode' : 'Disable Focus mode');
     // Fullscreen requires a user gesture, so only request it from the toggle
     // click/shortcut rather than when restoring Focus mode after a reload.
     if (on) _enterFocusFullscreen();
@@ -6260,11 +6277,13 @@
   }
   function toggleKeepAlive() {
     applyKeepAlive(!document.body.classList.contains('keep-alive'));
+    window.labFeatureUsage?.(document.body.classList.contains('keep-alive') ? 'Enable Keep Alive' : 'Disable Keep Alive');
   }
   window.toggleKeepAlive = toggleKeepAlive;
 
   function toggleLinkedTerminalSync() {
     _linkedTerminalSyncOn = !_linkedTerminalSyncOn;
+    window.labFeatureUsage?.(_linkedTerminalSyncOn ? 'Enable linked terminal sync' : 'Disable linked terminal sync');
     if (!_linkedTerminalSyncOn) _termCancelPendingLinkedFileOpen();
     try { localStorage.setItem(LINKED_TERMINAL_SYNC_KEY, _linkedTerminalSyncOn ? '1' : '0'); } catch {}
     try { if (currentWorkspace) renderRepoTabs(); } catch {}
@@ -10240,7 +10259,7 @@
         row.addEventListener('click', () => {
           const vault = vaults.find(vault => vault.id === row.getAttribute('data-create-vault'));
           workspaceTabsClosePicker();
-          openVaultWorkspaceModal(vault);
+          openVaultWorkspaceModal(vault, '+ button');
         });
       });
       return;
@@ -10273,7 +10292,7 @@
     picker.querySelector('[data-action="create"]')?.addEventListener('click', () => {
       if (selectedVault) {
         workspaceTabsClosePicker();
-        openVaultWorkspaceModal(selectedVault);
+        openVaultWorkspaceModal(selectedVault, '+ button');
       } else {
         workspaceTabsRenderPicker(vaultId, true);
         picker.querySelector('[data-create-vault]')?.focus();
@@ -11146,6 +11165,7 @@
     order.splice(index, 0, ...moving);
     state.order = order;
     _termWriteGroupState(state);
+    window.labFeatureUsage?.(groupId ? 'Group terminal tabs (secondary click)' : 'Ungroup terminal tabs (secondary click)');
     termCloseGroupMenu();
     termRenderSessionList();
   }
@@ -11251,7 +11271,10 @@
       if (!(kind === 'file' ? session.linked_file : session.linked_scope)) continue;
       const patch = kind === 'file' ? {linked_file: null} : {linked_scope: null};
       if (kind === 'file' && session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
-      try { await _termPatchLinks(session, patch, context); }
+      try {
+        await _termPatchLinks(session, patch, context);
+        window.labFeatureUsage?.(`Unlink terminal ${kind === 'file' ? 'document' : 'folder'} (secondary click)`);
+      }
       catch (error) { failures.push(`${_termSessionDisplay(session)}: ${error.message}`); }
     }
     if (failures.length) explorerToast('Could not remove all links: ' + failures.join('; '), true);
@@ -11305,6 +11328,7 @@
             const result = await response.json().catch(() => ({}));
             throw new Error(result.detail || response.statusText || 'Request failed');
           }
+          window.labFeatureUsage?.('Close terminal (secondary click)');
           if (isActive() && termCurrentSession === name) termDetach();
           _termEvictCache(name, workspaceId);
         } catch (error) { failures.push(`${name}: ${error.message}`); }
@@ -12026,6 +12050,7 @@
     if (!groupState) { termRenderSessionList(); return; }
     const current = groupState.order;
     _termWriteGroupState(groupState);
+    window.labFeatureUsage?.(srcToken.startsWith('g:') ? 'Move terminal divider (drag and drop)' : 'Move terminal tab (drag and drop)');
 
     // Reorder termSessions to match so the next render picks it up.
     const byLogical = Object.fromEntries(
@@ -12174,7 +12199,7 @@
       : _termNormalizeLinkedRoot(session.linked_scope?.root) === _termNormalizeLinkedRoot(absolute));
   }
 
-  async function termLinkTarget(ctx, sessionName) {
+  async function termLinkTarget(ctx, sessionName, method = 'secondary click') {
     const session = (termSessions || []).find(row => row.name === sessionName);
     const context = _termLinkContext();
     if (!session?.logical_name || !context.workspaceId) {
@@ -12196,6 +12221,7 @@
       if (ctx.kind === 'file') Object.assign(patch,
         {linked_file: {root: ctx.root, path: ctx.path}, label: _termLinkedFileName(ctx.path)});
       await _termPatchLinks(session, patch, context);
+      window.labFeatureUsage?.(`Link terminal to ${ctx.kind === 'file' ? 'document' : scope.worktree ? 'worktree' : 'folder'} (${method})`);
       const copied = clipboard && await clipboard;
       explorerToast(`Terminal linked to ${ctx.kind === 'file' ? _termLinkedFileName(ctx.path) : scope.label}${copied ? ' · Absolute path copied' : ''}`);
     } catch (error) { explorerToast(error.message || String(error), true); }
@@ -12208,6 +12234,7 @@
     if (kind === 'file' && session.label === _termLinkedFileName(session.linked_file?.path)) patch.label = null;
     try {
       await _termPatchLinks(session, patch);
+      window.labFeatureUsage?.(`Unlink terminal ${kind === 'file' ? 'document' : 'folder'} (secondary click)`);
       explorerToast('Terminal link removed.');
     } catch (error) { explorerToast(error.message || String(error), true); }
   }
@@ -12262,7 +12289,7 @@
     event.preventDefault();
     event.stopPropagation();
     _termFinishDrag(false);
-    void termLinkTarget(ctx, session.name);
+    void termLinkTarget(ctx, session.name, 'drag and drop');
   });
   document.addEventListener('contextmenu', event => {
     const ctx = _termLinkDropContext(event.target);
@@ -12348,7 +12375,7 @@
     const scope = _termSelectedScope(button.getAttribute('data-base-root'));
     if (!scope) return;
     button.disabled = true;
-    try { await termLinkTarget({kind: 'folder', root: scope.root, path: '', scope}, session.name); }
+    try { await termLinkTarget({kind: 'folder', root: scope.root, path: '', scope}, session.name, 'button'); }
     finally { button.disabled = false; }
   }
 
@@ -12545,6 +12572,7 @@
     _termSetLinkStatus(`Linking ${state.fileName}…`);
     try {
       await _termSaveLinkedFile(session, {root: state.ctx.root, path: state.ctx.path});
+      window.labFeatureUsage?.('Link terminal to document (secondary click)');
       const workspaceId = state.workspaceId;
       const name = session.name;
       termCloseLinkModal();
@@ -12570,6 +12598,7 @@
     _termSetLinkStatus('Removing link…');
     try {
       await _termSaveLinkedFile(session, null);
+      window.labFeatureUsage?.('Unlink terminal document (secondary click)');
       _termLinkPending = false;
       _termRenderLinkModal();
       _termSetLinkStatus('Link removed.');
@@ -12607,6 +12636,7 @@
     const session = (termSessions || []).find(row => row.name === created.name) || created;
     try {
       await _termSaveLinkedFile(session, {root: state.ctx.root, path: state.ctx.path});
+      window.labFeatureUsage?.('Link terminal to document (secondary click)');
       termCloseLinkModal();
       const copied = await clipboardCopy;
       explorerToast(`Created ${state.fileName} and linked it · ${copied ? 'Absolute path copied' : 'Clipboard unavailable'}`);
@@ -12974,6 +13004,7 @@
       });
       const attached = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(attached.detail || response.statusText || 'attach failed');
+      window.labFeatureUsage?.('Attach existing terminal');
       if (scope.homeSection) _termSaveHomeAssociation(attached.logical_name, scope.homeSection);
       if (generation === _termAttachModalGeneration) termCloseAttachModal();
       if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
@@ -13038,6 +13069,7 @@
         return;
       }
       const created = await r.json();
+      if (startFresh) window.labFeatureUsage?.(kind === 'claude' ? 'Create agent terminal' : 'Create terminal');
       if (homeSection) _termSaveHomeAssociation(created.logical_name, homeSection);
       await termSetAutoSpawnEnabled(workspaceId, true, vaultId);
       if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
@@ -15971,6 +16003,7 @@
           <button type="button" data-log="errors.log"><span class="log-source-dot errors"></span><span>Errors<small>Backend &amp; frontend errors</small></span></button>
           <button type="button" data-log="backend.log"><span class="log-source-dot backend"></span><span>Backend<small>Server activity</small></span></button>
           <button type="button" data-log="frontend.log"><span class="log-source-dot frontend"></span><span>Frontend<small>Browser activity</small></span></button>
+          <button type="button" data-log="usage"><span class="log-source-dot frontend"></span><span>Feature usage<small>Daily feature counters</small></span></button>
           <div class="home-logs-note">Clear deletes the selected log’s history across all vaults. New activity continues to be recorded.</div>
         </nav>
         <div class="home-logs-main">
@@ -15983,7 +16016,9 @@
             </div>
           </header>
           <div class="home-logs-options">
-            <label>Show <select id="adminLogLimit"><option value="500">Latest 500 entries</option><option value="2000">Latest 2,000 entries</option><option value="5000">Latest 5,000 entries</option></select></label>
+            <label id="adminLogLimitLabel">Show <select id="adminLogLimit"><option value="500">Latest 500 entries</option><option value="2000">Latest 2,000 entries</option><option value="5000">Latest 5,000 entries</option></select></label>
+            <label id="adminUsageDateLabel" hidden>Date <input id="adminUsageDate" type="date" value="${_adminUsageToday()}"></label>
+            <label id="adminUsageAllLabel" hidden><input id="adminUsageAll" type="checkbox"> All days</label>
             <label><input id="adminLogLive" type="checkbox" checked> Live updates</label>
             <span id="adminLogStatus" role="status"></span>
           </div>
@@ -15998,13 +16033,24 @@
     const refresh = () => adminRefreshLogs(content.querySelector('#adminLogOutput').getAttribute('data-log-file'));
     content.querySelector('#adminLogRefreshButton').addEventListener('click', refresh);
     content.querySelector('#adminLogLimit').addEventListener('change', refresh);
+    content.querySelector('#adminUsageDate').addEventListener('change', refresh);
+    content.querySelector('#adminUsageAll').addEventListener('change', refresh);
     content.querySelector('#adminLogLive').addEventListener('change', refresh);
     adminRefreshLogs('errors.log');
   }
   window.selfShowLogs = selfShowLogs;
 
   function _adminLogLabel(file) {
-    return String(file || 'errors.log').replace(/\.log$/i, '');
+    return file === 'usage' ? 'feature usage' : String(file || 'errors.log').replace(/\.log$/i, '');
+  }
+
+  function _adminUsageToday() {
+    const now = new Date();
+    return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+  }
+
+  function _adminUsageRowText(row) {
+    return `${row.date}  ${row.feature} - ${row.usage_count}`;
   }
 
   function _adminLogRowText(row) {
@@ -16027,7 +16073,7 @@
   async function adminRefreshLogs(file = 'errors.log', {quiet = false} = {}) {
     const output = document.getElementById('adminLogOutput');
     if (!output) return;
-    if (!['errors.log', 'backend.log', 'frontend.log'].includes(file)) file = 'errors.log';
+    if (!['errors.log', 'backend.log', 'frontend.log', 'usage'].includes(file)) file = 'errors.log';
     clearTimeout(output._refreshTimer);
     const request = (output._request || 0) + 1;
     output._request = request;
@@ -16038,7 +16084,20 @@
     const flushButton = document.getElementById('adminLogFlushButton');
     const title = document.getElementById('adminLogTitle');
     const limit = document.getElementById('adminLogLimit');
-    const switched = output.getAttribute('data-log-file') !== file;
+    const usage = file === 'usage';
+    const dateInput = document.getElementById('adminUsageDate');
+    const allDays = document.getElementById('adminUsageAll');
+    const day = allDays?.checked ? '' : dateInput?.value || _adminUsageToday();
+    for (const id of ['adminUsageDateLabel', 'adminUsageAllLabel']) {
+      const control = document.getElementById(id);
+      if (control) control.hidden = !usage;
+    }
+    const limitLabel = document.getElementById('adminLogLimitLabel');
+    if (limitLabel) limitLabel.hidden = usage;
+    if (dateInput) dateInput.disabled = !!allDays?.checked;
+    const viewKey = usage ? `${file}:${day}` : file;
+    const switched = output._viewKey !== viewKey;
+    output._viewKey = viewKey;
     output.setAttribute('data-log-file', file);
     document.querySelectorAll('.home-logs-sources [data-log]').forEach(button => {
       const active = button.getAttribute('data-log') === file;
@@ -16059,24 +16118,29 @@
       flushButton.disabled = true;
     }
     try {
-      const r = await fetch('/api/log/tail/all?file=' + encodeURIComponent(file) + '&tail=' + (limit ? limit.value : '500'));
+      const r = await fetch(usage ? '/api/log/usage' + (day ? '?day=' + encodeURIComponent(day) : '') : '/api/log/tail/all?file=' + encodeURIComponent(file) + '&tail=' + (limit ? limit.value : '500'));
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'load failed');
       const data = await r.json();
       if (!current()) return;
       const entries = data.entries || [];
-      const text = entries.map(_adminLogRowText).join('\n');
+      const rowText = usage ? _adminUsageRowText : _adminLogRowText;
+      const text = entries.map(rowText).join('\n');
       const follow = switched || output.scrollHeight - output.scrollTop - output.clientHeight < 50;
       if (text !== output._logText || !output._loaded) {
         output._logText = text;
         output._loaded = true;
         output.innerHTML = entries.length ? entries.map(row => {
+          if (usage) return `<span class="home-log-entry info">${esc(rowText(row))}</span>`;
           const level = String(row.level || '').toUpperCase();
           const tone = ['ERROR', 'CRITICAL'].includes(level) ? 'error' : ['WARNING', 'WARN'].includes(level) ? 'warning' : 'info';
           return `<span class="home-log-entry ${tone}">${esc(_adminLogRowText(row))}</span>`;
-        }).join('\n') : '<span class="home-logs-empty">No log entries. New activity will appear here.</span>';
-        if (follow) output.scrollTop = output.scrollHeight;
+        }).join('\n') : `<span class="home-logs-empty">${usage ? 'No feature usage recorded for this date. Counts begin as you use features.' : 'No log entries. New activity will appear here.'}</span>`;
+        if (usage && switched) output.scrollTop = 0;
+        else if (!usage && follow) output.scrollTop = output.scrollHeight;
       }
-      count.textContent = `${entries.length.toLocaleString()} entries · oldest to newest`;
+      count.textContent = usage
+        ? `${data.total_usage || 0} uses · ${entries.length} daily feature rows · ${day ? 'most used first' : 'newest dates, most used first'} · local dates`
+        : `${entries.length.toLocaleString()} entries · oldest to newest`;
       copyButton.disabled = !entries.length;
       flushButton.disabled = !!output._clearing;
       if (!quiet || status.textContent.startsWith('Could not load')) status.textContent = '';
@@ -16122,7 +16186,7 @@
     status.textContent = `Clearing ${label}…`;
     const current = () => document.getElementById('adminLogOutput') === output && output.getAttribute('data-log-file') === file;
     try {
-      const response = await fetch('/api/log/clear/all?file=' + encodeURIComponent(file), {method: 'DELETE'});
+      const response = await fetch(file === 'usage' ? '/api/log/usage' : '/api/log/clear/all?file=' + encodeURIComponent(file), {method: 'DELETE'});
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || 'clear failed');
       const cleared = Array.isArray(data.cleared) ? data.cleared.length : 0;
@@ -16845,8 +16909,9 @@
   let _vaultWorkspaceCreateBusy = false;
   let _vaultWorkspaceCreateVault = null;
   let _vaultWorkspaceRenameTarget = null;
+  let _vaultWorkspaceCreateMethod = 'vault overview';
 
-  function openVaultWorkspaceModal(vault = _vaultCurrent) {
+  function openVaultWorkspaceModal(vault = _vaultCurrent, method = 'vault overview') {
     if (_vaultWorkspaceCreateBusy || !vault || vault.unavailable) return;
     const modal = document.getElementById('vaultWorkspaceModal');
     const form = document.getElementById('vaultWorkspaceForm');
@@ -16856,6 +16921,7 @@
     form.reset();
     _vaultWorkspaceRenameTarget = null;
     _vaultWorkspaceCreateVault = vault.id;
+    _vaultWorkspaceCreateMethod = method;
     document.getElementById('vaultWorkspaceTitle').textContent = 'New workspace';
     document.getElementById('vaultWorkspaceSubmit').textContent = 'Create workspace';
     document.getElementById('vaultWorkspaceContextLabel').textContent = 'Create in';
@@ -16929,6 +16995,8 @@
       });
       const created = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(created.detail || (renameTarget ? 'Could not rename workspace' : 'Workspace creation failed'));
+
+      window.labFeatureUsage?.(renameTarget ? 'Rename workspace (secondary click)' : `Create workspace (${_vaultWorkspaceCreateMethod})`);
 
       // A catalog request that started before creation may not contain the
       // new row. Let it settle, then fetch an authoritative post-create list.

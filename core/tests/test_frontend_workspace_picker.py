@@ -66,7 +66,8 @@ const control = id => controls[id] ||= {
   classList:{add(){},remove(){}},reset(){},focus(){},
   elements:{namedItem:key => key === 'name' ? {value:'  New workspace  '} : null}
 };
-const document = {getElementById:control}, window = {};
+const usages = [];
+const document = {getElementById:control}, window = {labFeatureUsage: name => usages.push(name)};
 const setTimeout = fn => fn();
 let payload, opened, workspacesList, request;
 const _vaultCatalogInFlight = null;
@@ -76,12 +77,13 @@ const goToWorkspace = path => opened=path;
 const vaultRenderWorkspacesCard = () => {};
 ''' + _js_between('  let _vaultWorkspaceCreateBusy = false;', '  // "Workspaces" card:') + r'''
 (async()=>{
-openVaultWorkspaceModal({id:'b',name:'SSD'});
+openVaultWorkspaceModal({id:'b',name:'SSD'}, '+ button');
 assert.equal(controls.vaultWorkspaceContext.textContent,'SSD');
 _vaultCurrent = {id:'c'};
 await submitVaultWorkspace();
 assert.deepEqual(request,{url:'/api/workspaces',method:'POST'});
 assert.equal(payload.vault,'b');
+assert.deepEqual(usages,['Create workspace (+ button)']);
 assert.deepEqual(payload,{name:'New workspace',vault:'b'});
 assert.equal(opened,'/b/new');
 assert.equal(_vaultCurrent.id,'c');

@@ -19,7 +19,7 @@ def _run_node(script: str) -> dict:
     if NODE is None:
         pytest.skip("node is required for frontend terminal UI tests")
     proc = subprocess.run(
-        [NODE, "-e", script],
+        [NODE, "-e", "globalThis.window = {};\n" + script],
         cwd=ROOT,
         text=True,
         capture_output=True,

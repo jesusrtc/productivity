@@ -277,7 +277,7 @@
       } catch (_) {
         path = String(url || '');
       }
-      if (path === ENDPOINT) {
+      if (path === ENDPOINT || path === '/api/log/usage') {
         return _nativeFetch(input, opts);
       }
       return _nativeFetch(input, opts).then(function (resp) {

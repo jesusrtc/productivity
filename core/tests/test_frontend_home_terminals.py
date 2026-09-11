@@ -24,6 +24,7 @@ def run(body, *extra):
         section('  function _termVisibilityKey()', '  function _termRememberVisibility'),
     ])
     prelude = '''
+const window = {};
 const classes = new Set();
 const document = {body: {classList: {
   contains: name => classes.has(name),

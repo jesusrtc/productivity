@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
+import sqlite3
 from pathlib import Path
 import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core import auth
 
@@ -190,6 +192,56 @@ def _error_log_state(log_dir: Path) -> dict:
 
 
 # ─── endpoint ─────────────────────────────────────────────────────────────────
+
+class FeatureUse(BaseModel):
+    day: date
+    feature: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z][A-Za-z0-9 +()/-]*$")
+
+
+@router.post("/api/log/usage")
+def record_feature_usage(body: FeatureUse, request: Request) -> dict:
+    from core import feature_usage
+
+    feature_usage.increment(_log_dir(request), body.day.isoformat(), body.feature)
+    return {"ok": True}
+
+
+@router.get("/api/log/usage")
+def daily_feature_usage(request: Request, day: date | None = None) -> dict:
+    """Latest dates first, then most-used features within each date."""
+    auth.require_admin(request)
+    from core import feature_usage
+
+    totals: dict[tuple[str, str], int] = {}
+    seen: set[Path] = set()
+    for _, log_dir in _vault_log_dirs(request):
+        resolved = log_dir.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        for row in feature_usage.read(log_dir, day.isoformat() if day else None):
+            key = (row["date"], row["feature"])
+            totals[key] = totals.get(key, 0) + row["usage_count"]
+    entries = [{"date": key[0], "feature": key[1], "usage_count": count}
+               for key, count in totals.items()]
+    entries.sort(key=lambda row: (-row["usage_count"], row["feature"].casefold()))
+    entries.sort(key=lambda row: row["date"], reverse=True)
+    return {"entries": entries, "total_usage": sum(totals.values())}
+
+
+@router.delete("/api/log/usage")
+def clear_feature_usage(request: Request) -> dict:
+    auth.require_admin(request)
+    from core import feature_usage
+
+    cleared, missing, failed = [], [], []
+    for vault, log_dir in _vault_log_dirs(request):
+        try:
+            (cleared if feature_usage.clear(log_dir) else missing).append(vault)
+        except (OSError, sqlite3.Error) as exc:
+            failed.append({"vault": vault, "error": str(exc)})
+    return {"ok": not failed, "cleared": cleared, "missing": missing, "failed": failed}
+
 
 @router.post("/api/log/client")
 def log_client(body: ClientLogBatch) -> dict:

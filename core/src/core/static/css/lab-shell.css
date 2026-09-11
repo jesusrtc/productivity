@@ -2630,3 +2630,6 @@
   background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
   border-radius: 5px;
 }
+
+  .home-logs-options [hidden] { display: none; }
+  .home-logs-options input[type="date"] { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px; font: inherit; color-scheme: dark; }

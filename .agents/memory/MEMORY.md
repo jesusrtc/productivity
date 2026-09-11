@@ -147,3 +147,5 @@
 - [Worktree tabs use scope names](terminal-worktree-tabs-use-scope-name.md) — agent icon plus folder alias/worktree name, no session name or generic worktree badge
 
 - [Home terminal listing spans registries](home-terminal-list-spans-registries.md) — combine Home sessions independently of section Referers, deduplicate live names, and preserve vault isolation for real workspaces
+
+- [Daily feature usage counters](daily-feature-usage-counters.md) — Logs shows daily feature counts sorted by use, with distinct UI interaction methods and persistent counters separate from diagnostics
