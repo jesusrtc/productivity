@@ -64,7 +64,10 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
 
     # Secondary click gains the terminal action; the existing double-click
     # full-size document modal remains the file rows' dblclick behavior.
-    assert source.count("ondblclick=\"event.stopPropagation();openWorkspaceDocModal") >= 5
+    assert source.count("ondblclick=\"event.stopPropagation();openWorkspaceDocModal") >= 4
+    # Meta rows now build and escape the handler before inserting it.
+    assert 'const modalAction = `event.stopPropagation();openWorkspaceDocModal(' in source
+    assert 'ondblclick="${escAttr(modalAction)}"' in source
 
 
 def test_notebook_creation_chooses_repository_folder_and_creates_notebook_kind() -> None:

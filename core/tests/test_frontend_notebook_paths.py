@@ -653,7 +653,7 @@ process.stdout.write(JSON.stringify({html}));
     for expected in (
         "Workspace Runtime",
         "Shared by people and agents",
-        "Local Jupyter",
+        '<option value="existing" selected>Existing Python</option>',
         "/client/.venv/bin/python",
         "pandas==2.3.2",
         "libs/sdk",

@@ -785,7 +785,7 @@ process.stdout.write(JSON.stringify({
         "stale": "codex-3",
         "fallback": "codex-3",
         "project": "Forge",
-        "file": "Forge",
+        "file": "README.md",
         "root": "lab",
         "renamedProject": "Review",
     }
@@ -1202,7 +1202,7 @@ def test_vault_workspaces_card_can_create_in_owning_vault() -> None:
     assert 'id="vaultWorkspaceModal"' in html
     assert 'id="vaultWorkspaceForm"' in html
     assert 'onclick="openVaultWorkspaceModal()">+ New workspace</button>' in source
-    assert "fetch('/api/workspaces', {" in source
+    assert "window.submitVaultWorkspace = submitVaultWorkspace;" in source
     assert "vault: vaultId" in source
     assert "workspacesList = vaults.flatMap(row => row.workspace_rows || []);" in source
     assert "goToWorkspace(workspace.path);" in source

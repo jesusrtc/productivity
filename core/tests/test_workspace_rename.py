@@ -149,3 +149,118 @@ def test_rename_preserves_idle_notebook_kernel_and_variables(client, monorepo, s
     output = '\n'.join(row.get('content', '') for row in second.json()['cell']['outputs'])
     assert '42 ' + str(old.parent / 'changed') in output
     assert not old.exists()
+
+
+def test_legacy_session_survives_repeated_moves_and_reopens_with_same_uuid(
+    client, monorepo, seed_workspace, isolated_prefix, monkeypatch,
+):
+    from core.routes import term
+    monkeypatch.delenv('LAB_TMUX_PREFIX', raising=False)
+    old = seed_workspace('demo')
+    data = storage.read_json(old / 'workspace.json')
+    resume_id = str(uuid.uuid4())
+    data['sessions'] = [{'name': 'terminal', 'kind': 'terminal', 'label': 'My terminal',
+                         'agent_session_id': resume_id}]
+    storage.write_json(old / 'workspace.json', data)
+    legacy_name = term._legacy_current_tmux_name_for('demo', 'terminal', monorepo)
+    subprocess.run(['tmux', 'new-session', '-d', '-s', legacy_name, '-c', str(old), 'bash'], check=True)
+    storage.write_json(paths.sessions_file(monorepo), {legacy_name: {
+        'workspace_id': 'demo', 'logical_name': 'terminal', 'kind': 'terminal',
+        'cwd': str(old), 'created_at': 1,
+    }})
+    for display_name in ('First Move', 'Second Move'):
+        moved = client.post('/api/workspaces/demo/rename', json={'name': display_name})
+        assert moved.status_code == 200, moved.text
+        attached = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal', 'name': 'terminal'})
+        assert attached.status_code == 200, attached.text
+        body = attached.json()
+        assert body['name'] == legacy_name
+        assert body['already_running']
+        assert body['label'] == 'My terminal'
+        assert body['cwd'] == moved.json()['path']
+    stable_uuid = body['session_id']
+    closed = client.delete('/api/term/sessions/' + legacy_name)
+    assert closed.status_code == 200, closed.text
+    recreated = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal', 'name': 'terminal'})
+    assert recreated.status_code == 200, recreated.text
+    assert recreated.json()['name'] == 'neurona-' + uuid.UUID(stable_uuid).hex
+    assert recreated.json()['session_id'] == stable_uuid
+    saved = storage.read_json(paths.workspace_file(monorepo, 'demo'))['sessions']
+    assert len(saved) == 1
+    assert saved[0]['label'] == 'My terminal'
+    assert saved[0]['agent_session_id'] == resume_id
+    assert len(client.get('/api/term/sessions?workspace_id=demo').json()) == 1
+
+
+def test_stale_notebook_write_after_second_rename_cannot_recreate_old_folder(monorepo, seed_workspace):
+    from core.routes.nb_exec import _mark_running
+    from fastapi import HTTPException
+    seed_workspace('demo')
+    first = workspace_identity.rename_workspace(monorepo, 'demo', 'First Move')
+    workspace_identity.rename_workspace(monorepo, 'demo', 'Second Move')
+    with pytest.raises(HTTPException) as exc:
+        _mark_running(Path(first['path']) / 'notebooks' / 'demo.ipynb', workspace_id='demo')
+    assert exc.value.status_code == 409
+    assert not Path(first['path']).exists()
+
+
+def test_folder_move_keeps_real_tmux_process_and_working_directory(monorepo, seed_workspace):
+    import shutil
+    import tempfile
+    import time
+    binary = shutil.which('tmux')
+    if not binary:
+        pytest.skip('tmux is not installed')
+    old = seed_workspace('demo')
+    identity = workspace_identity.session_identity(monorepo, 'demo', 'shell')
+    name = 'neurona-' + uuid.UUID(identity['session_id']).hex
+    # An explicit, short, disposable socket keeps the user's servers untouched.
+    with tempfile.TemporaryDirectory(prefix='lab-move-', dir='/tmp') as socket_dir:
+        socket = str(Path(socket_dir) / 'tmux.sock')
+        def tmux(*args, check=True):
+            return subprocess.run([binary, '-S', socket, '-f', '/dev/null', *args],
+                                  capture_output=True, text=True, timeout=10, check=check)
+        try:
+            tmux('new-session', '-d', '-s', name, '-c', str(old), '/bin/sh')
+            pid = tmux('display-message', '-p', '-t', name, '#{pane_pid}').stdout.strip()
+            moved = workspace_identity.rename_workspace(monorepo, 'demo', 'New Name')
+            assert tmux('display-message', '-p', '-t', name, '#{pane_pid}').stdout.strip() == pid
+            tmux('send-keys', '-t', name, 'pwd -P', 'Enter')
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                captured = tmux('capture-pane', '-p', '-J', '-t', name).stdout
+                if moved['path'] in captured:
+                    break
+                time.sleep(0.05)
+            assert moved['path'] in captured
+            assert workspace_identity.session_owner(monorepo, name) == ('demo', 'shell')
+            assert not old.exists()
+        finally:
+            tmux('kill-server', check=False)
+
+
+def test_delete_after_rename_removes_sessions_and_does_not_reuse_uuid(
+    client, monorepo, seed_workspace, isolated_prefix, monkeypatch,
+):
+    monkeypatch.delenv('LAB_TMUX_PREFIX', raising=False)
+    old = seed_workspace('demo')
+    survivor = seed_workspace('keep')
+    session = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'}).json()
+    moved = client.post('/api/workspaces/demo/rename', json={'name': 'Moved'})
+    assert moved.status_code == 200, moved.text
+    stale = client.request('DELETE', '/api/workspaces/demo?vault=productivity',
+                           json={'path': str(old), 'confirmed': True})
+    assert stale.status_code == 409
+    removed = client.request('DELETE', '/api/workspaces/demo?vault=productivity',
+                             json={'path': moved.json()['path'], 'confirmed': True})
+    assert removed.status_code == 200, removed.text
+    assert session['name'] in removed.json()['killed']
+    assert not Path(moved.json()['path']).exists()
+    assert survivor.is_dir()
+    assert client.get('/api/term/sessions?workspace_id=demo').json() == []
+    created = client.post('/api/workspaces', json={'name': 'demo'})
+    assert created.status_code == 200, created.text
+    replacement = client.post('/api/term/sessions', json={'workspace_id': 'demo', 'kind': 'terminal'})
+    assert replacement.status_code == 200, replacement.text
+    assert replacement.json()['session_id'] != session['session_id']
+    assert replacement.json()['name'] != session['name']

@@ -29,6 +29,18 @@ Lab repairs nested Git worktree links during a move. It does not rewrite
 absolute paths embedded in user scripts, virtual-environment launchers, or a
 running program's private state; those may need updating after a folder rename.
 
+### Migration regression checks
+
+Run `make test-all` for the CLI, backend, frontend behavior, latency, and
+reconnect suites, then `make check-ui` for the running application's Chrome
+smoke check. The focused migration tests are in
+`core/tests/test_workspace_rename.py`: folder moves, cross-vault isolation,
+collision rejection, rollback, Git worktree repair, missing-index recovery,
+legacy-session adoption, repeated renames, stale notebook writes, deletion,
+and UUID isolation when a deleted workspace ID is reused. They also launch a
+real notebook kernel and a real tmux process on a disposable socket to verify
+that variables, process identity, and working directories survive the move.
+
 ## Rolling socket rotation
 
 macOS security and keychain context is captured by a long-lived tmux server
