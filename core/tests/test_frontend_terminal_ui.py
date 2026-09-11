@@ -785,7 +785,7 @@ process.stdout.write(JSON.stringify({
         "stale": "codex-3",
         "fallback": "codex-3",
         "project": "Forge",
-        "file": "README.md",
+        "file": "Forge",
         "root": "lab",
         "renamedProject": "Review",
     }
