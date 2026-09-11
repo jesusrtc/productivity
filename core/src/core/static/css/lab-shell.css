@@ -2617,6 +2617,11 @@
   .term-drop-group { outline: 2px solid var(--term-group-color); outline-offset: 3px; border-radius: 4px; }
   .term-drag-hint { position: fixed; z-index: 1100; max-width: min(320px, 80vw); padding: 7px 10px; border: 1px solid var(--accent); border-radius: 5px; color: var(--text-primary); background: var(--bg-secondary); box-shadow: 0 4px 16px #0008; font-size: 12px; pointer-events: none; }
 
+/* Workspace deletion is exposed only by a workspace context action. */
+  .repo-tab.workspace-delete-button { color: var(--red); font-weight: 700; }
+  .repo-tab.workspace-delete-button:hover { color: var(--red); background: var(--bg-tertiary); }
+  .repo-tab.workspace-delete-button:disabled { opacity: .6; cursor: wait; }
+
 /* Terminal links use the existing drag gesture without reordering sidebar rows. */
 .term-link-drop-target {
   outline: 2px solid var(--accent);

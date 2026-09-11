@@ -499,6 +499,21 @@ def execute_ephemeral(
         process.close()
 
 
+def shutdown_workspace(root: Path, workspace_dir: Path) -> None:
+    """Stop only kernels whose notebooks belong to the deleted workspace."""
+    root_key = str(root.resolve())
+    workspace_dir = workspace_dir.resolve()
+    with _sessions_guard:
+        matches = [
+            key for key in _sessions
+            if key[0] == root_key
+            and (root / key[1]).resolve().is_relative_to(workspace_dir)
+        ]
+        sessions = [_sessions.pop(key) for key in matches]
+    for session in sessions:
+        session.close_sync()
+
+
 def shutdown_root(root: Path) -> None:
     root_key = str(root.resolve())
     with _sessions_guard:

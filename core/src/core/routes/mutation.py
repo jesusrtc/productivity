@@ -6,6 +6,7 @@ import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -115,6 +116,11 @@ class WorkspaceField(BaseModel):
     value: str | None = None
 
 
+class DeleteWorkspace(BaseModel):
+    path: str
+    confirmed: Literal[True]
+
+
 class TabState(BaseModel):
     open: bool
 
@@ -150,6 +156,36 @@ def update_workspace_field(workspace_id: str, body: WorkspaceField,
     value = "" if body.value is None else body.value
     _run_lab(["workspace", "set", workspace_id, body.field, value], root=root)
     return _read_workspace(root, workspace_id)
+
+
+@router.delete("/api/workspaces/{workspace_id}")
+def delete_workspace(workspace_id: str, body: DeleteWorkspace,
+                     request: Request, vault: str) -> dict:
+    """Permanently delete the exact workspace confirmed in the vault UI."""
+    auth.require_vault(request, vault)
+    _validate_pid(workspace_id)
+    if paths.is_pseudo_workspace(workspace_id) or workspace_id.startswith("__"):
+        raise HTTPException(status_code=400, detail="Only real workspaces can be deleted")
+    root = _root_for_vault(request, vault)
+    pdir = paths.workspace_dir(root, workspace_id)
+    # Never let a symlinked workspace/container turn this into a deletion
+    # outside the selected vault, or accept a stale/different UI target.
+    if pdir.is_symlink() or pdir.resolve() != pdir or not pdir.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Cannot delete a linked workspace folder")
+    if body.path != str(pdir):
+        raise HTTPException(status_code=409, detail="Workspace path changed; reopen its workspace menu")
+    if not pdir.is_dir() or not paths.workspace_file(root, workspace_id).is_file():
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    from core import notebook_kernel
+    from core.routes import servers, term
+
+    if servers._find_server_workspace(root, workspace_id) is not None:
+        servers.stop_server(vault, workspace_id, request)
+    notebook_kernel.shutdown_workspace(root, pdir)
+    sessions = term.kill_workspace_sessions(workspace_id, request, vault=vault)
+    _run_lab(["workspace", "rm", workspace_id, "--yes"], root=root)
+    return {"ok": True, "path": str(pdir), "killed": sessions["killed"]}
 
 
 @router.post("/api/workspaces/{workspace_id}/tab")

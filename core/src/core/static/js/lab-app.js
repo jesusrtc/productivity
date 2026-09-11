@@ -75,6 +75,8 @@
   let commitsList = [];
   let workspacesList = [];
   let currentWorkspace = null;
+  let _workspaceDeleteTarget = null;
+  let _workspaceDeleteBusy = false;
   let currentRepoInWorkspace = null;
   let vaultCatalog = [];
   let _vaultCatalogInFlight = null;
@@ -308,6 +310,7 @@
     currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
       || workspacesList.find(p => p.name === workspaceKey);
     if (!currentWorkspace) return;
+    if (_workspaceDeleteTarget?.path !== currentWorkspace.path) _workspaceDeleteTarget = null;
     _sidebarActivateFileConfig();
 
     _contextSubView = 'overview';
@@ -6396,6 +6399,10 @@
     }
     html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? (keepAliveOn ? 'Exit fullscreen focus (Keep Alive will remain on)' : 'Exit fullscreen focus and allow display sleep again (Esc)') : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
+    if (_workspaceDeleteIsVisible()) {
+      html += `<button class="repo-tab workspace-delete-button" onclick="deleteCurrentWorkspace()"${_workspaceDeleteBusy ? ' disabled' : ''}>${_workspaceDeleteBusy ? 'DELETING…' : 'DELETE WORKSPACE'}</button>`;
+    }
+
     container.innerHTML = html;
     _renderLidAwakeMenu();
   }
@@ -8569,6 +8576,7 @@
     (vaultCatalog || []).forEach(vault => {
       (vault.workspace_rows || []).forEach(update);
     });
+    (_vaultCurrent?.workspace_rows || []).forEach(update);
     update(currentWorkspace);
   }
 
@@ -9997,6 +10005,12 @@
         if (kind === 'assistant') { goToAssistant(); return; }
         if (kind === 'workspace' && key) goToWorkspace(key);
       });
+      if (node.getAttribute('data-kind') === 'workspace') {
+        node.addEventListener('contextmenu', event => {
+          const workspace = workspaceTabsAll.find(w => w.path === node.getAttribute('data-key'));
+          if (workspace) openVaultWorkspaceMenu(event, workspace, _workspaceVaultId(workspace));
+        });
+      }
     });
     el.querySelectorAll('.workspace-tab .x').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -13965,6 +13979,8 @@
   // strips the mutually-exclusive body classes; the destination init will
   // assert its own.
   function _swapViewState({preserveHomeTerminal = false} = {}) {
+    _workspaceDeleteTarget = null;
+    closeVaultWorkspaceMenu();
     if ((!preserveHomeTerminal || !_termHomeViewActive()) && typeof termDetach === 'function') termDetach(true);
     document.body.classList.remove(
       'cerebro-active', 'self-active', 'assistant-active', 'vault-active',
@@ -13983,6 +13999,7 @@
   function goToWorkspace(path, opts = {}) {
     if (!path) return;
     _swapViewState();
+    if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.set('workspace', path);
@@ -16754,6 +16771,7 @@
 
   let _vaultWorkspaceCreateBusy = false;
   let _vaultWorkspaceCreateVault = null;
+  let _vaultWorkspaceRenameTarget = null;
 
   function openVaultWorkspaceModal(vault = _vaultCurrent) {
     if (_vaultWorkspaceCreateBusy || !vault || vault.unavailable) return;
@@ -16763,7 +16781,11 @@
     const error = document.getElementById('vaultWorkspaceError');
     if (!modal || !form) return;
     form.reset();
+    _vaultWorkspaceRenameTarget = null;
     _vaultWorkspaceCreateVault = vault.id;
+    document.getElementById('vaultWorkspaceTitle').textContent = 'New workspace';
+    document.getElementById('vaultWorkspaceSubmit').textContent = 'Create workspace';
+    document.getElementById('vaultWorkspaceContextLabel').textContent = 'Create in';
     if (context) context.textContent = vault.name || vault.id;
     if (error) {
       error.textContent = '';
@@ -16776,6 +16798,20 @@
     }, 0);
   }
   window.openVaultWorkspaceModal = openVaultWorkspaceModal;
+
+  function openVaultWorkspaceRenameModal(workspace, vaultId) {
+    if (_vaultWorkspaceCreateBusy) return;
+    const vault = vaultCatalog.find(v => v.id === vaultId) || {id: vaultId};
+    if (vault.unavailable) return;
+    openVaultWorkspaceModal(vault);
+    _vaultWorkspaceRenameTarget = {id: workspace.name, path: workspace.path, vault: vaultId};
+    document.getElementById('vaultWorkspaceTitle').textContent = 'Rename workspace';
+    document.getElementById('vaultWorkspaceSubmit').textContent = 'Save name';
+    document.getElementById('vaultWorkspaceContextLabel').textContent = 'In';
+    const input = document.getElementById('vaultWorkspaceName');
+    input.value = _workspaceDisplayName(workspace);
+    input.select();
+  }
 
   function closeVaultWorkspaceModal() {
     if (_vaultWorkspaceCreateBusy) return;
@@ -16793,10 +16829,16 @@
     if (!form) return false;
 
     const vaultId = _vaultWorkspaceCreateVault;
+    const renameTarget = _vaultWorkspaceRenameTarget;
+    const name = form.elements.namedItem('name').value.trim();
+    if (!name) {
+      if (error) { error.textContent = 'Enter a workspace name'; error.classList.add('on'); }
+      return false;
+    }
     _vaultWorkspaceCreateBusy = true;
     if (submit) {
       submit.disabled = true;
-      submit.textContent = 'Creating…';
+      submit.textContent = renameTarget ? 'Saving…' : 'Creating…';
     }
     if (error) {
       error.textContent = '';
@@ -16804,21 +16846,37 @@
     }
 
     try {
-      const response = await fetch('/api/workspaces', {
+      const url = renameTarget
+        ? '/api/workspaces/' + encodeURIComponent(renameTarget.id) + '/field?vault=' + encodeURIComponent(renameTarget.vault)
+        : '/api/workspaces';
+      const response = await fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          name: form.elements.namedItem('name').value.trim(),
-          vault: vaultId,
-        }),
+        body: JSON.stringify(renameTarget ? {field: 'name', value: name} : {name, vault: vaultId}),
       });
       const created = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(created.detail || 'workspace creation failed');
+      if (!response.ok) throw new Error(created.detail || (renameTarget ? 'Could not rename workspace' : 'Workspace creation failed'));
 
       // A catalog request that started before creation may not contain the
       // new row. Let it settle, then fetch an authoritative post-create list.
       const pendingCatalog = _vaultCatalogInFlight;
       if (pendingCatalog) await pendingCatalog;
+      if (renameTarget) {
+        const savedName = String(created.name || name);
+        _setWorkspaceDisplayName(renameTarget.path, savedName);
+        if (currentWorkspace?.path === renameTarget.path) {
+          document.title = savedName;
+          const heading = document.querySelector('[data-workspace-display-title]');
+          if (heading) heading.textContent = savedName;
+          const nameInput = document.getElementById('workspaceDisplayName');
+          if (nameInput) nameInput.value = savedName;
+        }
+        workspaceTabsRender();
+        await vaultRenderWorkspacesCard();
+        _vaultWorkspaceCreateBusy = false;
+        closeVaultWorkspaceModal();
+        return false;
+      }
       const data = await fetchVaultCatalog();
       const vaults = (data && data.vaults) || [];
       const refreshed = vaults.find(row => row.id === vaultId);
@@ -16840,7 +16898,7 @@
       _vaultWorkspaceCreateBusy = false;
       if (submit) {
         submit.disabled = false;
-        submit.textContent = 'Create workspace';
+        submit.textContent = renameTarget ? 'Save name' : 'Create workspace';
       }
     }
     return false;
@@ -16850,6 +16908,95 @@
   // "Workspaces" card: the shown vault's workspace ids from
   // /api/vaults/workspaces. Rows open the workspace the same way Home's
   // active-vault rows do (goToWorkspaceById → in-page nav).
+  // Delete mode is intentionally transient: only a workspace context action
+  // arms it, and normal navigation or a full reload clears it.
+  function _workspaceDeleteIsVisible() {
+    return !!(_workspaceDeleteTarget && currentWorkspace?.is_workspace
+      && currentWorkspace.path === _workspaceDeleteTarget.path
+      && _workspaceVaultId(currentWorkspace) === _workspaceDeleteTarget.vault);
+  }
+
+  function closeVaultWorkspaceMenu() {
+    document.getElementById('vaultWorkspaceMenu')?.remove();
+  }
+
+  function openVaultWorkspaceMenu(event, workspace, vaultId) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeVaultWorkspaceMenu();
+    const menu = document.createElement('div');
+    menu.id = 'vaultWorkspaceMenu';
+    menu.className = 'explorer-context-menu open';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', _workspaceDisplayName(workspace));
+    menu.innerHTML = `<button type="button" data-action="rename" role="menuitem"><span aria-hidden="true">✎</span><span>Rename workspace</span></button>
+      <button type="button" class="danger" data-action="delete" role="menuitem"><span aria-hidden="true">×</span><span>Delete workspace</span></button>`;
+    const sourceRow = event.currentTarget;
+    const target = {path: workspace.path, id: workspace.name, name: _workspaceDisplayName(workspace), vault: vaultId};
+    menu.querySelector('[data-action="rename"]').addEventListener('click', () => {
+      closeVaultWorkspaceMenu();
+      openVaultWorkspaceRenameModal(workspace, vaultId);
+    });
+    menu.querySelector('[data-action="delete"]').addEventListener('click', () => {
+      closeVaultWorkspaceMenu();
+      goToWorkspace(target.path, {deleteTarget: target});
+    });
+    menu.addEventListener('keydown', e => {
+      if (e.key === 'Escape' || e.key === 'Tab') {
+        closeVaultWorkspaceMenu();
+        sourceRow.focus();
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
+      }
+    });
+    document.body.appendChild(menu);
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX || bounds.left;
+    const y = event.clientY || bounds.bottom;
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+    menu.querySelector('button').focus();
+  }
+
+  document.addEventListener('click', event => {
+    const menu = document.getElementById('vaultWorkspaceMenu');
+    if (menu && !menu.contains(event.target)) closeVaultWorkspaceMenu();
+  });
+  document.addEventListener('scroll', closeVaultWorkspaceMenu, true);
+  window.addEventListener('resize', closeVaultWorkspaceMenu);
+
+  async function deleteCurrentWorkspace() {
+    if (!_workspaceDeleteIsVisible() || _workspaceDeleteBusy) return;
+    const target = _workspaceDeleteTarget;
+    if (!confirm(`Permanently delete workspace “${target.name}”?\n\n${target.path}\n\nAll files and folders inside this workspace will be permanently lost, including code, uncommitted changes, tasks, notes, and assets. Its terminals, notebook kernels, and managed server will be stopped.\n\nThis cannot be undone. Delete this workspace?`)) return;
+    _workspaceDeleteBusy = true;
+    renderRepoTabs();
+    try {
+      const response = await fetch('/api/workspaces/' + encodeURIComponent(target.id) + '?vault=' + encodeURIComponent(target.vault), {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: target.path, confirmed: true}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.detail || 'Could not delete workspace');
+      if (currentWorkspace?.path === target.path) goToVault(target.vault);
+      for (const name of result.killed || []) _termEvictCache(name, target.id);
+      _termSessionsCache.delete(_termSessionsKey(target.id, target.vault));
+      _workspaceSidebarCache.delete(target.path);
+      _workspaceAttrsCache.delete(target.path);
+      workspacesList = (workspacesList || []).filter(w => w.path !== target.path);
+      workspaceTabsAll = (workspaceTabsAll || []).filter(w => w.path !== target.path);
+      try { localStorage.removeItem('labWorkspaceLastUsed:' + target.path); } catch {}
+      await workspaceTabsRefresh();
+      explorerToast(`Deleted workspace “${target.name}”.`);
+    } catch (error) {
+      explorerToast(String(error.message || error), true);
+    } finally {
+      _workspaceDeleteBusy = false;
+      renderRepoTabs();
+    }
+  }
+  window.deleteCurrentWorkspace = deleteCurrentWorkspace;
+
   function vaultWorkspaceResourceLabel(resources) {
     return [['terminals', 'terminal'], ['servers', 'server'], ['kernels', 'kernel']]
       .filter(([key]) => resources[key] > 0)
@@ -16916,7 +17063,15 @@
         <span class="p-caret">›</span>
       </li>`).join('');
     list.querySelectorAll('.vault-workspace-row').forEach(row => {
-      row.addEventListener('click', () => goToWorkspace(row.getAttribute('data-path')));
+      const workspace = workspaces.find(w => w.path === row.getAttribute('data-path'));
+      row.addEventListener('click', () => goToWorkspace(workspace.path));
+      row.addEventListener('contextmenu', event => openVaultWorkspaceMenu(event, workspace, vault.id));
+      row.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          goToWorkspace(workspace.path);
+        }
+      });
     });
     vaultRefreshWorkspaceResources();
   }
