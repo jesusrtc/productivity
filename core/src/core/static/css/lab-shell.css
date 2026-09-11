@@ -1598,14 +1598,54 @@
   .context-placeholder h1 { margin: 8px 0 10px; font-size: 24px; }
   .context-placeholder p { color: var(--text-secondary); line-height: 1.55; }
   .context-path { display: inline-block; margin-top: 16px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-primary); color: var(--text-primary); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
-  .admin-log-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .admin-log-toolbar .refresh-btn.active { color: var(--text-primary); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary)); }
-  .admin-log-toolbar-spacer { flex: 1 1 24px; }
-  .admin-log-toolbar .admin-log-flush { color: var(--red); }
-  .admin-log-toolbar .admin-log-flush:hover { border-color: var(--red); color: #fff; }
-  .admin-log-status { min-width: 120px; color: var(--text-secondary); font-size: 11px; text-align: right; }
-  .admin-log-output { max-height: 420px; overflow: auto; margin: 0; padding: 12px; border-radius: 6px; background: #010409; color: #c9d1d9; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
-  .admin-logs-section { grid-column: 1 / -1; }
+  /* Logs takes the Home content area; the shared terminal stays mounted. */
+  body:has(.home-logs) .sidebar,
+  body:has(.home-logs) .sidebar-resizer,
+  body:has(.home-logs) .sidebar-toggle,
+  body:has(.home-logs) .term-panel { display: none !important; }
+  .home-logs { position: fixed; inset: 84px 0 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); background: var(--bg-primary); z-index: 61; }
+  .home-logs-sources { display: flex; flex-direction: column; padding: 24px 12px 16px; border-right: 1px solid var(--border); background: var(--bg-secondary); overflow-y: auto; }
+  .home-logs-sources h1 { margin: 0 12px 4px; font-size: 22px; }
+  .home-logs-sources > p { margin: 0 12px 24px; font-size: 11px; color: var(--text-secondary); }
+  .home-logs-sources button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 12px; margin-bottom: 5px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-secondary); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+  .home-logs-sources button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  .home-logs-sources button.active { background: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary)); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--text-primary); }
+  .home-logs-sources small { display: block; margin-top: 5px; font-size: 10px; color: var(--text-secondary); }
+  .log-source-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .log-source-dot.errors { background: var(--red); }
+  .log-source-dot.backend { background: var(--accent); }
+  .log-source-dot.frontend { background: var(--green); }
+  .home-logs-note { margin-top: auto; padding: 24px 12px 0; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+  .home-logs-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .home-logs-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 22px 24px 16px; }
+  .home-logs-heading h2 { margin: 0 0 6px; font-size: 22px; }
+  .home-logs-heading p { margin: 0; color: var(--text-secondary); font-size: 11px; }
+  .home-logs-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .home-logs-actions .refresh-btn { padding: 7px 12px; min-height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+  .home-logs-actions .refresh-btn:hover { border-color: var(--accent); }
+  .home-logs-actions .admin-log-flush { color: var(--red); }
+  .home-logs-actions .admin-log-flush:hover { border-color: var(--red); }
+  .home-logs-actions button:disabled { opacity: .45; cursor: default; }
+  .home-logs-options { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; padding: 10px 24px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: 11px; }
+  .home-logs-options label { display: flex; align-items: center; gap: 7px; }
+  .home-logs-options select { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px; font: inherit; }
+  .home-logs-options input { accent-color: var(--accent); }
+  #adminLogStatus { margin-left: auto; }
+  .home-logs-output { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 12px 24px 24px; background: var(--bg-primary); color: var(--text-primary); font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+  .home-log-entry { display: inline-block; width: 100%; padding: 8px 10px; border-left: 2px solid var(--border); border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+  .home-log-entry.error { border-left-color: var(--red); background: color-mix(in srgb, var(--red) 4%, transparent); }
+  .home-log-entry.warning { border-left-color: var(--yellow); }
+  .home-logs-empty { display: block; padding: 48px 12px; text-align: center; color: var(--text-secondary); }
+  body.logs-have-unseen-errors .home-logs-tab:not(.active) { color: var(--red); }
+  @media (max-width: 720px) {
+    .home-logs { grid-template-columns: 135px minmax(0, 1fr); }
+    .home-logs-sources { padding: 18px 6px 12px; }
+    .home-logs-sources button { padding: 12px 8px; gap: 8px; }
+    .home-logs-sources small { display: none; }
+    .home-logs-heading { padding: 16px 12px; }
+    .home-logs-options, .home-logs-output { padding-left: 12px; padding-right: 12px; }
+    .home-logs-options { gap: 10px; }
+  }
   .vault-card-body { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-primary); }
   .vault-muted { color: var(--text-secondary); font-style: italic; }
   .vault-cfg-status.ok { color: var(--green); font-weight: 600; }

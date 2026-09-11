@@ -1,6 +1,6 @@
 (function () {
   const STATE_URL = "/api/log/error-state";
-  const LOG_URL = "/?view=productivity&subview=admin";
+  const LOG_URL = "/?view=productivity&subview=logs";
   const STORAGE_KEY = "lab.errorLog.seenCursor";
   const POLL_MS = 15000;
 
@@ -91,10 +91,10 @@
     if (document.body) {
       document.body.classList.toggle("logs-have-unseen-errors", unseen);
     }
-    document.querySelectorAll(".workspace-tab.logs-tab").forEach((tab) => {
+    document.querySelectorAll(".workspace-tab.logs-tab, .home-logs-tab").forEach((tab) => {
       tab.classList.toggle("has-unseen", unseen);
     });
-    document.querySelectorAll('.logs-source[data-file="errors.log"]').forEach((tab) => {
+    document.querySelectorAll('.logs-source[data-file="errors.log"], .home-logs-sources [data-log="errors.log"]').forEach((tab) => {
       tab.classList.toggle("has-unseen", unseen);
     });
     button.title = unseen

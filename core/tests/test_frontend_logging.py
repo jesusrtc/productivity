@@ -317,7 +317,7 @@ def test_logs_spa_route_and_nav_are_registered() -> None:
     assert 'step: "50"' not in logs_js
 
 
-def test_consolidated_logs_live_in_productivity_admin() -> None:
+def test_consolidated_logs_have_a_home_section() -> None:
     root = Path(__file__).resolve().parents[2]
     index_html = (root / "core/src/core/templates/index.html").read_text()
     lab_app = (root / "core/src/core/static/js/lab-app.js").read_text()
@@ -336,10 +336,14 @@ def test_consolidated_logs_live_in_productivity_admin() -> None:
     assert 'id="adminLogCopyButton"' in lab_app
     assert 'id="adminLogFlushButton"' in lab_app
     assert "Copy errors" in lab_app
-    assert "Flush errors" in lab_app
+    assert "Clear errors" in lab_app
     assert "row.exc" in lab_app
     assert "function goToLogs" in lab_app
-    assert "subview: 'admin'" in lab_app
+    assert "subview: 'logs'" in lab_app
+    assert "function selfShowLogs" in lab_app
+    assert lab_app.index("home-logs-tab") < lab_app.index("&#x2699; Admin")
+    admin = lab_app[lab_app.index("function selfShowAdmin()"):lab_app.index("window.selfShowAdmin")]
+    assert "adminLogOutput" not in admin
     assert "window.goToLogs = goToLogs" in lab_app
     assert 'id="logsView"' not in index_html
     assert "function initLogs" not in lab_app
@@ -419,7 +423,8 @@ async function fetch(path, options = {}) {
     }
 
 
-def test_admin_logs_copy_current_text_and_flush_selected_file() -> None:
+@pytest.mark.parametrize("file", ["errors.log", "backend.log", "frontend.log"])
+def test_admin_logs_copy_current_text_and_flush_selected_file(file: str) -> None:
     root = Path(__file__).resolve().parents[2]
     source = (root / "core/src/core/static/js/lab-app.js").read_text()
     start = source.index("function _adminLogLabel(file)")
@@ -427,6 +432,8 @@ def test_admin_logs_copy_current_text_and_flush_selected_file() -> None:
     helpers = source[start:end]
     result = _run_node(
         """
+const UI_CHECK = true;
+function esc(text) { return String(text).replaceAll('<', '&lt;'); }
 const elements = {};
 function makeElement() {
   return {
@@ -469,11 +476,12 @@ async function fetch(url, options = {}) {
   return {ok: true, json: async () => ({entries})};
 }
 """
+        + "const FILE = " + json.dumps(file) + ";\n"
         + helpers
         + """
 (async () => {
-  await adminRefreshLogs('errors.log');
-  const rendered = elements.adminLogOutput.textContent;
+  await adminRefreshLogs(FILE);
+  const rendered = elements.adminLogOutput._logText;
   await adminCopyLogs(elements.adminLogCopyButton);
   await adminFlushLogs(elements.adminLogFlushButton);
   process.stdout.write(JSON.stringify({
@@ -482,7 +490,7 @@ async function fetch(url, options = {}) {
     fetchCalls,
     copyLabel: elements.adminLogCopyButton.textContent,
     flushLabel: elements.adminLogFlushButton.textContent,
-    finalOutput: elements.adminLogOutput.textContent,
+    finalOutput: elements.adminLogOutput._logText,
     status: elements.adminLogStatus.textContent,
   }));
 })().catch(err => { console.error(err); process.exit(1); });
@@ -493,15 +501,16 @@ async function fetch(url, options = {}) {
     assert '"href":"/api/workspace-mtime?path=/workspace"' in result["rendered"]
     assert "traceback" in result["rendered"]
     assert result["copied"] == [result["rendered"]]
-    assert result["copyLabel"] == "Copy errors"
-    assert result["flushLabel"] == "Flush errors"
+    assert result["copyLabel"] == f"Copy {file[:-4]}"
+    assert result["flushLabel"] == f"Clear {file[:-4]}"
     assert result["fetchCalls"] == [
-        {"url": "/api/log/tail/all?file=errors.log&tail=300", "method": "GET"},
-        {"url": "/api/log/clear/all?file=errors.log", "method": "DELETE"},
-        {"url": "/api/log/tail/all?file=errors.log&tail=300", "method": "GET"},
+        {"url": f"/api/log/tail/all?file={file}&tail=500", "method": "GET"},
+        {"url": f"/api/log/clear/all?file={file}", "method": "DELETE"},
+        {"url": f"/api/log/tail/all?file={file}&tail=500", "method": "GET"},
+        {"url": f"/api/log/tail/all?file={file}&tail=500", "method": "GET"},
     ]
-    assert result["finalOutput"] == "No log entries."
-    assert result["status"] == "Flushed errors in 1 vault"
+    assert result["finalOutput"] == ""
+    assert result["status"] == f"Cleared {file[:-4]} in 1 vault"
 
 
 def test_log_alert_script_tracks_unseen_error_cursor() -> None:
@@ -511,6 +520,55 @@ def test_log_alert_script_tracks_unseen_error_cursor() -> None:
     assert "/api/log/error-state" in log_alert
     assert "lab.errorLog.seenCursor" in log_alert
     assert "has-unseen" in log_alert
-    assert "/?view=productivity&subview=admin" in log_alert
+    assert "/?view=productivity&subview=logs" in log_alert
     assert "Logs: new" in log_alert
     assert "window.goToLogs" in log_alert
+
+
+def test_home_logs_ignore_stale_source_responses_and_recover_after_failure() -> None:
+    source = (Path(__file__).resolve().parents[2] / "core/src/core/static/js/lab-app.js").read_text()
+    helpers = source[source.index("function _adminLogLabel(file)"):source.index("// Toggle hidden-files visibility for the productivity sidebar.")]
+    result = _run_node("""
+const UI_CHECK = true;
+const window = {};
+function esc(text) { return String(text).replaceAll('<', '&lt;'); }
+const elements = {};
+for (const id of ['adminLogOutput', 'adminLogCount', 'adminLogStatus', 'adminLogCopyButton', 'adminLogFlushButton']) {
+  elements[id] = {textContent: '', innerHTML: '', attrs: {},
+    getAttribute(k) { return this.attrs[k]; }, setAttribute(k,v) {this.attrs[k] = v;}};
+}
+const document = {getElementById(id) {return elements[id] || null;}, querySelectorAll() {return [];}};
+const requests = [];
+function fetch(url) { return new Promise(resolve => requests.push({url, resolve})); }
+function respond(i, entries) {requests[i].resolve({ok: true, json: async () => ({entries})});}
+""" + helpers + """
+(async () => {
+  const first = adminRefreshLogs('errors.log');
+  const second = adminRefreshLogs('backend.log');
+  respond(1, [{msg: '<script>backend</script>', level: 'INFO'}]);
+  await second;
+  respond(0, [{msg: 'stale error', level: 'ERROR'}]);
+  await first;
+  const afterSwitch = elements.adminLogOutput.innerHTML;
+  const failure = adminRefreshLogs('frontend.log');
+  requests[2].resolve({ok: false, json: async () => ({detail: 'offline'})});
+  await failure;
+  const failedStatus = elements.adminLogStatus.textContent;
+  const recovery = adminRefreshLogs('frontend.log');
+  respond(3, []);
+  await recovery;
+  const recovered = elements.adminLogOutput.innerHTML;
+  const leaving = adminRefreshLogs('errors.log');
+  const oldOutput = elements.adminLogOutput;
+  delete elements.adminLogOutput;
+  respond(4, [{msg: 'late navigation response'}]);
+  await leaving;
+  process.stdout.write(JSON.stringify({afterSwitch, failedStatus, recovered, leftText: oldOutput._logText}));
+})().catch(error => {console.error(error); process.exit(1);});
+""")
+    assert "backend" in result["afterSwitch"]
+    assert "stale error" not in result["afterSwitch"]
+    assert "<script>" not in result["afterSwitch"]
+    assert "offline" in result["failedStatus"]
+    assert "No log entries" in result["recovered"]
+    assert "late navigation response" not in result["leftText"]

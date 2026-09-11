@@ -6347,6 +6347,7 @@
         const action = active ? 'vaultShowOverview()' : `goToVault(${JSON.stringify(vault.id)})`;
         html += `<button class="repo-tab vault-context-tab${active ? ' active' : ''}" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="${escAttr(action)}"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
       }
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab home-logs-tab${isSelf && _contextSubView === 'logs' ? ' active' : ''}" onclick="goToLogs()">&#x2637; Logs</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
     } else if (currentWorkspace.is_workspace) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showWorkspaceDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
@@ -13938,7 +13939,8 @@
       history.pushState({nav: 'productivity'}, '', url.pathname + url.search + url.hash);
     }
     initSelf();
-    if (opts.subview === 'admin') selfShowAdmin();
+    if (opts.subview === 'logs') selfShowLogs();
+    else if (opts.subview === 'admin') selfShowAdmin();
     else if (opts.subview === 'code-search') showScopedCodeSearch();
   }
 
@@ -14014,7 +14016,7 @@
   // Compatibility entry points for old bookmarks and cached inline handlers.
   // The standalone surfaces are retired; both now land in Productivity.
   function goToLogs(opts = {}) {
-    goToProductivity({replace: !!opts.replace, subview: 'admin'});
+    return goToProductivity({replace: !!opts.replace, subview: 'logs'});
   }
   function goToCodeSearch(opts = {}) {
     goToProductivity({replace: !!opts.replace, subview: 'code-search'});
@@ -15302,37 +15304,15 @@
           <div class="s-section" id="dashKpis"></div>
           <div class="s-section" id="dashServers"><h2>Servers</h2><div class="srv-empty">Loading servers…</div></div>
           <div class="s-section" id="dashTerms"><h2>Terminals</h2><div class="term-empty">Loading terminal sessions…</div></div>
-          <div class="s-section admin-logs-section">
-            <h2>Logs <span class="count" id="adminLogCount"></span></h2>
-            <div class="admin-log-toolbar">
-              <button class="refresh-btn" data-log="errors.log">Errors</button>
-              <button class="refresh-btn" data-log="backend.log">Backend</button>
-              <button class="refresh-btn" data-log="frontend.log">Frontend</button>
-              <span class="admin-log-toolbar-spacer"></span>
-              <button class="refresh-btn" id="adminLogCopyButton" type="button" data-log-action="copy">Copy errors</button>
-              <button class="refresh-btn admin-log-flush" id="adminLogFlushButton" type="button" data-log-action="flush">Flush errors</button>
-              <span class="admin-log-status" id="adminLogStatus" role="status"></span>
-            </div>
-            <pre class="admin-log-output" id="adminLogOutput">Loading consolidated logs…</pre>
-          </div>
+
         </div>
       </div>`;
     content.querySelector('#dashServers').addEventListener('click', dashServersOnClick);
     content.querySelector('#dashTerms').addEventListener('click', dashTermsOnClick);
-    content.querySelectorAll('[data-log]').forEach(btn => {
-      btn.addEventListener('click', () => adminRefreshLogs(btn.getAttribute('data-log')));
-    });
-    content.querySelector('#adminLogCopyButton').addEventListener('click', event => {
-      adminCopyLogs(event.currentTarget);
-    });
-    content.querySelector('#adminLogFlushButton').addEventListener('click', event => {
-      adminFlushLogs(event.currentTarget);
-    });
     if (!UI_CHECK) dashStartPolling();
     dashPollTick();
     adminLoadAccess();
     adminLoadAssistant();
-    adminRefreshLogs('errors.log');
   }
   window.selfShowAdmin = selfShowAdmin;
 
@@ -15529,6 +15509,57 @@
   }
   window.adminSaveAssistant = adminSaveAssistant;
 
+  function selfShowLogs() {
+    if (!LAB_IS_ADMIN) return;
+    _workspaceDocPath = null;
+    currentRepo = null;
+    _contextSubView = 'logs';
+    const url = new URL(window.location);
+    url.searchParams.set('view', 'productivity');
+    url.searchParams.set('subview', 'logs');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    renderRepoTabs();
+    const content = document.getElementById('content');
+    content.innerHTML = `
+      <section class="home-logs" aria-label="Logs">
+        <nav class="home-logs-sources" aria-label="Log sources">
+          <h1>Logs</h1>
+          <p>All registered vaults</p>
+          <button type="button" data-log="errors.log"><span class="log-source-dot errors"></span><span>Errors<small>Backend &amp; frontend errors</small></span></button>
+          <button type="button" data-log="backend.log"><span class="log-source-dot backend"></span><span>Backend<small>Server activity</small></span></button>
+          <button type="button" data-log="frontend.log"><span class="log-source-dot frontend"></span><span>Frontend<small>Browser activity</small></span></button>
+          <div class="home-logs-note">Clear deletes the selected log’s history across all vaults. New activity continues to be recorded.</div>
+        </nav>
+        <div class="home-logs-main">
+          <header class="home-logs-heading">
+            <div><h2 id="adminLogTitle">Errors</h2><p id="adminLogCount">Loading…</p></div>
+            <div class="home-logs-actions">
+              <button class="refresh-btn" id="adminLogRefreshButton" type="button">↻ Refresh</button>
+              <button class="refresh-btn" id="adminLogCopyButton" type="button" disabled>Copy errors</button>
+              <button class="refresh-btn admin-log-flush" id="adminLogFlushButton" type="button" disabled>Clear errors</button>
+            </div>
+          </header>
+          <div class="home-logs-options">
+            <label>Show <select id="adminLogLimit"><option value="500">Latest 500 entries</option><option value="2000">Latest 2,000 entries</option><option value="5000">Latest 5,000 entries</option></select></label>
+            <label><input id="adminLogLive" type="checkbox" checked> Live updates</label>
+            <span id="adminLogStatus" role="status"></span>
+          </div>
+          <pre class="home-logs-output" id="adminLogOutput" tabindex="0" aria-label="Log entries">Loading…</pre>
+        </div>
+      </section>`;
+    content.querySelectorAll('[data-log]').forEach(button => {
+      button.addEventListener('click', () => adminRefreshLogs(button.getAttribute('data-log')));
+    });
+    content.querySelector('#adminLogCopyButton').addEventListener('click', event => adminCopyLogs(event.currentTarget));
+    content.querySelector('#adminLogFlushButton').addEventListener('click', event => adminFlushLogs(event.currentTarget));
+    const refresh = () => adminRefreshLogs(content.querySelector('#adminLogOutput').getAttribute('data-log-file'));
+    content.querySelector('#adminLogRefreshButton').addEventListener('click', refresh);
+    content.querySelector('#adminLogLimit').addEventListener('change', refresh);
+    content.querySelector('#adminLogLive').addEventListener('change', refresh);
+    adminRefreshLogs('errors.log');
+  }
+  window.selfShowLogs = selfShowLogs;
+
   function _adminLogLabel(file) {
     return String(file || 'errors.log').replace(/\.log$/i, '');
   }
@@ -15550,31 +15581,74 @@
     return lines.join('\n');
   }
 
-  async function adminRefreshLogs(file = 'errors.log') {
+  async function adminRefreshLogs(file = 'errors.log', {quiet = false} = {}) {
     const output = document.getElementById('adminLogOutput');
+    if (!output) return;
+    if (!['errors.log', 'backend.log', 'frontend.log'].includes(file)) file = 'errors.log';
+    clearTimeout(output._refreshTimer);
+    const request = (output._request || 0) + 1;
+    output._request = request;
+    const current = () => document.getElementById('adminLogOutput') === output && output._request === request;
     const count = document.getElementById('adminLogCount');
     const status = document.getElementById('adminLogStatus');
     const copyButton = document.getElementById('adminLogCopyButton');
     const flushButton = document.getElementById('adminLogFlushButton');
-    if (!output) return;
+    const title = document.getElementById('adminLogTitle');
+    const limit = document.getElementById('adminLogLimit');
+    const switched = output.getAttribute('data-log-file') !== file;
     output.setAttribute('data-log-file', file);
-    document.querySelectorAll('.admin-log-toolbar [data-log]').forEach(button => {
-      button.classList.toggle('active', button.getAttribute('data-log') === file);
+    document.querySelectorAll('.home-logs-sources [data-log]').forEach(button => {
+      const active = button.getAttribute('data-log') === file;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
     });
     const label = _adminLogLabel(file);
-    if (copyButton) copyButton.textContent = `Copy ${label}`;
-    if (flushButton) flushButton.textContent = `Flush ${label}`;
-    if (status) status.textContent = '';
-    output.textContent = 'Loading…';
+    if (title) title.textContent = label[0].toUpperCase() + label.slice(1);
+    copyButton.textContent = `Copy ${label}`;
+    flushButton.textContent = `Clear ${label}`;
+    if (!quiet) status.textContent = 'Loading…';
+    if (switched) {
+      output._logText = '';
+      output._loaded = false;
+      output.textContent = 'Loading…';
+      count.textContent = '';
+      copyButton.disabled = true;
+      flushButton.disabled = true;
+    }
     try {
-      const r = await fetch('/api/log/tail/all?file=' + encodeURIComponent(file) + '&tail=300');
+      const r = await fetch('/api/log/tail/all?file=' + encodeURIComponent(file) + '&tail=' + (limit ? limit.value : '500'));
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'load failed');
       const data = await r.json();
+      if (!current()) return;
       const entries = data.entries || [];
-      if (count) count.textContent = entries.length ? String(entries.length) : '';
-      output.textContent = entries.length ? entries.map(_adminLogRowText).join('\n') : 'No log entries.';
+      const text = entries.map(_adminLogRowText).join('\n');
+      const follow = switched || output.scrollHeight - output.scrollTop - output.clientHeight < 50;
+      if (text !== output._logText || !output._loaded) {
+        output._logText = text;
+        output._loaded = true;
+        output.innerHTML = entries.length ? entries.map(row => {
+          const level = String(row.level || '').toUpperCase();
+          const tone = ['ERROR', 'CRITICAL'].includes(level) ? 'error' : ['WARNING', 'WARN'].includes(level) ? 'warning' : 'info';
+          return `<span class="home-log-entry ${tone}">${esc(_adminLogRowText(row))}</span>`;
+        }).join('\n') : '<span class="home-logs-empty">No log entries. New activity will appear here.</span>';
+        if (follow) output.scrollTop = output.scrollHeight;
+      }
+      count.textContent = `${entries.length.toLocaleString()} entries · oldest to newest`;
+      copyButton.disabled = !entries.length;
+      flushButton.disabled = !!output._clearing;
+      if (!quiet || status.textContent.startsWith('Could not load')) status.textContent = '';
+      if (file === 'errors.log' && window.labLogAlertMarkSeen) window.labLogAlertMarkSeen();
     } catch (e) {
-      output.textContent = 'Could not load logs: ' + (e.message || e);
+      if (!current()) return;
+      status.textContent = 'Could not load logs: ' + (e.message || e);
+      if (switched) output.textContent = 'Logs unavailable. Use Refresh to try again.';
+    } finally {
+      const live = document.getElementById('adminLogLive');
+      if (current() && live && live.checked && !UI_CHECK && !output._clearing) {
+        output._refreshTimer = setTimeout(() => {
+          if (current()) adminRefreshLogs(file, {quiet: true});
+        }, 5000);
+      }
     }
   }
   window.adminRefreshLogs = adminRefreshLogs;
@@ -15582,35 +15656,49 @@
   async function adminCopyLogs(button) {
     const output = document.getElementById('adminLogOutput');
     const status = document.getElementById('adminLogStatus');
-    if (!output) return;
-    const ok = await _copyToClipboard(output.textContent || '', button);
-    if (status) status.textContent = ok ? 'Copied to clipboard' : 'Copy failed';
+    if (!output || !output._logText) return;
+    const file = output.getAttribute('data-log-file');
+    const ok = await _copyToClipboard(output._logText, button);
+    if (document.getElementById('adminLogOutput') === output && output.getAttribute('data-log-file') === file) {
+      status.textContent = ok ? 'Copied to clipboard' : 'Copy failed';
+    }
   }
   window.adminCopyLogs = adminCopyLogs;
 
   async function adminFlushLogs(button) {
     const output = document.getElementById('adminLogOutput');
     const status = document.getElementById('adminLogStatus');
-    const file = output && output.getAttribute('data-log-file') || 'errors.log';
+    if (!output || output._clearing) return;
+    const file = output.getAttribute('data-log-file') || 'errors.log';
     const label = _adminLogLabel(file);
-    if (!confirm(`Flush ${file} across all registered vaults? This cannot be undone.`)) return;
-    if (button) button.disabled = true;
-    if (status) status.textContent = `Flushing ${label}…`;
+    if (!confirm(`Clear all ${label} recorded so far across all registered vaults? This deletes the stored history, including entries beyond the displayed limit. New logs will still be recorded.`)) return;
+    output._clearing = true;
+    clearTimeout(output._refreshTimer);
+    output._request += 1;
+    button.disabled = true;
+    status.textContent = `Clearing ${label}…`;
+    const current = () => document.getElementById('adminLogOutput') === output && output.getAttribute('data-log-file') === file;
     try {
       const response = await fetch('/api/log/clear/all?file=' + encodeURIComponent(file), {method: 'DELETE'});
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || 'flush failed');
+      if (!response.ok) throw new Error(data.detail || 'clear failed');
       const cleared = Array.isArray(data.cleared) ? data.cleared.length : 0;
       const failed = Array.isArray(data.failed) ? data.failed : [];
-      if (failed.length) {
-        throw new Error(`cleared ${cleared}; failed: ${failed.map(row => row.vault).join(', ')}`);
+      if (current()) {
+        await adminRefreshLogs(file);
+        if (current()) status.textContent = failed.length
+          ? `Cleared ${cleared} vaults; failed: ${failed.map(row => row.vault).join(', ')}`
+          : `Cleared ${label} in ${cleared} vault${cleared === 1 ? '' : 's'}`;
       }
-      await adminRefreshLogs(file);
-      if (status) status.textContent = `Flushed ${label} in ${cleared} vault${cleared === 1 ? '' : 's'}`;
     } catch (e) {
-      if (status) status.textContent = 'Flush failed: ' + (e.message || e);
+      if (current()) status.textContent = 'Clear failed: ' + (e.message || e);
     } finally {
-      if (button) button.disabled = false;
+      output._clearing = false;
+      if (document.getElementById('adminLogOutput') === output) {
+        button.disabled = false;
+        // Resume updates for whichever source is now selected.
+        adminRefreshLogs(output.getAttribute('data-log-file'), {quiet: true});
+      }
     }
   }
   window.adminFlushLogs = adminFlushLogs;
@@ -17167,7 +17255,8 @@
     });
   } else if (urlView === 'productivity') {
     initSelf();
-    if (initialParams.get('subview') === 'admin') selfShowAdmin();
+    if (initialParams.get('subview') === 'logs') selfShowLogs();
+    else if (initialParams.get('subview') === 'admin') selfShowAdmin();
     else if (initialParams.get('subview') === 'code-search') showScopedCodeSearch();
   } else if (urlView === 'vault') {
     initVaultView(initialParams.get('vault') || currentVaultId);
@@ -17178,7 +17267,7 @@
     showScopedCodeSearch();
   } else if (urlView === 'logs') {
     initSelf();
-    selfShowAdmin();
+    selfShowLogs();
   }
 
   // Workspace and default-Home startup also wait for all state declarations.
