@@ -10043,44 +10043,88 @@
     await workspaceTabsRefresh();
   }
 
+  function workspaceTabsClosePicker(restoreFocus = false) {
+    document.getElementById('workspaceTabsPicker')?.classList.remove('open');
+    const button = document.getElementById('workspaceTabsPlusBtn');
+    button?.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) button?.focus();
+  }
+
   function workspaceTabsTogglePicker(ev) {
     if (ev) ev.stopPropagation();
     const picker = document.getElementById('workspaceTabsPicker');
-    if (!picker) return;
-    const opening = !picker.classList.contains('open');
-    picker.classList.toggle('open', opening);
-    if (opening) {
-      workspaceTabsRenderPicker();
-      const off = (e) => {
-        if (!picker.contains(e.target) && e.target.id !== 'workspaceTabsPlusBtn') {
-          picker.classList.remove('open');
-          document.removeEventListener('click', off);
-        }
-      };
-      setTimeout(() => document.addEventListener('click', off), 0);
-    }
-  }
-
-  function workspaceTabsRenderPicker() {
-    const picker = document.getElementById('workspaceTabsPicker');
-    if (!picker) return;
-    const openWorkspaces = new Set(workspaceTabsOpenIds());
-    const candidates = (workspaceTabsAll || []).filter(workspace => !openWorkspaces.has(workspace.path));
-    if (candidates.length === 0) {
-      picker.innerHTML = '<div class="empty">All workspaces are already open.</div>';
+    const button = document.getElementById('workspaceTabsPlusBtn');
+    if (!picker || !button) return;
+    if (picker.classList.contains('open')) {
+      workspaceTabsClosePicker();
       return;
     }
-    picker.innerHTML = candidates.map(workspace => `
-      <div class="row" data-path="${workspaceTabsEsc(workspace.path)}">
-        <span class="vault-mark" style="--vault-color:${workspaceTabsEsc(workspace.vault_color || '#8b949e')}"></span>
-        <span>${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
-        <span class="meta">${workspaceTabsEsc(workspace.vault_name || workspace.vault || '')}</span>
-      </div>`).join('');
-    picker.querySelectorAll('.row').forEach(row => {
+    workspaceTabsRenderPicker();
+    picker.classList.add('open');
+    button.setAttribute('aria-expanded', 'true');
+    const bounds = button.getBoundingClientRect();
+    picker.style.left = Math.max(8, Math.min(bounds.left, window.innerWidth - picker.offsetWidth - 8)) + 'px';
+    picker.style.top = (bounds.bottom + 10) + 'px';
+    picker.querySelector('select, button')?.focus();
+  }
+
+  document.addEventListener('click', event => {
+    const picker = document.getElementById('workspaceTabsPicker');
+    if (picker && !picker.contains(event.target) && !event.target.closest('#workspaceTabsPlusBtn')) {
+      workspaceTabsClosePicker();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && document.getElementById('workspaceTabsPicker')?.classList.contains('open')) {
+      event.preventDefault();
+      event.stopPropagation();
+      workspaceTabsClosePicker(true);
+    }
+  });
+  document.addEventListener('focusin', event => {
+    if (!event.target.closest('.workspace-tabs-plus-wrap')) workspaceTabsClosePicker();
+  });
+  window.addEventListener('resize', () => workspaceTabsClosePicker());
+
+  function workspaceTabsRenderPicker(vaultId) {
+    const picker = document.getElementById('workspaceTabsPicker');
+    if (!picker) return;
+    const vaults = (vaultCatalog || []).filter(vault => !vault.unavailable);
+    const preferred = vaultId || (currentWorkspace && _workspaceVaultId(currentWorkspace)) || currentVaultId;
+    const vault = vaults.find(row => row.id === preferred) || vaults[0];
+    if (!vault) {
+      picker.innerHTML = '<div class="empty">No vaults available. Add a vault in Home.</div>';
+      return;
+    }
+    const openWorkspaces = new Set(workspaceTabsOpenIds());
+    const candidates = (vault.workspace_rows || []).filter(workspace => workspace.is_workspace);
+    picker.innerHTML = `
+      <label class="picker-vault">Vault<select aria-label="Vault">${vaults.map(row => `
+        <option value="${workspaceTabsEsc(row.id)}"${row.id === vault.id ? ' selected' : ''}>${workspaceTabsEsc(row.name || row.id)}</option>`).join('')}</select></label>
+      ${LAB_IS_ADMIN ? '<button type="button" class="row" data-action="create"><span aria-hidden="true">+</span><span>New workspace</span></button>' : ''}
+      <button type="button" class="row" data-action="vault"><span class="vault-mark" style="--vault-color:${workspaceTabsEsc(vault.color || '#8b949e')}"></span><span>Open vault</span></button>
+      <div class="picker-heading">Open existing workspace</div>
+      ${candidates.length ? candidates.map(workspace => `
+        <button type="button" class="row" data-path="${workspaceTabsEsc(workspace.path)}">
+          <span class="label">${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
+          ${openWorkspaces.has(workspace.path) ? '<span class="meta">Open</span>' : ''}
+        </button>`).join('') : '<div class="empty">No workspaces in this vault yet.</div>'}`;
+    picker.querySelector('select').addEventListener('change', event => {
+      workspaceTabsRenderPicker(event.target.value);
+      picker.querySelector('select')?.focus();
+    });
+    picker.querySelector('[data-action="create"]')?.addEventListener('click', () => {
+      workspaceTabsClosePicker();
+      openVaultWorkspaceModal(vault);
+    });
+    picker.querySelector('[data-action="vault"]').addEventListener('click', () => {
+      workspaceTabsClosePicker();
+      goToVault(vault.id);
+    });
+    picker.querySelectorAll('[data-path]').forEach(row => {
       row.addEventListener('click', () => {
-        picker.classList.remove('open');
-        const path = row.getAttribute('data-path');
-        if (path) goToWorkspace(path);
+        workspaceTabsClosePicker();
+        goToWorkspace(row.getAttribute('data-path'));
       });
     });
   }
@@ -16519,16 +16563,18 @@
   window.vaultToggleAgent = vaultToggleAgent;
 
   let _vaultWorkspaceCreateBusy = false;
+  let _vaultWorkspaceCreateVault = null;
 
-  function openVaultWorkspaceModal() {
-    if (!_vaultCurrent || _vaultCurrent.unavailable) return;
+  function openVaultWorkspaceModal(vault = _vaultCurrent) {
+    if (_vaultWorkspaceCreateBusy || !vault || vault.unavailable) return;
     const modal = document.getElementById('vaultWorkspaceModal');
     const form = document.getElementById('vaultWorkspaceForm');
     const context = document.getElementById('vaultWorkspaceContext');
     const error = document.getElementById('vaultWorkspaceError');
     if (!modal || !form) return;
     form.reset();
-    if (context) context.textContent = _vaultCurrent.name || _vaultCurrent.id;
+    _vaultWorkspaceCreateVault = vault.id;
+    if (context) context.textContent = vault.name || vault.id;
     if (error) {
       error.textContent = '';
       error.classList.remove('on');
@@ -16554,13 +16600,13 @@
 
   async function submitVaultWorkspace(event) {
     if (event) event.preventDefault();
-    if (_vaultWorkspaceCreateBusy || !_vaultCurrent) return false;
+    if (_vaultWorkspaceCreateBusy || !_vaultWorkspaceCreateVault) return false;
     const form = document.getElementById('vaultWorkspaceForm');
     const error = document.getElementById('vaultWorkspaceError');
     const submit = document.getElementById('vaultWorkspaceSubmit');
     if (!form) return false;
 
-    const vaultId = _vaultCurrent.id;
+    const vaultId = _vaultWorkspaceCreateVault;
     _vaultWorkspaceCreateBusy = true;
     if (submit) {
       submit.disabled = true;
@@ -16595,7 +16641,7 @@
       const data = await fetchVaultCatalog();
       const vaults = (data && data.vaults) || [];
       const refreshed = vaults.find(row => row.id === vaultId);
-      if (refreshed) _vaultCurrent = refreshed;
+      if (refreshed && _vaultCurrent?.id === vaultId) _vaultCurrent = refreshed;
       workspacesList = vaults.flatMap(row => row.workspace_rows || []);
       const workspace = workspacesList.find(row =>
         row.vault === vaultId && row.name === created.id);

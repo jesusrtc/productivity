@@ -105,13 +105,15 @@
 </script>
 
 <div class="topbar">
-  <!-- Persistent navigation: Home, then user-opened vault and
+  <!-- Persistent navigation: Home, Assistant, then user-opened
        workspace tabs. Each vault owns its color cue; switching tabs never
        changes the server's active vault or reloads the page. -->
-  <div class="workspace-tabs" id="workspaceTabs" role="tablist"></div>
-  <div class="workspace-tabs-plus-wrap">
-    <button class="workspace-tabs-plus" id="workspaceTabsPlusBtn" onclick="workspaceTabsTogglePicker(event)" title="Open another workspace">+</button>
-    <div class="workspace-tabs-picker" id="workspaceTabsPicker"></div>
+  <div class="workspace-tabs-nav">
+    <div class="workspace-tabs" id="workspaceTabs" role="tablist"></div>
+    <div class="workspace-tabs-plus-wrap">
+      <button type="button" class="workspace-tabs-plus" id="workspaceTabsPlusBtn" onclick="workspaceTabsTogglePicker(event)" title="New tab" aria-label="New tab" aria-expanded="false" aria-controls="workspaceTabsPicker">+</button>
+      <div class="workspace-tabs-picker" id="workspaceTabsPicker" role="dialog" aria-label="Open a workspace"></div>
+    </div>
   </div>
   <!-- Legacy dropdown kept hidden so selectRepo() / populateRepoSelect() still
        work without a rewrite. The visible UI is the tab strip above. -->
@@ -467,7 +469,7 @@
   </form>
 </div>
 
-<!-- Create a workspace in the vault currently shown in the Vault tab. -->
+<!-- Create a workspace in the vault selected when this form opens. -->
 <div class="modal-overlay" id="vaultWorkspaceModal" onclick="if(event.target===this)closeVaultWorkspaceModal()">
   <form class="form-modal" id="vaultWorkspaceForm" onsubmit="submitVaultWorkspace(event)" role="dialog" aria-labelledby="vaultWorkspaceTitle">
     <div class="fm-header">

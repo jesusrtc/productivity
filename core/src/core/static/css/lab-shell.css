@@ -61,7 +61,8 @@
   /* Chrome-style workspace tabs. Tabs appear when a workspace has live tmux
      sessions OR is the currently-viewed workspace. Scroll horizontally when
      overflowing. */
-  .workspace-tabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; padding-top: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; height: 100%; }
+  .workspace-tabs-nav { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; }
+  .workspace-tabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; flex: 0 1 auto; min-width: 0; padding-top: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; height: 100%; }
   .workspace-tabs::-webkit-scrollbar { height: 4px; }
   .workspace-tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   .workspace-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 12px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; max-width: 220px; white-space: nowrap; position: relative; top: 6px; flex-shrink: 0; }
@@ -96,14 +97,21 @@
   .workspace-tab { user-select: none; }
 
   .workspace-tabs-plus-wrap { position: relative; flex-shrink: 0; }
-  .workspace-tabs-plus { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 14px; cursor: pointer; line-height: 1; }
+  .workspace-tabs-plus { display: grid; place-items: center; width: 26px; height: 26px; background: transparent; color: var(--text-secondary); border: none; border-radius: 6px; padding: 0; font-size: 20px; cursor: pointer; line-height: 1; }
   .workspace-tabs-plus:hover { color: var(--text-primary); background: var(--border); }
-  .workspace-tabs-picker { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 110; max-height: 400px; overflow-y: auto; min-width: 260px; padding: 4px; }
+  .workspace-tabs-picker { display: none; position: fixed; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 110; max-height: min(440px, calc(100vh - 64px)); overflow-y: auto; width: min(320px, calc(100vw - 16px)); padding: 8px; }
   .workspace-tabs-picker.open { display: block; }
   .workspace-tabs-picker .empty { padding: 12px; color: var(--text-dim); font-size: 12px; }
   .workspace-tabs-picker .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; color: var(--text-primary); font-size: 12px; }
   .workspace-tabs-picker .row:hover { background: var(--bg-tertiary); }
   .workspace-tabs-picker .row .meta { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+  .workspace-tabs-picker button.row { width: 100%; border: 0; background: transparent; text-align: left; font-family: inherit; }
+  .workspace-tabs-picker button.row:hover { background: var(--bg-tertiary); }
+  .workspace-tabs-picker .row > .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-tabs-picker .picker-vault { display: flex; align-items: center; gap: 12px; padding: 4px 6px 10px; color: var(--text-secondary); font-size: 12px; }
+  .workspace-tabs-picker .picker-vault select { flex: 1; min-width: 0; }
+  .workspace-tabs-picker .picker-heading { border-top: 1px solid var(--border); margin-top: 6px; padding: 12px 10px 6px; color: var(--text-dim); font-size: 11px; }
+  .workspace-tabs-plus:focus-visible, .workspace-tabs-picker button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .view-toggle { display: flex; gap: 0; }
   .view-toggle button { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); padding: 5px 12px; font-size: 12px; cursor: pointer; }
   .theme-toggle { margin-left: auto; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; line-height: 1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }

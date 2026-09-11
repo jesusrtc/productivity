@@ -125,3 +125,5 @@
 - [Logs is a Home section](logs-are-a-home-section.md) — before Admin, with a full-page source selector and live, copy, and clear controls
 
 - [Home terminal section associations](home-terminal-section-associations.md) — Logs keeps the terminal visible; Home/vault/Logs labels select each section's latest terminal from the shared pool
+
+- [Workspace new-tab button](workspace-new-tab-button.md) — small + beside the tabs; picker selects a vault and creates or opens a workspace in that vault
