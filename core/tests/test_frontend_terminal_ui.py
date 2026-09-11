@@ -527,6 +527,7 @@ def test_terminal_active_session_details_move_to_header() -> None:
         "function _termSessionDisplay(s)",
         "function termRenderSessionList()",
     )
+    header_helpers += _js_between("  function _termHomeAssociationHtml(session)", "  // Which tab (if any)")
     result = _run_node(
         """
 const activeHeader = {
@@ -576,6 +577,7 @@ def test_terminal_request_block_keeps_history_in_a_three_item_viewport() -> None
         "function _termSessionDisplay(s)",
         "function _termSessionPillHtml(s, index)",
     )
+    header_helpers += _js_between("  function _termHomeAssociationHtml(session)", "  // Which tab (if any)")
     result = _run_node(
         """
 const activeHeader = {
@@ -906,7 +908,7 @@ def test_terminal_new_menu_opens_a_grouped_tmux_session_modal() -> None:
     assert ".term-attach-badge.live" in css
     assert ".term-attach-row.has-tab:disabled" in css
     assert "/api/term/sessions/attachable?${query}" in source
-    assert "_termAttachModalScope = {workspaceId, vaultId, workspaceLabel};" in source
+    assert "_termAttachModalScope = {workspaceId, vaultId, workspaceLabel, homeSection: _termHomeSection()};" in source
     assert "const heading = hasUiTab ? 'Attached in Lab' : 'Available to attach';" in source
     assert "const disabled = hasUiTab || _termAttachPendingName;" in source
     assert "Client attached" not in _js_between(

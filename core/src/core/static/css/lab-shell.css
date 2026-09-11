@@ -1601,9 +1601,10 @@
   /* Logs takes the Home content area; the shared terminal stays mounted. */
   body:has(.home-logs) .sidebar,
   body:has(.home-logs) .sidebar-resizer,
-  body:has(.home-logs) .sidebar-toggle,
-  body:has(.home-logs) .term-panel { display: none !important; }
+  body:has(.home-logs) .sidebar-toggle { display: none !important; }
   .home-logs { position: fixed; inset: 84px 0 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); background: var(--bg-primary); z-index: 61; }
+  body.term-open:not(.term-collapsed) .home-logs { right: var(--term-width); }
+  body:has(.home-logs) .term-panel { top: 84px; }
   .home-logs-sources { display: flex; flex-direction: column; padding: 24px 12px 16px; border-right: 1px solid var(--border); background: var(--bg-secondary); overflow-y: auto; }
   .home-logs-sources h1 { margin: 0 12px 4px; font-size: 22px; }
   .home-logs-sources > p { margin: 0 12px 24px; font-size: 11px; color: var(--text-secondary); }
@@ -1994,6 +1995,11 @@
   .term-new-tab { width: 100%; flex-shrink: 0; min-height: 34px; padding: 5px; background: transparent; color: var(--text-secondary); border: 1px dashed var(--border); border-radius: 5px; cursor: pointer; white-space: nowrap; }
   .term-new-tab:hover { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--accent); }
   .term-new-label { display: none; }
+  .term-home-association { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--term-association-color); font-size: 10px; flex-shrink: 0; }
+  .term-home-association::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .term-home-association span { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-sessions .term-home-association span { display: none; }
+  .term-sessions-full .term-sessions .term-home-association span { display: inline; }
   .term-sessions-full .term-new-label { display: inline; }
   .term-sessions-horizontal .term-new-tab { width: auto; min-width: 36px; align-self: flex-start; }
   .term-tab-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex-shrink: 0; }

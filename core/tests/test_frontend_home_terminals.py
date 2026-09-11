@@ -31,6 +31,9 @@ const document = {body: {classList: {
   remove: (...names) => names.forEach(name => classes.delete(name)),
 }}, getElementById: () => null};
 let LAB_IS_ADMIN = true;
+let _contextSubView = 'overview', vaultCatalog = [], termSessions = [];
+const storage = new Map();
+const localStorage = {getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v)};
 const SELF_WORKSPACE_ID = '__self__', CEREBRO_WORKSPACE_ID = '__cerebro__';
 const ASSISTANT_WORKSPACE_ID = '__assistant__', ASSISTANT_VAULT_ID = '__assistant__';
 const _TERM_VIS_KEY_PREFIX = 'visibility:';
@@ -128,3 +131,83 @@ console.log(JSON.stringify({requests, refreshes}));
     assert result['requests'][0]['cwd'] == '/selected/project'
     assert result['requests'][0]['linked_scope']['project_root'] == '/selected/project'
     assert result['refreshes'] == ['__self__', '__self__']
+
+
+def test_home_navigation_restores_each_sections_latest_terminal():
+    result = run('''
+vaultCatalog = [{id: 'ssd', name: 'SSD', path: '/ssd', color: '#ff8800'},
+  {id: 'local', name: 'Local', path: '/local', color: '#5588ff'}];
+termSessions = [
+  {name: 'home', logical_name: 'home'},
+  {name: 'ssd-old', logical_name: 'ssd-old', linked_scope: {root: '/ssd/project'}},
+  {name: 'ssd-new', logical_name: 'ssd-new'},
+  {name: 'local', logical_name: 'local', linked_scope: {root: '/local'}},
+  {name: 'logs', logical_name: 'logs'},
+];
+_termSaveHomeAssociation('ssd-old', 'vault:ssd', 100);
+_termSaveHomeAssociation('ssd-new', 'vault:ssd', 200);
+_termSaveHomeAssociation('logs', 'logs', 300);
+const selected = [];
+const termAttach = name => selected.push(name);
+view('self', {});
+_termSelectHomeSection();
+view('vault', {vault_id: 'ssd'});
+_termSelectHomeSection();
+view('vault', {vault_id: 'local'});
+_termSelectHomeSection();
+view('self', {}); _contextSubView = 'logs';
+_termSelectHomeSection();
+// A reload reads the same durable associations, and closing the newest
+// session falls back to the remaining session for that vault.
+view('vault', {vault_id: 'ssd'});
+const restored = _termHomeRestoreName();
+termSessions = termSessions.filter(s => s.name !== 'ssd-new');
+const fallback = _termHomeRestoreName();
+_termSaveHomeAssociation('ssd-old', 'home', 400);
+const reassigned = _termHomeRestoreName();
+const termSessEsc = value => value;
+view('self', {});
+const badge = _termHomeAssociationHtml(termSessions.find(s => s.name === 'logs'));
+console.log(JSON.stringify({selected, restored, fallback, reassigned, badge}));
+''')
+    assert result['selected'] == ['home', 'ssd-new', 'local', 'logs']
+    assert result['restored'] == 'ssd-new'
+    assert result['fallback'] == 'ssd-old'
+    assert result['reassigned'] is None
+    assert '#f85149' in result['badge']
+    assert 'Logs' in result['badge']
+
+
+def test_creation_keeps_origin_association_when_home_section_changes():
+    result = run('''
+view('vault', {vault_id: 'ssd'});
+const _termSelectedScope = () => null;
+const termSetStatus = () => {}, alert = message => {throw Error(message);};
+const termSetAutoSpawnEnabled = async () => {};
+const fetch = async () => {
+  view('self', {}); _contextSubView = 'logs';
+  return {ok: true, json: async () => ({name: 'new-ssd', logical_name: 'new-ssd'})};
+};
+const attached = [];
+const termAttach = name => attached.push(name);
+await termSpawnSession('shell', {startFresh: true});
+console.log(JSON.stringify({association: _termReadHomeAssociations()['new-ssd'].section, attached}));
+''', section('  async function termSpawnSession(', '  async function termKillCurrent()'))
+    assert result == {'association': 'vault:ssd', 'attached': []}
+
+
+def test_using_a_home_terminal_updates_its_own_sections_recency():
+    result = run('''
+const TERM_LAST_KEY = 'last';
+vaultCatalog = [{id: 'ssd', path: '/ssd'}];
+termSessions = [{name: 'one', logical_name: 'one'}, {name: 'two', logical_name: 'two'}];
+_termSaveHomeAssociation('one', 'vault:ssd', 100);
+_termSaveHomeAssociation('two', 'vault:ssd', 200);
+// Manually selecting an SSD terminal while viewing Logs updates SSD's last
+// selection without relabeling the process as a Logs terminal.
+view('self', {}); _contextSubView = 'logs';
+_termRememberLast('__self__', 'one');
+view('vault', {vault_id: 'ssd'});
+console.log(JSON.stringify({selected: _termHomeRestoreName(), section: _termReadHomeAssociations().one.section}));
+''', section('  function _termRememberLast(', '  function _termRecallLast('))
+    assert result == {'selected': 'one', 'section': 'vault:ssd'}

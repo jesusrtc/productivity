@@ -121,3 +121,5 @@
 - [Terminal startup and disposal](terminal-startup-and-disposal.md) — dispatch views after state initialization; guard xterm 5.3 viewport callbacks when disposing terminals
 
 - [Logs is a Home section](logs-are-a-home-section.md) — before Admin, with a full-page source selector and live, copy, and clear controls
+
+- [Home terminal section associations](home-terminal-section-associations.md) — Logs keeps the terminal visible; Home/vault/Logs labels select each section's latest terminal from the shared pool

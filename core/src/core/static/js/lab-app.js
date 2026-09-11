@@ -6403,6 +6403,7 @@
   function showScopedCodeSearch() {
     if (!currentWorkspace || !currentWorkspace.path) return;
     _contextSubView = 'code-search';
+    _termSelectHomeSection();
     if (document.body.classList.contains('self-active')) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'productivity');
@@ -9139,6 +9140,74 @@
     return String(vaultId || 'framework') + '::' + String(workspaceId || '');
   }
 
+  // Home owns one terminal pool. Section associations and recency only select
+  // from that pool; moving a label never moves a process or changes its cwd.
+  function _termHomeSection() {
+    if (!_termHomeViewActive()) return null;
+    if (document.body.classList.contains('vault-active')) {
+      const vault = _workspaceVaultId(currentWorkspace);
+      return vault ? 'vault:' + vault : 'home';
+    }
+    return _contextSubView === 'logs' ? 'logs' : 'home';
+  }
+
+  function _termReadHomeAssociations() {
+    try {
+      const value = JSON.parse(localStorage.getItem('labTermHomeAssociations') || '{}');
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch { return {}; }
+  }
+
+  function _termHomeAssociation(session, state = _termReadHomeAssociations()) {
+    const stored = state[session?.logical_name];
+    if (typeof stored?.section === 'string') return stored.section;
+    // Existing sessions linked to a vault folder already have an owner.
+    const root = session?.linked_scope?.root || '';
+    const vault = (vaultCatalog || []).filter(v => v.path &&
+      (root === v.path || root.startsWith(v.path.replace(/\/+$/, '') + '/')))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    return vault ? 'vault:' + vault.id : 'home';
+  }
+
+  function _termHomeAssociationOptions() {
+    return [{id: 'home', name: 'Home', color: '#8b949e'},
+      ...(vaultCatalog || []).map(v => ({id: 'vault:' + v.id, name: v.name || v.id,
+        color: /^#[0-9a-f]{6}$/i.test(v.color || '') ? v.color : '#8b949e'})),
+      {id: 'logs', name: 'Logs', color: '#f85149'}];
+  }
+
+  function _termSaveHomeAssociation(logical, section, usedAt = Date.now()) {
+    if (!logical || !section) return;
+    const state = _termReadHomeAssociations();
+    state[logical] = {section, usedAt};
+    try { localStorage.setItem('labTermHomeAssociations', JSON.stringify(state)); } catch {}
+  }
+
+  function _termHomeRestoreName() {
+    const section = _termHomeSection();
+    if (!section) return null;
+    const state = _termReadHomeAssociations();
+    const sessions = (termSessions || []).filter(s => _termHomeAssociation(s, state) === section);
+    sessions.sort((a, b) => (Number(state[b.logical_name]?.usedAt) || 0)
+      - (Number(state[a.logical_name]?.usedAt) || 0));
+    return sessions[0]?.name || null;
+  }
+
+  function _termSelectHomeSection() {
+    const name = _termHomeRestoreName();
+    // Calling attach even for the mounted session also invalidates any older
+    // in-flight section selection; its warm path keeps the connection intact.
+    if (name) void termAttach(name, '__self__');
+  }
+
+  function _termHomeAssociationHtml(session) {
+    if (_termActiveWorkspaceId() !== '__self__') return '';
+    const id = _termHomeAssociation(session);
+    const association = _termHomeAssociationOptions().find(item => item.id === id)
+      || {name: id.replace(/^vault:/, ''), color: '#8b949e'};
+    return `<span class="term-home-association" style="--term-association-color:${association.color}" title="Associated with ${termSessEsc(association.name)}"><span>${termSessEsc(association.name)}</span></span>`;
+  }
+
   // Which tab (if any) looks blocked because a recent fetch for it hit
   // fsguard's 503 (stalled vault volume). error-report.js can't know
   // which workspace a given fetch belongs to, so it just dispatches the
@@ -9681,6 +9750,10 @@
     } catch {}
   }
   function _termRememberLast(workspaceId, logicalName) {
+    if (workspaceId === '__self__') {
+      const session = (termSessions || []).find(s => s.logical_name === logicalName);
+      if (session) _termSaveHomeAssociation(logicalName, _termHomeAssociation(session));
+    }
     if (!workspaceId || !logicalName) return;
     try {
       const raw = localStorage.getItem(TERM_LAST_KEY);
@@ -9703,6 +9776,10 @@
     // Pick which session to attach when (re-)opening the panel: prefer the
     // user's last selection, fall back to canonical "claude", else first.
     if (!termSessions || termSessions.length === 0) return null;
+    if (workspaceId === '__self__') {
+      const sectionSession = _termHomeRestoreName();
+      if (sectionSession) return sectionSession;
+    }
     const lastLogical = _termRecallLast(workspaceId);
     if (lastLogical) {
       const hit = termSessions.find(s => s.logical_name === lastLogical);
@@ -10824,6 +10901,9 @@
     const row = (action, label, danger = false) => `<button role="menuitem" class="term-group-menu-row${danger ? ' danger' : ''}" data-action="${termSessEsc(action)}">${termSessEsc(label)}</button>`;
     _termShowGroupMenu(anchor,
       row('rename', 'Rename tab…') +
+      (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
+        _termHomeAssociationOptions().map(item => row('associate:' + item.id,
+          (_termHomeAssociation(session) === item.id ? '✓ ' : '') + item.name)).join('') + '<hr>' : '') +
       (session?.linked_file ? row('unlink-file', 'Unlink from file') : '') +
       (session?.linked_scope ? row('unlink-scope', 'Unlink from folder/worktree') : '') +
       row('new', 'Add to new group…') +
@@ -10833,6 +10913,10 @@
       row('close', 'Close tab', true) + (membership ? row('close-group', 'Close group…', true) : ''), action => {
         termCloseGroupMenu();
         if (action === 'rename') termRenameSession(sessionName);
+        else if (action.startsWith('associate:')) {
+          _termSaveHomeAssociation(logical, action.slice(10));
+          termRenderSessionList();
+        }
         else if (action === 'unlink-file') void termUnlinkTarget(sessionName, 'file');
         else if (action === 'unlink-scope') void termUnlinkTarget(sessionName, 'scope');
         else if (action === 'new') termAssignTabGroup(sessionName, 'new');
@@ -11134,7 +11218,7 @@
       const subline = summary
         ? `${context.label} · ${summary}`
         : (linked && !session.linked_scope ? `Linked · ${linked}` : '');
-      const html = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${subline ? `<span class="summary">${termSessEsc(subline)}</span>` : ''}</span><span class="agent">${termSessEsc(visual.badge)}</span>`;
+      const html = `<span aria-hidden="true">${visual.icon}</span><span class="term-active-session-copy"><span class="name">${termSessEsc(display)}</span>${subline ? `<span class="summary">${termSessEsc(subline)}</span>` : ''}</span>${_termHomeAssociationHtml(session)}<span class="agent">${termSessEsc(visual.badge)}</span>`;
       if (el._labHeaderHtml !== html) {
         el._labHeaderHtml = html;
         el.innerHTML = html;
@@ -11269,6 +11353,7 @@
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       <span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>
+      ${_termHomeAssociationHtml(s)}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
       <span class="k">${termSessEsc(visual.badge)}</span>
     </span>`;
@@ -12488,7 +12573,7 @@
     const workspaceLabel = workspaceId === SELF_WORKSPACE_ID ? 'Home'
       : (currentWorkspace && currentWorkspace.is_workspace ? _workspaceDisplayName(currentWorkspace) : workspaceId);
     _termAttachModalGeneration += 1;
-    _termAttachModalScope = {workspaceId, vaultId, workspaceLabel};
+    _termAttachModalScope = {workspaceId, vaultId, workspaceLabel, homeSection: _termHomeSection()};
     _termAttachModalRows = [];
     _termAttachPendingName = null;
     document.getElementById('termNewPicker')?.classList.remove('open');
@@ -12551,11 +12636,14 @@
       });
       const attached = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(attached.detail || response.statusText || 'attach failed');
+      if (scope.homeSection) _termSaveHomeAssociation(attached.logical_name, scope.homeSection);
       if (generation === _termAttachModalGeneration) termCloseAttachModal();
       if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
+      if (scope.homeSection && scope.homeSection !== _termHomeSection()) return;
       _termClearDead(attached.name);
       await _termRefreshSessionsForWorkspaceId(workspaceId);
       if (!_termIsScopeActive(workspaceId)) return;
+      if (scope.homeSection && scope.homeSection !== _termHomeSection()) return;
       if (!termSessions.some(s => s && s.name === attached.name)) {
         termSessions = [{...attached, workspace_id: attached.workspace_id || workspaceId}, ...termSessions];
         _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
@@ -12584,6 +12672,7 @@
     const workspaceId = _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
+    const homeSection = _termHomeSection();
 
     const scope = linkedScope || _termSelectedScope();
     termSetStatus('idle', kind === 'claude' ? `creating ${agent || 'claude'}…` : 'creating terminal…');
@@ -12611,8 +12700,10 @@
         return;
       }
       const created = await r.json();
+      if (homeSection) _termSaveHomeAssociation(created.logical_name, homeSection);
       await termSetAutoSpawnEnabled(workspaceId, true, vaultId);
       if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
+      if (homeSection && homeSection !== _termHomeSection()) return;
       // Brand-new session — clear any stale dead/backoff state for this
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
@@ -12629,6 +12720,7 @@
         _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
         termRenderSessionList();
       }
+      if (homeSection && homeSection !== _termHomeSection()) return created;
       termAttach(created.name, workspaceId);
       return created;
     } catch (e) {
@@ -13228,6 +13320,10 @@
     // previous tab again when the user leaves it, keeping the timestamp true
     // to the end of a long viewing session.
     if (typeof _termMarkRecent === 'function') _termMarkRecent(workspaceId, name);
+    if (workspaceId === '__self__') {
+      const selected = (termSessions || []).find(s => s.name === name);
+      if (selected?.logical_name) _termRememberLast(workspaceId, selected.logical_name);
+    }
     const attachRequestSeq = ++termAttachRequestSeq;
     if (name === termCurrentSession && workspaceId === termCurrentWorkspaceId && termWS && termWS.readyState === WebSocket.OPEN) {
       console.log('[term] early return — same session already open');
@@ -15242,6 +15338,7 @@
   function selfShowWorkbench() {
     _workspaceDocPath = null;
     _contextSubView = 'overview';
+    _termSelectHomeSection();
     const url = new URL(window.location);
     url.searchParams.set('view', 'productivity');
     url.searchParams.delete('subview');
@@ -15259,6 +15356,7 @@
     if (!LAB_IS_ADMIN) return;
     _workspaceDocPath = null;
     _contextSubView = 'admin';
+    _termSelectHomeSection();
     const url = new URL(window.location);
     url.searchParams.set('view', 'productivity');
     url.searchParams.set('subview', 'admin');
@@ -15515,6 +15613,7 @@
     _workspaceDocPath = null;
     currentRepo = null;
     _contextSubView = 'logs';
+    _termSelectHomeSection();
     const url = new URL(window.location);
     url.searchParams.set('view', 'productivity');
     url.searchParams.set('subview', 'logs');
@@ -15962,8 +16061,9 @@
     if (!_termIsScopeActive(SELF_WORKSPACE_ID)) return;
     document.body.classList.add('term-open');
     _termApplyRememberedVisibility();
-    // Home sections keep the mounted terminal, selection, and connection intact.
+    // Select the section's last session from the same mounted Home pool.
     if (termCurrentWorkspaceId === SELF_WORKSPACE_ID && termCurrentSession) {
+      _termSelectHomeSection();
       termStartPeriodicRefresh();
       return;
     }
