@@ -1,5 +1,7 @@
 # Memory index
 
+- [Linked terminal file identity](terminal-linked-file-name-and-icon.md) — linked tabs and headers show the file basename and shared file-type icon, including in worktrees
+
 - [Workspace renames move folders](workspace-renames-move-folders.md) — physical folder rename, stable internal ID, independent terminal UUID index, and path migration
 
 - [Workspace context menu actions](workspace-context-menu-actions.md) — Rename and Delete in both vault lists and workspace tabs; stable IDs for rename and exact-folder confirmation for deletion

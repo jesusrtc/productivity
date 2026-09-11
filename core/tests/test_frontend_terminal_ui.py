@@ -574,6 +574,7 @@ process.stdout.write(JSON.stringify({
 
 
 def test_terminal_request_block_keeps_history_in_a_three_item_viewport() -> None:
+    file_icons = _js_between("  const _FT_FONT", "  function buildSidebarTree(")
     header_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "function _termSessionPillHtml(s, index)",
@@ -619,7 +620,7 @@ let termCurrentSession = 'tmux-codex';
 let termCurrentWorkspaceId = 'demo';
 function _termActiveWorkspaceId() { return 'demo'; }
 function termSessEsc(value) { return String(value); }
-""" + header_helpers + """
+""" + file_icons + header_helpers + """
 _termRenderActiveSessionHeader();
 process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSummaryText, statusIdentity}));
 """
@@ -785,7 +786,7 @@ process.stdout.write(JSON.stringify({
         "stale": "codex-3",
         "fallback": "codex-3",
         "project": "Forge",
-        "file": "Forge",
+        "file": "README.md",
         "root": "lab",
         "renamedProject": "Review",
     }

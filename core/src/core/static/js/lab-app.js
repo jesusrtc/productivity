@@ -11333,9 +11333,8 @@
     const manual = String(s.label || '').trim();
     const scope = s.linked_scope;
     const fileName = String(s.linked_file?.path || '').split('/').pop();
-    // File linking previously saved the basename as the display label.
-    // Keep explicit renames, while letting those automatic labels use the project.
-    if (manual && !(scope && manual === fileName)) return manual;
+    if (manual) return manual;
+    if (fileName) return fileName;
     if (scope) {
       const project = String(scope.label || '').split(' · ')[0].trim();
       const folder = String(scope.project_root || scope.root || '').replace(/\/+$/, '').split('/').pop();
@@ -11441,11 +11440,12 @@
   function _termSessionVisual(s) {
     const kind = (s && s.kind || '').toLowerCase();
     const agent = (s && s.agent || (kind === 'claude' ? 'claude' : '')).toLowerCase();
+    const linked = String(s?.linked_file?.path || '').trim();
     return {
       kind,
       agent,
       badge: kind === 'claude' ? (agent || 'claude') : kind,
-      icon: kind !== 'claude' ? '💻'
+      icon: linked ? fileIconHtml(linked) : kind !== 'claude' ? '💻'
         : agent === 'codex' ? '🧠'
         : agent === 'copilot' ? '🐙'
         : '🤖',
@@ -11699,7 +11699,7 @@
     return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
-      ${scope?.worktree ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
+      ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
