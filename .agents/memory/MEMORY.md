@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal file drops and clean copy](terminal-file-drop-and-clean-copy.md) — sidebar files paste absolute paths through xterm; copying removes decorative frame rails while preserving content pipes
+
 - [Linked terminal file identity](terminal-linked-file-name-and-icon.md) — linked tabs and headers show the file basename and shared file-type icon, including in worktrees
 
 - [Workspace renames move folders](workspace-renames-move-folders.md) — physical folder rename, stable internal ID, independent terminal UUID index, and path migration

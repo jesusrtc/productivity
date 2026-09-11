@@ -3056,7 +3056,7 @@
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
         const safeRoot = String(scopeRoot).replace(/'/g, "\\'");
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
       });
       return nodeHtml;
     };
@@ -3626,7 +3626,7 @@
         else if (status) badge = '<span class="sidebar-badge modified"></span>';
         const cls = workspaceOpenFile === node.path ? ' active' : '';
         return `<li>
-          <div class="tree-file${cls}${symlinkClass(node)}" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openWorkspaceFileFromFileClick('${node.path.replace(/'/g, "\\'")}')">
+          <div class="tree-file${cls}${symlinkClass(node)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(node.path)}" data-entry-root="${escAttr(_activeRepoFileRoot() || '')}"${symlinkTitle(node)} onclick="openWorkspaceFileFromFileClick('${node.path.replace(/'/g, "\\'")}')">
             ${badge}${symlinkMarker(node)}${fileIconHtml(node.name, node)}${node.name}
           </div>
         </li>`;
@@ -8408,7 +8408,7 @@
         const safeName = name.replace(/'/g, "\\'");
         const label = name.replace(/\.md$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const activeCls = activePath === name ? ' active' : '';
-        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openWorkspaceDoc('${safeName}')" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
+        sbHtml += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(name)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(name)}"${symlinkTitle(f)} onclick="openWorkspaceDoc('${safeName}')" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safeName}')" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">${symlinkMarker(f)}&#x1F4CC; ${label}</span><span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${safeName}')" title="Unpin">&#x2716;</button></span></a>`;
       });
       // Servers — proxied local dev servers declared in servers.json (or
       // legacy workspace.json proxies). Each entry opens
@@ -8495,7 +8495,7 @@
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
             const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
@@ -8529,7 +8529,7 @@
         const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(fileRoot)}})`;
         const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(fileRoot)}})`;
         const activeCls = activePath === f.path ? ' active' : '';
-        sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" data-entry-kind="file" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(f.path)}</span></a>`;
+        sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(f.path)}</span></a>`;
       });
       sidebar.innerHTML = sbHtml;
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
@@ -13253,6 +13253,88 @@
     return files.find(f => f && /^image\//i.test(f.type || '')) || null;
   }
 
+  // Use explicit file identity, never the row's displayed label (which may
+  // omit its parent folders or belong to a different vault/worktree).
+  document.addEventListener('dragstart', event => {
+    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path]');
+    const ctx = _explorerContextFromRow(row);
+    if (!ctx || !event.dataTransfer) return;
+    const path = ctx.path.startsWith('/') ? ctx.path
+      : ctx.root.replace(/\/+$/, '') + '/' + ctx.path.replace(/^\.\//, '');
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-lab-file-path', JSON.stringify([path]));
+    event.dataTransfer.setData('text/plain', path);
+  });
+
+  function _termDropPaths(data) {
+    if (!data) return [];
+    const valid = paths => Array.isArray(paths) && paths.length && paths.every(path =>
+      typeof path === 'string' && path.startsWith('/') && !/[\x00-\x1f\x7f]/.test(path)) ? paths : [];
+    const internal = data.getData('application/x-lab-file-path');
+    if (internal) {
+      try { return valid(JSON.parse(internal)); } catch { return []; }
+    }
+    const uris = data.getData('text/uri-list').split(/\r?\n/).filter(line => line && !line.startsWith('#'));
+    if (uris.length) {
+      try {
+        return valid(uris.map(value => {
+          const url = new URL(value);
+          if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) throw new Error('Not a local file');
+          return decodeURIComponent(url.pathname);
+        }));
+      } catch { return []; }
+    }
+    // OS file drops often expose only a basename. Do not invent a path.
+    return valid([data.getData('text/plain')]);
+  }
+
+  function _termQuoteDropPath(path) {
+    return /^[a-zA-Z0-9_./:@%+=,-]+$/.test(path) ? path : "'" + path.replace(/'/g, "'\\''") + "'";
+  }
+
+  function _termHandleDrop(event) {
+    if (_termDragState || workspaceTabsDragId
+        || Array.from(event.dataTransfer?.types || []).includes('application/x-lab-terminal')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const paths = _termDropPaths(event.dataTransfer);
+    if (!paths.length) {
+      if (event.dataTransfer?.files?.length) explorerToast('The browser did not provide the original path. Drag the file from Lab’s sidebar, or copy its pathname in Finder and paste it here.', true);
+      return;
+    }
+    if (!termXterm || !termWS || termWS.readyState !== WebSocket.OPEN) {
+      explorerToast('Connect a terminal before dropping a file.', true);
+      return;
+    }
+    termXterm.paste(paths.map(_termQuoteDropPath).join(' '));
+    termXterm.focus();
+  }
+
+  function _termCleanSelection(text) {
+    const lines = text.split(/\r?\n/);
+    // ASCII side rails need repeated evidence; a single shell pipe or a
+    // Markdown table must retain its meaning. Unicode rails are unambiguous.
+    const nonempty = lines.filter(line => line.trim());
+    const asciiFrame = nonempty.length > 1 && nonempty.every(line =>
+      /^\s*\|[^|]*\|\s*$/.test(line) || /^\s*\+[-+]+\+\s*$/.test(line))
+      && !nonempty.some(line => /^\s*\|\s*:?-+:?\s*\|\s*$/.test(line));
+    return lines.filter(line => !/^\s*[┌┐└┘╭╮╰╯├┤┬┴┼─━═]+\s*$/.test(line)
+      && !(asciiFrame && /^\s*\+[-+]+\+\s*$/.test(line)))
+      .map(line => {
+        let clean = line.replace(/^(\s*)[│┃║] ?/, '$1').replace(/ ?[│┃║]\s*$/, '');
+        if (asciiFrame) clean = clean.replace(/^(\s*)\| ?/, '$1').replace(/ ?\|\s*$/, '');
+        return clean;
+      }).join('\n');
+  }
+
+  function _termHandleCopy(event) {
+    const selection = termXterm?.getSelection();
+    if (!selection || !event.clipboardData) return;
+    event.clipboardData.setData('text/plain', _termCleanSelection(selection));
+    event.preventDefault();
+    event.stopImmediatePropagation(); // xterm's default copy would restore the rails.
+  }
+
   function _termReadFileAsDataUrl(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -13382,6 +13464,15 @@
       if (body) {
         _termPasteListenerAdded = true;
         body.addEventListener('paste', _termHandlePaste, { capture: true });
+        body.addEventListener('copy', _termHandleCopy, { capture: true });
+        body.addEventListener('dragover', event => {
+          const types = Array.from(event.dataTransfer?.types || []);
+          if (!types.some(type => ['application/x-lab-file-path', 'Files', 'text/uri-list', 'text/plain'].includes(type))
+              || types.includes('application/x-lab-terminal') || _termDragState || workspaceTabsDragId) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        });
+        body.addEventListener('drop', _termHandleDrop);
       }
     }
   }
@@ -15598,7 +15689,7 @@
       } else if (hasUnseen) {
         dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openWorkspaceDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }
