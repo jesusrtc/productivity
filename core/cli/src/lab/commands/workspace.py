@@ -89,19 +89,20 @@ def workspace_group() -> None:
 
 @workspace_group.command("new")
 @click.argument("workspace_id")
+@click.option("--name", default=None, help="Display name (defaults to the workspace id)")
 @click.option("--desc", "description", default="", help="Short description")
 @click.option("--priority", type=click.Choice([p.value for p in Priority]), default=None)
 @click.option("--due", default=None, help="Due date YYYY-MM-DD")
 @click.option("--tags", default="", help="Comma-separated tags")
 @click.option("--labels", default="", help="Comma-separated MP labels")
-def new(workspace_id: str, description: str, priority: str | None, due: str | None,
+def new(workspace_id: str, name: str | None, description: str, priority: str | None, due: str | None,
         tags: str, labels: str) -> None:
     """Create a new workspace under workspaces/<id>/."""
     root = paths.find_monorepo_root()
     try:
         workspace = Workspace.from_dict({
             "id": workspace_id,
-            "name": workspace_id,
+            "name": name if name is not None else workspace_id,
             "description": description,
             "status": "active",
             "priority": priority,

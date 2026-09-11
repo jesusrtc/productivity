@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -97,7 +99,8 @@ def _root_for_vault(request: Request, vault: str | None) -> Path:
 
 
 class NewWorkspace(BaseModel):
-    id: str
+    id: str | None = None
+    name: str | None = Field(default=None, max_length=80)
     vault: str | None = None
     description: str = ""
     priority: str | None = None
@@ -174,8 +177,22 @@ def set_workspace_tab(workspace_id: str, body: TabState,
 @router.post("/api/workspaces")
 def create_workspace(body: NewWorkspace, request: Request) -> dict:
     root = _root_for_vault(request, body.vault)
-    _validate_pid(body.id)
-    args = ["workspace", "new", body.id]
+    name = body.name.strip() if body.name is not None else None
+    if name == "" or (name is None and body.id is None):
+        raise HTTPException(status_code=400, detail="Enter a workspace name")
+    workspace_id = body.id
+    if workspace_id is None:
+        normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+        base = re.sub(r"[^a-z0-9_-]+", "-", normalized).strip("-_") or "workspace"
+        workspace_id = base
+        suffix = 2
+        while paths.workspace_dir(root, workspace_id).exists():
+            workspace_id = f"{base}-{suffix}"
+            suffix += 1
+    _validate_pid(workspace_id)
+    args = ["workspace", "new", workspace_id]
+    if name is not None:
+        args += ["--name", name]
     if body.description:
         args += ["--desc", body.description]
     if body.priority:
@@ -187,7 +204,7 @@ def create_workspace(body: NewWorkspace, request: Request) -> dict:
     if body.labels:
         args += ["--labels", ",".join(body.labels)]
     _run_lab(args, root=root)
-    return _read_workspace(root, body.id)
+    return _read_workspace(root, workspace_id)
 
 
 class NewTask(BaseModel):

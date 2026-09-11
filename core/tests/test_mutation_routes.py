@@ -1,6 +1,8 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from lab import paths
 
 
@@ -42,6 +44,39 @@ def test_post_workspace_new_rejects_bad_id(client) -> None:
     assert r.status_code == 400
 
 
+@pytest.mark.parametrize(("name", "workspace_id"), [
+    ("  Charts Vision  ", "charts-vision"),
+    ("Investigación", "investigacion"),
+    ("研究", "workspace"),
+    ("../../My Project", "my-project"),
+])
+def test_post_workspace_new_needs_only_a_name(client, monorepo, name, workspace_id):
+    r = client.post("/api/workspaces", json={"name": name})
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == workspace_id
+    assert r.json()["name"] == name.strip()
+    stored = json.loads((monorepo / "workspaces" / workspace_id / "workspace.json").read_text())
+    assert stored["name"] == name.strip()
+
+
+def test_post_workspace_name_collision_keeps_existing_workspace(client, seed_workspace):
+    seed_workspace("charts-vision", description="Keep me")
+    r = client.post("/api/workspaces", json={"name": "Charts Vision"})
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == "charts-vision-2"
+    assert r.json()["name"] == "Charts Vision"
+    original = client.get("/api/workspaces/charts-vision")
+    assert original.status_code == 200
+    assert original.json()["description"] == "Keep me"
+
+
+@pytest.mark.parametrize("body", [{}, {"name": "   "}])
+def test_post_workspace_new_rejects_empty_name(client, body):
+    r = client.post("/api/workspaces", json=body)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Enter a workspace name"
+
+
 def test_post_workspace_new_targets_registered_vault_without_switching(
     client, monorepo, tmp_path,
 ) -> None:
@@ -56,7 +91,7 @@ def test_post_workspace_new_targets_registered_vault_without_switching(
         ],
     })
 
-    r = client.post("/api/workspaces", json={"id": "elsewhere", "vault": "other"})
+    r = client.post("/api/workspaces", json={"name": "Elsewhere", "vault": "other"})
 
     assert r.status_code == 200, r.text
     assert (other / "workspaces" / "elsewhere" / "workspace.json").is_file()

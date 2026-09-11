@@ -172,22 +172,12 @@ function onSyncContent(btn) {
 
 async function onNewWorkspace() {
   const values = await modal("New workspace", [
-    { name: "id", label: "Workspace id (e.g. charts-vision)", type: "text", required: true },
-    { name: "description", label: "Description", type: "textarea" },
-    { name: "priority", label: "Priority", type: "select", options: ["", "P0", "P1", "P2", "P3"], value: "" },
-    { name: "due", label: "Due (YYYY-MM-DD, optional)", type: "text" },
-    { name: "tags", label: "Tags (comma-separated, optional)", type: "text" },
-    { name: "labels", label: "Labels (MP names, comma-separated, optional)", type: "text" },
+    { name: "name", label: "Name", type: "text", required: true },
   ]);
   if (!values) return;
   try {
     const body = {
-      id: values.id.trim(),
-      description: values.description || "",
-      priority: values.priority || null,
-      due: values.due || null,
-      tags: values.tags ? values.tags.split(",").map((s) => s.trim()).filter(Boolean) : [],
-      labels: values.labels ? values.labels.split(",").map((s) => s.trim()).filter(Boolean) : [],
+      name: values.name.trim(),
     };
     const p = await api.createWorkspace(body);
     location.hash = `#/w/${p.id}`;

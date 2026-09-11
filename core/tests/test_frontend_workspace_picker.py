@@ -64,7 +64,7 @@ let _vaultCurrent = {id:'a', name:'Local'};
 const controls = {};
 const control = id => controls[id] ||= {
   classList:{add(){},remove(){}},reset(){},focus(){},
-  elements:Object.fromEntries(['id','description','priority','due','tags','labels'].map(k=>[k,{value:k==='id'?'new':''}]))
+  elements:{namedItem:key => key === 'name' ? {value:'  New workspace  '} : null}
 };
 const document = {getElementById:control}, window = {};
 const setTimeout = fn => fn();
@@ -81,9 +81,32 @@ assert.equal(controls.vaultWorkspaceContext.textContent,'SSD');
 _vaultCurrent = {id:'c'};
 await submitVaultWorkspace();
 assert.equal(payload.vault,'b');
+assert.deepEqual(payload,{name:'New workspace',vault:'b'});
 assert.equal(opened,'/b/new');
 assert.equal(_vaultCurrent.id,'c');
 console.log(JSON.stringify({passed:true}));
 })();
+''')
+    assert result['passed']
+
+
+def test_picker_click_survives_replacing_its_contents():
+    result = _run_node(r'''
+const assert = require('assert/strict');
+const handlers = {};
+const picker = {contains:()=>false};
+const document = {getElementById:()=>picker, addEventListener:(type,fn)=>handlers[type]=fn};
+const window = {addEventListener(){}};
+let closed = 0;
+const workspaceTabsClosePicker = () => closed++;
+''' + _js_between("  document.addEventListener('click', event => {\n    const picker", '  function workspaceTabsRenderPicker(') + r'''
+// The New workspace button has been detached by rendering the vault list,
+// but its bubbling click must keep the picker open.
+const target = {closest:()=>null};
+handlers.click({target,composedPath:()=>[target,picker,document]});
+assert.equal(closed,0);
+handlers.click({target,composedPath:()=>[target,document]});
+assert.equal(closed,1);
+console.log(JSON.stringify({passed:true}));
 ''')
     assert result['passed']

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace creation needs only a name](workspace-creation-needs-only-name.md) — single name field in the selected vault; automatic folder IDs; picker clicks survive replacing menu contents
+
 - [Terminal multi-selection](terminal-multi-selection.md) — Cmd/Ctrl-click toggles tabs; secondary-click groups, associates, unlinks, or closes the captured selection
 
 - [Workspace tabs stay in place](workspace-tabs-stay-in-place.md) — activation and polling preserve saved positions; only drag-and-drop reorders, with absolute paths identifying tabs across vaults

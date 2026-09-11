@@ -10110,7 +10110,9 @@
 
   document.addEventListener('click', event => {
     const picker = document.getElementById('workspaceTabsPicker');
-    if (picker && !picker.contains(event.target) && !event.target.closest('#workspaceTabsPlusBtn')) {
+    // Rendering the vault choices detaches the clicked button. The original
+    // event path still identifies that click as inside the picker.
+    if (picker && !event.composedPath().includes(picker) && !event.target.closest('#workspaceTabsPlusBtn')) {
       workspaceTabsClosePicker();
     }
   });
@@ -16769,7 +16771,7 @@
     }
     modal.classList.add('active');
     setTimeout(() => {
-      const input = document.getElementById('vaultWorkspaceId');
+      const input = document.getElementById('vaultWorkspaceName');
       if (input) input.focus();
     }, 0);
   }
@@ -16781,10 +16783,6 @@
     if (modal) modal.classList.remove('active');
   }
   window.closeVaultWorkspaceModal = closeVaultWorkspaceModal;
-
-  function _vaultWorkspaceCsv(value) {
-    return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
-  }
 
   async function submitVaultWorkspace(event) {
     if (event) event.preventDefault();
@@ -16810,13 +16808,8 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          id: form.elements.id.value.trim(),
+          name: form.elements.namedItem('name').value.trim(),
           vault: vaultId,
-          description: form.elements.description.value.trim(),
-          priority: form.elements.priority.value || null,
-          due: form.elements.due.value || null,
-          tags: _vaultWorkspaceCsv(form.elements.tags.value),
-          labels: _vaultWorkspaceCsv(form.elements.labels.value),
         }),
       });
       const created = await response.json().catch(() => ({}));
