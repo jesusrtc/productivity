@@ -15,6 +15,7 @@ let state = {order: ['s:one'], groups: [], tabGroups: [], tabMembership: {}};
 const _termReadGroupState = () => state;
 const _termReconcileGroupOrder = state => state.order;
 const _termRenderActiveSessionHeader = () => {};
+const _termSyncTabSelection = () => {};
 const _termHideSessionTooltip = () => hides++;
 const _termNewButtonHtml = () => '<button>New</button>';
 const _termSessionPillHtml = row => row.label + ':' + (row.name === termCurrentSession);

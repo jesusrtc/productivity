@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal multi-selection](terminal-multi-selection.md) — Cmd/Ctrl-click toggles tabs; secondary-click groups, associates, unlinks, or closes the captured selection
+
 - [Workspace tabs stay in place](workspace-tabs-stay-in-place.md) — activation and polling preserve saved positions; only drag-and-drop reorders, with absolute paths identifying tabs across vaults
 
 - [Assistant terminals retain their scope ID](assistant-terminal-scope-keeps-reserved-id.md) — register the Assistant pseudo-vault before active-root fallback; explicit cwd must not turn it into a basename vault
