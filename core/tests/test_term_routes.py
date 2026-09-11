@@ -1908,6 +1908,51 @@ def test_create_and_list_sessions_can_target_non_active_vault(
     assert client.get("/api/term/sessions?workspace_id=demo2").json() == []
 
 
+def test_home_terminal_list_is_identical_across_section_referers(
+    client, second_vault_tmux, monorepo, tmp_path, monkeypatch,
+) -> None:
+    from core.routes import term as term_mod
+    from lab import paths
+
+    framework = tmp_path / "framework"
+    (framework / "content").mkdir(parents=True)
+    monkeypatch.setattr(paths, "find_framework_root", lambda: framework)
+    expected = []
+    # Old Home sessions retain vault-specific names and runtime registries.
+    # Shared durable metadata alone cannot recover them from another vault.
+    for root, logical in [(monorepo, "home-ssd"), (second_vault_tmux, "home-local"),
+                          (framework, "home-framework")]:
+        name = term_mod._legacy_current_tmux_name_for("__self__", logical, root)
+        subprocess.run(["tmux", "new-session", "-d", "-s", name, "-c", str(root), "bash"], check=True)
+        term_mod._sync_meta(root, term_mod._tmux_list(term_mod._tmux_discovery_prefixes(root)))
+        expected.append(name)
+    # A shared UUID may already be present in more than one runtime registry.
+    shared = _spawn_and_adopt(monorepo, "__self__", "shared-home")
+    expected.append(shared)
+    other_meta = term_mod._load_meta(second_vault_tmux)
+    other_meta[shared] = term_mod._load_meta(monorepo)[shared]
+    term_mod._save_meta(second_vault_tmux, other_meta)
+    _spawn_and_adopt(second_vault_tmux, "demo2", "workspace-shell")
+    scans = []
+    tmux_list = term_mod._tmux_list
+    def counted_listing(*args, **kwargs):
+        scans.append(1)
+        return tmux_list(*args, **kwargs)
+    monkeypatch.setattr(term_mod, "_tmux_list", counted_listing)
+    lists = []
+    for query in ["view=productivity", "view=vault&vault=ssd",
+                  "view=vault&vault=other", "view=productivity&subview=logs"]:
+        response = client.get("/api/term/sessions?workspace_id=__self__",
+                              headers={"referer": "http://testserver/?" + query})
+        assert response.status_code == 200, response.text
+        names = [row["name"] for row in response.json()]
+        assert set(names) == set(expected)
+        assert len(names) == len(expected)
+        lists.append(names)
+    assert all(names == lists[0] for names in lists)
+    assert len(scans) == len(lists)
+
+
 def test_kill_session_resolves_non_active_vault(
     client, seed_workspace, second_vault_tmux,
 ) -> None:

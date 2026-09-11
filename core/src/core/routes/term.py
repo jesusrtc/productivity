@@ -2113,6 +2113,14 @@ def _sessions_for_root(
     tmux-list + meta-sync + row-shaping logic."""
     prefixes = _tmux_discovery_prefixes(root)
     listing = _tmux_list(prefixes)
+    return _session_rows_for_root(root, workspace_id, listing,
+                                  include_agent_details=include_agent_details)
+
+
+def _session_rows_for_root(
+    root: Path, workspace_id: str | None, listing: list[dict] | None, *,
+    include_agent_details: bool = True,
+) -> list[dict]:
     meta = _sync_meta(root, listing)
     # _sync_meta filters the vault-neutral ``neurona-`` listing down to
     # sessions attributable to this root. Runtime metadata is therefore the
@@ -2142,20 +2150,54 @@ def _sessions_for_root(
     # seconds by the dashboard/top tabs and consumes none of those fields.
     # Avoid ps, SQLite and one tmux capture per row on that global hot path.
     if include_agent_details:
-        _enrich_agent_session_names(rows)
+        _enrich_session_details(rows)
+    return rows
+
+
+def _enrich_session_details(rows: list[dict]) -> None:
+    _enrich_agent_session_names(rows)
+    for row in rows:
+        if row.get("summary"):
+            continue
+        agent_summary = row.get("agent_session_summary")
+        if agent_summary:
+            row["summary"] = agent_summary
+            continue
+        inferred = _infer_session_summary(
+            str(row.get("name") or ""),
+            str(row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET),
+        )
+        if inferred:
+            row["summary"] = inferred
+
+
+def _home_session_rows(server_root: Path) -> list[dict]:
+    # Referer-based authorization roots change between Overview and vault
+    # sections. Home's live sessions may be registered in any of those roots,
+    # including legacy names that cannot be recovered from shared saved UUIDs.
+    vaults = _known_vaults(server_root)
+    framework = lab_paths.find_framework_root().resolve()
+    if not any(row["path"].resolve() == framework for row in vaults):
+        vaults.append({"id": "__self__", "path": framework})
+    listing = _tmux_list(_tmux_discovery_prefixes_all(vaults))
+    by_name: dict[str, dict] = {}
+    for vault_row in vaults:
+        root = vault_row["path"]
+        try:
+            rows = fsguard.guarded(root, _session_rows_for_root,
+                                  root, SELF_WORKSPACE_ID, listing,
+                                  include_agent_details=False)
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise
+            continue
+        except OSError as exc:
+            _warn_root_unavailable_once(root, "Home session listing", exc)
+            continue
         for row in rows:
-            if row.get("summary"):
-                continue
-            agent_summary = row.get("agent_session_summary")
-            if agent_summary:
-                row["summary"] = agent_summary
-                continue
-            inferred = _infer_session_summary(
-                str(row.get("name") or ""),
-                str(row.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET),
-            )
-            if inferred:
-                row["summary"] = inferred
+            by_name.setdefault(row["name"], row)
+    rows = list(by_name.values())
+    _enrich_session_details(rows)
     return rows
 
 
@@ -2166,7 +2208,8 @@ def list_sessions(
     """List live tmux sessions for a workspace (or all workspaces/vaults).
 
     Scoped to ``workspace_id``: sessions in the requested ``vault`` (or
-    the active vault when omitted). Unscoped: every REGISTERED
+    the active vault when omitted). Home (``__self__``) always combines its
+    sessions across the client's registries. Unscoped: every REGISTERED
     vault's sessions, each tagged with ``vault`` (registry id) —
     this is what the cross-vault terminals dashboard needs. A vault
     whose path is missing/stalled is skipped for that cycle (fsguard 503,
@@ -2182,7 +2225,9 @@ def list_sessions(
     if workspace_id:
         root = _vault_root_for(active_root, vault)
         _require_workspace_access(request, active_root, root, workspace_id)
-        rows = _sessions_for_root(root, workspace_id)
+        rows = (_home_session_rows(Path(request.app.state.index_cache.root))
+                if workspace_id == SELF_WORKSPACE_ID
+                else _sessions_for_root(root, workspace_id))
         # Order preference: if the workspace has a saved ``sessions[]`` array
         # (in workspace.json), use that order as the source of truth — this
         # is what powers the "drag pills to reorder" UX. Sessions with no
