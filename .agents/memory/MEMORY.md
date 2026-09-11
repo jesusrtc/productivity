@@ -1,5 +1,7 @@
 # Memory index
 
+- [Markdown fence highlighting](markdown-fence-highlighting.md) — shared rendering colors supported language fences, including SQL in disclosures; copy preserves exact source
+
 - [Markdown fences and code copy](markdown-fences-and-code-copy.md) — disclosures parse fenced SQL without blank-line requirements; every code block has an upper-right copy action preserving source whitespace
 
 - [Terminal hover stays left](terminal-hover-left-latest-request.md) — prepend earlier requests until 50 characters; colored project → worktree → file headers; never cover the terminal

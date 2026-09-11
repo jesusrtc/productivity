@@ -27,6 +27,12 @@
     const host = document.createElement('div');
     host.innerHTML = sanitize(parser.parse(markdown, options));
     host.querySelectorAll('pre > code').forEach(code => {
+      // Highlight explicit, supported fences on every Markdown surface,
+      // including closed disclosures. Leave diagrams and plain text alone.
+      const language = Array.from(code.classList).find(name => name.startsWith('language-'))?.slice(9);
+      if (language && language !== 'mermaid' && window.hljs?.getLanguage(language)) {
+        window.hljs.highlightElement(code);
+      }
       const pre = code.parentElement;
       const block = document.createElement('div');
       block.className = 'markdown-code-block';

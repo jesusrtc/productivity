@@ -32,6 +32,7 @@ def test_markdown_disclosures_and_clipboard(tmp_path):
     scripts = '\n'.join('<script>' + (STATIC / path).read_text() + '</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js',
         'vendor/dompurify@3.4.15/purify.min.js',
+        'vendor/highlightjs@11.9.0/highlight.min.js',
         'js/lib/markdown-content.js',
     ])
     markdown = '''# Report
@@ -160,7 +161,14 @@ GENERATED_SECRET
   assert(tight.querySelector('details h3 code').textContent === 'u_trustim', 'heading Markdown inside tight disclosure');
   const sql = tight.querySelector('details > .markdown-code-block > pre > code.language-sql');
   assert(sql && sql.textContent === 'SELECT\n  \'<details></details> & "quoted"\' AS example,\n  count(*) AS total  \nFROM samples;\n', 'SQL fence preserves source');
+  assert(sql.querySelector('.hljs-keyword')?.textContent === 'SELECT', 'SQL keywords highlighted inside disclosure');
+  assert(sql.querySelector('.hljs-string'), 'SQL strings highlighted');
+  assert(getComputedStyle(sql.querySelector('.hljs-keyword')).color !== getComputedStyle(sql).color, 'SQL keyword color is visible');
   assert(tight.querySelector('details details code.language-python'), 'nested tight disclosure and tilde fence');
+  assert(tight.querySelector('details details code.language-python .hljs-built_in'), 'closed disclosure code highlighted');
+  const unsupported = document.createElement('div');
+  unsupported.innerHTML = LabMarkdown.render('```unknown-language\nSELECT 1;\n```');
+  assert(!unsupported.querySelector('.hljs') && unsupported.querySelector('code').textContent === 'SELECT 1;\n', 'unknown fence stays readable');
   assert(tight.querySelectorAll('button.markdown-code-copy').length === 4, 'one copy button per fenced block');
   const sqlButton = sql.closest('.markdown-code-block').querySelector('button');
   sqlButton.click();
@@ -174,6 +182,7 @@ GENERATED_SECRET
   assert(!LabMarkdown.cloneVisible(tight).querySelector('button'), 'document copy excludes code-copy controls');
   const diagram = document.createElement('div');
   diagram.innerHTML = LabMarkdown.render('```mermaid\ngraph TD; A-->B;\n```');
+  assert(!diagram.querySelector('.hljs'), 'Mermaid source is not syntax highlighted');
   document.body.appendChild(diagram);
   window.loadScriptOnce = async () => {};
   window.mermaid = {initialize() {}, render: async () => ({svg:'<svg><text>Rendered diagram</text></svg>'})};
@@ -272,7 +281,8 @@ GENERATED_SECRET
 })().catch(error => { document.getElementById('result').textContent = 'FAIL: ' + error.stack; });
 '''
     page = tmp_path / 'markdown-copy.html'
-    page.write_text('<!doctype html><meta charset="utf-8"><body><button id="copy">Copy</button>'
+    theme = (STATIC / 'vendor/highlightjs@11.9.0/github-dark.min.css').read_text()
+    page.write_text('<!doctype html><meta charset="utf-8"><style>' + theme + '</style><body><button id="copy">Copy</button>'
                     '<div id="workspaceDocBody"></div><pre id="result">PENDING</pre>' + scripts
                     + '<script>const MARKDOWN = ' + json.dumps(markdown) + ';\n'
                     + wrappers + mermaid + actions + checks + '</script>')

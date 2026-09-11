@@ -224,6 +224,7 @@
     return Promise.all([
       window.marked ? Promise.resolve() : loadScriptOnce('/static/vendor/marked@12.0.1/marked.min.js'),
       window.DOMPurify ? Promise.resolve() : loadScriptOnce('/static/vendor/dompurify@3.4.15/purify.min.js'),
+      ensureHighlight().catch(() => {}),
     ]);
   }
 
