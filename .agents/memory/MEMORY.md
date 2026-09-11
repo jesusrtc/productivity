@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace renames move folders](workspace-renames-move-folders.md) — physical folder rename, stable internal ID, independent terminal UUID index, and path migration
+
 - [Workspace context menu actions](workspace-context-menu-actions.md) — Rename and Delete in both vault lists and workspace tabs; stable IDs for rename and exact-folder confirmation for deletion
 
 - [Workspace creation needs only a name](workspace-creation-needs-only-name.md) — single name field in the selected vault; automatic folder IDs; picker clicks survive replacing menu contents

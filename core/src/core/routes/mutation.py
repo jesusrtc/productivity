@@ -116,6 +116,28 @@ class WorkspaceField(BaseModel):
     value: str | None = None
 
 
+class RenameWorkspace(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+@router.post("/api/workspaces/{workspace_id}/rename")
+def rename_workspace(workspace_id: str, body: RenameWorkspace, request: Request, vault: str | None = None) -> dict:
+    root = _root_for_vault(request, vault)
+    _validate_pid(workspace_id)
+    old = paths.workspace_dir(root, workspace_id)
+    from core import notebook_kernel
+    if notebook_kernel.workspace_busy(root, old):
+        raise HTTPException(status_code=409, detail="Wait for the running notebook cell to finish before renaming this workspace")
+    _run_lab(["workspace", "rename", workspace_id, body.name], root=root)
+    new = paths.workspace_dir(root, workspace_id)
+    notebook_kernel.relocate_workspace(root, old, new)
+    from core.routes import term, servers
+    term._invalidate_workspace_term_caches()
+    with servers._discovery_cache_lock:
+        servers._discovery_cache.clear()
+    return {**_read_workspace(root, workspace_id), "old_path": str(old), "path": str(new)}
+
+
 class DeleteWorkspace(BaseModel):
     path: str
     confirmed: Literal[True]

@@ -15,6 +15,7 @@ from lab import paths, storage
 from lab.commands._helpers import require_valid_id as _require_valid_id
 from lab.model import ModelError, Priority, Workspace, WorkspaceStatus
 from lab.util import split_csv
+from lab import workspace_identity
 
 
 _DURATION_RE = re.compile(r"^\s*(\d+)\s*([mhdw])\s*$", re.IGNORECASE)
@@ -131,6 +132,19 @@ def new(workspace_id: str, name: str | None, description: str, priority: str | N
         raise
 
     click.echo(f"created {workspace.id} at {pdir}")
+
+
+@workspace_group.command("rename")
+@click.argument("workspace_id")
+@click.argument("name")
+def rename(workspace_id: str, name: str) -> None:
+    """Rename a workspace and move its folder, preserving its internal ID."""
+    root = paths.find_monorepo_root()
+    try:
+        result = workspace_identity.rename_workspace(root, _require_valid_id(workspace_id), name)
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"renamed {result['id']} to {result['name']} at {result['path']}")
 
 
 @workspace_group.command("ls")
@@ -380,7 +394,9 @@ def rm(workspace_id: str, yes: bool) -> None:
             abort=True,
         )
 
+    pid = workspace_identity.id_at(pdir)
     shutil.rmtree(pdir)
+    workspace_identity.forget_workspace(root, pid)
     click.echo(f"removed {pid}")
 
 

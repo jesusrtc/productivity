@@ -698,7 +698,7 @@ def create_app() -> FastAPI:
         muscle memory); /w/<id> is sugar for workspace-id navigation.
         """
         root = auth.request_root(request)
-        workspace_dir = (naming.workspaces_dir(root) / workspace_id).resolve()
+        workspace_dir = lab_paths.workspace_dir(root, workspace_id).resolve()
         if not workspace_dir.is_dir():
             raise HTTPException(status_code=404, detail=f"workspace {workspace_id!r} not found")
         return RedirectResponse(url=f"/?workspace={quote(str(workspace_dir), safe='')}")

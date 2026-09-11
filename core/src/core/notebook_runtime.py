@@ -156,7 +156,8 @@ def workspace_for_notebook(root: Path, rel_path: str) -> tuple[str, Path]:
     root_resolved = root.resolve()
     if root_resolved not in workspace_dir.parents:
         raise RuntimeConfigError("workspace path escapes vault")
-    return workspace_id, workspace_dir
+    from lab.workspace_identity import id_at
+    return id_at(workspace_dir), workspace_dir
 
 
 def runtime_config_path(root: Path, rel_path: str) -> Path:

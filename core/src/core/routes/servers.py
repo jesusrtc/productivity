@@ -225,7 +225,8 @@ def _scan_server_workspaces(root: Path) -> list[dict]:
         info = _parse_makefile(text)
         if not info["has_start"]:
             continue
-        info["workspace_id"] = pdir.name
+        from lab.workspace_identity import id_at
+        info["workspace_id"] = id_at(pdir)
         found.append(info)
     return found
 
@@ -335,6 +336,9 @@ def _live_or_current_session_name(root: Path, workspace_id: str) -> str:
     current = _session_name_for(root, workspace_id)
     if term_routes._tmux_has_session(current):
         return current
+    legacy_current = term_routes._legacy_current_tmux_name_for(workspace_id, _SERVER_TAB_NAME, root)
+    if term_routes._tmux_has_session(legacy_current):
+        return legacy_current
     previous = term_routes._legacy_vault_tmux_name_for(
         workspace_id, _SERVER_TAB_NAME, root,
     )
@@ -548,7 +552,7 @@ def _row_for(root: Path, workspace_id: str, row: dict, entry: dict) -> dict:
     return {
         "workspace_id": workspace_id,
         "vault": _vault_id(root),
-        "path": str(naming.workspaces_dir(root) / workspace_id),
+        "path": str(paths.workspace_dir(root, workspace_id)),
         "has_stop": bool(row.get("has_stop")),
         "port": port,
         "health_url": row.get("health_url"),
@@ -625,7 +629,7 @@ def _supervisor_tick_impl(root: Path) -> None:
         if not needs_restart:
             continue
 
-        workspace_dir = naming.workspaces_dir(root) / workspace_id
+        workspace_dir = paths.workspace_dir(root, workspace_id)
         ok = _supervisor_restart(root, workspace_id, workspace_dir, row)
         entry2 = _refresh_status(root, workspace_id, row)
         if not ok or not entry2["alive"]:
@@ -755,7 +759,7 @@ def start_server(vault: str, workspace_id: str, request: Request) -> dict:
         )
 
     set_desired(root, workspace_id, "running")
-    workspace_dir = naming.workspaces_dir(root) / workspace_id
+    workspace_dir = paths.workspace_dir(root, workspace_id)
     _spawn_server_session(root, workspace_id, workspace_dir)
     entry = _refresh_status(root, workspace_id, row)
     return _row_for(root, workspace_id, row, entry)
@@ -775,7 +779,7 @@ def stop_server(vault: str, workspace_id: str, request: Request) -> dict:
         )
 
     set_desired(root, workspace_id, "stopped")
-    workspace_dir = naming.workspaces_dir(root) / workspace_id
+    workspace_dir = paths.workspace_dir(root, workspace_id)
     _stop_server_session(root, workspace_id, workspace_dir, bool(row.get("has_stop")))
     entry = _refresh_status(root, workspace_id, row)
     return _row_for(root, workspace_id, row, entry)
@@ -795,7 +799,7 @@ def restart_server(vault: str, workspace_id: str, request: Request) -> dict:
         )
 
     set_desired(root, workspace_id, "running")
-    workspace_dir = naming.workspaces_dir(root) / workspace_id
+    workspace_dir = paths.workspace_dir(root, workspace_id)
     _restart_workspace(root, workspace_id, workspace_dir, row)
     entry = _refresh_status(root, workspace_id, row)
     return _row_for(root, workspace_id, row, entry)

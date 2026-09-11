@@ -244,6 +244,7 @@ def test_create_claude_session_for_workspace(client, seed_workspace, isolated_pr
     assert pjson["sessions"] == [{
         "name": "claude", "kind": "claude", "agent": "claude",
         "claude_session_id": body["claude_session_id"],
+        "session_id": body["session_id"],
     }]
 
 
@@ -323,6 +324,7 @@ def test_attach_existing_tmux_session_uses_a_grouped_alias_and_preserves_source(
         "name": body["logical_name"],
         "kind": "attached",
         "source_session": source_name,
+        "session_id": body["session_id"],
     }]
 
     closed = client.delete(
@@ -1228,10 +1230,9 @@ def test_logs_pseudo_workspace_uses_own_saved_state(monorepo: Path) -> None:
     meta_path = monorepo / "content" / ".logs-workspace.json"
     assert meta_path.is_file()
     data = json.loads(meta_path.read_text())
-    assert data["sessions"] == [{"name": "bash", "kind": "terminal"}]
-    assert term_mod._get_workspace_sessions(monorepo, term_mod.LOGS_WORKSPACE_ID) == [
-        {"name": "bash", "kind": "terminal"}
-    ]
+    assert data["sessions"] == [{"name": "bash", "kind": "terminal", "session_id": data["sessions"][0]["session_id"]}]
+    uuid.UUID(data["sessions"][0]["session_id"])
+    assert term_mod._get_workspace_sessions(monorepo, term_mod.LOGS_WORKSPACE_ID) == data["sessions"]
 
 
 def test_vault_pseudo_workspace_runs_at_root_and_persists_own_sessions(
@@ -1255,7 +1256,7 @@ def test_vault_pseudo_workspace_runs_at_root_and_persists_own_sessions(
     saved = json.loads(
         (monorepo / "content" / ".vault-workspace.json").read_text()
     )
-    assert saved["sessions"] == [{"name": "bash", "kind": "terminal"}]
+    assert saved["sessions"] == [{"name": "bash", "kind": "terminal", "session_id": body["session_id"]}]
 
 
 def test_create_session_enforces_vault_supported_agents(
@@ -1573,15 +1574,14 @@ def test_resolve_vault_label_rereads_registry_after_rename(monorepo: Path) -> No
     assert term_mod._resolve_vault_label(monorepo) == "ssd"
 
 
-def test_tmux_name_for_new_scheme_is_deterministic_and_hashed(nomenclature_tmux, monorepo: Path) -> None:
+def test_tmux_name_for_new_scheme_uses_a_persistent_uuid(nomenclature_tmux, monorepo: Path) -> None:
     import core.routes.term as term_mod
 
     name = term_mod._tmux_name_for("my-workspace", "codex-tab", monorepo)
-    assert name.startswith("neurona-my-workspace-codex-tab-")
-    assert not name.startswith("neurona-ssd-")
-    suffix = name.rsplit("-", 1)[-1]
-    assert _is_hex6(suffix)
-    # Deterministic: same vault+workspace+tab → same name, every time.
+    assert name.startswith("neurona-")
+    assert uuid.UUID(name.removeprefix("neurona-")).version == 4
+    assert 'my-workspace' not in name and 'codex-tab' not in name
+    # Persisted identity: same vault+workspace+tab → same UUID, every time.
     assert term_mod._tmux_name_for("my-workspace", "codex-tab", monorepo) == name
     # A different tab hashes differently.
     other = term_mod._tmux_name_for("my-workspace", "other-tab", monorepo)
@@ -1681,7 +1681,7 @@ def test_create_and_list_use_new_naming_scheme_and_expose_attach_command(
     seed_workspace("demo")
     created = client.post("/api/term/sessions",
                           json={"workspace_id": "demo", "kind": "terminal"}).json()
-    assert created["name"].startswith("neurona-demo-bash-")
+    assert created["name"] == "neurona-" + uuid.UUID(created["session_id"]).hex
     assert not created["name"].startswith("neurona-ssd-")
     assert created["attach_command"] == "tmux attach -t '{}'".format(created["name"])
 
@@ -1845,8 +1845,8 @@ def test_vault_neutral_names_keep_vault_in_collision_hash(
     other_root = second_vault_tmux
     mine = term_mod._tmux_name_for("same-workspace", "codex", monorepo)
     other = term_mod._tmux_name_for("same-workspace", "codex", other_root)
-    assert mine.startswith("neurona-same-workspace-codex-")
-    assert other.startswith("neurona-same-workspace-codex-")
+    assert uuid.UUID(mine.removeprefix("neurona-")).version == 4
+    assert uuid.UUID(other.removeprefix("neurona-")).version == 4
     assert mine != other
 
 
@@ -1901,7 +1901,7 @@ def test_create_and_list_sessions_can_target_non_active_vault(
 
     assert created.status_code == 200, created.text
     assert created.json()["cwd"] == str((other_root / "workspaces" / "demo2").resolve())
-    assert created.json()["name"].startswith("neurona-demo2-bash-")
+    assert created.json()["name"] == "neurona-" + uuid.UUID(created.json()["session_id"]).hex
     assert not created.json()["name"].startswith("neurona-other-")
     rows = client.get("/api/term/sessions?workspace_id=demo2&vault=other").json()
     assert [row["name"] for row in rows] == [created.json()["name"]]

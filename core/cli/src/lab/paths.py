@@ -400,7 +400,8 @@ def workspace_dir(root: Path, workspace_id: str) -> Path:
     # a real workspace folder should check is_pseudo_workspace() first.
     if is_pseudo_workspace(workspace_id):
         return root / "content"
-    return naming.workspaces_dir(root) / workspace_id
+    from lab.workspace_identity import folder_for
+    return folder_for(root, workspace_id)
 
 
 def workspace_file(root: Path, workspace_id: str) -> Path:
@@ -464,7 +465,8 @@ def find_workspace_id_from_pwd(root: Path, start: Path | None = None) -> str:
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         if candidate.parent == workspaces_root:
-            return candidate.name
+            from lab.workspace_identity import id_at
+            return id_at(candidate)
         if candidate == root.resolve():
             break
     raise WorkspaceNotFound(

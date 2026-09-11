@@ -86,7 +86,7 @@ def build_index(root: Path) -> Index:
 
             for t in tasks_doc.get("tasks", []):
                 task_rows.append({
-                    "workspace_id": child.name,
+                    "workspace_id": pdata.get("id", child.name),
                     "task_id": t["id"],
                     "title": t.get("title", ""),
                     "status": t.get("status"),

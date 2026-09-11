@@ -9,24 +9,17 @@ Why tmux + PTY (and not one or the other):
 - **PTY** is the transport: forking a pseudo-terminal that execs `tmux attach`
   gives us clean ANSI + resize + streaming to pump over the WebSocket.
 
-Session identity lives in TWO places:
+Session identity is independent of names and locations:
 
-- ``workspaces/<id>/workspace.json`` — durable. Stores the *logical*
-  session list: ``{name, kind, claude_session_id?, agent_session_id?}``. This is the source of
-  truth for "which sessions does this workspace know about" and for the
-  Claude session UUIDs we need to ``--resume``. Survives server restarts.
-- ``.lab/state/sessions/sessions.json`` — runtime. Maps the live tmux
-  session name back to ``{workspace_id, logical_name, cwd, created_at}``.
-  Re-created on session spawn, cleaned on session kill.
+- ``workspace.json`` stores durable tabs with ``session_id`` UUIDs, logical
+  names, labels, and agent resume IDs.
+- ``.lab/state/session-index.json`` maps workspace/logical tab pairs to UUIDs.
+- ``.lab/state/sessions/sessions.json`` records live tmux names and sockets.
 
-Tmux session naming (see ``_tmux_name_for`` / ``_parse_tmux_name``):
-``neurona-<workspace>-<tab>-<hash6>``. Vault ownership is deliberately
-not exposed in the human-facing name; it remains in runtime metadata and
-is folded into the deterministic hash so same-named workspaces in different
-vaults cannot collide. Older vault-prefixed and ``lab-`` schemes
-are still recognized for discovery/adoption, so this change never requires
-killing or renaming a live session. ``LAB_TMUX_PREFIX`` (tests / opt-out)
-keeps the plain ``<prefix><workspace>-<tab>`` shape exactly as before.
+New tmux names are ``neurona-<uuidhex>``. Renaming a workspace moves its folder
+without changing its permanent API ID or terminal UUIDs. Existing named tmux
+sessions are adopted without renaming or interrupting them. ``LAB_TMUX_PREFIX``
+(tests / opt-out) retains the legacy ``<prefix><workspace>-<tab>`` format.
 
 Killing a session (the "X on a tab" flow) removes it from tmux + the runtime
 file but **keeps** the workspace.json entry so a later re-open can
@@ -68,6 +61,7 @@ import tomllib
 import uuid
 from contextlib import closing
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -430,6 +424,9 @@ def _resolve_session_vault_root(
             continue
     for vault_row in known:
         root = vault_row["path"]
+        from lab.workspace_identity import session_owner
+        if session_owner(root, name) is not None:
+            return root
         if _parse_current_tmux_name(root, name) is not None:
             return root
         if name.startswith(_legacy_vault_prefix(root)) or name.startswith(_legacy_namespaced_prefix(root)):
@@ -507,7 +504,8 @@ def _workspace_json(root: Path, workspace_id: str) -> Path:
         return naming.pseudo_metadata_file(root, "vault")
     if workspace_id == ASSISTANT_WORKSPACE_ID:
         return naming.workspace_metadata_file(root / ".lab")
-    return naming.workspace_metadata_file(naming.workspaces_dir(root) / workspace_id)
+    from lab import paths
+    return paths.workspace_file(root, workspace_id)
 
 
 def _workspace_cwd(root: Path, workspace_id: str) -> Path:
@@ -535,7 +533,8 @@ def _workspace_cwd(root: Path, workspace_id: str) -> Path:
     repo = _cs_repo_name(workspace_id)
     if repo:
         return (root / "repositories" / repo).resolve()
-    return (naming.workspaces_dir(root) / workspace_id).resolve()
+    from lab import paths
+    return paths.workspace_dir(root, workspace_id).resolve()
 
 
 # ─── runtime metadata (.sessions.json) ──────────────────────────────────────
@@ -554,9 +553,14 @@ def _load_meta(root: Path) -> dict:
 
 
 def _save_meta(root: Path, meta: dict) -> None:
+    from lab import workspace_identity, storage
+    for row in meta.values():
+        if row.get("workspace_id") and row.get("logical_name") and not row.get("session_id"):
+            row["session_id"] = workspace_identity.session_identity(
+                root, row["workspace_id"], row["logical_name"],
+            )["session_id"]
     p = _sessions_file(root)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(meta, indent=2) + "\n")
+    storage.write_json(p, meta)
 
 
 # Vault roots already warned about being unavailable (e.g. a registered
@@ -611,9 +615,14 @@ def _load_workspace(root: Path, workspace_id: str) -> dict | None:
 
 
 def _save_workspace(root: Path, workspace_id: str, data: dict) -> None:
-    p = _workspace_json(root, workspace_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2) + "\n")
+    from lab import storage
+    from lab.workspace_identity import operation_lease
+    try:
+        lease = operation_lease(root, workspace_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    with lease:
+        storage.write_json(_workspace_json(root, workspace_id), data)
 
 
 def _get_workspace_sessions(root: Path, workspace_id: str) -> list[dict]:
@@ -635,6 +644,8 @@ def _workspace_session_by_name(root: Path, workspace_id: str) -> dict[str, dict]
 
 def _upsert_workspace_session(root: Path, workspace_id: str, entry: dict) -> None:
     """Insert or update an entry (keyed by ``name``) in workspace.json.sessions."""
+    from lab import workspace_identity
+    entry = {**entry, "session_id": workspace_identity.session_identity(root, workspace_id, entry["name"])["session_id"]}
     data = _load_workspace(root, workspace_id)
     if data is None:
         return  # workspace.json doesn't exist — skip silently; the session still
@@ -1312,7 +1323,8 @@ def _known_workspace_ids(root: Path) -> list[str]:
     ]
     workspaces = naming.workspaces_dir(root)
     if workspaces.is_dir():
-        ids += [p.name for p in workspaces.iterdir() if p.is_dir()]
+        from lab.workspace_identity import id_at
+        ids += [id_at(p) for p in workspaces.iterdir() if p.is_dir()]
     repos = root / "repositories"
     if repos.is_dir():
         ids += [f"{_CS_PREFIX}{p.name}{_CS_SUFFIX}" for p in repos.iterdir() if p.is_dir()]
@@ -1422,6 +1434,10 @@ def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
     that literal prefix is recognized (test mode). Returns None for names we
     can't attribute (e.g. the UUID fallback for workspace-less terminals).
     """
+    from lab.workspace_identity import session_owner
+    owner = session_owner(root, name)
+    if owner:
+        return owner
     env_prefix = os.environ.get("LAB_TMUX_PREFIX")
     if env_prefix:
         if not name.startswith(env_prefix):
@@ -1459,6 +1475,10 @@ def _parse_tmux_name_with_workspace_ids(
     workspace_ids: list[str],
 ) -> tuple[str, str] | None:
     """Like ``_parse_tmux_name`` but uses a pre-scanned workspace id list."""
+    from lab.workspace_identity import session_owner
+    owner = session_owner(root, name)
+    if owner:
+        return owner
     env_prefix = os.environ.get("LAB_TMUX_PREFIX")
     if env_prefix:
         if not name.startswith(env_prefix):
@@ -1575,6 +1595,16 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
         )
     for n, s in live_by_name.items():
         if n in meta:
+            if not meta[n].get("session_id"):
+                from lab.workspace_identity import session_identity
+                row = meta[n]
+                if row.get("workspace_id") and row.get("logical_name"):
+                    row["session_id"] = session_identity(root, row["workspace_id"], row["logical_name"])["session_id"]
+                    if row["logical_name"] in _workspace_session_by_name(root, row["workspace_id"]):
+                        _upsert_workspace_session(root, row["workspace_id"], {
+                            "name": row["logical_name"], "session_id": row["session_id"],
+                        })
+                    changed = True
             socket_name = str(
                 s.get("tmux_socket") or tmux_sockets.DEFAULT_SOCKET
             )
@@ -1947,10 +1977,8 @@ def _tmux_name_for(workspace_id: str | None, logical_name: str,
 
     - ``LAB_TMUX_PREFIX`` set (tests / opt-out): ``<prefix><workspace>-<tab>``,
       exactly the pre-nomenclature format.
-    - Otherwise: ``neurona-<workspace>-<tab>-<hash6>``. The vault's stable
-      registry id is folded into ``<hash6>`` rather than exposed in the
-      visible name, so identical workspace/tab pairs in different vaults
-      remain collision-free.
+    - Otherwise: ``neurona-<uuidhex>``. A durable per-vault index maps the
+      UUID to its workspace and logical tab, independent of folder names.
 
     When no workspace is given (rare — standalone terminals) we fall back to a
     UUID so the name is globally unique.
@@ -1959,13 +1987,20 @@ def _tmux_name_for(workspace_id: str | None, logical_name: str,
     if not workspace_id:
         if env_prefix:
             return env_prefix + uuid.uuid4().hex[:8]
-        return _new_scheme_prefix() + uuid.uuid4().hex[:8]
+        return _new_scheme_prefix() + uuid.uuid4().hex
     workspace_sane = _sanitize(workspace_id)
     tab_sane = _sanitize(logical_name)
     if env_prefix:
         return env_prefix + workspace_sane + "-" + tab_sane
-    vault = _resolve_vault_label(root)
-    digest = _session_hash(vault, workspace_sane, tab_sane)
+    from lab import paths, workspace_identity
+    root = root or paths.find_vault_root()
+    identity = workspace_identity.session_identity(root, workspace_id, logical_name)
+    return _SESSION_PREFIX + identity["session_id"].replace("-", "")
+
+
+def _legacy_current_tmux_name_for(workspace_id: str, logical_name: str, root: Path) -> str:
+    workspace_sane, tab_sane = _sanitize(workspace_id), _sanitize(logical_name)
+    digest = _session_hash(_resolve_vault_label(root), workspace_sane, tab_sane)
     return f"{_SESSION_PREFIX}{workspace_sane}-{tab_sane}-{digest}"
 
 
@@ -2411,7 +2446,27 @@ def _decode_pasted_image(body: PastedImage) -> tuple[str, bytes]:
     return mime, blob
 
 
+def _with_workspace_lease(func):
+    """Keep a terminal mutation's reads, spawn and writes at one location."""
+    @wraps(func)
+    def guarded(body, request):
+        if not body.workspace_id:
+            return func(body, request)
+        from lab.workspace_identity import operation_lease
+        active_root = auth.request_root(request)
+        root = _vault_root_for(active_root, body.vault)
+        _require_workspace_access(request, active_root, root, body.workspace_id)
+        try:
+            lease = operation_lease(root, body.workspace_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        with lease:
+            return func(body, request)
+    return guarded
+
+
 @router.post("/api/term/sessions/order")
+@_with_workspace_lease
 def set_session_order(body: SessionOrder, request: Request) -> dict:
     """Reorder the workspace's saved sessions[] so /api/term/sessions reflects
     the new pill order. Any saved session not listed is appended in its
@@ -2452,6 +2507,7 @@ def _linked_file_identity(link: dict | None) -> str | None:
 
 
 @router.patch("/api/term/sessions/metadata")
+@_with_workspace_lease
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     """Persist user-facing metadata for a saved logical session."""
     # Two simultaneous link choices must not both claim the same file.
@@ -2563,6 +2619,9 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
 
     tmux_name = _tmux_name_for(body.workspace_id, body.name, root)
     meta = _load_meta(root)
+    tmux_name = next((name for name, row in meta.items()
+                      if row.get("workspace_id") == body.workspace_id
+                      and row.get("logical_name") == body.name), tmux_name)
     if tmux_name in meta:
         if "label" in fields:
             if entry.get("label"):
@@ -2720,6 +2779,7 @@ def workspaces_with_sessions(request: Request) -> list[str]:
 
 
 @router.post("/api/term/sessions/attach")
+@_with_workspace_lease
 def attach_session(body: AttachSession, request: Request) -> dict:
     """Expose an existing tmux session as a safe Lab-owned grouped alias.
 
@@ -2869,6 +2929,7 @@ def attach_session(body: AttachSession, request: Request) -> dict:
 
 
 @router.post("/api/term/sessions")
+@_with_workspace_lease
 def create_session(body: NewSession, request: Request) -> dict:
     """Create (or re-attach / resume) a named session.
 

@@ -5,6 +5,30 @@ PTY and WebSocket. The browser's input/output path is unchanged by socket
 rotation: once attached, terminal bytes continue to travel directly between
 the PTY and WebSocket event loop.
 
+## Workspace renames and session identity
+
+Rename a workspace from the secondary-click menu on either its vault row or
+its top-level tab, or run `lab workspace rename <id> "New Named Workspace"`.
+The folder becomes `workspaces/new-named-workspace`. Lab updates its own saved
+paths, terminal links, and tab state. A conflicting destination is rejected.
+An executing notebook must finish before its folder can move.
+
+The workspace's internal ID stays fixed. `.lab/state/workspace-locations.json`
+maps that ID to its current directory and can be rebuilt from workspace metadata.
+Each terminal has a separate UUID, saved in the workspace's session list and
+indexed in `.lab/state/session-index.json`. New tmux names use
+`neurona-<uuidhex>`; display labels and workspace folder names do not determine
+terminal identity. Neither a workspace rename nor a tab-label change creates
+a replacement terminal.
+
+Existing live sessions keep their transport names and sockets, and are adopted
+into the UUID index without interruption. When later recreated, they use their
+UUID transport name. Agent resume IDs remain separate and unchanged.
+
+Lab repairs nested Git worktree links during a move. It does not rewrite
+absolute paths embedded in user scripts, virtual-environment launchers, or a
+running program's private state; those may need updating after a folder rename.
+
 ## Rolling socket rotation
 
 macOS security and keychain context is captured by a long-lived tmux server

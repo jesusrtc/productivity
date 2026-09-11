@@ -39,8 +39,17 @@ class KernelExecutionError(RuntimeError):
 
 
 def _session_id(root: Path, rel_path: str) -> str:
-    key = f"{root.resolve()}\0{rel_path}".encode("utf-8")
+    key = f"{root.resolve()}\0{_notebook_identity(root, rel_path)}".encode("utf-8")
     return "local-" + hashlib.sha1(key).hexdigest()[:12]
+
+
+def _notebook_identity(root: Path, rel_path: str) -> str:
+    from lab import naming
+    from lab.workspace_identity import id_at
+    parts = Path(rel_path).parts
+    if len(parts) >= 3 and parts[0] == naming.workspaces_dir(root).name:
+        return str(Path(parts[0], id_at(root / parts[0] / parts[1]), *parts[2:]))
+    return rel_path
 
 
 def _msg_type(message: dict[str, Any]) -> str:
@@ -381,7 +390,7 @@ def session_name(root: Path, rel_path: str) -> str:
 
 
 def _session_for(root: Path, rel_path: str, handle: RuntimeHandle) -> _KernelSession:
-    key = (str(root.resolve()), rel_path)
+    key = (str(root.resolve()), _notebook_identity(root, rel_path))
     stale: _KernelSession | None = None
     with _sessions_guard:
         session = _sessions.get(key)
@@ -391,6 +400,10 @@ def _session_for(root: Path, rel_path: str, handle: RuntimeHandle) -> _KernelSes
         if session is None:
             session = _KernelSession(root, rel_path, handle)
             _sessions[key] = session
+        else:
+            session.rel_path = rel_path
+            session.handle = handle
+            session.process.handle = handle
     if stale is not None:
         stale.close_sync()
     return session
@@ -507,11 +520,34 @@ def shutdown_workspace(root: Path, workspace_dir: Path) -> None:
         matches = [
             key for key in _sessions
             if key[0] == root_key
-            and (root / key[1]).resolve().is_relative_to(workspace_dir)
+            and (root / getattr(_sessions[key], 'rel_path', key[1])).resolve().is_relative_to(workspace_dir)
         ]
         sessions = [_sessions.pop(key) for key in matches]
     for session in sessions:
         session.close_sync()
+
+
+def workspace_busy(root: Path, workspace_dir: Path) -> bool:
+    with _sessions_guard:
+        return any(session.process.busy.is_set() for key, session in _sessions.items()
+                   if key[0] == str(root.resolve())
+                   and (root / session.rel_path).is_relative_to(workspace_dir))
+
+
+def relocate_workspace(root: Path, old: Path, new: Path) -> None:
+    """Move idle notebook session keys while preserving the running kernel."""
+    from lab.workspace_identity import rebase
+    with _sessions_guard:
+        for key, session in list(_sessions.items()):
+            if key[0] != str(root.resolve()) or not (root / session.rel_path).is_relative_to(old):
+                continue
+            rel = rebase(session.rel_path, old, new, root)
+            session.rel_path = rel
+            session.handle = session.handle.model_copy(update={
+                "python": rebase(session.handle.python, old, new, root),
+                "working_dir": rebase(session.handle.working_dir, old, new, root),
+            })
+            session.process.handle = session.handle
 
 
 def shutdown_root(root: Path) -> None:

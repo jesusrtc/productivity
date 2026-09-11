@@ -72,7 +72,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.requests import ClientDisconnect
 
-from lab import tmux_sockets
+from lab import paths, tmux_sockets
 
 from core import auth, server_config
 from core.routes import term as term_routes
@@ -153,7 +153,7 @@ def _self_proxy_response(workspace_id: str, name: str, cfg: dict[str, Any]) -> R
 
 def _workspace_dir(root: Path, workspace_id: str) -> Path:
     """Map a workspace id to its `workspaces/<id>/` folder."""
-    return naming.workspaces_dir(root) / workspace_id
+    return paths.workspace_dir(root, workspace_id)
 
 
 def _existing_workspace_dir(root: Path, workspace_id: str) -> Path:

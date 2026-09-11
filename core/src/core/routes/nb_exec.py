@@ -103,17 +103,39 @@ def _lock_for(target: Path) -> threading.Lock:
 
 _pending_paths: dict[str, int] = {}
 _pending_guard = threading.Lock()
+_pending_leases: dict[str, list] = {}
 
 
-def _mark_running(target: Path) -> None:
+def _mark_running(target: Path, workspace_id: str | None = None) -> None:
     key = str(target.resolve())
+    lease = None
+    from lab.workspace_identity import folder_for, id_at, operation_lease
+    for folder in target.parents:
+        if folder.parent.name in {"workspaces", "projects"}:
+            try:
+                workspace_id = workspace_id or id_at(folder)
+                lease = operation_lease(folder.parent.parent, workspace_id)
+                if folder_for(folder.parent.parent, workspace_id) != folder:
+                    lease.close()
+                    raise ValueError("Workspace folder moved; reopen this notebook")
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            break
     with _pending_guard:
         _pending_paths[key] = _pending_paths.get(key, 0) + 1
+        _pending_leases.setdefault(key, []).append(lease)
 
 
 def _mark_done(target: Path) -> None:
     key = str(target.resolve())
     with _pending_guard:
+        leases = _pending_leases.get(key, [])
+        if leases:
+            lease = leases.pop()
+            if lease:
+                lease.close()
+        if not leases:
+            _pending_leases.pop(key, None)
         remaining = _pending_paths.get(key, 0) - 1
         if remaining > 0:
             _pending_paths[key] = remaining
@@ -793,7 +815,7 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
     # Count in-flight requests rather than keeping a boolean: queued cells in
     # the same notebook must keep the path marked active when an earlier cell
     # completes.
-    _mark_running(target)
+    _mark_running(target, workspace_id=getattr(local_handle, "workspace_id", None))
     try:
         with _lock_for(target):
             pre_exec_count = _next_exec_count(_load_or_empty(target))

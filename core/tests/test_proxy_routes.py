@@ -342,7 +342,8 @@ def test_proxy_control_targets_requested_vault(
     assert response.status_code == 200, response.text
     argv, _kwargs = calls[-1]
     assert argv[argv.index("-c") + 1] == str(workspace)
-    assert response.json()["session_name"].startswith("neurona-demo-server-web-")
+    from lab.workspace_identity import session_owner
+    assert session_owner(other_root, response.json()["session_name"]) == ("demo", "server-web")
     assert not response.json()["session_name"].startswith("neurona-other-")
 
 

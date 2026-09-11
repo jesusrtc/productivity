@@ -392,8 +392,9 @@ def _scan_workspace_ids(root: Path) -> list[str]:
     workspaces_dir = naming.workspaces_dir(root)
     if not workspaces_dir.is_dir():
         return []
+    from lab.workspace_identity import id_at
     return sorted(
-        p.name for p in workspaces_dir.iterdir()
+        id_at(p) for p in workspaces_dir.iterdir()
         if p.is_dir() and not p.name.startswith(".")
     )
 

@@ -8580,6 +8580,68 @@
     update(currentWorkspace);
   }
 
+  function _applyWorkspaceLocation(oldPath, newPath) {
+    if (!newPath || oldPath === newPath) return;
+    const move = value => {
+      if (typeof value === 'string') {
+        if (value === oldPath || value.startsWith(oldPath + '/') || value.startsWith(oldPath + '::') || value.startsWith(oldPath + '|')) {
+          return newPath + value.slice(oldPath.length);
+        }
+        const encoded = encodeURIComponent(oldPath);
+        if (value === encoded || value.startsWith(encoded + '%2F')) return encodeURIComponent(newPath) + value.slice(encoded.length);
+        return value;
+      }
+      if (Array.isArray(value)) return value.map(move);
+      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v]) => [move(k),move(v)]));
+      return value;
+    };
+    // Update objects in place: current selection and warm terminal connections
+    // still point at them. Session keys and workspace IDs do not change.
+    for (const workspace of [currentWorkspace, ...workspacesList, ...workspaceTabsAll,
+      ...vaultCatalog.flatMap(v => v.workspace_rows || []), ...(_vaultCurrent?.workspace_rows || [])]) {
+      if (workspace?.path === oldPath) Object.assign(workspace, move(workspace));
+    }
+    workspaceTabsOrder = workspaceTabsOrder.map(move);
+    _workspaceDocRoot = move(_workspaceDocRoot);
+    _workspaceDeleteTarget = move(_workspaceDeleteTarget);
+    _sidebarFileConfigScope = move(_sidebarFileConfigScope);
+    _sidebarFileConfig = move(_sidebarFileConfig);
+    termSessions = move(termSessions);
+    for (const [key, sessions] of _termSessionsCache) _termSessionsCache.set(key, move(sessions));
+    for (const cache of [_workspaceSidebarCache, _workspaceAttrsCache, _workspaceDocCache, _gitStatusByPath]) {
+      for (const key of cache.keys()) if (move(key) !== key) cache.delete(key);
+    }
+    try {
+      for (const key of Object.keys(localStorage).filter(key => key.startsWith('lab'))) {
+        let nextKey = key;
+        for (const [before, after] of [[oldPath,newPath],[encodeURIComponent(oldPath),encodeURIComponent(newPath)]]) {
+          if (nextKey.endsWith(before)) nextKey = nextKey.slice(0,-before.length) + after;
+          else {
+            for (const separator of ['::', '|', '/', '%2F']) nextKey = nextKey.replace(before + separator, after + separator);
+          }
+        }
+        const raw = localStorage.getItem(key);
+        let next;
+        try { next = JSON.stringify(move(JSON.parse(raw))); } catch { next = move(raw); }
+        if (nextKey !== key || next !== raw) localStorage.setItem(nextKey,next);
+        if (nextKey !== key) localStorage.removeItem(key);
+      }
+    } catch { /* the server also persists the authoritative folder and tab order */ }
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('workspace') === oldPath) {
+      url.searchParams.set('workspace',newPath);
+      history.replaceState(history.state,'',url);
+    }
+    termRenderSessionList();
+    if (currentWorkspace?.path === newPath) {
+      void _refreshWorkspaceSidebar({preserveScroll:true});
+      if (typeof _workspaceDocPath === 'string' && _workspaceDocPath.endsWith('.ipynb')
+          && !_workspaceDocEditing) {
+        void openWorkspaceDoc(_workspaceDocPath, {preserveScroll:true, root:_workspaceDocRoot});
+      }
+    }
+  }
+
   async function workspaceSaveDisplayName(event) {
     if (event) event.preventDefault();
     if (!currentWorkspace || !currentWorkspace.is_workspace) return false;
@@ -8592,17 +8654,18 @@
     if (status) status.textContent = 'Saving…';
     try {
       const suffix = vaultId ? '?vault=' + encodeURIComponent(vaultId) : '';
-      const r = await fetch('/api/workspaces/' + encodeURIComponent(workspaceId) + '/field' + suffix, {
+      const r = await fetch('/api/workspaces/' + encodeURIComponent(workspaceId) + '/rename' + suffix, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({field: 'name', value: displayName}),
+        body: JSON.stringify({name: displayName}),
       });
       const updated = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(updated.detail || 'Could not save the workspace name');
       const savedName = String(updated.name || workspaceId);
       _setWorkspaceDisplayName(workspacePath, savedName);
+      _applyWorkspaceLocation(workspacePath, updated.path);
       if (input) input.value = savedName;
-      if (currentWorkspace && currentWorkspace.path === workspacePath) {
+      if (currentWorkspace && currentWorkspace.path === (updated.path || workspacePath)) {
         const heading = document.querySelector('[data-workspace-display-title]');
         if (heading) heading.textContent = savedName;
         document.title = savedName;
@@ -9933,7 +9996,17 @@
     await workspaceTabsLoadOrder();
     try {
       const all = await fetchRepos();
+      const previous = [...workspaceTabsAll, currentWorkspace].filter(w => w?.is_workspace);
       workspaceTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_workspace);
+      for (const workspace of previous) {
+        const refreshed = workspaceTabsAll.find(w => w.name === workspace.name
+          && _workspaceVaultId(w) === _workspaceVaultId(workspace));
+        if (refreshed && refreshed.path !== workspace.path) {
+          const oldPath = workspace.path;
+          _setWorkspaceDisplayName(oldPath, refreshed.display_name || refreshed.name);
+          _applyWorkspaceLocation(oldPath, refreshed.path);
+        }
+      }
     } catch { /* leave stale state; next tick will retry */ }
     workspaceTabsRender();
     vaultRefreshWorkspaceResources();
@@ -16847,12 +16920,12 @@
 
     try {
       const url = renameTarget
-        ? '/api/workspaces/' + encodeURIComponent(renameTarget.id) + '/field?vault=' + encodeURIComponent(renameTarget.vault)
+        ? '/api/workspaces/' + encodeURIComponent(renameTarget.id) + '/rename?vault=' + encodeURIComponent(renameTarget.vault)
         : '/api/workspaces';
       const response = await fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(renameTarget ? {field: 'name', value: name} : {name, vault: vaultId}),
+        body: JSON.stringify(renameTarget ? {name} : {name, vault: vaultId}),
       });
       const created = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(created.detail || (renameTarget ? 'Could not rename workspace' : 'Workspace creation failed'));
@@ -16864,7 +16937,8 @@
       if (renameTarget) {
         const savedName = String(created.name || name);
         _setWorkspaceDisplayName(renameTarget.path, savedName);
-        if (currentWorkspace?.path === renameTarget.path) {
+        _applyWorkspaceLocation(renameTarget.path, created.path);
+        if (currentWorkspace?.path === (created.path || renameTarget.path)) {
           document.title = savedName;
           const heading = document.querySelector('[data-workspace-display-title]');
           if (heading) heading.textContent = savedName;
