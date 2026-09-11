@@ -2179,7 +2179,20 @@
   .doc-modal-title { font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .doc-modal-close { background: none; border: none; color: var(--text-secondary); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
   .doc-modal-close:hover { color: var(--text-primary); }
-  .doc-modal-body { flex: 1; overflow-y: auto; }
+  .doc-modal-layout { display: flex; flex: 1; min-height: 0; }
+  .doc-modal-body { flex: 1; min-width: 0; overflow: auto; }
+  .doc-modal-files { width: 240px; max-width: 30%; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); }
+  .doc-modal-files[hidden] { display: none; }
+  .doc-modal-folder { padding: 14px 12px; color: var(--text-secondary); font: 12px ui-monospace, monospace; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
+  .doc-modal-files-list { padding: 6px; overflow-y: auto; min-height: 0; }
+  .doc-modal-file { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+  .doc-modal-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc-modal-file .ft-icon { flex-shrink: 0; }
+  .doc-modal-file:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  .doc-modal-file.active { background: #388bfd26; color: var(--text-primary); }
+  .doc-modal-file:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .doc-modal-file:disabled { opacity: .55; cursor: default; }
+  .doc-modal-files-error { padding: 12px; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
 
 /* ─── Focus mode ─────────────────────────────────────────────────────────
    Keep the topbar so Home and the open vault/workspace tabs remain usable.

@@ -1894,7 +1894,15 @@
   }
   // Inline-onclick toggle: read scope/path/target id from data-* attrs,
   // flip the children container's .open class, mirror the arrow, persist.
-  function _treeToggleFolder(btn) {
+  function _treeToggleFolder(btn, event) {
+    if (event && (event.metaKey || event.ctrlKey) && btn.hasAttribute('data-entry-root')) {
+      event.preventDefault();
+      event.stopPropagation();
+      void openWorkspaceFolderModal(btn.getAttribute('data-tree-path'), {
+        root: btn.getAttribute('data-entry-root') || currentWorkspace?.path,
+      });
+      return;
+    }
     const scope = btn.getAttribute('data-tree-scope');
     const path = btn.getAttribute('data-tree-path');
     const targetId = btn.getAttribute('data-tree-target');
@@ -3047,7 +3055,7 @@
       node.folders.forEach(folder => {
         const fid = 'recent-folder-' + Math.random().toString(36).slice(2, 8);
         const open = _treeIsOpen(scope, folder.path, true);
-        nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" onclick="_treeToggleFolder(this)" title="${escAttr(folder.path)}"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
+        nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
         nodeHtml += `<div class="sidebar-folder-children${open ? ' open' : ''}" id="${fid}">${renderNode(folder.children)}</div>`;
       });
       node.files.forEach(file => {
@@ -5782,6 +5790,8 @@
   async function openAgentContext() {
     const modal = document.getElementById('docViewModal');
     const body = document.getElementById('docModalBody');
+    _docModalFilesGeneration++;
+    document.getElementById('docModalFiles').hidden = true;
     document.getElementById('docModalTitle').textContent = 'Lab agent context';
     body.innerHTML = '<div class="loading">Loading…</div>';
     modal.classList.add('active');
@@ -6602,10 +6612,61 @@
   window.openWorkspaceNotebooks = openWorkspaceNotebooks;
 
   let _docModalEscHandler = null;
+  let _docModalFilesGeneration = 0;
+
+  async function _loadDocModalFiles(filepath, root) {
+    const generation = ++_docModalFilesGeneration;
+    const workspacePath = currentWorkspace.path;
+    const nav = document.getElementById('docModalFiles');
+    const folder = filepath.includes('/') ? filepath.slice(0, filepath.lastIndexOf('/')) : '';
+    const directory = root.replace(/\/$/, '') + (folder ? '/' + folder : '');
+    nav.hidden = false;
+    nav.innerHTML = `<div class="doc-modal-folder" title="${escAttr(directory)}">${esc(folder || 'Files')}</div><div class="doc-modal-files-list"><div class="loading">Loading…</div></div>`;
+    const list = nav.querySelector('.doc-modal-files-list');
+    try {
+      // Fetch the actual folder, independently of the Recently updated filters.
+      const entries = await _sidebarFetchWorkspaceFiles(directory);
+      if (generation !== _docModalFilesGeneration || currentWorkspace?.path !== workspacePath) return;
+      const files = entries.filter(entry => entry.type !== 'dir' && !entry.path.includes('/'));
+      const basename = filepath.split('/').pop();
+      if (basename && !files.some(entry => entry.path === basename)) files.push({path: basename});
+      files.sort((a, b) => a.path.localeCompare(b.path, undefined, {numeric: true}));
+      list.replaceChildren();
+      if (!files.length) list.innerHTML = '<div class="doc-modal-files-error">No files in this folder.</div>';
+      for (const file of files) {
+        const path = (folder ? folder + '/' : '') + file.path;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'doc-modal-file' + (path === filepath ? ' active' : '');
+        button.title = file.path;
+        button.disabled = _workspaceDocEditing;
+        if (path === filepath) button.setAttribute('aria-current', 'page');
+        button.innerHTML = `${fileIconHtml(file.path, file)}<span>${esc(file.path)}</span>`;
+        button.addEventListener('click', () => {
+          if (_workspaceDocEditing || path === document.getElementById('docModalTitle').textContent) return;
+          // Keep the existing document actions and the underlying pane on the same file.
+          void openWorkspaceDoc(path, {root});
+          void openWorkspaceDocModal(path, {root});
+        });
+        list.appendChild(button);
+      }
+      list.querySelector('.active')?.scrollIntoView({block: 'nearest'});
+    } catch (error) {
+      if (generation !== _docModalFilesGeneration) return;
+      list.innerHTML = `<div class="doc-modal-files-error">${esc(error.message || 'Could not list files')}</div>`;
+    }
+  }
+
+  function openWorkspaceFolderModal(folder, {root = null} = {}) {
+    return openWorkspaceDocModal(String(folder || '').replace(/\/$/, '') + '/', {root});
+  }
 
   async function openWorkspaceDocModal(filepath, { editing = false, root = null } = {}) {
     if (!currentWorkspace) return;
-    _workspaceDocRoot = root || currentWorkspace.path;
+    const docRoot = root || currentWorkspace.path;
+    if (!filepath.endsWith('/')) _workspaceDocRoot = docRoot;
+    void _loadDocModalFiles(filepath, docRoot);
+    const generation = _docModalFilesGeneration;
     const modal = document.getElementById('docViewModal');
     const body = document.getElementById('docModalBody');
     const titleEl = document.getElementById('docModalTitle');
@@ -6617,11 +6678,16 @@
     document.addEventListener('keydown', _docModalEscHandler);
     _workspaceDocEditing = editing;
     _workspaceDocEditContainer = editing ? body : null;
+    if (filepath.endsWith('/')) {
+      body.innerHTML = '<div class="loading" style="padding:24px">Select a file to preview.</div>';
+      return;
+    }
     await _renderDocInto(filepath, body);
-    if (!editing) _workspaceDocEditing = false;
+    if (!editing && generation === _docModalFilesGeneration) _workspaceDocEditing = false;
   }
 
   function closeDocModal() {
+    _docModalFilesGeneration++;
     if (_workspaceDocEditing) {
       _workspaceDocEditing = false;
       _workspaceDocEditContainer = null;
@@ -6644,10 +6710,12 @@
   async function _workspaceRenderHtml(container, filepath, absKey, mode) {
     // Race guard against the user navigating away mid-fetch — same
     // shape as the one in _renderDocInto.
+    const modalGeneration = _docModalFilesGeneration;
     const _navWorkspacePath = (currentWorkspace && currentWorkspace.path) || null;
     const docRoot = _workspaceDocRoot || _navWorkspacePath;
     const _stillActiveNav = () => (
-      _workspaceDocPath === filepath
+      (container.id !== 'docModalBody' || modalGeneration === _docModalFilesGeneration)
+      && _workspaceDocPath === filepath
       && currentWorkspace
       && currentWorkspace.path === _navWorkspacePath
       && (_workspaceDocRoot || currentWorkspace.path) === docRoot
@@ -6714,10 +6782,12 @@
     // synchronously by openWorkspaceDoc / selectRepo before this function
     // is called, so a mismatch here means a newer navigation has
     // already taken over `container` and we must not paint.
+    const modalGeneration = _docModalFilesGeneration;
     const _navWorkspacePath = (currentWorkspace && currentWorkspace.path) || null;
     const docRoot = _workspaceDocRoot || _navWorkspacePath;
     const _stillActiveNav = () => (
-      _workspaceDocPath === filepath
+      (container.id !== 'docModalBody' || modalGeneration === _docModalFilesGeneration)
+      && _workspaceDocPath === filepath
       && currentWorkspace
       && currentWorkspace.path === _navWorkspacePath
       && (_workspaceDocRoot || currentWorkspace.path) === docRoot
@@ -8456,7 +8526,7 @@
             const open = _treeIsOpen(_workspaceTreeScope, fullPath, autoOpen);
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
-            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
             html += renderTree(node[folder], depth + 1, fullPath);
             html += '</div>';
@@ -8512,7 +8582,7 @@
         const _extOpen = _treeIsOpen(_workspaceTreeScope, 'external-references', true);
         const _extArrow = _extOpen ? ' open' : '';
         const _extChildren = _extOpen ? ' open' : '';
-        sbHtml += `<div class="sidebar-folder" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="external-references" data-tree-target="${extId}" onclick="_treeToggleFolder(this)"><span class="folder-arrow${_extArrow}">▶</span>external-references/</div>`;
+        sbHtml += `<div class="sidebar-folder" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="external-references" data-tree-target="${extId}" onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${_extArrow}">▶</span>external-references/</div>`;
         sbHtml += `<div class="sidebar-folder-children${_extChildren}" id="${extId}">`;
         references.forEach(r => {
           const safeUrl = (r.url || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -15660,7 +15730,7 @@
       const open = _treeIsOpen(scope, fullPath, autoOpenHere);
       const arrowCls = open ? ' open' : '';
       const childrenCls = open ? ' open' : '';
-      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(d)} onclick="_treeToggleFolder(this)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+      html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">▶</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
       html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
       html += renderSidebarFileTree(node[folder], depth + 1, fullPath, opts);
       html += '</div>';

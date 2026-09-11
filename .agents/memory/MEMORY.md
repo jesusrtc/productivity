@@ -151,3 +151,5 @@
 - [Home terminal listing spans registries](home-terminal-list-spans-registries.md) — combine Home sessions independently of section Referers, deduplicate live names, and preserve vault isolation for real workspaces
 
 - [Daily feature usage counters](daily-feature-usage-counters.md) — Logs shows daily feature counts sorted by use, with distinct UI interaction methods and persistent counters separate from diagnostics
+
+- [File modal browses sibling files](file-modal-browses-sibling-files.md) — double-click selects a file; Cmd-click browses a folder in the same modal with files on the left
