@@ -9208,7 +9208,8 @@
   const _TERM_SESSION_WIDTH_KEY = 'labTermSessionWidth';
   const _TERM_GROUPS_KEY = 'labTermGroups-v1';
   const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes';
-  const _TERM_RECENT_COLOR_KEY = 'labTermRecentColor';
+  // Dots start green instead of inheriting the old bar/background color.
+  const _TERM_RECENT_COLOR_KEY = 'labTermRecentDotColor';
   const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1';
   const _TERM_RECENT_MINUTE_OPTIONS = [15, 30, 60, 180, 360, 720, 1440];
   const _TERM_GROUP_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149', '#db61a2', '#39c5cf', '#8b949e'];

@@ -191,7 +191,7 @@ def test_terminal_tabs_show_recent_activity_with_configurable_window() -> None:
     assert 'id="termRecentColor" type="color"' in html
     assert 'oninput="termSetRecentColor(this.value)"' in html
     assert "const _TERM_RECENT_MINUTES_KEY = 'labTermRecentMinutes'" in source
-    assert "const _TERM_RECENT_COLOR_KEY = 'labTermRecentColor'" in source
+    assert "const _TERM_RECENT_COLOR_KEY = 'labTermRecentDotColor'" in source
     assert "const _TERM_RECENT_ACTIVITY_KEY = 'labTermRecentActivity-v1'" in source
     assert "function _termMarkRecent(workspaceId, sessionName" in source
     assert "function _termSessionRecentMeta(session, now = Date.now())" in source
