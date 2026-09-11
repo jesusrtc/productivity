@@ -10989,6 +10989,42 @@
       </span>`).join('');
   }
 
+  function _termPreviewRequests(requests) {
+    const preview = [];
+    let characters = 0;
+    for (let i = requests.length - 1; i >= 0 && characters < 50; i--) {
+      const text = String(requests[i] || '').trim();
+      if (!text) continue;
+      characters += Array.from(text).length + (preview.length ? 1 : 0);
+      preview.unshift(text);
+    }
+    return preview;
+  }
+
+  function _termSessionIdentity(s) {
+    const scope = s?.linked_scope;
+    const basename = path => String(path || '').replace(/\/+$/, '').split('/').pop();
+    const root = scope?.project_root || scope?.root || s?.cwd || '';
+    const projectLabel = String(scope?.label || '').split(' · ')[0];
+    const project = projectLabel && projectLabel !== 'Root' ? projectLabel : basename(root);
+    const identity = [];
+    if (project) identity.push({kind: 'project', text: project, title: `Project: ${root || project}`,
+      color: scope ? _termScopeColor({...scope, worktree: null}) : 'var(--accent)'});
+    if (scope) identity.push({kind: 'worktree',
+      text: scope.worktree ? String(scope.label || '').split(' · ').slice(1).join(' · ') || basename(scope.worktree) : 'main',
+      title: `Worktree: ${scope.worktree || scope.root || 'main'}`, color: _termScopeColor(scope)});
+    const linked = String(s?.linked_file?.path || '').trim();
+    if (linked) identity.push({kind: 'file', text: linked, title: `Linked file: ${linked}`, color: 'var(--accent)'});
+    return identity;
+  }
+
+  function _termSessionIdentityHtml(identity) {
+    return identity.map(part => {
+      const color = /^#[0-9a-f]{6}$/i.test(part.color) ? part.color : 'var(--accent)';
+      return `<span class="term-context-identity-part" style="color:${color}" title="${termSessEsc(part.title)}">${termSessEsc(part.text)}</span>`;
+    }).join('<span class="term-context-identity-arrow" aria-hidden="true">→</span>');
+  }
+
   function _termShowNewestContextItems(container, visibleCount) {
     if (!container) return;
     if (container.style) container.style.maxHeight = '';
@@ -11025,7 +11061,9 @@
   }
 
   function _termSessionTooltipPayload(s) {
-    return JSON.stringify({items: _termSessionRequests(s).slice(-1)});
+    const identity = _termSessionIdentity(s);
+    return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
+      ...(identity.length ? {identity} : {})});
   }
 
   async function termRenameSession(name) {
@@ -11082,6 +11120,7 @@
     const statusSummary = document.getElementById('termStatusSummary');
     const statusSummaryLabel = document.getElementById('termStatusSummaryLabel');
     const statusSummaryText = document.getElementById('termStatusSummaryText');
+    const statusIdentity = document.getElementById('termStatusIdentity');
     if (!el && !statusSummary) return;
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId
@@ -11102,6 +11141,7 @@
         statusSummaryText.textContent = '';
         if (statusSummaryText.dataset) delete statusSummaryText.dataset.contextKey;
       }
+      if (statusIdentity) { statusIdentity.innerHTML = ''; statusIdentity.hidden = true; }
       if (statusSummaryLabel) statusSummaryLabel.textContent = 'Requests';
       return;
     }
@@ -11123,9 +11163,14 @@
         el.innerHTML = html;
       }
     }
+    const identityHtml = _termSessionIdentityHtml(_termSessionIdentity(session));
+    if (statusIdentity) {
+      if (statusIdentity.innerHTML !== identityHtml) statusIdentity.innerHTML = identityHtml;
+      statusIdentity.hidden = !identityHtml;
+    }
     if (statusSummary) {
       statusSummary.removeAttribute('title');
-      statusSummary.hidden = !context.items.length;
+      statusSummary.hidden = !context.items.length && !identityHtml;
     }
     if (statusSummaryLabel) statusSummaryLabel.textContent = context.label;
     if (statusSummaryText) {
@@ -11184,7 +11229,8 @@
     const items = Array.isArray(payload.items)
       ? payload.items.map(value => String(value || '').trim()).filter(Boolean)
       : [];
-    const latest = items.slice(-1);
+    const latest = _termPreviewRequests(items);
+    const identityHtml = _termSessionIdentityHtml(Array.isArray(payload.identity) ? payload.identity : []);
     const anchorRect = anchor.getBoundingClientRect();
     const panel = anchor.closest?.('.term-panel');
     const boundary = panel ? panel.getBoundingClientRect().left : anchorRect.left;
@@ -11192,7 +11238,7 @@
     const availableWidth = boundary - gap * 2;
     // Never flip above/below or into the terminal. A full-width terminal may
     // leave no usable space on the left; its selected header still has history.
-    if (!latest.length || availableWidth < 120) {
+    if ((!latest.length && !identityHtml) || availableWidth < 120) {
       _termHideSessionTooltip();
       return;
     }
@@ -11203,10 +11249,11 @@
       tooltip._termInteractive = true;
     }
     tooltip.innerHTML = `
-      <div class="term-session-tooltip-context">
-        <div class="term-session-tooltip-label">Latest request</div>
+      ${identityHtml ? `<div class="term-context-identity">${identityHtml}</div>` : ''}
+      ${latest.length ? `<div class="term-session-tooltip-context">
+        <div class="term-session-tooltip-label">${latest.length > 1 ? 'Latest requests' : 'Latest request'}</div>
         <div class="term-session-tooltip-items">${_termContextRowsHtml({items: latest, isObjective: true})}</div>
-      </div>`;
+      </div>` : ''}`;
     tooltip.style.width = `${Math.min(420, availableWidth)}px`;
     tooltip.style.left = '0px';
     tooltip.style.top = '0px';

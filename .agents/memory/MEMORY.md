@@ -2,7 +2,7 @@
 
 - [Markdown fences and code copy](markdown-fences-and-code-copy.md) — disclosures parse fenced SQL without blank-line requirements; every code block has an upper-right copy action preserving source whitespace
 
-- [Terminal hover stays left](terminal-hover-left-latest-request.md) — only the latest request; never cover the terminal; full history stays in the selected header
+- [Terminal hover stays left](terminal-hover-left-latest-request.md) — prepend earlier requests until 50 characters; colored project → worktree → file headers; never cover the terminal
 
 - [Workspaces own their agent context](workspaces-own-agent-context.md) — inject packaged Lab capabilities at launch; no workspace instruction seeding or symlinks; preserve provider and workspace rules
 

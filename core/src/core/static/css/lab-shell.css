@@ -1915,7 +1915,12 @@
   .term-session-tooltip[hidden] { display: none; }
   .term-session-tooltip-context { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 5px; }
   .term-session-tooltip-label { position: sticky; top: 0; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
-  .term-session-tooltip-items { min-width: 0; }
+  .term-session-tooltip-items { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .term-context-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; grid-column: 1 / -1; font-size: 10px; font-weight: 700; }
+  .term-context-identity[hidden] { display: none; }
+  .term-context-identity-part { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-context-identity-arrow { color: var(--text-dim); font-weight: 400; }
+  .term-session-tooltip > .term-context-identity { margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid #414852; }
   .term-sessions .sess.recent:not(.active)::after { content: ""; flex: none; box-sizing: border-box; width: 7px; height: 7px; border: 1px solid #58636f; border-radius: 50%; background: var(--term-recent-color, var(--green)); }
 
   /* Project identity uses a thick left edge; recent activity uses a small dot. */

@@ -587,12 +587,15 @@ const statusSummary = {
   removeAttribute(name) { if (name === 'title') this.title = ''; },
 };
 const statusSummaryLabel = {textContent: ''};
+const statusIdentity = {innerHTML: '', hidden: true};
+function _termScopeColor(scope) { return scope.worktree ? '#aabbcc' : '#112233'; }
 const statusSummaryText = {
   textContent: '', innerHTML: '', scrollTop: 0, scrollHeight: 240,
 };
 const document = {getElementById(id) {
   if (id === 'termActiveSession') return activeHeader;
   if (id === 'termStatusSummary') return statusSummary;
+  if (id === 'termStatusIdentity') return statusIdentity;
   if (id === 'termStatusSummaryLabel') return statusSummaryLabel;
   if (id === 'termStatusSummaryText') return statusSummaryText;
   return null;
@@ -600,6 +603,8 @@ const document = {getElementById(id) {
 const termSessions = [{
   name: 'tmux-codex', logical_name: 'codex', agent: 'codex',
   agent_session_name: 'Session names',
+  linked_scope: {label: 'Forge · feature', project_root: '/repo/forge', root: '/trees/feature', worktree: '/trees/feature'},
+  linked_file: {path: 'docs/notes.md'},
   agent_session_requests: [
     'Inspect the existing header',
     'Fix immediate hover',
@@ -613,10 +618,15 @@ function _termActiveWorkspaceId() { return 'demo'; }
 function termSessEsc(value) { return String(value); }
 """ + header_helpers + """
 _termRenderActiveSessionHeader();
-process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSummaryText}));
+process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSummaryText, statusIdentity}));
 """
     )
 
+    assert result["statusIdentity"]["hidden"] is False
+    identity = result["statusIdentity"]["innerHTML"]
+    assert identity.index('>Forge<') < identity.index('>feature<') < identity.index('>docs/notes.md<')
+    assert 'color:#112233' in identity
+    assert 'color:#aabbcc' in identity
     assert result["statusSummary"] == {"title": "", "hidden": False}
     assert result["statusSummaryLabel"]["textContent"] == "Requests"
     assert result["statusSummaryText"]["innerHTML"].count(
@@ -657,7 +667,7 @@ const tooltip = {
   getBoundingClientRect() { return {width: Number.parseFloat(this.style.width), height: 80}; },
 };
 const payload = JSON.stringify({
-  label: 'Requests', items: ['Old request', 'Latest task', 'Another request', 'Newest request'],
+  label: 'Requests', items: ['Old request', 'Latest task', 'Another request', 'Newest request with enough detail to reach the fifty character threshold'],
   isObjective: false, meta: ['tmux-name', 'Double-click to rename'],
 });
 const anchor = {
@@ -805,8 +815,8 @@ process.stdout.write(JSON.stringify({requests, objective}));
 """
     )
 
-    assert result["requests"] == {"items": ["Make each preview two lines"]}
-    assert result["objective"] == {"items": ["Newest request"]}
+    assert result["requests"] == {"items": ["Keep the complete session history", "Make each preview two lines"]}
+    assert result["objective"] == {"items": ["Old request", "Newest request"]}
 
 
 def test_vault_view_opens_shared_home_terminal_scope() -> None:
@@ -2713,3 +2723,37 @@ const fetch = async () => ({ok: true, json: async () => ({
 })().catch(error => { console.error(error); process.exit(1); });
 ''')
     assert result == [{'type': 'input', 'data': '/workspace/.lab/terminal-pastes/image.png'}]
+
+
+@pytest.mark.parametrize("requests, expected", [
+    (["Older", "x" * 50], ["x" * 50]),
+    (["Earlier context", "x" * 49], ["Earlier context", "x" * 49]),
+    (["Old", "Please fix the terminal preview so it stays readable", "ok"],
+     ["Please fix the terminal preview so it stays readable", "ok"]),
+    (["Start", "yes", "go", "ok"], ["Start", "yes", "go", "ok"]),
+    (["Earlier", "😀" * 25], ["Earlier", "😀" * 25]),
+    ([], []),
+])
+def test_terminal_preview_expands_backwards_to_fifty_characters(requests, expected) -> None:
+    helper = _js_between("function _termPreviewRequests(", "function _termSessionIdentity(")
+    assert _run_node(helper + "process.stdout.write(JSON.stringify(_termPreviewRequests("
+                     + json.dumps(requests) + ")));" ) == expected
+
+
+def test_terminal_hover_identity_is_colored_and_escaped() -> None:
+    helpers = _js_between("function _termSessionIdentity(", "function _termShowNewestContextItems(")
+    result = _run_node(helpers + r"""
+function _termScopeColor(scope) { return scope.worktree ? '#aabbcc' : '#112233'; }
+function termSessEsc(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'); }
+const parts = _termSessionIdentity({
+  linked_scope: {label: 'Forge · feature', project_root: '/repo/forge', root: '/trees/feature', worktree: '/trees/feature'},
+  linked_file: {path: 'docs/<notes>.md'},
+});
+process.stdout.write(JSON.stringify({parts, html: _termSessionIdentityHtml(parts),
+  unlinked: _termSessionIdentity({cwd: '/repo/lab'})}));
+""")
+    assert [part['text'] for part in result['parts']] == ['Forge', 'feature', 'docs/<notes>.md']
+    assert 'color:#112233' in result['html'] and 'color:#aabbcc' in result['html']
+    assert 'docs/&lt;notes>.md' in result['html']
+    assert len(result['unlinked']) == 1
+    assert result['unlinked'][0]['text'] == 'lab'
