@@ -638,13 +638,13 @@ process.stdout.write(JSON.stringify({statusSummary, statusSummaryLabel, statusSu
     assert ">Requests</span>" in html
     assert "grid-template-columns: 56px minmax(0, 1fr)" in css
     assert "max-height: min(24vh, calc(8.4em + 14px))" in css
-    assert "max-height: min(34vh, calc(13.5em + 28px))" in css
     assert "overflow-y: auto" in css
     assert "-webkit-line-clamp: 2" in css
 
 
 @pytest.mark.parametrize("dragging", [False, True])
-def test_terminal_custom_tooltip_opens_synchronously_without_native_title(dragging: bool) -> None:
+@pytest.mark.parametrize("panel_left", [0, 200, 600])
+def test_terminal_custom_tooltip_opens_synchronously_without_native_title(dragging: bool, panel_left: int) -> None:
     tooltip_helpers = _js_between(
         "function _termContextRowsHtml(context)",
         "function _termSessionPillHtml(s, index)",
@@ -654,18 +654,19 @@ def test_terminal_custom_tooltip_opens_synchronously_without_native_title(draggi
 const tooltip = {
   hidden: true, innerHTML: '', style: {},
   addEventListener(name) { this['on' + name] = true; },
-  getBoundingClientRect() { return {width: 220, height: 80}; },
+  getBoundingClientRect() { return {width: Number.parseFloat(this.style.width), height: 80}; },
 };
 const payload = JSON.stringify({
   label: 'Requests', items: ['Old request', 'Latest task', 'Another request', 'Newest request'],
   isObjective: false, meta: ['tmux-name', 'Double-click to rename'],
 });
 const anchor = {
+  closest() { return {getBoundingClientRect: () => ({left: panelLeft})}; },
   getAttribute(name) {
     return name === 'data-tooltip' ? payload : null;
   },
   getBoundingClientRect() {
-    return {left: 20, right: 70, top: 30, width: 50, height: 36};
+    return {left: panelLeft + 8, right: panelLeft + 58, top: 130, width: 50, height: 36};
   },
 };
 const document = {getElementById(id) {
@@ -673,24 +674,25 @@ const document = {getElementById(id) {
 }};
 const window = {innerWidth: 900, innerHeight: 700};
 function termSessEsc(value) { return String(value); }
-""" + "const _termDragState = " + ("{}" if dragging else "null") + ";\n" + tooltip_helpers + """
+""" + f"const panelLeft = {panel_left};\n" + "const _termDragState = " + ("{}" if dragging else "null") + ";\n" + tooltip_helpers + """
 _termShowSessionTooltip(anchor);
 process.stdout.write(JSON.stringify(tooltip));
 """
     )
 
-    if dragging:
+    if dragging or panel_left == 0:
         assert result["hidden"] is True
         assert result["innerHTML"] == ""
         return
     assert result["hidden"] is False
-    assert "term-session-tooltip-label\">Requests" in result["innerHTML"]
-    assert "Old request" in result["innerHTML"]
-    assert "Latest task" in result["innerHTML"]
-    assert "Another request" in result["innerHTML"]
+    assert "term-session-tooltip-label\">Latest request" in result["innerHTML"]
+    assert "Old request" not in result["innerHTML"]
+    assert "Latest task" not in result["innerHTML"]
+    assert "Another request" not in result["innerHTML"]
     assert "Newest request" in result["innerHTML"]
-    assert "tmux-name" in result["innerHTML"]
-    assert result["style"] == {"left": "8px", "top": "74px"}
+    assert "tmux-name" not in result["innerHTML"]
+    width = min(420, panel_left - 16)
+    assert result["style"] == {"width": f"{width}px", "left": f"{panel_left - 8 - width}px", "top": "108px"}
     assert result["onpointerenter"] is True
     assert result["onpointerleave"] is True
 
@@ -776,7 +778,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_terminal_hover_scrolls_all_requests_or_uses_current_ai_objective() -> None:
+def test_terminal_hover_shows_only_latest_request_even_with_an_objective() -> None:
     title_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "async function termRenameSession(name)",
@@ -803,23 +805,8 @@ process.stdout.write(JSON.stringify({requests, objective}));
 """
     )
 
-    assert result["requests"] == {
-        "label": "Requests",
-        "items": [
-            "Inspect the current metadata",
-            "Show the latest user assignment",
-            "Keep the complete session history",
-            "Make each preview two lines",
-        ],
-        "isObjective": False,
-        "meta": ["tmux-name", "Recently active", "Double-click to rename"],
-    }
-    assert result["objective"] == {
-        "label": "Objective",
-        "items": ["AI-written current objective"],
-        "isObjective": True,
-        "meta": ["tmux-objective", "Double-click to rename"],
-    }
+    assert result["requests"] == {"items": ["Make each preview two lines"]}
+    assert result["objective"] == {"items": ["Newest request"]}
 
 
 def test_vault_view_opens_shared_home_terminal_scope() -> None:

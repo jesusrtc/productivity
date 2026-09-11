@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal hover stays left](terminal-hover-left-latest-request.md) — only the latest request; never cover the terminal; full history stays in the selected header
+
 - [Workspaces own their agent context](workspaces-own-agent-context.md) — inject packaged Lab capabilities at launch; no workspace instruction seeding or symlinks; preserve provider and workspace rules
 
 - [Markdown copy respects disclosure state](markdown-copy-respects-disclosures.md) — native details/summary folds; copy excludes closed blocks and flattens open blocks from the live view for every clipboard format

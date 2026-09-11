@@ -11018,26 +11018,8 @@
     };
   }
 
-  function _termSessionTooltipPayload(s, statusTitle) {
-    const context = _termSessionContext(s);
-    const linked = String(s && s.linked_file && s.linked_file.path || '').trim();
-    const scope = s && s.linked_scope;
-    const projectLabel = String(scope?.label || '').split(' · ')[0];
-    const projectName = projectLabel && projectLabel !== 'Root' ? projectLabel
-      : String(scope?.project_root || scope?.root || '').replace(/\/+$/, '').split('/').pop();
-    const identity = scope ? [
-      `Project: ${projectName}`,
-      `Worktree: ${scope.worktree ? String(scope.label || '').split(' · ').slice(1).join(' · ') || scope.worktree.split('/').pop() : 'main'}`,
-      `Folder: ${scope.root}`,
-      linked ? `File: ${linked}` : '',
-    ].filter(Boolean) : (linked ? [`File: ${linked}`] : []);
-    return JSON.stringify({
-      ...(identity.length ? {identity} : {}),
-      label: context.label,
-      items: context.items,
-      isObjective: context.isObjective,
-      meta: [s && s.name, statusTitle, 'Double-click to rename'].filter(Boolean),
-    });
+  function _termSessionTooltipPayload(s) {
+    return JSON.stringify({items: _termSessionRequests(s).slice(-1)});
   }
 
   async function termRenameSession(name) {
@@ -11196,52 +11178,39 @@
     const items = Array.isArray(payload.items)
       ? payload.items.map(value => String(value || '').trim()).filter(Boolean)
       : [];
-    const context = {
-      label: String(payload.label || 'Requests'),
-      items,
-      isObjective: payload.isObjective === true,
-    };
-    const meta = Array.isArray(payload.meta)
-      ? payload.meta.map(value => String(value || '').trim()).filter(Boolean)
-      : [];
+    const latest = items.slice(-1);
+    const anchorRect = anchor.getBoundingClientRect();
+    const panel = anchor.closest?.('.term-panel');
+    const boundary = panel ? panel.getBoundingClientRect().left : anchorRect.left;
+    const gap = 8;
+    const availableWidth = boundary - gap * 2;
+    // Never flip above/below or into the terminal. A full-width terminal may
+    // leave no usable space on the left; its selected header still has history.
+    if (!latest.length || availableWidth < 120) {
+      _termHideSessionTooltip();
+      return;
+    }
     _termCancelSessionTooltipHide();
     if (!tooltip._termInteractive && tooltip.addEventListener) {
       tooltip.addEventListener('pointerenter', _termCancelSessionTooltipHide);
       tooltip.addEventListener('pointerleave', _termScheduleSessionTooltipHide);
       tooltip._termInteractive = true;
     }
-    // Native `title` tooltips wait for the browser's dwell timer. This
-    // fixed-position tooltip is populated and laid out in the pointer/focus
-    // event itself, so the task appears immediately and is keyboard-visible.
-    const identity = Array.isArray(payload.identity) ? payload.identity : [];
     tooltip.innerHTML = `
-      ${identity.length ? `<div class="term-session-tooltip-identity" style="margin-bottom:8px;white-space:pre-line">${identity.map(termSessEsc).join('<br>')}</div>` : ''}
       <div class="term-session-tooltip-context">
-        <div class="term-session-tooltip-label">${termSessEsc(context.label)}</div>
-        <div class="term-session-tooltip-items">${_termContextRowsHtml(context)}</div>
-      </div>
-      ${meta.length ? `<div class="term-session-tooltip-meta">${meta.map(termSessEsc).join('<br>')}</div>` : ''}`;
-    tooltip.hidden = false;
-    const itemList = tooltip.querySelector
-      ? tooltip.querySelector('.term-session-tooltip-items')
-      : null;
-    _termShowNewestContextItems(itemList, 5);
+        <div class="term-session-tooltip-label">Latest request</div>
+        <div class="term-session-tooltip-items">${_termContextRowsHtml({items: latest, isObjective: true})}</div>
+      </div>`;
+    tooltip.style.width = `${Math.min(420, availableWidth)}px`;
     tooltip.style.left = '0px';
     tooltip.style.top = '0px';
-    const anchorRect = anchor.getBoundingClientRect();
+    tooltip.hidden = false;
     const tipRect = tooltip.getBoundingClientRect();
-    const gap = 8;
-    const left = Math.max(gap, Math.min(
-      anchorRect.left + anchorRect.width / 2 - tipRect.width / 2,
-      window.innerWidth - tipRect.width - gap,
-    ));
-    const above = anchorRect.top - tipRect.height - gap;
-    const top = above >= gap ? above : Math.max(gap, Math.min(
-      anchorRect.top + anchorRect.height + gap,
+    tooltip.style.left = `${boundary - gap - tipRect.width}px`;
+    tooltip.style.top = `${Math.max(gap, Math.min(
+      anchorRect.top + (anchorRect.height - tipRect.height) / 2,
       window.innerHeight - tipRect.height - gap,
-    ));
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
+    ))}px`;
   }
 
   function _termSessionPillHtml(s, index) {
@@ -11394,6 +11363,7 @@
         node.click();
       });
       node.addEventListener('click', () => {
+        _termHideSessionTooltip();
         const name = node.getAttribute('data-name');
         if (!name) return;
         const session = (termSessions || []).find(row => row.name === name);
