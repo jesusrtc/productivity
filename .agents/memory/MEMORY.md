@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notebook cells do not scroll vertically](notebook-cells-do-not-scroll-vertically.md) — fully expand or hide code and ordinary outputs; preserve scrolling only in client-authored HTML
+
 - [Terminal file drops and clean copy](terminal-file-drop-and-clean-copy.md) — sidebar files paste absolute paths through xterm; copying removes decorative frame rails while preserving content pipes
 
 - [Linked terminal file identity](terminal-linked-file-name-and-icon.md) — linked tabs and headers show the file basename and shared file-type icon, including in worktrees

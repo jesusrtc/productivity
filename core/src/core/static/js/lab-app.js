@@ -4737,14 +4737,7 @@
       if (!highlightCode) return;
       highlightCode.innerHTML = _highlightCellSource(ta.value);
     }
-    function _syncOverlayScroll() {
-      const pre = wrap.querySelector('.nb-cell-edit-highlight');
-      if (!pre) return;
-      pre.scrollTop = ta.scrollTop;
-      pre.scrollLeft = ta.scrollLeft;
-    }
     if (highlightCode && _draftDiffersFromDisk) _repaintHighlight();
-    ta.addEventListener('scroll', _syncOverlayScroll);
     ta.addEventListener('input', () => {
       if (isPending && pendingId) {
         _updatePending(relPath, pendingId, ta.value);
