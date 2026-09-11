@@ -66,7 +66,7 @@
   .workspace-tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   .workspace-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px 6px 12px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; max-width: 220px; white-space: nowrap; position: relative; top: 6px; flex-shrink: 0; }
   .workspace-tab:hover { color: var(--text-primary); background: var(--border); }
-  .workspace-tab.active { color: var(--text-primary); background: var(--bg-primary); border-color: var(--border); border-bottom-color: var(--bg-primary); top: 5px; padding-bottom: 7px; }
+  .workspace-tab.active { color: var(--text-primary); background: var(--bg-primary); border-color: var(--border); border-bottom-color: var(--bg-primary); }
   .workspace-tab.active::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #f78166; border-radius: 2px 2px 0 0; }
   .workspace-tab.vault-owned::after { content: ""; position: absolute; left: 7px; right: 7px; bottom: 2px; height: 2px; border-radius: 2px; background: var(--vault-color, var(--accent)); opacity: .75; }
   .workspace-tab.vault-owned.active::before { background: var(--vault-color, var(--accent)); }

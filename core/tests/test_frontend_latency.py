@@ -52,6 +52,8 @@ const classes = new Set(['self-active']);
 const document = {getElementById: () => el, body: {classList: {contains: key => classes.has(key)}}};
 const SELF_WORKSPACE_ID = '__self__', ASSISTANT_WORKSPACE_ID = '__assistant__', LAB_IS_ADMIN = true;
 let currentWorkspace = null;
+let workspaceTabsOrder = [], workspaceTabsOrderReady = true, workspaceTabsDragId = null;
+const workspaceTabsSaveOrder = () => {}, workspaceTabsWireDnD = () => {};
 let workspaceTabsAll = [{path: '/demo', name: 'demo', display_name: 'Demo', vault: 'vault'}];
 const workspaceTabsOpenIds = () => ['/demo'];
 const _vaultForWorkspace = () => ({name: 'Vault', color: '#ffffff'});

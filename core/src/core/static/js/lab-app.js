@@ -9087,7 +9087,10 @@
   let workspaceTabsRefreshTimer = null;
   const _vaultResourceRequests = new Set();
   let workspaceTabsOrder = [];        // user-chosen order (from /api/ui/tab-order)
-  let workspaceTabsDragId = null;    // pid currently being dragged
+  let workspaceTabsOrderReady = false;
+  let workspaceTabsOrderLoad = null;
+  let workspaceTabsOrderSave = Promise.resolve();
+  let workspaceTabsDragId = null;      // absolute workspace path being dragged
   let _contextSubView = 'overview';
   function _vaultById(vaultId) {
     return (vaultCatalog || []).find(vault => vault && vault.id === vaultId) || null;
@@ -9856,7 +9859,30 @@
   // workspaceTabsRefresh() can be called during init without tripping the
   // temporal dead zone on `workspaceTabsAll` / `workspaceTabsRefreshTimer`.
 
+  function workspaceTabsLoadOrder() {
+    if (!workspaceTabsOrderLoad) workspaceTabsOrderLoad = (async () => {
+      try {
+        const response = await fetch('/api/ui/tab-order');
+        if (!response.ok) throw new Error('Could not load tab order');
+        const order = await response.json();
+        workspaceTabsOrder = Array.isArray(order) ? [...new Set(order.filter(key => typeof key === 'string' && key))] : [];
+      } catch { /* use discovery order when saved state is unavailable */ }
+      workspaceTabsOrderReady = true;
+    })();
+    return workspaceTabsOrderLoad;
+  }
+
+  function workspaceTabsSaveOrder() {
+    const body = JSON.stringify({order: workspaceTabsOrder});
+    // Serialize writes so a quick second drop cannot be overwritten by the first.
+    workspaceTabsOrderSave = workspaceTabsOrderSave.catch(() => {}).then(() => fetch('/api/ui/tab-order', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body,
+    })).catch(() => {});
+    return workspaceTabsOrderSave;
+  }
+
   async function workspaceTabsRefresh() {
+    await workspaceTabsLoadOrder();
     try {
       const all = await fetchRepos();
       workspaceTabsAll = (Array.isArray(all) ? all : []).filter(p => p.is_workspace);
@@ -9867,7 +9893,7 @@
 
   function workspaceTabsRender() {
     const el = document.getElementById('workspaceTabs');
-    if (!el) return;
+    if (!el || !workspaceTabsOrderReady || workspaceTabsDragId) return;
     const selfActive = document.body.classList.contains('self-active');
     const assistantActive = document.body.classList.contains('assistant-active');
     const vaultActive = document.body.classList.contains('vault-active');
@@ -9880,8 +9906,19 @@
       seenPaths.add(workspace.path);
       workspaceTabs.push(workspace);
     };
-    if (activeWorkspacePath) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === activeWorkspacePath));
     for (const path of workspaceTabsOpenIds()) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === path));
+    if (activeWorkspacePath) addWorkspace((workspaceTabsAll || []).find(workspace => workspace.path === activeWorkspacePath));
+    const previousOrder = JSON.stringify(workspaceTabsOrder);
+    // Old versions stored names. Migrate only unambiguous names across vaults.
+    workspaceTabsOrder = [...new Set(workspaceTabsOrder.map(key => {
+      const matches = workspaceTabsAll.filter(workspace => workspace.name === key);
+      return matches.length === 1 ? matches[0].path : key;
+    }))];
+    for (const workspace of workspaceTabs) {
+      if (!workspaceTabsOrder.includes(workspace.path)) workspaceTabsOrder.push(workspace.path);
+    }
+    workspaceTabs.sort((a, b) => workspaceTabsOrder.indexOf(a.path) - workspaceTabsOrder.indexOf(b.path));
+    if (JSON.stringify(workspaceTabsOrder) !== previousOrder) workspaceTabsSaveOrder();
 
     let html = `
       <div class="workspace-tab self-tab${selfActive || vaultActive ? ' active' : ''}" data-kind="productivity" data-key="${SELF_WORKSPACE_ID}" role="tab" title="Home">
@@ -9897,7 +9934,7 @@
       const color = workspaceTabsEsc((vault && vault.color) || '#8b949e');
       const blocked = tabBlocked.pid === workspace.name ? ' blocked' : '';
       return `
-        <div class="workspace-tab vault-owned${active}${blocked}" style="--vault-color:${color}" data-kind="workspace" data-key="${workspaceTabsEsc(workspace.path)}" data-workspace-id="${workspaceTabsEsc(workspace.name)}" data-vault="${workspaceTabsEsc(workspace.vault || '')}" role="tab" title="${workspaceTabsEsc((vault && (vault.name || vault.id)) || '')} · ${workspaceTabsEsc(workspace.path)}">
+        <div class="workspace-tab vault-owned${active}${blocked}" draggable="true" style="--vault-color:${color}" data-kind="workspace" data-key="${workspaceTabsEsc(workspace.path)}" data-workspace-id="${workspaceTabsEsc(workspace.name)}" data-vault="${workspaceTabsEsc(workspace.vault || '')}" role="tab" title="${workspaceTabsEsc((vault && (vault.name || vault.id)) || '')} · ${workspaceTabsEsc(workspace.path)}">
           <span class="vault-mark"></span>
           <span class="label">${workspaceTabsEsc(_workspaceDisplayName(workspace))}</span>
           <button class="x" title="Close workspace tab (resources keep running)" data-x="${workspaceTabsEsc(workspace.path)}">&times;</button>
@@ -9910,6 +9947,7 @@
     el._labTabsHtml = html;
     el.innerHTML = html;
 
+    workspaceTabsWireDnD(el);
     el.querySelectorAll('.workspace-tab').forEach(node => {
       node.addEventListener('click', (e) => {
         if (e.target.closest('.x')) return;  // X handled separately
@@ -9935,9 +9973,9 @@
   }
 
   function workspaceTabsWireDnD(container) {
-    container.querySelectorAll('.workspace-tab').forEach(tab => {
+    container.querySelectorAll('.workspace-tab[data-kind="workspace"]').forEach(tab => {
       tab.addEventListener('dragstart', (e) => {
-        workspaceTabsDragId = tab.getAttribute('data-workspace-id');
+        workspaceTabsDragId = tab.getAttribute('data-key');
         tab.classList.add('dragging');
         if (e.dataTransfer) {
           e.dataTransfer.effectAllowed = 'move';
@@ -9949,6 +9987,7 @@
         container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
           .forEach(t => t.classList.remove('drop-before', 'drop-after'));
         workspaceTabsDragId = null;
+        workspaceTabsRender();
       });
       tab.addEventListener('dragover', (e) => {
         if (!workspaceTabsDragId) return;
@@ -9963,7 +10002,8 @@
       tab.addEventListener('drop', async (e) => {
         e.preventDefault();
         const src = workspaceTabsDragId;
-        const dst = tab.getAttribute('data-workspace-id');
+        const dst = tab.getAttribute('data-key');
+        workspaceTabsDragId = null;
         container.querySelectorAll('.workspace-tab.drop-before, .workspace-tab.drop-after')
           .forEach(t => t.classList.remove('drop-before', 'drop-after'));
         if (!src || !dst || src === dst) return;
@@ -9974,29 +10014,18 @@
     });
   }
 
-  async function workspaceTabsReorder(srcPid, dstPid, placeBefore) {
-    // Compute the NEW order from the current DOM (authoritative — respects
-    // the saved-order + append-new logic that workspaceTabsRender runs).
-    const current = Array.from(document.querySelectorAll('#workspaceTabs .workspace-tab'))
-      .map(n => n.getAttribute('data-workspace-id'));
-    const srcIdx = current.indexOf(srcPid);
-    if (srcIdx === -1) return;
+  async function workspaceTabsReorder(srcPath, dstPath, placeBefore) {
+    const current = [...workspaceTabsOrder];
+    const srcIdx = current.indexOf(srcPath);
+    if (srcPath === dstPath || srcIdx === -1 || !current.includes(dstPath)) return;
     current.splice(srcIdx, 1);
-    let dstIdx = current.indexOf(dstPid);
-    if (dstIdx === -1) dstIdx = current.length;
+    let dstIdx = current.indexOf(dstPath);
     if (!placeBefore) dstIdx += 1;
-    current.splice(dstIdx, 0, srcPid);
+    current.splice(dstIdx, 0, srcPath);
 
     workspaceTabsOrder = current;
     workspaceTabsRender();
-    // Persist server-side so the order survives reloads + other browsers.
-    try {
-      await fetch('/api/ui/tab-order', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({order: current}),
-      });
-    } catch (e) { /* best-effort; local state already updated */ }
+    await workspaceTabsSaveOrder();
   }
 
   function workspaceTabsEsc(s) {

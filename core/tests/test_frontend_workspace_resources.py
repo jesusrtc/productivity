@@ -45,6 +45,8 @@ const requests = [];
 const a = {path:'/a/workspaces/demo', name:'demo',vault:'a',tab_open:true};
 const b = {...a,path:'/b/workspaces/demo',vault:'b'};
 let currentWorkspace = a;
+let workspaceTabsOrder = [], workspaceTabsOrderReady = true, workspaceTabsDragId = null;
+const workspaceTabsSaveOrder = () => {};
 let workspaceTabsAll = [a,b], workspaceTabsHot = [{workspace_id:'demo',vault:'a'}];
 const workspaceTabsSetOpen = async (path,open) => {requests.push(['open',path,open]);workspaceTabsAll.find(w=>w.path===path).tab_open=open;};
 const workspaceTabsRefresh = async () => {requests.push(['refresh']);workspaceTabsRender();};
