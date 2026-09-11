@@ -257,8 +257,10 @@ def test_create_terminal_session(client, seed_workspace, isolated_prefix) -> Non
     assert body["claude_session_id"] is None
 
 
+@pytest.mark.parametrize("explicit_cwd", [False, True])
+@pytest.mark.parametrize("kind", ["terminal", "claude"])
 def test_create_terminal_session_for_global_assistant(
-    client, isolated_prefix, monkeypatch, tmp_path: Path,
+    client, isolated_prefix, monkeypatch, tmp_path: Path, explicit_cwd: bool, kind: str,
 ) -> None:
     assistant_root = tmp_path / "assistant-db"
     assistant_root.mkdir()
@@ -267,12 +269,14 @@ def test_create_terminal_session_for_global_assistant(
     response = client.post("/api/term/sessions", json={
         "workspace_id": "__assistant__",
         "vault": "__assistant__",
-        "kind": "terminal",
+        "kind": kind,
+        **({"cwd": str(assistant_root)} if explicit_cwd else {}),
     })
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["workspace_id"] == "__assistant__"
+    assert body["kind"] == kind
     assert body["cwd"] == str(assistant_root)
     assert (assistant_root / ".lab" / "workspace.json").is_file()
     listed = client.get("/api/term/sessions", params={

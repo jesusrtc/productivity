@@ -322,6 +322,17 @@ def _known_vaults(active_root: Path | None) -> list[dict]:
             continue
         seen.add(key)
         rows.append({"id": str(row.get("id") or root.name), "path": root})
+    # A client owns one Assistant database across every vault. Treat it
+    # as a terminal-only pseudo-vault without registering it as a normal
+    # Vault tab. Register its identity before the active-root fallback: an
+    # authorized request with cwd inside Assistant already uses it as active_root.
+    try:
+        assistant = lab_paths.assistant_root()
+    except Exception:
+        assistant = None
+    if assistant is not None and assistant.is_dir() and str(assistant) not in seen:
+        rows.append({"id": ASSISTANT_VAULT_ID, "path": assistant})
+        seen.add(str(assistant))
     if active_root is not None:
         try:
             resolved = active_root.expanduser().resolve()
@@ -330,15 +341,6 @@ def _known_vaults(active_root: Path | None) -> list[dict]:
         if str(resolved) not in seen:
             rows.insert(0, {"id": resolved.name, "path": resolved})
             seen.add(str(resolved))
-    # A client owns one Assistant database across every vault. Treat it
-    # as a terminal-only pseudo-vault without registering it as a normal
-    # Vault tab.
-    try:
-        assistant = lab_paths.assistant_root()
-    except Exception:
-        assistant = None
-    if assistant is not None and assistant.is_dir() and str(assistant) not in seen:
-        rows.append({"id": ASSISTANT_VAULT_ID, "path": assistant})
     return rows
 
 
