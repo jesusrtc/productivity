@@ -53,6 +53,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import pty
 import re
 import shutil
@@ -2358,8 +2359,7 @@ class SessionMetadata(BaseModel):
     name: str
     label: str | None = None
     summary: str | None = None
-    # A terminal has one primary file. Several terminals may independently
-    # point at the same file (for example, one Codex and one Copilot tab).
+    # File links are one-to-one. Assigning a file transfers its previous link.
     linked_file: LinkedFile | None = None
     linked_scope: LinkedScope | None = None
 
@@ -2440,9 +2440,24 @@ def set_session_order(body: SessionOrder, request: Request) -> dict:
     return {"ok": True, "order": [s.get("name") for s in new_list]}
 
 
+_SESSION_METADATA_LOCK = threading.RLock()
+
+
+def _linked_file_identity(link: dict | None) -> str | None:
+    if not isinstance(link, dict) or not link.get("root") or not link.get("path"):
+        return None
+    return os.path.normpath(os.path.join(link["root"], link["path"]))
+
+
 @router.patch("/api/term/sessions/metadata")
 def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     """Persist user-facing metadata for a saved logical session."""
+    # Two simultaneous link choices must not both claim the same file.
+    with _SESSION_METADATA_LOCK:
+        return _update_session_metadata(body, request)
+
+
+def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
     active_root = auth.request_root(request)
     root = _vault_root_for(active_root, body.vault)
     _require_workspace_access(request, active_root, root, body.workspace_id)
@@ -2494,6 +2509,53 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         else:
             entry["linked_scope"] = body.linked_scope.model_dump()
 
+    displaced = []
+    if body.linked_file is not None:
+        identity = _linked_file_identity(entry.get("linked_file"))
+        seen_paths = set()
+        pending = []
+        for vault in _known_vaults(active_root):
+            other_root = Path(vault["path"])
+            if not other_root.is_dir():
+                continue
+            for workspace_id in dict.fromkeys([body.workspace_id, ASSISTANT_WORKSPACE_ID,
+                                               *_known_workspace_ids(other_root)]):
+                metadata_path = _workspace_json(other_root, workspace_id)
+                if metadata_path in seen_paths:
+                    continue
+                seen_paths.add(metadata_path)
+                same = metadata_path == _workspace_json(root, body.workspace_id)
+                other_data = data if same else _load_workspace(other_root, workspace_id)
+                if not other_data:
+                    continue
+                matches = [s for s in other_data.get("sessions", [])
+                           if isinstance(s, dict) and s is not entry
+                           and _linked_file_identity(s.get("linked_file")) == identity]
+                if not matches:
+                    continue
+                _require_workspace_access(request, active_root, other_root, workspace_id)
+                pending.append((other_root, workspace_id, other_data, matches, same))
+        # Validate every affected scope before writing any transfer.
+        for other_root, workspace_id, other_data, matches, same in pending:
+            other_meta = _load_meta(other_root)
+            for previous in matches:
+                old_file = previous.pop("linked_file")
+                if previous.get("label") == Path(old_file["path"]).name:
+                    previous.pop("label", None)
+                for runtime in other_meta.values():
+                    if (runtime.get("workspace_id") == workspace_id
+                            and runtime.get("logical_name") == previous.get("name")):
+                        runtime.pop("linked_file", None)
+                        if runtime.get("label") == Path(old_file["path"]).name:
+                            runtime.pop("label", None)
+                displaced.append({"workspace_id": workspace_id,
+                                  "current_workspace": same,
+                                  "vault": _vault_id_for_root(active_root, other_root),
+                                  "session": dict(previous)})
+            if not same:
+                _save_workspace(other_root, workspace_id, other_data)
+            _save_meta(other_root, other_meta)
+
     data["sessions"] = sessions
     _save_workspace(root, body.workspace_id, data)
 
@@ -2531,7 +2593,7 @@ def update_session_metadata(body: SessionMetadata, request: Request) -> dict:
             "target": body.name,
         },
     )
-    return {"ok": True, "session": entry}
+    return {"ok": True, "session": entry, "displaced": displaced}
 
 
 @router.post("/api/term/paste-image")

@@ -111,3 +111,5 @@
 - [Meta is agent context, not skills](meta-is-agent-context-not-skills.md) — show the launch guide and local instructions; keep workspace skills and settings in Files
 
 - [Terminal tabs show project names](terminal-tabs-show-project-names.md) — default linked labels use the project; worktree/file details appear at the top of hover cards on tabs and the header
+
+- [Terminal drag links](terminal-drag-links.md) — drag tabs onto files/folders/worktrees; one-to-one file ownership, shared folder ownership, independent context-menu unlink

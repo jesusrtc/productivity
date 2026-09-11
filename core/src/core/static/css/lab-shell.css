@@ -2555,3 +2555,11 @@
   .term-sessions .term-divider.term-drop-preview { outline: 2px dashed var(--accent); }
   .term-drop-group { outline: 2px solid var(--term-group-color); outline-offset: 3px; border-radius: 4px; }
   .term-drag-hint { position: fixed; z-index: 1100; max-width: min(320px, 80vw); padding: 7px 10px; border: 1px solid var(--accent); border-radius: 5px; color: var(--text-primary); background: var(--bg-secondary); box-shadow: 0 4px 16px #0008; font-size: 12px; pointer-events: none; }
+
+/* Terminal links use the existing drag gesture without reordering sidebar rows. */
+.term-link-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border-radius: 5px;
+}
