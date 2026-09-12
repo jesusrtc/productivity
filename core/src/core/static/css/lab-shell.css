@@ -1993,7 +1993,7 @@
   .term-context-identity-part { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .term-context-identity-arrow { color: var(--text-dim); font-weight: 400; }
   .term-session-tooltip > .term-context-identity { margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid #414852; }
-  .term-sessions .sess.recent:not(.active)::after { content: ""; flex: none; box-sizing: border-box; width: 7px; height: 7px; border: 1px solid #58636f; border-radius: 50%; background: var(--term-recent-color, var(--green)); }
+  .term-sessions .sess.recent:not(.active)::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-recent-color, var(--green)); pointer-events: none; }
 
 
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }

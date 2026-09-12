@@ -12,7 +12,7 @@ settings modal: 15m, 30m, 1h, 3h, 6h, 12h, or 24h. Persist the user's marker col
 there too; the native color input deliberately allows any six-digit hex color.
 
 Keep the selected tab's existing blue treatment. Inactive recent tabs show a
-7px circular dot (including its subtle outline) in the configured recent color
-(green by default). Use `labTermRecentDotColor` so old blue bar/background
-preferences do not override the new green dot default. Do not tint the tab background. The thicker 5px vertical left
-line identifies the linked project/worktree, independently of recency.
+slim 3px vertical line on the left edge in the configured recent color (green
+by default). Retain `labTermRecentDotColor` for compatibility with saved color
+preferences. Do not tint the tab background. Folder/worktree badges identify
+the linked scope independently of recency.

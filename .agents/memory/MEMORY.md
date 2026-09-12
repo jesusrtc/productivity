@@ -1,5 +1,7 @@
 # Memory index
 
+- [Recent terminal marker is a vertical line](terminal-recent-marker-is-vertical.md) — slim left-edge line replaces the green bullet, preserving recent timing and color settings
+
 - [Notebook cell Expand](notebook-cell-expand-opens-modal.md) — open the same file modal at the clicked stable cell, preserving its repository root and revealing hidden code
 
 - [Notebook cells do not scroll vertically](notebook-cells-do-not-scroll-vertically.md) — fully expand or hide code and ordinary outputs; preserve scrolling only in client-authored HTML
