@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 APP = Path(__file__).resolve().parents[1] / 'src/core/static/js/lab-app.js'
+COPY_CASES = json.loads((Path(__file__).parent / 'fixtures/terminal-copy.json').read_text())
 
 
 def helpers():
@@ -79,6 +80,14 @@ _termHandleCopy(event);
 console.log(JSON.stringify(calls));
 ''')
     assert result == [['text/plain', 'echo one | cat'], 'prevent', 'stop']
+
+
+@pytest.mark.parametrize('case', [case for case in COPY_CASES if case['name'] != 'native terminal wrapping'],
+                         ids=lambda case: case['name'])
+def test_reflow_application_wraps_without_changing_structured_content(case):
+    result = run('console.log(JSON.stringify(_termCleanSelection('
+                 + json.dumps(case['text']) + ', ' + str(case['cols']) + ')));')
+    assert result == case['expected']
 
 
 def test_drag_uses_source_root_and_preserves_filename_whitespace():

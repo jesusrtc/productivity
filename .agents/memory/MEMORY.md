@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal copy rejoins prose](terminal-copy-reflows-prose.md) — remove display wraps and padding while preserving structured text; verify real Chrome clipboard and selections
+
 - [Notebook cell double-click](notebook-cell-double-click-expands.md) — open the existing cell-focused modal from saved cell content, preserving editing and controls
 
 - [Recent terminal marker is a vertical line](terminal-recent-marker-is-vertical.md) — slim left-edge line replaces the green bullet, preserving recent timing and color settings

@@ -13431,7 +13431,77 @@
     termXterm.focus();
   }
 
-  function _termCleanSelection(text) {
+  function _termReflowSelection(lines, columns) {
+    if (!columns) return lines.join('\n');
+    const output = [];
+    let paragraph = [], hangingIndent = null, fenced = false;
+    const indent = line => line.length - line.trimStart().length;
+    const marker = line => line.match(/^(\s*)(?:[•●▪*-]|\d+[.)])\s+/);
+    const identifierSplit = (previous, next, edge) => {
+      const last = previous.match(/\S+$/)?.[0] || '';
+      const first = next.match(/^\S+/)?.[0] || '';
+      const identifier = /\w[._/@]\w/;
+      return /^[a-z0-9_]/.test(first) && /^[\w./:@%-]+$/.test(last)
+        && /^[\w./:@%-]+$/.test(first)
+        && !/[.:]$/.test(first)
+        && (identifier.test(last) || identifier.test(first) || /_$/.test(last))
+        && (first.length > 3 || /_$/.test(last))
+        && (identifier.test(first) || /[_/@]$/.test(last)
+          || /^\s*[—–.,;:]/.test(next.slice(first.length)))
+        && (previous.length >= edge - 2 || /^\s*[—–.,;:]/.test(next.slice(first.length)));
+    };
+    const flush = () => {
+      if (!paragraph.length) return;
+      const words = paragraph.join(' ').match(/\b[a-zA-Z]{2,}\b/g) || [];
+      // Reflow prose only. Short output rows and code keep their line breaks.
+      if (paragraph.length < 2 || words.length < 6) output.push(...paragraph);
+      else {
+        const edge = Math.min(columns, Math.max(...paragraph.map(line => line.length)));
+        let joined = paragraph[0];
+        for (let i = 1; i < paragraph.length; i++) {
+          const previous = paragraph[i - 1], next = paragraph[i].trimStart();
+          const firstWord = next.match(/^\S+/)?.[0] || '';
+          // A renderer wraps before the next word when it cannot fit. Keep
+          // deliberate short lines separate, even within a prose paragraph.
+          const splitIdentifier = identifierSplit(previous, next, edge);
+          const wraps = splitIdentifier || previous.length + firstWord.length + 1 > edge;
+          joined += (wraps ? (splitIdentifier ? '' : ' ') : '\n' + ' '.repeat(indent(paragraph[i]))) + next;
+        }
+        output.push(joined);
+      }
+      paragraph = [];
+      hangingIndent = null;
+    };
+    for (const line of lines) {
+      const content = line.trimStart();
+      if (/^(?:```|~~~)/.test(content)) {
+        flush(); fenced = !fenced; output.push(line); continue;
+      }
+      // Never reflow tables, shell pipelines, prompts, or source/SQL lines.
+      if (!content || fenced || /[|│┃║]/.test(content)
+          || /^(?:#|\/\/|\/\*|[-=─━═]{3,}$|[$>❯]|[{}\[\]]|(?:const|let|var|def|class|import|from|return|if|elif|else|for|while|try|except|function)\b)/.test(content)
+          || /^(?:SELECT|FROM|WHERE|JOIN|WITH|GROUP BY|ORDER BY|INSERT INTO|UPDATE|DELETE FROM)\b/i.test(content)
+          || /^(?:git|lab|make|echo|printf|cat|ls|cd|cp|mv|rm|mkdir|sudo|env|export|curl|wget|ssh|docker|kubectl|npm|npx|pnpm|yarn|node|python[\d.]*|pip[\d]*|uv|pytest|rg|grep|sed|awk|find|brew|cargo|go)\s/.test(content)
+          || /(?:[{};]$|=>|:=|\s=\s|\w\()/.test(content)) {
+        flush(); output.push(line); continue;
+      }
+      const bullet = marker(line);
+      if (bullet) {
+        flush(); paragraph.push(line); hangingIndent = bullet[0].length; continue;
+      }
+      if (paragraph.length) {
+        const expected = hangingIndent ?? indent(paragraph[0]);
+        if (hangingIndent != null && paragraph.length === 1
+            && identifierSplit(paragraph[0], content, Infinity)) hangingIndent = indent(line);
+        else if (indent(line) !== expected && !(hangingIndent != null && Math.abs(indent(line) - expected) <= 1)) flush();
+      }
+      paragraph.push(line);
+    }
+    flush();
+    return output.join('\n');
+  }
+
+  function _termCleanSelection(text, columns = 0) {
     const lines = text.split(/\r?\n/);
     // ASCII side rails need repeated evidence; a single shell pipe or a
     // Markdown table must retain its meaning. Unicode rails are unambiguous.
@@ -13439,19 +13509,20 @@
     const asciiFrame = nonempty.length > 1 && nonempty.every(line =>
       /^\s*\|[^|]*\|\s*$/.test(line) || /^\s*\+[-+]+\+\s*$/.test(line))
       && !nonempty.some(line => /^\s*\|\s*:?-+:?\s*\|\s*$/.test(line));
-    return lines.filter(line => !/^\s*[┌┐└┘╭╮╰╯├┤┬┴┼─━═]+\s*$/.test(line)
+    const cleaned = lines.filter(line => !/^\s*[┌┐└┘╭╮╰╯├┤┬┴┼─━═]+\s*$/.test(line)
       && !(asciiFrame && /^\s*\+[-+]+\+\s*$/.test(line)))
       .map(line => {
         let clean = line.replace(/^(\s*)[│┃║] ?/, '$1').replace(/ ?[│┃║]\s*$/, '');
         if (asciiFrame) clean = clean.replace(/^(\s*)\| ?/, '$1').replace(/ ?\|\s*$/, '');
-        return clean;
-      }).join('\n');
+        return clean.trimEnd();
+      });
+    return _termReflowSelection(cleaned, columns);
   }
 
   function _termHandleCopy(event) {
     const selection = termXterm?.getSelection();
     if (!selection || !event.clipboardData) return;
-    event.clipboardData.setData('text/plain', _termCleanSelection(selection));
+    event.clipboardData.setData('text/plain', _termCleanSelection(selection, termXterm.cols));
     event.preventDefault();
     event.stopImmediatePropagation(); // xterm's default copy would restore the rails.
   }

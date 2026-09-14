@@ -1,0 +1,50 @@
+[
+  {
+    "name": "wrapped assistant reply",
+    "cols": 46,
+    "text": "• Done—double-click a cell’s header or\n  rendered content to open the same modal with\n  that cell highlighted. Editable fields and\n  buttons keep their normal behavior.\n\n  Pushed to main. All 18 notebook tests and\n  the UI smoke check passed. Refresh Lab to\n  use it.",
+    "expected": "• Done—double-click a cell’s header or rendered content to open the same modal with that cell highlighted. Editable fields and buttons keep their normal behavior.\n\n  Pushed to main. All 18 notebook tests and the UI smoke check passed. Refresh Lab to use it."
+  },
+  {
+    "name": "split identifiers and padded numbered list",
+    "cols": 36,
+    "text": "  1.  tracking_live_daily.unifi\n     ededgeactionevent  — the      \n     underlying table used by  trac\n     king.unifiededgeactionevent . \n     Needed to identify followers  \n     and inspect edge events.      \n     Request access in DataHub.    \n      2.  u_metrics.company_follow_\n     actions  — needed to inspect  \n     spam markers and reconcile the\n     reported counts. Request      \n     access in DataHub.            \n                                    \n     These are table-permission    \n     denials, not an authentication\n     problem. Access granted only  \n     to your personal identity may \n     not unblock notebooks running \n     as  trustim .",
+    "expected": "  1.  tracking_live_daily.unifiededgeactionevent  — the underlying table used by  tracking.unifiededgeactionevent . Needed to identify followers and inspect edge events. Request access in DataHub.\n      2.  u_metrics.company_follow_actions  — needed to inspect spam markers and reconcile the reported counts. Request access in DataHub.\n\n     These are table-permission denials, not an authentication problem. Access granted only to your personal identity may not unblock notebooks running as  trustim ."
+  },
+  {
+    "name": "framed prose and blank paragraph",
+    "cols": 36,
+    "text": "╭──────────────────────────────────╮\n│ This reply has a decorative      │\n│ border and wraps across several  │\n│ lines in the terminal.           │\n│                                 │\n│ Keep this paragraph separate.    │\n╰──────────────────────────────────╯",
+    "expected": "This reply has a decorative border and wraps across several lines in the terminal.\n\nKeep this paragraph separate."
+  },
+  {
+    "name": "native terminal wrapping",
+    "cols": 36,
+    "text": "A terminal wraps tracking_live_daily.unifiededgeactionevent automatically, without inserting newlines into the original text.",
+    "expected": "A terminal wraps tracking_live_daily.unifiededgeactionevent automatically, without inserting newlines into the original text."
+  },
+  {
+    "name": "code shell pipes and tables",
+    "cols": 60,
+    "text": "```python\nmessage = 'keep these words on their own source line'\nprint(message)\n```\n\necho one | cat\nprintf two | cat\n\n| Column | Description |\n| --- | --- |\n| alpha | Keep this table row separate |\n| beta | Keep this other row separate |\n\nSELECT first_name, last_name\nFROM people\nWHERE active = true;\n\n│   if ready:\n│     run_job()",
+    "expected": "```python\nmessage = 'keep these words on their own source line'\nprint(message)\n```\n\necho one | cat\nprintf two | cat\n\n| Column | Description |\n| --- | --- |\n| alpha | Keep this table row separate |\n| beta | Keep this other row separate |\n\nSELECT first_name, last_name\nFROM people\nWHERE active = true;\n\n  if ready:\n    run_job()"
+  },
+  {
+    "name": "complete identifier followed by prose",
+    "cols": 48,
+    "text": "  We queried tracking.unifiededgeactionevent\n  yesterday and found the expected rows.\n\n  The result from tracking.unifiededgeactionevent\n  contains the expected event records.",
+    "expected": "  We queried tracking.unifiededgeactionevent yesterday and found the expected rows.\n\n  The result from tracking.unifiededgeactionevent contains the expected event records."
+  },
+  {
+    "name": "commands without pipes and lowercase SQL",
+    "cols": 60,
+    "text": "git checkout feature/new-branch\ngit push origin feature/new-branch\n\npython -m pytest tests/test_feature.py\npython -m pytest tests/test_another_feature.py\n\nselect first_name, last_name, company_name\nfrom employees\nwhere active = true;",
+    "expected": "git checkout feature/new-branch\ngit push origin feature/new-branch\n\npython -m pytest tests/test_feature.py\npython -m pytest tests/test_another_feature.py\n\nselect first_name, last_name, company_name\nfrom employees\nwhere active = true;"
+  },
+  {
+    "name": "separate list items and short lines",
+    "cols": 60,
+    "text": "• First item stays separate.\n• Second item stays separate.\n\nHeading\nA longer descriptive line follows the heading.\n\n│ hello │\n│ world │",
+    "expected": "• First item stays separate.\n• Second item stays separate.\n\nHeading\nA longer descriptive line follows the heading.\n\nhello\nworld"
+  }
+]
