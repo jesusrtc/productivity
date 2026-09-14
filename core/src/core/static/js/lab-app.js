@@ -3871,8 +3871,8 @@
     return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell" aria-label="Open notebook at this cell">⤢</button>`;
   }
 
-  function _openNotebookCellModal(button, filepath, root) {
-    const cell = button.closest('.nb-cell[data-cell-index]');
+  function _openNotebookCellModal(target, filepath, root) {
+    const cell = target.closest('.nb-cell[data-cell-index]');
     if (!cell || cell.getAttribute('data-cell-index') === 'new') return;
     return openWorkspaceDocModal(filepath, {
       root,
@@ -3884,10 +3884,11 @@
   }
 
   function _bindNotebookCellExpansion(notebook, filepath, root) {
-    if (!notebook) return;
+    if (!notebook || notebook.closest('#docModalBody')) return;
     // Keep this binding on the underlying notebook while the modal owns the
     // navigation toolbar, so closing the modal leaves Expand usable again.
     if (notebook._nbExpandClick) notebook.removeEventListener('click', notebook._nbExpandClick);
+    if (notebook._nbExpandDoubleClick) notebook.removeEventListener('dblclick', notebook._nbExpandDoubleClick);
     notebook._nbExpandClick = (event) => {
       const button = event.target.closest('[data-nb-expand-cell]');
       if (!button) return;
@@ -3895,7 +3896,17 @@
       event.stopPropagation();
       void _openNotebookCellModal(button, filepath, root);
     };
+    notebook._nbExpandDoubleClick = (event) => {
+      // Preserve native editing, text selection, and embedded controls.
+      if (event.target.closest('button, a, input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="button"]')) return;
+      const cell = event.target.closest('.nb-cell[data-cell-index]:not([data-cell-index="new"])');
+      if (!cell) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void _openNotebookCellModal(cell, filepath, root);
+    };
     notebook.addEventListener('click', notebook._nbExpandClick);
+    notebook.addEventListener('dblclick', notebook._nbExpandDoubleClick);
   }
 
   function _renderNbPinCodeButton() {

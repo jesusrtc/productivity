@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notebook cell double-click](notebook-cell-double-click-expands.md) — open the existing cell-focused modal from saved cell content, preserving editing and controls
+
 - [Recent terminal marker is a vertical line](terminal-recent-marker-is-vertical.md) — slim left-edge line replaces the green bullet, preserving recent timing and color settings
 
 - [Notebook cell Expand](notebook-cell-expand-opens-modal.md) — open the same file modal at the clicked stable cell, preserving its repository root and revealing hidden code
