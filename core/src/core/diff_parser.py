@@ -214,6 +214,39 @@ def get_diff(repo: str, diff_type: str,
     }
 
 
+def _plotly_output_html(figure: dict) -> str:
+    """Adapt native Plotly MIME to the UI's locally loaded rich-HTML renderer.
+
+    Keep this deterministic for notebook diffs. Target the adjacent element
+    instead of a generated ID so the same output can appear in multiple views.
+    Escape HTML delimiters inside JSON so chart labels cannot end the script.
+    """
+    payload = json.dumps(figure, sort_keys=True).replace("&", "\\u0026").replace(
+        "<", "\\u003c"
+    ).replace(">", "\\u003e")
+    return (
+        '<div class="nb-plotly-chart" style="width:100%"></div><script>'
+        '(function () {'
+        'var chart = document.currentScript.previousElementSibling;'
+        'var figure = ' + payload + ';'
+        'function fail(error) {'
+        'chart.classList.add("nb-output-error");'
+        'chart.textContent = "Unable to render Plotly chart: " + (error.message || error);'
+        '}'
+        'require(["plotly"], function (Plotly) {'
+        'if (!chart.isConnected) return;'
+        'Promise.resolve().then(function () {'
+        'if (!Plotly) throw new Error("local Plotly library did not load");'
+        'return Plotly.newPlot(chart, figure.data || [], figure.layout || {}, '
+        'Object.assign({responsive: true}, figure.config || {}));'
+        '}).then(function () {'
+        'if (figure.frames && figure.frames.length) return Plotly.addFrames(chart, figure.frames);'
+        '}).catch(fail);'
+        '});'
+        '})();</script>'
+    )
+
+
 def parse_notebook_output(out: dict) -> dict | None:
     """Convert one nbformat output into the stable shape consumed by the UI.
 
@@ -230,7 +263,12 @@ def parse_notebook_output(out: dict) -> dict | None:
         }
     elif out_type in ("execute_result", "display_data"):
         data = out.get("data", {})
-        if "image/png" in data:
+        plotly = data.get("application/vnd.plotly.v1+json")
+        if isinstance(plotly, dict) and isinstance(plotly.get("data"), list):
+            # Prefer the interactive figure over static/text fallbacks. The
+            # same adapter handles both persisted reads and live kernel events.
+            parsed = {"type": "html", "content": _plotly_output_html(plotly)}
+        elif "image/png" in data:
             parsed = {"type": "image", "content": data["image/png"]}
         elif "text/html" in data:
             parsed = {"type": "html", "content": "".join(data["text/html"])}

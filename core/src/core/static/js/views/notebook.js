@@ -275,8 +275,10 @@ async function activateNotebookScripts(root) {
   _installRequireShim();
   await _waitForPlotly(root);
   root.querySelectorAll(".nb-outputs script, .nb-output-html script").forEach((old) => {
+    if (old.dataset.labActivated) return;
     const s = document.createElement("script");
     for (const a of old.attributes) s.setAttribute(a.name, a.value);
+    s.dataset.labActivated = "true";
     if (old.textContent) s.text = old.textContent;
     old.parentNode.replaceChild(s, old);
   });

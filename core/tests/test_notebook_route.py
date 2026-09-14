@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from core.diff_parser import parse_notebook_output
 
 
@@ -119,3 +121,57 @@ def test_live_and_persisted_outputs_share_svg_stream_and_display_shape() -> None
         "content": "<svg><circle /></svg>",
         "display_id": "plot-1",
     }
+
+
+@pytest.mark.parametrize("output_type", ["display_data", "execute_result"])
+def test_plotly_mime_prefers_interactive_output_and_escapes_labels(output_type) -> None:
+    figure = {
+        "data": [{"type": "scatter", "x": [1, 2], "y": [3, 4]}],
+        "layout": {"title": "</script><script>alert('label')</script> & π"},
+        "config": {"displayModeBar": False},
+        "frames": [{"name": "next", "data": [{"y": [5, 6]}]}],
+    }
+    raw = {
+        "output_type": output_type,
+        "data": {
+            "application/vnd.plotly.v1+json": figure,
+            "text/plain": "Figure(...)",
+            "text/html": "<p>fallback</p>",
+            "image/png": "fallback",
+        },
+        "transient": {"display_id": "chart-1"},
+    }
+    parsed = parse_notebook_output(raw)
+    assert parsed["type"] == "html"
+    assert parsed["display_id"] == "chart-1"
+    html = parsed["content"]
+    assert html.count("<script>") == html.count("</script>") == 1
+    assert "cdn" not in html
+    payload = html.split("var figure = ", 1)[1].split(";function fail", 1)[0]
+    assert json.loads(payload) == figure
+    assert parse_notebook_output(raw) == parsed  # stable notebook diffs
+
+
+def test_invalid_plotly_mime_keeps_existing_fallback() -> None:
+    assert parse_notebook_output({
+        "output_type": "display_data",
+        "data": {"application/vnd.plotly.v1+json": None, "text/plain": ["fallback"]},
+    }) == {"type": "text", "content": "fallback"}
+
+
+def test_native_plotly_is_preserved_by_both_notebook_read_routes(client, monorepo) -> None:
+    path = monorepo / "workspaces/demo/notebooks/plotly.ipynb"
+    _write_notebook(path)
+    notebook = json.loads(path.read_text())
+    output = {
+        "output_type": "display_data",
+        "data": {"application/vnd.plotly.v1+json": {"data": [{"y": [1, 3, 2]}]}},
+    }
+    notebook["cells"][1]["outputs"] = [output]
+    path.write_text(json.dumps(notebook))
+    expected = [parse_notebook_output(output)]
+    live_view = client.get("/api/nb", params={"path": str(path.relative_to(monorepo))})
+    file_view = client.get("/api/notebook", params={"repo": str(monorepo), "path": str(path.relative_to(monorepo))})
+    assert live_view.status_code == file_view.status_code == 200
+    assert live_view.json()["cells"][1]["outputs"] == expected
+    assert file_view.json()[1]["outputs"] == expected

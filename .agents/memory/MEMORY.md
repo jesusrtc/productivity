@@ -1,5 +1,7 @@
 # Memory index
 
+- [Native Plotly notebook output](notebook-native-plotly-mime.md) — render saved/live Plotly MIME with the vendored library; preserve typed arrays, independent views, and chart interaction state
+
 - [Terminal copy rejoins prose](terminal-copy-reflows-prose.md) — remove display wraps and padding while preserving structured text; verify real Chrome clipboard and selections
 
 - [Notebook cell double-click](notebook-cell-double-click-expands.md) — open the existing cell-focused modal from saved cell content, preserving editing and controls

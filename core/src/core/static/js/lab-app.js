@@ -233,7 +233,7 @@
 
   function ensurePlotly() {
     if (window.Plotly) return Promise.resolve();
-    return loadScriptOnce('/static/vendor/plotly@2.27.0/plotly.min.js');
+    return loadScriptOnce('/static/vendor/plotly@3.5.1/plotly.min.js');
   }
 
   function ensureMarked() {
@@ -1689,6 +1689,7 @@
         <div class="file-body">${body}</div>
       </section>`;
     }).join('');
+    activateNotebookScripts(diff);
   }
 
   async function openExplorerHistory(ctx) {
@@ -5531,11 +5532,7 @@
 
       let outputsHtml = '';
       if (diffCell.cell.outputs && diffCell.cell.outputs.length > 0) {
-        const outs = diffCell.cell.outputs.map(o => {
-          if (o.type === 'image') return `<div class="nb-output"><img src="data:image/png;base64,${o.content}"></div>`;
-          if (o.type === 'error') return `<div class="nb-output nb-output-error">${esc(o.content)}</div>`;
-          return `<div class="nb-output">${esc(o.content || '')}</div>`;
-        }).join('');
+        const outs = diffCell.cell.outputs.map(_renderNbOutput).join('');
         outputsHtml = `<div class="nb-outputs">${outs}</div>`;
       }
 
@@ -5721,8 +5718,12 @@
     if (!root) return;
     await _waitForPlotly(root, 5000);
     root.querySelectorAll('.nb-outputs script, .nb-output-html script').forEach(old => {
+      // Live updates revisit this output body. Existing charts must keep
+      // their zoom/selection instead of being initialized on every event.
+      if (old.dataset.labActivated) return;
       const s = document.createElement('script');
       for (const a of old.attributes) s.setAttribute(a.name, a.value);
+      s.dataset.labActivated = 'true';
       if (old.textContent) s.text = old.textContent;
       old.parentNode.replaceChild(s, old);
     });
@@ -5768,6 +5769,7 @@
         <span class="file-stats">${data.changed_cells}/${data.total_cells} cells changed</span>
       </div>`;
       content.innerHTML = header + `<div class="nb-container">${data.cells.map(c => renderNotebookCellDiff(c)).join('')}</div>`;
+      activateNotebookScripts(content);
     } catch (err) {
       content.innerHTML = `<div class="file-viewer-empty">Error: ${err.message}</div>`;
     }
@@ -18078,6 +18080,7 @@
         const rendered = _renderNbOutput(event.output);
         if (existing) existing.outerHTML = rendered;
         else body.insertAdjacentHTML('beforeend', rendered);
+        activateNotebookScripts(body);
       }
     }
     wrap.setAttribute('data-live-sequence', String(incomingSequence));

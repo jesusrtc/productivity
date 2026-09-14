@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from core.routes import nb_exec as nb_exec_route
+from core.diff_parser import parse_notebook_output
 from lab import paths
 
 
@@ -440,7 +441,20 @@ def test_exec_rejects_cell_index_and_insert_at_together(
     assert "mutually exclusive" in r.json()["detail"]
 
 
-def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mime", ["text/html", "application/vnd.plotly.v1+json"])
+def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path, mime) -> None:
+    def raw_output(value):
+        content = (
+            {"data": [{"y": [value]}]} if mime.endswith("+json")
+            else f"<div id='chart'>{value}</div>"
+        )
+        return {
+            "output_type": "display_data",
+            "data": {mime: content},
+            "metadata": {},
+            "transient": {"display_id": "chart-1"},
+        }
+
     target = tmp_path / "live.ipynb"
     run_id = "run-live"
     started = nb_exec_route._live_start(
@@ -467,12 +481,7 @@ def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -
             {
                 "kind": "output",
                 "operation": "append",
-                "output": {
-                    "output_type": "display_data",
-                    "data": {"text/html": "<div id='chart'>first</div>"},
-                    "metadata": {},
-                    "transient": {"display_id": "chart-1"},
-                },
+                "output": raw_output("first"),
             },
         )
         assert first is not None
@@ -487,12 +496,7 @@ def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -
             {
                 "kind": "output",
                 "operation": "replace",
-                "output": {
-                    "output_type": "display_data",
-                    "data": {"text/html": "<div id='chart'>final</div>"},
-                    "metadata": {},
-                    "transient": {"display_id": "chart-1"},
-                },
+                "output": raw_output("final"),
             },
         )
         assert update is not None
@@ -501,11 +505,7 @@ def test_live_snapshot_replays_rich_output_and_display_updates(tmp_path: Path) -
         snapshot = nb_exec_route._live_snapshot(target)
         assert len(snapshot) == 1
         assert snapshot[0]["sequence"] == 2
-        assert snapshot[0]["outputs"] == [{
-            "type": "html",
-            "content": "<div id='chart'>final</div>",
-            "display_id": "chart-1",
-        }]
+        assert snapshot[0]["outputs"] == [parse_notebook_output(raw_output("final"))]
     finally:
         nb_exec_route._live_remove(target, run_id)
     assert nb_exec_route._live_snapshot(target) == []
