@@ -824,6 +824,7 @@
   .nb-cell-actions .nb-cell-expand { font-size: 15px; line-height: 1; }
   #docModalBody .nb-cell-expand { display: none; }
   .nb-cell.nb-cell-expanded {
+    position: relative;
     outline: 2px solid #58a6ff; outline-offset: 2px;
     animation: nb-expanded-highlight 3s ease-out;
   }
@@ -832,8 +833,26 @@
     65% { outline-color: #58a6ff; box-shadow: 0 0 8px rgba(88,166,255,.2); }
     100% { outline-color: transparent; box-shadow: 0 0 0 transparent; }
   }
+  .nb-click-point {
+    position: absolute; z-index: 5; width: 36px; height: 36px;
+    border: 2px solid #58a6ff; border-radius: 50%;
+    background: rgba(88,166,255,.16); box-shadow: 0 0 16px rgba(88,166,255,.45);
+    transform: translate(-50%, -50%); pointer-events: none;
+    animation: nb-click-point-highlight 3s ease-out forwards;
+  }
+  .nb-click-point::after {
+    content: ''; position: absolute; width: 6px; height: 6px;
+    left: 50%; top: 50%; border-radius: 50%; background: #58a6ff;
+    transform: translate(-50%, -50%);
+  }
+  @keyframes nb-click-point-highlight {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(.45); }
+    20%, 60% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.35); }
+  }
   @media (prefers-reduced-motion: reduce) {
     .nb-cell.nb-cell-expanded { animation: none; }
+    .nb-click-point { animation: none; }
   }
   .nb-cell-actions button:disabled { opacity: 0.5; cursor: progress; }
   /* Armed delete-confirm state — red, attention-grabbing, gently pulsing so

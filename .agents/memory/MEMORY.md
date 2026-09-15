@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notebook modal centers the clicked area](notebook-modal-centers-clicked-area.md) — Command-click centers and briefly marks the clicked position within code, headers, or results
+
 - [Assistant agents may edit Markdown metadata](assistant-agent-editable-markdown.md) — optional CLI/API, distinct task dates, and explicit recurrence history
 - [Assistant meeting series and originals](assistant-meeting-series-and-originals.md) — summary-first series history, separate originals/questions/documents, and date lists
 

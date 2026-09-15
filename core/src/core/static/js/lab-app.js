@@ -3890,7 +3890,74 @@
     return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell (⌘-click cell)" aria-label="Open notebook at this cell">⤢</button>`;
   }
 
-  function _openNotebookCellModal(target, filepath, root) {
+  function _notebookClickPoint(cell, event) {
+    // Keep the position within its own area: revealing hidden code in the
+    // modal must not move a click in the results up into the source.
+    const selectors = ['.nb-cell-header', '.nb-cell-edit-wrap', '.nb-source',
+      '.nb-markdown', '.nb-output', '.nb-output-html', '.nb-outputs-toggle', '.nb-outputs'];
+    const area = event.target.closest(selectors.join(','));
+    const selector = area && selectors.find(value => area.matches(value));
+    const region = area || cell;
+    const rect = region.getBoundingClientRect();
+    return {
+      selector: selector || null,
+      index: selector ? Array.from(cell.querySelectorAll(selector)).indexOf(area) : 0,
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / (rect.height || 1))),
+    };
+  }
+
+  function _focusNotebookClickPoint(container, cell, point) {
+    const area = (point.selector && cell.querySelectorAll(point.selector)[point.index]) || cell;
+    const marker = document.createElement('span');
+    marker.className = 'nb-click-point';
+    marker.setAttribute('aria-hidden', 'true');
+    cell.appendChild(marker);
+    let stopped = false;
+    let observer = null;
+    let timer = null;
+    const stopEvents = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    function stop() {
+      if (stopped) return;
+      stopped = true;
+      if (observer) observer.disconnect();
+      clearTimeout(timer);
+      stopEvents.forEach(type => container.removeEventListener(type, stop, true));
+      marker.remove();
+    }
+    function center() {
+      if (stopped) return;
+      if (!cell.isConnected || !container.isConnected) { stop(); return; }
+      const rect = area.getBoundingClientRect();
+      const cellRect = cell.getBoundingClientRect();
+      const viewport = container.getBoundingClientRect();
+      const x = rect.left + rect.width * point.x;
+      const y = rect.top + rect.height * point.y;
+      // Rects include Focus-mode zoom; scroll offsets and CSS positions do not.
+      const cellScale = cellRect.width / cell.offsetWidth || 1;
+      const viewportScale = viewport.height / container.offsetHeight || 1;
+      marker.style.left = `${(x - cellRect.left) / cellScale - cell.clientLeft}px`;
+      marker.style.top = `${(y - cellRect.top) / cellScale - cell.clientTop}px`;
+      container.scrollBy({
+        top: (y - viewport.top) / viewportScale - container.clientTop - container.clientHeight / 2,
+        behavior: 'instant',
+      });
+    }
+    center();
+    // Charts and images may finish sizing after the modal opens. Follow their
+    // layout briefly, yielding immediately when the user starts navigating.
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(center);
+      observer.observe(container);
+      observer.observe(cell.closest('.nb-container') || cell);
+      observer.observe(area);
+    }
+    stopEvents.forEach(type => container.addEventListener(type, stop, {capture: true, passive: true}));
+    timer = setTimeout(stop, 3000);
+    return stop;
+  }
+
+  function _openNotebookCellModal(target, filepath, root, event = null) {
     const cell = target.closest('.nb-cell[data-cell-index]');
     if (!cell || cell.getAttribute('data-cell-index') === 'new') return;
     return openWorkspaceDocModal(filepath, {
@@ -3898,6 +3965,7 @@
       notebookCell: {
         cellId: cell.getAttribute('data-cell-id') || null,
         index: Number(cell.getAttribute('data-cell-index')),
+        ...(event ? {clickPoint: _notebookClickPoint(cell, event)} : {}),
       },
     });
   }
@@ -3915,7 +3983,7 @@
       if (!cell) return;
       event.preventDefault();
       event.stopPropagation();
-      void _openNotebookCellModal(cell, filepath, root);
+      void _openNotebookCellModal(cell, filepath, root, event.metaKey ? event : null);
     };
     // Capture before code editors, header buttons, or output controls consume
     // the click, so Command-click opens the cell without triggering its action.
@@ -4548,6 +4616,7 @@
     window.addEventListener('scroll', scheduleRecord, { passive: true });
     window.addEventListener('resize', scheduleRecord, { passive: true });
 
+    let clearClickPoint = null;
     if (restore || initialCell) {
       // Let the newly-injected cell DOM settle before scrolling, then reopen
       // at the most recently read cell (or the first cell on a notebook that
@@ -4570,10 +4639,13 @@
           : (visible.find(cell => cells.indexOf(cell) >= resolvedIndex)
             || visible[visible.length - 1]);
         if (target) {
-          target.scrollIntoView({ behavior: 'auto', block: 'start' });
+          if (!initialCell?.clickPoint) target.scrollIntoView({ behavior: 'auto', block: 'start' });
           record(target);
           if (initialCell) {
             target.classList.add('nb-cell-expanded');
+            if (initialCell.clickPoint) {
+              clearClickPoint = _focusNotebookClickPoint(container, target, initialCell.clickPoint);
+            }
             setTimeout(() => target.classList.remove('nb-cell-expanded'), 3000);
           }
         }
@@ -4587,6 +4659,7 @@
       // Capture the latest position before a tab switch replaces this DOM.
       record(_notebookReadingCell(navigableCells()));
       active = false;
+      if (clearClickPoint) clearClickPoint();
       if (frame != null) cancelAnimationFrame(frame);
       window.removeEventListener('scroll', scheduleRecord);
       window.removeEventListener('resize', scheduleRecord);
