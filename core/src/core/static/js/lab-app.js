@@ -16843,9 +16843,8 @@
   }
 
   function overviewVaultsHtml(vaults) {
-    const visible = vaults.filter(vault => String(vault.id).toLowerCase() === 'ssd' || String(vault.name).toLowerCase() === 'ssd');
-    if (!visible.length) return '<p class="overview-empty">SSD vault is not registered.</p>';
-    return visible.map(vault => {
+    if (!vaults.length) return '<p class="overview-empty">No vaults registered.</p>';
+    return vaults.map(vault => {
       const workspaces = (vault.workspace_rows || []).filter(workspace => workspace.is_workspace)
         .sort((a, b) => _workspaceDisplayName(a).localeCompare(_workspaceDisplayName(b))
           || a.path.localeCompare(b.path));
