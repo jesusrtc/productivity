@@ -1,0 +1,88 @@
+"""Schema 2 presentation and link resolution for Assistant routes."""
+from pathlib import Path
+from urllib.parse import urlparse, unquote, urlencode
+
+from fastapi import HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
+from lab import assistant_records as records
+
+
+def kind(row):
+    if row['type'] == 'task':
+        return 'task'
+    return {'meeting':'meeting','series':'series','question':'note','document':'note'}.get(row.get('note_type'), 'note')
+
+
+def detail(root, reference, collection=None):
+    try:
+        source, metadata, body = records.resolve(root, reference, collection)
+        rows = list(records.records(root))
+        by_key = {records.key(row):row for row in rows}
+        current = by_key[records.key(metadata)]
+        ancestor = current
+        seen = set()
+        while records.parent_key(ancestor):
+            if records.key(ancestor) in seen:
+                raise ValueError('Document parent cycle')
+            seen.add(records.key(ancestor))
+            ancestor = by_key[records.parent_key(ancestor)]
+        def node(row):
+            children = sorted([r for r in rows if records.parent_key(r) == records.key(row)],
+                              key=lambda r:(r.get('position',0),r['id']))
+            return {k:v for k,v in row.items() if k not in {'body','legacy_metadata'}} | {
+                'kind':kind(row), 'children':[node(child) for child in children]}
+        return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body,
+                'workspace':records.workspace(root,metadata.get('workspace')),
+                'tldr':metadata.get('tldr') or '', 'root_path':ancestor['path'], 'root_kind':kind(ancestor),
+                'tree':node(ancestor), 'subtasks':[r for r in records.descendants(rows,current) if r['type']=='task']}
+    except (OSError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def local_target(root, document, src):
+    source, meta, _ = records.resolve(root, document)
+    parsed = urlparse(src)
+    if parsed.scheme or parsed.netloc:
+        raise ValueError('Only local references are resolved here')
+    raw = Path(unquote(parsed.path)).expanduser()
+    if raw.is_absolute():
+        target = raw.resolve()
+    else:
+        # Existing bodies retain their original relative base; newly authored links
+        # can point at canonical files when no legacy target exists.
+        oldbase = (root / meta.get('legacy_path', source.relative_to(root).as_posix())).parent
+        target = (oldbase / raw).resolve()
+    relative = None
+    if target.is_relative_to(root.resolve()):
+        relative = target.relative_to(root).as_posix()
+        try:
+            resolved, row, _ = records.resolve(root, relative)
+            return resolved, row, parsed.fragment
+        except ValueError:
+            mapped = records.manifest(root).get('asset_aliases',{}).get(relative)
+            if mapped:
+                return records.safe(root, root / mapped), None, parsed.fragment
+    if not target.exists() and not raw.is_absolute():
+        candidate = (source.parent / raw).resolve()
+        if candidate.is_relative_to(root.resolve()) and candidate.is_file():
+            try:
+                resolved, row, _ = records.resolve(root, candidate.relative_to(root).as_posix())
+                return resolved, row, parsed.fragment
+            except ValueError:
+                target = candidate
+    return target, None, parsed.fragment
+
+
+def asset(root, document, src, allowed_roots, *, link=False):
+    try:
+        target, row, fragment = local_target(root, document, src)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not any(target == allowed or target.is_relative_to(allowed) for allowed in allowed_roots):
+        raise HTTPException(status_code=403, detail='Asset is outside Assistant/workspace roots')
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail='Asset not found')
+    if link and row:
+        field = {'task':'task','meeting':'meeting','series':'series','note':'note'}[kind(row)]
+        return RedirectResponse('/?' + urlencode({'view':'assistant',field:target.relative_to(root).as_posix()}))
+    return FileResponse(target)

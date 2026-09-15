@@ -13,6 +13,7 @@
     status: '',
     priority: '',
     workspace: '',
+    project: '',
     search: '',
     selectedSeriesPath: '',
     modalMeetingPart: 'summary',
@@ -206,6 +207,7 @@
       if (state.status && task.status !== state.status) return false;
       if (state.priority && task.priority !== state.priority) return false;
       if (workspace && task.workspace !== workspace) return false;
+      if (state.project && task.project !== state.project) return false;
       if (needle) {
         const haystack = [task.title, task.tldr, task.summary, task.group, task.workspace_name, task.workspace, task.vault]
           .join(' ').toLowerCase();
@@ -223,6 +225,7 @@
       if (state.view === 'meeting_actions'
           && !(meeting.action_items_total > meeting.action_items_done)) return false;
       if (state.workspace && meeting.workspace !== state.workspace) return false;
+      if (state.project && meeting.project !== state.project) return false;
       if (needle) {
         const haystack = [
           meeting.title, meeting.summary, meeting.workspace_name, meeting.workspace,
@@ -330,6 +333,9 @@
   function otherNotes() {
     const workspaces = state.data?.workspaces || [];
     const needle = state.search.trim().toLowerCase();
+    if (state.data?.schema === 2) return (state.data.notes || []).filter(note =>
+      (!state.workspace || note.workspace === state.workspace) && (!state.project || note.project === state.project)
+      && (!needle || `${note.title} ${note.path}`.toLowerCase().includes(needle)));
     return (state.noteFiles || []).filter(file => {
       const path = String(file.path || '');
       if (file.type === 'dir' || !/\.(md|markdown|txt)$/i.test(path)) return false;
@@ -348,7 +354,7 @@
     const rows = otherNotes();
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search notes…" aria-label="Search Assistant notes">
-      ${workspaceSelect(rows)}<span class="assistant-filter-count">${rows.length} note${rows.length === 1 ? '' : 's'}</span>
+      ${workspaceSelect(rows)}${projectSelect()}<span class="assistant-filter-count">${rows.length} note${rows.length === 1 ? '' : 's'}</span>
     </div><section class="assistant-list assistant-list-single" aria-label="Other notes">
       ${state.notesError ? `<div class="assistant-empty">${e(state.notesError)}</div>` : rows.map(note => `<article class="assistant-list-item">
         <button type="button" class="assistant-compact-row assistant-note-row" data-assistant-note="${e(note.path)}">
@@ -373,6 +379,11 @@
     </select>`;
   }
 
+  function projectSelect() {
+    if (state.data?.schema !== 2) return '';
+    return `<select id="assistantProject" aria-label="Filter by project"><option value="">All projects</option>${(state.data.projects || []).map(row => `<option value="${e(row.id)}"${state.project === row.id ? ' selected' : ''}>${e(row.title)}</option>`).join('')}</select>`;
+  }
+
   function filterBar(rows) {
     const isTasks = isTaskSection();
     const advanced = isTasks ? `
@@ -386,7 +397,7 @@
       </select>` : '';
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
-      ${workspaceSelect(isTasks ? filteredTasks({workspace: ''}) : meetings())}${advanced}
+      ${workspaceSelect(isTasks ? filteredTasks({workspace: ''}) : meetings())}${projectSelect()}${advanced}
       <span class="assistant-filter-count">${rows.length} ${isTasks ? `task${rows.length === 1 ? '' : 's'}` : state.view === 'meeting_series' ? 'series' : `meeting${rows.length === 1 ? '' : 's'}`}</span>
     </div>`;
   }
@@ -429,9 +440,10 @@
     content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
         <h1>${e(title)}</h1>
-        <button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button>
+        <span>${state.data?.schema === 2 ? `<button type="button" class="refresh-btn" data-new-record="${isTaskSection() ? 'task' : 'note'}">+ ${isTaskSection() ? 'Task' : 'Note'}</button> <button type="button" class="refresh-btn" data-new-record="project">+ Project</button> ` : ''}<button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button></span>
       </header>${body}
     </div>`;
+    content.querySelectorAll('[data-new-record]').forEach(button => button.addEventListener('click', () => createRecord(button.dataset.newRecord)));
     document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
       button.addEventListener('click', () => setView(button.dataset.assistantView));
@@ -459,6 +471,7 @@
       state.priority = event.target.value;
       render();
     });
+    document.getElementById('assistantProject')?.addEventListener('change', event => { state.project = event.target.value; render(); });
     document.getElementById('assistantWorkspace')?.addEventListener('change', event => {
       selectWorkspace(event.target.value);
     });
@@ -467,7 +480,8 @@
     bindSeries(content);
     content.querySelectorAll('[data-assistant-note]').forEach(button => {
       button.addEventListener('click', () => {
-        window.openWorkspaceDocModal(button.dataset.assistantNote, {root: state.data.root});
+        if (state.data?.schema === 2) openDocumentModal('note', button.dataset.assistantNote);
+        else window.openWorkspaceDocModal(button.dataset.assistantNote, {root: state.data.root});
       });
     });
     content.querySelectorAll('[data-assistant-nudge]').forEach(button => {
@@ -562,8 +576,8 @@
     ++state.modalRequest;
     if (updateHistory) {
       const url = new URL(window.location);
-      const selected = ['meeting', 'series', 'task'].some(key => url.searchParams.has(key));
-      url.searchParams.delete('meeting'); url.searchParams.delete('series'); url.searchParams.delete('task');
+      const selected = ['meeting', 'series', 'task', 'note'].some(key => url.searchParams.has(key));
+      url.searchParams.delete('meeting'); url.searchParams.delete('series'); url.searchParams.delete('task'); url.searchParams.delete('note');
       if (selected) history.pushState({nav:'assistant'}, '', url.pathname + url.search + url.hash);
       state.selectedMeetingPath = ''; state.selectedSeriesPath = '';
     }
@@ -575,6 +589,7 @@
     const endpoint = kind === 'task' ? '/api/assistant/task?path='
       : kind === 'subtask' ? '/api/assistant/subtask?path='
       : kind === 'series' ? '/api/assistant/meeting-series?path='
+      : kind === 'note' ? '/api/assistant/note?path='
       : kind === 'content' ? '/api/assistant/meeting-content?path=' : '/api/assistant/meeting?path=';
     const response = await fetch(endpoint + encodeURIComponent(path));
     const detail = await response.json().catch(() => ({}));
@@ -599,7 +614,10 @@
     try {
       const detail = await fetchDocument(kind, path);
       if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
-      if (kind === 'subtask') {
+      if (detail.metadata?.schema === 2 && detail.root_path) {
+        state.modalRoot = detail.root_path === detail.path ? detail : await fetchDocument(detail.root_kind, detail.root_path);
+        state.modalKind = detail.root_kind;
+      } else if (kind === 'subtask') {
         const metadata = detail.metadata || {};
         const parent = tasks().find(task => task.workspace === (metadata.parent_workspace || metadata.workspace) && task.id === metadata.parent);
         state.modalRoot = parent ? await fetchDocument('task', parent.path) : detail;
@@ -627,6 +645,11 @@
   }
 
   function rewriteImages(host, documentPath) {
+    if (state.data?.schema === 2) host.querySelectorAll('a[href]').forEach(link => {
+      const src = link.getAttribute('href');
+      if (!src || src.startsWith('#') || /^(?:[a-z]+:|\/\/)/i.test(src)) return;
+      link.href = '/api/assistant/link?document=' + encodeURIComponent(documentPath) + '&src=' + encodeURIComponent(src);
+    });
     host.querySelectorAll('img').forEach(img => {
       const src = img.getAttribute('src') || '';
       if (!src || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return;
@@ -646,7 +669,7 @@
 
   function renderDocumentHeader(detail, kind) {
     // Related documents share their meeting's properties; original notes stay read-only.
-    const record = ['content', 'meeting'].includes(kind) ? state.modalRoot : detail;
+    const record = detail.metadata?.schema === 2 ? detail : ['content', 'meeting'].includes(kind) ? state.modalRoot : detail;
     const recordKind = kind === 'content' ? 'meeting' : kind;
     const metadata = record.metadata || {};
     const workspace = record.workspace || {};
@@ -666,9 +689,13 @@
     ] : recordKind === 'meeting' ? [
       metadataInput('date', 'Date', metadata.date, 'date'),
       metadataSelect('series', 'Series', metadata.series, [['', 'Standalone'], ...(state.data?.meeting_series || [])
-        .filter(row => row.workspace === (metadata.workspace || workspace.id || record.path.split('/')[1]))
+        .filter(row => metadata.schema === 2 || row.workspace === (metadata.workspace || workspace.id || record.path.split('/')[1]))
         .map(row => [row.id, row.title])]),
     ] : [];
+    if (metadata.schema === 2) primary.push(
+      metadataSelect('project', 'Project', metadata.project, [['', 'None'], ...(state.data.projects || []).map(row => [row.id,row.title])]),
+      metadataSelect('workspace', 'Workspace', metadata.workspace, [['', 'None'], ...workspaceRows().map(row => [row.id,row.name || row.id])]),
+    );
     const fields = [['title', 'Title'], ['tldr', 'Summary'], ...(task ? [
       ['group', 'Group'], ['owner', 'Owner'], ['scheduled', 'Planned', 'date'],
       ['defer_until', 'Deferred until', 'date'], ['waiting_on', 'Waiting on'], ['follow_up_at', 'Follow up', 'date'],
@@ -676,7 +703,7 @@
     const info = [
       ['Workspace', workspace.name || metadata.workspace], ['Vault', workspace.vault],
       ['Attendees', Array.isArray(metadata.attendees) ? metadata.attendees.join(', ') : metadata.attendees],
-      ['Parent', metadata.parent], ['Created', metadata.created], ['Updated', metadata.updated],
+      ['Parent', metadata.parent?.id || metadata.parent], ['Created', metadata.created], ['Updated', metadata.updated],
       ['Workspace path', workspace.workspace_path],
     ].filter(([, value]) => value);
     bar.innerHTML = `${primary.join('')}<details class="assistant-metadata-more"><summary aria-label="More metadata" title="More metadata">···</summary><div class="assistant-metadata-popover">${fields.map(([field, label, type]) => metadataInput(field, label, metadata[field], type)).join('')}<dl>${info.map(([label, value]) => `<div><dt>${e(label)}</dt><dd>${e(value)}</dd></div>`).join('')}</dl></div></details><span class="assistant-metadata-message" role="status" aria-live="polite"></span>`;
@@ -726,6 +753,7 @@
       if (state.modalRoot.path === saved.path) state.modalRoot = saved;
       else if (Array.isArray(state.modalRoot.subtasks)) state.modalRoot.subtasks = state.modalRoot.subtasks.map(child => child.path === saved.path ? {...child, ...saved.metadata} : child);
       if (state.modalCurrent.path === saved.path) state.modalCurrent = saved;
+      if (saved.tree && state.modalRoot.path !== saved.path) state.modalRoot.tree = saved.tree;
       await renderModal();
       if (request !== state.modalRequest) return;
       host.scrollTop = scroll;
@@ -768,6 +796,9 @@
   }
 
   async function renderModal(focusHeading = '') {
+    if (state.modalRoot?.metadata?.schema === 2 && state.modalRoot.tree && state.modalKind !== 'series') {
+      await renderRecordTree(focusHeading); return;
+    }
     if (['meeting', 'series'].includes(state.modalKind)) { await renderMeetingModal(); return; }
     const root = state.modalRoot || state.modalCurrent;
     const detail = state.modalCurrent || root;
@@ -788,6 +819,47 @@
     const detailKind = state.modalKind === 'meeting' ? 'meeting'
       : state.modalKind === 'subtask' ? 'subtask' : (detail.path === root.path ? 'task' : 'subtask');
     await renderDocumentPane(detail, detailKind, focusHeading);
+  }
+
+  async function createRecord(type, parent = null) {
+    const title = window.prompt(type === 'project' ? 'Project name' : type === 'task' ? 'Task title' : 'Note title');
+    if (!title?.trim()) return;
+    try {
+      const response = await fetch('/api/assistant/record', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({type, title:title.trim(), parent:parent ? {type:parent.type,id:parent.id} : null,
+          project:parent?.project || state.project || null, workspace:parent?.workspace || state.workspace || null})});
+      const detail = await response.json();
+      if (!response.ok) throw new Error(detail.detail || 'Could not create document');
+      await refresh();
+      if (type !== 'project') await openDocumentModal(type === 'task' ? 'task' : 'note', detail.path);
+    } catch (error) { window.alert(error.message); }
+  }
+
+  async function renderRecordTree(focusHeading = '') {
+    const root = state.modalRoot;
+    const detail = state.modalCurrent;
+    const nav = document.getElementById('assistantDocumentNav');
+    const node = row => `<li><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span>${row.type === 'task' ? (row.status === 'done' ? '✓' : '□') : '≡'}</span><span>${e(row.title)}</span></button>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
+    nav.innerHTML = `<div class="assistant-document-nav-label">Tabs</div><ul class="assistant-record-tree">${node(root.tree)}</ul>
+      ${root.raw ? `<button type="button" class="assistant-record-tab" data-record-raw="${e(root.raw.path)}">Original notes</button>` : ''}
+      <div class="assistant-record-add"><button type="button" data-record-add="task">+ Subtask</button><button type="button" data-record-add="note">+ Thread</button></div>`;
+    nav.querySelectorAll('[data-record-path]').forEach(button => button.addEventListener('click', () => selectModalDocument(button.dataset.recordKind, button.dataset.recordPath)));
+    nav.querySelectorAll('[data-record-add]').forEach(button => button.addEventListener('click', () => createRecord(button.dataset.recordAdd, detail.metadata)));
+    nav.querySelector('[data-record-raw]')?.addEventListener('click', async event => {
+      const raw = await fetchDocument('content', event.currentTarget.dataset.recordRaw);
+      renderDocumentHeader(root, 'meeting');
+      const host = document.getElementById('assistantModalDocument');
+      host.innerHTML = '<pre class="assistant-raw-notes"></pre>';
+      host.querySelector('pre').textContent = raw.body;
+      resetCopy(true); document.getElementById('assistantCopyRich').disabled = true;
+      document.getElementById('assistantCopyPlain').onclick = async event => {
+        const button = event.currentTarget;
+        try { await navigator.clipboard.writeText(raw.body); button.textContent = 'Copied'; }
+        catch (_) { button.textContent = 'Copy failed'; }
+      };
+    });
+    const kind = detail.metadata.type === 'task' ? 'task' : detail.metadata.note_type === 'meeting' ? 'meeting' : 'note';
+    await renderDocumentPane(detail, kind, focusHeading);
   }
 
   async function renderDocumentPane(detail, kind, focusHeading = '') {
@@ -983,6 +1055,7 @@
         if (isTaskSection() && state.selectedTaskPath) await openDocumentModal('task', state.selectedTaskPath);
         else if (state.selectedMeetingPath) await openDocumentModal('meeting', state.selectedMeetingPath);
         else if (state.selectedSeriesPath) await openDocumentModal('series', state.selectedSeriesPath);
+        else if (new URL(window.location).searchParams.get('note')) await openDocumentModal('note', new URL(window.location).searchParams.get('note'));
       }
     } catch (error) {
       const content = document.getElementById('content');

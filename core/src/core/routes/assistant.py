@@ -1,7 +1,8 @@
 """API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
-from lab import naming, assistant_meetings as meeting_db
+from lab import naming, assistant_meetings as meeting_db, assistant_records as records
+from core.routes import assistant_v2
 
 import os
 import re
@@ -42,6 +43,8 @@ def _require_root(request: Request) -> Path:
             status_code=503,
             detail=f"Assistant database directory does not exist: {root}",
         )
+    if records.manifest(root).get('state') == 'migrating':
+        raise HTTPException(status_code=503, detail='Assistant migration in progress')
     return root
 
 
@@ -156,6 +159,8 @@ def get_assistant(request: Request) -> dict:
             "priorities": list(assistant_db.PRIORITIES),
         }
 
+    if records.manifest(root).get('state') == 'migrating':
+        raise HTTPException(status_code=503, detail='Assistant migration in progress')
     workspaces = list(assistant_db.iter_workspaces(root))
     tasks = []
     for task in assistant_db.iter_tasks(root, workspaces):
@@ -181,7 +186,7 @@ def get_assistant(request: Request) -> dict:
     meetings = meeting_db.list_rows(root, workspaces)
     series_rows = []
     for series in meeting_db.iter_series(root, workspaces):
-        history = [row for row in meetings if row.get("series") == series["id"] and row["workspace"] == series["workspace"]]
+        history = [row for row in meetings if row.get("series") == series["id"] and (records.enabled(root) or row["workspace"] == series["workspace"])]
         latest = None
         for row in history:
             try:
@@ -200,12 +205,20 @@ def get_assistant(request: Request) -> dict:
         "tasks": tasks,
         "meetings": meetings,
         "meeting_series": series_rows,
+        "schema": 2 if records.enabled(root) else 1,
+        "projects": list(records.records(root, "projects")) if records.enabled(root) else [],
+        "notes": [row for row in records.records(root, "notes") if row.get("note_type") in {"plain","thread"}] if records.enabled(root) else [],
         "statuses": list(assistant_db.STATUSES),
         "priorities": list(assistant_db.PRIORITIES),
     }
 
 
 def _safe_markdown_path(root: Path, relative: str, collection: str | None = None) -> Path:
+    if records.enabled(root):
+        try:
+            return records.resolve(root, relative, collection)[0]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     rel = Path(relative)
     if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".md":
         raise HTTPException(status_code=400, detail="invalid Assistant document path")
@@ -241,6 +254,8 @@ def _safe_meeting_path(root: Path, relative: str) -> Path:
 @router.get("/task")
 def get_task(path: str, request: Request) -> dict:
     root = _require_root(request)
+    if records.enabled(root):
+        return assistant_v2.detail(root, path, 'tasks')
     source = _safe_task_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
     workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
@@ -271,6 +286,9 @@ def get_task(path: str, request: Request) -> dict:
 
 
 def _meeting_workspace(root: Path, source: Path) -> dict:
+    if records.enabled(root):
+        metadata, _ = assistant_db.read_markdown(source)
+        return records.workspace(root, metadata.get('workspace'))
     try:
         directory = meeting_db.workspace(root, source.parent.parent.name)
         return assistant_db.read_markdown(naming.workspace_document_file(directory))[0]
@@ -290,7 +308,7 @@ def _meeting_record(root: Path, path: str, collection: str):
 
 def _series_history(root: Path, source: Path):
     return [row for row in meeting_db.list_rows(root) if row.get("series") == source.stem
-            and row["workspace"] == source.parent.parent.name]
+            and (records.enabled(root) or row["workspace"] == source.parent.parent.name)]
 
 
 @router.get("/meeting")
@@ -321,7 +339,8 @@ def get_meeting(path: str, request: Request) -> dict:
             "workspace": _meeting_workspace(root, source), "body": body,
             "tldr": str(metadata.get("tldr") or meeting_db.summary(body)),
             "overview": overview, "notes": notes, "raw": raw, "contents": contents,
-            "series": series, "warnings": warnings}
+            "series": series, "warnings": warnings,
+            **({k:v for k,v in assistant_v2.detail(root, path).items() if k in {"tree","root_path","root_kind"}} if records.enabled(root) else {})}
 
 
 @router.get("/meeting-series")
@@ -358,6 +377,8 @@ def get_meeting_content(path: str, request: Request) -> dict:
 @router.get("/subtask")
 def get_subtask(path: str, request: Request) -> dict:
     root = _require_root(request)
+    if records.enabled(root):
+        return assistant_v2.detail(root, path, 'subtasks')
     source = _safe_subtask_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
     workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
@@ -388,6 +409,22 @@ _metadata_lock = Lock()
 def update_metadata(body: AssistantMetadataBody, request: Request) -> dict:
     """Update one visible property, retaining CLI lifecycle rules and fresh content."""
     root = _require_root(request)
+    if records.enabled(root):
+        fields = {'title','tldr','project','workspace','status','priority','due','recurrence','group','owner',
+                  'scheduled','defer_until','waiting_on','follow_up_at','date','series'}
+        if body.field not in fields:
+            raise HTTPException(status_code=400, detail='This property cannot be edited')
+        try:
+            value = body.value.strip() or None if body.value is not None else None
+            records.update(root, body.path, body.field, value, expected=body.expected)
+            _, metadata, _ = records.resolve(root, body.path)
+        except (OSError,ValueError) as exc:
+            raise HTTPException(status_code=409 if 'changed elsewhere' in str(exc) else 400, detail=str(exc)) from exc
+        if metadata.get('note_type') == 'meeting':
+            return get_meeting(body.path, request)
+        if metadata.get('note_type') == 'series':
+            return get_meeting_series(body.path, request)
+        return assistant_v2.detail(root, body.path)
     source = _safe_markdown_path(root, body.path)
     collection = source.parent.name
     fields = {"title", "tldr"}
@@ -446,8 +483,8 @@ def _allowed_asset_roots(root: Path, task_path: Path) -> list[Path]:
     metadata, _ = assistant_db.read_markdown(task_path)
     workspace_id = str(metadata.get("workspace") or task_path.parent.parent.name)
     workspace_source = naming.workspace_document_file(naming.workspaces_dir(root) / workspace_id)
-    if workspace_source.is_file():
-        workspace, _ = assistant_db.read_markdown(workspace_source)
+    if records.enabled(root) or workspace_source.is_file():
+        workspace = records.workspace(root, metadata.get("workspace")) if records.enabled(root) else assistant_db.read_markdown(workspace_source)[0]
         for key in ("vault_path", "workspace_path"):
             raw = workspace.get(key)
             if isinstance(raw, str) and raw:
@@ -462,6 +499,9 @@ def _allowed_asset_roots(root: Path, task_path: Path) -> list[Path]:
 @router.get("/asset")
 def get_asset(task: str, src: str, request: Request):
     root = _require_root(request)
+    if records.enabled(root):
+        source = _safe_markdown_path(root, task)
+        return assistant_v2.asset(root, task, src, _allowed_asset_roots(root, source))
     if len(Path(task).parts) > 4:
         task_path, _, metadata = _safe_meeting_content(root, task)
         if metadata["kind"] == "raw":
@@ -478,3 +518,38 @@ def get_asset(task: str, src: str, request: Request):
     if not target.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
     return FileResponse(target)
+
+
+@router.get("/note")
+def get_note(path: str, request: Request) -> dict:
+    return assistant_v2.detail(_require_root(request), path, 'notes')
+
+
+@router.get("/link")
+def get_link(document: str, src: str, request: Request):
+    root = _require_root(request)
+    source = _safe_markdown_path(root, document)
+    return assistant_v2.asset(root, document, src, _allowed_asset_roots(root, source), link=True)
+
+
+class AssistantRecordBody(BaseModel):
+    type: str
+    title: str
+    project: str | None = None
+    workspace: str | None = None
+    parent: dict[str, str] | None = None
+
+
+@router.post("/record")
+def create_record(body: AssistantRecordBody, request: Request):
+    root = _require_root(request)
+    if not records.enabled(root):
+        raise HTTPException(status_code=400, detail='Migrate Assistant first')
+    try:
+        fields = {'project':body.project,'workspace':body.workspace,'parent':body.parent} if body.type != 'project' else {'status':'active'}
+        if body.type == 'note':
+            fields['note_type'] = 'thread' if body.parent else 'plain'
+        source = records.create(root, body.type, body.title, **fields)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return assistant_v2.detail(root, source.relative_to(root).as_posix())

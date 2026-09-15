@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+
+from lab import assistant_records as records, assistant_migration
 
 import click
 
@@ -9,6 +12,7 @@ from lab import paths
 
 
 EDITABLE_FIELDS = (
+    "project", "workspace", "parent", "position",
     "title",
     "group",
     "tldr",
@@ -111,7 +115,8 @@ def workspace_add(workspace_id: str, name: str, vault_id: str, workspace_path: P
 
 @assistant_group.command("add")
 @click.argument("title")
-@click.option("--workspace", "workspace_id", required=True)
+@click.option("--workspace", "workspace_id", default=None)
+@click.option("--project", "project_id", default=None)
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
 @click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
 @click.option("--due", default=None)
@@ -119,6 +124,7 @@ def workspace_add(workspace_id: str, name: str, vault_id: str, workspace_path: P
 @click.option("--tag", "tags", multiple=True)
 def add_task(
     title: str,
+    project_id: str | None,
     workspace_id: str,
     priority: str,
     status: str,
@@ -130,6 +136,7 @@ def add_task(
         source = assistant_db.create_task(
             _root(),
             title,
+            project_id=project_id,
             workspace_id=workspace_id,
             priority=priority,
             status=status,
@@ -147,7 +154,8 @@ def add_task(
 @click.option("--status", default="open", help="open or one exact lifecycle status")
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default=None)
 @click.option("--workspace", "workspace_id", default=None)
-def list_tasks(status: str, priority: str | None, workspace_id: str | None) -> None:
+@click.option("--project", "project_id", default=None)
+def list_tasks(status: str, priority: str | None, workspace_id: str | None, project_id: str | None) -> None:
     if status != "open" and status not in assistant_db.STATUSES:
         raise click.ClickException(f"unknown status {status!r}")
     rows = []
@@ -159,6 +167,8 @@ def list_tasks(status: str, priority: str | None, workspace_id: str | None) -> N
         if priority and task["priority"] != priority:
             continue
         if workspace_id and task["workspace"] != workspace_id:
+            continue
+        if project_id and task.get("project") != project_id:
             continue
         rows.append(task)
     if not rows:
@@ -186,7 +196,14 @@ def show_task(task_id: str) -> None:
 @click.argument("field", type=click.Choice(EDITABLE_FIELDS))
 @click.argument("value")
 def set_task(task_id: str, field: str, value: str) -> None:
-    normalized: object = None if value.lower() in {"none", "null", ""} else value
+    if field == 'parent' and value not in {'null','none',''}:
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise click.ClickException('Parent must be JSON: {"type":"task","id":"…"}') from exc
+    normalized: object = None if isinstance(value, str) and value.lower() in {"none", "null", ""} else value
+    if field == 'position' and isinstance(normalized, str):
+        normalized = assistant_db._decode_scalar(normalized)
     try:
         source = assistant_db.update_task(_root(), task_id, field, normalized)
     except ValueError as exc:
@@ -269,7 +286,7 @@ def list_subtasks(
             continue
         if workspace_id and subtask["workspace"] != workspace_id:
             continue
-        if parent_id and subtask["parent"] != parent_id:
+        if parent_id and (subtask["parent"].get("id") if isinstance(subtask["parent"], dict) else subtask["parent"]) != parent_id:
             continue
         rows.append(subtask)
     if not rows:
@@ -297,7 +314,14 @@ def show_subtask(subtask_id: str) -> None:
 @click.argument("field", type=click.Choice(EDITABLE_FIELDS))
 @click.argument("value")
 def set_subtask(subtask_id: str, field: str, value: str) -> None:
-    normalized: object = None if value.lower() in {"none", "null", ""} else value
+    if field == 'parent' and value not in {'null','none',''}:
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise click.ClickException('Parent must be JSON: {"type":"task","id":"…"}') from exc
+    normalized: object = None if isinstance(value, str) and value.lower() in {"none", "null", ""} else value
+    if field == 'position' and isinstance(normalized, str):
+        normalized = assistant_db._decode_scalar(normalized)
     try:
         source = assistant_db.update_subtask(_root(), subtask_id, field, normalized)
     except ValueError as exc:
@@ -526,3 +550,107 @@ def repeat_task(task_id):
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{source.stem}  {source}")
+
+
+@assistant_group.command("migrate")
+@click.option("--apply", "apply_changes", is_flag=True, help="Apply after staging and verifying a full backup")
+@click.option("--dry-run", is_flag=True, help="Inspect only (the default)")
+def migrate_cmd(apply_changes, dry_run):
+    """Move existing documents into independent tasks/, notes/, and projects/."""
+    if apply_changes and dry_run:
+        raise click.ClickException("Choose --apply or --dry-run")
+    try:
+        result = assistant_migration.migrate(_root(), dry_run=not apply_changes)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+@assistant_group.command("verify")
+def verify_cmd():
+    """Check document IDs, aliases, parents, project and workspace references."""
+    try:
+        if not records.enabled(_root()):
+            raise ValueError("Run lab assistant migrate first")
+        click.echo(json.dumps(records.verify(_root()), indent=2))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _v2_root():
+    root = _root()
+    if not records.enabled(root):
+        raise click.ClickException("Run lab assistant migrate --apply first")
+    return root
+
+
+@assistant_group.group("project")
+def project_group():
+    """Independent projects; each can span several workspaces."""
+
+
+@project_group.command("add")
+@click.argument("project_id")
+@click.option("--name", required=True)
+def project_add(project_id, name):
+    try:
+        click.echo(records.create(_v2_root(), 'project', name, identifier=project_id,
+                                  status='active', body='# Context\n'))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@project_group.command("ls")
+def project_ls():
+    for row in records.records(_v2_root(), 'projects'):
+        click.echo(f"{row['id']}  {row['title']}")
+
+
+@assistant_group.group("note")
+def note_group():
+    """Plain notes and threads, with optional project/workspace/parent links."""
+
+
+@note_group.command("add")
+@click.argument("title")
+@click.option("--workspace", default=None)
+@click.option("--project", default=None)
+@click.option("--parent", default=None, help="A task or note ID")
+@click.option("--parent-type", type=click.Choice(['task','note']), default='note')
+@click.option("--kind", type=click.Choice(['plain','thread']), default='plain')
+def note_add(title, workspace, project, parent, parent_type, kind):
+    try:
+        click.echo(records.create(_v2_root(), 'note', title, workspace=workspace, project=project,
+                                  note_type=kind, parent={'type':parent_type,'id':parent} if parent else None))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@note_group.command("ls")
+@click.option("--workspace", default=None)
+@click.option("--project", default=None)
+def note_ls(workspace, project):
+    for row in records.records(_v2_root(), 'notes'):
+        if workspace and row.get('workspace') != workspace or project and row.get('project') != project:
+            continue
+        click.echo(f"{row['id']}  {row.get('note_type')}  {row['title']}")
+
+
+@note_group.command("show")
+@click.argument("note_id")
+def note_show(note_id):
+    try:
+        click.echo(records.resolve(_v2_root(), note_id, 'notes')[0].read_text())
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@note_group.command("set")
+@click.argument("note_id")
+@click.argument("field", type=click.Choice(['title','tldr','workspace','project','parent','position','date','series']))
+@click.argument("value")
+def note_set(note_id, field, value):
+    try:
+        click.echo(records.update(_v2_root(), note_id, field, assistant_db._decode_scalar(value), collection='notes'))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc

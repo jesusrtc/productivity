@@ -3,7 +3,7 @@ from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 
-from lab import assistant as db
+from lab import assistant as db, assistant_records as records
 from lab.assistant_meetings import safe_path, validate_date, write_record
 
 
@@ -38,6 +38,12 @@ def advance(root: Path, task_id: str) -> Path:
     fields.update(id=identifier, status="ready", due=following.isoformat(), recurrence_anchor=anchor.isoformat(),
                   recurrence_root=series, previous_task=task_id, created=db.now_iso(), updated=db.now_iso(),
                   tldr="Next recurring occurrence. Verify this period before completing.")
+    if records.enabled(root):
+        fields.update({key: metadata.get(key) for key in ('project','workspace','parent')})
+        fields.pop('id')
+        title = fields.pop('title')
+        return records.create(root, 'task', title, identifier=identifier, **fields,
+                              body=f'# Context\n\nNext occurrence of [{task_id}]({source.name}).\n\n# Next actions\n')
     write_record(target, fields, f"# Context\n\nNext occurrence of [{task_id}]({source.name}).\n\n"
                  "# Next actions\n\nVerify this period's requirements and record its outcome here.\n")
     return target

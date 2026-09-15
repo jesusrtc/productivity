@@ -193,4 +193,4 @@
 
 - [Assistant combines workspaces with neutral controls](assistant-unified-tasks-and-neutral-controls.md) — one task list, workspace filters, recurrence only in the header, and larger click targets
 
-- [Assistant records have independent project/workspace links](assistant-independent-projects-and-workspaces.md) — requested data model and nested tabs; full proposed storage/migration design, not yet implemented
+- [Assistant records have independent project/workspace links](assistant-independent-projects-and-workspaces.md) — schema 2 migration, flat tasks/notes/projects, typed nested tabs, aliases and verified backups

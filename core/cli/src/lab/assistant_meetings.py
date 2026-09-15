@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from lab import assistant as db, naming
+from lab import assistant as db, naming, assistant_records as records
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,10 @@ def workspace(root: Path, workspace_id: str) -> Path:
 
 
 def validate_owner(source: Path, metadata: dict) -> None:
+    if metadata.get('schema') == 2:
+        if metadata.get('id') != source.stem or metadata.get('type') != 'note':
+            raise ValueError('Invalid note identity')
+        return
     if str(metadata.get("id") or source.stem) != source.stem:
         raise ValueError("meeting id does not match its path")
     if str(metadata.get("workspace") or source.parent.parent.name) != source.parent.parent.name:
@@ -153,6 +157,9 @@ def validate_title(title) -> None:
 
 
 def iter_series(root: Path, workspaces=None):
+    if records.enabled(root):
+        yield from records.note_rows(root, 'series')
+        return
     for item in workspaces if workspaces is not None else db.iter_workspaces(root):
         for source in sorted((db.workspace_dir(root, item["id"]) / "meeting-series").glob("*.md")):
             try:
@@ -169,6 +176,8 @@ def iter_series(root: Path, workspaces=None):
 
 
 def find_series(root: Path, series_id: str, workspace_id=None):
+    if records.enabled(root):
+        return records.resolve(root, series_id, 'meeting-series')
     db.validate_id(series_id)
     matches = [row for row in iter_series(root) if row["id"] == series_id
                and (workspace_id is None or row["workspace"] == workspace_id)]
@@ -181,6 +190,9 @@ def find_series(root: Path, series_id: str, workspace_id=None):
 
 
 def create_series(root: Path, series_id: str, *, workspace_id: str, title: str) -> Path:
+    if records.enabled(root):
+        return records.create(root, 'note', title, identifier=series_id, workspace=workspace_id,
+                              note_type='series', body='# Summary\n')
     db.validate_id(series_id)
     validate_title(title)
     source = safe_path(root, workspace(root, workspace_id) / "meeting-series" / f"{series_id}.md")
@@ -190,6 +202,8 @@ def create_series(root: Path, series_id: str, *, workspace_id: str, title: str) 
 
 
 def find_meeting(root: Path, meeting_id: str):
+    if records.enabled(root):
+        return records.resolve(root, meeting_id, 'meetings')
     db.validate_id(meeting_id)
     matches = []
     for source in naming.workspaces_dir(root).glob(f"*/meetings/{meeting_id}.md"):
@@ -204,10 +218,14 @@ def find_meeting(root: Path, meeting_id: str):
 
 
 def raw_path(root: Path, source: Path) -> Path:
+    if records.enabled(root):
+        return records.raw_path(root, source)
     return safe_path(root, source.with_suffix("") / "raw.txt")
 
 
 def resolve_content(root: Path, relative: str):
+    if records.enabled(root):
+        return records.resolve_content(root, relative)
     rel = Path(relative)
     p = rel.parts
     if rel.is_absolute() or ".." in p or len(p) not in {5, 6}:
@@ -232,6 +250,9 @@ def resolve_content(root: Path, relative: str):
 
 
 def iter_contents(root: Path, meeting: Path):
+    if records.enabled(root):
+        yield from records.contents(root, meeting)
+        return
     companion = safe_path(root, meeting.with_suffix(""))
     for kind in ("questions", "documents"):
         try:
@@ -250,6 +271,9 @@ def iter_contents(root: Path, meeting: Path):
 
 
 def iter_meetings(root: Path, workspaces=None):
+    if records.enabled(root):
+        yield from records.note_rows(root, 'meeting')
+        return
     workspaces = list(workspaces if workspaces is not None else db.iter_workspaces(root))
     series = {(s["workspace"], s["id"]): s for s in iter_series(root, workspaces)}
     for item in workspaces:
@@ -289,6 +313,22 @@ def list_rows(root: Path, workspaces=None):
 
 def create_meeting(root: Path, title: str, *, workspace_id: str, date=None, undated=False,
                    attendees=None, tags=None, series=None, raw_file=None) -> Path:
+    if records.enabled(root):
+        validate_title(title)
+        if undated and date is not None:
+            raise ValueError('Choose --date or --undated, not both')
+        day = None if undated else validate_date(date or datetime.now().astimezone().date().isoformat())
+        raw = read_utf8(raw_file) if raw_file is not None else None
+        source = records.create(root, 'note', title, note_type='meeting', workspace=workspace_id,
+                                date=day, attendees=attendees or [], tags=tags or [], series=series,
+                                body='# Summary\n\n# Highlights\n\n# Action items\n')
+        if raw is not None:
+            try:
+                write_new(raw_path(root, source), raw)
+            except ValueError:
+                source.unlink()
+                raise
+        return source
     directory = workspace(root, workspace_id)
     validate_title(title)
     if undated and date is not None:
@@ -317,6 +357,10 @@ def create_meeting(root: Path, title: str, *, workspace_id: str, date=None, unda
 
 
 def update_meeting(root: Path, meeting_id: str, field: str, value) -> Path:
+    if records.enabled(root):
+        if field not in {'title','date','series','tldr','workspace','project'}:
+            raise ValueError('Unsupported note property')
+        return records.update(root, meeting_id, field, value, collection='meetings')
     if field not in {"title", "date", "series", "tldr"}:
         raise ValueError("meeting field must be title, date, series, or tldr")
     source, metadata, body = find_meeting(root, meeting_id)
@@ -357,6 +401,11 @@ def create_content(root: Path, title: str, *, meeting_id: str, kind: str, file=N
             raise ValueError("meeting content URL must be an absolute http(s) URL") from exc
         label = re.sub(r"([\\`*_\[\]<>!()])", r"\\\1", " ".join(title.split()))
         body += "\n\n[" + label + "](" + quote(url, safe=":/?#[]@!$&'*+,;=%") + ")\n"
+    if records.enabled(root):
+        metadata, _ = db.read_markdown(meeting)
+        return records.create(root, 'note', title, note_type=kind, body=body,
+                              parent={'type':'note','id':metadata['id']},
+                              workspace=metadata.get('workspace'), project=metadata.get('project'))
     folders = [safe_path(root, meeting.with_suffix("") / name) for name in ("questions", "documents")]
     base = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + db.slugify(title)
     identifier, suffix = base, 2

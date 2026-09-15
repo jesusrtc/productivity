@@ -6,7 +6,7 @@ per-workspace view, and CLI all run from a single process on :3333.
 """
 from __future__ import annotations
 
-from lab import naming
+from lab import naming, paths as lab_paths
 
 import json
 import mimetypes
@@ -586,6 +586,9 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
     workspace_path = Path(path)
     if not workspace_path.is_dir():
         return []
+    assistant_root = lab_paths.assistant_root()
+    assistant_collections = bool(assistant_root and workspace_path.resolve() == assistant_root.resolve()
+                                 and (workspace_path / ".assistant/manifest.json").is_file())
     IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
     # `worktrees/` is the dedicated subfolder for MP worktrees — each one is
     # a full repo checkout, so listing them in the workspace's file sidebar
@@ -639,7 +642,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                         entry["pending"] = True
                 files.append(entry)
             elif child.is_dir():
-                if child_is_symlink:
+                if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"tasks", "notes", "projects"}):
                     rel = str(child.relative_to(workspace_path))
                     entry = {"name": rel, "path": rel, "type": "dir"}
                     _with_symlink_fields(entry, child)

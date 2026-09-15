@@ -1,3 +1,11 @@
+> Implementation status: schema 2 storage and migration are available through
+> `lab assistant migrate --dry-run` and `lab assistant migrate --apply`.
+> The implementation preserves IDs, original bodies, old-path aliases, backups,
+> typed parent links, and independent project/workspace references. The UI has
+> nested document tabs, project/workspace properties and filters, and creation
+> controls. Optional SQLite caching, drag ordering, and a dedicated workspace
+> task panel remain future extensions; they are not required to read the data.
+
 # Assistant: independent tasks, notes, and projects
 
 Status: proposed architecture. The current unified list and neutral controls are

@@ -10,8 +10,21 @@ On September 15, 2026 the user requested a data-model redesign:
   projects and robust references. The task document rail should become nested
   tabs/subtabs like Google Docs, supporting subtasks or threads.
 
-The concrete proposed schema, identity rules, tab interactions, workspace view,
-and migration/recovery plan are in `docs/assistant-independent-records.md`.
-This is a design proposal, not an implemented storage migration. The existing
-client database and legacy links have not been moved. Before implementation,
-check whether the user has selected subtasks plus notes/threads or only subtasks.
+Schema 2 is implemented, and the client database was migrated with a verified
+backup on September 15, 2026. See `docs/assistant-independent-records.md`.
+
+- Flat `tasks/`, `notes/`, and `projects/` folders; subtasks are tasks with typed
+  `parent` references. Meetings/series/questions/documents are note types.
+- Stable IDs, per-record legacy aliases and relative-resource bases; original
+  bodies preserved byte-for-byte. Optional projects start empty, never inferred
+  from a legacy workspace folder or group label.
+- `.assistant/workspaces.json` stores symbolic workspace references and context.
+  `.assistant/manifest.json` records the format and relocated asset aliases.
+- `lab assistant migrate` defaults to a dry run; `--apply` stages and verifies
+  records, backs up the original tree, switches with a maintenance marker, and
+  rolls back on errors. `lab assistant verify` checks relationships and IDs.
+- CLI/API support independent project/workspace changes and note creation.
+  Modal tabs show nested tasks and notes. Empty collection folders remain visible
+  in the Assistant file explorer. Markdown remains the source of truth.
+- The optional SQLite cache, drag ordering, and dedicated workspace task panel
+  remain extensions; do not claim those are implemented.

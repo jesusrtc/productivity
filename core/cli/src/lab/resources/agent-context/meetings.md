@@ -78,3 +78,15 @@ ownership consistent with paths, preserve unknown fields, and re-read before
 editing. Filesystem writes appear in the next Assistant refresh. General
 read APIs: `/api/assistant`, `/meeting`, `/meeting-series`, `/meeting-content`
 (the last three are below `/api/assistant` and take a relative `path`).
+
+
+## Independent Assistant records (schema 2)
+
+After `lab assistant migrate --apply`, records live in flat `tasks/`, `notes/`,
+and `projects/` folders. Subtasks share `tasks/`; note types share `notes/`.
+`project` and `workspace` are independent optional IDs. `parent` is a typed
+object (`{"type":"task","id":"…"}` or `{"type":"note","id":"…"}`).
+Use `lab assistant project add <id> --name <name>` to create a project,
+`lab assistant note add "Title"` for a note, and `lab assistant verify` to
+validate references. Old document paths remain aliases. Read the database's
+AGENTS.md for its current contract; do not recreate the legacy folder layout.

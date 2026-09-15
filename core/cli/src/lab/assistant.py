@@ -7,7 +7,7 @@ CLI and Lab's read-only Assistant UI.
 """
 from __future__ import annotations
 
-from lab import naming, assistant_meetings as meeting_db
+from lab import assistant_records as records, naming, assistant_meetings as meeting_db
 
 import json
 import re
@@ -215,6 +215,9 @@ def _decode_scalar(value: str) -> Any:
 
 
 def read_markdown(path: Path) -> tuple[dict[str, Any], str]:
+    data = path.read_bytes()
+    if data.startswith(b'---') and re.search(rb'^schema:\s*2\s*$', data.split(b'---', 2)[1], re.M):
+        return records.split_document(data)
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
         return {}, text
@@ -235,6 +238,8 @@ def read_markdown(path: Path) -> tuple[dict[str, Any], str]:
 
 
 def write_markdown(path: Path, metadata: dict[str, Any], body: str) -> None:
+    if metadata.get('schema') == 2:
+        return records.write_document(path, metadata, body)
     lines = ["---"]
     for key, value in metadata.items():
         lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
@@ -245,6 +250,10 @@ def write_markdown(path: Path, metadata: dict[str, Any], body: str) -> None:
 
 def initialize(root: Path | None = None) -> Path:
     target = (root or configured_root()).expanduser().resolve()
+    if records.enabled(target):
+        for folder in ('tasks', 'notes', 'projects'):
+            (target / folder).mkdir(exist_ok=True)
+        return target
     (naming.workspaces_dir(target)).mkdir(parents=True, exist_ok=True)
     if not (target / "AGENTS.md").exists():
         (target / "AGENTS.md").write_text(AGENTS_TEMPLATE, encoding="utf-8")
@@ -258,6 +267,9 @@ def workspace_dir(root: Path, workspace_id: str) -> Path:
 
 
 def iter_workspaces(root: Path) -> Iterator[dict[str, Any]]:
+    if records.enabled(root):
+        yield from records.workspaces(root)
+        return
     base = naming.workspaces_dir(root)
     if not base.is_dir():
         return
@@ -278,6 +290,9 @@ def iter_workspaces(root: Path) -> Iterator[dict[str, Any]]:
 
 
 def iter_tasks(root: Path, workspaces: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
+    if records.enabled(root):
+        yield from records.task_rows(root)
+        return
     workspace_rows = workspaces if workspaces is not None else list(iter_workspaces(root))
     by_id = {str(row["id"]): row for row in workspace_rows}
     first_class_by_parent: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -337,6 +352,9 @@ def iter_subtasks(
     workspaces: list[dict[str, Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield first-class subtask documents with their workspace routing context."""
+    if records.enabled(root):
+        yield from records.task_rows(root, children_only=True)
+        return
     workspace_rows = workspaces if workspaces is not None else list(iter_workspaces(root))
     by_id = {str(row["id"]): row for row in workspace_rows}
     for workspace_id, workspace in by_id.items():
@@ -368,6 +386,8 @@ def iter_subtasks(
 
 
 def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
+    if records.enabled(root):
+        return records.resolve(root, task_id, 'tasks')
     matches: list[tuple[Path, dict[str, Any], str]] = []
     for source in (naming.workspaces_dir(root)).glob("*/tasks/*.md"):
         metadata, body = read_markdown(source)
@@ -381,6 +401,8 @@ def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
 
 
 def find_subtask(root: Path, subtask_id: str) -> tuple[Path, dict[str, Any], str]:
+    if records.enabled(root):
+        return records.resolve(root, subtask_id, 'tasks')
     matches: list[tuple[Path, dict[str, Any], str]] = []
     for source in (naming.workspaces_dir(root)).glob("*/subtasks/*.md"):
         metadata, body = read_markdown(source)
@@ -402,6 +424,10 @@ def create_workspace(
     vault_path: Path,
     workspace_path: Path,
 ) -> Path:
+    if records.enabled(root):
+        return records.add_workspace(root, workspace_id, name=name, status='active', vault=vault,
+                                     vault_path=vault_path.expanduser().resolve(),
+                                     workspace_path=workspace_path.expanduser().resolve(), body='')
     pdir = workspace_dir(root, workspace_id)
     source = pdir / "workspace.md"
     if source.exists():
@@ -427,13 +453,20 @@ def create_task(
     root: Path,
     title: str,
     *,
-    workspace_id: str,
+    workspace_id: str | None = None,
+    project_id: str | None = None,
     priority: str = "P2",
     status: str = "inbox",
     due: str | None = None,
     owner: str | None = None,
     tags: list[str] | None = None,
 ) -> Path:
+    if records.enabled(root):
+        return records.create(root, 'task', title, workspace=workspace_id, project=project_id,
+                              priority=priority, status=status, due=due, owner=owner, tags=tags or [],
+                              body='# Context\n\n# Next actions\n')
+    if not workspace_id:
+        raise ValueError('Legacy databases require --workspace; run lab assistant migrate --apply')
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
     if status not in STATUSES or status == "done":
@@ -488,6 +521,12 @@ def create_subtask(
     owner: str | None = None,
     tags: list[str] | None = None,
 ) -> Path:
+    if records.enabled(root):
+        _, parent_metadata, _ = records.resolve(root, parent, 'tasks')
+        return records.create(root, 'task', title, parent={'type':'task','id':parent_metadata['id']},
+                              workspace=workspace or parent_metadata.get('workspace'),
+                              project=parent_metadata.get('project'), priority=priority, status=status,
+                              due=due, owner=owner, tags=tags or [], body='# Context\n\n# Result\n')
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
     if status not in STATUSES or status == "done":
@@ -534,6 +573,8 @@ def create_subtask(
 
 
 def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
+    if records.enabled(root):
+        return records.update(root, task_id, field, value, collection='tasks')
     source, metadata, body = find_task(root, task_id)
     if field == "status" and value not in STATUSES:
         raise ValueError(f"status must be one of: {', '.join(STATUSES)}")
@@ -571,6 +612,8 @@ def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
 
 
 def update_subtask(root: Path, subtask_id: str, field: str, value: Any) -> Path:
+    if records.enabled(root):
+        return records.update(root, subtask_id, field, value, collection='tasks')
     source, metadata, body = find_subtask(root, subtask_id)
     if field == "status" and value not in STATUSES:
         raise ValueError(f"status must be one of: {', '.join(STATUSES)}")

@@ -7,11 +7,16 @@ Read the database's existing instructions and resolve the exact mapped
 workspace before writing. Preserve IDs, relationships, unknown fields and
 unrelated content; re-read the latest file before a targeted edit.
 
-Tasks live in `workspaces/<workspace>/tasks/<id>.md` (legacy `projects/` works).
-Use JSON-compatible frontmatter with `id`, `title`, `workspace`, `status`,
-`priority`, `created`, `updated`. Bodies can contain any ordinary Markdown.
-Each task requiring its own outcome or deadline should have its own file.
-Subtasks needing context and review are first-class `subtasks/<id>.md` files.
+In schema 2, tasks and subtasks live in `tasks/<id>.md`, notes in
+`notes/<id>.md`, and independent projects in `projects/<id>.md`.
+A task has optional `project` and `workspace` IDs, and a null or typed `parent`.
+Use JSON-compatible frontmatter with `schema: 2`, `type: "task"`, `id`, `title`,
+`status`, `priority`, `created`, and `updated`. Each task requiring its own
+outcome or deadline has its own file.
+
+Legacy databases still use `workspaces/<workspace>/tasks/` (or `projects/`).
+Run `lab assistant migrate --dry-run` to inspect and `--apply` to migrate with a
+backup. Read the database AGENTS.md and manifest before choosing a layout.
 
 ## Distinguish three dates
 
@@ -67,3 +72,15 @@ content linked to the previous task; previous results and checked boxes are
 not copied as new evidence. No background scheduler runs: agents invoke this
 command after completion, or manage equivalent Markdown records themselves.
 Subtasks are not cloned automatically.
+
+
+## Independent Assistant records (schema 2)
+
+After `lab assistant migrate --apply`, records live in flat `tasks/`, `notes/`,
+and `projects/` folders. Subtasks share `tasks/`; note types share `notes/`.
+`project` and `workspace` are independent optional IDs. `parent` is a typed
+object (`{"type":"task","id":"…"}` or `{"type":"note","id":"…"}`).
+Use `lab assistant project add <id> --name <name>` to create a project,
+`lab assistant note add "Title"` for a note, and `lab assistant verify` to
+validate references. Old document paths remain aliases. Read the database's
+AGENTS.md for its current contract; do not recreate the legacy folder layout.

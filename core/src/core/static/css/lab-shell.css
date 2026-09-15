@@ -2788,3 +2788,15 @@
   .assistant-modal-metadata { grid-row:3; }
   .assistant-task-workspace-label { max-width:none; }
 }
+
+/* Independent Assistant record tabs */
+.assistant-record-tree, .assistant-record-tree ul { list-style:none; margin:0; padding:0; }
+.assistant-record-tree ul { padding-left:16px; margin-left:8px; border-left:1px solid var(--border); }
+.assistant-record-tab { display:flex; gap:8px; align-items:center; width:100%; min-height:44px; padding:8px 10px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); text-align:left; font-size:14px; cursor:pointer; }
+.assistant-record-tab span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.assistant-record-tab:hover, .assistant-record-tab.active { background:var(--bg-tertiary); color:var(--text-primary); }
+.assistant-record-tab.active { font-weight:600; }
+.assistant-record-add { display:flex; flex-wrap:wrap; gap:4px; padding-top:14px; }
+.assistant-record-add button { min-height:40px; padding:6px 10px; border:0; border-radius:6px; color:var(--text-secondary); background:transparent; cursor:pointer; }
+.assistant-record-add button:hover { background:var(--bg-tertiary); }
+@media(max-width:760px) { .assistant-record-tree { min-width:220px; } }
