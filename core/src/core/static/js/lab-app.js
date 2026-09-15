@@ -1290,6 +1290,7 @@
       ${_explorerMenuButton('open', firstIcon, firstLabel, ctx.kind === 'file' ? 'Enter' : '')}
       ${_explorerMenuButton('history', '⑂', 'View Git history', '')}
       ${_explorerMenuButton('copy-path', '⧉', 'Copy relative path', '')}
+      ${ctx.kind === 'file' ? _explorerMenuButton('copy-content', '⧉', 'Copy content', '') : ''}
       ${linkTerminalAction}
       <div class="ecm-sep" role="separator"></div>
       ${notebookAction}
@@ -1337,6 +1338,7 @@
       return;
     }
     closeExplorerContextMenu();
+    if (action === 'copy-content') return _explorerCopyContent(ctx);
     if (action === 'link-active-terminal') return termLinkTarget(ctx, termCurrentSession);
     if (action.startsWith('unlink-terminal:')) return termUnlinkTarget(
       decodeURIComponent(action.slice('unlink-terminal:'.length)), ctx.kind === 'file' ? 'file' : 'scope');
@@ -1347,6 +1349,22 @@
     if (action === 'new-file') return openExplorerEntryDialog('create-file', ctx);
     if (action === 'new-folder') return openExplorerEntryDialog('create-folder', ctx);
     if (action === 'delete') return openExplorerDeleteDialog(ctx);
+  }
+
+  async function _explorerCopyContent(ctx) {
+    if (ctx.kind !== 'file') return;
+    try {
+      // Read the clicked file afresh, using its own root. Rendered Markdown
+      // and notebook views omit source content and may belong to another file.
+      const response = await fetch(`/api/workspace-file?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}`, {cache: 'no-store'});
+      if (!response.ok) throw new Error(await _explorerResponseError(response));
+      const data = await response.json();
+      const copied = await _copyToClipboard(data.content);
+      explorerToast(copied ? `Content copied · ${ctx.path}` : 'Could not copy content', !copied);
+      if (copied) window.labFeatureUsage?.('Copy file content (secondary click)');
+    } catch (error) {
+      explorerToast(`Could not copy content: ${error.message || error}`, true);
+    }
   }
 
   function explorerToast(message, error = false) {

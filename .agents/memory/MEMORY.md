@@ -1,5 +1,7 @@
 # Memory index
 
+- [File context menu copies raw content](file-context-menu-copies-raw-content.md) — Copy content reads the clicked file's source from its own root, including Markdown syntax and closed disclosures
+
 - [Native Plotly notebook output](notebook-native-plotly-mime.md) — render saved/live Plotly MIME with the vendored library; preserve typed arrays, independent views, and chart interaction state
 
 - [Terminal copy rejoins prose](terminal-copy-reflows-prose.md) — remove display wraps and padding while preserving structured text; verify real Chrome clipboard and selections
