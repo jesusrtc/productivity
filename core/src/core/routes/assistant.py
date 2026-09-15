@@ -1,7 +1,7 @@
 """API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
-from lab import naming, assistant_meetings as meeting_db, assistant_records as records
+from lab import naming, assistant_meetings as meeting_db, assistant_records as records, assistant_documents as documents
 from core.routes import assistant_v2
 
 import os
@@ -144,7 +144,7 @@ def get_assistant(request: Request) -> dict:
             "workspaces": [],
             "tasks": [],
             "meetings": [],
-            "statuses": list(assistant_db.STATUSES),
+            "statuses": ["not_started","in_progress","done","cancelled"] if documents.enabled(root) else list(assistant_db.STATUSES),
             "priorities": list(assistant_db.PRIORITIES),
         }
     if not root.is_dir():
@@ -155,7 +155,7 @@ def get_assistant(request: Request) -> dict:
             "workspaces": [],
             "tasks": [],
             "meetings": [],
-            "statuses": list(assistant_db.STATUSES),
+            "statuses": ["not_started","in_progress","done","cancelled"] if documents.enabled(root) else list(assistant_db.STATUSES),
             "priorities": list(assistant_db.PRIORITIES),
         }
 
@@ -207,8 +207,8 @@ def get_assistant(request: Request) -> dict:
         "meeting_series": series_rows,
         "schema": 2 if records.enabled(root) else 1,
         "projects": list(records.records(root, "projects")) if records.enabled(root) else [],
-        "notes": [row for row in records.records(root, "notes") if row.get("note_type") in {"plain","thread"}] if records.enabled(root) else [],
-        "statuses": list(assistant_db.STATUSES),
+        "notes": [{**row,"search_text":" ".join(str(child.get(field) or "") for child in [row,*records.descendants(list(records.records(root)),row)] for field in ("title","tldr","owner"))} for row in records.records(root, "notes") if not row.get("embedded") and row.get("note_type") in {"plain","thread","subtab"}] if records.enabled(root) else [],
+        "statuses": ["not_started","in_progress","done","cancelled"] if documents.enabled(root) else list(assistant_db.STATUSES),
         "priorities": list(assistant_db.PRIORITIES),
     }
 
@@ -340,7 +340,7 @@ def get_meeting(path: str, request: Request) -> dict:
             "tldr": str(metadata.get("tldr") or meeting_db.summary(body)),
             "overview": overview, "notes": notes, "raw": raw, "contents": contents,
             "series": series, "warnings": warnings,
-            **({k:v for k,v in assistant_v2.detail(root, path).items() if k in {"tree","root_path","root_kind"}} if records.enabled(root) else {})}
+            **({k:v for k,v in assistant_v2.detail(root, path).items() if k in {"tree","root_path","root_kind","progress","embedded"}} if records.enabled(root) else {})}
 
 
 @router.get("/meeting-series")
@@ -546,9 +546,13 @@ def create_record(body: AssistantRecordBody, request: Request):
     if not records.enabled(root):
         raise HTTPException(status_code=400, detail='Migrate Assistant first')
     try:
+        if body.type == 'subtab':
+            overrides = {field:getattr(body, field) for field in ('project','workspace') if field in body.model_fields_set}
+            source = records.create_subtab(root, body.title, parent=body.parent, **overrides)
+            return assistant_v2.detail(root, source.relative_to(root).as_posix())
         fields = {'project':body.project,'workspace':body.workspace,'parent':body.parent} if body.type != 'project' else {'status':'active'}
         if body.type == 'note':
-            fields['note_type'] = 'thread' if body.parent else 'plain'
+            fields['note_type'] = 'subtab' if body.parent else 'plain'
         source = records.create(root, body.type, body.title, **fields)
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -32,6 +32,7 @@ agent instruction, skill, or memory files merely to integrate with Lab.
 
 - For migration instructions and expected data formats, read `lab migrations`
   or `lab agent context migrations`. Detailed guides include
+  `lab migrations assistant-subtabs` (one Markdown per task/note, embedded subtabs),
   `lab migrations assistant-records-v2`, `lab migrations workspace-agent-context`,
   and `lab migrations vault-workspace-names`. These commands only print
   documentation. Inspect the current format and local instructions, preserve

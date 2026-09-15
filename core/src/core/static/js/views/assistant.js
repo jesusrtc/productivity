@@ -24,6 +24,10 @@
     modalRequest: 0,
     poll: null,
     searchTimer: null,
+    renderedList: '',
+    paneCache: new Map(),
+    currentPane: null,
+    modalIndex: false,
   };
 
   const e = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -31,7 +35,7 @@
   })[char]);
 
   function labelStatus(value) {
-    return String(value || 'inbox').replace(/_/g, ' ');
+    return ({not_started:'Not started', in_progress:'In progress', done:'Completed', skipped:'Skipped', cancelled:'Cancelled'})[value] || String(value || 'inbox').replace(/_/g, ' ');
   }
 
   function displayDate(value) {
@@ -190,7 +194,8 @@
     const needle = state.search.trim().toLowerCase();
     return tasks().filter(task => {
       if (state.view === 'recent' && !isRecentDone(task)) return false;
-      if (state.view !== 'recent' && task.status === 'done') return false;
+      if (state.view === 'cancelled' && task.status !== 'cancelled') return false;
+      if (!['recent','cancelled'].includes(state.view) && ['done','skipped','cancelled'].includes(task.status)) return false;
       const today = localToday();
       if (state.view === 'today' && !(calendarDate(task.scheduled) && task.scheduled <= today || calendarDate(task.due) && task.due <= today)) return false;
       if (state.view === 'week' && ![task.scheduled, task.due].some(date => calendarDate(date) && date <= weekEnd())) return false;
@@ -201,7 +206,7 @@
       if (state.view === 'in_progress' && task.status !== 'in_progress') return false;
       if (state.view === 'ready_to_review' && !hasReview(task)) return false;
       if (state.view === 'waiting' && task.status !== 'waiting') return false;
-      if (state.view === 'inbox' && task.status !== 'inbox') return false;
+      if (state.view === 'inbox' && !['inbox','not_started'].includes(task.status)) return false;
       if (state.view === 'focus' && task.status === 'done') return false;
       if (state.view === 'all_open' && task.status === 'done') return false;
       if (state.status && task.status !== state.status) return false;
@@ -209,7 +214,7 @@
       if (workspace && task.workspace !== workspace) return false;
       if (state.project && task.project !== state.project) return false;
       if (needle) {
-        const haystack = [task.title, task.tldr, task.summary, task.group, task.workspace_name, task.workspace, task.vault]
+        const haystack = [task.title, task.tldr, task.summary, task.group, task.workspace_name, task.workspace, task.vault, task.search_text]
           .join(' ').toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
@@ -255,6 +260,11 @@
   }
 
   function setSection(section, options = {}) {
+    const nextSection = ['notes', 'meetings'].includes(section) ? 'notes' : 'tasks';
+    if (nextSection === state.section && !window.LAB_ASSISTANT_DOCUMENT_OPEN) {
+      if (document.getElementById('assistantDocumentModal')?.classList.contains('active')) closeDocumentModal();
+      return;
+    }
     closeDocumentModal(false);
     const previousSection = state.section;
     state.section = ['notes', 'meetings'].includes(section) ? 'notes' : 'tasks';
@@ -284,13 +294,13 @@
     if (state.section === 'notes') void refresh();
   }
 
-  function progressLabel(done, total, noun = 'subtasks') {
+  function progressLabel(done, total, noun = 'subtabs') {
     if (!total) return '';
     return `${done}/${total} ${noun}`;
   }
 
   function taskCard(task) {
-    const selected = task.path === state.selectedTaskPath;
+    const selected = false; // Applied in place by selectEntry; excluded from list refresh comparison.
     const overdue = task.status !== 'done' && calendarDate(task.due) && task.due < localToday();
     const due = task.due ? `<span class="assistant-task-due${overdue ? ' overdue' : ''}">${overdue ? 'Overdue' : 'Due'} ${e(displayDate(task.due))}</span>` : '';
     const workspace = task.workspace_name || state.data?.workspaces?.find(row => row.id === task.workspace)?.name || task.workspace || '';
@@ -335,7 +345,7 @@
     const needle = state.search.trim().toLowerCase();
     if (state.data?.schema === 2) return (state.data.notes || []).filter(note =>
       (!state.workspace || note.workspace === state.workspace) && (!state.project || note.project === state.project)
-      && (!needle || `${note.title} ${note.path}`.toLowerCase().includes(needle)));
+      && (!needle || `${note.title} ${note.tldr || ''} ${note.search_text || ''} ${note.path}`.toLowerCase().includes(needle)));
     return (state.noteFiles || []).filter(file => {
       const path = String(file.path || '');
       if (file.type === 'dir' || !/\.(md|markdown|txt)$/i.test(path)) return false;
@@ -346,7 +356,7 @@
       const workspace = workspaces.find(row => row.path && file.path.startsWith(row.path.slice(0, row.path.lastIndexOf('/') + 1)));
       return {...file, workspace: workspace?.id || '', title: file.path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '').replace(/[-_]/g, ' ')};
     }).filter(note => (!state.workspace || note.workspace === state.workspace)
-      && (!needle || `${note.title} ${note.path}`.toLowerCase().includes(needle)))
+      && (!needle || `${note.title} ${note.tldr || ''} ${note.search_text || ''} ${note.path}`.toLowerCase().includes(needle)))
       .sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0) || a.path.localeCompare(b.path));
   }
 
@@ -407,9 +417,12 @@
   }
 
   function renderTasks(rows) {
+    const workflowViews = state.data?.statuses?.includes('not_started')
+      ? [['inbox', 'Not started'], ['in_progress','In progress']]
+      : [['inbox', 'Inbox'], ['ready_to_review','To review'], ['waiting','Waiting']];
     const views = [['all_open', 'All open'], ['today', 'Today'], ['week', 'This week'],
-      ['inbox', 'Inbox'], ['ready_to_review', 'To review'], ['waiting', 'Waiting'],
-      ['recurring', 'Recurring'], ['someday', 'Someday'], ['recent', 'Completed']];
+      ...workflowViews,
+      ['recurring', 'Recurring'], ['someday', 'Someday'], ['recent', 'Completed'], ['cancelled', 'Cancelled']];
     return `<nav class="assistant-quick-views compact" aria-label="Task views">${views.map(([id, name]) =>
       `<button type="button" class="${state.view === id ? 'active' : ''}" data-assistant-view="${id}">${name}</button>`).join('')}</nav>${filterBar(rows)}
       <p class="assistant-list-order">Created date · Newest day first</p>
@@ -437,12 +450,26 @@
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
     const title = isTaskSection() ? 'Tasks' : 'Notes';
     const body = isTaskSection() ? renderTasks(rows) : renderNotes(rows);
-    content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
+    const html = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
         <h1>${e(title)}</h1>
         <span>${state.data?.schema === 2 ? `<button type="button" class="refresh-btn" data-new-record="${isTaskSection() ? 'task' : 'note'}">+ ${isTaskSection() ? 'Task' : 'Note'}</button> <button type="button" class="refresh-btn" data-new-record="project">+ Project</button> ` : ''}<button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button></span>
       </header>${body}
     </div>`;
+    if (state.renderedList === html && content.querySelector('.assistant-shell')) return;
+    const focused = content.contains(document.activeElement) ? document.activeElement : null;
+    const focusId = focused?.id;
+    const selection = focused?.tagName === 'INPUT' ? [focused.selectionStart, focused.selectionEnd] : null;
+    const scrollTop = content.scrollTop;
+    content.innerHTML = html;
+    state.renderedList = html;
+    content.scrollTop = scrollTop;
+    content.querySelectorAll('[data-assistant-entry-wrap]').forEach(row => row.classList.toggle('selected', row.dataset.assistantEntryWrap === state.selectedTaskPath));
+    if (focusId) {
+      const control = document.getElementById(focusId);
+      control?.focus({preventScroll:true});
+      if (selection?.[0] != null) control?.setSelectionRange?.(...selection);
+    }
     content.querySelectorAll('[data-new-record]').forEach(button => button.addEventListener('click', () => createRecord(button.dataset.newRecord)));
     document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
@@ -464,7 +491,8 @@
     document.getElementById('assistantStatus')?.addEventListener('change', event => {
       state.status = event.target.value;
       if (state.status === 'done') state.view = 'recent';
-      else if (state.view === 'recent' && state.status) state.view = 'all_open';
+      else if (state.status === 'cancelled') state.view = 'cancelled';
+      else if (['recent','cancelled'].includes(state.view) && state.status) state.view = 'all_open';
       render();
     });
     document.getElementById('assistantPriority')?.addEventListener('change', event => {
@@ -543,7 +571,9 @@
       }
       history.pushState({nav: 'assistant', [kind]: path}, '', url.pathname + url.search + url.hash);
     }
-    render();
+    document.querySelectorAll('[data-assistant-entry-wrap]').forEach(row => {
+      row.classList.toggle('selected', row.dataset.assistantEntryWrap === state.selectedTaskPath);
+    });
   }
 
   function ensureModal() {
@@ -597,41 +627,50 @@
     return detail;
   }
 
+  function documentError(message) {
+    const host = document.getElementById('assistantModalDocument');
+    host.querySelector('.assistant-document-error')?.remove();
+    const notice = document.createElement('div');
+    notice.className = 'assistant-document-error'; notice.setAttribute('role', 'status');
+    notice.textContent = message;
+    host.prepend(notice);
+  }
+
   async function openDocumentModal(kind, path, focusHeading = '') {
     const overlay = ensureModal();
-    const title = document.getElementById('assistantModalTitle');
-    const label = document.getElementById('assistantModalKind');
-    const host = document.getElementById('assistantModalDocument');
-    const nav = document.getElementById('assistantDocumentNav');
-    label.textContent = kind === 'meeting' ? 'Meeting note' : 'Task documents';
-    title.textContent = 'Loading…';
-    document.getElementById('assistantModalMetadata').replaceChildren();
-    host.innerHTML = '<div class="loading">Loading document…</div>';
-    nav.innerHTML = '';
-    resetCopy();
-    overlay.classList.add('active');
+    const wasOpen = overlay.classList.contains('active');
     const request = ++state.modalRequest;
+    overlay.setAttribute('aria-busy', 'true');
     try {
       const detail = await fetchDocument(kind, path);
-      if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
+      if (request !== state.modalRequest) return;
+      let root = detail, rootKind = kind;
       if (detail.metadata?.schema === 2 && detail.root_path) {
-        state.modalRoot = detail.root_path === detail.path ? detail : await fetchDocument(detail.root_kind, detail.root_path);
-        state.modalKind = detail.root_kind;
+        root = detail.root_path === detail.path ? detail : await fetchDocument(detail.root_kind, detail.root_path);
+        rootKind = detail.root_kind;
       } else if (kind === 'subtask') {
         const metadata = detail.metadata || {};
         const parent = tasks().find(task => task.workspace === (metadata.parent_workspace || metadata.workspace) && task.id === metadata.parent);
-        state.modalRoot = parent ? await fetchDocument('task', parent.path) : detail;
-        state.modalKind = parent ? 'task' : 'subtask';
-      } else {
-        state.modalRoot = detail;
-        state.modalKind = kind;
+        root = parent ? await fetchDocument('task', parent.path) : detail;
+        rootKind = parent ? 'task' : 'subtask';
       }
-      if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
-      state.modalCurrent = detail;
-      state.modalMeetingPart = 'summary';
+      if (request !== state.modalRequest) return;
+      state.modalRoot = root; state.modalKind = rootKind;
+      state.modalCurrent = detail; state.modalMeetingPart = 'summary';
+      state.modalIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length);
       await renderModal(focusHeading);
+      if (request === state.modalRequest) overlay.classList.add('active');
     } catch (error) {
-      if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
+      if (request !== state.modalRequest) return;
+      if (!wasOpen) {
+        document.getElementById('assistantModalDocument').replaceChildren();
+        document.getElementById('assistantDocumentNav').replaceChildren();
+        document.getElementById('assistantModalTitle').textContent = 'Document unavailable';
+        resetCopy(); overlay.classList.add('active');
+      }
+      documentError(error.message || String(error));
+    } finally {
+      if (request === state.modalRequest) overlay.removeAttribute('aria-busy');
     }
   }
 
@@ -647,7 +686,7 @@
   function rewriteImages(host, documentPath) {
     if (state.data?.schema === 2) host.querySelectorAll('a[href]').forEach(link => {
       const src = link.getAttribute('href');
-      if (!src || src.startsWith('#') || /^(?:[a-z]+:|\/\/)/i.test(src)) return;
+      if (!src || src.startsWith('#') && !src.startsWith('#tab=') || /^(?:[a-z]+:|\/\/)/i.test(src)) return;
       link.href = '/api/assistant/link?document=' + encodeURIComponent(documentPath) + '&src=' + encodeURIComponent(src);
     });
     host.querySelectorAll('img').forEach(img => {
@@ -674,30 +713,43 @@
     const metadata = record.metadata || {};
     const workspace = record.workspace || {};
     const task = ['task', 'subtask'].includes(recordKind);
+    const subtab = Boolean(metadata.parent);
+    const tracked = task || subtab || Boolean(record.progress?.derived);
+    const progress = record.path === state.modalRoot?.path ? state.modalRoot.tree?.progress || record.progress : record.progress;
+    const status = progress?.status || metadata.status || 'not_started';
+    const lifecycle = progress?.derived
+      ? (['cancelled','skipped'].includes(status) ? [[progress.automatic_status, 'Resume · ' + labelStatus(progress.automatic_status)], [status,labelStatus(status)]]
+        : [[status,labelStatus(status)], ...(subtab ? [['skipped','Skipped']] : [['cancelled','Cancelled']])])
+      : [['not_started','Not started'],['in_progress','In progress'],['done','Completed'], ...(subtab ? [['skipped','Skipped']] : [['cancelled','Cancelled']])];
     const bar = document.getElementById('assistantModalMetadata');
     const heading = document.getElementById('assistantModalTitle');
     heading.textContent = kind === 'content'
       ? `${metadata.title || 'Meeting'} · ${detail.format === 'text' ? 'Raw notes' : detail.metadata?.title || 'Document'}`
       : metadata.title || metadata.id || 'Document';
     heading.title = heading.textContent;
-    document.getElementById('assistantModalKind').textContent = ({task:'Task', subtask:'Subtask', meeting:'Note', series:'Series', content:'Note'})[kind] || 'Document';
-    const primary = task ? [
-      metadataSelect('status', 'Status', metadata.status || 'inbox', state.data?.statuses?.length ? state.data.statuses : ['inbox', 'ready', 'in_progress', 'waiting', 'blocked', 'ready_to_review', 'done']),
+    document.getElementById('assistantModalKind').textContent = subtab ? 'Subtab' : ({task:'Task', subtask:'Subtab', meeting:'Note', note:'Note', series:'Series', content:'Note'})[kind] || 'Document';
+    const primary = tracked ? [
+      metadataSelect('status', progress?.derived ? 'Overall' : 'Status', status, metadata.schema === 2 ? lifecycle : state.data?.statuses || lifecycle),
       metadataSelect('priority', 'Priority', metadata.priority || 'P2', ['P0', 'P1', 'P2', 'P3'].map(value => [value, value])),
       metadataInput('due', 'Due', metadata.due, 'date'),
-      metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Once'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]),
+      ...(task && !subtab ? [metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Once'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']])] : []),
+      metadataInput('owner', 'POC', metadata.owner),
     ] : recordKind === 'meeting' ? [
       metadataInput('date', 'Date', metadata.date, 'date'),
       metadataSelect('series', 'Series', metadata.series, [['', 'Standalone'], ...(state.data?.meeting_series || [])
         .filter(row => metadata.schema === 2 || row.workspace === (metadata.workspace || workspace.id || record.path.split('/')[1]))
         .map(row => [row.id, row.title])]),
     ] : [];
-    if (metadata.schema === 2) primary.push(
+    if (tracked && metadata.note_type === 'meeting') primary.push(
+      metadataInput('date', 'Date', metadata.date, 'date'),
+      metadataSelect('series', 'Series', metadata.series, [['','Standalone'], ...(state.data?.meeting_series || []).map(row => [row.id,row.title])]),
+    );
+    if (metadata.schema === 2 && !record.embedded) primary.push(
       metadataSelect('project', 'Project', metadata.project, [['', 'None'], ...(state.data.projects || []).map(row => [row.id,row.title])]),
       metadataSelect('workspace', 'Workspace', metadata.workspace, [['', 'None'], ...workspaceRows().map(row => [row.id,row.name || row.id])]),
     );
     const fields = [['title', 'Title'], ['tldr', 'Summary'], ...(task ? [
-      ['group', 'Group'], ['owner', 'Owner'], ['scheduled', 'Planned', 'date'],
+      ['group', 'Group'], ['scheduled', 'Planned', 'date'],
       ['defer_until', 'Deferred until', 'date'], ['waiting_on', 'Waiting on'], ['follow_up_at', 'Follow up', 'date'],
     ] : [])];
     const info = [
@@ -781,17 +833,19 @@
 
   async function selectModalDocument(kind, path, focusHeading = '') {
     const request = ++state.modalRequest;
-    const host = document.getElementById('assistantModalDocument');
-    resetCopy();
-    host.innerHTML = '<div class="loading">Loading document…</div>';
+    const overlay = document.getElementById('assistantDocumentModal');
+    overlay.setAttribute('aria-busy', 'true');
     try {
-      const detail = kind === 'task' && state.modalRoot && state.modalRoot.path === path
-        ? state.modalRoot : await fetchDocument(kind, path);
+      const detail = await fetchDocument(kind, path);
       if (request !== state.modalRequest) return;
-      state.modalCurrent = detail;
+      state.modalCurrent = detail; state.modalIndex = false;
+      if (detail.tree) state.modalRoot.tree = detail.tree;
+      if (detail.path === state.modalRoot.path) state.modalRoot = detail;
       await renderModal(focusHeading);
     } catch (error) {
-      if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
+      if (request === state.modalRequest) documentError(error.message || String(error));
+    } finally {
+      if (request === state.modalRequest) overlay.removeAttribute('aria-busy');
     }
   }
 
@@ -807,11 +861,11 @@
     const label = document.getElementById('assistantModalKind');
     const nav = document.getElementById('assistantDocumentNav');
     title.textContent = rootMetadata.title || rootMetadata.id || (state.modalKind === 'meeting' ? 'Meeting note' : 'Task');
-    label.textContent = state.modalKind === 'meeting' ? 'Meeting note' : state.modalKind === 'subtask' ? 'Subtask' : 'Task documents';
+    label.textContent = state.modalKind === 'meeting' ? 'Meeting note' : state.modalKind === 'subtask' ? 'Subtab' : 'Document tabs';
     if (state.modalKind === 'task' && Array.isArray(root.subtasks)) {
-      nav.innerHTML = `<div class="assistant-document-nav-label">Documents</div>${modalDocumentButton(root, 'Main task', 'task')}${root.subtasks.map(child => modalDocumentButton(child, 'Subtask', 'subtask')).join('')}`;
+      nav.innerHTML = `<div class="assistant-document-nav-label">Documents</div>${modalDocumentButton(root, 'Main task', 'task')}${root.subtasks.map(child => modalDocumentButton(child, 'Subtab', 'subtask')).join('')}`;
     } else {
-      nav.innerHTML = `<div class="assistant-document-nav-label">Document</div>${modalDocumentButton(root, state.modalKind === 'meeting' ? 'Meeting note' : 'Subtask', state.modalKind)}`;
+      nav.innerHTML = `<div class="assistant-document-nav-label">Document</div>${modalDocumentButton(root, state.modalKind === 'meeting' ? 'Meeting note' : 'Subtab', state.modalKind)}`;
     }
     nav.querySelectorAll('[data-assistant-modal-document]').forEach(button => {
       button.addEventListener('click', () => selectModalDocument(button.dataset.assistantModalKind, button.dataset.assistantModalDocument));
@@ -822,7 +876,7 @@
   }
 
   async function createRecord(type, parent = null) {
-    const title = window.prompt(type === 'project' ? 'Project name' : type === 'task' ? 'Task title' : 'Note title');
+    const title = window.prompt(type === 'subtab' ? 'Subtab title' : type === 'project' ? 'Project name' : type === 'task' ? 'Task title' : 'Note title');
     if (!title?.trim()) return;
     try {
       const response = await fetch('/api/assistant/record', {method:'POST', headers:{'Content-Type':'application/json'},
@@ -839,14 +893,41 @@
     const root = state.modalRoot;
     const detail = state.modalCurrent;
     const nav = document.getElementById('assistantDocumentNav');
-    const node = row => `<li><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span>${row.type === 'task' ? (row.status === 'done' ? '✓' : '□') : '≡'}</span><span>${e(row.title)}</span></button>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
-    nav.innerHTML = `<div class="assistant-document-nav-label">Tabs</div><ul class="assistant-record-tree">${node(root.tree)}</ul>
-      ${root.raw ? `<button type="button" class="assistant-record-tab" data-record-raw="${e(root.raw.path)}">Original notes</button>` : ''}
-      <div class="assistant-record-add"><button type="button" data-record-add="task">+ Subtask</button><button type="button" data-record-add="note">+ Thread</button></div>`;
-    nav.querySelectorAll('[data-record-path]').forEach(button => button.addEventListener('click', () => selectModalDocument(button.dataset.recordKind, button.dataset.recordPath)));
-    nav.querySelectorAll('[data-record-add]').forEach(button => button.addEventListener('click', () => createRecord(button.dataset.recordAdd, detail.metadata)));
-    nav.querySelector('[data-record-raw]')?.addEventListener('click', async event => {
+    const rows = new Map();
+    const node = row => {
+      rows.set(row.path, row);
+      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span>${e(row.title)}</span></button><details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
+    };
+    const tree = node(root.tree);
+    const indexTab = root.tree.children?.length ? '<button type="button" class="assistant-record-tab assistant-index-tab" data-record-index><span aria-hidden="true">☷</span><span>Index</span></button>' : '';
+    const html = `<div class="assistant-tabs-heading"><span>Document tabs</span><button type="button" data-record-subtab="${e(root.tree.path)}" aria-label="Add subtab" title="Add subtab">+</button></div>${indexTab}<ul class="assistant-record-tree">${tree}</ul>
+      ${root.raw ? `<button type="button" class="assistant-record-tab" data-record-raw="${e(root.raw.path)}">Original notes</button>` : ''}`;
+    // Keep existing tab elements and keyboard focus when only selection changes.
+    const structure = JSON.stringify(root.tree);
+    if (nav.dataset.structure !== structure || !nav.querySelector('.assistant-record-tree')) {
+      const scroll = nav.scrollTop;
+      nav.innerHTML = html; nav.dataset.structure = structure; nav.scrollTop = scroll;
+      nav.querySelector('[data-record-index]')?.addEventListener('click', () => {
+        ++state.modalRequest; state.modalIndex = true; state.modalCurrent = state.modalRoot;
+        document.getElementById('assistantDocumentModal').removeAttribute('aria-busy');
+        renderRecordTree();
+      });
+      nav.querySelectorAll('[data-record-path]').forEach(button => button.addEventListener('click', () => selectModalDocument(button.dataset.recordKind, button.dataset.recordPath)));
+      nav.querySelectorAll('[data-record-subtab]').forEach(button => button.addEventListener('click', () => {
+        nav.querySelectorAll('details[open]').forEach(menu => { menu.open = false; });
+        createRecord('subtab', rows.get(button.dataset.recordSubtab));
+      }));
+    }
+    nav.querySelectorAll('[data-record-path]').forEach(button => button.classList.toggle('active', !state.modalIndex && button.dataset.recordPath === detail.path));
+    nav.querySelector('[data-record-index]')?.classList.toggle('active', state.modalIndex);
+    const rawButton = nav.querySelector('[data-record-raw]');
+    if (rawButton) rawButton.onclick = async event => {
+      const request = ++state.modalRequest;
       const raw = await fetchDocument('content', event.currentTarget.dataset.recordRaw);
+      if (request !== state.modalRequest) return;
+      state.modalIndex = false;
+      const currentHost = document.getElementById('assistantModalDocument');
+      if (state.currentPane && currentHost.contains(state.currentPane.node)) state.currentPane.scrollTop = currentHost.scrollTop;
       renderDocumentHeader(root, 'meeting');
       const host = document.getElementById('assistantModalDocument');
       host.innerHTML = '<pre class="assistant-raw-notes"></pre>';
@@ -857,9 +938,46 @@
         try { await navigator.clipboard.writeText(raw.body); button.textContent = 'Copied'; }
         catch (_) { button.textContent = 'Copy failed'; }
       };
-    });
+    };
+    if (state.modalIndex && root.tree.children?.length) { renderIndex(root); return; }
     const kind = detail.metadata.type === 'task' ? 'task' : detail.metadata.note_type === 'meeting' ? 'meeting' : 'note';
     await renderDocumentPane(detail, kind, focusHeading);
+  }
+
+
+  function renderIndex(root) {
+    const host = document.getElementById('assistantModalDocument');
+    renderDocumentHeader(root, root.metadata.type === 'task' ? 'task' : 'note');
+    if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
+    const body = JSON.stringify(root.tree);
+    const cacheKey = root.path + ':index';
+    let pane = state.paneCache.get(cacheKey);
+    if (!pane || pane.body !== body) {
+      const rows = [];
+      const visit = (row, depth) => {
+        rows.push(`<tr data-index-path="${e(row.path)}" data-index-kind="${e(row.kind)}" tabindex="0" aria-label="Open ${e(row.title)}">
+          <td><button type="button" style="padding-inline-start:${depth * 20}px" data-index-open><span aria-hidden="true">${depth ? '↳' : '▤'}</span> ${e(row.title)}</button><div class="assistant-index-description" style="padding-inline-start:${depth * 20}px" title="${e(row.description)}">${e(row.description || '—')}</div></td>
+          <td>${e(labelStatus(row.progress?.status || row.status || 'not_started'))}</td>
+          <td>${e(displayDate(row.due) || '—')}</td><td>${e(row.priority || '—')}</td><td>${e(row.owner || '—')}</td></tr>`);
+        (row.children || []).forEach(child => visit(child, depth + 1));
+      };
+      visit(root.tree, 0);
+      const node = document.createElement('section'); node.className = 'assistant-index';
+      node.innerHTML = `<h2>Index</h2><div class="assistant-index-scroll"><table><thead><tr><th scope="col">Tab / Description</th><th scope="col">Status</th><th scope="col">Due</th><th scope="col">Priority</th><th scope="col">POC</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+      node.querySelectorAll('[data-index-path]').forEach(row => {
+        const open = () => selectModalDocument(row.dataset.indexKind, row.dataset.indexPath);
+        row.addEventListener('click', open);
+        row.addEventListener('keydown', event => {
+          if (event.target === row && ['Enter',' '].includes(event.key)) { event.preventDefault(); open(); }
+        });
+      });
+      pane = {node,body,scrollTop:pane?.scrollTop || 0};
+      state.paneCache.set(cacheKey,pane);
+    }
+    host.replaceChildren(pane.node); host.scrollTop = pane.scrollTop; state.currentPane = pane;
+    resetCopy(true);
+    document.getElementById('assistantCopyPlain').onclick = event => window.LabMarkdown.copy(pane.node,{button:event.currentTarget,plainOnly:true});
+    document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(pane.node,{button:event.currentTarget});
   }
 
   async function renderDocumentPane(detail, kind, focusHeading = '') {
@@ -867,13 +985,24 @@
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     if (request !== state.modalRequest) return;
     const body = detail.body || '';
-    const markdown = window.marked && window.DOMPurify ? window.LabMarkdown.render(body) : `<pre>${e(body)}</pre>`;
     const host = document.getElementById('assistantModalDocument');
     renderDocumentHeader(detail, kind);
-    host.innerHTML = `<div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
-    const markdownHost = document.getElementById('assistantModalMarkdown');
-    rewriteImages(markdownHost, detail.path);
-    addCopyButtons(markdownHost);
+    if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
+    const cacheKey = detail.path + ':' + kind;
+    let pane = state.paneCache.get(cacheKey);
+    if (!pane || pane.body !== body) {
+      const node = document.createElement('div');
+      node.className = 'nb-markdown assistant-markdown'; node.id = 'assistantModalMarkdown';
+      node.innerHTML = window.marked && window.DOMPurify ? window.LabMarkdown.render(body) : `<pre>${e(body)}</pre>`;
+      rewriteImages(node, detail.path); addCopyButtons(node);
+      pane = {node, body, scrollTop:0};
+    }
+    state.paneCache.delete(cacheKey); state.paneCache.set(cacheKey, pane);
+    while (state.paneCache.size > 20) state.paneCache.delete(state.paneCache.keys().next().value);
+    if (host.firstElementChild !== pane.node || host.children.length !== 1) host.replaceChildren(pane.node);
+    host.scrollTop = pane.scrollTop;
+    state.currentPane = pane;
+    const markdownHost = pane.node;
     resetCopy(true);
     document.getElementById('assistantCopyPlain').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget, plainOnly: true});
     document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget});
@@ -1019,6 +1148,26 @@
     });
   }
 
+  async function refreshOpenDocument() {
+    const overlay = document.getElementById('assistantDocumentModal');
+    const root = state.modalRoot;
+    if (!overlay?.classList.contains('active') || !root?.tree || overlay.hasAttribute('aria-busy')) return;
+    // Do not interrupt a property being edited or saved.
+    const bar = document.getElementById('assistantModalMetadata');
+    if (bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
+    const latest = [...tasks(), ...(state.data.notes || []), ...meetings()].find(row => row.path === root.path);
+    if (!latest || Number(latest.mtime) === Number(root.tree.mtime)) return;
+    const request = state.modalRequest;
+    const current = state.modalCurrent;
+    try {
+      const nextRoot = await fetchDocument(state.modalKind, root.path);
+      const nextCurrent = current.path === root.path ? nextRoot : await fetchDocument(current.metadata.type === 'task' ? 'task' : 'note',current.path);
+      if (request !== state.modalRequest || bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
+      state.modalRoot = nextRoot; state.modalCurrent = nextCurrent;
+      await renderModal();
+    } catch (_) { /* Keep the last good pane while external edits are incomplete. */ }
+  }
+
   async function refresh(options = {}) {
     const section = state.section;
     const request = ++state.request;
@@ -1028,7 +1177,7 @@
       if (!response.ok) throw new Error(data.detail || response.statusText);
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       state.data = data;
-      if (section === 'notes' && data.exists && data.root) {
+      if (section === 'notes' && data.schema !== 2 && data.exists && data.root) {
         try {
           const filesResponse = await fetch('/api/workspace-files?path=' + encodeURIComponent(data.root));
           if (!filesResponse.ok) throw new Error('Could not load other notes. Use Refresh to try again.');
@@ -1056,10 +1205,10 @@
         else if (state.selectedMeetingPath) await openDocumentModal('meeting', state.selectedMeetingPath);
         else if (state.selectedSeriesPath) await openDocumentModal('series', state.selectedSeriesPath);
         else if (new URL(window.location).searchParams.get('note')) await openDocumentModal('note', new URL(window.location).searchParams.get('note'));
-      }
+      } else await refreshOpenDocument();
     } catch (error) {
       const content = document.getElementById('content');
-      if (content && request === state.request) content.innerHTML = `<div class="assistant-setup"><h1>Assistant</h1><p>${e(error.message || error)}</p></div>`;
+      if (content && request === state.request && !state.data) content.innerHTML = `<div class="assistant-setup"><h1>Assistant</h1><p>${e(error.message || error)}</p></div>`;
     }
   }
 

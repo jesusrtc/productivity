@@ -39,7 +39,7 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "assistantDocumentModal" in source
     assert "assistantDocumentNav" in source
     assert "Main task" in source
-    assert "Subtask" in source
+    assert "Subtab" in source
     assert "data-assistant-modal-document" in source
     assert "Copy for Google Docs" in source
     assert "Copy plain text" in source

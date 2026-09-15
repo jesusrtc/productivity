@@ -16231,14 +16231,21 @@
 
   function assistantSectionShell(section) {
     if (!document.body.classList.contains('assistant-active')) return;
+    const leavingDocument = Boolean(_workspaceDocPath || currentRepo);
     _contextSubView = section;
     _workspaceDocPath = null;
     _workspaceDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
     currentRepo = null;
-    renderRepoTabs();
-    _sidebarApplyForView();
-    if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true});
+    if (leavingDocument) {
+      renderRepoTabs();
+      _sidebarApplyForView();
+      if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true});
+    } else {
+      document.querySelectorAll('#repoTabs [data-assistant-section]').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.assistantSection === section);
+      });
+    }
   }
   window.assistantSectionShell = assistantSectionShell;
 

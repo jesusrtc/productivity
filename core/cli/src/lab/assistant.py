@@ -215,9 +215,11 @@ def _decode_scalar(value: str) -> Any:
 
 
 def read_markdown(path: Path) -> tuple[dict[str, Any], str]:
+    if '#tab=' in str(path):
+        return records.read_document(path)
     data = path.read_bytes()
     if data.startswith(b'---') and re.search(rb'^schema:\s*2\s*$', data.split(b'---', 2)[1], re.M):
-        return records.split_document(data)
+        return records.read_document(path)
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
         return {}, text

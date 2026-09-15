@@ -3,14 +3,15 @@ from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 
-from lab import assistant as db, assistant_records as records
+from lab import assistant as db, assistant_records as records, assistant_documents as documents
 from lab.assistant_meetings import safe_path, validate_date, write_record
 
 
 def advance(root: Path, task_id: str) -> Path:
     source, metadata, _body = db.find_task(root, task_id)
     safe_path(root, source)
-    if metadata.get("status") != "done":
+    status = records.progress_map(list(records.records(root)))[records.key(metadata)]["status"] if documents.enabled(root) else metadata.get("status")
+    if status != "done":
         raise ValueError("complete the current task before creating its next occurrence")
     frequency = metadata.get("recurrence")
     if frequency not in {"weekly", "monthly", "yearly"}:

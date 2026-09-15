@@ -5,6 +5,7 @@ read packaged guides; they do not inspect, modify or migrate the client's files.
 
 ```bash
 lab migrations
+lab migrations assistant-subtabs
 lab migrations assistant-records-v2
 lab migrations workspace-agent-context
 lab migrations vault-workspace-names
@@ -18,22 +19,21 @@ business projects or workspace mappings from similar folder names.
 
 ## Assistant: expected layout
 
-```text
-tasks/<id>.md                  Tasks and subtasks
-notes/<id>.md                  Notes, threads, meetings, series, derived documents
-projects/<id>.md               Independent projects
-.assistant/workspaces.json     Symbolic workspace references
-.assistant/manifest.json       Schema version and moved-asset aliases
-```
+`tasks/<id>.md` and `notes/<id>.md` each contain one independent task/note plus
+all nested subtabs. `projects/<id>.md` holds independent business projects.
+Subtab metadata lives in the containing file's frontmatter `tabs` array; stable
+body markers identify each subtab. Typed parent references build the tree.
+Subtabs inherit the root task/note's optional project and symbolic workspace.
 
-Markdown frontmatter is the source of truth. Schema 2 uses `schema`, `type`,
-immutable `id`, `title`, `created`, and `updated`. Tasks add `status` and
-`priority`. Tasks/notes may each reference one optional `project`, one optional
-`workspace`, and a typed `parent`. A project can span workspaces; changing a
-relationship does not move a file. Metadata stays out of the document body.
+Markdown is authoritative. `.assistant/index.json` caches metadata, summaries,
+references and calculated status; Lab refreshes it after writes and detects
+external Markdown edits on reads. Never edit that generated file.
 
-`lab migrations assistant-records-v2` includes complete examples, legacy-to-new
-mapping, preservation rules, and the existing migration/verification commands.
+The manifest's `document_format: "embedded-subtabs-v1"` distinguishes this from
+older separate-record schema 2. `lab migrations assistant-subtabs` gives the
+exact format, aggregate status rules, preservation requirements and existing
+conversion commands. `lab migrations assistant-records-v2` documents the older
+flat-record migration as an intermediate step for workspace-folder databases.
 
 ## Other compatibility guides
 

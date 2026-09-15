@@ -7,16 +7,37 @@ Read the database's existing instructions and resolve the exact mapped
 workspace before writing. Preserve IDs, relationships, unknown fields and
 unrelated content; re-read the latest file before a targeted edit.
 
-In schema 2, tasks and subtasks live in `tasks/<id>.md`, notes in
-`notes/<id>.md`, and independent projects in `projects/<id>.md`.
-A task has optional `project` and `workspace` IDs, and a null or typed `parent`.
-Use JSON-compatible frontmatter with `schema: 2`, `type: "task"`, `id`, `title`,
-`status`, `priority`, `created`, and `updated`. Each task requiring its own
-outcome or deadline has its own file.
+## One task/note file, including all subtabs
 
-Legacy databases still use `workspaces/<workspace>/tasks/` (or `projects/`).
-Run `lab assistant migrate --dry-run` to inspect and `--apply` to migrate with a
-backup. Read the database AGENTS.md and manifest before choosing a layout.
+The current format is `embedded-subtabs-v1` within schema 2. An independent task
+lives in `tasks/<id>.md`, a note in `notes/<id>.md`, and all its nested subtabs
+live inside that same file. Metadata for subtabs goes in the frontmatter `tabs`
+array; stable body markers delimit their Markdown. Independent projects use
+`projects/<id>.md`. Subtabs inherit the root's project/workspace references.
+Read `lab migrations assistant-subtabs` for the exact format and examples.
+
+Use `lab assistant subtab add "Title" --parent <id> --parent-type task|note`,
+then `lab assistant subtab set <id> status in_progress` (or not_started, done,
+skipped). `owner` is POC; `tldr` is the one-line description; due and priority
+are per-subtab fields. Subtask and thread are one user-facing concept: subtab.
+Older CLI aliases and IDs remain compatible; do not duplicate child documents.
+
+An Index tab appears only when there are subtabs. It shows their clickable tree,
+description, status, due, priority and POC. Overall status derives recursively:
+none started → Not started; some started, completed or skipped → In progress;
+all completed/skipped → Completed. Skipped completes a branch without deleting
+its contents. Overall Cancelled is manual. A single-tab task has manual status.
+
+Markdown remains authoritative; `.assistant/index.json` is generated and
+rebuildable. Lab updates it after writes and detects direct Markdown changes on
+reads/refresh. Run `lab assistant verify` after edits. Re-read the containing
+file and preserve siblings when several agents work on the same task.
+
+Read the manifest before changing layout. Separate-record schema 2 converts
+with `lab assistant migrate --embedded --dry-run` / `--apply`, with backup and
+ID/body/alias preservation. Legacy workspace-folder databases first use the
+existing `lab assistant migrate --dry-run` / `--apply` conversion. Reading
+`lab migrations` or agent context never modifies data.
 
 ## Distinguish three dates
 
@@ -72,15 +93,3 @@ content linked to the previous task; previous results and checked boxes are
 not copied as new evidence. No background scheduler runs: agents invoke this
 command after completion, or manage equivalent Markdown records themselves.
 Subtasks are not cloned automatically.
-
-
-## Independent Assistant records (schema 2)
-
-After `lab assistant migrate --apply`, records live in flat `tasks/`, `notes/`,
-and `projects/` folders. Subtasks share `tasks/`; note types share `notes/`.
-`project` and `workspace` are independent optional IDs. `parent` is a typed
-object (`{"type":"task","id":"…"}` or `{"type":"note","id":"…"}`).
-Use `lab assistant project add <id> --name <name>` to create a project,
-`lab assistant note add "Title"` for a note, and `lab assistant verify` to
-validate references. Old document paths remain aliases. Read the database's
-AGENTS.md for its current contract; do not recreate the legacy folder layout.

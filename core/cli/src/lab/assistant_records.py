@@ -84,13 +84,23 @@ def encode_document(metadata, body):
                                for key, value in metadata.items()) + '\n---\n' + body).encode('utf-8')
 
 
+def read_document(path):
+    from lab import assistant_documents as documents
+    return documents.read(path)
+
+
 def write_document(path, metadata, body):
-    atomic_bytes(path, encode_document(metadata, body))
+    from lab import assistant_documents as documents
+    if '#tab=' in str(path) or (path.exists() and 'tabs' in split_document(path.read_bytes())[0]):
+        documents.write(path, metadata, body)
+    else:
+        atomic_bytes(path, encode_document(metadata, body))
 
 
 def safe(root, source):
     root = root.absolute()
-    source = Path(source)
+    reference = Path(source)
+    source = Path(str(source).split("#tab=", 1)[0])
     if not source.is_absolute():
         source = root / source
     try:
@@ -106,7 +116,7 @@ def safe(root, source):
             raise ValueError('Assistant record paths cannot contain symlinks')
     if not source.resolve().is_relative_to(root.resolve()):
         raise ValueError('Record path escapes Assistant')
-    return source
+    return Path(str(source) + "#tab=" + str(reference).split("#tab=", 1)[1]) if "#tab=" in str(reference) else source
 
 
 def workspaces(root):
@@ -133,6 +143,12 @@ def add_workspace(root, identifier, **values):
 
 
 def records(root, collection=None):
+    from lab import assistant_documents as documents
+    if documents.enabled(root):
+        for row in documents.snapshot(root):
+            if collection is None or row['type'] + 's' == collection:
+                yield row
+        return
     for folder in [collection] if collection else ['tasks', 'notes', 'projects']:
         if folder not in {'tasks', 'notes', 'projects'}:
             raise ValueError('Invalid record collection')
@@ -164,7 +180,7 @@ def resolve(root, reference, collection=None):
     if collection == 'meeting-series' and row.get('note_type') != 'series':
         raise ValueError('Expected a meeting series')
     source = safe(root, root / row['path'])
-    return source, *split_document(source.read_bytes())
+    return source, *read_document(source)
 
 
 def parent_key(metadata):
@@ -225,30 +241,71 @@ def validate_graph(rows, refs):
                 raise ValueError('Missing meeting series for ' + row['id'])
 
 
+def progress_map(rows):
+    """Parents derive progress from direct child branches; skip completes a branch."""
+    by_parent = {}
+    for row in rows:
+        by_parent.setdefault(parent_key(row), []).append(row)
+    result, visiting = {}, set()
+    def visit(row):
+        identity = key(row)
+        if identity in result:
+            return result[identity]
+        if identity in visiting:
+            raise ValueError('Document parent cycle')
+        visiting.add(identity)
+        children = [visit(child) for child in by_parent.get(identity, [])]
+        raw = row.get('status') or 'not_started'
+        normalized = {'inbox':'not_started','ready':'not_started','waiting':'in_progress',
+                      'blocked':'in_progress','ready_to_review':'in_progress','completed':'done'}.get(raw,raw)
+        if children:
+            statuses = [child['status'] for child in children]
+            automatic = 'done' if all(status in {'done','skipped'} for status in statuses) else (
+                'in_progress' if any(status != 'not_started' for status in statuses) else 'not_started')
+        else:
+            automatic = 'not_started' if normalized == 'cancelled' else normalized
+        status = normalized if normalized in {'cancelled','skipped'} else automatic
+        result[identity] = dict(status=status, automatic_status=automatic, derived=bool(children),
+                                completed=sum(child['status'] in {'done','skipped'} for child in children), total=len(children))
+        visiting.remove(identity)
+        return result[identity]
+    for row in rows:
+        visit(row)
+    return result
+
+
 def task_rows(root, children_only=False):
     from lab import assistant as db
     rows = list(records(root))
+    from lab import assistant_documents as documents
+    embedded = documents.enabled(root)
+    progress = progress_map(rows)
     for row in rows:
+        if embedded and not children_only and row.get('embedded'):
+            continue
         if row['type'] != 'task' or children_only and not row.get('parent'):
             continue
         reference = workspace(root, row.get('workspace'))
         children = []
         for child in descendants(rows, row):
-            if child['type'] != 'task':
+            if not embedded and child['type'] != 'task':
                 continue
             context = workspace(root, child.get('workspace'))
             children.append({**child, 'workspace': child.get('workspace') or '',
                              'workspace_name': context.get('name'), 'document_backed': True,
-                             'done': child.get('status') == 'done'})
+                             'status': progress[key(child)]['status'] if embedded else child.get('status'),
+                             'done': progress[key(child)]['status'] in {'done','skipped'}})
         legacy = db.extract_subtasks(row['body'])
         all_children = [*legacy, *children]
         yield {**row, 'workspace': row.get('workspace') or '', 'workspace_name': reference.get('name'),
                'vault': reference.get('vault'), 'vault_path': reference.get('vault_path'),
                'workspace_path': reference.get('workspace_path'), 'document_backed': True,
-               'status': row.get('status') or 'inbox', 'priority': row.get('priority') or 'P2',
+               'status': progress[key(row)]['status'] if embedded else row.get('status') or 'inbox',
+               'progress':progress[key(row)], 'stored_status':row.get('status'),
+               'search_text':' '.join(str(child.get(field) or '') for child in [row,*descendants(rows,row)] for field in ('title','tldr','owner')), 'priority': row.get('priority') or 'P2',
                'subtasks': all_children, 'first_class_subtasks': children, 'legacy_subtasks': legacy,
-               'subtasks_done': sum(child.get('status') == 'done' for child in all_children),
-               'subtasks_total': len(all_children), 'done': row.get('status') == 'done'}
+               'subtasks_done': sum(child.get('status') in {'done','skipped'} for child in all_children),
+               'subtasks_total': len(all_children), 'done': progress[key(row)]['status'] in {'done','skipped'}}
 
 
 def note_rows(root, note_type):
@@ -271,7 +328,7 @@ def note_rows(root, note_type):
 
 
 def raw_path(root, source):
-    return safe(root, root / '.assistant/assets' / source.stem / 'raw.txt')
+    return safe(root, root / '.assistant/assets' / read_document(source)[0]['id'] / 'raw.txt')
 
 
 def resolve_content(root, reference):
@@ -293,7 +350,7 @@ def resolve_content(root, reference):
 
 def contents(root, source):
     for row in records(root, 'notes'):
-        if parent_key(row) == ('note', source.stem):
+        if parent_key(row) == ('note', read_document(source)[0]['id']):
             yield {**row, 'kind': row.get('note_type')}
 
 
@@ -304,6 +361,9 @@ def create(root, record_type, title, *, identifier=None, body='', **fields):
     identifier = identifier or record_type + '_' + uuid.uuid4().hex
     db.validate_id(identifier)
     source = safe(root, root / (record_type + 's') / (identifier + '.md'))
+    from lab import assistant_documents as documents
+    if documents.enabled(root):
+        return documents.create(root, record_type, title, identifier, body, fields)
     now = db.now_iso()
     metadata = dict(schema=2, id=identifier, type=record_type, title=title, created=now, updated=now)
     if record_type == 'task':
@@ -343,12 +403,14 @@ def create(root, record_type, title, *, identifier=None, body='', **fields):
 
 def validate_value(root, metadata, field, value):
     from lab import assistant as db, assistant_meetings as meetings
-    if field in {'id', 'type', 'schema', 'aliases', 'legacy_path'}:
+    if field in {'id', 'type', 'schema', 'aliases', 'legacy_path', 'tabs', 'document_path', 'embedded'}:
         raise ValueError('Record identity cannot be edited')
     if field == 'title':
         meetings.validate_title(value)
-    if field == 'status' and value not in db.STATUSES:
+    if field == 'status' and value not in (*db.STATUSES, 'not_started', 'skipped', 'cancelled'):
         raise ValueError('Invalid task status')
+    if field in {'owner','tldr','group'} and value is not None and not isinstance(value,str):
+        raise ValueError(field + ' must be text')
     if field == 'priority' and value not in db.PRIORITIES:
         raise ValueError('Invalid priority')
     if field in {'due', 'scheduled', 'defer_until', 'follow_up_at', 'date'} and value is not None:
@@ -375,20 +437,44 @@ def update(root, reference, field, value, *, collection=None, expected=UNSET):
             raise ValueError('This property changed elsewhere. Reload the document.')
         validate_value(root, metadata, field, value)
         rows = list(records(root))
+        from lab import assistant_documents as documents
+        embedded = documents.enabled(root)
+        if embedded and '#tab=' in str(source) and field in {'project','workspace'}:
+            raise ValueError('Subtabs inherit project and workspace; edit the containing task or note')
+        if embedded and field == 'status':
+            progress = progress_map(rows)[key(metadata)]
+            permitted = {'skipped'} if parent_key(metadata) else {'cancelled'}
+            if value == 'cancelled' and parent_key(metadata):
+                raise ValueError('Cancel the overall task or note; use skipped for a subtab')
+            if value == 'skipped' and not parent_key(metadata):
+                raise ValueError('Skipped is a subtab status')
+            if progress['derived'] and value not in {*permitted, progress['automatic_status']}:
+                raise ValueError('Overall status is calculated from subtabs; change their statuses')
+        if embedded and field == 'parent':
+            if value is None or '#tab=' not in str(source):
+                raise ValueError('A document root stays independent; subtabs must retain a parent')
+            parent_row = next((row for row in rows if key(row) == (value['type'],value['id'])), {})
+            if parent_row.get('document_path') != str(documents.physical(source).relative_to(root)):
+                raise ValueError('Subtab parent must be in the same Markdown document')
         if field == 'status' and value == 'done':
-            candidates = [metadata | {'body': body}, *descendants(rows, metadata)]
-            incomplete = [item for item in candidates[1:] if item['type'] == 'task' and item.get('status') != 'done']
-            incomplete += [item for row in candidates for item in db.extract_subtasks(row['body']) if not item['done']]
+            if embedded:
+                # Derived completion follows child branches, including skipped
+                # branches. Only an explicitly completed leaf checks its body.
+                incomplete = [] if progress['derived'] else [item for item in db.extract_subtasks(body) if not item['done']]
+            else:
+                candidates = [metadata | {'body': body}, *descendants(rows, metadata)]
+                incomplete = [item for item in candidates[1:] if item['type'] == 'task' and item.get('status') != 'done']
+                incomplete += [item for row in candidates for item in db.extract_subtasks(row['body']) if not item['done']]
             if incomplete:
                 raise ValueError('Complete all descendant tasks and checkboxes first')
-        if field == 'status' and value != 'done' and metadata.get('status') == 'done':
+        if not embedded and field == 'status' and value != 'done' and metadata.get('status') == 'done':
             current = metadata
             by_key = {key(row): row for row in rows}
             while parent_key(current):
                 current = by_key[parent_key(current)]
                 if current.get('type') == 'task' and current.get('status') == 'done':
                     raise ValueError('Reopen the completed parent task first')
-        if field == 'parent' and value is not None:
+        if not embedded and field == 'parent' and value is not None:
             by_key = {key(row): row for row in rows}
             pending = metadata.get('type') == 'task' and metadata.get('status') != 'done' or any(row['type'] == 'task' and row.get('status') != 'done' for row in descendants(rows, metadata))
             current, seen = value, set()
@@ -415,12 +501,26 @@ def update(root, reference, field, value, *, collection=None, expected=UNSET):
         validate_graph([candidate if key(row) == key(candidate) else row for row in rows],
                        {row['id'] for row in workspaces(root)})
         write_document(source, metadata, body)
+        if embedded:
+            documents.snapshot(root, force=True)
         return source
 
 
 def verify(root):
     rows = list(records(root))
     validate_graph(rows, {row['id'] for row in workspaces(root)})
-    return {'schema': 2, 'counts': dict(Counter(row['type'] for row in rows)),
+    return {'schema': 2, 'document_format':manifest(root).get('document_format','separate-records'), 'counts': dict(Counter(row['type'] for row in rows)),
             'task_roots': sum(row['type'] == 'task' and not row.get('parent') for row in rows),
             'workspaces': len(workspaces(root)), 'valid': True}
+
+
+def create_subtab(root, title, *, parent, project=UNSET, workspace=UNSET):
+    """Create a nested subtab with its own work status and context."""
+    if not isinstance(parent, dict) or set(parent) != {'type', 'id'} or parent['type'] not in {'task', 'note'}:
+        raise ValueError('A subtab requires a typed task/note parent')
+    _, owner, _ = resolve(root, parent['id'], parent['type'] + 's')
+    siblings = [row for row in records(root) if parent_key(row) == (parent['type'], parent['id'])]
+    position = max((row.get('position', 0) for row in siblings), default=-1) + 1
+    return create(root, 'note', title, note_type='subtab', parent=parent, position=position, status='not_started', priority='P2',
+                  project=owner.get('project') if project is UNSET else project,
+                  workspace=owner.get('workspace') if workspace is UNSET else workspace)

@@ -24,7 +24,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-lab = ["resources/agent-context/*.md", "resources/agent-context/migrations/*.md", "resources/assistant/*.md"]
+lab = ["resources/agent-context/*.md", "resources/agent-context/migrations/*.md", "resources/assistant/*.md", "resources/assistant/embedded/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

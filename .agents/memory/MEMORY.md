@@ -196,3 +196,4 @@
 - [Assistant records have independent project/workspace links](assistant-independent-projects-and-workspaces.md) — schema 2 migration, flat tasks/notes/projects, typed nested tabs, aliases and verified backups
 
 - [Migrations are agent documentation](migrations-are-agent-documentation.md) — read-only format/migration guides in lab migrations and lab agent context
+- [assistant-embedded-subtabs.md](assistant-embedded-subtabs.md) — One Markdown per task/note; embedded subtabs, derived progress, generated Index, and stable navigation.

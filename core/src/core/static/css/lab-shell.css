@@ -2800,3 +2800,34 @@
 .assistant-record-add button { min-height:40px; padding:6px 10px; border:0; border-radius:6px; color:var(--text-secondary); background:transparent; cursor:pointer; }
 .assistant-record-add button:hover { background:var(--bg-tertiary); }
 @media(max-width:760px) { .assistant-record-tree { min-width:220px; } }
+
+/* One document-subtab action and stable navigation. */
+.assistant-tabs-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 8px 10px; color:var(--text-secondary); font-size:13px; font-weight:600; }
+.assistant-tabs-heading > button { min-width:36px; min-height:36px; border:0; border-radius:6px; color:inherit; background:transparent; font-size:23px; cursor:pointer; }
+.assistant-record-tab-row { display:flex; align-items:center; position:relative; border-radius:8px; }
+.assistant-record-tab-row:has(.active), .assistant-record-tab-row:hover { background:var(--bg-tertiary); }
+.assistant-record-tab-row > .assistant-record-tab { flex:1; min-width:0; border-radius:8px; }
+.assistant-tab-menu { flex:none; position:relative; }
+.assistant-tab-menu > summary { display:flex; align-items:center; justify-content:center; min-width:36px; min-height:36px; padding:0; border-radius:6px; list-style:none; color:var(--text-secondary); cursor:pointer; font-size:20px; }
+.assistant-tab-menu > summary::-webkit-details-marker { display:none; }
+.assistant-tab-menu > div { position:absolute; right:0; top:100%; z-index:5; min-width:150px; padding:5px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); box-shadow:0 6px 18px #0004; }
+.assistant-tab-menu button { min-height:40px; width:100%; padding:8px 12px; text-align:left; border:0; border-radius:5px; background:transparent; color:var(--text-primary); cursor:pointer; }
+.assistant-tab-menu button:hover, .assistant-tab-menu summary:hover, .assistant-tabs-heading > button:hover { background:var(--bg-tertiary); }
+.assistant-document-error { padding:10px 16px; color:var(--text-secondary); font-size:13px; border-bottom:1px solid var(--border); }
+
+/* Generated document index: compact, neutral, and navigable as a tree. */
+.assistant-index { padding:24px; max-width:1400px; margin:0 auto; }
+.assistant-index h2 { margin:0 0 20px; font-size:20px; font-weight:600; }
+.assistant-index-scroll { overflow-x:auto; }
+.assistant-index table { width:100%; border-collapse:collapse; text-align:left; font-size:14px; }
+.assistant-index th { font-size:12px; font-weight:500; color:var(--text-secondary); padding:10px 12px; }
+.assistant-index td { padding:14px 12px; border-top:1px solid var(--border); white-space:nowrap; }
+.assistant-index td:first-child { width:55%; white-space:normal; }
+.assistant-index tr[data-index-path] { cursor:pointer; }
+.assistant-index tr[data-index-path]:hover, .assistant-index tr[data-index-path]:focus-within { background:var(--bg-tertiary); }
+.assistant-index button { border:0; background:none; color:var(--text-primary); font:inherit; text-align:left; min-height:36px; cursor:pointer; }
+.assistant-index-description { color:var(--text-secondary); font-size:13px; line-height:1.5; max-width:560px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.assistant-index-tab { margin-bottom:6px; }
+.assistant-metadata-field input[data-metadata-field="owner"] { width:110px; }
+.assistant-record-tab.active, .assistant-record-tree .assistant-record-tab.active { color:var(--text-primary); background:var(--bg-tertiary); border-color:var(--border); box-shadow:none; }
+@media(max-width:760px) { .assistant-index { padding:16px; } .assistant-index td { padding:12px 8px; } }

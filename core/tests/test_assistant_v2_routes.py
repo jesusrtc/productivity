@@ -47,3 +47,47 @@ def test_new_note_threads_are_openable_and_parent_is_validated(client, monkeypat
     assert client.get('/api/assistant/note',params={'path':note['path']}).json()['body']==''
     bad=client.post('/api/assistant/record',json={'type':'note','title':'Invalid','parent':{'type':'task','id':'missing'}})
     assert bad.status_code==400
+
+
+def test_embedded_subtabs_metadata_index_progress_and_legacy_links(client, monkeypatch, tmp_path, monorepo):
+    from lab import assistant_documents as documents
+    root,task=_seed(monkeypatch,tmp_path,monorepo)
+    migration.migrate(root,dry_run=False)
+    documents.migrate(root,dry_run=False)
+    created=client.post('/api/assistant/record',json={'type':'subtab','title':'Research','parent':{'type':'task','id':task.stem}})
+    assert created.status_code==200,created.text
+    child=created.json()
+    assert child['path'].startswith('tasks/'+task.name+'#tab=')
+    assert len(list((root/'tasks').glob('*.md')))==1 and not list((root/'notes').glob('*.md'))
+    for field,value in [('tldr','Find the facts'),('due','2026-09-30'),('owner','Jesus'),('priority','P1'),('status','skipped')]:
+        changed=client.patch('/api/assistant/metadata',json={'path':child['path'],'field':field,'expected':child['metadata'].get(field),'value':value})
+        assert changed.status_code==200,changed.text
+        child=changed.json()
+    overall=client.get('/api/assistant/task',params={'path':'tasks/'+task.name}).json()
+    assert overall['progress']['status']=='done'
+    assert overall['tree']['children'][0]['description']=='Find the facts'
+    assert client.get('/api/assistant').json()['tasks'][0]['status']=='done'
+    index=__import__('json').loads((root/'.assistant/index.json').read_text())
+    assert next(r for r in index['records'] if r['id']==child['metadata']['id'])['owner']=='Jesus'
+    cancelled=client.patch('/api/assistant/metadata',json={'path':'tasks/'+task.name,'field':'status','expected':overall['metadata']['status'],'value':'cancelled'})
+    assert cancelled.status_code==200,cancelled.text
+    assert cancelled.json()['progress']['status']=='cancelled'
+    stale=client.patch('/api/assistant/metadata',json={'path':child['path'],'field':'owner','expected':None,'value':'Other'})
+    assert stale.status_code==409
+    assert client.get('/api/assistant/note',params={'path':child['path']}).json()['metadata']['due']=='2026-09-30'
+    assert client.get('/api/assistant/task',params={'path':'../tasks/'+task.name}).status_code==400
+
+
+def test_embedded_markdown_links_open_the_subtab(client, monkeypatch, tmp_path, monorepo):
+    from lab import assistant_documents as documents
+    from urllib.parse import urlparse, parse_qs
+    root,task=_seed(monkeypatch,tmp_path,monorepo)
+    migration.migrate(root,dry_run=False)
+    old_child=records.create(root,'note','Sources',parent={'type':'task','id':task.stem})
+    alias=str(old_child.relative_to(root))
+    documents.migrate(root,dry_run=False)
+    target=str(records.resolve(root,old_child.stem)[0].relative_to(root))
+    for src in ['#tab='+old_child.stem,task.name+'#tab='+old_child.stem,'../'+alias]:
+        response=client.get('/api/assistant/link',params={'document':'tasks/'+task.name,'src':src},follow_redirects=False)
+        assert response.status_code==307,response.text
+        assert parse_qs(urlparse(response.headers['location']).query)['note']==[target]

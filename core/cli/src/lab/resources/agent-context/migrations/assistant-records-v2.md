@@ -4,6 +4,10 @@ Scope: the client-global Assistant database selected by LAB_ASSISTANT_HOME.
 Workspace-local tasks.json files use a different contract. Read the target's
 AGENTS.md and README.md, then inspect its manifest before editing.
 
+This is the intermediate separate-record format. If the manifest already has
+`document_format: "embedded-subtabs-v1"`, use `lab migrations assistant-subtabs`
+instead; never recreate separate child files in that format.
+
 ## Expected files
 
 ```text

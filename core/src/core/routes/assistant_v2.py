@@ -4,7 +4,7 @@ from urllib.parse import urlparse, unquote, urlencode
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from lab import assistant_records as records
+from lab import assistant_records as records, assistant_documents as documents
 
 
 def kind(row):
@@ -18,6 +18,7 @@ def detail(root, reference, collection=None):
         source, metadata, body = records.resolve(root, reference, collection)
         rows = list(records.records(root))
         by_key = {records.key(row):row for row in rows}
+        progress = records.progress_map(rows)
         current = by_key[records.key(metadata)]
         ancestor = current
         seen = set()
@@ -30,9 +31,11 @@ def detail(root, reference, collection=None):
             children = sorted([r for r in rows if records.parent_key(r) == records.key(row)],
                               key=lambda r:(r.get('position',0),r['id']))
             return {k:v for k,v in row.items() if k not in {'body','legacy_metadata'}} | {
-                'kind':kind(row), 'children':[node(child) for child in children]}
+                'kind':kind(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
+                'progress':progress[records.key(row)], 'children':[node(child) for child in children]}
         return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body,
                 'workspace':records.workspace(root,metadata.get('workspace')),
+                'progress':progress[records.key(metadata)], 'embedded':current.get('embedded',False),
                 'tldr':metadata.get('tldr') or '', 'root_path':ancestor['path'], 'root_kind':kind(ancestor),
                 'tree':node(ancestor), 'subtasks':[r for r in records.descendants(rows,current) if r['type']=='task']}
     except (OSError, ValueError, KeyError) as exc:
@@ -45,6 +48,21 @@ def local_target(root, document, src):
     if parsed.scheme or parsed.netloc:
         raise ValueError('Only local references are resolved here')
     raw = Path(unquote(parsed.path)).expanduser()
+    if parsed.fragment.startswith('tab='):
+        oldbase = (root / meta.get('legacy_path', documents.physical(source).relative_to(root).as_posix())).parent
+        candidates = [documents.physical(source)] if not parsed.path else ([raw] if raw.is_absolute() else [source.parent/raw, oldbase/raw])
+        for candidate in candidates:
+            candidate = candidate.resolve()
+            if not candidate.is_relative_to(root.resolve()):
+                continue
+            try:
+                owner, _, _ = records.resolve(root, candidate.relative_to(root).as_posix())
+                ref = documents.physical(owner).relative_to(root).as_posix() + '#' + unquote(parsed.fragment)
+                target, tab, _ = records.resolve(root, ref)
+                return target, tab, ''
+            except ValueError:
+                continue
+        raise ValueError('Subtab link not found')
     if raw.is_absolute():
         target = raw.resolve()
     else:
@@ -64,12 +82,13 @@ def local_target(root, document, src):
                 return records.safe(root, root / mapped), None, parsed.fragment
     if not target.exists() and not raw.is_absolute():
         candidate = (source.parent / raw).resolve()
-        if candidate.is_relative_to(root.resolve()) and candidate.is_file():
+        if candidate.is_relative_to(root.resolve()):
             try:
                 resolved, row, _ = records.resolve(root, candidate.relative_to(root).as_posix())
                 return resolved, row, parsed.fragment
             except ValueError:
-                target = candidate
+                if candidate.is_file():
+                    target = candidate
     return target, None, parsed.fragment
 
 
@@ -80,9 +99,10 @@ def asset(root, document, src, allowed_roots, *, link=False):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not any(target == allowed or target.is_relative_to(allowed) for allowed in allowed_roots):
         raise HTTPException(status_code=403, detail='Asset is outside Assistant/workspace roots')
-    if not target.is_file():
+    physical = documents.physical(target)
+    if not physical.is_file():
         raise HTTPException(status_code=404, detail='Asset not found')
     if link and row:
         field = {'task':'task','meeting':'meeting','series':'series','note':'note'}[kind(row)]
         return RedirectResponse('/?' + urlencode({'view':'assistant',field:target.relative_to(root).as_posix()}))
-    return FileResponse(target)
+    return FileResponse(physical)

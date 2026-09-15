@@ -80,13 +80,12 @@ read APIs: `/api/assistant`, `/meeting`, `/meeting-series`, `/meeting-content`
 (the last three are below `/api/assistant` and take a relative `path`).
 
 
-## Independent Assistant records (schema 2)
+## One note file, including subtabs
 
-After `lab assistant migrate --apply`, records live in flat `tasks/`, `notes/`,
-and `projects/` folders. Subtasks share `tasks/`; note types share `notes/`.
-`project` and `workspace` are independent optional IDs. `parent` is a typed
-object (`{"type":"task","id":"…"}` or `{"type":"note","id":"…"}`).
-Use `lab assistant project add <id> --name <name>` to create a project,
-`lab assistant note add "Title"` for a note, and `lab assistant verify` to
-validate references. Old document paths remain aliases. Read the database's
-AGENTS.md for its current contract; do not recreate the legacy folder layout.
+With `document_format: "embedded-subtabs-v1"`, each independent meeting/note
+has one `notes/<id>.md`. Related questions, documents, and discussions are
+subtabs inside the same Markdown file. Series remain independent note files
+linked by `series`, not nested merely because they are related. Original raw
+captures remain immutable assets. Preserve migrated IDs and old links.
+Read `lab migrations assistant-subtabs` for exact metadata/body markers and
+`lab agent context tasks` for subtab commands, generated Index and progress.

@@ -1,3 +1,7 @@
+> Current storage update (2026-09-15): one Markdown per independent task/note,
+> with all subtabs embedded. Read `lab migrations assistant-subtabs` for the
+> exact contract. The original separate-record design below is migration history.
+
 > Implementation status: schema 2 storage and migration are available through
 > `lab assistant migrate --dry-run` and `lab assistant migrate --apply`.
 > The implementation preserves IDs, original bodies, old-path aliases, backups,
@@ -394,3 +398,36 @@ or damaged records remain visible in an explicit migration report; no silent ski
 This sequence keeps data correctness ahead of the visual tree and makes each
 stage independently reviewable without treating a new sidebar as a completed
 storage redesign.
+
+## Embedded subtabs, Index, and derived progress
+
+The client now uses `document_format: embedded-subtabs-v1` inside schema 2.
+Root task/note files retain their IDs. Subtab metadata is a frontmatter `tabs`
+array; matching body markers preserve each subtab's content. Typed parent IDs
+and positions build a tree inside the file. Aliases resolve former child paths.
+Project/workspace associations belong to the root and are inherited by subtabs;
+former differing child associations remain in legacy provenance.
+
+`.assistant/index.json` is a generated metadata/search cache. Writers refresh it;
+readers detect direct file changes. It can be rebuilt from Markdown. A virtual
+Index tab appears only when there are children, showing the clickable tree,
+description, status, due date, priority, and POC. The main tab remains editable
+content; Index is never saved as a second document.
+
+Overall progress is computed from child branches. None started → not_started;
+some started/done/skipped → in_progress; all done/skipped → done. A skipped
+branch contributes completion without deleting content. Cancellation is a manual
+overall override. Root metadata remains available for optimistic edit checks;
+the effective API status is separate, preventing stale duplicate status writes.
+
+Navigation retains the outgoing document while fetching and caches each rendered
+pane/scroll position. Identical list polls retain DOM nodes. External changes
+refresh an open Index/content pane without interrupting property edits. The one
+child creation action is Add subtab, exposed in the rail's plus and row menu.
+
+`lab assistant migrate --embedded --apply` converted the live database on
+September 15, 2026: 25 independent documents, 16 embedded children, 41 preserved
+records. The verified backup and journal are under the client's `.assistant/`.
+The migration preserves raw notes/assets and exact body text, validates links,
+and rolls back on ordinary failures. No client task body or generated asset is
+committed to the framework repository.

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from lab import assistant_records as records, assistant_migration
+from lab import assistant_records as records, assistant_migration, assistant_documents as documents
 
 import click
 
@@ -118,7 +118,7 @@ def workspace_add(workspace_id: str, name: str, vault_id: str, workspace_path: P
 @click.option("--workspace", "workspace_id", default=None)
 @click.option("--project", "project_id", default=None)
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
-@click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
+@click.option("--status", type=click.Choice((*assistant_db.STATUSES[:-1], "not_started")), default="inbox")
 @click.option("--due", default=None)
 @click.option("--owner", default=None)
 @click.option("--tag", "tags", multiple=True)
@@ -156,11 +156,11 @@ def add_task(
 @click.option("--workspace", "workspace_id", default=None)
 @click.option("--project", "project_id", default=None)
 def list_tasks(status: str, priority: str | None, workspace_id: str | None, project_id: str | None) -> None:
-    if status != "open" and status not in assistant_db.STATUSES:
+    if status != "open" and status not in (*assistant_db.STATUSES,'not_started','skipped','cancelled'):
         raise click.ClickException(f"unknown status {status!r}")
     rows = []
     for task in assistant_db.iter_tasks(_root()):
-        if status == "open" and task["status"] == "done":
+        if status == "open" and task["status"] in {"done","skipped","cancelled"}:
             continue
         if status != "open" and task["status"] != status:
             continue
@@ -188,7 +188,7 @@ def show_task(task_id: str) -> None:
         source, _metadata, _body = assistant_db.find_task(_root(), task_id)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(source.read_text(encoding="utf-8"))
+    click.echo(records.encode_document(*assistant_db.read_markdown(source)).decode())
 
 
 @assistant_group.command("set")
@@ -231,7 +231,7 @@ def subtask_group() -> None:
 @click.option("--parent", "parent_id", required=True)
 @click.option("--workspace", "workspace_id", default=None, help="Owning workspace; defaults to the parent task workspace.")
 @click.option("--priority", type=click.Choice(assistant_db.PRIORITIES), default="P2")
-@click.option("--status", type=click.Choice(assistant_db.STATUSES[:-1]), default="inbox")
+@click.option("--status", type=click.Choice((*assistant_db.STATUSES[:-1], "not_started")), default="inbox")
 @click.option("--due", default=None)
 @click.option("--owner", default=None)
 @click.option("--tag", "tags", multiple=True)
@@ -274,11 +274,11 @@ def list_subtasks(
     priority: str | None,
     workspace_id: str | None,
 ) -> None:
-    if status != "open" and status not in assistant_db.STATUSES:
+    if status != "open" and status not in (*assistant_db.STATUSES,'not_started','skipped','cancelled'):
         raise click.ClickException(f"unknown status {status!r}")
     rows = []
     for subtask in assistant_db.iter_subtasks(_root()):
-        if status == "open" and subtask["status"] == "done":
+        if status == "open" and subtask["status"] in {"done","skipped","cancelled"}:
             continue
         if status != "open" and subtask["status"] != status:
             continue
@@ -306,7 +306,7 @@ def show_subtask(subtask_id: str) -> None:
         source, _metadata, _body = assistant_db.find_subtask(_root(), subtask_id)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(source.read_text(encoding="utf-8"))
+    click.echo(records.encode_document(*assistant_db.read_markdown(source)).decode())
 
 
 @subtask_group.command("set")
@@ -414,7 +414,7 @@ def show_meeting(meeting_id: str) -> None:
         source, _metadata, _body = assistant_db.find_meeting(_root(), meeting_id)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(source.read_text(encoding="utf-8"))
+    click.echo(records.encode_document(*assistant_db.read_markdown(source)).decode())
 
 
 @meeting_group.command("set")
@@ -462,7 +462,7 @@ def series_show(series_id, workspace):
         source, _, _ = assistant_db.find_meeting_series(_root(), series_id, workspace)
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(source.read_text(encoding="utf-8"))
+    click.echo(records.encode_document(*assistant_db.read_markdown(source)).decode())
 
 
 @meeting_group.group("raw")
@@ -555,12 +555,13 @@ def repeat_task(task_id):
 @assistant_group.command("migrate")
 @click.option("--apply", "apply_changes", is_flag=True, help="Apply after staging and verifying a full backup")
 @click.option("--dry-run", is_flag=True, help="Inspect only (the default)")
-def migrate_cmd(apply_changes, dry_run):
+@click.option("--embedded", is_flag=True, help="Keep subtabs inside their task/note Markdown file")
+def migrate_cmd(apply_changes, dry_run, embedded):
     """Move existing documents into independent tasks/, notes/, and projects/."""
     if apply_changes and dry_run:
         raise click.ClickException("Choose --apply or --dry-run")
     try:
-        result = assistant_migration.migrate(_root(), dry_run=not apply_changes)
+        result = (documents.migrate if embedded else assistant_migration.migrate)(_root(), dry_run=not apply_changes)
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(result, ensure_ascii=False, indent=2))
@@ -608,7 +609,7 @@ def project_ls():
 
 @assistant_group.group("note")
 def note_group():
-    """Plain notes and threads, with optional project/workspace/parent links."""
+    """Plain notes and subtabs, with optional project/workspace/parent links."""
 
 
 @note_group.command("add")
@@ -617,11 +618,11 @@ def note_group():
 @click.option("--project", default=None)
 @click.option("--parent", default=None, help="A task or note ID")
 @click.option("--parent-type", type=click.Choice(['task','note']), default='note')
-@click.option("--kind", type=click.Choice(['plain','thread']), default='plain')
+@click.option("--kind", type=click.Choice(['plain','subtab','thread']), default='plain')
 def note_add(title, workspace, project, parent, parent_type, kind):
     try:
         click.echo(records.create(_v2_root(), 'note', title, workspace=workspace, project=project,
-                                  note_type=kind, parent={'type':parent_type,'id':parent} if parent else None))
+                                  note_type='subtab' if parent or kind == 'thread' else kind, parent={'type':parent_type,'id':parent} if parent else None))
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -631,7 +632,7 @@ def note_add(title, workspace, project, parent, parent_type, kind):
 @click.option("--project", default=None)
 def note_ls(workspace, project):
     for row in records.records(_v2_root(), 'notes'):
-        if workspace and row.get('workspace') != workspace or project and row.get('project') != project:
+        if row.get('embedded') or workspace and row.get('workspace') != workspace or project and row.get('project') != project:
             continue
         click.echo(f"{row['id']}  {row.get('note_type')}  {row['title']}")
 
@@ -640,17 +641,67 @@ def note_ls(workspace, project):
 @click.argument("note_id")
 def note_show(note_id):
     try:
-        click.echo(records.resolve(_v2_root(), note_id, 'notes')[0].read_text())
+        click.echo(records.encode_document(*records.resolve(_v2_root(), note_id, 'notes')[1:]).decode())
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
 
 @note_group.command("set")
 @click.argument("note_id")
-@click.argument("field", type=click.Choice(['title','tldr','workspace','project','parent','position','date','series']))
+@click.argument("field", type=click.Choice(['title','tldr','workspace','project','parent','position','date','series','status','priority','due','owner']))
 @click.argument("value")
 def note_set(note_id, field, value):
     try:
         click.echo(records.update(_v2_root(), note_id, field, assistant_db._decode_scalar(value), collection='notes'))
     except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@assistant_group.group("subtab")
+def subtab_group():
+    """Nested document tabs; the unified name for child notes and discussions."""
+
+
+@subtab_group.command("add")
+@click.argument("title")
+@click.option("--parent", required=True, help="Parent task or note ID")
+@click.option("--parent-type", required=True, type=click.Choice(['task', 'note']))
+def subtab_add(title, parent, parent_type):
+    try:
+        click.echo(records.create_subtab(_v2_root(), title, parent={'type':parent_type,'id':parent}))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@subtab_group.command("ls")
+@click.option("--parent", required=True)
+@click.option("--parent-type", required=True, type=click.Choice(['task', 'note']))
+def subtab_ls(parent, parent_type):
+    try:
+        root = _v2_root()
+        records.resolve(root, parent, parent_type + 's')
+        for row in records.records(root):
+            if records.parent_key(row) == (parent_type, parent):
+                click.echo(f"{row['id']}  {row['title']}  {row['path']}")
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@subtab_group.command('show')
+@click.argument('identifier')
+def subtab_show(identifier):
+    try:
+        click.echo(records.encode_document(*records.resolve(_v2_root(), identifier)[1:]).decode())
+    except (OSError,ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@subtab_group.command('set')
+@click.argument('identifier')
+@click.argument('field',type=click.Choice(EDITABLE_FIELDS))
+@click.argument('value')
+def subtab_set(identifier, field, value):
+    try:
+        click.echo(records.update(_v2_root(),identifier,field,assistant_db._decode_scalar(value)))
+    except (OSError,ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
