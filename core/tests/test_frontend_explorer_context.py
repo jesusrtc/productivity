@@ -52,8 +52,11 @@ saved.set(_docModalSortKey('a.md', '/vault/'), 'created-asc');
 const restored = _readDocModalSort('a.md', '/vault');
 const anotherFile = _readDocModalSort('b.md', '/vault');
 const anotherRoot = _readDocModalSort('a.md', '/other-vault');
+const extensions = _sortDocModalFiles([
+  {path:'z.py'}, {path:'b.MD'}, {path:'a.md'}, {path:'README'}, {path:'.env'}, {path:'data.json'},
+], 'type-asc').map(file => file.path);
 saved.set(_docModalSortKey('a.md', '/vault'), 'invalid');
-process.stdout.write(JSON.stringify({orders, defaultSort, restored, anotherFile, anotherRoot,
+process.stdout.write(JSON.stringify({orders, defaultSort, restored, anotherFile, anotherRoot, extensions,
   invalid: _readDocModalSort('a.md', '/vault')}));
 """)
     assert result["orders"] == {
@@ -63,8 +66,10 @@ process.stdout.write(JSON.stringify({orders, defaultSort, restored, anotherFile,
         "name-desc": ["missing.md", "c.md", "b.md", "a.md"],
         "created-desc": ["a.md", "c.md", "b.md", "missing.md"],
         "created-asc": ["b.md", "c.md", "a.md", "missing.md"],
+        "type-asc": ["a.md", "b.md", "c.md", "missing.md"],
     }
     assert result["restored"] == "created-asc"
+    assert result["extensions"] == [".env", "README", "data.json", "a.md", "b.MD", "z.py"]
     for key in ("defaultSort", "anotherFile", "anotherRoot", "invalid"):
         assert result[key] == "mtime-desc"
 
@@ -220,7 +225,7 @@ process.stdout.write(JSON.stringify(values));
 
 def test_saved_diff_files_use_structured_diff_renderer_everywhere() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
-    assert "function renderStoredDiffDocument(filepath, data, container)" in source
+    assert "function renderStoredDiffDocument(filepath, data, container, root =" in source
     assert "mode === 'split' ? renderSplit(file) : renderUnified(file)" in source
 
     repo_open = _between(
@@ -232,9 +237,9 @@ def test_saved_diff_files_use_structured_diff_renderer_everywhere() -> None:
         "async function openWorkspaceDoc(filepath",
     )
     assert "/api/workspace-diff-file" in repo_open
-    assert "renderStoredDiffDocument(filepath, data, content)" in repo_open
+    assert "renderStoredDiffDocument(filepath, data, content, fileRoot)" in repo_open
     assert "/api/workspace-diff-file" in workspace_open
-    assert "renderStoredDiffDocument(filepath, data, container)" in workspace_open
+    assert "renderStoredDiffDocument(filepath, data, container, docRoot)" in workspace_open
     assert "lower.endsWith('.diff')" in source
     assert "lower.endsWith('.patch')" in source
 

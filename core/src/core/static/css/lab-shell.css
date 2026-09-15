@@ -850,6 +850,8 @@
     65% { outline-color: #3fb950; box-shadow: 0 0 8px rgba(63,185,80,.2); }
     100% { outline-color: transparent; box-shadow: 0 0 0 transparent; }
   }
+  .file-click-surface { position: relative; }
+  ::highlight(lab-click-word) { background: #3fb95066; color: inherit; }
   .nb-click-point {
     position: absolute; z-index: 5; width: 36px; height: 36px;
     border: 2px solid #3fb950; border-radius: 50%;

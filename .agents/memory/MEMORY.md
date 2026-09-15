@@ -1,5 +1,8 @@
 # Memory index
 
+- [Command-click across file previews](file-previews-command-click.md) — shared word highlighting and file modal; cell outlines remain notebook-only
+- [File modal sort labels and type](file-modal-sort-labels-and-type.md) — Modified/Created time desc/asc, Name A–Z/Z–A, and Type (extension)
+
 - [Notebook click markers follow text](notebook-click-marker-follows-text.md) — green marker tracks the clicked character across text wrapping, including editable code
 
 - [File modal sort is per file](file-modal-sort-is-per-file.md) — modified newest first by default; save name/modified/created and either direction for each file and root

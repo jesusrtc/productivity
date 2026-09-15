@@ -583,7 +583,7 @@
   // Render a saved .diff/.patch document with the same tables used by the
   // live Git changes view. The toggle is local to the document so opening a
   // patch never changes the user's preferred mode for repository diffs.
-  function renderStoredDiffDocument(filepath, data, container) {
+  function renderStoredDiffDocument(filepath, data, container, root = _workspaceDocRoot || _activeRepoFileRoot()) {
     const files = Array.isArray(data.files) ? data.files : [];
     if (!files.length) {
       const raw = data.raw || '';
@@ -591,6 +591,7 @@
         <div class="stored-diff-toolbar"><span class="stored-diff-path">${esc(filepath)}</span><span class="stored-diff-totals">No parseable file changes</span></div>
         <pre style="padding:16px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);overflow:auto;white-space:pre-wrap">${esc(raw)}</pre>
       </div>`;
+      _bindFileExpansion(container, filepath, root);
       return;
     }
     let mode = localStorage.getItem('labStoredDiffView') === 'split' ? 'split' : 'unified';
@@ -631,6 +632,7 @@
       });
     });
     paint();
+    _bindFileExpansion(container, filepath, root);
   }
 
   // ─── Diff code comments (text-anchored, like doc comments) ───
@@ -3698,7 +3700,7 @@
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
         const data = await res.json();
         if (workspaceOpenFile !== filepath) return;
-        renderStoredDiffDocument(filepath, data, content);
+        renderStoredDiffDocument(filepath, data, content, fileRoot);
       } catch (err) {
         if (workspaceOpenFile === filepath) content.innerHTML = `<div class="file-viewer-empty">Error: ${esc(err.message || err)}</div>`;
       }
@@ -3749,6 +3751,7 @@
 
     // Store content for edit mode
     window._workspaceFileContent = fileContent;
+    _bindFileExpansion(content, filepath, _activeRepoFileRoot());
   }
 
   function startWorkspaceEdit(filepath) {
@@ -3885,9 +3888,9 @@
     return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell (⌘-click cell)" aria-label="Open notebook at this cell">⤢</button>`;
   }
 
-  function _notebookAnchorTextNodes(area) {
+  function _fileAnchorTextNodes(area) {
     const root = area.querySelector('.nb-cell-edit-highlight code') || area;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    const walker = area.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: node => node.parentElement?.closest('script, style, textarea, .nb-click-point')
         ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
     });
@@ -3896,22 +3899,27 @@
     return nodes;
   }
 
-  function _notebookAnchorTextRect(area, anchor) {
-    let offset = anchor.offset;
-    for (const node of _notebookAnchorTextNodes(area)) {
-      if (offset < node.length) {
-        if (node.data.slice(offset, offset + anchor.character.length) !== anchor.character) return null;
-        const range = document.createRange();
-        range.setStart(node, offset);
-        range.setEnd(node, offset + anchor.character.length);
-        return range.getBoundingClientRect();
-      }
-      offset -= node.length;
+  function _fileAnchorTextRect(area, anchor) {
+    return _fileAnchorTextRange(area, anchor)?.getBoundingClientRect() || null;
+  }
+
+  function _fileAnchorTextRange(area, anchor) {
+    const nodes = _fileAnchorTextNodes(area);
+    const text = nodes.map(node => node.data).join('');
+    if (text.slice(anchor.offset, anchor.offset + anchor.character.length) !== anchor.character) return null;
+    const range = area.ownerDocument.createRange();
+    let start = anchor.offset, end = anchor.offset + anchor.character.length;
+    for (const node of nodes) {
+      if (start >= 0 && start < node.length) { range.setStart(node, start); start = -1; }
+      if (end <= node.length) { range.setEnd(node, end); return range; }
+      if (start >= 0) start -= node.length;
+      end -= node.length;
     }
     return null;
   }
 
-  function _notebookClickedText(area, event) {
+  function _fileClickedText(area, event) {
+    const document = area.ownerDocument;
     const editor = area.querySelector('.nb-cell-edit-area');
     const highlight = area.querySelector('.nb-cell-edit-highlight');
     let caret;
@@ -3937,7 +3945,7 @@
       }
     }
     if (!caret || caret.startContainer.nodeType !== Node.TEXT_NODE) return null;
-    const nodes = _notebookAnchorTextNodes(area);
+    const nodes = _fileAnchorTextNodes(area);
     const index = nodes.indexOf(caret.startContainer);
     if (index < 0) return null;
     const node = nodes[index];
@@ -3949,11 +3957,15 @@
       if (/[\uDC00-\uDFFF]/.test(node.data[offset]) && offset > 0) offset--;
       const character = String.fromCodePoint(node.data.codePointAt(offset));
       const anchor = {offset: preceding + offset, character};
-      const rect = _notebookAnchorTextRect(area, anchor);
+      const rect = _fileAnchorTextRect(area, anchor);
       if (!rect || !rect.width || !rect.height) continue;
       if (event.clientX < rect.left - 1 || event.clientX > rect.right + 1
           || event.clientY < rect.top - 1 || event.clientY > rect.bottom + 1) continue;
+      const text = nodes.map(item => item.data).join('');
+      const word = Array.from(text.matchAll(/[\p{L}\p{N}_]+/gu)).find(match =>
+        match.index <= anchor.offset && match.index + match[0].length > anchor.offset);
       return {...anchor,
+        word: word ? {offset: word.index, character: word[0]} : null,
         x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
         y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
       };
@@ -3975,16 +3987,35 @@
       index: selector ? Array.from(cell.querySelectorAll(selector)).indexOf(area) : 0,
       x: Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))),
       y: Math.max(0, Math.min(1, (event.clientY - rect.top) / (rect.height || 1))),
-      text: _notebookClickedText(region, event),
+      text: _fileClickedText(region, event),
     };
   }
 
-  function _focusNotebookClickPoint(container, cell, point) {
+  function _focusFileClickPoint(container, cell, point) {
+    const document = cell.ownerDocument;
+    cell.classList.add('file-click-surface');
     const area = (point.selector && cell.querySelectorAll(point.selector)[point.index]) || cell;
     const marker = document.createElement('span');
     marker.className = 'nb-click-point';
+    // HTML previews have their own document and do not inherit the shell CSS.
+    if (document !== window.document) {
+      marker.style.cssText = 'position:absolute;z-index:2147483647;width:36px;height:36px;border:2px solid #3fb950;border-radius:50%;background:#3fb95029;box-shadow:0 0 16px #3fb95073;transform:translate(-50%,-50%);pointer-events:none';
+      if (document.defaultView.getComputedStyle(cell).position === 'static') cell.style.position = 'relative';
+    }
     marker.setAttribute('aria-hidden', 'true');
     cell.appendChild(marker);
+    const wordRange = point.text?.word && _fileAnchorTextRange(area, point.text.word);
+    const highlights = document.defaultView?.CSS?.highlights;
+    const highlight = wordRange && highlights && new document.defaultView.Highlight(wordRange);
+    if (highlight) {
+      highlights.set('lab-click-word', highlight);
+      if (document !== window.document && !document.getElementById('lab-click-word-style')) {
+        const style = document.createElement('style');
+        style.id = 'lab-click-word-style';
+        style.textContent = '::highlight(lab-click-word) { background: #3fb95066; color: inherit; }';
+        document.head.appendChild(style);
+      }
+    }
     let stopped = false;
     let observer = null;
     let timer = null;
@@ -3995,25 +4026,40 @@
       if (observer) observer.disconnect();
       clearTimeout(timer);
       stopEvents.forEach(type => container.removeEventListener(type, stop, true));
+      if (highlight && highlights.get('lab-click-word') === highlight) highlights.delete('lab-click-word');
       marker.remove();
     }
     function center() {
       if (stopped) return;
       if (!cell.isConnected || !container.isConnected) { stop(); return; }
-      const textRect = point.text && _notebookAnchorTextRect(area, point.text);
+      let textRect = point.text && _fileAnchorTextRect(area, point.text);
+      // Source blocks can gain a horizontal scrollbar in the narrower modal.
+      // Reveal the anchored word there before positioning its marker.
+      for (let parent = area; textRect && parent && cell.contains(parent); parent = parent.parentElement) {
+        if (parent.scrollWidth <= parent.clientWidth) continue;
+        const bounds = parent.getBoundingClientRect();
+        if (textRect.left < bounds.left || textRect.right > bounds.right) {
+          parent.scrollLeft += (textRect.left + textRect.width / 2 - bounds.left - bounds.width / 2)
+            / (bounds.width / parent.offsetWidth || 1);
+          textRect = _fileAnchorTextRect(area, point.text);
+        }
+      }
       const rect = textRect?.width && textRect?.height ? textRect : area.getBoundingClientRect();
       const position = rect === textRect ? point.text : point;
       const cellRect = cell.getBoundingClientRect();
-      const viewport = container.getBoundingClientRect();
+      const isDocumentViewport = container === document.scrollingElement;
+      const viewport = isDocumentViewport
+        ? {top: 0, height: document.defaultView.innerHeight} : container.getBoundingClientRect();
       const x = rect.left + rect.width * position.x;
       const y = rect.top + rect.height * position.y;
       // Rects include CSS zoom; scroll offsets and CSS positions do not.
       const cellScale = cellRect.width / cell.offsetWidth || 1;
-      const viewportScale = viewport.height / container.offsetHeight || 1;
-      marker.style.left = `${(x - cellRect.left) / cellScale - cell.clientLeft}px`;
-      marker.style.top = `${(y - cellRect.top) / cellScale - cell.clientTop}px`;
+      const viewportScale = isDocumentViewport ? 1 : viewport.height / container.offsetHeight || 1;
+      const scrollsDocument = cell === document.scrollingElement;
+      marker.style.left = `${(x - cellRect.left) / cellScale - cell.clientLeft + (scrollsDocument ? 0 : cell.scrollLeft)}px`;
+      marker.style.top = `${(y - cellRect.top) / cellScale - cell.clientTop + (scrollsDocument ? 0 : cell.scrollTop)}px`;
       container.scrollBy({
-        top: (y - viewport.top) / viewportScale - container.clientTop - container.clientHeight / 2,
+        top: (y - viewport.top) / viewportScale - (isDocumentViewport ? viewport.height / 2 : container.clientTop + container.clientHeight / 2),
         behavior: 'instant',
       });
     }
@@ -4062,6 +4108,99 @@
     // Capture before code editors, header buttons, or output controls consume
     // the click, so Command-click opens the cell without triggering its action.
     notebook.addEventListener('click', notebook._nbExpandClick, true);
+  }
+
+  function _fileClickPoint(surface, event) {
+    const selectors = ['pre', 'p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4',
+      'h5', 'h6', 'summary', 'img', 'video', 'iframe'];
+    const area = event.target.closest(selectors.join(','));
+    const selector = area && surface.contains(area) && selectors.find(value => area.matches(value));
+    const region = selector ? area : surface;
+    const rect = region.getBoundingClientRect();
+    const point = {
+      selector: selector || null,
+      index: selector ? Array.from(surface.querySelectorAll(selector)).indexOf(area) : 0,
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / (rect.height || 1))),
+      text: _fileClickedText(region, event),
+      details: Array.from(surface.querySelectorAll('details')).map(detail => detail.open),
+    };
+    // Repository source views have line-number tables; the modal renders the
+    // same source in a single pre. Carry the source line independently of DOM.
+    if (area?.matches('.vcode') && point.text) {
+      point.line = Array.from(surface.querySelectorAll('.vcode')).indexOf(area);
+    }
+    return point;
+  }
+
+  function _bindFileExpansion(container, filepath, root) {
+    if (!container || container.id === 'docModalBody' || /\.ipynb$/i.test(filepath)) return;
+    // Capture the rendered child, so replacing this view also drops its file
+    // identity. A reused #content must never reopen the previous document.
+    const rendered = container.querySelector('.file-viewer-body') || container.firstElementChild;
+    if (!rendered) return;
+    if (container._fileExpandClick) container.removeEventListener('click', container._fileExpandClick, true);
+    const open = (event, surface, frame = false) => {
+      if (event.button !== 0 || !event.metaKey || event.target.closest('textarea, input, [contenteditable="true"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const clickPoint = _fileClickPoint(surface, event);
+      clickPoint.surface = surface.id === 'workspaceDocBody' ? '#workspaceDocBody' : null;
+      clickPoint.frame = frame;
+      void openWorkspaceDocModal(filepath, {root, clickPoint});
+    };
+    container._fileExpandClick = event => {
+      if (!container.contains(rendered)) return;
+      const doc = event.target.closest('#workspaceDocBody');
+      open(event, doc || rendered);
+    };
+    container.addEventListener('click', container._fileExpandClick, true);
+    rendered.querySelectorAll('iframe.html-iframe').forEach(frame => {
+      const bind = () => {
+        try {
+          const body = frame.contentDocument?.body;
+          if (body && !body._fileExpandClick) {
+            body._fileExpandClick = event => open(event, body, true);
+            body.addEventListener('click', body._fileExpandClick, true);
+          }
+        } catch {} // Cross-origin embeds keep their browser-owned interaction.
+      };
+      frame.addEventListener('load', bind);
+      bind();
+    });
+  }
+
+  function _focusDocModalClickPoint(container, point, generation) {
+    const focus = (viewport, surface) => {
+      if (!surface || generation !== _docModalFilesGeneration) return;
+      surface.querySelectorAll('details').forEach((detail, index) => {
+        if (index < point.details.length) detail.open = point.details[index];
+      });
+      let target = point;
+      if (Number.isInteger(point.line) && point.text) {
+        const pre = surface.querySelector('pre');
+        if (pre) {
+          const lines = pre.textContent.split('\n');
+          const preceding = lines.slice(0, point.line).reduce((total, line) => total + line.length + 1, 0);
+          target = {...point, selector: 'pre', index: 0,
+            text: {...point.text, offset: preceding + point.text.offset,
+              word: point.text.word ? {...point.text.word, offset: preceding + point.text.word.offset} : null}};
+        }
+      }
+      _docModalClearClickPoint = _focusFileClickPoint(viewport, surface, target);
+    };
+    if (point.frame) {
+      const frame = container.querySelector('iframe.html-iframe');
+      if (!frame) return;
+      const loaded = () => {
+        try { focus(frame.contentDocument.scrollingElement, frame.contentDocument.body); } catch {}
+      };
+      if (frame.contentDocument?.readyState === 'complete' && frame.contentDocument.URL !== 'about:blank') loaded();
+      else frame.addEventListener('load', loaded, {once: true});
+    } else {
+      focus(container, (point.surface && container.querySelector(point.surface))
+        || container.querySelector('#workspaceDocBody') || container.firstElementChild);
+    }
   }
 
   function _renderNbPinCodeButton() {
@@ -4718,7 +4857,7 @@
           if (initialCell) {
             target.classList.add('nb-cell-expanded');
             if (initialCell.clickPoint) {
-              clearClickPoint = _focusNotebookClickPoint(container, target, initialCell.clickPoint);
+              clearClickPoint = _focusFileClickPoint(container, target, initialCell.clickPoint);
             }
             setTimeout(() => target.classList.remove('nb-cell-expanded'), 3000);
           }
@@ -6711,12 +6850,14 @@
 
   let _docModalEscHandler = null;
   let _docModalFilesGeneration = 0;
+  let _docModalClearClickPoint = null;
 
   function _docModalSortOptions() {
     return [
-      ['mtime-desc', 'Modified: newest first'], ['mtime-asc', 'Modified: oldest first'],
-      ['name-asc', 'Name: A–Z'], ['name-desc', 'Name: Z–A'],
-      ['created-desc', 'Created: newest first'], ['created-asc', 'Created: oldest first'],
+      ['mtime-desc', 'Modified time desc'], ['mtime-asc', 'Modified time asc'],
+      ['created-desc', 'Created time desc'], ['created-asc', 'Created time asc'],
+      ['name-asc', 'Name A–Z'], ['name-desc', 'Name Z–A'],
+      ['type-asc', 'Type (extension)'],
     ];
   }
 
@@ -6738,6 +6879,10 @@
     return [...files].sort((a, b) => {
       const name = a.path.localeCompare(b.path, undefined, {numeric: true});
       if (field === 'name') return sign * name;
+      if (field === 'type') {
+        const extension = path => path.split('/').pop().match(/[^.]\.([^.]+)$/)?.[1].toLowerCase() || '';
+        return sign * extension(a.path).localeCompare(extension(b.path)) || name;
+      }
       const aTime = Number(a[field]), bTime = Number(b[field]);
       const aKnown = Number.isFinite(aTime) && aTime > 0;
       const bKnown = Number.isFinite(bTime) && bTime > 0;
@@ -6805,8 +6950,10 @@
     return openWorkspaceDocModal(String(folder || '').replace(/\/$/, '') + '/', {root});
   }
 
-  async function openWorkspaceDocModal(filepath, { editing = false, root = null, notebookCell = null } = {}) {
+  async function openWorkspaceDocModal(filepath, { editing = false, root = null, notebookCell = null, clickPoint = null } = {}) {
     if (!currentWorkspace) return;
+    _docModalClearClickPoint?.();
+    _docModalClearClickPoint = null;
     const docRoot = root || currentWorkspace.path;
     if (!filepath.endsWith('/')) _workspaceDocRoot = docRoot;
     void _loadDocModalFiles(filepath, docRoot);
@@ -6827,11 +6974,16 @@
       return;
     }
     await _renderDocInto(filepath, body, { notebookCell });
+    if (clickPoint && generation === _docModalFilesGeneration) {
+      _focusDocModalClickPoint(body, clickPoint, generation);
+    }
     if (!editing && generation === _docModalFilesGeneration) _workspaceDocEditing = false;
   }
 
   function closeDocModal() {
     _docModalFilesGeneration++;
+    _docModalClearClickPoint?.();
+    _docModalClearClickPoint = null;
     if (_workspaceDocEditing) {
       _workspaceDocEditing = false;
       _workspaceDocEditContainer = null;
@@ -6916,6 +7068,7 @@
         _workspaceRenderHtml(container, filepath, absKey, next);
       });
     });
+    _bindFileExpansion(container, filepath, docRoot);
   }
 
   async function _renderDocInto(filepath, container, { preserveScroll = false, notebookCell = null } = {}) {
@@ -6945,6 +7098,7 @@
       if (!_stillActiveNav()) return;
       const src = `/api/workspace-asset?path=${encodeURIComponent(docRoot)}&file=${encodeURIComponent(filepath)}`;
       container.innerHTML = `<div style="padding:24px;max-width:900px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><span style="font-size:12px;color:#484f58;font-family:monospace;flex:1">${esc(filepath)}</span></div><img src="${src}" style="max-width:100%;border-radius:4px"></div>`;
+      _bindFileExpansion(container, filepath, docRoot);
       return;
     }
 
@@ -6961,6 +7115,7 @@
       const existing = container.querySelector('iframe.pdf-iframe');
       if (existing && existing.getAttribute('src') === src) return;
       container.innerHTML = `<div style="padding:24px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace;flex:1">${esc(filepath)}</span><a href="${src}" target="_blank" rel="noopener" style="font-size:11px;color:var(--text-secondary)">open ↗</a></div><iframe class="pdf-iframe" src="${esc(src)}" title="${esc(filepath)}"></iframe></div>`;
+      _bindFileExpansion(container, filepath, docRoot);
       return;
     }
 
@@ -6983,6 +7138,7 @@
         </div>
         <video class="workspace-video" src="${esc(src)}" controls playsinline preload="metadata" style="width:100%;max-height:calc(100vh - 220px);background:#000;border-radius:6px;outline:none"></video>
       </div>`;
+      _bindFileExpansion(container, filepath, docRoot);
       return;
     }
 
@@ -6991,7 +7147,7 @@
     if (/\.(html|htm)$/i.test(filepath)) {
       const absKey = docRoot + '/' + filepath;
       const mode = getHtmlViewPref(absKey);
-      _workspaceRenderHtml(container, filepath, absKey, mode);
+      await _workspaceRenderHtml(container, filepath, absKey, mode);
       return;
     }
 
@@ -7007,7 +7163,7 @@
         }
         const data = await response.json();
         if (!_stillActiveNav()) return;
-        renderStoredDiffDocument(filepath, data, container);
+        renderStoredDiffDocument(filepath, data, container, docRoot);
       } catch (err) {
         if (!_stillActiveNav()) return;
         container.innerHTML = `<div class="no-repo"><p>Error: ${esc(err.message || err)}</p></div>`;
@@ -8059,6 +8215,7 @@
     // span formatting tags (bold/italic/links) — not possible with string
     // replace on the raw HTML.
     if (!_workspaceDocEditing) {
+      _bindFileExpansion(container, filepath, _workspaceDocRoot || currentWorkspace?.path);
       const docBody = container.querySelector('#workspaceDocBody');
       if (docBody) {
         if (filepath.endsWith('.md')) docBody.querySelectorAll('h2,h3').forEach(heading => {
