@@ -194,3 +194,5 @@
 - [Assistant combines workspaces with neutral controls](assistant-unified-tasks-and-neutral-controls.md) — one task list, workspace filters, recurrence only in the header, and larger click targets
 
 - [Assistant records have independent project/workspace links](assistant-independent-projects-and-workspaces.md) — schema 2 migration, flat tasks/notes/projects, typed nested tabs, aliases and verified backups
+
+- [Migrations are agent documentation](migrations-are-agent-documentation.md) — read-only format/migration guides in lab migrations and lab agent context

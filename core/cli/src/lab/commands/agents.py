@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from lab import agent_context, agentsync, paths
+from lab.commands.context import context_cmd
 
 
 @click.group(name='agents')
@@ -101,3 +102,7 @@ def doctor(require_cli: bool) -> None:
         click.echo(f"{len(report['legacy_links'])} legacy links found; inspect with `lab agents detach --dry-run`.")
     if not report['ok'] or (require_cli and not report['cli_ok']):
         raise click.ClickException('agent setup has problems')
+
+
+# Both lab agents context and the singular lab agent alias read the same guide.
+agents_group.add_command(context_cmd)

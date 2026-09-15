@@ -38,7 +38,11 @@ Workspaces own their instructions, skills, and memory policy. Read applicable
 workspace-owned `AGENTS.md` / `CLAUDE.md` files when present; Lab does not generate
 or link them. Framework capability guidance is supplied by `lab agents run` at
 launch and can be read with `lab context` (or `lab context markdown`,
-`lab context notebooks`, `lab context servers`).
+`lab context notebooks`, `lab context servers`, `lab context migrations`).
+Read `lab migrations` for migration instructions and expected formats.
+`lab migrations assistant-records-v2` explains the Assistant data contract.
+These commands print documentation only. `lab agent context` also reads the
+packaged agent guide.
 
 ## On workspace server tabs
 

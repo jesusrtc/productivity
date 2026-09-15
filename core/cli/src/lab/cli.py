@@ -8,6 +8,7 @@ from lab.commands.app import app_group
 from lab.commands.artifact import artifact_group
 from lab.commands.config import config_group
 from lab.commands.context import context_cmd
+from lab.commands.migrations import migrations_cmd
 from lab.commands.index import index_group
 from lab.commands.link import link_group
 from lab.commands.notebook import notebook_group
@@ -32,6 +33,8 @@ main.add_command(workspace_group)
 main.add_command(assistant_group)
 main.add_command(config_group)
 main.add_command(agents_group)
+main.add_command(agents_group, name="agent")
+main.add_command(migrations_cmd)
 main.add_command(context_cmd)
 main.add_command(app_group)
 main.add_command(task_group)

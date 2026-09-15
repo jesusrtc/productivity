@@ -29,3 +29,10 @@ agent instruction, skill, or memory files merely to integrate with Lab.
   `lab context meetings`. Markdown files are the source of truth; agents may
   create and edit them directly. Read client instructions for ownership,
   terminology, research, and writing rules. Lab does not rewrite those rules.
+
+- For migration instructions and expected data formats, read `lab migrations`
+  or `lab agent context migrations`. Detailed guides include
+  `lab migrations assistant-records-v2`, `lab migrations workspace-agent-context`,
+  and `lab migrations vault-workspace-names`. These commands only print
+  documentation. Inspect the current format and local instructions, preserve
+  IDs/content/references, and migrate only within the user's authorized task.

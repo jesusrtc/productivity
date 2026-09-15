@@ -13,7 +13,8 @@ import time
 GUIDE_DIR = Path(__file__).parent / 'resources' / 'agent-context'
 TOPICS = {'overview': 'AGENTS.md', 'markdown': 'markdown.md',
           'notebooks': 'notebooks.md', 'servers': 'servers.md',
-          'meetings': 'meetings.md', 'tasks': 'tasks.md'}
+          'meetings': 'meetings.md', 'tasks': 'tasks.md',
+          'migrations': 'migrations.md'}
 AGENTS = ('codex', 'claude', 'copilot')
 
 
