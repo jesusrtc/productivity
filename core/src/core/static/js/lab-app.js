@@ -3887,7 +3887,7 @@
   }
 
   function _renderNbExpandButton() {
-    return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell" aria-label="Open notebook at this cell">⤢</button>`;
+    return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell (⌘-click cell)" aria-label="Open notebook at this cell">⤢</button>`;
   }
 
   function _openNotebookCellModal(target, filepath, root) {
@@ -3906,26 +3906,20 @@
     if (!notebook || notebook.closest('#docModalBody')) return;
     // Keep this binding on the underlying notebook while the modal owns the
     // navigation toolbar, so closing the modal leaves Expand usable again.
-    if (notebook._nbExpandClick) notebook.removeEventListener('click', notebook._nbExpandClick);
-    if (notebook._nbExpandDoubleClick) notebook.removeEventListener('dblclick', notebook._nbExpandDoubleClick);
+    if (notebook._nbExpandClick) notebook.removeEventListener('click', notebook._nbExpandClick, true);
     notebook._nbExpandClick = (event) => {
+      if (event.button !== 0) return;
       const button = event.target.closest('[data-nb-expand-cell]');
-      if (!button) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void _openNotebookCellModal(button, filepath, root);
-    };
-    notebook._nbExpandDoubleClick = (event) => {
-      // Preserve native editing, text selection, and embedded controls.
-      if (event.target.closest('button, a, input, textarea, select, summary, [contenteditable]:not([contenteditable="false"]), [role="button"]')) return;
+      if (!button && !event.metaKey) return;
       const cell = event.target.closest('.nb-cell[data-cell-index]:not([data-cell-index="new"])');
       if (!cell) return;
       event.preventDefault();
       event.stopPropagation();
       void _openNotebookCellModal(cell, filepath, root);
     };
-    notebook.addEventListener('click', notebook._nbExpandClick);
-    notebook.addEventListener('dblclick', notebook._nbExpandDoubleClick);
+    // Capture before code editors, header buttons, or output controls consume
+    // the click, so Command-click opens the cell without triggering its action.
+    notebook.addEventListener('click', notebook._nbExpandClick, true);
   }
 
   function _renderNbPinCodeButton() {
