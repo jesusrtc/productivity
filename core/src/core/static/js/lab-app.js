@@ -14383,6 +14383,7 @@
   function _swapViewState({preserveHomeTerminal = false} = {}) {
     _workspaceDeleteTarget = null;
     closeVaultWorkspaceMenu();
+    window.AssistantView?.closeDocument(false);
     if ((!preserveHomeTerminal || !_termHomeViewActive()) && typeof termDetach === 'function') termDetach(true);
     document.body.classList.remove(
       'cerebro-active', 'self-active', 'assistant-active', 'vault-active',
@@ -14734,17 +14735,22 @@
       if (section === 'meetings') {
         url.searchParams.set('subview', 'meetings');
         url.searchParams.delete('task');
+        url.searchParams.delete('assistant_workspace');
+        if (opts.series) url.searchParams.set('series', opts.series);
+        else url.searchParams.delete('series');
         if (opts.meeting) url.searchParams.set('meeting', opts.meeting);
         else url.searchParams.delete('meeting');
       } else if (section === 'tasks') {
         url.searchParams.set('subview', 'tasks');
         url.searchParams.delete('meeting');
+        url.searchParams.delete('series');
         if (taskPath) url.searchParams.set('task', taskPath);
         else url.searchParams.delete('task');
       } else {
         url.searchParams.delete('subview');
         url.searchParams.delete('task');
         url.searchParams.delete('meeting');
+        url.searchParams.delete('series');
         url.searchParams.delete('assistant_workspace');
       }
       history.pushState({nav: 'assistant', task: taskPath, meeting: opts.meeting || ''}, '', url.pathname + url.search + url.hash);
@@ -14809,6 +14815,7 @@
         replace: true,
         subview: params.get('subview') || '',
         meeting: params.get('meeting') || '',
+        series: params.get('series') || '',
         workspace: params.get('assistant_workspace') || '',
       });
     } else if (view === 'productivity') {
@@ -15777,6 +15784,7 @@
       section,
       task: initialTask,
       meeting: options.meeting || '',
+      series: options.series || '',
       workspace: options.workspace || '',
     });
     renderRepoTabs();
@@ -18203,6 +18211,7 @@
     initAssistant(initialParams.get('task') || '', {
       subview: initialParams.get('subview') || '',
       meeting: initialParams.get('meeting') || '',
+      series: initialParams.get('series') || '',
       workspace: initialParams.get('assistant_workspace') || '',
     });
   } else if (urlView === 'productivity') {

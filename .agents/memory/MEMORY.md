@@ -1,5 +1,8 @@
 # Memory index
 
+- [Assistant agents may edit Markdown metadata](assistant-agent-editable-markdown.md) — optional CLI/API, distinct task dates, and explicit recurrence history
+- [Assistant meeting series and originals](assistant-meeting-series-and-originals.md) — summary-first series history, separate originals/questions/documents, and date lists
+
 - [File context menu copies raw content](file-context-menu-copies-raw-content.md) — Copy content reads the clicked file's source from its own root, including Markdown syntax and closed disclosures
 
 - [Native Plotly notebook output](notebook-native-plotly-mime.md) — render saved/live Plotly MIME with the vendored library; preserve typed arrays, independent views, and chart interaction state
@@ -99,7 +102,7 @@
 - [Assistant tasks are client-global Markdown](assistant-task-database-is-client-global.md) — one `LAB_ASSISTANT_HOME` per Lab client, outside framework/vaults; Lab renders it and Assistant terminals manage Markdown through `lab assistant`
 - [Assistant progressive disclosure and meetings](assistant-progressive-disclosure-and-meetings.md) — compact rows expand on click, full documents open on double-click, subtasks gate completion, and meeting notes are first-class
 - [Assistant workspace artifacts and copy-ready content](assistant-workspace-artifacts-and-copy-content.md) — map exact Lab workspaces without direct navigation; preview workspace-owned images and copy prepared communications manually
-- [Assistant uses the selected Compact design](assistant-workspace-first-document-modal.md) — one Tasks tab, compact original workspace groups and cards, and click-to-open modal; proposal comparison is complete
+- [Assistant uses the selected Compact design](assistant-workspace-first-document-modal.md) — one Tasks tab, planning filters, creation-date lists, workstream labels, and click-to-open modal
 - [Framework updates restart in place](framework-update-restarts-in-place.md) — admin update pulls `origin/main` serially, exec-restarts, and reloads only after a new boot ID
 - [Notebook runtimes preserve venv Python paths](notebook-runtime-preserve-venv-python-path.md) — make interpreter paths absolute without resolving venv symlinks, or kernels lose the venv's ipykernel and client packages
 - [Quiet Jupyter polls are not execution timeouts](notebook-kernel-quiet-polls-are-not-timeouts.md) — `get_iopub_msg` may be empty for many one-second polls while client CLIs run; enforce only the overall monotonic deadline

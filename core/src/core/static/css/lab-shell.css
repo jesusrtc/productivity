@@ -2669,3 +2669,39 @@
 
   .home-logs-options [hidden] { display: none; }
   .home-logs-options input[type="date"] { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 4px; font: inherit; color-scheme: dark; }
+
+/* Assistant: compact date lists and summary-first meeting documents. */
+.assistant-task-date-list { max-height:none; overflow:visible; }
+.assistant-date-group + .assistant-date-group { margin-top:16px; }
+.assistant-date-header { margin:0; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--bg-secondary); color:var(--text-secondary); font-size:12px; font-weight:700; line-height:1.4; font-variant-numeric:tabular-nums; }
+.assistant-list-order { margin:0 0 10px; font-size:12px; color:var(--text-dim); }
+.assistant-task-date-list .assistant-task-row { padding:5px 14px; min-height:48px; }
+.assistant-task-group-label { max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-dim); font-size:11px; }
+.assistant-repeat { color:var(--accent); font-size:11px; }
+.assistant-demo { color:var(--text-dim); border:1px dashed var(--border); border-radius:4px; padding:2px 5px; font-size:10px; }
+.assistant-meeting-row { min-height:40px; padding:9px 14px; gap:12px; }
+.assistant-meeting-label { flex:1; min-width:0; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+.assistant-meeting-row small { color:var(--text-dim); font-size:11px; }
+.assistant-series-link { border:0; background:transparent; color:var(--accent); text-align:left; padding:6px; cursor:pointer; }
+.assistant-series-history { margin:30px auto; max-width:980px; }
+.assistant-nav-empty { margin:8px; font-size:12px; color:var(--text-dim); }
+.assistant-document-nav-label:not(:first-child) { margin-top:20px; }
+.assistant-document-nav .assistant-date-header { padding:6px; font-size:11px; }
+.assistant-document-nav .assistant-meeting-row { padding:8px 6px; }
+.assistant-document-nav .assistant-meeting-label { font-size:12px; }
+.assistant-raw-notes { max-width:980px; margin:20px auto; padding:20px; border:1px solid var(--border); background:var(--bg-secondary); white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.6 ui-monospace,monospace; }
+.assistant-modal-actions button:disabled { opacity:.45; cursor:default; }
+.assistant-meeting-warning { border:1px solid var(--accent); padding:10px; margin:12px 0; }
+.assistant-document-nav [data-meeting-part] strong { font-size:14px; color:var(--text-primary); }
+.assistant-document-nav [data-meeting-part] small { font-size:11px; color:var(--text-dim); }
+.assistant-markdown table { width:100%; border-collapse:collapse; margin:16px 0; font-size:13px; }
+.assistant-markdown th, .assistant-markdown td { padding:10px 12px; text-align:left; vertical-align:top; border:1px solid var(--border); }
+.assistant-markdown th { background:var(--bg-secondary); font-weight:700; }
+@media (max-width:760px) {
+  .assistant-quick-views.compact { flex-wrap:wrap; }
+  .assistant-task-date-list .assistant-task-row { flex-wrap:wrap; }
+  .assistant-task-date-list .assistant-row-meta { max-width:none; width:100%; }
+  .assistant-document-nav .assistant-date-group { flex:0 0 210px; }
+  .assistant-document-nav .assistant-date-group + .assistant-date-group { margin-top:0; }
+  .assistant-modal-actions > #assistantCopyPlain { display:block; }
+}

@@ -13,7 +13,8 @@
     priority: '',
     workspace: '',
     search: '',
-    expandedGroups: new Set(),
+    selectedSeriesPath: '',
+    modalMeetingPart: 'summary',
     modalRoot: null,
     modalCurrent: null,
     modalKind: '',
@@ -136,14 +137,68 @@
     return state.data && Array.isArray(state.data.meetings) ? state.data.meetings : [];
   }
 
+  function calendarDate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return '';
+    const day = new Date(value + 'T00:00:00Z');
+    return Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === value ? value : '';
+  }
+
+  function taskCreatedDate(value) {
+    if (typeof value !== 'string') return '';
+    const date = calendarDate(value.slice(0, 10));
+    return date && (value === date || value.startsWith(date + 'T') && Number.isFinite(new Date(value).getTime())) ? date : '';
+  }
+
+  function localToday(day = new Date()) {
+    return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+  }
+
+  function weekEnd() {
+    const day = new Date();
+    day.setDate(day.getDate() + (7 - day.getDay()) % 7);
+    return localToday(day);
+  }
+
+  function dateGroups(rows, renderRow, dateFor, kind) {
+    const groups = new Map();
+    rows.forEach(row => {
+      const date = dateFor(row);
+      if (!groups.has(date)) groups.set(date, []);
+      groups.get(date).push(row);
+    });
+    return [...groups.keys()].sort((a, b) => b.localeCompare(a)).map(day =>
+      `<section class="assistant-date-group" data-assistant-${kind}-date="${e(day || 'Undated')}"><h3 class="assistant-date-header">${e(day || 'Undated')}</h3>${groups.get(day).map(renderRow).join('')}</section>`).join('');
+  }
+
+  function sortedMeetings(rows, key = 'date') {
+    return [...rows].sort((a, b) => calendarDate(b[key]).localeCompare(calendarDate(a[key])) || String(a.path).localeCompare(String(b.path)));
+  }
+
+  function meetingName(row) { return row.series_title || row.title || 'Meeting'; }
+  function meetingLabel(row) { return `${calendarDate(row.date) || 'Undated'} ${meetingName(row)}`; }
+
+  function filteredSeries() {
+    const needle = state.search.toLowerCase().trim();
+    return (state.data?.meeting_series || []).filter(row => (!state.workspace || row.workspace === state.workspace)
+      && (!needle || [row.title, row.summary, row.workspace_name].join(' ').toLowerCase().includes(needle)
+        || filteredMeetings().some(meeting => meeting.series_path === row.path)));
+  }
+
   function filteredTasks() {
     const needle = state.search.trim().toLowerCase();
     return tasks().filter(task => {
       if (state.view === 'recent' && !isRecentDone(task)) return false;
+      if (state.view !== 'recent' && task.status === 'done') return false;
+      const today = localToday();
+      if (state.view === 'today' && !(calendarDate(task.scheduled) && task.scheduled <= today || calendarDate(task.due) && task.due <= today)) return false;
+      if (state.view === 'week' && ![task.scheduled, task.due].some(date => calendarDate(date) && date <= weekEnd())) return false;
+      if (['today', 'week'].includes(state.view) && calendarDate(task.defer_until) && task.defer_until > today && !(calendarDate(task.due) && task.due <= today)) return false;
+      if (state.view === 'recurring' && !task.recurrence) return false;
+      if (state.view === 'someday' && !(task.priority === 'P3' || calendarDate(task.defer_until) && task.defer_until > today)) return false;
       if (state.view === 'p0' && task.priority !== 'P0') return false;
       if (state.view === 'in_progress' && task.status !== 'in_progress') return false;
       if (state.view === 'ready_to_review' && !hasReview(task)) return false;
-      if (state.view === 'waiting' && !needsFollowUp(task)) return false;
+      if (state.view === 'waiting' && task.status !== 'waiting') return false;
       if (state.view === 'inbox' && task.status !== 'inbox') return false;
       if (state.view === 'focus' && task.status === 'done') return false;
       if (state.view === 'all_open' && task.status === 'done') return false;
@@ -170,7 +225,7 @@
       if (needle) {
         const haystack = [
           meeting.title, meeting.summary, meeting.workspace_name, meeting.workspace,
-          meeting.vault, ...(meeting.attendees || []),
+          meeting.vault, meeting.series_title, ...(meeting.attendees || []),
         ].join(' ').toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
@@ -196,7 +251,11 @@
   }
 
   function setSection(section, options = {}) {
+    closeDocumentModal(false);
+    const previousSection = state.section;
     state.section = ['overview', 'tasks', 'meetings'].includes(section) ? section : 'overview';
+    if (state.section !== previousSection) { state.search = ''; clearTimeout(state.searchTimer); }
+    if (state.section === 'meetings' && previousSection !== 'meetings') state.workspace = '';
     state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
@@ -207,7 +266,7 @@
     if (!options.history) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
-      if (state.section === 'meetings') url.searchParams.set('subview', 'meetings');
+      if (state.section === 'meetings') { url.searchParams.set('subview', 'meetings'); url.searchParams.delete('assistant_workspace'); }
       else if (state.section === 'tasks') {
         url.searchParams.set('subview', 'tasks');
         if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
@@ -216,7 +275,8 @@
         url.searchParams.delete('assistant_workspace');
       }
       if (state.section !== 'tasks') url.searchParams.delete('task');
-      if (state.section !== 'meetings') url.searchParams.delete('meeting');
+      url.searchParams.delete('meeting');
+      url.searchParams.delete('series');
       history.pushState({nav: 'assistant', subview: state.section}, '', url.pathname + url.search + url.hash);
     }
     if (window.assistantSectionShell) window.assistantSectionShell(state.section);
@@ -237,24 +297,22 @@
     const tldr = task.tldr || task.summary || 'No TLDR yet.';
     return `<article class="assistant-list-item${selected ? ' selected' : ''}" data-assistant-entry-wrap="${e(task.path)}">
       <div role="button" tabindex="0" class="assistant-compact-row assistant-task-row" data-assistant-task="${e(task.path)}" data-testid="assistant-task-row" aria-label="Open ${e(task.title)}">
-        <span class="assistant-task-branch" aria-hidden="true"></span>
+
         <span class="assistant-row-content">
           <span class="assistant-row-title"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><strong>${e(task.title)}</strong></span>
           <span class="assistant-row-tldr"><b>TLDR</b>${e(tldr)}</span>
         </span>
-        <span class="assistant-row-meta">${reviews ? `<span class="assistant-review-count">${reviews} to review</span>` : ''}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${task.status === 'waiting' ? `<button type="button" class="assistant-nudge" data-assistant-nudge="${e(task.path)}">Nudge</button>` : ''}${due}</span>
+        <span class="assistant-row-meta">${task.group ? `<span class="assistant-task-group-label" title="Workstream: ${e(task.group)}">${e(task.group)}</span>` : ''}${task.recurrence ? `<span class="assistant-repeat" title="${task.due ? 'Next due: ' + e(task.due) : 'Due date needs confirmation'}">↻ ${e(task.recurrence)}${task.due ? '' : ' · Date needed'}</span>` : ''}${task.scheduled ? `<span class="assistant-task-due">Planned ${e(displayDate(task.scheduled))}</span>` : ''}${task.defer_until ? `<span class="assistant-task-due">Later · ${e(displayDate(task.defer_until))}</span>` : ''}${task.source === 'demo' ? '<span class="assistant-demo">Demo</span>' : ''}${reviews ? `<span class="assistant-review-count">${reviews} to review</span>` : ''}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${task.status === 'waiting' ? `<button type="button" class="assistant-nudge" data-assistant-nudge="${e(task.path)}">Nudge</button>` : ''}${due}</span>
       </div>
     </article>`;
   }
 
   function meetingCard(meeting) {
-    const actionProgress = progressLabel(meeting.action_items_done, meeting.action_items_total, 'actions');
-    return `<article class="assistant-list-item${meeting.path === state.selectedMeetingPath ? ' selected' : ''}" data-assistant-entry-wrap="${e(meeting.path)}">
-      <button type="button" class="assistant-compact-row" data-assistant-meeting="${e(meeting.path)}" data-testid="assistant-meeting-row">
-        <span class="assistant-row-main"><span class="assistant-meeting-date">${e(displayDate(meeting.date))}</span><strong>${e(meeting.title)}</strong></span>
-        <span class="assistant-row-meta">${actionProgress ? `<span class="assistant-progress-label">${e(actionProgress)}</span>` : ''}<span class="assistant-task-workspace">${e(meeting.workspace_name || meeting.workspace)}</span></span>
-      </button>
-    </article>`;
+    return `<article class="assistant-list-item"><button type="button" class="assistant-compact-row assistant-meeting-row" data-assistant-meeting="${e(meeting.path)}" data-testid="assistant-meeting-row" title="${e(meetingLabel(meeting))}"><span class="assistant-meeting-label">${e(meetingName(meeting))}</span>${(meeting.tags || []).includes('demo') ? '<span class="assistant-demo">Demo</span>' : ''}</button></article>`;
+  }
+
+  function seriesCard(series) {
+    return `<article class="assistant-list-item"><button type="button" class="assistant-compact-row assistant-meeting-row" data-assistant-series="${e(series.path)}"><span class="assistant-meeting-label">${e(series.title)}</span><small>${series.meeting_count || 0} meetings</small></button></article>`;
   }
 
   function renderSetup(content) {
@@ -395,7 +453,7 @@
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
       ${isTasks ? '' : workspaceSelect(meetings())}${advanced}
-      <span class="assistant-filter-count">${rows.length} ${isTasks ? 'task' : 'note'}${rows.length === 1 ? '' : 's'}</span>
+      <span class="assistant-filter-count">${rows.length} ${isTasks ? `task${rows.length === 1 ? '' : 's'}` : state.view === 'meeting_series' ? 'series' : `meeting${rows.length === 1 ? '' : 's'}`}</span>
     </div>`;
   }
 
@@ -403,42 +461,22 @@
     return '<div class="assistant-empty">No tasks match this view.</div>';
   }
 
-  function internalGroup(task) {
-    return String(task.group || 'Ungrouped');
-  }
-
-  function internalGroupKey(name) {
-    return `${state.workspace}:${name}`;
-  }
-
   function renderTasks(rows) {
-    const names = [...new Set(rows.map(internalGroup))].sort((left, right) => left.localeCompare(right));
-    const groups = names.map(name => {
-      const items = rows.filter(task => internalGroup(task) === name);
-      const key = internalGroupKey(name);
-      const expanded = state.expandedGroups.has(key);
-      const attention = countWhere(items, needsAttention);
-      return `<section class="assistant-task-group${expanded ? ' expanded' : ''}" data-assistant-group-wrap="${e(key)}">
-        <button type="button" class="assistant-group-header" data-assistant-group="${e(key)}" aria-expanded="${expanded}">
-          <span class="assistant-group-badge">WORKSPACE</span>
-          <span class="assistant-group-name"><strong>${e(name)}</strong><small>${items.length} task${items.length === 1 ? '' : 's'}${attention ? ` · ${attention} attention` : ''}</small></span>
-          <span class="assistant-group-summary">${e(attentionBreakdown(items))}</span>
-          <span class="assistant-group-chevron" aria-hidden="true">›</span>
-        </button>
-        ${expanded ? `<div class="assistant-group-tasks">${items.map(taskCard).join('')}</div>` : ''}
-      </section>`;
-    }).join('');
-    return `${labWorkspaceNav()}${filterBar(rows)}<div class="assistant-task-groups" data-testid="assistant-list">${groups || emptyTasks()}</div>`;
+    const views = [['all_open', 'All open'], ['today', 'Today'], ['week', 'This week'],
+      ['inbox', 'Inbox'], ['ready_to_review', 'To review'], ['waiting', 'Waiting'],
+      ['recurring', 'Recurring'], ['someday', 'Someday'], ['recent', 'Completed']];
+    return `${labWorkspaceNav()}<nav class="assistant-quick-views compact" aria-label="Task views">${views.map(([id, name]) =>
+      `<button type="button" class="${state.view === id ? 'active' : ''}" data-assistant-view="${id}">${name}</button>`).join('')}</nav>${filterBar(rows)}
+      <p class="assistant-list-order">Created date · Newest day first</p>
+      <section class="assistant-list assistant-list-single assistant-task-date-list" aria-label="Tasks by creation date" data-testid="assistant-list">${dateGroups(rows, taskCard, row => taskCreatedDate(row.created), 'task') || emptyTasks()}</section>`;
   }
 
   function renderMeetings(rows) {
+    const seriesView = state.view === 'meeting_series';
+    const visible = seriesView ? filteredSeries() : rows;
     return `<nav class="assistant-quick-views compact" aria-label="Meeting views">
-      <button type="button" class="${state.view === 'meetings' ? 'active' : ''}" data-assistant-view="meetings"><span>All notes</span><small>${meetings().length}</small></button>
-      <button type="button" class="${state.view === 'meeting_actions' ? 'active' : ''}" data-assistant-view="meeting_actions"><span>Open action items</span><small>${countWhere(meetings(), meeting => meeting.action_items_total > meeting.action_items_done)}</small></button>
-    </nav>${filterBar(rows)}
-      <section class="assistant-list assistant-list-single" aria-label="Meeting notes" data-testid="assistant-list">
-        ${rows.length ? rows.map(meetingCard).join('') : '<div class="assistant-empty">No meeting notes match these filters.</div>'}
-      </section>`;
+      ${[['meetings', 'All meetings'], ['meeting_series', 'Series'], ['meeting_actions', 'Open action items']].map(([id, title]) => `<button type="button" class="${state.view === id ? 'active' : ''}" data-assistant-view="${id}">${title}</button>`).join('')}
+    </nav>${filterBar(visible)}<section class="assistant-list assistant-list-single" aria-label="Meeting notes" data-testid="assistant-list">${dateGroups(sortedMeetings(visible, seriesView ? 'latest_date' : 'date'), seriesView ? seriesCard : meetingCard, row => calendarDate(row[seriesView ? 'latest_date' : 'date']), 'meeting') || '<div class="assistant-empty">No meetings match this view.</div>'}</section>`;
   }
 
   function render() {
@@ -475,14 +513,6 @@
     content.querySelectorAll('[data-assistant-workspace]').forEach(button => {
       button.addEventListener('click', () => selectWorkspace(button.dataset.assistantWorkspace));
     });
-    content.querySelectorAll('[data-assistant-group]').forEach(button => {
-      button.addEventListener('click', () => {
-        const key = button.dataset.assistantGroup;
-        if (state.expandedGroups.has(key)) state.expandedGroups.delete(key);
-        else state.expandedGroups.add(key);
-        render();
-      });
-    });
     const search = document.getElementById('assistantSearch');
     search?.addEventListener('input', () => {
       state.search = search.value;
@@ -512,6 +542,7 @@
     });
     content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
     content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
+    bindSeries(content);
     content.querySelectorAll('[data-assistant-nudge]').forEach(button => {
       button.addEventListener('click', event => {
         event.stopPropagation();
@@ -525,7 +556,6 @@
     if (!workspaceId || workspaceId === state.workspace) return;
     state.workspace = workspaceId;
     state.selectedTaskPath = '';
-    state.expandedGroups.clear();
     const url = new URL(window.location);
     url.searchParams.set('view', 'assistant');
     url.searchParams.set('assistant_workspace', workspaceId);
@@ -543,6 +573,7 @@
       openDocumentModal(kind, path);
     });
     button.addEventListener('keydown', event => {
+      if (event.target.closest('[data-assistant-nudge]')) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       selectEntry(kind, path, true);
@@ -556,6 +587,7 @@
     if (push) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
+      url.searchParams.delete('series');
       if (kind === 'task') {
         url.searchParams.set('subview', 'tasks');
         if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
@@ -590,14 +622,24 @@
     return overlay;
   }
 
-  function closeDocumentModal() {
+  function closeDocumentModal(updateHistory = true) {
+    ++state.modalRequest;
+    if (updateHistory) {
+      const url = new URL(window.location);
+      const selected = ['meeting', 'series', 'task'].some(key => url.searchParams.has(key));
+      url.searchParams.delete('meeting'); url.searchParams.delete('series'); url.searchParams.delete('task');
+      if (selected) history.pushState({nav:'assistant'}, '', url.pathname + url.search + url.hash);
+      state.selectedMeetingPath = ''; state.selectedSeriesPath = '';
+    }
     const overlay = document.getElementById('assistantDocumentModal');
     if (overlay) overlay.classList.remove('active');
   }
 
   async function fetchDocument(kind, path) {
     const endpoint = kind === 'task' ? '/api/assistant/task?path='
-      : kind === 'subtask' ? '/api/assistant/subtask?path=' : '/api/assistant/meeting?path=';
+      : kind === 'subtask' ? '/api/assistant/subtask?path='
+      : kind === 'series' ? '/api/assistant/meeting-series?path='
+      : kind === 'content' ? '/api/assistant/meeting-content?path=' : '/api/assistant/meeting?path=';
     const response = await fetch(endpoint + encodeURIComponent(path));
     const detail = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(detail.detail || response.statusText);
@@ -614,6 +656,7 @@
     title.textContent = 'Loading…';
     host.innerHTML = '<div class="loading">Loading document…</div>';
     nav.innerHTML = '';
+    resetCopy();
     overlay.classList.add('active');
     const request = ++state.modalRequest;
     try {
@@ -626,10 +669,11 @@
         state.modalKind = parent ? 'task' : 'subtask';
       } else {
         state.modalRoot = detail;
-        state.modalKind = kind === 'meeting' ? 'meeting' : 'task';
+        state.modalKind = kind;
       }
       if (request !== state.modalRequest || !overlay.classList.contains('active')) return;
       state.modalCurrent = detail;
+      state.modalMeetingPart = 'summary';
       await renderModal(focusHeading);
     } catch (error) {
       if (request === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message || error)}</div>`;
@@ -656,12 +700,13 @@
   function documentMeta(detail, kind) {
     const metadata = detail.metadata || {};
     const workspace = detail.workspace || {};
-    const rows = kind !== 'meeting' ? [
+    const rows = ['task', 'subtask'].includes(kind) ? [
       ['Status', labelStatus(metadata.status)], ['Priority', metadata.priority],
       ['Lab workspace', workspace.name || metadata.workspace], ['Group', metadata.group], ['Vault', workspace.vault],
       ['Parent', metadata.parent], ['Due', metadata.due], ['Owner', metadata.owner],
       ['Waiting on', metadata.waiting_on], ['Follow up', metadata.follow_up_at],
-      ['Updated', displayDate(metadata.updated)],
+      ['Planned', metadata.scheduled], ['Deferred until', metadata.defer_until],
+      ['Repeats', metadata.recurrence], ['Updated', displayDate(metadata.updated)],
     ] : [
       ['Date', metadata.date], ['Workspace', workspace.name || metadata.workspace],
       ['Vault', workspace.vault],
@@ -682,6 +727,7 @@
   async function selectModalDocument(kind, path, focusHeading = '') {
     const request = ++state.modalRequest;
     const host = document.getElementById('assistantModalDocument');
+    resetCopy();
     host.innerHTML = '<div class="loading">Loading document…</div>';
     try {
       const detail = kind === 'task' && state.modalRoot && state.modalRoot.path === path
@@ -695,6 +741,7 @@
   }
 
   async function renderModal(focusHeading = '') {
+    if (['meeting', 'series'].includes(state.modalKind)) { await renderMeetingModal(); return; }
     const root = state.modalRoot || state.modalCurrent;
     const detail = state.modalCurrent || root;
     const rootMetadata = root.metadata || {};
@@ -717,15 +764,17 @@
   }
 
   async function renderDocumentPane(detail, kind, focusHeading = '') {
+    const request = state.modalRequest;
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
+    if (request !== state.modalRequest) return;
     const body = detail.body || '';
     const markdown = window.marked && window.DOMPurify ? window.LabMarkdown.render(body) : `<pre>${e(body)}</pre>`;
     const metadata = detail.metadata || {};
     const workspace = detail.workspace || {};
     const host = document.getElementById('assistantModalDocument');
-    const badges = kind !== 'meeting'
+    const badges = ['task', 'subtask'].includes(kind)
       ? `<div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>`
-      : `<div class="assistant-detail-badges"><span class="assistant-meeting-date full">${e(displayDate(metadata.date))}</span></div>`;
+      : (metadata.date ? `<div class="assistant-detail-badges"><span class="assistant-meeting-date full">${e(displayDate(metadata.date))}</span></div>` : '');
     const tldr = detail.tldr || metadata.tldr || '';
     const isMainTask = kind === 'task' && state.modalRoot && detail.path === state.modalRoot.path;
     const progress = isMainTask && Array.isArray(state.modalRoot.subtasks)
@@ -735,11 +784,12 @@
       <div>${badges}<h1>${e(metadata.title || metadata.id || 'Document')}</h1>${tldr ? `<p><b>TLDR</b>${e(tldr)}</p>` : ''}</div>${progress ? `<span>${e(progress)}</span>` : ''}
     </div>
     <div class="assistant-meta">${documentMeta(detail, kind)}</div>
-    ${workspace.workspace_path ? `<div class="assistant-path"><span>Workspace path</span><code>${e(workspace.workspace_path)}</code></div>` : ''}
+    ${['task', 'subtask'].includes(kind) && workspace.workspace_path ? `<div class="assistant-path"><span>Workspace path</span><code>${e(workspace.workspace_path)}</code></div>` : ''}
     <div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
     const markdownHost = document.getElementById('assistantModalMarkdown');
     rewriteImages(markdownHost, detail.path);
     addCopyButtons(markdownHost);
+    resetCopy(true);
     document.getElementById('assistantCopyPlain').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget, plainOnly: true});
     document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget});
     if (focusHeading) {
@@ -749,6 +799,100 @@
         target.classList.add('assistant-content-target');
         requestAnimationFrame(() => target.scrollIntoView({block: 'start'}));
       }
+    }
+  }
+
+  function resetCopy(enabled = false) {
+    for (const id of ['assistantCopyPlain', 'assistantCopyRich']) {
+      const button = document.getElementById(id);
+      if (button) { button.disabled = !enabled; button.onclick = null; }
+    }
+    const plain = document.getElementById('assistantCopyPlain');
+    if (plain) plain.textContent = 'Copy plain text';
+  }
+
+  function bindSeries(host) {
+    host.querySelectorAll('[data-assistant-series]').forEach(button => button.addEventListener('click', () => {
+      const path = button.dataset.assistantSeries;
+      const url = new URL(window.location);
+      url.searchParams.set('view', 'assistant'); url.searchParams.set('subview', 'meetings');
+      url.searchParams.set('series', path); url.searchParams.delete('meeting'); url.searchParams.delete('task');
+      url.searchParams.delete('assistant_workspace');
+      history.pushState({nav:'assistant', series:path}, '', url.pathname + url.search + url.hash);
+      state.selectedSeriesPath = path; state.selectedMeetingPath = '';
+      openDocumentModal('series', path);
+    }));
+  }
+
+  function meetingHistory(rows) {
+    return dateGroups(sortedMeetings(rows), meetingCard, row => calendarDate(row.date), 'meeting')
+      || '<p class="assistant-nav-empty">No meetings yet.</p>';
+  }
+
+  async function renderMeetingModal() {
+    const root = state.modalRoot;
+    const request = state.modalRequest;
+    const nav = document.getElementById('assistantDocumentNav');
+    const host = document.getElementById('assistantModalDocument');
+    const series = state.modalKind === 'series';
+    const title = series ? root.metadata.title : meetingLabel({...root.metadata, series_title: root.series?.title});
+    document.getElementById('assistantModalTitle').textContent = title;
+    document.getElementById('assistantModalKind').textContent = series ? 'Meeting series' : 'Meeting';
+    const partButton = (part, title, subtitle = '') => `<button type="button" class="assistant-document-nav-item${state.modalMeetingPart === part ? ' active' : ''}" data-meeting-part="${e(part)}"><span class="assistant-document-type">${part.endsWith('raw.txt') ? 'TXT' : 'MD'}</span><span><strong>${e(title)}</strong><small>${e(subtitle)}</small></span></button>`;
+    if (series) {
+      nav.innerHTML = '<div class="assistant-document-nav-label">Meeting history</div>' + meetingHistory(root.meetings || []);
+      await renderDocumentPane(root, 'series');
+      if (request !== state.modalRequest) return;
+      host.insertAdjacentHTML('beforeend', `<section class="assistant-series-history"><h2>Meeting history</h2>${meetingHistory(root.meetings || [])}</section>`);
+    } else {
+      const related = (kind, label) => {
+        const rows = (root.contents || []).filter(row => row.kind === kind);
+        return `<div class="assistant-document-nav-label">${label}</div>${rows.map(row => partButton(row.path, row.title)).join('') || `<p class="assistant-nav-empty">No ${label.toLowerCase()} yet.</p>`}`;
+      };
+      nav.innerHTML = `<div class="assistant-document-nav-label">This meeting</div>${partButton('summary', 'Summary', 'Highlights & action items')}
+        ${root.raw ? partButton(root.raw.path, 'Raw notes', 'Original content') : '<p class="assistant-nav-empty">Raw notes not captured.</p>'}
+        ${root.notes ? partButton('notes', 'Supporting notes') : ''}${related('question', 'Questions')}${related('document', 'Documents')}
+        ${root.series ? `<div class="assistant-document-nav-label">Series</div><button class="assistant-series-link" data-assistant-series="${e(root.series.path)}">${e(root.series.title)} · All meetings</button>${meetingHistory(root.series.meetings || [])}` : '<p class="assistant-nav-empty">Standalone meeting</p>'}`;
+      const part = state.modalMeetingPart;
+      if (part === 'summary' || part === 'notes') {
+        await renderDocumentPane({...root, metadata:{...root.metadata, title, tldr:''},
+          tldr: part === 'summary' && !root.tldr ? 'No summary yet.' : '',
+          body: part === 'summary' ? root.overview || '# Summary\n\nNo summary yet.' : root.notes}, 'meeting');
+      } else if (state.modalCurrent.format === 'text') {
+        const raw = state.modalCurrent.body || '';
+        host.innerHTML = '<div class="assistant-document-title"><h1>Raw notes</h1></div><pre class="assistant-raw-notes"></pre>';
+        host.querySelector('pre').textContent = raw;
+        resetCopy(true);
+        document.getElementById('assistantCopyRich').disabled = true;
+        const button = document.getElementById('assistantCopyPlain');
+        button.textContent = 'Copy raw notes';
+        button.onclick = async () => {
+          try { await navigator.clipboard.writeText(raw); button.textContent = 'Copied'; }
+          catch (_) { button.textContent = 'Copy failed'; }
+        };
+      } else {
+        await renderDocumentPane(state.modalCurrent, 'content');
+      }
+      if (request !== state.modalRequest) return;
+      if (root.warnings?.length) host.insertAdjacentHTML('afterbegin', `<div class="assistant-meeting-warning" role="status">${root.warnings.map(e).join('<br>')}</div>`);
+      nav.querySelectorAll('[data-meeting-part]').forEach(button => button.addEventListener('click', async () => {
+        const part = button.dataset.meetingPart;
+        const next = ++state.modalRequest;
+        resetCopy(); host.innerHTML = '<div class="loading">Loading meeting content…</div>';
+        try {
+          const detail = ['summary', 'notes'].includes(part) ? root : await fetchDocument('content', part);
+          if (next !== state.modalRequest) return;
+          state.modalCurrent = detail; state.modalMeetingPart = part;
+          await renderMeetingModal();
+        } catch (error) {
+          if (next === state.modalRequest) host.innerHTML = `<div class="assistant-empty">${e(error.message)}</div>`;
+        }
+      }));
+    }
+    if (request !== state.modalRequest) return;
+    for (const surface of [nav, host]) {
+      surface.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
+      bindSeries(surface);
     }
   }
 
@@ -789,6 +933,7 @@
   }
 
   async function refresh(options = {}) {
+    const section = state.section;
     const request = ++state.request;
     try {
       const response = await fetch('/api/assistant');
@@ -803,19 +948,24 @@
         state.files = [];
       }
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
-      if (options.task !== undefined) state.selectedTaskPath = options.task || '';
-      if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
-      if (options.workspace !== undefined) state.workspace = options.workspace || '';
-      const selected = tasks().find(task => task.path === state.selectedTaskPath);
-      if (selected) {
-        state.workspace = selected.workspace;
-        state.expandedGroups.add(`${selected.workspace}:${internalGroup(selected)}`);
+      if (section === state.section) {
+        if (options.task !== undefined) state.selectedTaskPath = options.task || '';
+        if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
+        if (options.series !== undefined) state.selectedSeriesPath = options.series || '';
+        if (options.workspace !== undefined) state.workspace = options.workspace || '';
+        const selected = isTaskSection() && options.task ? tasks().find(task => task.path === options.task) : null;
+        if (selected) state.workspace = selected.workspace;
       }
       const available = workspaceRows();
-      if (!available.some(workspace => workspace.id === state.workspace)) {
+      if (isTaskSection() && !available.some(workspace => workspace.id === state.workspace)) {
         state.workspace = available.length ? available[0].id : '';
       }
       render();
+      if (options.open && section === state.section) {
+        if (isTaskSection() && state.selectedTaskPath) await openDocumentModal('task', state.selectedTaskPath);
+        else if (state.selectedMeetingPath) await openDocumentModal('meeting', state.selectedMeetingPath);
+        else if (state.selectedSeriesPath) await openDocumentModal('series', state.selectedSeriesPath);
+      }
     } catch (error) {
       const content = document.getElementById('content');
       if (content && request === state.request) content.innerHTML = `<div class="assistant-setup"><h1>Assistant</h1><p>${e(error.message || error)}</p></div>`;
@@ -823,18 +973,19 @@
   }
 
   function init(initial = '') {
+    closeDocumentModal(false);
     const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
     state.section = ['overview', 'tasks', 'meetings'].includes(options.section) ? options.section : 'overview';
     state.selectedTaskPath = options.task || '';
     state.selectedSubtaskPath = '';
     state.selectedMeetingPath = options.meeting || '';
+    state.selectedSeriesPath = options.series || '';
     state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
     state.status = '';
     state.priority = '';
-    state.workspace = options.workspace || new URL(window.location).searchParams.get('assistant_workspace') || '';
+    state.workspace = isTaskSection() ? options.workspace || new URL(window.location).searchParams.get('assistant_workspace') || '' : '';
     state.search = '';
-    state.expandedGroups.clear();
-    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, workspace: state.workspace});
+    refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, series: state.selectedSeriesPath, workspace: state.workspace, open: true});
     if (!state.poll) {
       state.poll = setInterval(() => {
         if (document.body.classList.contains('assistant-active') && !document.hidden) refresh();

@@ -28,8 +28,8 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "Any priority" in source
     assert "Nudge" in source
     assert "Lab workspaces" in source
-    assert "assistant-task-groups" in source
-    assert "data-assistant-group" in source
+    assert "assistant-task-date-list" in source
+    assert "data-assistant-group=" not in source
     assert "attentionBreakdown" in source
     assert "needsAttention" in source
     assert "isDueSoon" in source

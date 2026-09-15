@@ -1,7 +1,7 @@
 """API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
-from lab import naming
+from lab import naming, assistant_meetings as meeting_db
 
 import os
 import re
@@ -177,16 +177,19 @@ def get_assistant(request: Request) -> dict:
         row["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(body))
         tasks.append(row)
     tasks.sort(key=_task_sort_key)
-    meetings = []
-    for meeting in assistant_db.iter_meetings(root, workspaces):
-        row = dict(meeting)
-        body = str(row.pop("body", ""))
-        row["summary"] = _summary(body)
-        meetings.append(row)
-    meetings.sort(
-        key=lambda row: (str(row.get("date") or ""), float(row.get("mtime") or 0)),
-        reverse=True,
-    )
+    meetings = meeting_db.list_rows(root, workspaces)
+    series_rows = []
+    for series in meeting_db.iter_series(root, workspaces):
+        history = [row for row in meetings if row.get("series") == series["id"] and row["workspace"] == series["workspace"]]
+        latest = None
+        for row in history:
+            try:
+                latest = meeting_db.validate_date(row.get("date"))
+                break
+            except ValueError:
+                continue
+        series_rows.append({**{k: v for k, v in series.items() if k != "body"},
+                            "latest_date": latest, "meeting_count": len(history)})
     return {
         "configured": True,
         "exists": True,
@@ -195,6 +198,7 @@ def get_assistant(request: Request) -> dict:
         "workspaces": workspaces,
         "tasks": tasks,
         "meetings": meetings,
+        "meeting_series": series_rows,
         "statuses": list(assistant_db.STATUSES),
         "priorities": list(assistant_db.PRIORITIES),
     }
@@ -208,6 +212,11 @@ def _safe_markdown_path(root: Path, relative: str, collection: str | None = None
         raise HTTPException(status_code=400, detail="invalid Assistant document path")
     if collection and rel.parts[-2] != collection:
         raise HTTPException(status_code=400, detail=f"invalid {collection} path")
+    if rel.parts[-2] in {"meetings", "meeting-series"}:
+        try:
+            meeting_db.safe_path(root, root / rel)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     target = (root / rel).resolve()
     if root.resolve() not in target.parents:
         raise HTTPException(status_code=400, detail="document path escapes Assistant database")
@@ -260,23 +269,89 @@ def get_task(path: str, request: Request) -> dict:
     }
 
 
+def _meeting_workspace(root: Path, source: Path) -> dict:
+    try:
+        directory = meeting_db.workspace(root, source.parent.parent.name)
+        return assistant_db.read_markdown(naming.workspace_document_file(directory))[0]
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _meeting_record(root: Path, path: str, collection: str):
+    source = _safe_markdown_path(root, path, collection)
+    metadata, body = assistant_db.read_markdown(source)
+    try:
+        meeting_db.validate_owner(source, metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return source, metadata, body
+
+
+def _series_history(root: Path, source: Path):
+    return [row for row in meeting_db.list_rows(root) if row.get("series") == source.stem
+            and row["workspace"] == source.parent.parent.name]
+
+
 @router.get("/meeting")
 def get_meeting(path: str, request: Request) -> dict:
     root = _require_root(request)
-    source = _safe_meeting_path(root, path)
-    metadata, body = assistant_db.read_markdown(source)
-    workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
-    workspace_source = naming.workspace_document_file(naming.workspaces_dir(root) / workspace_id)
-    workspace: dict = {}
-    if workspace_source.is_file():
-        workspace, _ = assistant_db.read_markdown(workspace_source)
-    return {
-        "path": str(source.relative_to(root)),
-        "metadata": metadata,
-        "workspace": workspace,
-        "body": body,
-        "tldr": str(metadata.get("tldr") or _summary(body)),
-    }
+    source, metadata, body = _meeting_record(root, path, "meetings")
+    overview, notes = meeting_db.sections(body)
+    raw, series, warnings = None, None, []
+    try:
+        original = meeting_db.raw_path(root, source)
+        if original.is_file():
+            raw = {"path": str(original.relative_to(root)), "title": "Raw notes", "kind": "raw"}
+    except ValueError as exc:
+        warnings.append(f"Raw notes unavailable: {exc}")
+    try:
+        contents = list(meeting_db.iter_contents(root, source))
+    except ValueError as exc:
+        warnings.append(f"Related content unavailable: {exc}")
+        contents = []
+    if metadata.get("series"):
+        try:
+            parent, info, _ = meeting_db.find_series(root, str(metadata["series"]), source.parent.parent.name)
+            series = {"id": parent.stem, "title": info.get("title") or parent.stem,
+                      "path": str(parent.relative_to(root)), "meetings": _series_history(root, parent)}
+        except ValueError as exc:
+            warnings.append(f"Meeting series unavailable: {exc}")
+    return {"path": str(source.relative_to(root)), "metadata": metadata,
+            "workspace": _meeting_workspace(root, source), "body": body,
+            "tldr": str(metadata.get("tldr") or meeting_db.summary(body)),
+            "overview": overview, "notes": notes, "raw": raw, "contents": contents,
+            "series": series, "warnings": warnings}
+
+
+@router.get("/meeting-series")
+def get_meeting_series(path: str, request: Request) -> dict:
+    root = _require_root(request)
+    source, metadata, body = _meeting_record(root, path, "meeting-series")
+    return {"path": str(source.relative_to(root)), "metadata": metadata, "body": body,
+            "workspace": _meeting_workspace(root, source), "meetings": _series_history(root, source)}
+
+
+def _safe_meeting_content(root: Path, path: str):
+    try:
+        return meeting_db.resolve_content(root, path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/meeting-content")
+def get_meeting_content(path: str, request: Request) -> dict:
+    root = _require_root(request)
+    source, meeting, metadata = _safe_meeting_content(root, path)
+    raw = metadata["kind"] == "raw"
+    try:
+        body = source.read_bytes().decode("utf-8") if raw else assistant_db.read_markdown(source)[1]
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"path": str(source.relative_to(root)), "metadata": metadata, "body": body,
+            "workspace": _meeting_workspace(root, meeting), "meeting_path": str(meeting.relative_to(root)),
+            "format": "text" if raw else "markdown"}
 
 
 @router.get("/subtask")
@@ -326,7 +401,12 @@ def _allowed_asset_roots(root: Path, task_path: Path) -> list[Path]:
 @router.get("/asset")
 def get_asset(task: str, src: str, request: Request):
     root = _require_root(request)
-    task_path = _safe_markdown_path(root, task)
+    if len(Path(task).parts) > 4:
+        task_path, _, metadata = _safe_meeting_content(root, task)
+        if metadata["kind"] == "raw":
+            raise HTTPException(status_code=400, detail="raw notes have no Markdown assets")
+    else:
+        task_path = _safe_markdown_path(root, task)
     parsed = urlparse(src)
     if parsed.scheme or parsed.netloc:
         raise HTTPException(status_code=400, detail="remote assets are loaded directly")

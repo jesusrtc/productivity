@@ -7,7 +7,7 @@ CLI and Lab's read-only Assistant UI.
 """
 from __future__ import annotations
 
-from lab import naming
+from lab import naming, assistant_meetings as meeting_db
 
 import json
 import re
@@ -72,8 +72,10 @@ lab assistant meeting ls [--workspace <id>]
 lab assistant meeting show <meeting-id>
 ```
 
-Use the commands for metadata changes. Edit the task Markdown body directly to
-add context, decisions, checklists, links, or deliverables.
+Agents may create and edit Markdown files directly, including frontmatter.
+The CLI is a convenience for IDs and lifecycle validation, not a required write gateway.
+Preserve stable IDs, relationships, unknown metadata, and existing content.
+Use JSON-compatible values in frontmatter; read the latest file before changing it.
 
 ## Workspace files
 
@@ -122,6 +124,9 @@ Lifecycle:
 P0 is urgent, P1 is important, P2 is normal, and P3 is someday/maybe.
 
 ## Meeting files
+
+Read `lab context meetings` for series, original snapshots, and related documents.
+Read `lab context tasks` for scheduling, recurrence, and agent editing.
 
 Meeting notes live at `workspaces/<workspace>/meetings/<meeting-id>.md`. Their
 frontmatter includes `id`, `title`, `workspace`, `date`, `attendees`, `created`,
@@ -362,35 +367,6 @@ def iter_subtasks(
             }
 
 
-def iter_meetings(root: Path, workspaces: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
-    workspace_rows = workspaces if workspaces is not None else list(iter_workspaces(root))
-    by_id = {str(row["id"]): row for row in workspace_rows}
-    for workspace_id, workspace in by_id.items():
-        meeting_dir = naming.workspaces_dir(root) / workspace_id / "meetings"
-        if not meeting_dir.is_dir():
-            continue
-        for source in sorted(meeting_dir.glob("*.md")):
-            metadata, body = read_markdown(source)
-            meeting_id = str(metadata.get("id") or source.stem)
-            actions = extract_subtasks(body)
-            yield {
-                **metadata,
-                "id": meeting_id,
-                "title": str(metadata.get("title") or meeting_id),
-                "workspace": workspace_id,
-                "workspace_name": workspace.get("name") or workspace_id,
-                "vault": workspace.get("vault"),
-                "vault_path": workspace.get("vault_path"),
-                "workspace_path": workspace.get("workspace_path"),
-                "body": body,
-                "action_items": actions,
-                "action_items_done": sum(1 for item in actions if item["status"] == "done"),
-                "action_items_total": len(actions),
-                "path": str(source.relative_to(root)),
-                "mtime": source.stat().st_mtime,
-            }
-
-
 def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
     matches: list[tuple[Path, dict[str, Any], str]] = []
     for source in (naming.workspaces_dir(root)).glob("*/tasks/*.md"):
@@ -414,19 +390,6 @@ def find_subtask(root: Path, subtask_id: str) -> tuple[Path, dict[str, Any], str
         raise ValueError(f"subtask {subtask_id!r} not found")
     if len(matches) > 1:
         raise ValueError(f"subtask id {subtask_id!r} is not unique")
-    return matches[0]
-
-
-def find_meeting(root: Path, meeting_id: str) -> tuple[Path, dict[str, Any], str]:
-    matches: list[tuple[Path, dict[str, Any], str]] = []
-    for source in (naming.workspaces_dir(root)).glob("*/meetings/*.md"):
-        metadata, body = read_markdown(source)
-        if str(metadata.get("id") or source.stem) == meeting_id:
-            matches.append((source, metadata, body))
-    if not matches:
-        raise ValueError(f"meeting {meeting_id!r} not found")
-    if len(matches) > 1:
-        raise ValueError(f"meeting id {meeting_id!r} is not unique")
     return matches[0]
 
 
@@ -476,7 +439,7 @@ def create_task(
     if status not in STATUSES or status == "done":
         raise ValueError(f"new task status must be one of: {', '.join(STATUSES[:-1])}")
     pdir = workspace_dir(root, workspace_id)
-    if not (pdir / "workspace.md").is_file():
+    if not naming.workspace_document_file(pdir).is_file():
         raise ValueError(f"Assistant workspace {workspace_id!r} not found")
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     base_id = f"{stamp}-{slugify(title)}"
@@ -533,7 +496,7 @@ def create_subtask(
     parent_workspace = str(parent_metadata.get("workspace") or parent_source.parent.parent.name)
     workspace_id = workspace or parent_workspace
     pdir = workspace_dir(root, workspace_id)
-    if not (pdir / "workspace.md").is_file():
+    if not naming.workspace_document_file(pdir).is_file():
         raise ValueError(f"Assistant workspace {workspace_id!r} not found")
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     base_id = f"{stamp}-{slugify(title)}"
@@ -566,52 +529,6 @@ def create_subtask(
         source,
         metadata,
         "# Context\n\nDescribe the concrete outcome for this subtask.\n\n# Result\n",
-    )
-    return source
-
-
-def create_meeting(
-    root: Path,
-    title: str,
-    *,
-    workspace_id: str,
-    date: str | None = None,
-    attendees: list[str] | None = None,
-    tags: list[str] | None = None,
-) -> Path:
-    pdir = workspace_dir(root, workspace_id)
-    if not (pdir / "workspace.md").is_file():
-        raise ValueError(f"Assistant workspace {workspace_id!r} not found")
-    meeting_date = date or datetime.now().astimezone().date().isoformat()
-    stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
-    base_id = f"{stamp}-{slugify(title)}"
-    meeting_id = base_id
-    meeting_dir = pdir / "meetings"
-    source = meeting_dir / f"{meeting_id}.md"
-    suffix = 2
-    while source.exists():
-        meeting_id = f"{base_id}-{suffix}"
-        source = meeting_dir / f"{meeting_id}.md"
-        suffix += 1
-    timestamp = now_iso()
-    metadata: dict[str, Any] = {
-        "id": meeting_id,
-        "title": title,
-        "workspace": workspace_id,
-        "date": meeting_date,
-        "attendees": attendees or [],
-        "created": timestamp,
-        "updated": timestamp,
-        "tags": tags or [],
-    }
-    write_markdown(
-        source,
-        metadata,
-        "# Summary\n\nCapture the decision or outcome in a few sentences.\n\n"
-        "# Highlights\n\n- Add the most useful discussion points.\n\n"
-        "# Action items\n\n## For me\n\n- [ ] Add a personal follow-up.\n\n"
-        "## Other action items\n\n- [ ] Add an owner and follow-up.\n\n"
-        "# Notes\n\nAdd supporting notes, links, and context.\n",
     )
     return source
 
@@ -672,3 +589,67 @@ def update_subtask(root: Path, subtask_id: str, field: str, value: Any) -> Path:
             metadata["review_requested_at"] = now_iso()
     write_markdown(source, metadata, body)
     return source
+
+
+def create_meeting(*args, **kwargs):
+    return meeting_db.create_meeting(*args, **kwargs)
+
+
+def find_meeting(*args, **kwargs):
+    return meeting_db.find_meeting(*args, **kwargs)
+
+
+def iter_meetings(*args, **kwargs):
+    return meeting_db.iter_meetings(*args, **kwargs)
+
+
+def create_meeting_series(*args, **kwargs):
+    return meeting_db.create_series(*args, **kwargs)
+
+
+def find_meeting_series(*args, **kwargs):
+    return meeting_db.find_series(*args, **kwargs)
+
+
+def iter_meeting_series(*args, **kwargs):
+    return meeting_db.iter_series(*args, **kwargs)
+
+
+def meeting_list_rows(*args, **kwargs):
+    return meeting_db.list_rows(*args, **kwargs)
+
+
+def meeting_sections(*args, **kwargs):
+    return meeting_db.sections(*args, **kwargs)
+
+
+def meeting_summary(*args, **kwargs):
+    return meeting_db.summary(*args, **kwargs)
+
+
+def meeting_actions(*args, **kwargs):
+    return meeting_db.actions(*args, **kwargs)
+
+
+def meeting_raw_path(*args, **kwargs):
+    return meeting_db.raw_path(*args, **kwargs)
+
+
+def add_meeting_raw(*args, **kwargs):
+    return meeting_db.add_raw(*args, **kwargs)
+
+
+def create_meeting_content(*args, **kwargs):
+    return meeting_db.create_content(*args, **kwargs)
+
+
+def iter_meeting_contents(*args, **kwargs):
+    return meeting_db.iter_contents(*args, **kwargs)
+
+
+def resolve_meeting_content(*args, **kwargs):
+    return meeting_db.resolve_content(*args, **kwargs)
+
+
+def update_meeting(*args, **kwargs):
+    return meeting_db.update_meeting(*args, **kwargs)

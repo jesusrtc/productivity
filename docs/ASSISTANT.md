@@ -44,6 +44,11 @@ assistant/
         <subtask-id>.md
       meetings/
         <meeting-id>.md
+        <meeting-id>/raw.txt
+        <meeting-id>/questions/<content-id>.md
+        <meeting-id>/documents/<content-id>.md
+      meeting-series/
+        <series-id>.md
   .lab/
     workspace.json
 ```
@@ -61,7 +66,8 @@ an authenticated local endpoint.
 
 The Assistant tab opens a persistent terminal rooted at the configured
 database. Agents begin with the generated `AGENTS.md`, which defines the task
-format and completion rules. Use the CLI for metadata changes:
+format and completion rules. Agents may create and edit Markdown directly,
+including frontmatter. The CLI provides convenient IDs and validation:
 
 ```bash
 lab assistant path
@@ -92,19 +98,31 @@ first-class subtask is incomplete.
 Tasks may set `group` to an task group or workstream within their mapped
 Lab workspace, and `tldr` to the one-sentence summary shown in the list and modal.
 Use `lab assistant set <task-id> group "Release operations"` and the same form
-for `tldr` so frontmatter remains CLI-managed.
+for `tldr`, or edit their JSON-compatible frontmatter values directly.
 
 Tasks and subtasks may use `waiting_on`, `waiting_since`, `follow_up_at`,
 `last_follow_up_at`, and `follow_up_channel` for explicit follow-up routing.
 Agent-produced work moves to `ready_to_review`; `reviewer`,
 `review_requested_at`, and `executor` record the review handoff.
 
-The Tasks tab first selects exactly one mapped Lab workspace, then groups its
-tasks by their internal `group`. Clicking a group reveals its tasks; clicking a
-task opens a document-browser modal with the main task and each first-class
-subtask in the left rail. Every Markdown heading in the modal has buttons for
-copying that section as Slack-friendly Markdown or Google Docs-friendly rich
-text.
+The Tasks tab selects one mapped workspace and lists tasks directly under
+`yyyy-mm-dd` creation-date headers, newest day first. Workstream labels remain
+visible and searchable. Priority/attention ordering is retained within each day;
+unknown dates appear last. Clicking a row opens the existing compact modal with
+main task and first-class subtasks in the rail, and section copy controls.
+
+Views include All open, Today, This week, Inbox, To review, Waiting, Recurring,
+Someday and Completed. `scheduled` is the planned working day, `due` is the real
+deadline, and `created` is the capture date used for grouping. `defer_until`
+postpones visibility in Today/This week unless a task is already due. P3 tasks
+also appear in Someday. `source: demo` labels fictional examples visibly.
+
+`recurrence` can be weekly, monthly or yearly. After a task is done,
+`lab assistant repeat <id>` creates the next occurrence once; retries return the
+same file. `recurrence_anchor` retains the intended day across short months.
+Unknown due dates must be confirmed first. Each completed period remains as
+history. This is explicitly agent-managed; no background scheduler runs.
+Read `lab context tasks` for the complete date and recurrence contract.
 
 The Assistant tab opens on **Overview**. Like a normal workspace, it has the
 standard **Recently updated** and **Files** sidebar rooted at the selected
@@ -124,10 +142,32 @@ or completes the task; those remain explicit manual steps.
 
 ## Meeting notes
 
-Meeting notes live below their mapped workspace in `meetings/`. New notes use a
-stable structure: `# Summary`, `# Highlights`, `# Action items`, and `# Notes`.
-Checkboxes under Action items are surfaced as individually tracked follow-ups,
-including a completed/total count in the list.
+Meetings start across all workspaces without inherited task search filters.
+Lists and histories have newest-first date headers; unknown dates appear last.
+Rows show the series name, or a standalone meeting title. Open a row to read
+Summary, Highlights and Action items. Only checkboxes in Action items count as
+follow-ups. Legacy Notes and other sections remain separate Supporting notes.
+
+Explicit workspace-local series live in `meeting-series/`. The Series view
+shows descriptions and dated occurrences. Related questions and documents
+live in companion folders; each appears separately in the document rail.
+Optional original UTF-8 snapshots in `raw.txt` are create-only and byte-preserved.
+They render as plain text with a raw-copy action. Missing originals are not
+reconstructed from supporting notes. Linked external documents are references.
+
+```bash
+lab assistant meeting series add weekly --workspace launch --title "Weekly review"
+lab assistant meeting add "Review" --workspace launch --series weekly --date 2026-09-14 --raw-file notes.txt
+lab assistant meeting add "Unknown date" --workspace launch --undated
+lab assistant meeting content add "Why?" --meeting <id> --kind question
+lab assistant meeting content add "Brief" --meeting <id> --kind document --file brief.md
+lab context meetings
+```
+
+The packaged meeting context documents storage, commands and compatibility.
+Client instructions continue to own task ownership, terminology, research and
+writing requirements. Framework updates do not rewrite them. Files are the
+source of truth; the API derives its views from those same files on refresh.
 
 ## Initial lifecycle
 

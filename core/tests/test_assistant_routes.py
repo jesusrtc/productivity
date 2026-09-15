@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lab import assistant as assistant_db
 
 
@@ -43,6 +45,7 @@ def test_assistant_folder_can_be_configured_and_initialized_from_home(
     env_file = tmp_path / "client.env"
     monkeypatch.delenv("LAB_ASSISTANT_HOME", raising=False)
     monkeypatch.setenv("LAB_ENV_FILE", str(env_file))
+    monkeypatch.setattr(assistant_db.paths, "find_framework_root", lambda: tmp_path / "framework")
 
     response = client.put(
         "/api/assistant/config",
@@ -126,7 +129,7 @@ def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, 
     assistant_db.write_markdown(
         meeting,
         metadata,
-        body.replace("- [ ] Add a personal follow-up.", "- [x] Share experiment results."),
+        body + "\n- [x] Share experiment results.\n- [ ] Prepare next review.\n",
     )
 
     response = client.get("/api/assistant")
@@ -246,3 +249,60 @@ def test_cross_workspace_subtask_is_in_parent_list_and_document(
     assert child_detail.status_code == 200
     assert child_detail.json()["workspace"]["id"] == "video"
     assert child_detail.json()["metadata"]["parent_workspace"] == "demo"
+
+
+def test_meeting_series_content_raw_and_external_edits(client, monkeypatch, tmp_path, monorepo):
+    root, _ = _seed(monkeypatch, tmp_path, monorepo)
+    series = assistant_db.create_meeting_series(root, 'weekly', workspace_id='demo', title='Weekly')
+    raw = tmp_path / 'pasted.txt'
+    original = b'  Original\r\n# Summary\r\nNot the summary.\r\n'
+    raw.write_bytes(original)
+    first = assistant_db.create_meeting(root, 'Review', workspace_id='demo', series='weekly', date='2026-09-14', raw_file=raw)
+    second = assistant_db.create_meeting(root, 'Older', workspace_id='demo', series='weekly', date='2026-09-07')
+    unknown = assistant_db.create_meeting(root, 'Unknown', workspace_id='demo', series='weekly', undated=True)
+    metadata, _ = assistant_db.read_markdown(first)
+    assistant_db.write_markdown(first, metadata, '# Summary\n\nUpdated by an external editor.\n# Action items\n- [x] Real action\n# Notes\n- [ ] Supporting checklist\n')
+    content = assistant_db.create_meeting_content(root, 'Draft', meeting_id=first.stem, kind='document')
+    content_path = str(content.relative_to(root))
+    rows = client.get('/api/assistant').json()
+    assert rows['meeting_series'][0]['meeting_count'] == 3
+    assert rows['meetings'][0]['summary'] == 'Updated by an external editor.'
+    assert rows['meetings'][0]['action_items_total'] == 1
+    detail = client.get('/api/assistant/meeting', params={'path':str(first.relative_to(root))}).json()
+    assert 'Supporting checklist' not in detail['overview']
+    assert 'Supporting checklist' in detail['notes']
+    raw_detail = client.get('/api/assistant/meeting-content', params={'path':detail['raw']['path']}).json()
+    assert raw_detail['format'] == 'text' and raw_detail['body'].encode() == original
+    history = client.get('/api/assistant/meeting-series', params={'path':str(series.relative_to(root))}).json()
+    assert [row['id'] for row in history['meetings']] == [first.stem, second.stem, unknown.stem]
+    content_detail = client.get('/api/assistant/meeting-content', params={'path':content_path})
+    assert content_detail.status_code == 200
+    assert content_detail.json()['workspace']['id'] == 'demo'
+    meta, body = assistant_db.read_markdown(content)
+    assistant_db.write_markdown(content, {**meta, 'meeting':'some-other-meeting'}, body)
+    assert client.get('/api/assistant/meeting-content', params={'path':content_path}).status_code == 400
+    assert client.get('/api/assistant').json()['meetings'][0]['content_count'] == 0
+    client.cookies.clear()
+    for endpoint, path in [('meeting', first), ('meeting-series', series), ('meeting-content', content)]:
+        assert client.get('/api/assistant/' + endpoint, params={'path':str(path.relative_to(root))}).status_code in {401,403}
+
+
+@pytest.mark.parametrize('part', ['meeting','series','companion','content'])
+def test_meeting_endpoints_reject_symlink_aliases(client, monkeypatch, tmp_path, monorepo, part):
+    root, _ = _seed(monkeypatch, tmp_path, monorepo)
+    series = assistant_db.create_meeting_series(root, 'weekly', workspace_id='demo', title='Weekly')
+    meeting = assistant_db.create_meeting(root, 'Review', workspace_id='demo', series='weekly')
+    content = assistant_db.create_meeting_content(root, 'Question', meeting_id=meeting.stem, kind='question')
+    source = {'meeting':meeting, 'series':series, 'companion':meeting.with_suffix(''), 'content':content}[part]
+    moved = root / ('moved-' + source.name)
+    source.rename(moved)
+    source.symlink_to(moved)
+    target, endpoint = (series, 'meeting-series') if part == 'series' else (content, 'meeting-content')
+    assert client.get('/api/assistant/' + endpoint, params={'path':str(target.relative_to(root))}).status_code == 400
+
+
+@pytest.mark.parametrize('path', ['../secret.md','/absolute/raw.txt','workspaces/demo/meetings/x/other.txt',
+                                  'workspaces/demo/meetings/x/questions/../raw.txt'])
+def test_meeting_content_rejects_invalid_paths(client, monkeypatch, tmp_path, monorepo, path):
+    _seed(monkeypatch, tmp_path, monorepo)
+    assert client.get('/api/assistant/meeting-content', params={'path':path}).status_code == 400

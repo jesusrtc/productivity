@@ -32,6 +32,10 @@ Use `lab context` for the guide and `lab agents run codex` (or `claude` /
 `copilot`) when launching manually. See [Agent context](docs/AGENT-CONTEXT.md)
 for migration from the old symlink setup.
 
+Assistant supports agent-editable Markdown tasks, planning views, recurring task
+history, and summary-first meetings with series and original notes. Read
+`lab context tasks`, `lab context meetings`, or [Assistant](docs/ASSISTANT.md).
+
 ## Layout
 
 - `core/cli/` - installable `lab` CLI.

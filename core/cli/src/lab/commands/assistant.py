@@ -15,6 +15,11 @@ EDITABLE_FIELDS = (
     "status",
     "priority",
     "due",
+    "scheduled",
+    "defer_until",
+    "recurrence",
+    "recurrence_anchor",
+    "source",
     "owner",
     "waiting_on",
     "waiting_since",
@@ -319,12 +324,18 @@ def meeting_group() -> None:
 @click.argument("title")
 @click.option("--workspace", "workspace_id", required=True)
 @click.option("--date", default=None, help="Meeting date in YYYY-MM-DD format")
+@click.option("--undated", is_flag=True)
+@click.option("--series", default=None)
+@click.option("--raw-file", type=click.Path(path_type=Path), default=None)
 @click.option("--attendee", "attendees", multiple=True)
 @click.option("--tag", "tags", multiple=True)
 def add_meeting(
     title: str,
     workspace_id: str,
     date: str | None,
+    undated: bool,
+    series: str | None,
+    raw_file: Path | None,
     attendees: tuple[str, ...],
     tags: tuple[str, ...],
 ) -> None:
@@ -334,6 +345,9 @@ def add_meeting(
             title,
             workspace_id=workspace_id,
             date=date,
+            undated=undated,
+            series=series,
+            raw_file=raw_file,
             attendees=list(attendees),
             tags=list(tags),
         )
@@ -345,15 +359,23 @@ def add_meeting(
 
 @meeting_group.command("ls")
 @click.option("--workspace", "workspace_id", default=None)
-def list_meetings(workspace_id: str | None) -> None:
+@click.option("--series", "series_id", default=None)
+def list_meetings(workspace_id: str | None, series_id: str | None) -> None:
+    root = _root()
+    if series_id is not None:
+        try:
+            source, _, _ = assistant_db.find_meeting_series(root, series_id, workspace_id)
+            workspace_id = source.parent.parent.name
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
     rows = [
-        meeting for meeting in assistant_db.iter_meetings(_root())
-        if not workspace_id or meeting["workspace"] == workspace_id
+        meeting for meeting in assistant_db.meeting_list_rows(root)
+        if (not workspace_id or meeting["workspace"] == workspace_id)
+        and (series_id is None or meeting.get("series") == series_id)
     ]
     if not rows:
         click.echo("no Assistant meeting notes")
         return
-    rows.sort(key=lambda row: (str(row.get("date") or ""), float(row.get("mtime") or 0)), reverse=True)
     for meeting in rows:
         click.echo(
             f"{meeting['id']}  {meeting.get('date') or '--':<10} "
@@ -369,3 +391,138 @@ def show_meeting(meeting_id: str) -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(source.read_text(encoding="utf-8"))
+
+
+@meeting_group.command("set")
+@click.argument("meeting_id")
+@click.argument("field", type=click.Choice(("title", "date", "series", "tldr")))
+@click.argument("value")
+def set_meeting(meeting_id, field, value):
+    try:
+        source = assistant_db.update_meeting(_root(), meeting_id, field, None if value in {"none", "null"} else value)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(str(source))
+
+
+@meeting_group.group("series")
+def series_group():
+    """Explicit recurring series, scoped to a workspace."""
+
+
+@series_group.command("add")
+@click.argument("series_id")
+@click.option("--workspace", required=True)
+@click.option("--title", required=True)
+def series_add(series_id, workspace, title):
+    try:
+        source = assistant_db.create_meeting_series(_root(), series_id, workspace_id=workspace, title=title)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(str(source))
+
+
+@series_group.command("ls")
+@click.option("--workspace", default=None)
+def series_ls(workspace):
+    for row in assistant_db.iter_meeting_series(_root()):
+        if workspace is None or row["workspace"] == workspace:
+            click.echo(f"{row['id']}  {row['workspace']}  {row['title']}")
+
+
+@series_group.command("show")
+@click.argument("series_id")
+@click.option("--workspace", default=None)
+def series_show(series_id, workspace):
+    try:
+        source, _, _ = assistant_db.find_meeting_series(_root(), series_id, workspace)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(source.read_text(encoding="utf-8"))
+
+
+@meeting_group.group("raw")
+def raw_group():
+    """Capture an unchanged original once; read it as plain text."""
+
+
+@raw_group.command("add")
+@click.argument("meeting_id")
+@click.option("--file", required=True, type=click.Path(path_type=Path))
+def raw_add(meeting_id, file):
+    try:
+        source = assistant_db.add_meeting_raw(_root(), meeting_id, file)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(str(source))
+
+
+@raw_group.command("show")
+@click.argument("meeting_id")
+def raw_show(meeting_id):
+    try:
+        root = _root()
+        meeting, _, _ = assistant_db.find_meeting(root, meeting_id)
+        data = assistant_db.meeting_raw_path(root, meeting).read_bytes()
+        data.decode("utf-8")
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.get_binary_stream("stdout").write(data)
+
+
+@meeting_group.group("content")
+def content_group():
+    """Separate meeting questions and documents."""
+
+
+@content_group.command("add")
+@click.argument("title")
+@click.option("--meeting", required=True)
+@click.option("--kind", required=True, type=click.Choice(("question", "document")))
+@click.option("--file", default=None, type=click.Path(path_type=Path))
+@click.option("--url", default=None)
+def content_add(title, meeting, kind, file, url):
+    try:
+        source = assistant_db.create_meeting_content(_root(), title, meeting_id=meeting, kind=kind, file=file, url=url)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"{source.stem}  {source}")
+
+
+@content_group.command("ls")
+@click.option("--meeting", required=True)
+def content_ls(meeting):
+    try:
+        root = _root()
+        source, _, _ = assistant_db.find_meeting(root, meeting)
+        for row in assistant_db.iter_meeting_contents(root, source):
+            click.echo(f"{row['id']}  {row['kind']}  {row['title']}")
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@content_group.command("show")
+@click.argument("content_id")
+@click.option("--meeting", required=True)
+def content_show(content_id, meeting):
+    try:
+        root = _root()
+        source, _, _ = assistant_db.find_meeting(root, meeting)
+        rows = [row for row in assistant_db.iter_meeting_contents(root, source) if row["id"] == content_id]
+        if len(rows) != 1:
+            raise ValueError("meeting content not found or not unique")
+        click.echo((root / rows[0]["path"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@assistant_group.command("repeat")
+@click.argument("task_id")
+def repeat_task(task_id):
+    """Create the next occurrence of a completed recurring task, once."""
+    from lab.assistant_recurrence import advance
+    try:
+        source = advance(_root(), task_id)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"{source.stem}  {source}")

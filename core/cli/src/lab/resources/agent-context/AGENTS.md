@@ -25,3 +25,7 @@ agent instruction, skill, or memory files merely to integrate with Lab.
   lifecycle commands. See `lab context servers`.
 - Run `lab context` to reread this guide. These commands read documentation
   shipped with Lab and do not create any files in the workspace.
+- For Assistant tasks and meetings, read `lab context tasks` and
+  `lab context meetings`. Markdown files are the source of truth; agents may
+  create and edit them directly. Read client instructions for ownership,
+  terminology, research, and writing rules. Lab does not rewrite those rules.

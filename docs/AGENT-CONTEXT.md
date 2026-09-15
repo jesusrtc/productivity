@@ -14,6 +14,8 @@ lab context
 lab context markdown
 lab context notebooks
 lab context servers
+lab context meetings
+lab context tasks
 lab context --path
 ```
 
@@ -88,6 +90,6 @@ commit or push changes in user vaults.
 
 The source is `core/cli/src/lab/resources/agent-context/`. The overview is kept
 small; detailed examples belong in the topic files. Package data includes all
-four Markdown resources, so installed wheels carry the same documentation.
+Markdown topic resources, so installed wheels carry the same documentation.
 Update the relevant topic when adding a framework capability. Keep client or
 domain-specific rules in their owning workspace.
