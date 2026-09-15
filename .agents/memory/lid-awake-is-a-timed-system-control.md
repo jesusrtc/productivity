@@ -20,5 +20,5 @@ restores normal sleep within one second. The helper must also monitor macOS
 critical pressure, after three five-second samples at fair pressure, or after
 three failed probes (fail closed). Keep the 15, 30, and 60 minute choices and
 also accept the next local occurrence of a manually editable `HH:MM` time;
-the UI defaults that control to `17:00`, and a time already passed means the
-next day.
+the UI offers [named time presets](lid-awake-named-time-presets.md), and a
+time already passed means the next day.

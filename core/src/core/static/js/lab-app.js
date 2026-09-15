@@ -1936,11 +1936,6 @@
   function applyIframeDarkMode(iframe) {
     try {
       const doc = iframe.contentDocument || iframe.contentWindow.document;
-      // Trackpad pinch events are dispatched inside an iframe rather than to
-      // the Lab document. Forward same-origin iframe gestures to Focus mode's
-      // page zoom handler so pinching works over rendered HTML and proxied
-      // apps too. Cross-origin/direct iframes are intentionally best-effort.
-      _wireFocusZoomDocument(doc);
       const isDark = !document.body.classList.contains('light-mode');
       // Remove any previously injected style
       const existing = doc.getElementById('gdiff-theme');
@@ -4012,7 +4007,7 @@
       const viewport = container.getBoundingClientRect();
       const x = rect.left + rect.width * position.x;
       const y = rect.top + rect.height * position.y;
-      // Rects include Focus-mode zoom; scroll offsets and CSS positions do not.
+      // Rects include CSS zoom; scroll offsets and CSS positions do not.
       const cellScale = cellRect.width / cell.offsetWidth || 1;
       const viewportScale = viewport.height / container.offsetHeight || 1;
       marker.style.left = `${(x - cellRect.left) / cellScale - cell.clientLeft}px`;
@@ -6025,24 +6020,12 @@
   }
   window.openAgentContext = openAgentContext;
 
-  // ─── Focus mode ─────────────────────────────────────────────────────────
-  // Keeps the topbar (Home / vault picker / workspace tabs / gear) visible
-  // while hiding the workspace attrs bar above the Overview strip and content.
-  // Entering from the button also requests browser fullscreen and keeps the
-  // display awake. Keep Alive exposes that wake lock independently beside the
-  // Focus control. Esc exits Focus; both preferences persist across reloads.
-  const FOCUS_MODE_KEY = 'labFocusMode';
+  // ─── Keep Alive and Lid Awake ───────────────────────────────────────────
   const KEEP_ALIVE_KEY = 'labKeepAlive';
   const LINKED_TERMINAL_SYNC_KEY = 'labLinkedTerminalSync';
   const LID_AWAKE_DURATIONS = [15, 30, 60];
-  const LID_AWAKE_DEFAULT_UNTIL = '17:00';
-  const FOCUS_ZOOM_MIN = 0.5;
-  const FOCUS_ZOOM_MAX = 3;
-  const FOCUS_ZOOM_SENSITIVITY = 0.01;
   let _screenWakeLock = null;
   let _screenWakeLockRequest = null;
-  let _focusOwnsFullscreen = false;
-  let _focusZoom = 1;
   let _lidAwakeSupported = true;
   let _lidAwakeDeadlineMs = 0;
   let _lidAwakeMenuOpen = false;
@@ -6051,7 +6034,12 @@
   let _linkedTerminalSyncOn = false;
   let _lidAwakePasswordSaved = false;
   let _lidAwakeEditingPassword = false;
-  let _lidAwakeUntilTime = LID_AWAKE_DEFAULT_UNTIL;
+  let _lidAwakeUntilTime = _lidAwakeDefaultUntil();
+
+  function _lidAwakeDefaultUntil(now = new Date()) {
+    const hour = now.getHours();
+    return hour >= 6 && hour < 18 ? '17:00' : '07:00';
+  }
 
   function _lidAwakeIsActive() {
     return _lidAwakeDeadlineMs > Date.now();
@@ -6097,12 +6085,20 @@
     const verb = active ? 'Renew for' : 'Start for';
     const disabled = _lidAwakeBusy ? ' disabled' : '';
     const durationButtons = LID_AWAKE_DURATIONS.map(minutes =>
-      `<button type="button" role="menuitem" onclick="event.stopPropagation(); setLidAwake(${minutes})"${disabled}>${verb} ${minutes} min</button>`
+      `<button type="button" role="menuitem" aria-label="${verb} ${minutes} min" onclick="event.stopPropagation(); setLidAwake(${minutes})"${disabled}>${minutes} min</button>`
     ).join('');
     const untilVerb = active ? 'Renew' : 'Start';
+    const suggestedUntil = _lidAwakeDefaultUntil();
+    const presets = [
+      {label: 'Working time', until: '17:00', time: '5:00 PM'},
+      {label: 'Overnight', until: '07:00', time: '7:00 AM'},
+    ].sort((a, b) => Number(b.until === suggestedUntil) - Number(a.until === suggestedUntil));
+    const presetButtons = presets.map(preset =>
+      `<button type="button" role="menuitem" aria-label="${untilVerb} ${preset.label.toLowerCase()} until ${preset.time}" onclick="event.stopPropagation(); setLidAwakeUntil('${preset.until}')"${disabled}>${preset.label} · until ${preset.time}</button>`
+    ).join('');
     const untilControl = `
       <div class="lid-awake-until">
-        <label for="lidAwakeUntilTime">Until
+        <label for="lidAwakeUntilTime">Custom time
           <input id="lidAwakeUntilTime" type="time" step="60" value="${escAttr(_lidAwakeUntilTime)}" oninput="updateLidAwakeUntilTime(this.value)"${disabled}>
         </label>
         <button type="button" role="menuitem" class="lid-awake-until-button" onclick="event.stopPropagation(); setLidAwakeUntil()"${disabled}>${untilVerb} until ${esc(_lidAwakeUntilTime || 'time')}</button>
@@ -6139,8 +6135,9 @@
       <div class="lid-awake-title">Lid Awake</div>
       ${current}
       ${authentication}
-      <div class="lid-awake-durations">${durationButtons}</div>
+      <div class="lid-awake-durations">${presetButtons}</div>
       ${untilControl}
+      <div class="lid-awake-durations lid-awake-quick-durations">${durationButtons}</div>
       ${cancel}
       <div class="lid-awake-safety">Thermal safety is always on.</div>
       ${message}`;
@@ -6194,6 +6191,7 @@
     if (!_lidAwakeSupported || _lidAwakeBusy) return;
     _lidAwakeMenuOpen = !_lidAwakeMenuOpen;
     _lidAwakeError = '';
+    if (_lidAwakeMenuOpen) _lidAwakeUntilTime = _lidAwakeDefaultUntil();
     if (!_lidAwakeMenuOpen && _lidAwakePasswordSaved) {
       _lidAwakeEditingPassword = false;
     }
@@ -6290,13 +6288,13 @@
   }
   window.setLidAwake = setLidAwake;
 
-  function setLidAwakeUntil() {
-    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(_lidAwakeUntilTime)) {
+  function setLidAwakeUntil(until = _lidAwakeUntilTime) {
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(until)) {
       _lidAwakeError = 'Choose a valid until time.';
       _renderLidAwakeMenu();
       return Promise.resolve();
     }
-    return _startLidAwake({until: _lidAwakeUntilTime});
+    return _startLidAwake({until});
   }
   window.setLidAwakeUntil = setLidAwakeUntil;
 
@@ -6362,44 +6360,8 @@
     }
   }
 
-  function _applyFocusZoom(zoom) {
-    const clamped = Math.min(FOCUS_ZOOM_MAX, Math.max(FOCUS_ZOOM_MIN, zoom));
-    _focusZoom = Math.round(clamped * 1000) / 1000;
-    // CSS zoom participates in layout, unlike transform:scale(), so fixed
-    // sidebars, terminals, modals, and scrollable documents keep behaving
-    // like a normally browser-zoomed page.
-    document.body.style.zoom = _focusZoom === 1 ? '' : String(_focusZoom);
-  }
-
-  function _resetFocusZoom() {
-    _focusZoom = 1;
-    document.body.style.zoom = '';
-  }
-
-  function _handleFocusZoomWheel(e) {
-    // Chromium exposes a trackpad pinch as a cancelable Ctrl+wheel gesture.
-    // Browser page zoom is suppressed by the Fullscreen API, so reproduce it
-    // only while Focus mode is active and leave ordinary two-finger scrolling
-    // (and all behavior outside Focus mode) untouched.
-    if (!document.body.classList.contains('focus-mode')
-        || !e.ctrlKey
-        || !Number.isFinite(e.deltaY)
-        || e.deltaY === 0) return;
-    if (typeof e.preventDefault === 'function') e.preventDefault();
-    _applyFocusZoom(_focusZoom * Math.exp(-e.deltaY * FOCUS_ZOOM_SENSITIVITY));
-  }
-
-  function _wireFocusZoomDocument(doc) {
-    if (!doc || doc.__labFocusZoomWired || typeof doc.addEventListener !== 'function') return;
-    doc.__labFocusZoomWired = true;
-    doc.addEventListener('wheel', _handleFocusZoomWheel, {capture: true, passive: false});
-  }
-
-  _wireFocusZoomDocument(document);
-
   function _shouldKeepDisplayAwake() {
-    return document.body.classList.contains('focus-mode')
-      || document.body.classList.contains('keep-alive');
+    return document.body.classList.contains('keep-alive');
   }
 
   async function _acquireScreenWakeLock() {
@@ -6412,8 +6374,7 @@
     if (_screenWakeLockRequest) return _screenWakeLockRequest;
 
     const request = navigator.wakeLock.request('screen').then(lock => {
-      // Both intents may have been switched off while the browser was
-      // granting the lock.
+      // Keep Alive may have been switched off while the browser granted the lock.
       if (!_shouldKeepDisplayAwake()
           || document.visibilityState !== 'visible') {
         try {
@@ -6445,54 +6406,6 @@
     } catch {}
   }
 
-  function _enterFocusFullscreen() {
-    if (document.fullscreenElement
-        || !document.documentElement
-        || typeof document.documentElement.requestFullscreen !== 'function') return;
-    _focusOwnsFullscreen = true;
-    try {
-      const entered = document.documentElement.requestFullscreen();
-      if (entered && typeof entered.catch === 'function') {
-        entered.catch(() => { _focusOwnsFullscreen = false; });
-      }
-    } catch { _focusOwnsFullscreen = false; }
-  }
-
-  function _exitFocusFullscreen() {
-    if (!_focusOwnsFullscreen || !document.fullscreenElement
-        || typeof document.exitFullscreen !== 'function') {
-      _focusOwnsFullscreen = false;
-      return;
-    }
-    _focusOwnsFullscreen = false;
-    try {
-      const exited = document.exitFullscreen();
-      if (exited && typeof exited.catch === 'function') exited.catch(() => {});
-    } catch {}
-  }
-
-  function applyFocusMode(on) {
-    document.body.classList.toggle('focus-mode', !!on);
-    try { localStorage.setItem(FOCUS_MODE_KEY, on ? '1' : '0'); } catch {}
-    if (on) void _acquireScreenWakeLock();
-    else {
-      _resetFocusZoom();
-      if (!_shouldKeepDisplayAwake()) _releaseScreenWakeLock();
-      _exitFocusFullscreen();
-    }
-    // Re-render the strip so the button label flips.
-    try { if (currentWorkspace) renderRepoTabs(); } catch {}
-  }
-  function toggleFocusMode() {
-    const on = !document.body.classList.contains('focus-mode');
-    applyFocusMode(on);
-    window.labFeatureUsage?.(on ? 'Enable Focus mode' : 'Disable Focus mode');
-    // Fullscreen requires a user gesture, so only request it from the toggle
-    // click/shortcut rather than when restoring Focus mode after a reload.
-    if (on) _enterFocusFullscreen();
-  }
-  window.toggleFocusMode = toggleFocusMode;
-
   function applyKeepAlive(on) {
     document.body.classList.toggle('keep-alive', !!on);
     try { localStorage.setItem(KEEP_ALIVE_KEY, on ? '1' : '0'); } catch {}
@@ -6516,9 +6429,6 @@
   window.toggleLinkedTerminalSync = toggleLinkedTerminalSync;
 
   try {
-    if (localStorage.getItem(FOCUS_MODE_KEY) === '1') {
-      document.body.classList.add('focus-mode');
-    }
     if (localStorage.getItem(KEEP_ALIVE_KEY) === '1') {
       document.body.classList.add('keep-alive');
     }
@@ -6535,28 +6445,6 @@
       void _syncLidAwakeStatus();
     }
   });
-  document.addEventListener('fullscreenchange', () => {
-    // Browser Esc exits fullscreen first. Keep Focus mode, persistence, and
-    // its layout preference in sync with that visible exit. Keep Alive, if
-    // independently enabled, continues owning the wake lock.
-    if (_focusOwnsFullscreen && !document.fullscreenElement
-        && document.body.classList.contains('focus-mode')) {
-      _focusOwnsFullscreen = false;
-      applyFocusMode(false);
-    }
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !document.body.classList.contains('focus-mode')) return;
-    // Don't steal Esc from terminals, form fields, or any layer that
-    // consumes Esc itself (settings/editor modals, the doc view modal,
-    // proxy fullscreen) — one press must close one thing.
-    const t = e.target;
-    if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .term-panel')) return;
-    if (document.querySelector('.modal-overlay.active, .doc-modal-overlay.active')) return;
-    if (document.body.classList.contains('proxy-fullscreen')) return;
-    applyFocusMode(false);
-  });
-
   function renderRepoTabs() {
     const container = document.getElementById('repoTabs');
     if (!currentWorkspace) {
@@ -6619,13 +6507,10 @@
       });
     }
 
-    const focusOn = document.body.classList.contains('focus-mode');
     const keepAliveOn = document.body.classList.contains('keep-alive');
     const keepAliveTitle = keepAliveOn
-      ? `Keep Alive is on — turn it off${focusOn ? ' (Focus mode will still keep the display awake)' : ''}`
-      : (focusOn
-        ? 'Turn on Keep Alive to stay awake after leaving Focus mode'
-        : 'Prevent the display and computer from sleeping');
+      ? 'Keep Alive is on — turn it off'
+      : 'Prevent the display and computer from sleeping';
     html += `<button class="repo-tab keep-alive-toggle" role="switch" aria-checked="${keepAliveOn}" onclick="toggleKeepAlive()" title="${keepAliveTitle}"><span>Keep Alive</span><span class="keep-alive-switch" aria-hidden="true"></span></button>`;
     const linkedSyncTitle = _linkedTerminalSyncOn
       ? 'Linked file and terminal selections follow each other — turn off to keep navigation independent'
@@ -6637,10 +6522,9 @@
         ? 'Lid Awake is available only on macOS'
         : (lidAwakeOn
           ? 'Mac stays running with the lid closed; choose a new time or cancel'
-          : 'Keep this Mac running with the lid closed for 15, 30, or 60 minutes');
+          : 'Keep this Mac running with the lid closed overnight, during working time, or until a custom time');
       html += `<button class="repo-tab lid-awake-toggle${lidAwakeOn ? ' active' : ''}${_lidAwakeBusy ? ' busy' : ''}" data-testid="lid-awake-toggle" onclick="toggleLidAwakeMenu(event)" aria-haspopup="dialog" aria-expanded="${_lidAwakeMenuOpen}" aria-label="${lidAwakeOn ? `${_lidAwakeLabel()}; choose a new time or cancel` : 'Start Lid Awake timer'}" title="${lidAwakeTitle}"${!_lidAwakeSupported ? ' disabled' : ''}><span class="lid-awake-label">${_lidAwakeLabel()}</span></button>`;
     }
-    html += `<button class="repo-tab focus-toggle" onclick="toggleFocusMode()" title="${focusOn ? (keepAliveOn ? 'Exit fullscreen focus (Keep Alive will remain on)' : 'Exit fullscreen focus and allow display sleep again (Esc)') : 'Enter fullscreen focus and keep the display awake'}">${focusOn ? '✖ Exit focus' : '⛶ Focus mode'}</button>`;
 
     if (_workspaceDeleteIsVisible()) {
       html += `<button class="repo-tab workspace-delete-button" onclick="deleteCurrentWorkspace()"${_workspaceDeleteBusy ? ' disabled' : ''}>${_workspaceDeleteBusy ? 'DELETING…' : 'DELETE WORKSPACE'}</button>`;

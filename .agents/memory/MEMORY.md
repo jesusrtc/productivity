@@ -85,10 +85,9 @@
 - [Terminal sessions prefer real recaps over request history](terminal-session-requests-and-copilot-objective.md) — prefer current provider recaps; otherwise show post-clear requests and detect empty Codex `/clear` threads
 - [Workspace names are display aliases](workspace-names-are-display-aliases.md) — keep `workspace.json.id` and the directory stable; render/edit `workspace.json.name` as the human-facing tab label
 - [Server config is agent-authored](server-config-is-agent-authored.md) — create a plain `servers.json` template and let agents fill it; do not infer server entries from Makefiles
-- [Focus mode and Keep Alive](focus-mode-is-presentation-mode.md) — Focus requests fullscreen plus a wake lock; the adjacent persistent Keep Alive switch can own the wake lock independently
-- [Focus mode keeps navigation tabs](focus-mode-keeps-navigation-tabs.md) — Home and open vault/workspace tabs remain visible above the Overview strip in Focus mode
+- [Focus mode was removed](focus-mode-removed.md) — no fullscreen/layout/zoom mode; Keep Alive still owns the browser wake lock
 - [Lid Awake is a timed system control](lid-awake-is-a-timed-system-control.md) — admin-only macOS pmset timer survives page/server closure and safely resets normal sleep on cancel or expiry
-- [Focus mode trackpad pinch zoom](focus-mode-trackpad-pinch-zoom.md) — reproduce Chrome's suppressed fullscreen pinch gesture with Focus-only CSS zoom, including same-origin iframes
+- [Lid Awake named time choices](lid-awake-named-time-presets.md) — Overnight until 07:00, Working time until 17:00, and Custom time; prioritize by the local 06:00/18:00 cutoffs
 - [Sidebar tree indentation must recurse](sidebar-tree-indentation-recurses.md) — indent nested `.sidebar-folder-children` containers; never hard-code selectors for a finite number of depths
 - [Sidebar shortcuts preserve the file tree](sidebar-shortcuts-preserve-file-tree.md) — pinned/recent sections duplicate file shortcuts; shared browser-local settings control hidden files, freshness, and extension filters
 - [Sidebar file scopes can follow worktrees](sidebar-worktree-file-scopes.md) — a browser-local parent folder discovers direct child worktrees; each sidebar surface remembers its selected root and color

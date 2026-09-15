@@ -16,7 +16,7 @@ LAB_SHELL_CSS = ROOT / "core/src/core/static/css/lab-shell.css"
 
 def _run_node(script: str) -> dict:
     if NODE is None:
-        pytest.skip("node is required for frontend focus mode tests")
+        pytest.skip("node is required for frontend power control tests")
     proc = subprocess.run(
         [NODE, "-e", script],
         cwd=ROOT,
@@ -30,17 +30,10 @@ def _run_node(script: str) -> dict:
     return json.loads(proc.stdout)
 
 
-def _focus_mode_source() -> str:
+def _power_controls_source() -> str:
     source = LAB_APP.read_text(encoding="utf-8")
-    start = source.index("const FOCUS_MODE_KEY")
+    start = source.index("const KEEP_ALIVE_KEY")
     end = source.index("function renderRepoTabs()", start)
-    return source[start:end]
-
-
-def _focus_mode_css_source() -> str:
-    source = LAB_SHELL_CSS.read_text(encoding="utf-8")
-    start = source.index("/* ─── Focus mode")
-    end = source.index(".repo-tab.keep-alive-toggle", start)
     return source[start:end]
 
 
@@ -117,7 +110,7 @@ const localStorage = {
 const window = {};
 let currentWorkspace = null;
 function renderRepoTabs() { renderCount += 1; }
-""" % json.dumps(initial_storage or {}) + wake_lock_source + _focus_mode_source() + """
+""" % json.dumps(initial_storage or {}) + wake_lock_source + _power_controls_source() + """
 (async () => {
 """ + test_body + """
 })().catch(err => {
@@ -127,61 +120,9 @@ function renderRepoTabs() { renderCount += 1; }
 """
 
 
-def test_focus_mode_enters_fullscreen_and_keeps_display_awake() -> None:
+def test_keep_alive_reacquires_wake_lock_when_app_becomes_visible() -> None:
     result = _run_node(_harness("""
-toggleFocusMode();
-await Promise.resolve();
-await Promise.resolve();
-process.stdout.write(JSON.stringify({
-  focus: classes.has('focus-mode'),
-  stored: stored.labFocusMode,
-  wakeRequests,
-  fullscreenRequests,
-}));
-"""))
-
-    assert result == {
-        "focus": True,
-        "stored": "1",
-        "wakeRequests": ["screen"],
-        "fullscreenRequests": 1,
-    }
-
-
-def test_focus_mode_keeps_home_and_workspace_tabs_visible() -> None:
-    css = _focus_mode_css_source()
-
-    assert "body.focus-mode .topbar" not in css
-    assert "body.focus-mode .attrs-bar { display: none; }" in css
-    assert "body.focus-mode .repo-tabs { top: 48px; }" in css
-    assert "body.focus-mode.has-repo-tabs .diff-tabs { top: 84px; }" in css
-    assert (
-        "body.focus-mode.has-repo-tabs.has-diff-tabs .layout { padding-top: 124px; }"
-        in css
-    )
-
-
-def test_exiting_browser_fullscreen_exits_focus_and_releases_wake_lock() -> None:
-    result = _run_node(_harness("""
-toggleFocusMode();
-await Promise.resolve();
-await Promise.resolve();
-document.fullscreenElement = null;
-events.fullscreenchange();
-await Promise.resolve();
-process.stdout.write(JSON.stringify({
-  focus: classes.has('focus-mode'),
-  stored: stored.labFocusMode,
-  lockReleases,
-}));
-"""))
-
-    assert result == {"focus": False, "stored": "0", "lockReleases": 1}
-
-
-def test_focus_mode_reacquires_wake_lock_when_app_becomes_visible() -> None:
-    result = _run_node(_harness("""
-toggleFocusMode();
+toggleKeepAlive();
 await Promise.resolve();
 await Promise.resolve();
 document.visibilityState = 'hidden';
@@ -196,7 +137,7 @@ process.stdout.write(JSON.stringify({wakeRequests, lockReleases}));
     assert result == {"wakeRequests": ["screen", "screen"], "lockReleases": 1}
 
 
-def test_keep_alive_works_without_entering_focus_or_fullscreen() -> None:
+def test_keep_alive_works_without_entering_fullscreen() -> None:
     result = _run_node(_harness("""
 toggleKeepAlive();
 await Promise.resolve();
@@ -216,32 +157,6 @@ process.stdout.write(JSON.stringify({
         "stored": "1",
         "wakeRequests": ["screen"],
         "fullscreenRequests": 0,
-    }
-
-
-def test_keep_alive_continues_after_focus_exits() -> None:
-    result = _run_node(_harness("""
-toggleKeepAlive();
-await Promise.resolve();
-await Promise.resolve();
-toggleFocusMode();
-await Promise.resolve();
-document.fullscreenElement = null;
-events.fullscreenchange();
-await Promise.resolve();
-process.stdout.write(JSON.stringify({
-  focus: classes.has('focus-mode'),
-  keepAlive: classes.has('keep-alive'),
-  wakeRequests,
-  lockReleases,
-}));
-"""))
-
-    assert result == {
-        "focus": False,
-        "keepAlive": True,
-        "wakeRequests": ["screen"],
-        "lockReleases": 0,
     }
 
 
@@ -280,7 +195,7 @@ process.stdout.write(JSON.stringify({
     }
 
 
-def test_keep_alive_and_lid_awake_are_rendered_beside_focus_mode() -> None:
+def test_power_controls_are_rendered_without_focus_mode() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     start = source.index("function renderRepoTabs()")
     end = source.index("function showScopedCodeSearch()", start)
@@ -289,13 +204,14 @@ def test_keep_alive_and_lid_awake_are_rendered_beside_focus_mode() -> None:
     assert render.index("keep-alive-toggle") < render.index("lid-awake-toggle")
     assert render.index("keep-alive-toggle") < render.index("linked-terminal-sync-toggle")
     assert render.index("linked-terminal-sync-toggle") < render.index("lid-awake-toggle")
-    assert render.index("lid-awake-toggle") < render.index("focus-toggle")
+    assert "focus-toggle" not in render
+    assert "focus-mode" not in LAB_SHELL_CSS.read_text(encoding="utf-8")
     assert 'role="switch"' in render
     assert 'aria-checked="${keepAliveOn}"' in render
     assert 'aria-checked="${_linkedTerminalSyncOn}"' in render
     assert "toggleLinkedTerminalSync()" in render
     assert 'data-testid="lid-awake-toggle"' in render
-    assert "15, 30, 60" in _focus_mode_source()
+    assert "15, 30, 60" in _power_controls_source()
 
 
 def test_lid_awake_countdown_format() -> None:
@@ -333,7 +249,7 @@ process.stdout.write(JSON.stringify({activeLabel, inactiveLabel}));
 
 
 def test_lid_awake_keeps_saved_password_out_of_browser_storage() -> None:
-    source = _focus_mode_source()
+    source = _power_controls_source()
 
     assert 'type="password"' in source
     assert 'autocomplete="off"' in source
@@ -344,17 +260,52 @@ def test_lid_awake_keeps_saved_password_out_of_browser_storage() -> None:
     assert "localStorage.setItem('password'" not in source
 
 
-def test_lid_awake_offers_thermal_safe_until_time_defaulting_to_1700() -> None:
-    source = _focus_mode_source()
+def test_lid_awake_offers_working_time_overnight_and_custom_time() -> None:
+    source = _power_controls_source()
 
-    assert "const LID_AWAKE_DEFAULT_UNTIL = '17:00'" in source
     assert 'id="lidAwakeUntilTime" type="time"' in source
     assert "Past times mean tomorrow." in source
     assert "Thermal safety is always on." in source
-    assert "setLidAwakeUntil" in source
+    result = _run_node(_harness("""
+const RealDate = Date;
+let localNow;
+globalThis.Date = class extends RealDate {
+  constructor(...args) { super(...(args.length ? args : [localNow])); }
+};
+globalThis.esc = globalThis.escAttr = String;
+const menu = {innerHTML: '', style: {}, classList: {add() {}, remove() {}}};
+const button = {setAttribute() {}, getBoundingClientRect: () => ({bottom: 20, right: 400})};
+document.getElementById = id => id === 'lidAwakeMenu' ? menu : null;
+document.querySelector = () => button;
+currentWorkspace = {};
+window.innerWidth = 800;
+const choices = [];
+for (const [hour, minute] of [[0, 0], [5, 59], [6, 0], [17, 59], [18, 0], [23, 59]]) {
+  localNow = new RealDate(2026, 8, 15, hour, minute).getTime();
+  toggleLidAwakeMenu();
+  const html = menu.innerHTML;
+  choices.push({
+    defaultTime: /value="([0-9:]+)"/.exec(html)[1],
+    overnightFirst: html.indexOf('Overnight') < html.indexOf('Working time'),
+    customThird: html.indexOf('Custom time') > Math.max(html.indexOf('Overnight'), html.indexOf('Working time')),
+  });
+  toggleLidAwakeMenu();
+}
+globalThis.Date = RealDate;
+process.stdout.write(JSON.stringify({choices}));
+"""))
+
+    assert result["choices"] == [
+        {"defaultTime": until, "overnightFirst": overnight, "customThird": True}
+        for until, overnight in [
+            ("07:00", True), ("07:00", True), ("17:00", False),
+            ("17:00", False), ("07:00", True), ("07:00", True),
+        ]
+    ]
 
 
-def test_lid_awake_until_posts_local_clock_time() -> None:
+@pytest.mark.parametrize("preset", [None, "07:00", "17:00"])
+def test_lid_awake_until_posts_local_clock_time(preset: str | None) -> None:
     result = _run_node(_harness("""
 let posted = null;
 _lidAwakePasswordSaved = true;
@@ -370,99 +321,49 @@ window.fetch = async (_url, options) => {
     }),
   };
 };
-await setLidAwakeUntil();
+updateLidAwakeUntilTime('09:45');
+await setLidAwakeUntil(%s);
 process.stdout.write(JSON.stringify(posted));
-"""))
+""" % (json.dumps(preset) if preset else "undefined")))
 
-    assert result == {"until": "17:00"}
+    assert result == {"until": preset or "09:45"}
 
 
-def test_focus_mode_degrades_gracefully_without_browser_apis() -> None:
+def test_keep_alive_degrades_gracefully_without_browser_apis() -> None:
     result = _run_node(_harness("""
 delete document.documentElement.requestFullscreen;
-toggleFocusMode();
+toggleKeepAlive();
 await Promise.resolve();
 process.stdout.write(JSON.stringify({
   focus: classes.has('focus-mode'),
-  stored: stored.labFocusMode,
+  stored: stored.labKeepAlive,
   wakeRequests,
   fullscreenRequests,
 }));
 """, wake_lock=False))
 
     assert result == {
-        "focus": True,
+        "focus": False,
         "stored": "1",
         "wakeRequests": [],
         "fullscreenRequests": 0,
     }
 
 
-def test_trackpad_pinch_zooms_only_in_focus_mode_and_resets_on_exit() -> None:
+def test_saved_focus_mode_no_longer_changes_layout_or_keeps_display_awake() -> None:
     result = _run_node(_harness("""
-let preventedOutside = false;
-events.wheel({ctrlKey: true, deltaY: -20, preventDefault() { preventedOutside = true; }});
-const outsideZoom = document.body.style.zoom;
-
-toggleFocusMode();
-let preventedInside = false;
-events.wheel({ctrlKey: true, deltaY: -20, preventDefault() { preventedInside = true; }});
-const insideZoom = Number(document.body.style.zoom);
-
-// An ordinary two-finger scroll must remain a scroll, not become zoom.
-events.wheel({ctrlKey: false, deltaY: -20, preventDefault() { throw new Error('prevented scroll'); }});
-const afterScrollZoom = Number(document.body.style.zoom);
-
-applyFocusMode(false);
+await Promise.resolve();
 process.stdout.write(JSON.stringify({
-  preventedOutside,
-  outsideZoom,
-  preventedInside,
-  insideZoom,
-  afterScrollZoom,
-  exitedZoom: document.body.style.zoom,
+  focus: classes.has('focus-mode'),
+  wakeRequests,
+  fullscreenRequests,
+  zoom: document.body.style.zoom,
 }));
-"""))
+""", initial_storage={"labFocusMode": "1"}))
 
-    assert result["preventedOutside"] is False
-    assert result["outsideZoom"] == ""
-    assert result["preventedInside"] is True
-    assert result["insideZoom"] > 1
-    assert result["afterScrollZoom"] == result["insideZoom"]
-    assert result["exitedZoom"] == ""
-
-
-def test_focus_trackpad_zoom_is_clamped() -> None:
-    result = _run_node(_harness("""
-toggleFocusMode();
-events.wheel({ctrlKey: true, deltaY: -10000, preventDefault() {}});
-const maxZoom = Number(document.body.style.zoom);
-events.wheel({ctrlKey: true, deltaY: 10000, preventDefault() {}});
-const minZoom = Number(document.body.style.zoom);
-process.stdout.write(JSON.stringify({maxZoom, minZoom}));
-"""))
-
-    assert result == {"maxZoom": 3, "minZoom": 0.5}
-
-
-def test_focus_trackpad_zoom_is_wired_inside_same_origin_iframes() -> None:
-    result = _run_node(_harness("""
-const iframeEvents = {};
-const iframeDocument = {
-  addEventListener(type, fn) { iframeEvents[type] = fn; },
-};
-_wireFocusZoomDocument(iframeDocument);
-_wireFocusZoomDocument(iframeDocument);
-toggleFocusMode();
-let prevented = false;
-iframeEvents.wheel({ctrlKey: true, deltaY: -20, preventDefault() { prevented = true; }});
-process.stdout.write(JSON.stringify({
-  prevented,
-  zoom: Number(document.body.style.zoom),
-  wired: iframeDocument.__labFocusZoomWired,
-}));
-"""))
-
-    assert result["prevented"] is True
-    assert result["zoom"] > 1
-    assert result["wired"] is True
+    assert result == {
+        "focus": False,
+        "wakeRequests": [],
+        "fullscreenRequests": 0,
+        "zoom": "",
+    }

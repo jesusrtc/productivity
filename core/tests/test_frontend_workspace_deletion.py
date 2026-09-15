@@ -99,7 +99,7 @@ vm.runInContext(between('  function goToWorkspace(path', '  // Navigate to a wor
   assert.equal(context._workspaceDeleteIsVisible(),false);
   assert.equal(context._workspaceDeleteBusy,false);
   const render=between('  function renderRepoTabs()', '  function showScopedCodeSearch()');
-  assert(render.indexOf('class="repo-tab focus-toggle"') < render.indexOf('if (_workspaceDeleteIsVisible())'));
+  assert(render.indexOf('data-testid="lid-awake-toggle"') < render.indexOf('if (_workspaceDeleteIsVisible())'));
   assert(render.includes('DELETE WORKSPACE'));
   assert(source.includes("row.addEventListener('contextmenu', event => openVaultWorkspaceMenu(event, workspace, vault.id))"));
   assert(source.includes('let _workspaceDeleteTarget = null;')); // Reload starts unarmed.
