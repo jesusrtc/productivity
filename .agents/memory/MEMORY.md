@@ -192,3 +192,5 @@
 - [Meta keeps workspace instructions visible](meta-keeps-workspace-instructions-visible.md) — show Lab context in Assistant and keep workspace instructions separate from the selected folder/worktree; live files are not terminal startup history
 
 - [Assistant combines workspaces with neutral controls](assistant-unified-tasks-and-neutral-controls.md) — one task list, workspace filters, recurrence only in the header, and larger click targets
+
+- [Assistant records have independent project/workspace links](assistant-independent-projects-and-workspaces.md) — requested data model and nested tabs; full proposed storage/migration design, not yet implemented
