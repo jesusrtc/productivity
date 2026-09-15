@@ -105,9 +105,10 @@ Tasks and subtasks may use `waiting_on`, `waiting_since`, `follow_up_at`,
 Agent-produced work moves to `ready_to_review`; `reviewer`,
 `review_requested_at`, and `executor` record the review handoff.
 
-The Tasks tab selects one mapped workspace and lists tasks directly under
-`yyyy-mm-dd` creation-date headers, newest day first. Workstream labels remain
-visible and searchable. Priority/attention ordering is retained within each day;
+The Tasks tab combines all mapped workspaces in one list by default, under
+`yyyy-mm-dd` creation-date headers, newest day first. Each row identifies its
+workspace and workstream. A workspace filter narrows the same list and composes
+with search, status, priority, and planning views. Priority/attention ordering is retained within each day;
 unknown dates appear last. Clicking a row opens the existing compact modal with
 main task and first-class subtasks in the rail, and section copy controls.
 
@@ -124,10 +125,9 @@ Unknown due dates must be confirmed first. Each completed period remains as
 history. This is explicitly agent-managed; no background scheduler runs.
 Read `lab context tasks` for the complete date and recurrence contract.
 
-The Assistant tab opens on **Overview**. Like a normal workspace, it has the
-standard **Recently updated** and **Files** sidebar rooted at the selected
-Assistant folder. Overview summarizes open work, mapped workspaces, and recently
-changed files; **Tasks** and **Meeting notes** remain dedicated subtabs. Files
+The Assistant tab opens on **Tasks**, beside **Notes**. Like a normal workspace,
+it has the standard **Recently updated** and **Files** sidebar rooted at the
+selected Assistant folder. Files
 open in Lab's normal Markdown/code/notebook viewer while the Assistant terminal
 stays associated with the global Assistant workspace.
 
@@ -179,11 +179,12 @@ source of truth; the API derives its views from those same files on refresh.
 - `ready_to_review`: agent-produced work is ready for human review
 - `done`: complete, with an outcome recorded in `# Result`
 
-Priorities run from `P0` (urgent) through `P3` (someday/maybe). Each Lab-workspace
-selector shows the unique number of open tasks needing attention because they
-are P0, in progress, ready to review (directly or through a subtask), or due
-within three calendar days. This due-soon window is provisional. Secondary
-status and priority filters apply only inside the selected Lab workspace. Waiting
+Priorities run from `P0` (urgent) through `P3` (someday/maybe). Workspace filter
+counts reflect the current task search, planning view, status, and priority
+across all workspaces. Clearing the workspace filter restores the combined
+list without resetting the other filters. Routine labels and selection states
+use neutral colors; P0, blocked tasks, overdue dates, and errors retain emphasis.
+Recurrence labels stay out of the main list. Waiting
 tasks use a `Nudge` action to open copy-ready follow-up content; Lab does not
 send it or record a message as sent.
 
@@ -191,7 +192,8 @@ send it or record a message as sent.
 
 Task and note documents keep their content in the main pane. The compact
 header contains the title and editable properties: task status, priority, Due
-with a calendar, and Repeats; meeting notes have Date and Series. The `···`
+with a calendar, and Repeats (Once, Weekly, Monthly, Yearly); meeting notes have
+Date and Series. Once clears recurrence. The `···`
 menu holds additional properties and workspace context. Changes save on
 selection or leaving a field, with a visible save/error message.
 

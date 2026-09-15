@@ -27,10 +27,10 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     source = ASSISTANT_APP.read_text(encoding="utf-8")
     assert "Any priority" in source
     assert "Nudge" in source
-    assert "Lab workspaces" in source
+    assert "All workspaces" in source
+    assert "assistant-lab-workspaces" not in source
     assert "assistant-task-date-list" in source
     assert "data-assistant-group=" not in source
-    assert "attentionBreakdown" in source
     assert "needsAttention" in source
     assert "isDueSoon" in source
     assert "assistant-row-tldr" in source

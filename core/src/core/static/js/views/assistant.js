@@ -185,7 +185,7 @@
         || filteredMeetings().some(meeting => meeting.series_path === row.path)));
   }
 
-  function filteredTasks() {
+  function filteredTasks({workspace = state.workspace} = {}) {
     const needle = state.search.trim().toLowerCase();
     return tasks().filter(task => {
       if (state.view === 'recent' && !isRecentDone(task)) return false;
@@ -205,7 +205,7 @@
       if (state.view === 'all_open' && task.status === 'done') return false;
       if (state.status && task.status !== state.status) return false;
       if (state.priority && task.priority !== state.priority) return false;
-      if (state.workspace && task.workspace !== state.workspace) return false;
+      if (workspace && task.workspace !== workspace) return false;
       if (needle) {
         const haystack = [task.title, task.tldr, task.summary, task.group, task.workspace_name, task.workspace, task.vault]
           .join(' ').toLowerCase();
@@ -256,14 +256,11 @@
     const previousSection = state.section;
     state.section = ['notes', 'meetings'].includes(section) ? 'notes' : 'tasks';
     if (state.section !== previousSection) { state.search = ''; clearTimeout(state.searchTimer); }
-    if (state.section === 'notes' && previousSection !== 'notes') state.workspace = '';
+    if (state.section !== previousSection) state.workspace = '';
     state.view = isTaskSection() ? 'all_open' : 'meetings';
     state.status = '';
     state.priority = '';
-    if (isTaskSection() && !workspaceRows().some(workspace => workspace.id === state.workspace)) {
-      const available = workspaceRows();
-      state.workspace = available.length ? available[0].id : '';
-    }
+
     if (!options.history) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
@@ -271,6 +268,7 @@
       else if (state.section === 'tasks') {
         url.searchParams.set('subview', 'tasks');
         if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
+        else url.searchParams.delete('assistant_workspace');
       }
       if (state.section !== 'tasks') url.searchParams.delete('task');
       url.searchParams.delete('meeting');
@@ -290,7 +288,9 @@
 
   function taskCard(task) {
     const selected = task.path === state.selectedTaskPath;
-    const due = task.due ? `<span class="assistant-task-due">Due ${e(displayDate(task.due))}</span>` : '';
+    const overdue = task.status !== 'done' && calendarDate(task.due) && task.due < localToday();
+    const due = task.due ? `<span class="assistant-task-due${overdue ? ' overdue' : ''}">${overdue ? 'Overdue' : 'Due'} ${e(displayDate(task.due))}</span>` : '';
+    const workspace = task.workspace_name || state.data?.workspaces?.find(row => row.id === task.workspace)?.name || task.workspace || '';
     const progress = progressLabel(task.subtasks_done, task.subtasks_total);
     const reviews = reviewCount(task);
     const tldr = task.tldr || task.summary || 'No TLDR yet.';
@@ -301,7 +301,7 @@
           <span class="assistant-row-title"><span class="assistant-priority ${e(String(task.priority || '').toLowerCase())}">${e(task.priority || 'P2')}</span><strong>${e(task.title)}</strong></span>
           <span class="assistant-row-tldr"><b>TLDR</b>${e(tldr)}</span>
         </span>
-        <span class="assistant-row-meta">${task.group ? `<span class="assistant-task-group-label" title="Workstream: ${e(task.group)}">${e(task.group)}</span>` : ''}${task.recurrence ? `<span class="assistant-repeat" title="${task.due ? 'Next due: ' + e(task.due) : 'Due date needs confirmation'}">↻ ${e(task.recurrence)}${task.due ? '' : ' · Date needed'}</span>` : ''}${task.scheduled ? `<span class="assistant-task-due">Planned ${e(displayDate(task.scheduled))}</span>` : ''}${task.defer_until ? `<span class="assistant-task-due">Later · ${e(displayDate(task.defer_until))}</span>` : ''}${task.source === 'demo' ? '<span class="assistant-demo">Demo</span>' : ''}${reviews ? `<span class="assistant-review-count">${reviews} to review</span>` : ''}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${task.status === 'waiting' ? `<button type="button" class="assistant-nudge" data-assistant-nudge="${e(task.path)}">Nudge</button>` : ''}${due}</span>
+        <span class="assistant-row-meta">${workspace ? `<span class="assistant-task-workspace-label" title="Workspace: ${e(workspace)}">${e(workspace)}</span>` : ''}${task.group ? `<span class="assistant-task-group-label" title="Workstream: ${e(task.group)}">${e(task.group)}</span>` : ''}${task.scheduled ? `<span class="assistant-task-due">Planned ${e(displayDate(task.scheduled))}</span>` : ''}${task.defer_until ? `<span class="assistant-task-due">Later · ${e(displayDate(task.defer_until))}</span>` : ''}${task.source === 'demo' ? '<span class="assistant-demo">Demo</span>' : ''}${reviews ? `<span class="assistant-review-count">${reviews} to review</span>` : ''}${progress ? `<span class="assistant-progress-label">${e(progress)}</span>` : ''}<span class="assistant-status status-${e(task.status || 'inbox')}">${e(labelStatus(task.status))}</span>${task.status === 'waiting' ? `<button type="button" class="assistant-nudge" data-assistant-nudge="${e(task.path)}">Nudge</button>` : ''}${due}</span>
       </div>
     </article>`;
   }
@@ -358,35 +358,12 @@
   }
 
   function workspaceRows() {
-    const workspaces = [...((state.data && state.data.workspaces) || [])];
-    return workspaces.sort((left, right) => {
-      const leftCount = countWhere(tasks(), task => task.workspace === left.id && needsAttention(task));
-      const rightCount = countWhere(tasks(), task => task.workspace === right.id && needsAttention(task));
-      return rightCount - leftCount || String(left.name || left.id).localeCompare(String(right.name || right.id));
-    });
-  }
-
-  function attentionBreakdown(rows) {
-    return [
-      [countWhere(rows, task => task.status !== 'done' && task.priority === 'P0'), 'P0'],
-      [countWhere(rows, task => task.status === 'in_progress'), 'active'],
-      [countWhere(rows, task => task.status !== 'done' && hasReview(task)), 'review'],
-      [countWhere(rows, isDueSoon), 'due soon'],
-    ].filter(item => item[0]).map(item => `${item[0]} ${item[1]}`).join(' · ') || 'No attention items';
-  }
-
-  function labWorkspaceNav() {
-    return `<nav class="assistant-lab-workspaces" aria-label="Lab workspaces">${workspaceRows().map(workspace => {
-      const rows = tasks().filter(task => task.workspace === workspace.id);
-      const count = countWhere(rows, needsAttention);
-      return `<button type="button" class="${state.workspace === workspace.id ? 'active' : ''}" data-assistant-workspace="${e(workspace.id)}" title="${e(attentionBreakdown(rows))}">
-        <span class="assistant-lab-workspace-name">${e(workspace.name || workspace.id)}</span><small>${count}</small>
-      </button>`;
-    }).join('')}</nav>`;
+    return [...(state.data?.workspaces || [])].sort((left, right) =>
+      String(left.name || left.id).localeCompare(String(right.name || right.id)));
   }
 
   function workspaceSelect(source) {
-    const workspaces = state.data && state.data.workspaces || [];
+    const workspaces = workspaceRows();
     return `<select id="assistantWorkspace" aria-label="Filter by workspace">
       <option value="">All workspaces (${source.length})</option>
       ${workspaces.map(workspace => {
@@ -409,7 +386,7 @@
       </select>` : '';
     return `<div class="assistant-filters">
       <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search ${isTasks ? 'tasks' : 'meeting notes'}…" aria-label="Search Assistant ${isTasks ? 'tasks' : 'meeting notes'}">
-      ${isTasks ? '' : workspaceSelect(meetings())}${advanced}
+      ${workspaceSelect(isTasks ? filteredTasks({workspace: ''}) : meetings())}${advanced}
       <span class="assistant-filter-count">${rows.length} ${isTasks ? `task${rows.length === 1 ? '' : 's'}` : state.view === 'meeting_series' ? 'series' : `meeting${rows.length === 1 ? '' : 's'}`}</span>
     </div>`;
   }
@@ -422,7 +399,7 @@
     const views = [['all_open', 'All open'], ['today', 'Today'], ['week', 'This week'],
       ['inbox', 'Inbox'], ['ready_to_review', 'To review'], ['waiting', 'Waiting'],
       ['recurring', 'Recurring'], ['someday', 'Someday'], ['recent', 'Completed']];
-    return `${labWorkspaceNav()}<nav class="assistant-quick-views compact" aria-label="Task views">${views.map(([id, name]) =>
+    return `<nav class="assistant-quick-views compact" aria-label="Task views">${views.map(([id, name]) =>
       `<button type="button" class="${state.view === id ? 'active' : ''}" data-assistant-view="${id}">${name}</button>`).join('')}</nav>${filterBar(rows)}
       <p class="assistant-list-order">Created date · Newest day first</p>
       <section class="assistant-list assistant-list-single assistant-task-date-list" aria-label="Tasks by creation date" data-testid="assistant-list">${dateGroups(rows, taskCard, row => taskCreatedDate(row.created), 'task') || emptyTasks()}</section>`;
@@ -447,24 +424,17 @@
       return;
     }
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
-    const workspace = workspaceRows().find(item => item.id === state.workspace);
-    const proposal = isTaskSection()
-      ? `Lab workspace · ${workspace ? workspace.name || workspace.id : 'Tasks'}`
-      : 'Global Assistant';
     const title = isTaskSection() ? 'Tasks' : 'Notes';
     const body = isTaskSection() ? renderTasks(rows) : renderNotes(rows);
     content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
-        <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1></div>
+        <h1>${e(title)}</h1>
         <button type="button" class="refresh-btn" id="assistantRefresh">Refresh</button>
       </header>${body}
     </div>`;
     document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
       button.addEventListener('click', () => setView(button.dataset.assistantView));
-    });
-    content.querySelectorAll('[data-assistant-workspace]').forEach(button => {
-      button.addEventListener('click', () => selectWorkspace(button.dataset.assistantWorkspace));
     });
     const search = document.getElementById('assistantSearch');
     search?.addEventListener('input', () => {
@@ -481,17 +451,16 @@
     });
     document.getElementById('assistantStatus')?.addEventListener('change', event => {
       state.status = event.target.value;
-      state.view = state.status || 'all_open';
+      if (state.status === 'done') state.view = 'recent';
+      else if (state.view === 'recent' && state.status) state.view = 'all_open';
       render();
     });
     document.getElementById('assistantPriority')?.addEventListener('change', event => {
       state.priority = event.target.value;
-      state.view = state.priority === 'P0' ? 'p0' : 'all_open';
       render();
     });
     document.getElementById('assistantWorkspace')?.addEventListener('change', event => {
-      state.workspace = event.target.value;
-      render();
+      selectWorkspace(event.target.value);
     });
     content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
     content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
@@ -511,12 +480,13 @@
   }
 
   function selectWorkspace(workspaceId) {
-    if (!workspaceId || workspaceId === state.workspace) return;
+    if (workspaceId === state.workspace) return;
     state.workspace = workspaceId;
     state.selectedTaskPath = '';
     const url = new URL(window.location);
     url.searchParams.set('view', 'assistant');
-    url.searchParams.set('assistant_workspace', workspaceId);
+    if (workspaceId) url.searchParams.set('assistant_workspace', workspaceId);
+    else url.searchParams.delete('assistant_workspace');
     url.searchParams.delete('task');
     history.pushState({nav: 'assistant', assistant_workspace: workspaceId}, '', url.pathname + url.search + url.hash);
     render();
@@ -549,6 +519,7 @@
       if (kind === 'task') {
         url.searchParams.set('subview', 'tasks');
         if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
+        else url.searchParams.delete('assistant_workspace');
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
       } else {
@@ -691,7 +662,7 @@
       metadataSelect('status', 'Status', metadata.status || 'inbox', state.data?.statuses?.length ? state.data.statuses : ['inbox', 'ready', 'in_progress', 'waiting', 'blocked', 'ready_to_review', 'done']),
       metadataSelect('priority', 'Priority', metadata.priority || 'P2', ['P0', 'P1', 'P2', 'P3'].map(value => [value, value])),
       metadataInput('due', 'Due', metadata.due, 'date'),
-      metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Never'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]),
+      metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Once'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]),
     ] : recordKind === 'meeting' ? [
       metadataInput('date', 'Date', metadata.date, 'date'),
       metadataSelect('series', 'Series', metadata.series, [['', 'Standalone'], ...(state.data?.meeting_series || [])
@@ -1004,13 +975,9 @@
         if (options.meeting !== undefined) state.selectedMeetingPath = options.meeting || '';
         if (options.series !== undefined) state.selectedSeriesPath = options.series || '';
         if (options.workspace !== undefined) state.workspace = options.workspace || '';
-        const selected = isTaskSection() && options.task ? tasks().find(task => task.path === options.task) : null;
-        if (selected) state.workspace = selected.workspace;
       }
       const available = workspaceRows();
-      if (isTaskSection() && !available.some(workspace => workspace.id === state.workspace)) {
-        state.workspace = available.length ? available[0].id : '';
-      }
+      if (isTaskSection() && state.workspace && !available.some(workspace => workspace.id === state.workspace)) state.workspace = '';
       render();
       if (options.open && section === state.section) {
         if (isTaskSection() && state.selectedTaskPath) await openDocumentModal('task', state.selectedTaskPath);

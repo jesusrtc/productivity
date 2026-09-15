@@ -27,9 +27,10 @@ def test_meeting_document_browser(tmp_path):
                'notes':'# Notes\n\nSupporting context.', 'raw':{'path':'raw'},
                'contents':[{'path':'answer','title':'Why?','kind':'question'},{'path':'document','title':'Brief','kind':'document'}],
                'series':{**series,'meetings':[older,row]}}
-    fixtures = {'raw':raw,'index':{'configured':True,'exists':True,'root':'/fixture','workspaces':[{'id':'demo','name':'Demo'}],
-                                  'tasks':[{'path':'task','title':'Prepare review','workspace':'demo','status':'ready','created':'2026-09-14'}],
-                                  'meetings':[older,row],'meeting_series':[series],'statuses':[],'priorities':[]},
+    fixtures = {'raw':raw,'index':{'configured':True,'exists':True,'root':'/fixture','workspaces':[{'id':'demo','name':'Demo'},{'id':'pikaboo','name':'Pikaboo'}],
+                                  'tasks':[{'path':'task','title':'Prepare review','workspace':'demo','status':'ready','priority':'P2','recurrence':'monthly','created':'2026-09-14'},
+                                           {'path':'other','title':'Build prototype','workspace':'pikaboo','status':'ready','priority':'P1','created':'2026-09-14'}],
+                                  'meetings':[older,row],'meeting_series':[series],'statuses':['inbox','ready','done'],'priorities':['P0','P1','P2','P3']},
                 'details':{'meeting':meeting,'older':{**meeting,'path':'older','metadata':{'title':'Earlier','date':'2026-09-07'},'tldr':'Earlier decision.','overview':'# Summary\n\nEarlier decision.'},
                            'series':{'path':'series','metadata':{'title':'Weekly'},'body':'# Summary\n\nWeekly purpose.','meetings':[older,row]},
                            'raw':{'path':'raw','format':'text','body':raw},
@@ -47,7 +48,7 @@ const part=id=>nav().querySelector(`[data-meeting-part="${id}"]`).click();
 let copied='', delayed, openedNote;
 window.openWorkspaceDocModal=(path,options)=>{openedNote={path,...options}};
 Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{copied=text}}});
-let pendingSave, rejectSave=false;
+let rejectSave=false;
 window.fetch=async (url, options={})=>{
  if(options.method==='PATCH'){
    const change=JSON.parse(options.body);
@@ -75,6 +76,30 @@ window.fetch=async (url, options={})=>{
  AssistantView.init();
  await until(()=>document.querySelector('[data-assistant-task]'));
  assert(AssistantView.section()==='tasks','Assistant opens to Tasks');
+ const taskRows=()=>[...document.querySelectorAll('[data-testid="assistant-task-row"]')];
+ const filter=(id,value)=>{const el=document.getElementById(id);el.value=value;el.dispatchEvent(new Event('change'))};
+ assert(taskRows().length===2,'all workspaces share one task list by default');
+ assert(taskRows().some(row=>row.textContent.includes('Pikaboo')),'workspace labels distinguish tasks');
+ assert(!document.querySelector('.assistant-lab-workspaces'),'no separate workspace navigation');
+ assert(!document.querySelector('.assistant-repeat')&&!taskRows().some(row=>row.textContent.includes('monthly')),'recurrence is absent from the main list');
+ filter('assistantWorkspace','pikaboo');
+ assert(taskRows().length===1&&taskRows()[0].dataset.assistantTask==='other','workspace filter narrows the same list');
+ await AssistantView.refresh();
+ assert(document.getElementById('assistantWorkspace').value==='pikaboo'&&taskRows().length===1,'refresh preserves an explicit workspace filter');
+ filter('assistantPriority','P2');
+ assert(taskRows().length===0,'priority and workspace filters compose');
+ filter('assistantWorkspace','');
+ assert(taskRows().length===1&&taskRows()[0].dataset.assistantTask==='task','all workspaces retains the other filters');
+ filter('assistantPriority','');
+ await AssistantView.refresh();
+ assert(taskRows().length===2&&document.getElementById('assistantWorkspace').value==='','refresh keeps the combined list');
+ assert(!new URL(location).searchParams.has('assistant_workspace'),'clearing the workspace clears its deep-link filter');
+ AssistantView.init({task:'task'});
+ await until(()=>host()?.textContent.includes('Review task context.'));
+ assert(taskRows().length===2,'opening a task deep link does not scope the list to its workspace');
+ assert(document.getElementById('assistantCopyRich').getBoundingClientRect().height>=36,'copy buttons have a comfortable target');
+ assert([...host().querySelectorAll('.assistant-copy-actions button')].every(button=>button.getBoundingClientRect().height>=32),'section copy buttons have larger targets');
+ AssistantView.closeDocument();
  AssistantView.setSection('notes');
  await until(()=>document.querySelector('[data-assistant-view="other_notes"]'));
  document.querySelector('[data-assistant-view="other_notes"]').click();
@@ -137,6 +162,9 @@ window.fetch=async (url, options={})=>{
  await change('priority','P1');
  await change('due','2026-10-01');
  await change('recurrence','monthly');
+ assert(field('recurrence').selectedOptions[0].textContent==='Monthly','recurrence remains visible in the header');
+ await change('recurrence','');
+ assert(FIX.details.task.metadata.recurrence===null&&field('recurrence').selectedOptions[0].textContent==='Once','Once clears recurrence');
  assert(FIX.details.task.metadata.priority==='P1'&&FIX.details.task.metadata.due==='2026-10-01','task edits persisted');
  rejectSave=true;
  field('priority').value='P0';field('priority').dispatchEvent(new Event('change'));

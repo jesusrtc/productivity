@@ -190,3 +190,5 @@
 - [Assistant document metadata stays in the header](assistant-document-metadata-in-header.md) — content-only task/note panes, quiet editable properties, date calendars, and a details menu
 
 - [Meta keeps workspace instructions visible](meta-keeps-workspace-instructions-visible.md) — show Lab context in Assistant and keep workspace instructions separate from the selected folder/worktree; live files are not terminal startup history
+
+- [Assistant combines workspaces with neutral controls](assistant-unified-tasks-and-neutral-controls.md) — one task list, workspace filters, recurrence only in the header, and larger click targets
