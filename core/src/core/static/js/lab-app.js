@@ -6581,10 +6581,9 @@
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      const assistantSection = _workspaceDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'overview');
-      html += `<button class="repo-tab${assistantSection === 'overview' ? ' active' : ''}" data-assistant-section="overview" onclick="AssistantView.setSection('overview')" style="font-weight:600">&#x1F4CB; Overview</button>`;
+      const assistantSection = _workspaceDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'tasks');
       html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
-      html += `<button class="repo-tab${assistantSection === 'meetings' ? ' active' : ''}" data-assistant-section="meetings" onclick="AssistantView.setSection('meetings')">&#x1F4DD; Meeting notes</button>`;
+      html += `<button class="repo-tab${assistantSection === 'notes' ? ' active' : ''}" data-assistant-section="notes" onclick="AssistantView.setSection('notes')">&#x1F4DD; Notes</button>`;
     } else if (isSelf || isVault) {
       if (LAB_IS_ADMIN) {
         html += `<button class="repo-tab${isSelf && overviewActive ? ' active' : ''}" onclick="${isSelf ? 'selfShowWorkbench()' : 'goToProductivity()'}" style="font-weight:600">&#x1F4CB; Overview</button>`;
@@ -8402,7 +8401,7 @@
 
   function showWorkspaceDashboard() {
     if (document.body.classList.contains('assistant-active') && window.AssistantView) {
-      window.AssistantView.setSection('overview');
+      window.AssistantView.setSection('tasks');
       return;
     }
     _contextSubView = 'overview';
@@ -8728,8 +8727,8 @@
       // instead of dropping it and waiting for openWorkspaceDoc to re-add it,
       // which made the selection blink.
       const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
-      const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'overview')) ? ' active' : '';
-      const dashboardLabel = isAssistant ? 'Overview' : 'Dashboard';
+      const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'tasks')) ? ' active' : '';
+      const dashboardLabel = isAssistant ? 'Tasks' : 'Dashboard';
       let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showWorkspaceDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(workspacePath);
@@ -14918,8 +14917,7 @@
       return;
     }
     _swapViewState();
-    const section = opts.subview === 'meetings' ? 'meetings'
-      : (opts.subview === 'tasks' || /^tasks-[1-5]$/.test(opts.subview || '') || taskPath ? 'tasks' : 'overview');
+    const section = ['notes', 'meetings'].includes(opts.subview) ? 'notes' : 'tasks';
     _contextSubView = section;
     if (!opts.replace) {
       const url = new URL(window.location);
@@ -14930,8 +14928,8 @@
       url.searchParams.delete('tail');
       url.searchParams.delete('vault');
       url.searchParams.set('view', 'assistant');
-      if (section === 'meetings') {
-        url.searchParams.set('subview', 'meetings');
+      if (section === 'notes') {
+        url.searchParams.set('subview', 'notes');
         url.searchParams.delete('task');
         url.searchParams.delete('assistant_workspace');
         if (opts.series) url.searchParams.set('series', opts.series);
@@ -14944,12 +14942,6 @@
         url.searchParams.delete('series');
         if (taskPath) url.searchParams.set('task', taskPath);
         else url.searchParams.delete('task');
-      } else {
-        url.searchParams.delete('subview');
-        url.searchParams.delete('task');
-        url.searchParams.delete('meeting');
-        url.searchParams.delete('series');
-        url.searchParams.delete('assistant_workspace');
       }
       history.pushState({nav: 'assistant', task: taskPath, meeting: opts.meeting || ''}, '', url.pathname + url.search + url.hash);
     }
@@ -15065,10 +15057,8 @@
   // ─── Dashboard: KPI strip ────────────────────────────────────────────────
   // One row of stat tiles above Servers/Terminals, derived from the same
   // _dashServersRows/_dashTermsRows the two sections below already fetch —
-  // no extra endpoint. Reuses the .s-summary/.s-metric classes from the
-  // workbench's own header tiles (Open tasks, Changed files, Tests touched,
-  // Last commit) so the strip reads as the same component, not a bolted-on
-  // widget. Re-rendered at the end of both dashServersRender and
+  // no extra endpoint. Reuses the .s-summary/.s-metric tile styles.
+  // Re-rendered at the end of both dashServersRender and
   // dashTermsRender so a refresh of either section keeps it current.
   function dashKpiTileHtml(label, value, warn) {
     const warnAttr = warn ? ' class="warn"' : '';
@@ -15971,8 +15961,7 @@
     _workspaceDocPath = null;
     _workspaceDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
-    const section = options.subview === 'meetings' ? 'meetings'
-      : (options.subview === 'tasks' || /^tasks-[1-5]$/.test(options.subview || '') || initialTask ? 'tasks' : 'overview');
+    const section = ['notes', 'meetings'].includes(options.subview) ? 'notes' : 'tasks';
     _contextSubView = section;
     const diffTabs = document.getElementById('diffTabs');
     if (diffTabs) diffTabs.style.display = 'none';
@@ -15995,7 +15984,7 @@
 
   function assistantSectionShell(section) {
     if (!document.body.classList.contains('assistant-active')) return;
-    _contextSubView = section === 'overview' ? 'overview' : section;
+    _contextSubView = section;
     _workspaceDocPath = null;
     _workspaceDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
@@ -16039,8 +16028,7 @@
     if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
     renderRepoTabs();
 
-    // Paint the workbench scaffold synchronously. The refresh fills in
-    // tasks, changed areas, and recent commits after first paint.
+    // Paint the directory immediately, then load the registered vaults.
     selfPaintWorkbench();
     const homeWorkspace = currentWorkspace;
     afterPageQuiet(() => {
@@ -16156,60 +16144,12 @@
     }
   }
 
-  // Render the Productivity workbench scaffold into #content. The refresh
-  // functions look for element IDs inside here.
+  // Home is a directory of the client folders, vaults, and workspaces.
   function selfPaintWorkbench() {
     _workspaceDocPath = null;
     _contextSubView = 'overview';
     renderRepoTabs();
-    const content = document.getElementById('content');
-    content.innerHTML = `
-      <div class="s-inner self-workbench">
-        <div class="s-head">
-          <h1>Lab Workbench</h1>
-          <span class="branch" id="selfBranch">...</span>
-        </div>
-        <div class="s-toolbar">
-          <button class="refresh-btn" onclick="selfRefreshWorkbench()">Refresh</button>
-          <button class="refresh-btn" onclick="openWorkspaceDoc('AGENTS.md')">AGENTS.md</button>
-          <button class="refresh-btn" onclick="openWorkspaceDoc('Makefile')">Makefile</button>
-          <button class="refresh-btn" onclick="openWorkspaceDoc('README.md')">README.md</button>
-        </div>
-        <div class="s-summary" id="selfSummary">
-          <div class="s-metric"><span>Open tasks</span><strong>...</strong></div>
-          <div class="s-metric"><span>Changed files</span><strong>...</strong></div>
-          <div class="s-metric"><span>Tests touched</span><strong>...</strong></div>
-          <div class="s-metric"><span>Last commit</span><strong>...</strong></div>
-        </div>
-        <div class="s-workbench-grid">
-          <div class="s-section" id="selfAttentionSection">
-            <h2>Attention</h2>
-            <ul class="s-attention" id="selfAttentionList"><li class="s-empty">Loading...</li></ul>
-          </div>
-          <div class="s-section" id="selfTasksSection">
-            <h2>Open tasks <span class="count" id="selfTasksCount"></span></h2>
-            <ul class="s-tasks" id="selfTasksList"><li class="s-task-empty">Loading tasks...</li></ul>
-            <form class="s-task-form" id="selfTaskForm" onsubmit="return selfAddTask(event)">
-              <input type="text" id="selfTaskTitle" placeholder="New task title..." required />
-              <select id="selfTaskPriority">
-                <option value="P2" selected>P2</option>
-                <option value="P0">P0</option>
-                <option value="P1">P1</option>
-                <option value="P3">P3</option>
-              </select>
-              <button type="submit">Add</button>
-            </form>
-          </div>
-          <div class="s-section" id="selfDiffSection">
-            <h2>Changed areas <span class="count" id="selfDiffCount"></span></h2>
-            <ul class="s-files" id="selfDiffList"><li class="s-empty">Loading changes...</li></ul>
-          </div>
-          <div class="s-section" id="selfCommitsSection">
-            <h2>Recent commits <span class="count" id="selfCommitsCount"></span></h2>
-            <ul class="s-commits" id="selfCommitsList"><li class="s-empty">Loading commits...</li></ul>
-          </div>
-        </div>
-      </div>`;
+    renderDirectoryOverview(document.getElementById('content'));
   }
 
   // Return to the workbench from a doc view.
@@ -16729,239 +16669,43 @@
     );
   }
 
-  function selfPriorityRank(priority) {
-    return ({P0: 0, P1: 1, P2: 2, P3: 3})[priority] ?? 9;
-  }
-
-  function selfOpenTasks(tasks) {
-    return (tasks || []).filter(t => t.status !== 'done').sort((a, b) => {
-      const byPriority = selfPriorityRank(a.priority) - selfPriorityRank(b.priority);
-      if (byPriority !== 0) return byPriority;
-      return String(a.title || '').localeCompare(String(b.title || ''));
-    });
-  }
-
-  function selfAreaForFile(filename) {
-    const f = String(filename || '');
-    if (f.startsWith('core/cli/')) return {key: 'cli', label: 'CLI', rank: 10};
-    if (f.startsWith('core/src/core/static/') || f.startsWith('core/src/core/templates/')) return {key: 'ui', label: 'UI', rank: 20};
-    if (f.startsWith('core/src/core/routes/') || f.startsWith('core/src/core/')) return {key: 'server', label: 'Server', rank: 30};
-    if (f.startsWith('core/tests/') || f.startsWith('core/cli/tests/')) return {key: 'tests', label: 'Tests', rank: 40};
-    if (f.startsWith('docs/') || f === 'README.md' || f === 'AGENTS.md') return {key: 'docs', label: 'Docs', rank: 50};
-    if (f === 'Makefile' || f.endsWith('pyproject.toml') || f === '.gitignore' || f.startsWith('.agents/')) return {key: 'config', label: 'Config', rank: 60};
-    if (f.startsWith('apps/')) return {key: 'apps', label: 'Removed apps', rank: 70};
-    return {key: 'other', label: 'Other', rank: 90};
-  }
-
-  function selfRenderSummary(tasks, files, commits) {
-    const summary = document.getElementById('selfSummary');
-    if (!summary) return;
-    const open = selfOpenTasks(tasks);
-    const urgent = open.filter(t => t.priority === 'P0' || t.priority === 'P1').length;
-    const tests = files.filter(f => selfAreaForFile(f.filename).key === 'tests').length;
-    const latest = commits[0];
-    const latestText = latest ? (latest.short_sha || '').slice(0, 8) : '-';
-    summary.innerHTML = `
-      <div class="s-metric"><span>Open tasks</span><strong>${open.length}</strong>${urgent ? `<em>${urgent} urgent</em>` : ''}</div>
-      <div class="s-metric"><span>Changed files</span><strong>${files.length}</strong></div>
-      <div class="s-metric"><span>Tests touched</span><strong>${tests}</strong></div>
-      <div class="s-metric"><span>Last commit</span><strong>${selfEsc(latestText)}</strong></div>`;
-  }
-
-  function selfRenderAttention(tasks, files) {
-    const list = document.getElementById('selfAttentionList');
-    if (!list) return;
-    const rows = [];
-    const urgentTasks = selfOpenTasks(tasks).filter(t => t.priority === 'P0' || t.priority === 'P1').slice(0, 5);
-    urgentTasks.forEach(t => rows.push({
-      kind: t.priority || 'P?',
-      title: t.title || '(untitled task)',
-      meta: `task #${t.id}`,
-    }));
-
-    const byArea = new Map();
-    files.forEach(f => {
-      const area = selfAreaForFile(f.filename);
-      const current = byArea.get(area.key) || {area, files: []};
-      current.files.push(f);
-      byArea.set(area.key, current);
-    });
-    ['tests', 'server', 'ui', 'cli', 'config'].forEach(key => {
-      const group = byArea.get(key);
-      if (!group || group.files.length === 0) return;
-      rows.push({
-        kind: group.area.label,
-        title: `${group.files.length} changed ${group.files.length === 1 ? 'file' : 'files'}`,
-        meta: group.files.slice(0, 3).map(f => f.filename).join(', '),
-        file: (group.files.find(f => f.status !== 'deleted') || {}).filename,
-      });
-    });
-    if (files.length > 25) {
-      rows.push({kind: 'Size', title: `${files.length} files changed`, meta: 'large working tree'});
-    }
-
-    if (rows.length === 0) {
-      list.innerHTML = '<li class="s-empty">No urgent tasks or risky change areas.</li>';
-      return;
-    }
-    list.innerHTML = rows.slice(0, 8).map(row => {
-      const safePath = row.file ? row.file.replace(/'/g, "\\'") : '';
-      const open = row.file ? ` onclick="openWorkspaceDoc('${safePath}')"` : '';
-      return `<li class="s-attention-row"${open}>
-        <span class="s-attention-kind">${selfEsc(row.kind)}</span>
-        <span class="s-attention-title">${selfEsc(row.title)}</span>
-        <span class="s-attention-meta">${selfEsc(row.meta || '')}</span>
-      </li>`;
+  function overviewVaultsHtml(vaults) {
+    const visible = vaults.filter(vault => String(vault.id).toLowerCase() === 'ssd' || String(vault.name).toLowerCase() === 'ssd');
+    if (!visible.length) return '<p class="overview-empty">SSD vault is not registered.</p>';
+    return visible.map(vault => {
+      const workspaces = (vault.workspace_rows || []).filter(workspace => workspace.is_workspace)
+        .sort((a, b) => _workspaceDisplayName(a).localeCompare(_workspaceDisplayName(b))
+          || a.path.localeCompare(b.path));
+      const workspaceRows = workspaces.map(workspace =>
+        `<li><code>${selfEsc(workspace.path)}</code></li>`).join('');
+      return `<section class="overview-vault">
+        <h3>${selfEsc(vault.name || vault.id)}</h3>
+        <code>${selfEsc(vault.path)}</code>
+        ${vault.unavailable ? '<p class="overview-empty">Vault unavailable.</p>'
+          : workspaceRows ? `<ul class="overview-workspaces">${workspaceRows}</ul>`
+          : '<p class="overview-empty">No workspaces yet.</p>'}
+      </section>`;
     }).join('');
+  }
+
+  function renderDirectoryOverview(content) {
+    content.innerHTML = `<div class="s-inner directory-overview">
+      <div data-overview-vaults>${vaultCatalog.length ? overviewVaultsHtml(vaultCatalog) : '<p class="overview-empty">Loading vaults and workspaces…</p>'}</div>
+    </div>`;
+    return content.querySelector('[data-overview-vaults]');
+  }
+
+  async function refreshOverviewDirectory(host) {
+    if (!host || !host.isConnected) return;
+    const data = await fetchVaultCatalog();
+    if (!host.isConnected) return;
+    const html = overviewVaultsHtml(data.vaults || []);
+    if (host.innerHTML !== html) host.innerHTML = html;
   }
 
   async function selfRefreshWorkbench() {
-    const [tasks, diffDoc, commits] = await Promise.all([
-      selfRefreshTasks(),
-      selfRefreshDiff(),
-      selfRefreshCommits(),
-    ]);
-    const files = (diffDoc && diffDoc.files) || [];
-    selfRenderSummary(tasks, files, commits);
-    selfRenderAttention(tasks, files);
-  }
-
-  async function selfRefreshTasks() {
-    const list = document.getElementById('selfTasksList');
-    const count = document.getElementById('selfTasksCount');
-    let doc = {tasks: []};
-    try {
-      const r = await fetch('/api/workspaces/' + SELF_WORKSPACE_ID + '/tasks');
-      if (r.ok) doc = await r.json();
-    } catch {}
-    const tasks = (doc.tasks || []).slice();
-    const openTasks = selfOpenTasks(tasks);
-    if (!list) return tasks;
-    count.textContent = openTasks.length ? `${openTasks.length} open` : '';
-    if (openTasks.length === 0) {
-      list.innerHTML = '<li class="s-task-empty">No tasks yet. Add one below.</li>';
-      return tasks;
-    }
-    list.innerHTML = openTasks.slice(0, 12).map(t => {
-      const due = t.due ? `<span class="meta">due ${selfEsc(t.due)}</span>` : '';
-      const prClass = (t.priority || 'P2').toLowerCase();
-      return `
-        <li class="s-task" data-tid="${t.id}">
-          <input type="checkbox" class="check" data-tid="${t.id}" />
-          <span class="pr-chip ${prClass}">${selfEsc(t.priority || 'P2')}</span>
-          <span class="title">${selfEsc(t.title)}</span>
-          ${due}
-        </li>`;
-    }).join('');
-    list.querySelectorAll('.check').forEach(cb => {
-      cb.addEventListener('change', () => selfToggleTaskDone(Number(cb.getAttribute('data-tid')), cb.checked));
-    });
-    return tasks;
-  }
-
-  async function selfToggleTaskDone(taskId, done) {
-    try {
-      await fetch(`/api/tasks/${SELF_WORKSPACE_ID}/${taskId}/status`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({status: done ? 'done' : 'reopened'}),
-      });
-    } catch {}
-    await selfRefreshWorkbench();
-  }
-
-  async function selfAddTask(ev) {
-    ev.preventDefault();
-    const input = document.getElementById('selfTaskTitle');
-    const prio = document.getElementById('selfTaskPriority');
-    const title = (input.value || '').trim();
-    if (!title) return false;
-    try {
-      const r = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({workspace_id: SELF_WORKSPACE_ID, title, priority: prio.value}),
-      });
-      if (!r.ok) {
-        const msg = await r.json().catch(() => ({}));
-        alert('Failed to add task: ' + (msg.detail || r.statusText));
-        return false;
-      }
-    } catch (e) { alert('Failed to add task: ' + (e.message || e)); return false; }
-    input.value = '';
-    await selfRefreshWorkbench();
-    return false;
-  }
-
-  async function selfRefreshDiff() {
-    const list = document.getElementById('selfDiffList');
-    const count = document.getElementById('selfDiffCount');
-    const branchEl = document.getElementById('selfBranch');
-    let doc = {files: [], branch: '?'};
-    try {
-      const u = `/api/diff?repo=${encodeURIComponent(SELF_REPO_PATH)}&type=uncommitted&exclude=repositories`;
-      const r = await fetch(u);
-      if (r.ok) doc = await r.json();
-    } catch {}
-    if (branchEl) branchEl.textContent = 'branch ' + (doc.branch || '?');
-    const files = doc.files || [];
-    if (!list) return doc;
-    count.textContent = files.length ? `${files.length} file${files.length === 1 ? '' : 's'}` : '';
-    if (files.length === 0) {
-      list.innerHTML = '<li class="s-empty">Working tree clean.</li>';
-      return doc;
-    }
-    const groups = new Map();
-    files.forEach(f => {
-      const area = selfAreaForFile(f.filename);
-      const group = groups.get(area.key) || {area, files: [], additions: 0, deletions: 0};
-      group.files.push(f);
-      group.additions += f.additions || 0;
-      group.deletions += f.deletions || 0;
-      groups.set(area.key, group);
-    });
-    const sorted = Array.from(groups.values()).sort((a, b) => a.area.rank - b.area.rank);
-    list.innerHTML = sorted.map(group => {
-      const filesHtml = group.files.slice(0, 8).map(f => {
-        const safePath = f.filename.replace(/'/g, "\\'");
-        const isDeleted = f.status === 'deleted';
-        const name = selfEsc(f.filename);
-        const fileLabel = isDeleted
-          ? `<span class="s-file-link disabled">${name}</span>`
-          : `<button type="button" class="s-file-link" onclick="openWorkspaceDoc('${safePath}')">${name}</button>`;
-        return `<li class="s-area-file">${fileLabel}<span class="stats"><span class="adds">+${f.additions || 0}</span><span class="dels">-${f.deletions || 0}</span></span></li>`;
-      }).join('');
-      const more = group.files.length > 8 ? `<li class="s-area-more">+${group.files.length - 8} more</li>` : '';
-      return `<li class="s-area">
-        <div class="s-area-head"><strong>${selfEsc(group.area.label)}</strong><span>${group.files.length} file${group.files.length === 1 ? '' : 's'}</span><span class="stats"><span class="adds">+${group.additions}</span><span class="dels">-${group.deletions}</span></span></div>
-        <ul class="s-area-files">${filesHtml}${more}</ul>
-      </li>`;
-    }).join('');
-    return doc;
-  }
-
-  async function selfRefreshCommits() {
-    const list = document.getElementById('selfCommitsList');
-    const count = document.getElementById('selfCommitsCount');
-    let commits = [];
-    try {
-      const u = `/api/commits?repo=${encodeURIComponent(SELF_REPO_PATH)}&count=30&exclude=repositories`;
-      const r = await fetch(u);
-      if (r.ok) commits = await r.json();
-    } catch {}
-    if (!list) return commits;
-    count.textContent = commits.length ? `${commits.length}` : '';
-    if (commits.length === 0) {
-      list.innerHTML = '<li class="s-empty">No commits yet.</li>';
-      return commits;
-    }
-    list.innerHTML = commits.map(c => `
-      <li class="s-commit" data-sha="${selfEsc(c.sha)}">
-        <span class="sha">${selfEsc(c.short_sha || '')}</span>
-        <span class="msg">${selfEsc(c.message || '')}</span>
-        <span class="who">${selfEsc(c.author || '')} · ${selfEsc(c.date || '')}</span>
-      </li>`).join('');
-    return commits;
+    if (!document.body.classList.contains('self-active') || _contextSubView !== 'overview' || _workspaceDocPath) return;
+    await refreshOverviewDirectory(document.querySelector('#content [data-overview-vaults]'));
   }
 
   // Terminal panel for the Productivity pseudo-workspace: claude session at repo root.

@@ -1209,18 +1209,18 @@ def test_vault_workspaces_card_can_create_in_owning_vault() -> None:
     assert "goToWorkspace(workspace.path);" in source
 
 
-def test_productivity_view_uses_workbench_without_duplicate_hidden_ids() -> None:
+def test_productivity_view_uses_directory_overview() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     lab_app = LAB_APP.read_text(encoding="utf-8")
 
     assert 'id="selfView"' not in html
-    assert html.count('id="selfBranch"') == 1
-    assert html.count('id="selfTasksList"') == 1
-    assert html.count('id="selfDiffList"') == 1
-    assert html.count('id="selfCommitsList"') == 1
-    assert "Lab Workbench" in html
+    for removed in ('selfBranch', 'selfTasksList', 'selfDiffList', 'selfCommitsList', 'selfSummary'):
+        assert f'id="{removed}"' not in html
+        assert f'id="{removed}"' not in lab_app
+    assert 'class="s-inner directory-overview"' in html
+    assert "Loading vaults and workspaces" in html
     assert "selfShowWorkbench()" in lab_app
-    assert "data-workbench=\"1\"" in lab_app
+    assert 'data-workbench="1"' in lab_app
     assert "selfRefreshWorkbench()" in lab_app
 
 

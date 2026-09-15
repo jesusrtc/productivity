@@ -25,7 +25,8 @@ def test_productivity_view_renders_without_mode_flag(client) -> None:
     r = client.get("/?view=productivity")
     assert r.status_code == 200
     assert '<body class="self-active">' in r.text
-    assert "Lab Workbench" in r.text
+    assert 'class="s-inner directory-overview"' in r.text
+    assert "Loading vaults and workspaces" in r.text
     assert "window.LAB_MONOREPO_ROOT" in r.text
 
 

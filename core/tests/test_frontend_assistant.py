@@ -54,13 +54,14 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "Open workspace" not in source
 
 
-def test_assistant_repo_tabs_include_tasks_and_meeting_notes() -> None:
+def test_assistant_repo_tabs_include_only_tasks_and_notes() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
-    assert 'data-assistant-section="overview"' in source
+    assert 'data-assistant-section="overview"' not in source
     assert 'data-assistant-section="tasks"' in source
-    assert 'data-assistant-section="meetings"' in source
+    assert 'data-assistant-section="notes"' in source
+    assert 'data-assistant-section="meetings"' not in source
     assert "AssistantView.setSection('tasks')" in source
-    assert "AssistantView.setSection('meetings')" in source
+    assert "AssistantView.setSection('notes')" in source
     assert 'data-assistant-section="tasks-1"' not in source
 
 
@@ -73,13 +74,18 @@ def test_assistant_is_configurable_from_home_admin() -> None:
     assert "ASSISTANT_ROOT = data.root" in source
 
 
-def test_assistant_reuses_workspace_sidebar_and_has_overview() -> None:
+def test_assistant_reuses_workspace_sidebar_and_defaults_to_tasks() -> None:
     app = LAB_APP.read_text(encoding="utf-8")
     view = ASSISTANT_APP.read_text(encoding="utf-8")
     assert "_sidebarActivateFileConfig();" in app
     assert "if (ASSISTANT_ROOT) _refreshWorkspaceSidebar();" in app
     assert "function assistantSectionShell" in app
-    assert "function renderOverview" in view
-    assert "Recently updated" in view
+    assert "function renderOverview" not in view
+    assert "section: 'tasks'" in view
+    assert "function renderNotes" in view
+    assert "Other notes" in view
+    assert "assistantOverviewTasks" not in view
+    assert "assistant-overview-stats" not in view
+    assert "Recently updated" not in view
     assert "Assistant folder" in view
     assert "renderSidebar()" not in view

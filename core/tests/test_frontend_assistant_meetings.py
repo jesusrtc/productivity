@@ -44,18 +44,37 @@ const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r
 const host=()=>document.getElementById('assistantModalDocument');
 const nav=()=>document.getElementById('assistantDocumentNav');
 const part=id=>nav().querySelector(`[data-meeting-part="${id}"]`).click();
-let copied='', delayed;
+let copied='', delayed, openedNote;
+window.openWorkspaceDocModal=(path,options)=>{openedNote={path,...options}};
 Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{copied=text}}});
 window.fetch=async url=>{
  const u=new URL(url,'https://lab.example');
  if(u.pathname==='/api/assistant')return {ok:true,json:async()=>FIX.index};
- if(u.pathname==='/api/workspace-files')return {ok:true,json:async()=>[]};
+ if(u.pathname==='/api/workspace-files')return {ok:true,json:async()=>[
+  {path:'notes/Ideas & plans.md',mtime:2}, {path:'journal.txt',mtime:1},
+  {path:'projects/demo/tasks/task.md'}, {path:'workspaces/demo/subtasks/child.md'},
+  {path:'projects/demo/meetings/meeting.md'}, {path:'workspaces/demo/meeting-series/weekly.md'},
+  {path:'AGENTS.md'}, {path:'README.md'}, {path:'.agents/memory/secret.md'},
+  {path:'projects/demo/project.md'}, {path:'notes/folder.md',type:'dir'}
+ ]};
  const path=u.searchParams.get('path');
  if(path==='delayed')return new Promise(resolve=>{delayed=resolve});
  return {ok:!!FIX.details[path],json:async()=>FIX.details[path]||{detail:'Missing content'}};
 };
 (async()=>{
+ AssistantView.init();
+ await until(()=>document.querySelector('[data-assistant-task]'));
+ assert(AssistantView.section()==='tasks','Assistant opens to Tasks');
+ AssistantView.setSection('notes');
+ await until(()=>document.querySelector('[data-assistant-view="other_notes"]'));
+ document.querySelector('[data-assistant-view="other_notes"]').click();
+ await until(()=>document.querySelectorAll('[data-assistant-note]').length===2);
+ assert(document.querySelector('[data-assistant-note]').textContent.includes('Ideas & plans'),'notes safely render names');
+ document.querySelector('[data-assistant-note]').click();
+ assert(openedNote.path==='notes/Ideas & plans.md'&&openedNote.root==='/fixture','notes open from the Assistant folder');
+ assert(!document.getElementById('content').querySelector('[data-assistant-meeting]'),'other notes do not duplicate meeting notes');
  AssistantView.init({section:'meetings'});
+ assert(AssistantView.section()==='notes','legacy meeting navigation opens Notes');
  await until(()=>document.querySelectorAll('[data-testid="assistant-meeting-row"]').length===2);
  const groups=[...document.querySelectorAll('[data-assistant-meeting-date]')];
  assert(groups[0].dataset.assistantMeetingDate==='2026-09-14','newest date first');

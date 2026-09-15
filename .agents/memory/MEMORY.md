@@ -176,3 +176,7 @@
 - [Daily feature usage counters](daily-feature-usage-counters.md) — Logs shows daily feature counts sorted by use, with distinct UI interaction methods and persistent counters separate from diagnostics
 
 - [File modal browses sibling files](file-modal-browses-sibling-files.md) — double-click selects a file; Cmd-click browses a folder in the same modal with files on the left
+
+- [Home overview is a directory](home-overview-is-a-directory.md)
+
+- [Assistant opens to Tasks and Notes](assistant-opens-to-tasks-and-notes.md)

@@ -3,8 +3,9 @@
 
   const state = {
     data: null,
-    files: [],
-    section: 'overview',
+    section: 'tasks',
+    noteFiles: [],
+    notesError: '',
     selectedTaskPath: '',
     selectedSubtaskPath: '',
     selectedMeetingPath: '',
@@ -253,10 +254,10 @@
   function setSection(section, options = {}) {
     closeDocumentModal(false);
     const previousSection = state.section;
-    state.section = ['overview', 'tasks', 'meetings'].includes(section) ? section : 'overview';
+    state.section = ['notes', 'meetings'].includes(section) ? 'notes' : 'tasks';
     if (state.section !== previousSection) { state.search = ''; clearTimeout(state.searchTimer); }
-    if (state.section === 'meetings' && previousSection !== 'meetings') state.workspace = '';
-    state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
+    if (state.section === 'notes' && previousSection !== 'notes') state.workspace = '';
+    state.view = isTaskSection() ? 'all_open' : 'meetings';
     state.status = '';
     state.priority = '';
     if (isTaskSection() && !workspaceRows().some(workspace => workspace.id === state.workspace)) {
@@ -266,13 +267,10 @@
     if (!options.history) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
-      if (state.section === 'meetings') { url.searchParams.set('subview', 'meetings'); url.searchParams.delete('assistant_workspace'); }
+      if (state.section === 'notes') { url.searchParams.set('subview', 'notes'); url.searchParams.delete('assistant_workspace'); }
       else if (state.section === 'tasks') {
         url.searchParams.set('subview', 'tasks');
         if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
-      } else {
-        url.searchParams.delete('subview');
-        url.searchParams.delete('assistant_workspace');
       }
       if (state.section !== 'tasks') url.searchParams.delete('task');
       url.searchParams.delete('meeting');
@@ -282,6 +280,7 @@
     if (window.assistantSectionShell) window.assistantSectionShell(state.section);
     syncSectionTabs();
     render();
+    if (state.section === 'notes') void refresh();
   }
 
   function progressLabel(done, total, noun = 'subtasks') {
@@ -328,76 +327,34 @@
     </div>`;
   }
 
-  function openTaskCount() {
-    return countWhere(tasks(), task => task.status !== 'done');
+  function otherNotes() {
+    const workspaces = state.data?.workspaces || [];
+    const needle = state.search.trim().toLowerCase();
+    return (state.noteFiles || []).filter(file => {
+      const path = String(file.path || '');
+      if (file.type === 'dir' || !/\.(md|markdown|txt)$/i.test(path)) return false;
+      if (path.split('/').some(part => part.startsWith('.'))) return false;
+      if (/^(workspaces|projects)\/[^/]+\/(tasks|subtasks|meetings|meeting-series)(\/|$)/i.test(path)) return false;
+      return !/^(AGENTS|CLAUDE|README|SKILL|workspace|project)\.md$/i.test(path.split('/').pop());
+    }).map(file => {
+      const workspace = workspaces.find(row => row.path && file.path.startsWith(row.path.slice(0, row.path.lastIndexOf('/') + 1)));
+      return {...file, workspace: workspace?.id || '', title: file.path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '').replace(/[-_]/g, ' ')};
+    }).filter(note => (!state.workspace || note.workspace === state.workspace)
+      && (!needle || `${note.title} ${note.path}`.toLowerCase().includes(needle)))
+      .sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0) || a.path.localeCompare(b.path));
   }
 
-  function recentFiles() {
-    return [...state.files]
-      .filter(file => file && file.type !== 'dir' && file.path && !file.path.startsWith('.lab/'))
-      .sort((left, right) => Number(right.mtime || 0) - Number(left.mtime || 0))
-      .slice(0, 10);
-  }
-
-  function updatedLabel(seconds) {
-    const time = Number(seconds || 0) * 1000;
-    if (!Number.isFinite(time) || time <= 0) return '';
-    const elapsed = Math.max(0, Date.now() - time);
-    if (elapsed < 60000) return 'just now';
-    if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)}m ago`;
-    if (elapsed < 86400000) return `${Math.floor(elapsed / 3600000)}h ago`;
-    if (elapsed < 7 * 86400000) return `${Math.floor(elapsed / 86400000)}d ago`;
-    return displayDate(new Date(time).toISOString());
-  }
-
-  function renderOverview(content) {
-    const open = openTaskCount();
-    const active = countWhere(tasks(), task => task.status === 'in_progress');
-    const review = countWhere(tasks(), hasReview);
-    const urgent = countWhere(tasks(), task => task.status !== 'done' && task.priority === 'P0');
-    const recent = recentFiles();
-    const workspaces = workspaceRows();
-    content.innerHTML = `<div class="assistant-shell assistant-overview-shell">
-      <header class="assistant-overview-hero">
-        <div><span class="assistant-kicker">Across all vaults</span><h1>Assistant</h1><p>Tasks, notes, and agent-ready context across every Lab vault.</p></div>
-        <button type="button" class="refresh-btn" id="assistantOverviewTasks">Open tasks</button>
-      </header>
-      <div class="assistant-overview-stats">
-        <div><strong>${open}</strong><span>Open tasks</span></div>
-        <div><strong>${active}</strong><span>In progress</span></div>
-        <div><strong>${review}</strong><span>Ready to review</span></div>
-        <div><strong>${urgent}</strong><span>P0</span></div>
-      </div>
-      <div class="assistant-overview-grid">
-        <section class="assistant-overview-card">
-          <header><h2>Recently updated</h2><span>${recent.length}</span></header>
-          <div class="assistant-recent-files">${recent.length ? recent.map(file => `<button type="button" data-assistant-file="${e(file.path)}"><span><b>${e(file.path.split('/').pop())}</b><small>${e(file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : 'Assistant root')}</small></span><time>${e(updatedLabel(file.mtime))}</time></button>`).join('') : '<p class="assistant-overview-empty">No files yet.</p>'}</div>
-        </section>
-        <section class="assistant-overview-card">
-          <header><h2>Workspaces</h2><span>${workspaces.length}</span></header>
-          <div class="assistant-overview-workspaces">${workspaces.length ? workspaces.map(workspace => {
-            const rows = tasks().filter(task => task.workspace === workspace.id);
-            const pending = countWhere(rows, task => task.status !== 'done');
-            return `<button type="button" data-assistant-overview-workspace="${e(workspace.id)}"><span><b>${e(workspace.name || workspace.id)}</b><small>${e(workspace.vault || 'Unmapped vault')}</small></span><strong>${pending} open</strong></button>`;
-          }).join('') : '<p class="assistant-overview-empty">No mapped workspaces yet.</p>'}</div>
-        </section>
-      </div>
-      <section class="assistant-root-card"><span>Assistant folder</span><code>${e(state.data.root || '')}</code><small>Managed from Home → Admin. New terminals and all file views use this location.</small></section>
-    </div>`;
-    document.getElementById('assistantOverviewTasks')?.addEventListener('click', () => setSection('tasks'));
-    content.querySelectorAll('[data-assistant-file]').forEach(button => {
-      button.addEventListener('click', () => {
-        if (window.openWorkspaceDocFromFileClick) {
-          window.openWorkspaceDocFromFileClick(button.dataset.assistantFile, {root: state.data.root});
-        }
-      });
-    });
-    content.querySelectorAll('[data-assistant-overview-workspace]').forEach(button => {
-      button.addEventListener('click', () => {
-        state.workspace = button.dataset.assistantOverviewWorkspace;
-        setSection('tasks');
-      });
-    });
+  function renderOtherNotes() {
+    const rows = otherNotes();
+    return `<div class="assistant-filters">
+      <input type="search" id="assistantSearch" value="${e(state.search)}" placeholder="Search notes…" aria-label="Search Assistant notes">
+      ${workspaceSelect(rows)}<span class="assistant-filter-count">${rows.length} note${rows.length === 1 ? '' : 's'}</span>
+    </div><section class="assistant-list assistant-list-single" aria-label="Other notes">
+      ${state.notesError ? `<div class="assistant-empty">${e(state.notesError)}</div>` : rows.map(note => `<article class="assistant-list-item">
+        <button type="button" class="assistant-compact-row assistant-note-row" data-assistant-note="${e(note.path)}">
+          <span class="assistant-row-content"><strong>${e(note.title)}</strong><small>${e(note.path)}</small></span>
+        </button></article>`).join('') || '<div class="assistant-empty">No other notes yet.</div>'}
+    </section>`;
   }
 
   function workspaceRows() {
@@ -471,12 +428,12 @@
       <section class="assistant-list assistant-list-single assistant-task-date-list" aria-label="Tasks by creation date" data-testid="assistant-list">${dateGroups(rows, taskCard, row => taskCreatedDate(row.created), 'task') || emptyTasks()}</section>`;
   }
 
-  function renderMeetings(rows) {
+  function renderNotes(rows) {
     const seriesView = state.view === 'meeting_series';
     const visible = seriesView ? filteredSeries() : rows;
-    return `<nav class="assistant-quick-views compact" aria-label="Meeting views">
-      ${[['meetings', 'All meetings'], ['meeting_series', 'Series'], ['meeting_actions', 'Open action items']].map(([id, title]) => `<button type="button" class="${state.view === id ? 'active' : ''}" data-assistant-view="${id}">${title}</button>`).join('')}
-    </nav>${filterBar(visible)}<section class="assistant-list assistant-list-single" aria-label="Meeting notes" data-testid="assistant-list">${dateGroups(sortedMeetings(visible, seriesView ? 'latest_date' : 'date'), seriesView ? seriesCard : meetingCard, row => calendarDate(row[seriesView ? 'latest_date' : 'date']), 'meeting') || '<div class="assistant-empty">No meetings match this view.</div>'}</section>`;
+    return `<nav class="assistant-quick-views compact" aria-label="Note views">
+      ${[['meetings', 'Meeting notes'], ['other_notes', 'Other notes'], ['meeting_series', 'Series'], ['meeting_actions', 'Open action items']].map(([id, title]) => `<button type="button" class="${state.view === id ? 'active' : ''}" data-assistant-view="${id}">${title}</button>`).join('')}
+    </nav>${state.view === 'other_notes' ? renderOtherNotes() : `${filterBar(visible)}<section class="assistant-list assistant-list-single" aria-label="Meeting notes" data-testid="assistant-list">${dateGroups(sortedMeetings(visible, seriesView ? 'latest_date' : 'date'), seriesView ? seriesCard : meetingCard, row => calendarDate(row[seriesView ? 'latest_date' : 'date']), 'meeting') || '<div class="assistant-empty">No meetings match this view.</div>'}</section>`}`;
   }
 
   function render() {
@@ -489,17 +446,13 @@
       renderSetup(content);
       return;
     }
-    if (state.section === 'overview') {
-      renderOverview(content);
-      return;
-    }
     const rows = isTaskSection() ? filteredTasks() : filteredMeetings();
     const workspace = workspaceRows().find(item => item.id === state.workspace);
     const proposal = isTaskSection()
       ? `Lab workspace · ${workspace ? workspace.name || workspace.id : 'Tasks'}`
       : 'Global Assistant';
-    const title = isTaskSection() ? 'Tasks' : 'Meeting notes';
-    const body = isTaskSection() ? renderTasks(rows) : renderMeetings(rows);
+    const title = isTaskSection() ? 'Tasks' : 'Notes';
+    const body = isTaskSection() ? renderTasks(rows) : renderNotes(rows);
     content.innerHTML = `<div class="assistant-shell assistant-minimal-shell assistant-layout-${e(state.section)}">
       <header class="assistant-head">
         <div><span class="assistant-kicker">${e(proposal)}</span><h1>${e(title)}</h1></div>
@@ -543,6 +496,11 @@
     content.querySelectorAll('[data-assistant-task]').forEach(button => bindRow(button, 'task'));
     content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
     bindSeries(content);
+    content.querySelectorAll('[data-assistant-note]').forEach(button => {
+      button.addEventListener('click', () => {
+        window.openWorkspaceDocModal(button.dataset.assistantNote, {root: state.data.root});
+      });
+    });
     content.querySelectorAll('[data-assistant-nudge]').forEach(button => {
       button.addEventListener('click', event => {
         event.stopPropagation();
@@ -594,7 +552,7 @@
         url.searchParams.delete('meeting');
         if (path) url.searchParams.set('task', path);
       } else {
-        url.searchParams.set('subview', 'meetings');
+        url.searchParams.set('subview', 'notes');
         url.searchParams.delete('task');
         if (path) url.searchParams.set('meeting', path);
       }
@@ -815,7 +773,7 @@
     host.querySelectorAll('[data-assistant-series]').forEach(button => button.addEventListener('click', () => {
       const path = button.dataset.assistantSeries;
       const url = new URL(window.location);
-      url.searchParams.set('view', 'assistant'); url.searchParams.set('subview', 'meetings');
+      url.searchParams.set('view', 'assistant'); url.searchParams.set('subview', 'notes');
       url.searchParams.set('series', path); url.searchParams.delete('meeting'); url.searchParams.delete('task');
       url.searchParams.delete('assistant_workspace');
       history.pushState({nav:'assistant', series:path}, '', url.pathname + url.search + url.hash);
@@ -941,11 +899,18 @@
       if (!response.ok) throw new Error(data.detail || response.statusText);
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       state.data = data;
-      if (data.exists && data.root) {
-        const filesResponse = await fetch('/api/workspace-files?path=' + encodeURIComponent(data.root));
-        state.files = filesResponse.ok ? await filesResponse.json() : [];
-      } else {
-        state.files = [];
+      if (section === 'notes' && data.exists && data.root) {
+        try {
+          const filesResponse = await fetch('/api/workspace-files?path=' + encodeURIComponent(data.root));
+          if (!filesResponse.ok) throw new Error('Could not load other notes. Use Refresh to try again.');
+          const files = await filesResponse.json();
+          if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
+          state.noteFiles = Array.isArray(files) ? files : [];
+          state.notesError = '';
+        } catch (error) {
+          if (request !== state.request) return;
+          state.notesError = error.message || 'Could not load other notes.';
+        }
       }
       if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
       if (section === state.section) {
@@ -975,12 +940,12 @@
   function init(initial = '') {
     closeDocumentModal(false);
     const options = typeof initial === 'object' && initial !== null ? initial : {task: initial};
-    state.section = ['overview', 'tasks', 'meetings'].includes(options.section) ? options.section : 'overview';
+    state.section = ['notes', 'meetings'].includes(options.section) ? 'notes' : 'tasks';
     state.selectedTaskPath = options.task || '';
     state.selectedSubtaskPath = '';
     state.selectedMeetingPath = options.meeting || '';
     state.selectedSeriesPath = options.series || '';
-    state.view = isTaskSection() ? 'all_open' : state.section === 'meetings' ? 'meetings' : 'overview';
+    state.view = isTaskSection() ? 'all_open' : 'meetings';
     state.status = '';
     state.priority = '';
     state.workspace = isTaskSection() ? options.workspace || new URL(window.location).searchParams.get('assistant_workspace') || '' : '';
