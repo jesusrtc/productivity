@@ -180,3 +180,5 @@
 - [Home overview is a directory](home-overview-is-a-directory.md)
 
 - [Assistant opens to Tasks and Notes](assistant-opens-to-tasks-and-notes.md)
+
+- [Command+K keeps the active file scope](command-k-keeps-file-scope.md) — selected folder/worktree only; Recently updated formats first, then newest modified; opening preserves context

@@ -455,6 +455,23 @@
   .wadd { background: #196c2e; color: #aff5b4 !important; border-radius: 2px; }
 
   /* Modal */
+  .quick-file-picker { width: min(680px, calc(100vw - 32px)); max-height: 80vh; margin: 10vh auto 0; padding: 0; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 20px 70px #0008; overflow: hidden; }
+  .quick-file-picker::backdrop { background: #0008; }
+  .quick-file-picker[open] { display: flex; flex-direction: column; }
+  .quick-file-picker header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 6px; }
+  .quick-file-picker h2 { margin: 0; font-size: 16px; }
+  .quick-file-picker header button { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); padding: 3px 7px; cursor: pointer; }
+  .quick-file-scope { padding: 0 18px 12px; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+  .quick-file-picker input { margin: 0 14px 12px; padding: 12px; min-width: 0; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; font: inherit; outline-color: var(--accent); }
+  .quick-file-picker ul { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0 8px; list-style: none; }
+  .quick-file-picker li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 5px; cursor: pointer; }
+  .quick-file-picker li:hover { background: var(--bg-tertiary); }
+  .quick-file-picker li[aria-selected="true"] { background: var(--bg-tertiary); outline: 1px solid var(--accent); outline-offset: -1px; }
+  .quick-file-picker li > span { min-width: 0; }
+  .quick-file-picker li strong { display: block; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+  .quick-file-picker li small { display: block; color: var(--text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+  .quick-file-picker footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; padding: 12px 18px; color: var(--text-secondary); font-size: 11px; border-top: 1px solid var(--border); }
+
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; justify-content: center; align-items: center; }
   .modal-overlay.active { display: flex; }
 

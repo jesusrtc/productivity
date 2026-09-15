@@ -7460,6 +7460,179 @@
     }
   }
 
+  // Command+K searches one captured sidebar scope. Results never navigate to
+  // another workspace or synchronize a linked terminal's folder/worktree.
+  let _quickFilePicker = null;
+
+  function _quickFileScope() {
+    const baseRoot = _sidebarWorktreeBaseRoot();
+    if (!baseRoot || !currentWorkspace) return null;
+    const folderRoot = _sidebarWorkspaceRoot(baseRoot);
+    const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
+    const worktree = worktreeFolder
+      ? String(_sidebarFileConfig.selectedWorktrees?.[folderRoot] || '') : '';
+    return {workspace: currentWorkspace.path, repo: currentRepo, baseRoot,
+      folderRoot, worktreeFolder, root: worktree || folderRoot};
+  }
+
+  function _quickFileScopeIsActive(scope) {
+    return JSON.stringify(scope) === JSON.stringify(_quickFileScope());
+  }
+
+  function _quickFileMatches(files, query) {
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = files.filter(file => file && file.type !== 'dir' && !file.broken
+      && typeof file.path === 'string' && file.path
+      && terms.every(term => file.path.toLowerCase().includes(term)));
+    const modified = file => Number.isFinite(Number(file.mtime)) ? Number(file.mtime) : 0;
+    return matches.map(file => ({file, preferred: Number(_sidebarRecentTypeAllowed(file)), mtime: modified(file)}))
+      .sort((a, b) => b.preferred - a.preferred || b.mtime - a.mtime || a.file.path.localeCompare(b.file.path))
+      .map(row => row.file);
+  }
+
+  function _quickFileClose() {
+    const state = _quickFilePicker;
+    if (!state) return;
+    _quickFilePicker = null;
+    state.controller.abort();
+    state.dialog.close();
+    state.dialog.remove();
+  }
+
+  async function _quickFileOpenResult(index) {
+    const state = _quickFilePicker;
+    const file = state?.matches[index];
+    if (!file) return;
+    if (!_quickFileScopeIsActive(state.scope)) {
+      _quickFileClose();
+      return;
+    }
+    const scope = state.scope;
+    _quickFileClose();
+    _termCancelPendingLinkedFileOpen();
+    if (scope.repo) {
+      _repoFileRoot = scope.root;
+      await openWorkspaceFile(file.path);
+    } else {
+      await openWorkspaceDoc(file.path, {root: scope.root});
+    }
+  }
+
+  function _quickFileSelect(index) {
+    const state = _quickFilePicker;
+    if (!state || !state.matches.length) return;
+    state.selected = Math.max(0, Math.min(index, state.matches.length - 1));
+    state.list.querySelectorAll('[data-file-index]').forEach((row, i) => {
+      row.setAttribute('aria-selected', String(i === state.selected));
+      if (i === state.selected) {
+        state.input.setAttribute('aria-activedescendant', row.id);
+        row.scrollIntoView({block: 'nearest'});
+      }
+    });
+  }
+
+  function _quickFileRender() {
+    const state = _quickFilePicker;
+    if (!state) return;
+    if (!_quickFileScopeIsActive(state.scope)) {
+      _quickFileClose();
+      return;
+    }
+    const matches = _quickFileMatches(state.files, state.input.value);
+    state.matches = matches.slice(0, 100);
+    state.input.removeAttribute('aria-activedescendant');
+    state.list.innerHTML = state.matches.map((file, index) => {
+      const name = file.path.split('/').pop();
+      return `<li role="option" id="quickFileResult-${index}" data-file-index="${index}" aria-selected="false" title="${escAttr(file.path)}">
+        ${fileIconHtml(name, file)}<span><strong>${esc(name)}</strong><small>${esc(file.path)}</small></span>
+      </li>`;
+    }).join('');
+    state.status.textContent = state.loading ? 'Loading files…' : state.error
+      || (matches.length ? `${matches.length} files${matches.length > 100 ? ' · Showing first 100; keep typing to narrow' : ''}`
+        : state.input.value.trim() ? 'No matching files in this folder.' : 'No files in this folder.');
+    state.list.setAttribute('aria-busy', String(state.loading));
+    _quickFileSelect(0);
+  }
+
+  async function openQuickFilePicker() {
+    if (_quickFilePicker) {
+      _quickFilePicker.input.focus();
+      _quickFilePicker.input.select();
+      return;
+    }
+    const scope = _quickFileScope();
+    if (!scope) return;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'quick-file-picker';
+    dialog.setAttribute('aria-labelledby', 'quickFileTitle');
+    dialog.innerHTML = `<header><h2 id="quickFileTitle">Find files</h2><button type="button" aria-label="Close file search">Esc</button></header>
+      <div class="quick-file-scope" title="${escAttr(scope.root)}">${esc(scope.root)}</div>
+      <input id="quickFileInput" type="text" role="combobox" aria-label="Find files in the active folder" aria-controls="quickFileResults" aria-expanded="true" aria-autocomplete="list" placeholder="Type a file name or path…" autocomplete="off" spellcheck="false" autofocus>
+      <ul id="quickFileResults" role="listbox" aria-label="Matching files"></ul>
+      <footer><span role="status"></span><span>Recently updated formats first · Modified ↓</span><span>↑↓ select · Enter open</span></footer>`;
+    const state = {dialog, scope, files: [], matches: [], selected: 0, loading: true, error: '',
+      controller: new AbortController(), input: dialog.querySelector('input'),
+      list: dialog.querySelector('ul'), status: dialog.querySelector('[role="status"]')};
+    _quickFilePicker = state;
+    dialog.querySelector('button').addEventListener('click', _quickFileClose);
+    dialog.addEventListener('cancel', event => { event.preventDefault(); _quickFileClose(); });
+    dialog.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      _quickFileClose();
+    });
+    dialog.addEventListener('click', event => { if (event.target === dialog) _quickFileClose(); });
+    state.input.addEventListener('input', _quickFileRender);
+    state.input.addEventListener('keydown', event => {
+      if (event.isComposing) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        _quickFileSelect(state.selected + (event.key === 'ArrowDown' ? 1 : -1));
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        void _quickFileOpenResult(state.selected);
+      }
+    });
+    state.list.addEventListener('click', event => {
+      const row = event.target.closest('[data-file-index]');
+      if (row) void _quickFileOpenResult(Number(row.dataset.fileIndex));
+    });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    state.input.focus();
+    _quickFileRender();
+    try {
+      await _sidebarEnsureWorktrees(scope.baseRoot);
+      if (_quickFilePicker !== state) return;
+      if (!_quickFileScopeIsActive(scope)) { _quickFileClose(); return; }
+      if (_sidebarScopedRoot(scope.baseRoot) !== scope.root) {
+        throw new Error('The selected worktree is unavailable. Select an available folder and try again.');
+      }
+      const params = new URLSearchParams({path: scope.root, include_dotfiles: String(showWorkspaceDotFiles)});
+      const response = await fetch(`/api/workspace-files?${params}`, {signal: state.controller.signal});
+      if (!response.ok) throw new Error('Could not load files. Close search and try again.');
+      const files = await response.json();
+      if (!Array.isArray(files)) throw new Error('Could not load files. Close search and try again.');
+      state.files = files;
+    } catch (error) {
+      state.error = error.message || 'Could not load files.';
+    } finally {
+      if (_quickFilePicker === state) {
+        state.loading = false;
+        _quickFileRender();
+      }
+    }
+  }
+  window.openQuickFilePicker = openQuickFilePicker;
+  document.addEventListener('keydown', event => {
+    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k'
+        || event.altKey || event.shiftKey || event.isComposing || !_quickFileScope()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat) void openQuickFilePicker();
+  }, true);
+
   function openWorkspaceDocFromFileClick(filepath, {root = null} = {}) {
     if (!currentWorkspace) return;
     const docRoot = root || currentWorkspace.path;
