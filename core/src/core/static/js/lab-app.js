@@ -3890,6 +3890,82 @@
     return `<button class="nb-cell-expand" type="button" data-nb-expand-cell title="Open notebook at this cell (⌘-click cell)" aria-label="Open notebook at this cell">⤢</button>`;
   }
 
+  function _notebookAnchorTextNodes(area) {
+    const root = area.querySelector('.nb-cell-edit-highlight code') || area;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: node => node.parentElement?.closest('script, style, textarea, .nb-click-point')
+        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+    });
+    const nodes = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
+    return nodes;
+  }
+
+  function _notebookAnchorTextRect(area, anchor) {
+    let offset = anchor.offset;
+    for (const node of _notebookAnchorTextNodes(area)) {
+      if (offset < node.length) {
+        if (node.data.slice(offset, offset + anchor.character.length) !== anchor.character) return null;
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + anchor.character.length);
+        return range.getBoundingClientRect();
+      }
+      offset -= node.length;
+    }
+    return null;
+  }
+
+  function _notebookClickedText(area, event) {
+    const editor = area.querySelector('.nb-cell-edit-area');
+    const highlight = area.querySelector('.nb-cell-edit-highlight');
+    let caret;
+    // Hit-test the editor's identically styled text mirror. A textarea's DOM
+    // exposes its value, but no range rectangles for its individual characters.
+    const editorEvents = editor?.style.pointerEvents;
+    const highlightEvents = highlight?.style.pointerEvents;
+    try {
+      if (editor && highlight) {
+        editor.style.pointerEvents = 'none';
+        highlight.style.pointerEvents = 'auto';
+      }
+      if (document.caretRangeFromPoint) {
+        caret = document.caretRangeFromPoint(event.clientX, event.clientY);
+      } else if (document.caretPositionFromPoint) {
+        const position = document.caretPositionFromPoint(event.clientX, event.clientY);
+        if (position) caret = {startContainer: position.offsetNode, startOffset: position.offset};
+      }
+    } finally {
+      if (editor && highlight) {
+        editor.style.pointerEvents = editorEvents;
+        highlight.style.pointerEvents = highlightEvents;
+      }
+    }
+    if (!caret || caret.startContainer.nodeType !== Node.TEXT_NODE) return null;
+    const nodes = _notebookAnchorTextNodes(area);
+    const index = nodes.indexOf(caret.startContainer);
+    if (index < 0) return null;
+    const node = nodes[index];
+    const preceding = nodes.slice(0, index).reduce((total, item) => total + item.length, 0);
+    // A caret sits at the nearer edge of a character. Try both sides so the
+    // right half of a glyph stays on that glyph, including after line wrapping.
+    for (let offset of [caret.startOffset, caret.startOffset - 1]) {
+      if (offset < 0 || offset >= node.length) continue;
+      if (/[\uDC00-\uDFFF]/.test(node.data[offset]) && offset > 0) offset--;
+      const character = String.fromCodePoint(node.data.codePointAt(offset));
+      const anchor = {offset: preceding + offset, character};
+      const rect = _notebookAnchorTextRect(area, anchor);
+      if (!rect || !rect.width || !rect.height) continue;
+      if (event.clientX < rect.left - 1 || event.clientX > rect.right + 1
+          || event.clientY < rect.top - 1 || event.clientY > rect.bottom + 1) continue;
+      return {...anchor,
+        x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+      };
+    }
+    return null;
+  }
+
   function _notebookClickPoint(cell, event) {
     // Keep the position within its own area: revealing hidden code in the
     // modal must not move a click in the results up into the source.
@@ -3904,6 +3980,7 @@
       index: selector ? Array.from(cell.querySelectorAll(selector)).indexOf(area) : 0,
       x: Math.max(0, Math.min(1, (event.clientX - rect.left) / (rect.width || 1))),
       y: Math.max(0, Math.min(1, (event.clientY - rect.top) / (rect.height || 1))),
+      text: _notebookClickedText(region, event),
     };
   }
 
@@ -3928,11 +4005,13 @@
     function center() {
       if (stopped) return;
       if (!cell.isConnected || !container.isConnected) { stop(); return; }
-      const rect = area.getBoundingClientRect();
+      const textRect = point.text && _notebookAnchorTextRect(area, point.text);
+      const rect = textRect?.width && textRect?.height ? textRect : area.getBoundingClientRect();
+      const position = rect === textRect ? point.text : point;
       const cellRect = cell.getBoundingClientRect();
       const viewport = container.getBoundingClientRect();
-      const x = rect.left + rect.width * point.x;
-      const y = rect.top + rect.height * point.y;
+      const x = rect.left + rect.width * position.x;
+      const y = rect.top + rect.height * position.y;
       // Rects include Focus-mode zoom; scroll offsets and CSS positions do not.
       const cellScale = cellRect.width / cell.offsetWidth || 1;
       const viewportScale = viewport.height / container.offsetHeight || 1;
@@ -6750,6 +6829,42 @@
   let _docModalEscHandler = null;
   let _docModalFilesGeneration = 0;
 
+  function _docModalSortOptions() {
+    return [
+      ['mtime-desc', 'Modified: newest first'], ['mtime-asc', 'Modified: oldest first'],
+      ['name-asc', 'Name: A–Z'], ['name-desc', 'Name: Z–A'],
+      ['created-desc', 'Created: newest first'], ['created-asc', 'Created: oldest first'],
+    ];
+  }
+
+  function _docModalSortKey(filepath, root) {
+    return 'labDocModalSort:' + JSON.stringify([root.replace(/\/+$/, ''), filepath]);
+  }
+
+  function _readDocModalSort(filepath, root) {
+    try {
+      const saved = localStorage.getItem(_docModalSortKey(filepath, root));
+      if (_docModalSortOptions().some(([value]) => value === saved)) return saved;
+    } catch {}
+    return 'mtime-desc';
+  }
+
+  function _sortDocModalFiles(files, order) {
+    const [field, direction] = order.split('-');
+    const sign = direction === 'asc' ? 1 : -1;
+    return [...files].sort((a, b) => {
+      const name = a.path.localeCompare(b.path, undefined, {numeric: true});
+      if (field === 'name') return sign * name;
+      const aTime = Number(a[field]), bTime = Number(b[field]);
+      const aKnown = Number.isFinite(aTime) && aTime > 0;
+      const bKnown = Number.isFinite(bTime) && bTime > 0;
+      // Filesystems without birth times and missing files stay last in both
+      // directions, without pretending their modification time is creation.
+      if (aKnown !== bKnown) return aKnown ? -1 : 1;
+      return (aKnown ? sign * (aTime - bTime) : 0) || name;
+    });
+  }
+
   async function _loadDocModalFiles(filepath, root) {
     const generation = ++_docModalFilesGeneration;
     const workspacePath = currentWorkspace.path;
@@ -6757,8 +6872,10 @@
     const folder = filepath.includes('/') ? filepath.slice(0, filepath.lastIndexOf('/')) : '';
     const directory = root.replace(/\/$/, '') + (folder ? '/' + folder : '');
     nav.hidden = false;
-    nav.innerHTML = `<div class="doc-modal-folder" title="${escAttr(directory)}">${esc(folder || 'Files')}</div><div class="doc-modal-files-list"><div class="loading">Loading…</div></div>`;
+    nav.innerHTML = `<div class="doc-modal-folder" title="${escAttr(directory)}">${esc(folder || 'Files')}</div><label class="doc-modal-sort">Sort files<select aria-label="Sort files" title="Remembered for this file" disabled>${_docModalSortOptions().map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><div class="doc-modal-files-list"><div class="loading">Loading…</div></div>`;
     const list = nav.querySelector('.doc-modal-files-list');
+    const sort = nav.querySelector('.doc-modal-sort select');
+    sort.value = _readDocModalSort(filepath, root);
     try {
       // Fetch the actual folder, independently of the Recently updated filters.
       const entries = await _sidebarFetchWorkspaceFiles(directory);
@@ -6766,27 +6883,35 @@
       const files = entries.filter(entry => entry.type !== 'dir' && !entry.path.includes('/'));
       const basename = filepath.split('/').pop();
       if (basename && !files.some(entry => entry.path === basename)) files.push({path: basename});
-      files.sort((a, b) => a.path.localeCompare(b.path, undefined, {numeric: true}));
-      list.replaceChildren();
-      if (!files.length) list.innerHTML = '<div class="doc-modal-files-error">No files in this folder.</div>';
-      for (const file of files) {
-        const path = (folder ? folder + '/' : '') + file.path;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'doc-modal-file' + (path === filepath ? ' active' : '');
-        button.title = file.path;
-        button.disabled = _workspaceDocEditing;
-        if (path === filepath) button.setAttribute('aria-current', 'page');
-        button.innerHTML = `${fileIconHtml(file.path, file)}<span>${esc(file.path)}</span>`;
-        button.addEventListener('click', () => {
-          if (_workspaceDocEditing || path === document.getElementById('docModalTitle').textContent) return;
-          // Keep the existing document actions and the underlying pane on the same file.
-          void openWorkspaceDoc(path, {root});
-          void openWorkspaceDocModal(path, {root});
-        });
-        list.appendChild(button);
+      function renderFiles(revealSelected = false) {
+        list.replaceChildren();
+        if (!files.length) list.innerHTML = '<div class="doc-modal-files-error">No files in this folder.</div>';
+        for (const file of _sortDocModalFiles(files, sort.value)) {
+          const path = (folder ? folder + '/' : '') + file.path;
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'doc-modal-file' + (path === filepath ? ' active' : '');
+          button.title = file.path;
+          button.disabled = _workspaceDocEditing;
+          if (path === filepath) button.setAttribute('aria-current', 'page');
+          button.innerHTML = `${fileIconHtml(file.path, file)}<span>${esc(file.path)}</span>`;
+          button.addEventListener('click', () => {
+            if (_workspaceDocEditing || path === document.getElementById('docModalTitle').textContent) return;
+            // Keep the existing document actions and the underlying pane on the same file.
+            void openWorkspaceDoc(path, {root});
+            void openWorkspaceDocModal(path, {root});
+          });
+          list.appendChild(button);
+        }
+        if (revealSelected) list.querySelector('.active')?.scrollIntoView({block: 'nearest'});
+        else list.scrollTop = 0;
       }
-      list.querySelector('.active')?.scrollIntoView({block: 'nearest'});
+      sort.disabled = false;
+      sort.addEventListener('change', () => {
+        try { localStorage.setItem(_docModalSortKey(filepath, root), sort.value); } catch {}
+        renderFiles();
+      });
+      renderFiles(true);
     } catch (error) {
       if (generation !== _docModalFilesGeneration) return;
       list.innerHTML = `<div class="doc-modal-files-error">${esc(error.message || 'Could not list files')}</div>`;

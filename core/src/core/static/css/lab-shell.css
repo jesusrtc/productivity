@@ -825,24 +825,24 @@
   #docModalBody .nb-cell-expand { display: none; }
   .nb-cell.nb-cell-expanded {
     position: relative;
-    outline: 2px solid #58a6ff; outline-offset: 2px;
+    outline: 2px solid #3fb950; outline-offset: 2px;
     animation: nb-expanded-highlight 3s ease-out;
   }
   @keyframes nb-expanded-highlight {
-    0%, 35% { outline-color: #58a6ff; box-shadow: 0 0 18px rgba(88,166,255,.4); }
-    65% { outline-color: #58a6ff; box-shadow: 0 0 8px rgba(88,166,255,.2); }
+    0%, 35% { outline-color: #3fb950; box-shadow: 0 0 18px rgba(63,185,80,.4); }
+    65% { outline-color: #3fb950; box-shadow: 0 0 8px rgba(63,185,80,.2); }
     100% { outline-color: transparent; box-shadow: 0 0 0 transparent; }
   }
   .nb-click-point {
     position: absolute; z-index: 5; width: 36px; height: 36px;
-    border: 2px solid #58a6ff; border-radius: 50%;
-    background: rgba(88,166,255,.16); box-shadow: 0 0 16px rgba(88,166,255,.45);
+    border: 2px solid #3fb950; border-radius: 50%;
+    background: rgba(63,185,80,.16); box-shadow: 0 0 16px rgba(63,185,80,.45);
     transform: translate(-50%, -50%); pointer-events: none;
     animation: nb-click-point-highlight 3s ease-out forwards;
   }
   .nb-click-point::after {
     content: ''; position: absolute; width: 6px; height: 6px;
-    left: 50%; top: 50%; border-radius: 50%; background: #58a6ff;
+    left: 50%; top: 50%; border-radius: 50%; background: #3fb950;
     transform: translate(-50%, -50%);
   }
   @keyframes nb-click-point-highlight {
@@ -2226,6 +2226,9 @@
   .doc-modal-files { width: 240px; max-width: 30%; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg-primary); }
   .doc-modal-files[hidden] { display: none; }
   .doc-modal-folder { padding: 14px 12px; color: var(--text-secondary); font: 12px ui-monospace, monospace; overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
+  .doc-modal-sort { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; color: var(--text-secondary); font-size: 11px; border-bottom: 1px solid var(--border); }
+  .doc-modal-sort select { width: 100%; min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary); font: inherit; font-size: 12px; }
+  .doc-modal-sort select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .doc-modal-files-list { padding: 6px; overflow-y: auto; min-height: 0; }
   .doc-modal-file { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
   .doc-modal-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

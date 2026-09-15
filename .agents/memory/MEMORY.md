@@ -1,5 +1,9 @@
 # Memory index
 
+- [Notebook click markers follow text](notebook-click-marker-follows-text.md) — green marker tracks the clicked character across text wrapping, including editable code
+
+- [File modal sort is per file](file-modal-sort-is-per-file.md) — modified newest first by default; save name/modified/created and either direction for each file and root
+
 - [Notebook modal centers the clicked area](notebook-modal-centers-clicked-area.md) — Command-click centers and briefly marks the clicked position within code, headers, or results
 
 - [Assistant agents may edit Markdown metadata](assistant-agent-editable-markdown.md) — optional CLI/API, distinct task dates, and explicit recurrence history

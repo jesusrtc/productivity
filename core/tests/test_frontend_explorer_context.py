@@ -35,6 +35,40 @@ def _between(start_marker: str, end_marker: str) -> str:
     return source[start:end]
 
 
+def test_modal_file_sort_defaults_and_per_file_preferences() -> None:
+    result = _run_node(_between("function _docModalSortOptions()", "async function _loadDocModalFiles(") + """
+const saved = new Map();
+const localStorage = {getItem: key => saved.get(key)};
+const files = [
+  {path:'b.md', mtime:30, created:10},
+  {path:'a.md', mtime:10, created:30},
+  {path:'c.md', mtime:20, created:20},
+  {path:'missing.md', created:null},
+];
+const orders = Object.fromEntries(_docModalSortOptions().map(([value]) =>
+  [value, _sortDocModalFiles(files, value).map(file => file.path)]));
+const defaultSort = _readDocModalSort('a.md', '/vault');
+saved.set(_docModalSortKey('a.md', '/vault/'), 'created-asc');
+const restored = _readDocModalSort('a.md', '/vault');
+const anotherFile = _readDocModalSort('b.md', '/vault');
+const anotherRoot = _readDocModalSort('a.md', '/other-vault');
+saved.set(_docModalSortKey('a.md', '/vault'), 'invalid');
+process.stdout.write(JSON.stringify({orders, defaultSort, restored, anotherFile, anotherRoot,
+  invalid: _readDocModalSort('a.md', '/vault')}));
+""")
+    assert result["orders"] == {
+        "mtime-desc": ["b.md", "c.md", "a.md", "missing.md"],
+        "mtime-asc": ["a.md", "c.md", "b.md", "missing.md"],
+        "name-asc": ["a.md", "b.md", "c.md", "missing.md"],
+        "name-desc": ["missing.md", "c.md", "b.md", "a.md"],
+        "created-desc": ["a.md", "c.md", "b.md", "missing.md"],
+        "created-asc": ["b.md", "c.md", "a.md", "missing.md"],
+    }
+    assert result["restored"] == "created-asc"
+    for key in ("defaultSort", "anotherFile", "anotherRoot", "invalid"):
+        assert result[key] == "mtime-desc"
+
+
 def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     template = INDEX.read_text(encoding="utf-8")

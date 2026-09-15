@@ -183,7 +183,7 @@ def test_workspace_files_marks_symlinks(client, seed_workspace) -> None:
     assert files[".claude/skills"]["symlink_target"] == "../real-docs"
 
 
-def test_workspace_files_includes_mtime_for_every_file_type(client, seed_workspace) -> None:
+def test_workspace_files_includes_file_dates_for_every_file_type(client, seed_workspace) -> None:
     pdir = seed_workspace("recent-files")
     (pdir / "docs" / "note.md").write_text("# note\n")
     (pdir / "script.py").write_text("print('ok')\n")
@@ -196,6 +196,7 @@ def test_workspace_files_includes_mtime_for_every_file_type(client, seed_workspa
 
     for path in ("docs/note.md", "script.py", "notebooks/analysis.ipynb"):
         assert isinstance(files[path]["mtime"], float)
+        assert files[path]["created"] == getattr((pdir / path).stat(), "st_birthtime", None)
 
 
 def test_sidebar_recent_git_modes_return_the_requested_file_sets(

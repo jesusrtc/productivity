@@ -623,7 +623,10 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 # file entry (not only notebooks) so that feature can filter
                 # locally without another filesystem walk or endpoint.
                 try:
-                    entry["mtime"] = child.stat().st_mtime
+                    stat = child.stat()
+                    entry["mtime"] = stat.st_mtime
+                    # ctime is metadata-change time on Unix, not creation.
+                    entry["created"] = getattr(stat, "st_birthtime", None)
                 except OSError:
                     pass
                 # Flag .ipynb files that currently have a running cell
