@@ -7855,9 +7855,12 @@
     // proxy is already the active view (file-watcher refreshes, sidebar
     // re-clicks, and tab revisits all funnel here and used to reload the
     // inner app, losing its state). The toolbar "Reload" button is the
-    // explicit way to restart it.
+    // explicit way to restart it. Server names are workspace-local, so
+    // reuse also requires the owning absolute path (including its vault).
     const existingWrap = document.getElementById('proxyWrap');
-    if (existingWrap && existingWrap.dataset.proxy === name && document.getElementById('proxyIframe')) {
+    if (existingWrap && existingWrap.dataset.proxy === name
+        && existingWrap.dataset.workspacePath === currentWorkspace.path
+        && document.getElementById('proxyIframe')) {
       _workspaceDocPath = '__proxy__/' + name;
       renderRepoTabs();
       _sidebarApplyForView();
@@ -7895,7 +7898,7 @@
     const label = (p && p.label) || name;
     const safeName = name.replace(/'/g, "\\'");
     content.innerHTML = `
-      <div id="proxyWrap" data-proxy="${esc(name)}" style="display:flex;flex-direction:column;height:calc(100vh - 130px);min-height:480px">
+      <div id="proxyWrap" data-proxy="${esc(name)}" data-workspace-path="${escAttr(currentWorkspace.path)}" style="display:flex;flex-direction:column;height:calc(100vh - 130px);min-height:480px">
         <div class="proxy-toolbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg-secondary);border-bottom:1px solid var(--border);flex-shrink:0">
           <span style="font-size:12px;color:var(--text-dim);font-family:ui-monospace,monospace">${esc(label)}</span>
           <span style="font-size:11px;color:var(--text-dim);font-family:ui-monospace,monospace">→ ${esc(host)}:${esc(String(port))}</span>

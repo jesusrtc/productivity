@@ -184,3 +184,5 @@
 - [Assistant opens to Tasks and Notes](assistant-opens-to-tasks-and-notes.md)
 
 - [Command+K keeps the active file scope](command-k-keeps-file-scope.md) — selected folder/worktree only; Recently updated formats first, then newest modified; opening preserves context
+
+- [Server iframe reuse is workspace-scoped](server-iframe-reuse-is-workspace-scoped.md) — match the absolute workspace path and server name; preserve state only within the same server view
