@@ -659,6 +659,29 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
     return files
 
 
+@router.get("/api/agents/context/files")
+def api_agent_instruction_files(path: str, request: Request):
+    """List local instruction files without scanning a whole repository.
+
+    These are files currently on disk, not a provider's loaded-context history.
+    Include Copilot's instructions independently of the explorer dotfile toggle.
+    """
+    root = _entry_root(path, request)
+
+    def collect():
+        files = []
+        for rel in ("AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"):
+            candidate = root / rel
+            if candidate.is_file() or candidate.is_symlink():
+                entry = {"name": rel, "path": rel, "type": "file"}
+                if not candidate.is_file():
+                    entry["broken"] = True
+                files.append(_with_symlink_fields(entry, candidate))
+        return files
+
+    return fsguard.guarded(auth.request_root(request), collect)
+
+
 @router.get("/api/sidebar-worktrees")
 def api_sidebar_worktrees(
     path: str,

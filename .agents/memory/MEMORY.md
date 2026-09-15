@@ -188,3 +188,5 @@
 - [Server iframe reuse is workspace-scoped](server-iframe-reuse-is-workspace-scoped.md) — match the absolute workspace path and server name; preserve state only within the same server view
 
 - [Assistant document metadata stays in the header](assistant-document-metadata-in-header.md) — content-only task/note panes, quiet editable properties, date calendars, and a details menu
+
+- [Meta keeps workspace instructions visible](meta-keeps-workspace-instructions-visible.md) — show Lab context in Assistant and keep workspace instructions separate from the selected folder/worktree; live files are not terminal startup history

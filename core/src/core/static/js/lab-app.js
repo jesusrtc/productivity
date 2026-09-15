@@ -6131,9 +6131,41 @@
   document.getElementById('diffPopover').addEventListener('mouseenter', () => clearTimeout(popoverTimeout));
   document.getElementById('diffPopover').addEventListener('mouseleave', () => hideDiffPopover());
 
-  // Meta contains agent instructions; skills stay in the workspace file tree.
-  function _agentContextMetaHtml() {
-    return `<a class="sidebar-file sidebar-file-meta" onclick="openAgentContext()" title="Read the Lab context supplied when an agent starts"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}Lab agent context</span></a>`;
+  // Keep workspace instructions reachable when Files shows another folder.
+  // These are current files, not evidence of a running provider's loaded context.
+  function _agentContextMetaHtml(baseRoot, fileRoot, baseLabel = 'Workspace instructions') {
+    const groups = [{root: baseRoot, label: baseLabel}];
+    if (fileRoot !== baseRoot) groups.push({root: fileRoot, label: 'Selected folder instructions'});
+    return `<div class="sidebar-title" title="Instruction files on disk. Browsing another folder leaves a running agent's startup context unchanged.">Meta</div>
+      <a class="sidebar-file sidebar-file-meta" onclick="openAgentContext()" title="Read the Lab context supplied when an agent starts, including in Assistant"><span class="sidebar-fname">${fileIconHtml('AGENTS.md')}Lab agent context</span></a>`
+      + groups.map(group => `<div class="sidebar-agent-instructions">
+        <div class="sidebar-agent-instructions-label" title="${escAttr(group.root)}">${esc(group.label)}</div>
+        <div data-agent-instructions-root="${escAttr(group.root)}"><div class="sidebar-agent-instructions-note">Loading…</div></div>
+      </div>`).join('');
+  }
+
+  function _agentInstructionRowsHtml(files, root) {
+    return files.map(f => {
+      const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
+      const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(root)}})`;
+      const activeCls = _workspaceDocRoot === root && _workspaceDocPath === f.path ? ' active' : '';
+      return `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(root)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(f.path)}</span></a>`;
+    }).join('') || '<div class="sidebar-agent-instructions-note">No instruction files here.</div>';
+  }
+
+  async function _populateAgentContextMeta(sidebar) {
+    await Promise.all([...sidebar.querySelectorAll('[data-agent-instructions-root]')].map(async slot => {
+      const root = slot.dataset.agentInstructionsRoot;
+      try {
+        const response = await fetch(`/api/agents/context/files?path=${encodeURIComponent(root)}`);
+        const files = await response.json();
+        if (!response.ok) throw new Error(files.detail || 'Could not load instruction files.');
+        // A folder switch may have replaced this slot while the request ran.
+        if (slot.isConnected) slot.innerHTML = _agentInstructionRowsHtml(files, root);
+      } catch (error) {
+        if (slot.isConnected) slot.innerHTML = `<div class="sidebar-agent-instructions-note">${esc(error.message)}</div>`;
+      }
+    }));
   }
 
   async function openAgentContext() {
@@ -7722,13 +7754,15 @@
       }
     }
 
-    // Highlight active in sidebar. Match on data-filepath (exact path) so the
-    // mark lands on a single entry even when multiple files share a basename.
+    // Match both root and path: Meta can show two different AGENTS.md files.
     // The sidebar rebuilders (_refreshWorkspaceSidebar / selfPopulateSidebar)
     // also bake .active into the HTML they emit, so this is just for the
     // immediate click — we don't have to wait for the next rebuild to repaint.
     document.querySelectorAll('.sidebar-file').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll(`.sidebar-file[data-filepath="${CSS.escape(filepath)}"]`).forEach(el => el.classList.add('active'));
+    document.querySelectorAll(`.sidebar-file[data-filepath="${CSS.escape(filepath)}"]`).forEach(el => {
+      const entryRoot = el.dataset.entryRoot || _sidebarScopedRoot(currentWorkspace.path);
+      if (entryRoot === docRoot) el.classList.add('active');
+    });
 
     // preserveScroll early-return: skip re-render when content/comments/artifact unchanged
     if (preserveScroll) {
@@ -8741,6 +8775,8 @@
     };
 
     sidebar.querySelectorAll('.sidebar-file[data-filepath]').forEach(row => {
+      // Workspace instructions can remain visible beside another checkout.
+      if (row.dataset.entryRoot && row.dataset.entryRoot !== _sidebarScopedRoot(currentWorkspace.path)) return;
       const p = row.getAttribute('data-filepath');
       if (!p || p.startsWith('__proxy__/')) return;
       const st = statusFor(p);
@@ -8935,7 +8971,6 @@
       // reading lives, so showing it collapsed by default hides everything.
       const AUTO_OPEN_FOLDERS = new Set(['docs', 'notebooks', 'links']);
 
-      const metaFiles = otherFiles.filter(f => META_FILES.has(f.path));
       const mainFiles = otherFiles.filter(f => !META_FILES.has(f.path));
 
       // Active-file highlighting is baked into the rendered HTML (data-filepath
@@ -9072,15 +9107,10 @@
         sbHtml += '</div>';
       }
 
-      sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
-      if (!isAssistant) sbHtml += _agentContextMetaHtml();
-      metaFiles.forEach(f => {
-        const action = `openWorkspaceDoc(${JSON.stringify(f.path)}, {root:${JSON.stringify(fileRoot)}})`;
-        const modalAction = `event.stopPropagation();openWorkspaceDocModal(${JSON.stringify(f.path)}, {root:${JSON.stringify(fileRoot)}})`;
-        const activeCls = activePath === f.path ? ' active' : '';
-        sbHtml += `<a class="sidebar-file sidebar-file-meta${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(f.path)}"${symlinkTitle(f)} onclick="${escAttr(action)}" ondblclick="${escAttr(modalAction)}"><span class="sidebar-fname">${fileIconHtml(f.name, f)}${esc(f.path)}</span></a>`;
-      });
+      sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
+        isAssistant ? 'Assistant instructions' : 'Workspace instructions');
       sidebar.innerHTML = sbHtml;
+      _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
       // rendered above — re-sync so they appear/update as soon as the list
@@ -16348,14 +16378,9 @@
       sbHtml += renderSidebarFileTree(tree, 0, '', {scope: `self:${fileRoot}`, autoOpen: _AUTO_OPEN_SELF, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(baseRoot);
 
-      sbHtml += '<div class="sidebar-title" style="margin-top:14px;opacity:.7">Meta</div>';
-      sbHtml += _agentContextMetaHtml();
-      for (const path of ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']) {
-        if (!files.some(file => file.path === path)) continue;
-        const action = `openWorkspaceDoc(${JSON.stringify(path)}, {root:${JSON.stringify(fileRoot)}})`;
-        sbHtml += `<a class="sidebar-file sidebar-file-meta" onclick="${escAttr(action)}"><span class="sidebar-fname">${fileIconHtml(path)}${esc(path)}</span></a>`;
-      }
+      sbHtml += _agentContextMetaHtml(baseRoot, fileRoot, 'Home instructions');
       sidebar.innerHTML = sbHtml;
+      _populateAgentContextMeta(sidebar);
     } catch(e) {
       sidebar.innerHTML = '<div class="sidebar-title">Home</div>';
     }
