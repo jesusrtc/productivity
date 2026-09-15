@@ -93,3 +93,9 @@ content linked to the previous task; previous results and checked boxes are
 not copied as new evidence. No background scheduler runs: agents invoke this
 command after completion, or manage equivalent Markdown records themselves.
 Subtasks are not cloned automatically.
+
+The document rail's + adds a tab at the same level as the main tab, inside the
+same file. Add subtab in a row menu nests a child. Top-level tab metadata uses
+`top_level: true` and a parent reference to the document root; existing children
+retain their nesting. CLI equivalent: `lab assistant subtab add "Title" --parent
+<root-id> --parent-type task|note --top-level` (one command line).

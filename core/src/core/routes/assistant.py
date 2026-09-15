@@ -538,6 +538,7 @@ class AssistantRecordBody(BaseModel):
     project: str | None = None
     workspace: str | None = None
     parent: dict[str, str] | None = None
+    top_level: bool = False
 
 
 @router.post("/record")
@@ -548,7 +549,7 @@ def create_record(body: AssistantRecordBody, request: Request):
     try:
         if body.type == 'subtab':
             overrides = {field:getattr(body, field) for field in ('project','workspace') if field in body.model_fields_set}
-            source = records.create_subtab(root, body.title, parent=body.parent, **overrides)
+            source = records.create_subtab(root, body.title, parent=body.parent, top_level=body.top_level, **overrides)
             return assistant_v2.detail(root, source.relative_to(root).as_posix())
         fields = {'project':body.project,'workspace':body.workspace,'parent':body.parent} if body.type != 'project' else {'status':'active'}
         if body.type == 'note':

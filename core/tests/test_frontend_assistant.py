@@ -46,11 +46,8 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "Meeting notes" in source
     assert "'/api/assistant/subtask?path='" in source
     assert "window.LabMarkdown.render" in source
-    assert "slack.textContent = 'Slack'" in source
-    assert "gdoc.textContent = 'GDoc'" in source
     assert "/api/assistant/asset" in source
     assert "copy.textContent = 'Copy content'" in source
-    assert "plain.textContent = 'Plain text'" in source
     assert "Open workspace" not in source
 
 

@@ -235,6 +235,10 @@ def validate_graph(rows, refs):
                 raise ValueError('Document parent cycle')
             seen.add(parent)
             current = by_key[parent]
+        if row.get('top_level'):
+            owner = by_key.get(parent_key(row))
+            if not owner or owner.get('parent'):
+                raise ValueError('Top-level tabs must link directly to the document root')
         if row.get('series'):
             series = by_key.get(('note', row['series']), {})
             if series.get('note_type') != 'series':
@@ -419,6 +423,8 @@ def validate_value(root, metadata, field, value):
         raise ValueError('Invalid recurrence')
     if field in {'project', 'workspace'} and value is not None and not isinstance(value, str):
         raise ValueError('A task can reference at most one project and one workspace')
+    if field == 'top_level' and not isinstance(value, bool):
+        raise ValueError('top_level must be true or false')
     if field == 'position' and (not isinstance(value, (int,float)) or isinstance(value, bool)):
         raise ValueError('Position must be a number')
     if field == 'parent' and value is not None and not (isinstance(value, dict) and
@@ -514,13 +520,16 @@ def verify(root):
             'workspaces': len(workspaces(root)), 'valid': True}
 
 
-def create_subtab(root, title, *, parent, project=UNSET, workspace=UNSET):
-    """Create a nested subtab with its own work status and context."""
+def create_subtab(root, title, *, parent, project=UNSET, workspace=UNSET, top_level=False):
+    """Create a tab in the same document, nested by default or beside its main tab."""
     if not isinstance(parent, dict) or set(parent) != {'type', 'id'} or parent['type'] not in {'task', 'note'}:
         raise ValueError('A subtab requires a typed task/note parent')
     _, owner, _ = resolve(root, parent['id'], parent['type'] + 's')
+    if top_level and owner.get('parent'):
+        raise ValueError('Top-level tabs must link directly to the document root')
     siblings = [row for row in records(root) if parent_key(row) == (parent['type'], parent['id'])]
     position = max((row.get('position', 0) for row in siblings), default=-1) + 1
     return create(root, 'note', title, note_type='subtab', parent=parent, position=position, status='not_started', priority='P2',
                   project=owner.get('project') if project is UNSET else project,
-                  workspace=owner.get('workspace') if workspace is UNSET else workspace)
+                  workspace=owner.get('workspace') if workspace is UNSET else workspace,
+                  **({'top_level':True} if top_level else {}))

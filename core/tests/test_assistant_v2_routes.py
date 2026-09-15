@@ -91,3 +91,34 @@ def test_embedded_markdown_links_open_the_subtab(client, monkeypatch, tmp_path, 
         response=client.get('/api/assistant/link',params={'document':'tasks/'+task.name,'src':src},follow_redirects=False)
         assert response.status_code==307,response.text
         assert parse_qs(urlparse(response.headers['location']).query)['note']==[target]
+
+
+def test_root_level_tab_placement_stays_in_document_and_tracks_progress(client, monkeypatch, tmp_path, monorepo):
+    from lab import assistant_documents as documents
+    root,task=_seed(monkeypatch,tmp_path,monorepo)
+    migration.migrate(root,dry_run=False)
+    documents.migrate(root,dry_run=False)
+    parent={'type':'task','id':task.stem}
+    peer=client.post('/api/assistant/record',json={'type':'subtab','title':'Peer','parent':parent,'top_level':True})
+    assert peer.status_code==200,peer.text
+    peer=peer.json()
+    assert peer['metadata']['top_level'] is True
+    assert peer['metadata']['parent']==parent
+    assert peer['path'].startswith('tasks/'+task.name+'#tab=')
+    nested_parent={'type':'note','id':peer['metadata']['id']}
+    nested=client.post('/api/assistant/record',json={'type':'subtab','title':'Nested','parent':nested_parent}).json()
+    assert not nested['metadata'].get('top_level')
+    assert nested['metadata']['parent']==nested_parent
+    assert nested['tree']['children'][0]['top_level'] is True
+    assert nested['tree']['children'][0]['children'][0]['id']==nested['metadata']['id']
+    before=(root/'tasks'/task.name).read_bytes()
+    invalid=client.post('/api/assistant/record',json={'type':'subtab','title':'Invalid','parent':nested_parent,'top_level':True})
+    assert invalid.status_code==400
+    assert (root/'tasks'/task.name).read_bytes()==before
+    assert len(list((root/'tasks').glob('*.md')))==1 and not list((root/'notes').glob('*.md'))
+    for status in ['in_progress','skipped']:
+        changed=client.patch('/api/assistant/metadata',json={'path':nested['path'],'field':'status','expected':nested['metadata']['status'],'value':status})
+        assert changed.status_code==200,changed.text
+        nested=changed.json()
+        assert nested['tree']['progress']['status']==('done' if status=='skipped' else status)
+    assert records.verify(root)['valid']

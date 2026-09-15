@@ -2319,10 +2319,6 @@
   .assistant-path code { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-secondary); }
   .assistant-markdown { max-width:860px; }
   .assistant-markdown img { max-width:100%; height:auto; border-radius:6px; }
-  .assistant-markdown h1, .assistant-markdown h2, .assistant-markdown h3 { display:flex; align-items:center; gap:9px; }
-  .assistant-copy-actions { display:inline-flex; gap:4px; margin-left:auto; }
-  .assistant-copy-actions button { border:1px solid var(--border); border-radius:4px; background:var(--bg-tertiary); color:var(--text-secondary); padding:2px 7px; font-size:9px; cursor:pointer; }
-  .assistant-copy-actions button:hover { color:var(--text-primary); border-color:var(--accent); }
   .assistant-empty { padding:28px 20px; color:var(--text-dim); font-size:12px; text-align:center; }
   .assistant-empty-detail { margin-top:80px; }
   .assistant-setup { max-width:680px; margin:70px auto; padding:28px; border:1px solid var(--border); border-radius:10px; background:var(--bg-secondary); }
@@ -2378,7 +2374,6 @@
   .assistant-modal-body .assistant-markdown { max-width:850px; margin:0 auto; }
   .assistant-modal-body .assistant-meta, .assistant-modal-body .assistant-path, .assistant-modal-body .assistant-document-toolbar { max-width:850px; margin-left:auto; margin-right:auto; }
   .assistant-content-target { scroll-margin-top:16px; padding:8px 10px; border-radius:7px; background:color-mix(in srgb,var(--accent) 10%,transparent); }
-  .assistant-copy-actions button.primary { border-color:var(--accent); background:var(--accent); color:#fff; }
 
   /* Assistant is a workspace-style surface: its selected client folder owns
      the same Files / Recently updated sidebar as every other workspace. */
@@ -2636,7 +2631,6 @@
 .assistant-document-pane .assistant-meta span { font-size:10px; }
 .assistant-document-pane .assistant-meta strong { font-size:13px; line-height:1.35; }
 .assistant-document-pane .assistant-markdown { font-size:15px; line-height:1.6; }
-.assistant-copy-actions button { font-size:11px; }
 @media (max-width:760px) {
   .assistant-document-modal { width:100%; height:94vh; }
   .assistant-modal-body { grid-template-columns:1fr; }
@@ -2774,9 +2768,7 @@
 .assistant-metadata-field input, .assistant-metadata-field select { min-height:32px; padding:5px; }
 .assistant-metadata-field input[type="date"] { width:139px; }
 .assistant-metadata-more > summary { box-sizing:border-box; min-width:34px; min-height:32px; padding:5px 10px; text-align:center; }
-.assistant-copy-actions { align-items:center; gap:6px; }
-.assistant-copy-actions button, .assistant-copy-actions button.primary { min-height:32px; padding:6px 12px; border-color:var(--border); background:transparent; color:var(--text-secondary); font-family:inherit; font-weight:500; font-size:13px; line-height:1.2; }
-.assistant-copy-actions button:hover, .assistant-head .refresh-btn:hover, .assistant-modal-actions > button:not(.assistant-modal-close):hover { background:var(--bg-tertiary); border-color:var(--text-dim); color:var(--text-primary); }
+.assistant-head .refresh-btn:hover, .assistant-modal-actions > button:not(.assistant-modal-close):hover { background:var(--bg-tertiary); border-color:var(--text-dim); color:var(--text-primary); }
 .assistant-content-target { background:var(--bg-tertiary); }
 @media (max-width:760px) {
   .assistant-document-modal { position:relative; }
@@ -2831,3 +2823,8 @@
 .assistant-metadata-field input[data-metadata-field="owner"] { width:110px; }
 .assistant-record-tab.active, .assistant-record-tree .assistant-record-tab.active { color:var(--text-primary); background:var(--bg-tertiary); border-color:var(--border); box-shadow:none; }
 @media(max-width:760px) { .assistant-index { padding:16px; } .assistant-index td { padding:12px 8px; } }
+
+/* Headings stay clear; section copying lives in their secondary-click menu. */
+.assistant-heading-menu { min-width:168px; }
+.assistant-heading-menu button { display:block; min-height:40px; padding:9px 12px; cursor:pointer; }
+.assistant-markdown :is(h1,h2,h3,h4,h5,h6)[aria-haspopup="menu"]:focus-visible { outline:1px solid var(--text-secondary); outline-offset:5px; border-radius:2px; }

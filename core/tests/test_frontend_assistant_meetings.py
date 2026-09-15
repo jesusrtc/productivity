@@ -36,7 +36,7 @@ def test_meeting_document_browser(tmp_path):
                            'raw':{'path':'raw','format':'text','body':raw},
                            'answer':{'path':'answer','metadata':{'title':'Why?'},'body':'# Answer\n\nBecause.'},
                            'document':{'path':'document','metadata':{'title':'Brief'},'body':'# Brief\n\nDraft text.'},
-                           'task':{'path':'task','metadata':{'title':'Prepare review','status':'ready'},'body':'# Context\n\nReview task context.',
+                           'task':{'path':'task','metadata':{'title':'Prepare review','status':'ready'},'body':'# Context\n\nReview task context. **Formatted text.**\n\n## Detail\n\nNested text.\n\n<details><summary>Hidden details</summary>\n\nPrivate folded text.\n\n</details>\n\n#### Small heading\n\nSmall section.\n\n# Generate content\n\nSend **this**.\n\n# Next section\n\nUnrelated text.',
                                    'subtasks':[{'path':'child','title':'Prepare brief','status':'ready_to_review'}]},
                            'child':{'path':'child','metadata':{'title':'Prepare brief','status':'ready_to_review'},'body':'# Result\n\nChild deliverable.'}}}
     checks = r'''
@@ -45,9 +45,13 @@ const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r
 const host=()=>document.getElementById('assistantModalDocument');
 const nav=()=>document.getElementById('assistantDocumentNav');
 const part=id=>nav().querySelector(`[data-meeting-part="${id}"]`).click();
-let copied='', delayed, openedNote;
+let copied='', copiedHtml='', copiedPlain='', copyCount=0, delayed, openedNote;
 window.openWorkspaceDocModal=(path,options)=>{openedNote={path,...options}};
-Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{copied=text}}});
+Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{copied=text},write:async items=>{
+ assert(items[0].types.includes('text/html')&&items[0].types.includes('text/plain'),'rich copy supplies both formats');
+ copiedHtml=await (await items[0].getType('text/html')).text();
+ copiedPlain=await (await items[0].getType('text/plain')).text();copyCount++;
+}}});
 let rejectSave=false;
 window.fetch=async (url, options={})=>{
  if(options.method==='PATCH'){
@@ -98,8 +102,29 @@ window.fetch=async (url, options={})=>{
  await until(()=>host()?.textContent.includes('Review task context.'));
  assert(taskRows().length===2,'opening a task deep link does not scope the list to its workspace');
  assert(document.getElementById('assistantCopyRich').getBoundingClientRect().height>=36,'copy buttons have a comfortable target');
- assert([...host().querySelectorAll('.assistant-copy-actions button')].every(button=>button.getBoundingClientRect().height>=32),'section copy buttons have larger targets');
+ assert(!host().querySelector('.assistant-copy-actions'),'headings have no inline copy controls');
+ const heading=text=>[...host().querySelectorAll('h1,h2,h3,h4,h5,h6')].find(h=>h.textContent===text);
+ const menu=()=>document.querySelector('.assistant-heading-menu');
+ const openMenu=h=>h.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:innerWidth-1,clientY:innerHeight-1}));
+ const context=heading('Context');openMenu(context);
+ assert(menu().querySelectorAll('button').length===1&&menu().textContent==='Copy content','one section-copy action');
+ const box=menu().getBoundingClientRect();assert(box.right<=innerWidth&&box.bottom<=innerHeight,'menu stays in viewport');
+ menu().querySelector('button').click();await until(()=>copyCount===1);
+ assert(!menu(),'copy dismisses menu');
+ assert(copiedHtml.includes('<strong')&&copiedHtml.includes('Formatted text.')&&copiedHtml.includes('font-family'),'uses Google Docs rich formatting');
+ assert(copiedPlain.includes('Context')&&copiedPlain.includes('Nested text.')&&copiedPlain.includes('Small section.'),'copies the clicked heading and nested section');
+ assert(!copiedPlain.includes('Unrelated text.')&&!copiedPlain.includes('Generate content')&&!copiedPlain.includes('Private folded text.'),'respects section boundary and closed disclosures');
+ const generate=heading('Generate content');openMenu(generate);menu().querySelector('button').click();await until(()=>copyCount===2);
+ assert(copiedPlain==='Send this.'&&!copiedHtml.includes('Generate content'),'prepared content keeps its wrapper out');
+ const small=heading('Small heading');small.focus();small.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true,cancelable:true}));
+ assert(menu()&&document.activeElement===menu().querySelector('button'),'heading menu is keyboard accessible');
+ menu().dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+ assert(!menu()&&document.activeElement===small&&document.getElementById('assistantDocumentModal').classList.contains('active'),'Escape restores heading focus without closing document');
+ openMenu(context);document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));assert(!menu(),'outside press closes menu');
+ openMenu(context);host().dispatchEvent(new Event('scroll'));assert(!menu(),'scroll closes menu');
+ openMenu(context);
  AssistantView.closeDocument();
+ assert(!menu(),'closing the document removes its menu');
  AssistantView.setSection('notes');
  await until(()=>document.querySelector('[data-assistant-view="other_notes"]'));
  document.querySelector('[data-assistant-view="other_notes"]').click();
@@ -117,6 +142,9 @@ window.fetch=async (url, options={})=>{
  groups[0].querySelector('button').click();
  await until(()=>host()?.textContent.includes('Decision agreed.'));
  assert(!host().textContent.includes('Supporting context.'),'summary first');
+ assert(!host().querySelector('.assistant-copy-actions'),'note headings also have no inline buttons');
+ openMenu(heading('Summary'));menu().querySelector('button').click();await until(()=>copyCount===3);
+ assert(copiedPlain.includes('Decision agreed.')&&!copiedPlain.includes('Real action'),'note heading copies only its section');
  assert(!host().querySelector('.assistant-meta,.assistant-document-title,.assistant-detail-badges'),'note body contains content only');
  const metadata=()=>document.getElementById('assistantModalMetadata');
  const field=name=>metadata().querySelector(`[data-metadata-field="${name}"]`);

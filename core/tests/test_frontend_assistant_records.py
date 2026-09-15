@@ -32,12 +32,32 @@ def test_independent_record_tree_browser(client, monkeypatch, tmp_path, monorepo
     standalone_path=str(standalone.relative_to(data_root))
     details[standalone_path]=client.get('/api/assistant/note',params={'path':standalone_path}).json()
     fixtures = {'standalone':standalone_path, 'index':client.get('/api/assistant').json(), 'details':details, 'paths':paths, 'project':project.stem}
+    fixtures['creates']=[]
+    for title,parent,top_level in [('Peer tab',{'type':'task','id':task.stem},True),
+                                   ('Nested in peer',None,False)]:
+        if parent is None:
+            parent={'type':'note','id':created['metadata']['id']}
+        created_response=client.post('/api/assistant/record',json={'type':'subtab','title':title,'parent':parent,'top_level':top_level})
+        assert created_response.status_code==200,created_response.text
+        created=created_response.json()
+        detail_paths=[*details,*(stage['detail']['path'] for stage in fixtures['creates']),created['path']]
+        fixtures['creates'].append({'detail':created,'parent':parent,'top_level':top_level,
+            'index':client.get('/api/assistant').json(),
+            'details':{path:client.get('/api/assistant/'+('task' if path in paths[:2] else 'note'),params={'path':path}).json() for path in detail_paths}})
     checks = r'''
 const assert=(value,message)=>{if(!value)throw new Error(message)};
 const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw new Error('Timed out: '+fn)};
-let gate=null;
+let gate=null, creates=0;
+window.prompt=()=>FIX.creates[creates].detail.metadata.title;
 window.fetch=async (url,options={})=>{
  const u=new URL(url,'https://lab.example');
+ if(options.method==='POST'){
+  const request=JSON.parse(options.body), stage=FIX.creates[creates++];
+  assert(request.type==='subtab'&&request.top_level===stage.top_level,'root plus and Add subtab have distinct placement');
+  assert(JSON.stringify(request.parent)===JSON.stringify(stage.parent),'creation uses intended parent regardless of active tab');
+  FIX.index=stage.index;FIX.details=stage.details;
+  return {ok:true,json:async()=>structuredClone(stage.detail)};
+ }
  if(options.method==='PATCH'){
   const change=JSON.parse(options.body), record=FIX.details[change.path];
   assert((record.metadata[change.field]??null)===change.expected,'expected metadata');
@@ -105,6 +125,30 @@ window.fetch=async (url,options={})=>{
  gate=null;release();
  await new Promise(r=>setTimeout(r,25));
  assert(host().querySelector('.assistant-index'),'late fetch cannot replace selected index');
+ // + creates a peer of the first tab even while viewing a deep child.
+ nav.querySelector(`[data-record-path="${FIX.paths[2]}"]`).click();
+ await until(()=>host().textContent.includes('Keep nested notes.'));
+ nav.querySelector('[data-record-root-tab]').click();
+ await until(()=>document.getElementById('assistantModalTitle').textContent==='Peer tab');
+ const peerPath=FIX.creates[0].detail.path;
+ const firstTab=nav.querySelector(`[data-record-path="${FIX.paths[0]}"]`);
+ const peerTab=nav.querySelector(`[data-record-path="${peerPath}"]`);
+ assert(peerTab.closest('li').parentElement===firstTab.closest('li').parentElement,'+ tab is a root peer');
+ assert(nav.querySelector(`[data-record-path="${FIX.paths[1]}"]`).closest('li').parentElement!==firstTab.closest('li').parentElement,'existing nested child stays nested');
+ nav.querySelector(`[data-record-subtab="${peerPath}"]`).click();
+ await until(()=>document.getElementById('assistantModalTitle').textContent==='Nested in peer');
+ const nestedPath=FIX.creates[1].detail.path;
+ const nestedTab=nav.querySelector(`[data-record-path="${nestedPath}"]`);
+ assert(nestedTab.closest('li').parentElement.parentElement===nav.querySelector(`[data-record-path="${peerPath}"]`).closest('li'),'Add subtab nests within chosen peer');
+ nav.querySelector('[data-record-index]').click();
+ await until(()=>host().querySelector('.assistant-index'));
+ assert(host().querySelectorAll('[data-index-path]').length===5,'index includes both root-level and nested tabs');
+ const indent=path=>host().querySelector(`[data-index-path="${path}"] button`).style.paddingInlineStart;
+ assert(indent(peerPath)===indent(FIX.paths[0]),'Index root peers share indentation');
+ assert(indent(nestedPath)==='20px','Index child is one level under its peer');
+ host().querySelector(`[data-index-path="${peerPath}"] button`).click();
+ await until(()=>document.getElementById('assistantModalTitle').textContent==='Peer tab');
+ assert(creates===2,'both creation actions completed');
  AssistantView.closeDocument();AssistantView.setSection('notes');
  await AssistantView.refresh();
  document.querySelector('[data-assistant-view="other_notes"]').click();

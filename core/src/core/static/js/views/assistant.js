@@ -28,6 +28,7 @@
     paneCache: new Map(),
     currentPane: null,
     modalIndex: false,
+    headingMenu: null,
   };
 
   const e = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -603,6 +604,7 @@
   }
 
   function closeDocumentModal(updateHistory = true) {
+    closeHeadingMenu();
     ++state.modalRequest;
     if (updateHistory) {
       const url = new URL(window.location);
@@ -637,6 +639,7 @@
   }
 
   async function openDocumentModal(kind, path, focusHeading = '') {
+    closeHeadingMenu();
     const overlay = ensureModal();
     const wasOpen = overlay.classList.contains('active');
     const request = ++state.modalRequest;
@@ -707,6 +710,7 @@
   }
 
   function renderDocumentHeader(detail, kind) {
+    closeHeadingMenu();
     // Related documents share their meeting's properties; original notes stay read-only.
     const record = detail.metadata?.schema === 2 ? detail : ['content', 'meeting'].includes(kind) ? state.modalRoot : detail;
     const recordKind = kind === 'content' ? 'meeting' : kind;
@@ -832,6 +836,7 @@
   }
 
   async function selectModalDocument(kind, path, focusHeading = '') {
+    closeHeadingMenu();
     const request = ++state.modalRequest;
     const overlay = document.getElementById('assistantDocumentModal');
     overlay.setAttribute('aria-busy', 'true');
@@ -875,18 +880,23 @@
     await renderDocumentPane(detail, detailKind, focusHeading);
   }
 
-  async function createRecord(type, parent = null) {
-    const title = window.prompt(type === 'subtab' ? 'Subtab title' : type === 'project' ? 'Project name' : type === 'task' ? 'Task title' : 'Note title');
+  async function createRecord(type, parent = null, topLevel = false) {
+    const title = window.prompt(type === 'subtab' ? (topLevel ? 'Tab title' : 'Subtab title') : type === 'project' ? 'Project name' : type === 'task' ? 'Task title' : 'Note title');
     if (!title?.trim()) return;
     try {
       const response = await fetch('/api/assistant/record', {method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({type, title:title.trim(), parent:parent ? {type:parent.type,id:parent.id} : null,
+        body:JSON.stringify({type, title:title.trim(), top_level:topLevel, parent:parent ? {type:parent.type,id:parent.id} : null,
           project:parent?.project || state.project || null, workspace:parent?.workspace || state.workspace || null})});
       const detail = await response.json();
       if (!response.ok) throw new Error(detail.detail || 'Could not create document');
       await refresh();
       if (type !== 'project') await openDocumentModal(type === 'task' ? 'task' : 'note', detail.path);
     } catch (error) { window.alert(error.message); }
+  }
+
+  function documentTabs(tree) {
+    const children = tree.children || [];
+    return [{...tree, children:children.filter(row => !row.top_level)}, ...children.filter(row => row.top_level)];
   }
 
   async function renderRecordTree(focusHeading = '') {
@@ -898,15 +908,16 @@
       rows.set(row.path, row);
       return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span>${e(row.title)}</span></button><details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
     };
-    const tree = node(root.tree);
+    const tree = documentTabs(root.tree).map(node).join('');
     const indexTab = root.tree.children?.length ? '<button type="button" class="assistant-record-tab assistant-index-tab" data-record-index><span aria-hidden="true">☷</span><span>Index</span></button>' : '';
-    const html = `<div class="assistant-tabs-heading"><span>Document tabs</span><button type="button" data-record-subtab="${e(root.tree.path)}" aria-label="Add subtab" title="Add subtab">+</button></div>${indexTab}<ul class="assistant-record-tree">${tree}</ul>
+    const html = `<div class="assistant-tabs-heading"><span>Document tabs</span><button type="button" data-record-root-tab aria-label="Add tab" title="Add tab">+</button></div>${indexTab}<ul class="assistant-record-tree">${tree}</ul>
       ${root.raw ? `<button type="button" class="assistant-record-tab" data-record-raw="${e(root.raw.path)}">Original notes</button>` : ''}`;
     // Keep existing tab elements and keyboard focus when only selection changes.
     const structure = JSON.stringify(root.tree);
     if (nav.dataset.structure !== structure || !nav.querySelector('.assistant-record-tree')) {
       const scroll = nav.scrollTop;
       nav.innerHTML = html; nav.dataset.structure = structure; nav.scrollTop = scroll;
+      nav.querySelector('[data-record-root-tab]')?.addEventListener('click', () => createRecord('subtab', root.tree, true));
       nav.querySelector('[data-record-index]')?.addEventListener('click', () => {
         ++state.modalRequest; state.modalIndex = true; state.modalCurrent = state.modalRoot;
         document.getElementById('assistantDocumentModal').removeAttribute('aria-busy');
@@ -961,7 +972,7 @@
           <td>${e(displayDate(row.due) || '—')}</td><td>${e(row.priority || '—')}</td><td>${e(row.owner || '—')}</td></tr>`);
         (row.children || []).forEach(child => visit(child, depth + 1));
       };
-      visit(root.tree, 0);
+      documentTabs(root.tree).forEach(row => visit(row, 0));
       const node = document.createElement('section'); node.className = 'assistant-index';
       node.innerHTML = `<h2>Index</h2><div class="assistant-index-scroll"><table><thead><tr><th scope="col">Tab / Description</th><th scope="col">Status</th><th scope="col">Due</th><th scope="col">Priority</th><th scope="col">POC</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
       node.querySelectorAll('[data-index-path]').forEach(row => {
@@ -994,7 +1005,7 @@
       const node = document.createElement('div');
       node.className = 'nb-markdown assistant-markdown'; node.id = 'assistantModalMarkdown';
       node.innerHTML = window.marked && window.DOMPurify ? window.LabMarkdown.render(body) : `<pre>${e(body)}</pre>`;
-      rewriteImages(node, detail.path); addCopyButtons(node);
+      rewriteImages(node, detail.path); bindHeadingCopyMenu(node);
       pane = {node, body, scrollTop:0};
     }
     state.paneCache.delete(cacheKey); state.paneCache.set(cacheKey, pane);
@@ -1112,39 +1123,74 @@
     }
   }
 
-  function addCopyButtons(host) {
-    host.querySelectorAll('h1, h2, h3').forEach(heading => {
-      const headingText = heading.textContent.trim();
-      const actions = document.createElement('span');
-      actions.className = 'assistant-copy-actions';
-      if (headingText.toLowerCase() === 'generate content') {
-        const copy = document.createElement('button');
-        copy.type = 'button';
-        copy.className = 'primary';
-        copy.textContent = 'Copy content';
-        copy.title = 'Copy formatted content and embedded images for email or another app';
-        copy.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, includeHeading: false, button: copy}));
-        const plain = document.createElement('button');
-        plain.type = 'button';
-        plain.textContent = 'Plain text';
-        plain.title = 'Copy expanded content as plain text';
-        plain.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, includeHeading: false, button: plain, plainOnly: true}));
-        actions.append(copy, plain);
-        heading.appendChild(actions);
-        return;
-      }
-      const slack = document.createElement('button');
-      slack.type = 'button';
-      slack.textContent = 'Slack';
-      slack.title = 'Copy expanded section text';
-      slack.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, button: slack, plainOnly: true}));
-      const gdoc = document.createElement('button');
-      gdoc.type = 'button';
-      gdoc.textContent = 'GDoc';
-      gdoc.title = 'Copy this section as formatted rich text';
-      gdoc.addEventListener('click', () => window.LabMarkdown.copy(host, {heading, button: gdoc}));
-      actions.append(slack, gdoc);
-      heading.appendChild(actions);
+  function closeHeadingMenu(restoreFocus = false) {
+    const current = state.headingMenu;
+    if (!current) return;
+    state.headingMenu = null;
+    current.listeners.abort();
+    current.menu.remove();
+    if (restoreFocus && current.heading.isConnected) current.heading.focus({preventScroll:true});
+  }
+
+  function openHeadingMenu(event, host, heading) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeHeadingMenu();
+    window.closeExplorerContextMenu?.();
+    const menu = document.createElement('div');
+    menu.className = 'explorer-context-menu open assistant-heading-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Section actions');
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.setAttribute('role', 'menuitem');
+    copy.textContent = 'Copy content';
+    copy.addEventListener('click', async () => {
+      const request = state.modalRequest;
+      // Use the same rich clipboard payload as Copy for Google Docs. The helper
+      // snapshots this exact section before any asynchronous image loading.
+      const result = window.LabMarkdown.copy(host, {
+        heading, includeHeading: heading.textContent.trim().toLowerCase() !== 'generate content',
+      });
+      closeHeadingMenu(true);
+      const message = document.querySelector('#assistantModalMetadata .assistant-metadata-message');
+      if (message) message.textContent = 'Copying…';
+      const copied = await result;
+      if (request === state.modalRequest && message?.isConnected) message.textContent = copied ? 'Copied' : 'Copy failed';
+    });
+    menu.appendChild(copy);
+    // Keep the menu inside the dialog's accessible subtree, outside its scroller.
+    document.getElementById('assistantDocumentModal').appendChild(menu);
+    const keyboard = event.type === 'keydown' || (!event.clientX && !event.clientY);
+    const anchor = heading.getBoundingClientRect();
+    const x = keyboard ? anchor.left : event.clientX;
+    const y = keyboard ? anchor.bottom : event.clientY;
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+    const listeners = new AbortController();
+    state.headingMenu = {menu, heading, listeners};
+    const outside = event => { if (!menu.contains(event.target)) closeHeadingMenu(); };
+    document.addEventListener('pointerdown', outside, {capture:true, signal:listeners.signal});
+    document.addEventListener('contextmenu', outside, {capture:true, signal:listeners.signal});
+    document.addEventListener('scroll', () => closeHeadingMenu(), {capture:true, signal:listeners.signal});
+    window.addEventListener('resize', () => closeHeadingMenu(), {signal:listeners.signal});
+    menu.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeHeadingMenu(true); return; }
+      if (event.key === 'Tab') closeHeadingMenu(true);
+      if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) { event.preventDefault(); copy.focus(); }
+    });
+    copy.focus({preventScroll:true});
+  }
+
+  function bindHeadingCopyMenu(host) {
+    host.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+      heading.tabIndex = 0;
+      heading.setAttribute('aria-haspopup', 'menu');
+      heading.setAttribute('aria-keyshortcuts', 'Shift+F10');
+      heading.addEventListener('contextmenu', event => openHeadingMenu(event, host, heading));
+      heading.addEventListener('keydown', event => {
+        if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) openHeadingMenu(event, host, heading);
+      });
     });
   }
 
@@ -1238,6 +1284,7 @@
     if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {
       event.preventDefault();
       event.stopImmediatePropagation();
+      if (state.headingMenu) { closeHeadingMenu(true); return; }
       const more = document.querySelector('#assistantModalMetadata details[open]');
       if (more) { more.open = false; more.querySelector('summary').focus(); }
       else closeDocumentModal();

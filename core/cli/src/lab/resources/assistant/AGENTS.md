@@ -89,7 +89,7 @@ occurrence after completion; it never silently checks work off.
 
 Prefer ordinary Markdown sections: `# Context`, `# Next actions`, `# Notes`,
 `# Output: Slack`, `# Output: Google Docs`, `# Generate content`, `# Result`.
-Each H1–H3 section has copy buttons. Sending a prepared communication is a
+Right-click an H1–H6 heading and choose Copy content for Google Docs-compatible rich text. Sending a prepared communication is a
 separate deliberate action. Record outcomes and artifact paths under `# Result`.
 Meetings use `# Summary`, `# Highlights`, `# Action items`, and `# Notes`.
 Original raw notes are immutable; derived notes get their own files.

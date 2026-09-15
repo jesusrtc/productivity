@@ -67,6 +67,16 @@ unique. These marker lines are reserved; do not use them inside content/code
 examples in an actual subtab. Keep content inside the matching markers and all
 main content before the first marker. The parser preserves body text exactly.
 
+The rail's **+** creates a tab beside the main tab. It stays in the same file,
+links `parent` to the document root, and sets `top_level: true` on its tab
+metadata. This is placement within the document, not a new independent task.
+The row menu's **Add subtab** creates a nested child (no top_level flag).
+Only tabs directly linked to the document root can set top_level true. Both
+placements participate in the same overall progress calculation. Existing tabs
+keep their current nesting. The generated Index mirrors the displayed tree.
+Use `lab assistant subtab add "Title" --parent <root-id> --parent-type task|note
+--top-level` for the same placement from the CLI (one command line).
+
 For nested subtabs, set `parent` to the containing subtab's typed ID. All
 parents must belong to this same Markdown file, with no cycles. `position`
 orders siblings. Body segments remain flat in the file; their parent metadata

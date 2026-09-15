@@ -666,9 +666,10 @@ def subtab_group():
 @click.argument("title")
 @click.option("--parent", required=True, help="Parent task or note ID")
 @click.option("--parent-type", required=True, type=click.Choice(['task', 'note']))
-def subtab_add(title, parent, parent_type):
+@click.option("--top-level", is_flag=True, help="Place beside the main tab; parent must be the document root")
+def subtab_add(title, parent, parent_type, top_level):
     try:
-        click.echo(records.create_subtab(_v2_root(), title, parent={'type':parent_type,'id':parent}))
+        click.echo(records.create_subtab(_v2_root(), title, parent={'type':parent_type,'id':parent}, top_level=top_level))
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 

@@ -145,3 +145,27 @@ def test_external_editor_can_save_crlf_markers(tmp_path):
     assert records.resolve(root,note.stem)[2]=='# Notes\r\n\r\nDecisions.\r\n'
     records.update(root,note.stem,'priority','P1')
     assert records.resolve(root,note.stem)[2]=='# Notes\r\n\r\nDecisions.\r\n'
+
+
+def test_cli_root_tab_and_nested_subtab_share_the_markdown(tmp_path,monkeypatch):
+    root,task,child,note,_=seed(tmp_path)
+    documents.migrate(root,dry_run=False)
+    monkeypatch.setenv('LAB_ASSISTANT_HOME',str(root))
+    runner=CliRunner()
+    created=runner.invoke(main,['assistant','subtab','add','Peer','--parent',task.stem,'--parent-type','task','--top-level'])
+    assert created.exit_code==0,created.output
+    peer=next(row for row in records.records(root) if row['title']=='Peer')
+    assert peer['top_level'] is True and peer['parent']=={'type':'task','id':task.stem}
+    assert documents.physical(root/peer['path'])==task
+    assert peer['workspace']=='one'
+    assert not records.resolve(root,child.stem)[1].get('top_level')
+    assert not records.resolve(root,note.stem)[1].get('top_level')
+    created=runner.invoke(main,['assistant','subtab','add','Nested','--parent',peer['id'],'--parent-type','note'])
+    assert created.exit_code==0,created.output
+    nested=next(row for row in records.records(root) if row['title']=='Nested')
+    assert not nested.get('top_level') and nested['parent']['id']==peer['id']
+    before=task.read_bytes()
+    invalid=runner.invoke(main,['assistant','subtab','add','Invalid','--parent',peer['id'],'--parent-type','note','--top-level'])
+    assert invalid.exit_code!=0 and 'document root' in invalid.output
+    assert task.read_bytes()==before
+    assert len(list((root/'tasks').glob('*.md')))==1 and len(list((root/'notes').glob('*.md')))==1

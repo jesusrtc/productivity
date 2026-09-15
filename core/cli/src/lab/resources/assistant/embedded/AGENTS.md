@@ -93,9 +93,15 @@ priority is P0 urgent, P1 important, P2 normal, P3 someday. Recurrence is null
 (once), weekly, monthly or yearly. `lab assistant repeat <id>` explicitly creates
 the next occurrence after completion. Waiting/review context fields remain
 supported. Use ordinary headings for context, next actions, notes, results, and
-independently copyable artifacts. Lab adds copy buttons to H1–H3 sections.
+independently copyable artifacts. Right-click an H1–H6 heading and choose Copy content for Google Docs-compatible rich text.
 Sending a prepared communication is a separate deliberate step.
 
 One tab opens directly; multiple tabs get a generated Index with the clickable
 tree, description, status, due, priority and POC. Do not save Index as another
 file or repeat metadata in the main content. Raw captured notes remain immutable.
+
+The document rail's + adds a tab at the same level as the main tab, inside the
+same file. Add subtab in a row menu nests a child. Top-level tab metadata uses
+`top_level: true` and a parent reference to the document root; existing children
+retain their nesting. CLI equivalent: `lab assistant subtab add "Title" --parent
+<root-id> --parent-type task|note --top-level` (one command line).

@@ -197,3 +197,5 @@
 
 - [Migrations are agent documentation](migrations-are-agent-documentation.md) — read-only format/migration guides in lab migrations and lab agent context
 - [assistant-embedded-subtabs.md](assistant-embedded-subtabs.md) — One Markdown per task/note; embedded subtabs, derived progress, generated Index, and stable navigation.
+- [Assistant heading copy menu](assistant-heading-copy-menu.md) — Secondary-click headings for one rich Copy content action; no inline Slack/GDoc buttons.
+- [Assistant root-level plus](assistant-root-level-plus.md) — Document tabs + creates a peer of the main tab; row-menu Add subtab creates a nested child.
