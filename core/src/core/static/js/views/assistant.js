@@ -553,12 +553,14 @@
   }
 
   function selectEntry(kind, path, push) {
-    if (kind === 'task') state.selectedTaskPath = path || '';
-    else state.selectedMeetingPath = path || '';
+    state.selectedTaskPath = kind === 'task' ? path || '' : '';
+    state.selectedMeetingPath = kind === 'meeting' ? path || '' : '';
+    state.selectedSeriesPath = '';
     if (push) {
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant');
       url.searchParams.delete('series');
+      url.searchParams.delete('note');
       if (kind === 'task') {
         url.searchParams.set('subview', 'tasks');
         if (state.workspace) url.searchParams.set('assistant_workspace', state.workspace);
@@ -568,7 +570,8 @@
       } else {
         url.searchParams.set('subview', 'notes');
         url.searchParams.delete('task');
-        if (path) url.searchParams.set('meeting', path);
+        url.searchParams.delete('meeting');
+        if (path) url.searchParams.set(kind === 'note' ? 'note' : 'meeting', path);
       }
       history.pushState({nav: 'assistant', [kind]: path}, '', url.pathname + url.search + url.hash);
     }
@@ -859,6 +862,7 @@
       await renderRecordTree(focusHeading); return;
     }
     if (['meeting', 'series'].includes(state.modalKind)) { await renderMeetingModal(); return; }
+    document.getElementById('assistantDocumentNav').classList.remove('assistant-series-nav');
     const root = state.modalRoot || state.modalCurrent;
     const detail = state.modalCurrent || root;
     const rootMetadata = root.metadata || {};
@@ -899,6 +903,44 @@
     return [{...tree, children:children.filter(row => !row.top_level)}, ...children.filter(row => row.top_level)];
   }
 
+  function seriesNavigation(root, documentHtml = '') {
+    const overview = state.modalKind === 'series';
+    const metadata = root.metadata || {};
+    const id = overview ? metadata.id : metadata.series;
+    const series = overview ? {...metadata, path:root.path}
+      : (state.data?.meeting_series || []).find(row => row.id === id &&
+          (metadata.schema === 2 || row.workspace === metadata.workspace))
+        || (root.series && (metadata.schema !== 2 || root.series.id === id) ? root.series : null);
+    if (!series) return null;
+    // Series membership is independent of list filters and document-tab parents.
+    const indexed = [...(state.data?.meetings || []), ...(state.data?.notes || [])];
+    let rows = indexed.filter(row => !row.parent && (row.series_path ? row.series_path === series.path
+      : row.series === series.id && (metadata.schema === 2 || row.workspace === series.workspace)));
+    if (!Array.isArray(state.data?.meetings)) rows = series.meetings || root.meetings || [];
+    if (!overview) {
+      const current = rows.find(row => row.path === root.path) || {};
+      rows = [...rows.filter(row => row.path !== root.path), {...current, ...metadata, path:root.path}];
+    }
+    rows = sortedMeetings(rows);
+    const signature = JSON.stringify([series.path, series.title, overview ? null : root.path,
+      rows.map(row => [row.path,row.title,row.date,row.source,row.tags,row.note_type])]);
+    const title = `<div class="assistant-document-nav-label">Series</div><button type="button" class="assistant-series-overview${overview ? ' active' : ''}" data-assistant-series="${e(series.path)}"${overview ? ' aria-current="page"' : ''} title="${e(series.title)}"><span aria-hidden="true">▤</span><span>${e(series.title)}</span></button>`;
+    const history = rows.map(row => {
+      const current = !overview && row.path === root.path;
+      const kind = row.note_type && row.note_type !== 'meeting' ? 'note' : 'meeting';
+      return `<li><button type="button" class="assistant-series-meeting${current ? ' current' : ''}" data-series-document="${e(row.path)}" data-series-kind="${kind}"${current ? ' aria-current="page"' : ''} title="${e(row.title)}"><span aria-hidden="true">${current ? '▾' : '▸'}</span><span><time>${e(calendarDate(row.date) || 'No date')}</time><span class="assistant-series-meeting-title">${e(row.title || 'Untitled note')}</span></span>${row.source === 'demo' || (row.tags || []).includes('demo') ? '<small class="assistant-demo">Demo</small>' : ''}</button>${current ? `<div class="assistant-series-document">${documentHtml}</div>` : ''}</li>`;
+    }).join('') || '<li class="assistant-nav-empty">No meetings yet.</li>';
+    return {signature, html:`${title}<ul class="assistant-series-meetings" aria-label="Notes in this series">${history}</ul>`};
+  }
+
+  function bindSeriesNavigation(nav) {
+    bindSeries(nav);
+    nav.querySelectorAll('[data-series-document]').forEach(button => button.addEventListener('click', () => {
+      selectEntry(button.dataset.seriesKind, button.dataset.seriesDocument, true);
+      openDocumentModal(button.dataset.seriesKind, button.dataset.seriesDocument);
+    }));
+  }
+
   async function renderRecordTree(focusHeading = '') {
     const root = state.modalRoot;
     const detail = state.modalCurrent;
@@ -913,10 +955,13 @@
     const html = `<div class="assistant-tabs-heading"><span>Document tabs</span><button type="button" data-record-root-tab aria-label="Add tab" title="Add tab">+</button></div>${indexTab}<ul class="assistant-record-tree">${tree}</ul>
       ${root.raw ? `<button type="button" class="assistant-record-tab" data-record-raw="${e(root.raw.path)}">Original notes</button>` : ''}`;
     // Keep existing tab elements and keyboard focus when only selection changes.
-    const structure = JSON.stringify(root.tree);
+    const series = seriesNavigation(root, html);
+    const structure = JSON.stringify([root.tree, series?.signature]);
+    nav.classList.toggle('assistant-series-nav', Boolean(series));
     if (nav.dataset.structure !== structure || !nav.querySelector('.assistant-record-tree')) {
       const scroll = nav.scrollTop;
-      nav.innerHTML = html; nav.dataset.structure = structure; nav.scrollTop = scroll;
+      nav.innerHTML = series?.html || html; nav.dataset.structure = structure; nav.scrollTop = scroll;
+      if (series) bindSeriesNavigation(nav);
       nav.querySelector('[data-record-root-tab]')?.addEventListener('click', () => createRecord('subtab', root.tree, true));
       nav.querySelector('[data-record-index]')?.addEventListener('click', () => {
         ++state.modalRequest; state.modalIndex = true; state.modalCurrent = state.modalRoot;
@@ -1042,10 +1087,10 @@
       const path = button.dataset.assistantSeries;
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant'); url.searchParams.set('subview', 'notes');
-      url.searchParams.set('series', path); url.searchParams.delete('meeting'); url.searchParams.delete('task');
+      url.searchParams.set('series', path); url.searchParams.delete('meeting'); url.searchParams.delete('task'); url.searchParams.delete('note');
       url.searchParams.delete('assistant_workspace');
       history.pushState({nav:'assistant', series:path}, '', url.pathname + url.search + url.hash);
-      state.selectedSeriesPath = path; state.selectedMeetingPath = '';
+      state.selectedSeriesPath = path; state.selectedMeetingPath = ''; state.selectedTaskPath = '';
       openDocumentModal('series', path);
     }));
   }
@@ -1064,12 +1109,16 @@
     const title = series ? root.metadata.title : meetingLabel({...root.metadata, series_title: root.series?.title});
     document.getElementById('assistantModalTitle').textContent = title;
     document.getElementById('assistantModalKind').textContent = series ? 'Meeting series' : 'Meeting';
+    if (!series) nav.classList.remove('assistant-series-nav');
     const partButton = (part, title, subtitle = '') => `<button type="button" class="assistant-document-nav-item${state.modalMeetingPart === part ? ' active' : ''}" data-meeting-part="${e(part)}"><span class="assistant-document-type">${part.endsWith('raw.txt') ? 'TXT' : 'MD'}</span><span><strong>${e(title)}</strong><small>${e(subtitle)}</small></span></button>`;
     if (series) {
-      nav.innerHTML = '<div class="assistant-document-nav-label">Meeting history</div>' + meetingHistory(root.meetings || []);
+      const navigation = seriesNavigation(root);
+      nav.classList.add('assistant-series-nav');
+      nav.innerHTML = navigation.html;
+      delete nav.dataset.structure;
+      nav.dataset.seriesStructure = navigation.signature;
+      bindSeriesNavigation(nav);
       await renderDocumentPane(root, 'series');
-      if (request !== state.modalRequest) return;
-      host.insertAdjacentHTML('beforeend', `<section class="assistant-series-history"><h2>Meeting history</h2>${meetingHistory(root.meetings || [])}</section>`);
     } else {
       const related = (kind, label) => {
         const rows = (root.contents || []).filter(row => row.kind === kind);
@@ -1119,7 +1168,7 @@
     if (request !== state.modalRequest) return;
     for (const surface of [nav, host]) {
       surface.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
-      bindSeries(surface);
+      if (!series || surface !== nav) bindSeries(surface);
     }
   }
 
@@ -1197,12 +1246,23 @@
   async function refreshOpenDocument() {
     const overlay = document.getElementById('assistantDocumentModal');
     const root = state.modalRoot;
-    if (!overlay?.classList.contains('active') || !root?.tree || overlay.hasAttribute('aria-busy')) return;
+    if (!overlay?.classList.contains('active') || !root || overlay.hasAttribute('aria-busy')) return;
     // Do not interrupt a property being edited or saved.
     const bar = document.getElementById('assistantModalMetadata');
     if (bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
+    if (state.modalKind === 'series') {
+      const navigation = seriesNavigation(root);
+      if (document.getElementById('assistantDocumentNav').dataset.seriesStructure !== navigation.signature) await renderMeetingModal();
+      return;
+    }
+    if (!root.tree) return;
     const latest = [...tasks(), ...(state.data.notes || []), ...meetings()].find(row => row.path === root.path);
-    if (!latest || Number(latest.mtime) === Number(root.tree.mtime)) return;
+    if (!latest || Number(latest.mtime) === Number(root.tree.mtime)) {
+      const navigation = seriesNavigation(root);
+      const signature = JSON.stringify([root.tree, navigation?.signature]);
+      if (document.getElementById('assistantDocumentNav').dataset.structure !== signature) await renderRecordTree();
+      return;
+    }
     const request = state.modalRequest;
     const current = state.modalCurrent;
     try {

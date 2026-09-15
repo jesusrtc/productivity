@@ -2828,3 +2828,20 @@
 .assistant-heading-menu { min-width:168px; }
 .assistant-heading-menu button { display:block; min-height:40px; padding:9px 12px; cursor:pointer; }
 .assistant-markdown :is(h1,h2,h3,h4,h5,h6)[aria-haspopup="menu"]:focus-visible { outline:1px solid var(--text-secondary); outline-offset:5px; border-radius:2px; }
+
+/* Keep series history and the selected note's document tabs in one quiet rail. */
+.assistant-document-nav.assistant-series-nav { display:block; }
+.assistant-series-overview { display:flex; align-items:center; gap:8px; width:100%; min-height:44px; padding:8px; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); font:inherit; font-size:14px; text-align:left; cursor:pointer; }
+.assistant-series-overview span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.assistant-series-overview:hover, .assistant-series-overview.active { background:var(--bg-tertiary); color:var(--text-primary); }
+.assistant-series-meetings { list-style:none; padding:8px 0 0; margin:0; }
+.assistant-series-meeting { display:flex; align-items:center; gap:8px; width:100%; min-height:52px; padding:8px; border:0; border-radius:6px; color:var(--text-secondary); background:transparent; font:inherit; text-align:left; cursor:pointer; }
+.assistant-series-meeting > span:nth-child(2) { display:grid; gap:3px; flex:1; min-width:0; }
+.assistant-series-meeting time { font-size:13px; font-weight:600; }
+.assistant-series-meeting-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.assistant-series-meeting:hover { background:var(--bg-tertiary); }
+.assistant-series-meeting.current { color:var(--text-primary); }
+.assistant-series-document { border-left:1px solid var(--border); margin:4px 0 12px 14px; padding:0 0 0 8px; }
+.assistant-series-document .assistant-tabs-heading { padding-bottom:4px; font-size:12px; }
+.assistant-series-nav button:focus-visible { outline:1px solid var(--text-secondary); outline-offset:-1px; }
+@media(max-width:760px) { .assistant-document-nav.assistant-series-nav { max-height:35vh; overflow:auto; } }
