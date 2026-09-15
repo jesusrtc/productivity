@@ -178,6 +178,14 @@
   <div class="main" id="content">
     {% if INITIAL_VIEW == 'productivity' %}
     <div class="s-inner directory-overview">
+      <section class="overview-vault">
+        <h3>Lab</h3>
+        <code>{{ MONOREPO_ROOT }}</code>
+      </section>
+      <section class="overview-vault">
+        <h3>Assistant</h3>
+        <code>{{ ASSISTANT_ROOT or 'Not configured' }}</code>
+      </section>
       <p class="overview-empty">Loading vaults and workspaces…</p>
     </div>
     {% elif INITIAL_VIEW == 'workspace' or INITIAL_VIEW == 'repo' %}

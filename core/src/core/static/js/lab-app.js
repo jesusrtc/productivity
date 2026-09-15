@@ -16746,6 +16746,14 @@
 
   function renderDirectoryOverview(content) {
     content.innerHTML = `<div class="s-inner directory-overview">
+      <section class="overview-vault">
+        <h3>Lab</h3>
+        <code>${selfEsc(SELF_REPO_PATH)}</code>
+      </section>
+      <section class="overview-vault">
+        <h3>Assistant</h3>
+        <code>${selfEsc(ASSISTANT_ROOT || 'Not configured')}</code>
+      </section>
       <div data-overview-vaults>${vaultCatalog.length ? overviewVaultsHtml(vaultCatalog) : '<p class="overview-empty">Loading vaults and workspaces…</p>'}</div>
     </div>`;
     return content.querySelector('[data-overview-vaults]');
