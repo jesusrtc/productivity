@@ -569,12 +569,19 @@
     overlay.className = 'modal-overlay assistant-document-overlay';
     overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
       <header class="assistant-modal-header">
-        <div class="assistant-modal-heading"><span class="assistant-kicker" id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
+        <div class="assistant-modal-heading"><span id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
         <div class="assistant-modal-actions"><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
+        <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
     </section>`;
-    overlay.addEventListener('click', event => { if (event.target === overlay) closeDocumentModal(); });
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) closeDocumentModal();
+      else if (!event.target.closest('.assistant-metadata-more')) {
+        const more = overlay.querySelector('.assistant-metadata-more');
+        if (more) more.open = false;
+      }
+    });
     overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
     document.body.appendChild(overlay);
     return overlay;
@@ -612,6 +619,7 @@
     const nav = document.getElementById('assistantDocumentNav');
     label.textContent = kind === 'meeting' ? 'Meeting note' : 'Task documents';
     title.textContent = 'Loading…';
+    document.getElementById('assistantModalMetadata').replaceChildren();
     host.innerHTML = '<div class="loading">Loading document…</div>';
     nav.innerHTML = '';
     resetCopy();
@@ -655,23 +663,113 @@
     });
   }
 
-  function documentMeta(detail, kind) {
-    const metadata = detail.metadata || {};
-    const workspace = detail.workspace || {};
-    const rows = ['task', 'subtask'].includes(kind) ? [
-      ['Status', labelStatus(metadata.status)], ['Priority', metadata.priority],
-      ['Lab workspace', workspace.name || metadata.workspace], ['Group', metadata.group], ['Vault', workspace.vault],
-      ['Parent', metadata.parent], ['Due', metadata.due], ['Owner', metadata.owner],
-      ['Waiting on', metadata.waiting_on], ['Follow up', metadata.follow_up_at],
-      ['Planned', metadata.scheduled], ['Deferred until', metadata.defer_until],
-      ['Repeats', metadata.recurrence], ['Updated', displayDate(metadata.updated)],
-    ] : [
-      ['Date', metadata.date], ['Workspace', workspace.name || metadata.workspace],
-      ['Vault', workspace.vault],
+  function metadataSelect(field, label, value, choices) {
+    const options = choices.map(choice => Array.isArray(choice) ? choice : [choice, labelStatus(choice)]);
+    if (value && !options.some(([key]) => key === value)) options.push([value, value]);
+    return `<label class="assistant-metadata-field"><span>${e(label)}</span><select data-metadata-field="${e(field)}" aria-label="${e(label)}">${options.map(([key, title]) => `<option value="${e(key)}"${key === (value || '') ? ' selected' : ''}>${e(title)}</option>`).join('')}</select></label>`;
+  }
+
+  function metadataInput(field, label, value, type = 'text') {
+    return `<label class="assistant-metadata-field"><span>${e(label)}</span><input type="${type}" data-metadata-field="${e(field)}" aria-label="${e(label)}" value="${e(value || '')}"${type === 'date' ? ' min="0001-01-01" max="9999-12-31"' : ''}></label>`;
+  }
+
+  function renderDocumentHeader(detail, kind) {
+    // Related documents share their meeting's properties; original notes stay read-only.
+    const record = ['content', 'meeting'].includes(kind) ? state.modalRoot : detail;
+    const recordKind = kind === 'content' ? 'meeting' : kind;
+    const metadata = record.metadata || {};
+    const workspace = record.workspace || {};
+    const task = ['task', 'subtask'].includes(recordKind);
+    const bar = document.getElementById('assistantModalMetadata');
+    const heading = document.getElementById('assistantModalTitle');
+    heading.textContent = kind === 'content'
+      ? `${metadata.title || 'Meeting'} · ${detail.format === 'text' ? 'Raw notes' : detail.metadata?.title || 'Document'}`
+      : metadata.title || metadata.id || 'Document';
+    heading.title = heading.textContent;
+    document.getElementById('assistantModalKind').textContent = ({task:'Task', subtask:'Subtask', meeting:'Note', series:'Series', content:'Note'})[kind] || 'Document';
+    const primary = task ? [
+      metadataSelect('status', 'Status', metadata.status || 'inbox', state.data?.statuses?.length ? state.data.statuses : ['inbox', 'ready', 'in_progress', 'waiting', 'blocked', 'ready_to_review', 'done']),
+      metadataSelect('priority', 'Priority', metadata.priority || 'P2', ['P0', 'P1', 'P2', 'P3'].map(value => [value, value])),
+      metadataInput('due', 'Due', metadata.due, 'date'),
+      metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Never'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]),
+    ] : recordKind === 'meeting' ? [
+      metadataInput('date', 'Date', metadata.date, 'date'),
+      metadataSelect('series', 'Series', metadata.series, [['', 'Standalone'], ...(state.data?.meeting_series || [])
+        .filter(row => row.workspace === (metadata.workspace || workspace.id || record.path.split('/')[1]))
+        .map(row => [row.id, row.title])]),
+    ] : [];
+    const fields = [['title', 'Title'], ['tldr', 'Summary'], ...(task ? [
+      ['group', 'Group'], ['owner', 'Owner'], ['scheduled', 'Planned', 'date'],
+      ['defer_until', 'Deferred until', 'date'], ['waiting_on', 'Waiting on'], ['follow_up_at', 'Follow up', 'date'],
+    ] : [])];
+    const info = [
+      ['Workspace', workspace.name || metadata.workspace], ['Vault', workspace.vault],
       ['Attendees', Array.isArray(metadata.attendees) ? metadata.attendees.join(', ') : metadata.attendees],
-      ['Updated', displayDate(metadata.updated)],
-    ];
-    return rows.filter(row => row[1]).map(([key, value]) => `<div><span>${e(key)}</span><strong>${e(value)}</strong></div>`).join('');
+      ['Parent', metadata.parent], ['Created', metadata.created], ['Updated', metadata.updated],
+      ['Workspace path', workspace.workspace_path],
+    ].filter(([, value]) => value);
+    bar.innerHTML = `${primary.join('')}<details class="assistant-metadata-more"><summary aria-label="More metadata" title="More metadata">···</summary><div class="assistant-metadata-popover">${fields.map(([field, label, type]) => metadataInput(field, label, metadata[field], type)).join('')}<dl>${info.map(([label, value]) => `<div><dt>${e(label)}</dt><dd>${e(value)}</dd></div>`).join('')}</dl></div></details><span class="assistant-metadata-message" role="status" aria-live="polite"></span>`;
+    const more = bar.querySelector('details');
+    more.addEventListener('toggle', () => {
+      const popup = more.querySelector('.assistant-metadata-popover');
+      if (more.open && window.innerWidth > 760) {
+        const right = bar.getBoundingClientRect().right;
+        popup.style.left = Math.min(0, right - more.getBoundingClientRect().left - popup.offsetWidth) + 'px';
+      } else popup.style.left = '';
+    });
+    bar.querySelectorAll('[data-metadata-field]').forEach(control => {
+      control.addEventListener('change', () => saveDocumentMetadata(record, control));
+      if (control.type === 'date') control.addEventListener('click', () => {
+        try { control.showPicker?.(); } catch (_) { /* Native keyboard editing remains available. */ }
+      });
+      if (control.tagName === 'INPUT' && control.type !== 'date') control.addEventListener('keydown', event => {
+        if (event.key === 'Enter') { event.preventDefault(); control.blur(); }
+      });
+    });
+  }
+
+  async function saveDocumentMetadata(record, control) {
+    if (!control.reportValidity()) return;
+    const field = control.dataset.metadataField;
+    const previous = record.metadata?.[field] ?? null;
+    const value = control.value.trim() || null;
+    if (value === previous) return;
+    const request = state.modalRequest;
+    const bar = document.getElementById('assistantModalMetadata');
+    const message = bar.querySelector('[role="status"]');
+    const controls = [...bar.querySelectorAll('input, select')];
+    controls.forEach(input => { input.disabled = true; });
+    message.textContent = 'Saving…';
+    message.classList.remove('error');
+    const host = document.getElementById('assistantModalDocument');
+    const scroll = host.scrollTop;
+    const moreOpen = bar.querySelector('details').open;
+    try {
+      const response = await fetch('/api/assistant/metadata', {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: record.path, field, value, expected: previous}),
+      });
+      const saved = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(saved.detail || 'Could not save this change.');
+      if (request !== state.modalRequest) return;
+      if (state.modalRoot.path === saved.path) state.modalRoot = saved;
+      else if (Array.isArray(state.modalRoot.subtasks)) state.modalRoot.subtasks = state.modalRoot.subtasks.map(child => child.path === saved.path ? {...child, ...saved.metadata} : child);
+      if (state.modalCurrent.path === saved.path) state.modalCurrent = saved;
+      await renderModal();
+      if (request !== state.modalRequest) return;
+      host.scrollTop = scroll;
+      bar.querySelector('details').open = moreOpen;
+      bar.querySelector('[role="status"]').textContent = 'Saved';
+      bar.querySelector(`[data-metadata-field="${field}"]`)?.focus();
+      refresh();
+    } catch (error) {
+      if (request !== state.modalRequest) return;
+      control.value = previous || '';
+      message.textContent = error.message || 'Could not save this change.';
+      message.classList.add('error');
+    } finally {
+      controls.forEach(input => { input.disabled = false; });
+    }
   }
 
   function modalDocumentButton(detail, label, kind) {
@@ -727,23 +825,9 @@
     if (request !== state.modalRequest) return;
     const body = detail.body || '';
     const markdown = window.marked && window.DOMPurify ? window.LabMarkdown.render(body) : `<pre>${e(body)}</pre>`;
-    const metadata = detail.metadata || {};
-    const workspace = detail.workspace || {};
     const host = document.getElementById('assistantModalDocument');
-    const badges = ['task', 'subtask'].includes(kind)
-      ? `<div class="assistant-detail-badges"><span class="assistant-priority ${e(String(metadata.priority || '').toLowerCase())}">${e(metadata.priority || 'P2')}</span><span class="assistant-status status-${e(metadata.status || 'inbox')}">${e(labelStatus(metadata.status))}</span></div>`
-      : (metadata.date ? `<div class="assistant-detail-badges"><span class="assistant-meeting-date full">${e(displayDate(metadata.date))}</span></div>` : '');
-    const tldr = detail.tldr || metadata.tldr || '';
-    const isMainTask = kind === 'task' && state.modalRoot && detail.path === state.modalRoot.path;
-    const progress = isMainTask && Array.isArray(state.modalRoot.subtasks)
-      ? progressLabel(countWhere(state.modalRoot.subtasks, item => item.status === 'done'), state.modalRoot.subtasks.length)
-      : '';
-    host.innerHTML = `<div class="assistant-document-title">
-      <div>${badges}<h1>${e(metadata.title || metadata.id || 'Document')}</h1>${tldr ? `<p><b>TLDR</b>${e(tldr)}</p>` : ''}</div>${progress ? `<span>${e(progress)}</span>` : ''}
-    </div>
-    <div class="assistant-meta">${documentMeta(detail, kind)}</div>
-    ${['task', 'subtask'].includes(kind) && workspace.workspace_path ? `<div class="assistant-path"><span>Workspace path</span><code>${e(workspace.workspace_path)}</code></div>` : ''}
-    <div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
+    renderDocumentHeader(detail, kind);
+    host.innerHTML = `<div class="nb-markdown assistant-markdown" id="assistantModalMarkdown">${markdown}</div>`;
     const markdownHost = document.getElementById('assistantModalMarkdown');
     rewriteImages(markdownHost, detail.path);
     addCopyButtons(markdownHost);
@@ -761,6 +845,7 @@
   }
 
   function resetCopy(enabled = false) {
+    if (!enabled) document.getElementById('assistantModalMetadata')?.replaceChildren();
     for (const id of ['assistantCopyPlain', 'assistantCopyRich']) {
       const button = document.getElementById(id);
       if (button) { button.disabled = !enabled; button.onclick = null; }
@@ -818,7 +903,8 @@
           body: part === 'summary' ? root.overview || '# Summary\n\nNo summary yet.' : root.notes}, 'meeting');
       } else if (state.modalCurrent.format === 'text') {
         const raw = state.modalCurrent.body || '';
-        host.innerHTML = '<div class="assistant-document-title"><h1>Raw notes</h1></div><pre class="assistant-raw-notes"></pre>';
+        renderDocumentHeader(state.modalCurrent, 'content');
+        host.innerHTML = '<pre class="assistant-raw-notes"></pre>';
         host.querySelector('pre').textContent = raw;
         resetCopy(true);
         document.getElementById('assistantCopyRich').disabled = true;
@@ -963,7 +1049,9 @@
     if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      closeDocumentModal();
+      const more = document.querySelector('#assistantModalMetadata details[open]');
+      if (more) { more.open = false; more.querySelector('summary').focus(); }
+      else closeDocumentModal();
     }
   });
 

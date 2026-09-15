@@ -22,7 +22,7 @@ def test_meeting_document_browser(tmp_path):
     row = {'id':'meeting','path':'meeting','title':'Review','date':'2026-09-14','workspace':'demo','series_title':'Weekly','series_path':'series'}
     older = {**row,'id':'older','path':'older','date':'2026-09-07'}
     series = {'id':'weekly','path':'series','title':'Weekly','workspace':'demo','latest_date':'2026-09-14','meeting_count':2}
-    meeting = {'path':'meeting','metadata':{'title':'Review','date':'2026-09-14'},'workspace':{'name':'Demo'},
+    meeting = {'path':'meeting','metadata':{'title':'Review','date':'2026-09-14','workspace':'demo','series':'weekly','tldr':'Decision agreed.'},'workspace':{'name':'Demo'},
                'tldr':'Decision agreed.','overview':'# Summary\n\nDecision agreed.\n# Action items\n\n- [ ] Real action',
                'notes':'# Notes\n\nSupporting context.', 'raw':{'path':'raw'},
                'contents':[{'path':'answer','title':'Why?','kind':'question'},{'path':'document','title':'Brief','kind':'document'}],
@@ -47,7 +47,17 @@ const part=id=>nav().querySelector(`[data-meeting-part="${id}"]`).click();
 let copied='', delayed, openedNote;
 window.openWorkspaceDocModal=(path,options)=>{openedNote={path,...options}};
 Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{copied=text}}});
-window.fetch=async url=>{
+let pendingSave, rejectSave=false;
+window.fetch=async (url, options={})=>{
+ if(options.method==='PATCH'){
+   const change=JSON.parse(options.body);
+   if(rejectSave)return {ok:false,json:async()=>({detail:'Change rejected'})};
+   const record=FIX.details[change.path];
+   assert((record.metadata[change.field]??null)===change.expected,'save uses original metadata');
+   record.metadata[change.field]=change.value;
+   return {ok:true,json:async()=>record};
+ }
+
  const u=new URL(url,'https://lab.example');
  if(u.pathname==='/api/assistant')return {ok:true,json:async()=>FIX.index};
  if(u.pathname==='/api/workspace-files')return {ok:true,json:async()=>[
@@ -82,6 +92,18 @@ window.fetch=async url=>{
  groups[0].querySelector('button').click();
  await until(()=>host()?.textContent.includes('Decision agreed.'));
  assert(!host().textContent.includes('Supporting context.'),'summary first');
+ assert(!host().querySelector('.assistant-meta,.assistant-document-title,.assistant-detail-badges'),'note body contains content only');
+ const metadata=()=>document.getElementById('assistantModalMetadata');
+ const field=name=>metadata().querySelector(`[data-metadata-field="${name}"]`);
+ const change=async(name,value)=>{const input=field(name);input.value=value;input.dispatchEvent(new Event('change'));await until(()=>metadata().textContent.includes('Saved')&&!field(name).disabled)};
+ assert(field('date').type==='date','note date has a native calendar');
+ await change('date','2026-09-16');
+ assert(FIX.details.meeting.metadata.date==='2026-09-16','note date saved');
+ await change('series','');
+ metadata().querySelector('details').open=true;
+ await change('tldr','Updated summary');
+ assert(FIX.details.meeting.metadata.tldr==='Updated summary','summary uses original field, not display fallback');
+ metadata().querySelector('details').open=false;
  assert(nav().textContent.includes('Questions')&&nav().textContent.includes('Documents'),'distinct related content');
  part('raw');await until(()=>host().querySelector('pre'));
  assert(host().querySelector('pre').textContent===FIX.raw,'raw bytes represented verbatim');
@@ -110,6 +132,17 @@ window.fetch=async url=>{
  assert(document.getElementById('assistantCopyPlain').disabled,'errors cannot copy stale content');
  AssistantView.init({section:'tasks',workspace:'demo',task:'task'});
  await until(()=>host().textContent.includes('Review task context.'));
+ assert(!host().querySelector('.assistant-meta,.assistant-document-title,.assistant-path'),'task content has no metadata');
+ assert(field('due').type==='date','task due has a calendar');
+ await change('priority','P1');
+ await change('due','2026-10-01');
+ await change('recurrence','monthly');
+ assert(FIX.details.task.metadata.priority==='P1'&&FIX.details.task.metadata.due==='2026-10-01','task edits persisted');
+ rejectSave=true;
+ field('priority').value='P0';field('priority').dispatchEvent(new Event('change'));
+ await until(()=>metadata().textContent.includes('Change rejected'));
+ assert(field('priority').value==='P1'&&!field('priority').disabled,'failed saves restore the prior value');
+ rejectSave=false;
  assert(document.querySelector('[data-assistant-task-date="2026-09-14"]'),'task list uses recorded creation day');
  nav().querySelector('[data-assistant-modal-document="child"]').click();
  await until(()=>host().textContent.includes('Child deliverable.'));

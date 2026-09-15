@@ -186,3 +186,16 @@ within three calendar days. This due-soon window is provisional. Secondary
 status and priority filters apply only inside the selected Lab workspace. Waiting
 tasks use a `Nudge` action to open copy-ready follow-up content; Lab does not
 send it or record a message as sent.
+
+## Editing document properties
+
+Task and note documents keep their content in the main pane. The compact
+header contains the title and editable properties: task status, priority, Due
+with a calendar, and Repeats; meeting notes have Date and Series. The `···`
+menu holds additional properties and workspace context. Changes save on
+selection or leaving a field, with a visible save/error message.
+
+`PATCH /api/assistant/metadata` updates one allowlisted field on an existing
+document using its relative path and expected previous value. It preserves
+task completion checks and rejects stale values. Recurrence remains explicit:
+changing Repeats does not create or schedule the next occurrence.

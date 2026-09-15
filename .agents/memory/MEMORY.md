@@ -186,3 +186,5 @@
 - [Command+K keeps the active file scope](command-k-keeps-file-scope.md) — selected folder/worktree only; Recently updated formats first, then newest modified; opening preserves context
 
 - [Server iframe reuse is workspace-scoped](server-iframe-reuse-is-workspace-scoped.md) — match the absolute workspace path and server name; preserve state only within the same server view
+
+- [Assistant document metadata stays in the header](assistant-document-metadata-in-header.md) — content-only task/note panes, quiet editable properties, date calendars, and a details menu

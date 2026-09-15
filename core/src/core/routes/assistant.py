@@ -5,6 +5,7 @@ from lab import naming, assistant_meetings as meeting_db
 
 import os
 import re
+from threading import Lock
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -371,6 +372,66 @@ def get_subtask(path: str, request: Request) -> dict:
         "body": body,
         "tldr": str(metadata.get("tldr") or _summary(body)),
     }
+
+
+class AssistantMetadataBody(BaseModel):
+    path: str
+    field: str
+    value: str | None
+    expected: str | None
+
+
+_metadata_lock = Lock()
+
+
+@router.patch("/metadata")
+def update_metadata(body: AssistantMetadataBody, request: Request) -> dict:
+    """Update one visible property, retaining CLI lifecycle rules and fresh content."""
+    root = _require_root(request)
+    source = _safe_markdown_path(root, body.path)
+    collection = source.parent.name
+    fields = {"title", "tldr"}
+    if collection in {"tasks", "subtasks"}:
+        fields |= {"status", "priority", "due", "recurrence", "group", "owner",
+                   "scheduled", "defer_until", "waiting_on", "follow_up_at"}
+    elif collection == "meetings":
+        fields |= {"date", "series"}
+    elif collection != "meeting-series":
+        raise HTTPException(status_code=400, detail="This document has no editable properties")
+    if body.field not in fields:
+        raise HTTPException(status_code=400, detail="This property cannot be edited")
+    value = body.value.strip() if body.value is not None else None
+    value = value or None
+    try:
+        if body.field == "title":
+            meeting_db.validate_title(value)
+        if value is not None and body.field in {"due", "scheduled", "defer_until", "follow_up_at", "date"}:
+            meeting_db.validate_date(value)
+        if value is not None and body.field == "recurrence" and value not in {"weekly", "monthly", "yearly"}:
+            raise ValueError("Repeats must be weekly, monthly, yearly, or empty")
+        with _metadata_lock:
+            metadata, content = assistant_db.read_markdown(source)
+            if metadata.get(body.field) != body.expected:
+                raise HTTPException(status_code=409, detail="This property changed elsewhere. Reopen the document to load its latest value.")
+            identifier = str(metadata.get("id") or source.stem)
+            if collection in {"tasks", "subtasks", "meetings"}:
+                finder, updater = {
+                    "tasks": (assistant_db.find_task, assistant_db.update_task),
+                    "subtasks": (assistant_db.find_subtask, assistant_db.update_subtask),
+                    "meetings": (meeting_db.find_meeting, meeting_db.update_meeting),
+                }[collection]
+                # Never resolve a duplicate or mismatched ID to another document.
+                if finder(root, identifier)[0].resolve() != source:
+                    raise ValueError("Document ID does not match the selected path")
+                updater(root, identifier, body.field, value)
+            else:
+                meeting_db.validate_owner(source, metadata)
+                metadata.update({body.field: value, "updated": assistant_db.now_iso()})
+                assistant_db.write_markdown(source, metadata, content)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"tasks": get_task, "subtasks": get_subtask, "meetings": get_meeting,
+            "meeting-series": get_meeting_series}[collection](body.path, request)
 
 
 def _inside(target: Path, parent: Path) -> bool:

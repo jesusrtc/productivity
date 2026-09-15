@@ -2702,3 +2702,45 @@
   .assistant-document-nav .assistant-date-group + .assistant-date-group { margin-top:0; }
   .assistant-modal-actions > #assistantCopyPlain { display:block; }
 }
+
+/* Assistant documents: quiet, editable properties stay in the header. */
+.assistant-modal-header { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 16px; padding:9px 16px 7px; }
+.assistant-modal-heading { display:flex; align-items:center; gap:10px; }
+.assistant-modal-heading > span { flex:none; color:var(--text-dim); font-size:10px; }
+.assistant-modal-heading h2 { margin:0; font-size:15px; line-height:1.4; }
+.assistant-modal-actions { gap:4px; }
+.assistant-modal-actions > button:not(.assistant-modal-close) { min-height:26px; padding:3px 7px; border-color:transparent; background:transparent; font-size:11px; }
+.assistant-modal-close { width:26px; height:26px; }
+.assistant-modal-metadata { grid-column:1 / -1; display:flex; align-items:center; flex-wrap:wrap; gap:2px 14px; min-width:0; color:var(--text-secondary); font-size:11px; }
+.assistant-metadata-field { display:flex; align-items:center; gap:5px; min-width:0; margin:0; font-weight:400; }
+.assistant-metadata-field > span { flex:none; color:var(--text-dim); }
+.assistant-metadata-field input, .assistant-metadata-field select { box-sizing:border-box; min-width:0; max-width:180px; min-height:25px; padding:2px 3px; border:1px solid transparent; border-radius:4px; background:transparent; color:var(--text-secondary); font:inherit; color-scheme:dark; }
+.assistant-metadata-field input[type="date"] { width:123px; }
+.assistant-metadata-field select { cursor:pointer; }
+.assistant-metadata-field select option { background:var(--bg-secondary); color:var(--text-primary); }
+.assistant-metadata-field input:hover, .assistant-metadata-field select:hover { background:var(--bg-secondary); border-color:var(--border); color:var(--text-primary); }
+.assistant-metadata-field input:focus-visible, .assistant-metadata-field select:focus-visible, .assistant-metadata-more > summary:focus-visible { outline:1px solid var(--accent); outline-offset:1px; }
+.assistant-metadata-field :disabled { opacity:.5; cursor:wait; }
+.assistant-metadata-more { position:relative; }
+.assistant-metadata-more > summary { list-style:none; padding:2px 7px; border-radius:4px; font-size:16px; line-height:21px; cursor:pointer; }
+.assistant-metadata-more > summary::-webkit-details-marker { display:none; }
+.assistant-metadata-more > summary:hover, .assistant-metadata-more[open] > summary { background:var(--bg-tertiary); color:var(--text-primary); }
+.assistant-metadata-popover { position:absolute; z-index:3; top:100%; left:0; width:min(330px,calc(100vw - 70px)); max-height:60vh; overflow:auto; padding:12px; border:1px solid var(--border); border-radius:7px; background:var(--bg-secondary); box-shadow:0 8px 30px #0006; }
+.assistant-metadata-popover .assistant-metadata-field { display:grid; grid-template-columns:85px minmax(0,1fr); gap:8px; margin-bottom:6px; }
+.assistant-metadata-popover input { width:100%; max-width:none; border-color:var(--border); background:var(--bg-primary); }
+.assistant-metadata-popover dl { margin:12px 0 0; border-top:1px solid var(--border); padding-top:8px; }
+.assistant-metadata-popover dl > div { display:grid; grid-template-columns:85px minmax(0,1fr); gap:8px; margin:6px 0; }
+.assistant-metadata-popover dt { color:var(--text-dim); }
+.assistant-metadata-popover dd { margin:0; overflow-wrap:anywhere; }
+.assistant-metadata-message { color:var(--text-dim); font-size:10px; }
+.assistant-metadata-message.error { color:var(--red); }
+.assistant-document-pane { padding-top:20px; }
+.assistant-document-pane .assistant-markdown > :first-child { margin-top:0; }
+.assistant-document-pane > .assistant-raw-notes { margin-top:0; }
+@media (max-width:760px) {
+  .assistant-modal-header { padding:7px 10px; gap:4px 6px; }
+  .assistant-modal-heading { gap:6px; }
+  .assistant-modal-heading h2 { font-size:13px; }
+  .assistant-modal-metadata { gap:2px 8px; }
+  .assistant-metadata-popover { position:fixed; top:auto; left:24px; right:24px; width:auto; }
+}
