@@ -2803,6 +2803,7 @@
     return (files || [])
       .filter(file => {
         if (!file || file.type === 'dir' || !Number.isFinite(Number(file.mtime))) return false;
+        if (file.checkout_generated) return false;
         if (Number(file.mtime) < cutoff) return false;
         return _sidebarRecentTypeAllowed(file);
       })
@@ -2839,6 +2840,7 @@
     if (recentPaths.has(path)) return 'included';
     const mtime = Number(file && file.mtime);
     if (!Number.isFinite(mtime)) return 'missing_mtime';
+    if (file.checkout_generated) return 'initial_worktree_checkout';
     if (mtime < cutoff) return 'outside_freshness_window';
     if (_sidebarFileConfig.trackMode === 'extensions') return 'extension_not_selected';
     return 'filtered_unknown';

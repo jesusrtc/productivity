@@ -108,6 +108,7 @@ const files = [
   {path: 'docs/newer.md', type: 'file', mtime: 9950},
   {path: 'script.py', type: 'file', mtime: 9990},
   {path: 'docs/stale.md', type: 'file', mtime: 6000},
+  {path: 'docs/checkout.md', type: 'file', mtime: 9999, checkout_generated: true},
   {path: 'docs', type: 'dir', mtime: 9999},
 ];
 const recent = _sidebarRecentFiles(files, 10000).map(file => file.path);
@@ -812,7 +813,7 @@ const fetch = async url => {
   const restored = _loadSidebarFileConfig();
   const selected = _sidebarRecentSelectorsHtml();
   const files = await _sidebarResolveRecentFiles([
-    {path: 'changed.txt', type: 'file'}, {path: 'unchanged.txt', type: 'file'},
+    {path: 'changed.txt', type: 'file', checkout_generated: true}, {path: 'unchanged.txt', type: 'file'},
   ], '/trees/feature');
   await sidebarSelectRecentMode(button);
   process.stdout.write(JSON.stringify({

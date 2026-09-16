@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from core import auth, fsguard, server_config
+from core import auth, fsguard, server_config, worktree_recent
 from core.diff_parser import (
     diff_notebook_cells,
     get_branch,
@@ -596,6 +596,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
     # would drown out docs/notes. Accessible via the Repositories panel +
     # diff tabs instead.
     files = []
+    checkout_groups = {}
 
     # Cheap O(1) check against the in-memory tracker maintained by
     # routes/nb_exec.py. The previous file-scan implementation skipped
@@ -606,9 +607,14 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
     # then, so the two stay consistent.
     from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 
-    def scan(dir_path, depth=0):
+    def scan(dir_path, depth=0, git_root=None):
         if depth > _WORKSPACE_SCAN_MAX_DEPTH:
             return
+        if (dir_path / ".git").exists():
+            git_root = dir_path
+            baseline = worktree_recent.checkout_baseline(git_root)
+            if baseline:
+                checkout_groups[git_root] = (baseline, [])
         try:
             children = sorted(dir_path.iterdir())
         except PermissionError:
@@ -642,6 +648,8 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                     if _ipynb_is_pending(child):
                         entry["pending"] = True
                 files.append(entry)
+                if git_root in checkout_groups:
+                    checkout_groups[git_root][1].append((child.relative_to(git_root).as_posix(), entry))
             elif child.is_dir():
                 if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"tasks", "notes", "projects"}):
                     rel = str(child.relative_to(workspace_path))
@@ -649,7 +657,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                     _with_symlink_fields(entry, child)
                     files.append(entry)
                 if child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
-                    scan(child, _workspace_scan_child_depth(child, depth))
+                    scan(child, _workspace_scan_child_depth(child, depth), git_root)
             elif child_is_symlink:
                 # Broken symlink: still surface the row so the sidebar can
                 # distinguish it from an absent file/folder.
@@ -658,8 +666,19 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 _with_symlink_fields(entry, child)
                 files.append(entry)
 
+    def scan_with_checkout_context():
+        # A selected folder can be a subdirectory of a linked worktree.
+        git_root = next((parent for parent in workspace_path.parents if (parent / ".git").exists()), None)
+        if git_root:
+            baseline = worktree_recent.checkout_baseline(git_root)
+            if baseline:
+                checkout_groups[git_root] = (baseline, [])
+        scan(workspace_path, git_root=git_root)
+        for root, (baseline, entries) in checkout_groups.items():
+            worktree_recent.mark_checkout_files(root, baseline, entries)
+
     vault_root = auth.request_root(request)
-    fsguard.guarded(vault_root, scan, workspace_path)
+    fsguard.guarded(vault_root, scan_with_checkout_context)
     return files
 
 
