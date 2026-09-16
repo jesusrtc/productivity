@@ -107,12 +107,12 @@ def summary(body: str, tldr=None) -> str:
     return result[:180].rstrip() + ("…" if len(result) > 180 else "")
 
 
-def actions(body: str) -> list[dict]:
+def actions(body: str, *, all_sections: bool = False) -> list[dict]:
     section, content = None, []
     for line, heading, visible in lines(body):
         if heading is not None:
             section = heading
-        if section == "action items" and visible:
+        if visible and (all_sections or section == "action items"):
             content.append(line)
     return db.extract_subtasks("".join(content))
 
@@ -192,12 +192,12 @@ def find_series(root: Path, series_id: str, workspace_id=None):
 def create_series(root: Path, series_id: str, *, workspace_id: str, title: str) -> Path:
     if records.enabled(root):
         return records.create(root, 'note', title, identifier=series_id, workspace=workspace_id,
-                              note_type='series', body='# Summary\n')
+                              note_type='series', body='')
     db.validate_id(series_id)
     validate_title(title)
     source = safe_path(root, workspace(root, workspace_id) / "meeting-series" / f"{series_id}.md")
     write_record(source, {"id": series_id, "title": title, "workspace": workspace_id,
-                         "created": db.now_iso(), "updated": db.now_iso()}, "# Summary\n")
+                         "created": db.now_iso(), "updated": db.now_iso()}, "")
     return source
 
 
@@ -321,7 +321,7 @@ def create_meeting(root: Path, title: str, *, workspace_id: str, date=None, unda
         raw = read_utf8(raw_file) if raw_file is not None else None
         source = records.create(root, 'note', title, note_type='meeting', workspace=workspace_id,
                                 date=day, attendees=attendees or [], tags=tags or [], series=series,
-                                body='# Summary\n\n# Highlights\n\n# Action items\n')
+                                body='')
         if raw is not None:
             try:
                 write_new(raw_path(root, source), raw)
@@ -346,7 +346,7 @@ def create_meeting(root: Path, title: str, *, workspace_id: str, date=None, unda
     target = raw_path(root, source)
     write_record(source, {"id": identifier, "title": title, "workspace": workspace_id,
                          "date": day, "attendees": attendees or [], "tags": tags or [], "series": series,
-                         "created": db.now_iso(), "updated": db.now_iso()}, "# Summary\n\n# Highlights\n\n# Action items\n")
+                         "created": db.now_iso(), "updated": db.now_iso()}, "")
     if raw is not None:
         try:
             write_new(target, raw)
@@ -390,7 +390,7 @@ def create_content(root: Path, title: str, *, meeting_id: str, kind: str, file=N
     if kind not in {"question", "document"}:
         raise ValueError("content kind must be question or document")
     meeting, _, _ = find_meeting(root, meeting_id)
-    body = read_utf8(file).decode("utf-8") if file is not None else ("# Question\n\n# Answer\n" if kind == "question" else "# Content\n")
+    body = read_utf8(file).decode("utf-8") if file is not None else ""
     if url is not None:
         try:
             parsed = urlsplit(url)

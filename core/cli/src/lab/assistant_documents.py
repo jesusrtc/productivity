@@ -241,7 +241,8 @@ def migrate(root, *, dry_run=True):
                 raise ValueError('Post-migration body verification failed')
             templates = Path(__file__).parent/'resources/assistant/embedded'
             for name in ('AGENTS.md','README.md'):
-                records.atomic_bytes(root/name,(templates/name).read_bytes())
+                if not (root/name).exists():
+                    records.atomic_bytes(root/name,(templates/name).read_bytes())
             records.write_json(journal,{**report,'state':'complete','backup':str(backup),'sha256':hashes})
         except Exception:
             for path,data in originals.items():

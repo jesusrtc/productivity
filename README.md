@@ -32,8 +32,9 @@ Use `lab context` for the guide and `lab agents run codex` (or `claude` /
 `copilot`) when launching manually. See [Agent context](docs/AGENT-CONTEXT.md)
 for migration from the old symlink setup.
 
-Assistant supports agent-editable Markdown tasks, planning views, recurring task
-history, and summary-first meetings with series and original notes. Read
+Assistant supports client-authored Markdown tasks and notes with embedded tabs,
+optional planning metadata, recurrence history, series, and original captures.
+Content structure and formatting belong entirely to the client. Read
 `lab context tasks`, `lab context meetings`, or [Assistant](docs/ASSISTANT.md).
 
 ## Layout

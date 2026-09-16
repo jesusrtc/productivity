@@ -33,133 +33,28 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _CHECKBOX_RE = re.compile(r"^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$")
 
 
-AGENTS_TEMPLATE = """# Assistant task database
+AGENTS_TEMPLATE = """# Assistant database
 
-This directory is the client-owned global task database rendered by Lab's
-Assistant tab. It is independent of every Lab vault. Follow this contract
-whenever the user asks you to add, update, complete, or save work here.
+This database belongs to the client. The client decides the content, structure,
+headings, language, and formatting of tasks, notes, and tabs. Lab provides
+storage and rendering; new bodies are empty. Follow the client's instructions
+and preserve existing content. No document sections or writing workflow are
+required by Lab.
 
-## Start every Assistant session
+Read README.md and inspect the manifest before editing. Use `lab assistant ls
+--status open` to find existing work, and `lab assistant workspace ls` and
+`lab assistant project ls` to resolve existing references.
 
-1. Read this file and `README.md`.
-2. Run `lab assistant ls --status open` before creating duplicate work.
-3. Resolve the request to an existing `workspaces/<id>/workspace.md` by its exact
-   `vault_path` and `workspace_path`. Never guess a mapping when two workspaces
-   could match. Create a mapping with `lab assistant workspace add` only when the
-   target is clear.
-4. Keep source files, generated images, and other artifacts in their owning
-   vault/workspace. This database stores references and task context, not
-   copies of workspace assets.
+Read `lab migrations assistant-subtabs` for the current technical storage
+contract: one Markdown file per task or note with embedded tabs. Legacy
+workspace-folder and separate-record databases remain readable; migrate only
+when authorized. `lab context tasks` and `lab context meetings` describe the
+available metadata and commands, not required document content.
 
-## Commands
-
-```text
-lab assistant path
-lab assistant workspace ls
-lab assistant workspace add <id> --name <name> --vault <vault-id> --path <absolute-workspace-path>
-lab assistant add "Task title" --workspace <id> [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked|ready_to_review]
-lab assistant ls [--status open|<status>] [--priority P0] [--workspace <id>]
-lab assistant show <task-id>
-lab assistant set <task-id> <field> <value>
-lab assistant done <task-id>
-lab assistant subtask add "Subtask title" --parent <task-id> [--workspace <id>] [--priority P0|P1|P2|P3] [--status inbox|ready|in_progress|waiting|blocked|ready_to_review]
-lab assistant subtask ls [--parent <task-id>] [--status open|<status>]
-lab assistant subtask show <subtask-id>
-lab assistant subtask set <subtask-id> <field> <value>
-lab assistant subtask done <subtask-id>
-lab assistant meeting add "Meeting title" --workspace <id> [--date YYYY-MM-DD] [--attendee NAME]
-lab assistant meeting ls [--workspace <id>]
-lab assistant meeting show <meeting-id>
-```
-
-Agents may create and edit Markdown files directly, including frontmatter.
-The CLI is a convenience for IDs and lifecycle validation, not a required write gateway.
-Preserve stable IDs, relationships, unknown metadata, and existing content.
-Use JSON-compatible values in frontmatter; read the latest file before changing it.
-
-## Workspace files
-
-Every `workspaces/<id>/workspace.md` has YAML frontmatter with:
-
-- `id`, `name`, and `status`
-- `vault` and absolute `vault_path`
-- absolute `workspace_path`
-
-The body may describe workspace-specific context that future agents should read.
-
-## Task files
-
-Each task lives at `workspaces/<workspace>/tasks/<task-id>.md`. Required metadata:
-`id`, `title`, `status`, `priority`, `workspace`, `created`, and `updated`.
-Optional metadata: `group`, `tldr`, `due`, `owner`, `waiting_on`, `waiting_since`, `follow_up_at`,
-`last_follow_up_at`, `follow_up_channel`, `reviewer`, `review_requested_at`,
-`executor`, `depends_on`, and `tags`. Create new child work as first-class
-subtasks. Legacy Markdown checkbox items remain readable for older task files.
-
-`group` is the task group or workstream shown inside the mapped Lab
-workspace. `tldr` is the concise summary rendered in task lists and modals.
-
-Each first-class subtask lives at
-`workspaces/<workspace>/subtasks/<subtask-id>.md`. Its required metadata is `id`,
-`title`, `status`, `priority`, `workspace`, `parent`, `created`, and `updated`;
-`due`, `owner`, `waiting_on`, `waiting_since`, `follow_up_at`,
-`last_follow_up_at`, `follow_up_channel`, `reviewer`, `review_requested_at`,
-`executor`, and `tags` are optional. Complete every checkbox and first-class
-subtask before marking its parent task done.
-
-Subtasks may belong to another mapped workspace: add `--workspace <id>` when creating
-one. `parent_workspace` records the parent task workspace independently of the child
-workspace. Legacy subtasks without it use their own workspace for the parent link.
-
-Lifecycle:
-
-- `inbox` — captured but not yet clarified
-- `ready` — actionable and sufficiently specified
-- `in_progress` — actively being worked
-- `waiting` — waiting on time or an external response
-- `blocked` — cannot progress; explain why under `# Blocker`
-- `ready_to_review` — agent-produced work is ready for human review
-- `done` — actually complete; set `completed` as well
-
-P0 is urgent, P1 is important, P2 is normal, and P3 is someday/maybe.
-
-## Meeting files
-
-Read `lab context meetings` for series, original snapshots, and related documents.
-Read `lab context tasks` for scheduling, recurrence, and agent editing.
-
-Meeting notes live at `workspaces/<workspace>/meetings/<meeting-id>.md`. Their
-frontmatter includes `id`, `title`, `workspace`, `date`, `attendees`, `created`,
-`updated`, and `tags`. Use one section each for `# Summary`, `# Highlights`,
-`# Action items`, and `# Notes`; action-item checkboxes appear as individually
-tracked follow-ups in Lab.
-
-## Body conventions
-
-Use ordinary Markdown. Prefer these sections when relevant:
-
-```markdown
-# Context
-# Next actions
-# Notes
-# Output: Slack
-# Output: Google Docs
-# Generate content
-# Result
-```
-
-Lab adds copy buttons to every level-one through level-three heading. Use a
-single section for each independently copyable artifact. Reference images with
-a path relative to the task file or an absolute path inside the mapped
-vault or workspace; Lab renders them without moving the asset.
-
-Use `# Generate content` for a prepared email, announcement, or other manual
-communication. Lab surfaces it from the task preview and offers formatted and
-plain-text copy actions; sending remains a deliberate step outside Lab.
-
-When work finishes, record the outcome and important artifact paths under
-`# Result`, then run `lab assistant done <task-id>`. Do not mark a task done
-merely because work stopped.
+Agents may edit Markdown and frontmatter directly. CLI commands are optional
+conveniences for IDs and validation. Re-read before a targeted edit; preserve
+IDs, relationships, unknown metadata, siblings, and original captures.
+Client instructions and README.md must not be overwritten by migrations.
 """
 
 
@@ -466,7 +361,7 @@ def create_task(
     if records.enabled(root):
         return records.create(root, 'task', title, workspace=workspace_id, project=project_id,
                               priority=priority, status=status, due=due, owner=owner, tags=tags or [],
-                              body='# Context\n\n# Next actions\n')
+                              body='')
     if not workspace_id:
         raise ValueError('Legacy databases require --workspace; run lab assistant migrate --apply')
     if priority not in PRIORITIES:
@@ -505,8 +400,7 @@ def create_task(
     write_markdown(
         source,
         metadata,
-        "# Context\n\nDescribe why this task exists.\n\n# Next actions\n\n"
-        "Add document-backed subtasks with `lab assistant subtask add`.\n",
+        "",
     )
     return source
 
@@ -528,7 +422,7 @@ def create_subtask(
         return records.create(root, 'task', title, parent={'type':'task','id':parent_metadata['id']},
                               workspace=workspace or parent_metadata.get('workspace'),
                               project=parent_metadata.get('project'), priority=priority, status=status,
-                              due=due, owner=owner, tags=tags or [], body='# Context\n\n# Result\n')
+                              due=due, owner=owner, tags=tags or [], body='')
     if priority not in PRIORITIES:
         raise ValueError(f"priority must be one of: {', '.join(PRIORITIES)}")
     if status not in STATUSES or status == "done":
@@ -569,7 +463,7 @@ def create_subtask(
     write_markdown(
         source,
         metadata,
-        "# Context\n\nDescribe the concrete outcome for this subtask.\n\n# Result\n",
+        "",
     )
     return source
 

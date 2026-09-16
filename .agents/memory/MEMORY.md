@@ -200,3 +200,5 @@
 - [Assistant heading copy menu](assistant-heading-copy-menu.md) — Secondary-click headings for one rich Copy content action; no inline Slack/GDoc buttons.
 - [Assistant root-level plus](assistant-root-level-plus.md) — Document tabs + creates a peer of the main tab; row-menu Add subtab creates a nested child.
 - [Assistant series with document tabs](assistant-series-with-document-tabs.md) — One sidebar for series → dated notes → the current note’s tabs, with unchanged file ownership.
+
+- [Assistant content belongs to the client](assistant-client-owned-content.md) — empty bodies, free content structure, embedded tabs, and preserved client instructions.

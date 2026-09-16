@@ -2,6 +2,13 @@
 
 This is the client-owned global Assistant database, independent of Lab workspaces.
 
+The client alone decides the content, structure, headings, language, and
+formatting of tasks, notes, and their tabs. Lab supplies storage, metadata,
+tab relationships, and rendering. New document bodies are empty; do not
+add templates, required sections, or writing conventions unless the client
+requests them. The serialization contract below is technical, not a content
+template. Preserve existing client content and instructions.
+
 ## Start each session
 
 1. Read this file and `README.md`.
@@ -69,8 +76,7 @@ lab assistant meeting show <id>
 ```
 
 Use `null` to clear an optional property. Pass a JSON object for a parent.
-Use commands for metadata; edit Markdown bodies directly for context,
-checklists, decisions, and deliverables. Run `lab assistant verify` after
+Commands are optional conveniences; Markdown bodies and metadata may be edited directly. Run `lab assistant verify` after
 structural changes.
 
 ## Lifecycle and content
@@ -78,7 +84,7 @@ structural changes.
 Task statuses: `inbox`, `ready`, `in_progress`, `waiting`, `blocked`,
 `ready_to_review`, `done`. P0 urgent, P1 important, P2 normal, P3 someday.
 Complete descendant tasks and Markdown checkboxes before completing a parent.
-Record blockers under `# Blocker`. Do not mark unfinished work done.
+No heading is required for blockers or results.
 
 Use `waiting_on`, `waiting_since`, `follow_up_at`, `last_follow_up_at`, and
 `follow_up_channel` for waiting work; `reviewer`, `review_requested_at`, and
@@ -87,9 +93,5 @@ work date; `defer_until` defers visibility. `recurrence` is null (once), weekly,
 monthly, or yearly. `lab assistant repeat <id>` explicitly creates the next
 occurrence after completion; it never silently checks work off.
 
-Prefer ordinary Markdown sections: `# Context`, `# Next actions`, `# Notes`,
-`# Output: Slack`, `# Output: Google Docs`, `# Generate content`, `# Result`.
-Right-click an H1–H6 heading and choose Copy content for Google Docs-compatible rich text. Sending a prepared communication is a
-separate deliberate action. Record outcomes and artifact paths under `# Result`.
-Meetings use `# Summary`, `# Highlights`, `# Action items`, and `# Notes`.
-Original raw notes are immutable; derived notes get their own files.
+Client-authored headings support right-click → Copy content. No sections are
+required for tasks, notes, or meetings. Original raw captures remain immutable.

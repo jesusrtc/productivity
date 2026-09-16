@@ -37,14 +37,12 @@ def advance(root: Path, task_id: str) -> Path:
         return target
     fields = {key: metadata[key] for key in ("title", "workspace", "priority", "owner", "group", "tags", "source", "recurrence") if key in metadata}
     fields.update(id=identifier, status="ready", due=following.isoformat(), recurrence_anchor=anchor.isoformat(),
-                  recurrence_root=series, previous_task=task_id, created=db.now_iso(), updated=db.now_iso(),
-                  tldr="Next recurring occurrence. Verify this period before completing.")
+                  recurrence_root=series, previous_task=task_id, created=db.now_iso(), updated=db.now_iso())
     if records.enabled(root):
         fields.update({key: metadata.get(key) for key in ('project','workspace','parent')})
         fields.pop('id')
         title = fields.pop('title')
         return records.create(root, 'task', title, identifier=identifier, **fields,
-                              body=f'# Context\n\nNext occurrence of [{task_id}]({source.name}).\n\n# Next actions\n')
-    write_record(target, fields, f"# Context\n\nNext occurrence of [{task_id}]({source.name}).\n\n"
-                 "# Next actions\n\nVerify this period's requirements and record its outcome here.\n")
+                              body='')
+    write_record(target, fields, "")
     return target

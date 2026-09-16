@@ -1,4 +1,11 @@
-# Agent-managed tasks in Assistant
+# Tasks and tabs in Assistant
+
+The client alone decides the content, structure, headings, language, and
+formatting of tasks, notes, and their tabs. Lab supplies storage, metadata,
+tab relationships, and rendering. New document bodies are empty; do not
+add templates, required sections, or writing conventions unless the client
+requests them. The serialization contract below is technical, not a content
+template. Preserve existing client content and instructions.
 
 Markdown is the source of truth. Agents may create and modify both bodies and
 frontmatter directly. CLI commands are optional conveniences for metadata
@@ -66,10 +73,8 @@ lab assistant set <id> status ready_to_review
 lab assistant done <id>
 ```
 
-The agent can freely capture, clarify, reprioritize and defer work as the
-user's intent changes. A prepared payment or message is not a completed
-payment or sent message. Record outcomes and evidence before marking done.
-Client instructions govern specific follow-up owners and execution policy.
+The client determines how agents capture, organize, and complete work. These
+metadata capabilities do not prescribe a writing or execution workflow.
 
 ## Recurring tasks
 
@@ -88,9 +93,9 @@ lab assistant repeat <id>
 Retrying it returns the same next occurrence. `previous_task` and
 `recurrence_root` link the history. Short months clamp to their last day and
 later months restore the anchor day. It advances one period, even if overdue,
-so missed obligations are not silently skipped. New occurrences have fresh
-content linked to the previous task; previous results and checked boxes are
-not copied as new evidence. No background scheduler runs: agents invoke this
+so missed obligations are not silently skipped. New occurrences have empty
+bodies and link to the previous task through metadata. Previous content is not
+copied. No background scheduler runs: agents invoke this
 command after completion, or manage equivalent Markdown records themselves.
 Subtasks are not cloned automatically.
 

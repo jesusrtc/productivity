@@ -313,17 +313,19 @@ def task_rows(root, children_only=False):
 
 
 def note_rows(root, note_type):
-    from lab import assistant_meetings as meetings
+    from lab import assistant_meetings as meetings, assistant_documents as documents
+    embedded = documents.enabled(root)
     notes = list(records(root, 'notes'))
     for row in notes:
         if row.get('note_type') != note_type:
             continue
         reference = workspace(root, row.get('workspace'))
         series = next((item for item in notes if item['id'] == row.get('series')), {})
-        actions = meetings.actions(row['body']) if note_type == 'meeting' else []
+        actions = meetings.actions(row['body'], all_sections=embedded) if note_type == 'meeting' else []
+        summary = (row.get('tldr') or documents.summary(row['body'])) if embedded else meetings.summary(row['body'], row.get('tldr'))
         yield {**row, 'workspace': row.get('workspace') or '', 'workspace_name': reference.get('name'),
                'vault': reference.get('vault'), 'vault_path': reference.get('vault_path'),
-               'workspace_path': reference.get('workspace_path'), 'summary': meetings.summary(row['body'], row.get('tldr')),
+               'workspace_path': reference.get('workspace_path'), 'summary': summary,
                'series_title': series.get('title'), 'series_path': series.get('path'),
                'action_items': actions, 'action_items_total': len(actions),
                'action_items_done': sum(item['status'] == 'done' for item in actions),

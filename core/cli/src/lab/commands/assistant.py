@@ -596,7 +596,7 @@ def project_group():
 def project_add(project_id, name):
     try:
         click.echo(records.create(_v2_root(), 'project', name, identifier=project_id,
-                                  status='active', body='# Context\n'))
+                                  status='active'))
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

@@ -4,6 +4,13 @@ Current document format: `embedded-subtabs-v1`, stored in the schema-2 manifest
 as `document_format`. Read the database AGENTS.md, README.md, and manifest first.
 `lab migrations assistant-subtabs` prints this guide; it never changes data.
 
+The client alone decides the content, structure, headings, language, and
+formatting of tasks, notes, and their tabs. Lab supplies storage, metadata,
+tab relationships, and rendering. New document bodies are empty; do not
+add templates, required sections, or writing conventions unless the client
+requests them. The serialization contract below is technical, not a content
+template. Preserve existing client content and instructions.
+
 ## Files and authority
 
 - `tasks/<id>.md`: one independent task, including every nested subtab.
@@ -49,14 +56,10 @@ workspace: null
 parent: null
 tabs: [{"schema":2,"type":"note","id":"note_research","note_type":"subtab","title":"Research","parent":{"type":"task","id":"task_review"},"position":0,"status":"in_progress","priority":"P1","due":"2026-09-30","owner":"Jesus","tldr":"Collect the supporting facts.","created":"2026-09-15T10:00:00Z","updated":"2026-09-15T10:00:00Z"}]
 ---
-# Context
-
-The main tab's content.
+Client-authored main content, with any headings or none.
 
 <!-- lab:subtab note_research -->
-# Research
-
-The subtab's content.
+Client-authored tab content, with any headings or none.
 
 <!-- /lab:subtab note_research -->
 ```
@@ -157,8 +160,9 @@ tree under its existing root, preserves exact bodies/IDs/old link aliases,
 checks the resulting graph and rebuilds the index. Old child project/workspace
 associations that differ are retained as provenance in legacy_metadata; active
 relationships belong to the containing task/note. Original raw assets stay put.
-An ordinary failure restores original files; repeating a completed migration
-verifies the existing format. Backup/journal paths are printed in the result.
+Existing AGENTS.md and README.md remain unchanged; migrations only create
+missing technical guides. An ordinary failure restores original files; repeating
+a completed migration verifies the existing format. Backup/journal paths are printed in the result.
 
 If interrupted by process death, inspect the maintenance marker and journal,
 preserve newer edits, and recover from the verified backup. Do not blindly clear

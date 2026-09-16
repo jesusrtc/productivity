@@ -1,5 +1,12 @@
 # Assistant
 
+The client alone decides the content, structure, headings, language, and
+formatting of tasks, notes, and their tabs. Lab supplies storage, metadata,
+tab relationships, and rendering. New document bodies are empty; do not
+add templates, required sections, or writing conventions unless the client
+requests them. The serialization contract below is technical, not a content
+template. Preserve existing client content and instructions.
+
 One global collection of independent tasks, notes, and projects.
 
 ```text

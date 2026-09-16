@@ -169,8 +169,9 @@ def migrate(root, *, dry_run=True, checkpoint=None):
             from importlib.resources import files
             templates = files('lab').joinpath('resources/assistant')
             for name in ('AGENTS.md','README.md'):
-                docs_written.append(name)
-                records.atomic_bytes(root / name, templates.joinpath(name).read_bytes())
+                if not (root / name).exists():
+                    docs_written.append(name)
+                    records.atomic_bytes(root / name, templates.joinpath(name).read_bytes())
             records.write_json(journal / 'journal.json', {**report, 'state':'complete','backup':str(backup),'verification':result})
             # Keep original tree as an additional recovery copy; no source data is deleted.
             return {**summary, **result, 'backup':str(backup), 'journal':str(journal / 'journal.json')}

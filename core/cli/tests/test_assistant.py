@@ -119,7 +119,7 @@ def test_assistant_meeting_cli(monkeypatch, tmp_path: Path, monorepo: Path) -> N
 
     shown = runner.invoke(main, ["assistant", "meeting", "show", meeting_id])
     assert shown.exit_code == 0, shown.output
-    assert '# Summary' in shown.output
+    assert not assistant.find_meeting(root, meeting_id)[2].strip()
     assert 'attendees: ["Maya", "Leo"]' in shown.output
 
 
@@ -161,7 +161,7 @@ def test_assistant_first_class_subtask_lifecycle(
     assert metadata["status"] == "in_progress"
     assert metadata["owner"] == "agent"
     assert metadata["tags"] == ["communication"]
-    assert "# Context" in body
+    assert not body.strip()
 
     tasks = list(assistant.iter_tasks(root))
     assert tasks[0]["subtasks_total"] == 1

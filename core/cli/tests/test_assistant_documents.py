@@ -24,11 +24,16 @@ def seed(tmp_path):
 
 def test_embedded_migration_keeps_every_body_id_alias_and_backup(tmp_path):
     root,task,child,note,standalone=seed(tmp_path)
+    policy=b'# Client rules\r\n\r\nUse my own structure.  \r\n'
+    for name in ('AGENTS.md','README.md'):
+        (root/name).write_bytes(policy)
     before=list(records.records(root))
     original={row['path']:(root/row['path']).read_bytes() for row in before}
     assert documents.migrate(root)['subtabs']==2
     assert child.is_file()
     result=documents.migrate(root,dry_run=False)
+    for name in ('AGENTS.md','README.md'):
+        assert (root/name).read_bytes()==policy
     assert len(list((root/'tasks').glob('*.md')))==1
     assert len(list((root/'notes').glob('*.md')))==1
     for row in before:
@@ -169,3 +174,56 @@ def test_cli_root_tab_and_nested_subtab_share_the_markdown(tmp_path,monkeypatch)
     assert invalid.exit_code!=0 and 'document root' in invalid.output
     assert task.read_bytes()==before
     assert len(list((root/'tasks').glob('*.md')))==1 and len(list((root/'notes').glob('*.md')))==1
+
+
+@pytest.mark.parametrize('record_type', ['task', 'note'])
+def test_client_content_is_freeform_with_peer_and_nested_tabs(tmp_path, record_type):
+    from lab import assistant_meetings as meetings
+    from lab.assistant_recurrence import advance
+    root=tmp_path/'assistant';root.mkdir()
+    records.write_json(root/'.assistant/manifest.json',
+                       {'schema':2,'state':'active','document_format':documents.FORMAT})
+    records.add_workspace(root,'demo',name='Demo')
+    main=(db.create_task(root,'Task',workspace_id='demo') if record_type=='task'
+          else meetings.create_meeting(root,'Note',workspace_id='demo'))
+    peer=records.create_subtab(root,'Peer',parent={'type':record_type,'id':main.stem},top_level=True)
+    peer_id=records.read_document(peer)[0]['id']
+    nested=records.create_subtab(root,'Nested',parent={'type':'note','id':peer_id})
+    assert all(not row['body'].strip() for row in records.records(root))
+    bodies=['No headings.\r\n\r\n自由な内容  \r\n',
+            '## Mi estructura\n\n| A | B |\n|---|---|\n| 1 | 2 |\n',
+            '<details><summary>Detalle</summary>\n\nTexto.\n\n</details>\n']
+    for source,body in zip((main,peer,nested),bodies):
+        records.write_document(source,records.read_document(source)[0],body)
+    records.update(root,peer_id,'title','Renamed')
+    for source,body in zip((main,peer,nested),bodies):
+        assert records.read_document(source)[1]==body
+        assert documents.physical(source)==main
+    assert records.verify(root)['valid']
+    if record_type=='task':
+        records.update(root,peer_id,'status','skipped')
+        records.update(root,main.stem,'recurrence','monthly')
+        records.update(root,main.stem,'due','2028-01-31')
+        following=advance(root,main.stem)
+        assert records.read_document(following)[1]==''
+        assert records.read_document(following)[0]['previous_task']==main.stem
+
+
+def test_embedded_meeting_preview_accepts_any_headings(tmp_path):
+    from lab import assistant_meetings as meetings
+    root=tmp_path/'assistant';root.mkdir()
+    records.write_json(root/'.assistant/manifest.json',
+                       {'schema':2,'state':'active','document_format':documents.FORMAT})
+    records.add_workspace(root,'demo',name='Demo')
+    series=meetings.create_series(root,'weekly',workspace_id='demo',title='Series')
+    note=meetings.create_meeting(root,'Note',workspace_id='demo',series='weekly')
+    tab=meetings.create_content(root,'Tab',meeting_id=note.stem,kind='question')
+    assert all(not records.read_document(source)[1].strip() for source in (series,note,tab))
+    body='Introducción libre.\n\n## Mis pendientes\n\n- [ ] Revisar\n- [x] Listo\n\n```md\n- [ ] Ejemplo\n```\n'
+    records.write_document(note,records.read_document(note)[0],body)
+    row=next(records.note_rows(root,'meeting'))
+    assert row['summary'].startswith('Introducción libre.')
+    assert row['action_items_total']==2 and row['action_items_done']==1
+    records.update(root,note.stem,'tldr','Descripción del cliente')
+    assert next(records.note_rows(root,'meeting'))['summary']=='Descripción del cliente'
+    assert records.read_document(note)[1]==body

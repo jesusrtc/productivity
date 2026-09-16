@@ -113,7 +113,7 @@ def test_assistant_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo
     assert detail.status_code == 200, detail.text
     assert detail.json()["metadata"]["priority"] == "P0"
     assert detail.json()["subtasks"] == []
-    assert "# Context" in detail.json()["body"]
+    assert detail.json()["body"] == assistant_db.read_markdown(task)[1]
 
 
 def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, monorepo: Path) -> None:
@@ -129,7 +129,7 @@ def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, 
     assistant_db.write_markdown(
         meeting,
         metadata,
-        body + "\n- [x] Share experiment results.\n- [ ] Prepare next review.\n",
+        body + "\n# Action items\n\n- [x] Share experiment results.\n- [ ] Prepare next review.\n",
     )
 
     response = client.get("/api/assistant")
@@ -146,7 +146,7 @@ def test_assistant_meeting_list_and_detail(client, monkeypatch, tmp_path: Path, 
     )
     assert detail.status_code == 200, detail.text
     assert detail.json()["metadata"]["attendees"] == ["Maya", "Leo"]
-    assert "# Highlights" in detail.json()["body"]
+    assert detail.json()["body"] == assistant_db.read_markdown(meeting)[1]
 
 
 def test_assistant_first_class_subtasks_are_summarized_and_have_detail(

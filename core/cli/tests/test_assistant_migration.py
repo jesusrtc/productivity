@@ -26,6 +26,9 @@ def seed(tmp_path):
 
 def test_migration_preserves_bytes_relationships_aliases_and_backup(tmp_path):
     root,task,child,meeting,content,body,raw = seed(tmp_path)
+    policy = b'# Client rules\r\n\r\nUse my own structure.  \r\n'
+    for name in ('AGENTS.md', 'README.md'):
+        (root/name).write_bytes(policy)
     originals = {str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}
     original_paths = [str(p.relative_to(root)) for p in (task,child,meeting,content)]
     before = migration.migrate(root)
@@ -33,6 +36,8 @@ def test_migration_preserves_bytes_relationships_aliases_and_backup(tmp_path):
     result = migration.migrate(root, dry_run=False)
     assert result['valid'] and result['counts'] == {'task':2,'note':3}
     assert records.verify(root)['task_roots'] == 1
+    for name in ('AGENTS.md', 'README.md'):
+        assert (root/name).read_bytes() == policy
     for path,data in originals.items():
         assert (Path(result['backup'])/path).read_bytes() == data
     for path in original_paths:

@@ -2,6 +2,13 @@
 
 This is the client-owned global task/note database, independent of Lab workspaces.
 
+The client alone decides the content, structure, headings, language, and
+formatting of tasks, notes, and their tabs. Lab supplies storage, metadata,
+tab relationships, and rendering. New document bodies are empty; do not
+add templates, required sections, or writing conventions unless the client
+requests them. The serialization contract below is technical, not a content
+template. Preserve existing client content and instructions.
+
 ## Start each session
 
 1. Read this file and README.md.
@@ -85,20 +92,19 @@ skipped → In progress; all done/skipped → Completed. Skipped completes a who
 branch without deleting it. Overall cancellation is manual (`status cancelled`).
 Legacy inbox/ready mean Not started; waiting/blocked/ready_to_review count as
 In progress. Reopening a child recomputes the overall status. Do not maintain
-another copy of the calculated overall status. Complete checkboxes before
-explicitly marking work done; record evidence and results, not just effort.
+another copy of the calculated overall status. Explicit leaf completion also
+checks unchecked Markdown items if the client has used them.
 
 `tldr` is a concise description; `owner` is POC; due is the actual deadline;
 priority is P0 urgent, P1 important, P2 normal, P3 someday. Recurrence is null
 (once), weekly, monthly or yearly. `lab assistant repeat <id>` explicitly creates
 the next occurrence after completion. Waiting/review context fields remain
-supported. Use ordinary headings for context, next actions, notes, results, and
-independently copyable artifacts. Right-click an H1–H6 heading and choose Copy content for Google Docs-compatible rich text.
-Sending a prepared communication is a separate deliberate step.
+supported. Any client-authored H1–H6 heading supports right-click → Copy content
+for Google Docs-compatible rich text. No heading is required.
 
 One tab opens directly; multiple tabs get a generated Index with the clickable
 tree, description, status, due, priority and POC. Do not save Index as another
-file or repeat metadata in the main content. Raw captured notes remain immutable.
+file. Raw captured notes remain immutable.
 
 The document rail's + adds a tab at the same level as the main tab, inside the
 same file. Add subtab in a row menu nests a child. Top-level tab metadata uses
