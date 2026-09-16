@@ -2308,7 +2308,7 @@
   const SIDEBAR_RECENT_MINUTE_OPTIONS = Object.freeze([15, 60, 120, 360, 1440]);
   const SIDEBAR_RECENT_MAX_MINUTES = 1440;
   const SIDEBAR_RECENT_GIT_MODES = Object.freeze([
-    'uncommitted', 'origin-main', 'last-2-commits',
+    'uncommitted', 'origin-main', 'local-main', 'last-2-commits',
   ]);
   const SIDEBAR_SORT_MODES = Object.freeze(['updated', 'name', 'type']);
   const SIDEBAR_WORKTREE_DEFAULT_COLOR = '#6e7681';
@@ -2337,6 +2337,7 @@
   let _sidebarWorktreeDiscoveryPromise = null;
   let _sidebarWorktreeDiscoveryPromiseKey = '';
   let _sidebarWorktreeDiscoveryGeneration = 0;
+  let _sidebarWorktreeRefreshInFlight = false;
 
   function _sidebarClearWorktreeDiscovery() {
     _sidebarWorktreeFolders = [];
@@ -2604,11 +2605,11 @@
       return [];
     }
     const discoveryKey = `${requested}\n${scopeRoot}\n${repositoryRoot}`;
+    if (_sidebarWorktreeDiscoveryPromise && _sidebarWorktreeDiscoveryPromiseKey === discoveryKey) {
+      return _sidebarWorktreeDiscoveryPromise;
+    }
     if (!force && discoveryKey === _sidebarWorktreeDiscoveryKey) {
       return _sidebarWorktreeFolders;
-    }
-    if (!force && _sidebarWorktreeDiscoveryPromise && _sidebarWorktreeDiscoveryPromiseKey === discoveryKey) {
-      return _sidebarWorktreeDiscoveryPromise;
     }
     const generation = ++_sidebarWorktreeDiscoveryGeneration;
     const promise = (async () => {
@@ -2625,7 +2626,7 @@
         : [];
       if (generation === _sidebarWorktreeDiscoveryGeneration) {
         _sidebarWorktreeFolderResolved = resolvedFolder;
-        _sidebarWorktreeDiscoveryKey = `${resolvedFolder}\n${scopeRoot}\n${repositoryRoot}`;
+        _sidebarWorktreeDiscoveryKey = discoveryKey;
         _sidebarWorktreeFolders = folders;
       }
       return folders;
@@ -2649,15 +2650,19 @@
       _sidebarClearWorktreeDiscovery();
       return [];
     }
+    const discovery = _sidebarDiscoverWorktrees(worktreeFolder, {baseRoot: workspaceRoot});
+    const generation = _sidebarWorktreeDiscoveryGeneration;
     try {
-      return await _sidebarDiscoverWorktrees(worktreeFolder, {baseRoot: workspaceRoot});
+      return await discovery;
     } catch (error) {
-      _sidebarClearWorktreeDiscovery();
+      if (generation !== _sidebarWorktreeDiscoveryGeneration) return [];
+      const discoveryKey = `${worktreeFolder}\n${workspaceRoot}\n${_sidebarWorktreeRepositoryRoot(workspaceRoot)}`;
+      if (_sidebarWorktreeDiscoveryKey !== discoveryKey) _sidebarClearWorktreeDiscovery();
       _sidebarRecentLog('warning', `worktree folder scan failed: ${error.message || error}`, {
         action: 'sidebar.worktree.scan',
         target: worktreeFolder,
       });
-      return [];
+      return _sidebarWorktreeFolders;
     }
   }
 
@@ -2678,19 +2683,56 @@
     return _sidebarValidColor((_sidebarFileConfig.worktreeColors || {})[path]);
   }
 
+  function _sidebarWorktreeOptionsHtml(baseRoot) {
+    const selectedPath = _sidebarSelectedWorktree(baseRoot)?.path || '';
+    return [
+      '<option value="">main</option>',
+      ..._sidebarWorktreeFolders.map(row => `<option value="${escAttr(row.path)}"${row.path === selectedPath ? ' selected' : ''}>${esc(row.name)}</option>`),
+    ].join('');
+  }
+
+  async function _sidebarRefreshWorktreePicker() {
+    if (document.hidden || _sidebarWorktreeRefreshInFlight || _workspaceDocEditing) return;
+    const select = document.querySelector('#sidebar select[aria-label="File worktree"]');
+    if (!select) return;
+    const baseRoot = select.getAttribute('data-base-root');
+    const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
+    const folder = _sidebarActiveWorktreeFolder(baseRoot);
+    if (!folder) return;
+    const configScope = _sidebarFileConfigScope;
+    _sidebarWorktreeRefreshInFlight = true;
+    try {
+      await _sidebarDiscoverWorktrees(folder, {force: true, baseRoot: workspaceRoot});
+      // Navigation or a sidebar repaint can replace this picker during the scan.
+      if (!select.isConnected || configScope !== _sidebarFileConfigScope
+          || workspaceRoot !== _sidebarWorkspaceRoot(baseRoot)
+          || folder !== _sidebarActiveWorktreeFolder(baseRoot)) return;
+      const choices = [['', 'main'], ..._sidebarWorktreeFolders.map(row => [row.path, row.name])];
+      const displayed = Array.from(select.options, option => [option.value, option.text]);
+      if (JSON.stringify(choices) === JSON.stringify(displayed)) return;
+      const previous = select.value;
+      // Update only the choices: keep the open document, file tree, scroll and focus.
+      select.innerHTML = _sidebarWorktreeOptionsHtml(baseRoot);
+      if (previous && !_sidebarWorktreeFolders.some(row => row.path === previous)) {
+        await sidebarSelectWorktree(select);
+      }
+    } catch (_) {
+      // A transient scan failure must not clear the current choices or selection.
+      // The next visible tick retries, with at most one scan in flight.
+    } finally {
+      _sidebarWorktreeRefreshInFlight = false;
+    }
+  }
+
   function _sidebarWorktreePickerHtml(baseRoot) {
     const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     const worktreeFolder = _sidebarActiveWorktreeFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
     const selectedPath = selected ? selected.path : '';
     const selectedLabel = selected ? selected.name : 'main';
-    const options = [
-      '<option value="">main</option>',
-      ..._sidebarWorktreeFolders.map(row => `<option value="${escAttr(row.path)}"${row.path === selectedPath ? ' selected' : ''}>${esc(row.name)}</option>`),
-    ];
     const color = selected ? _sidebarWorktreeColor(selected.path) : SIDEBAR_WORKTREE_DEFAULT_COLOR;
     const rootControl = worktreeFolder
-      ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${options.join('')}</select></label>`
+      ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${_sidebarWorktreeOptionsHtml(baseRoot)}</select></label>`
       : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
     return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree; its running directory stays unchanged">Link current terminal</button><input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
   }
@@ -2960,7 +3002,8 @@
       ],
       [
         ['uncommitted', 'Uncomm', 'Uncommitted', 'Files with uncommitted changes'],
-        ['origin-main', 'vs main', 'vs origin/main', 'Files changed compared with origin/main'],
+        ['origin-main', 'vs remote', 'vs origin/main', 'Files changed compared with origin/main'],
+        ['local-main', 'vs local', 'vs local main', 'Files changed compared with the local main branch'],
         ['last-2-commits', '2 cmts', 'Last 2 commits', 'Files changed by the last 2 commits'],
       ],
     ];
@@ -10277,6 +10320,14 @@
   // dashPollTick itself is a no-op when Admin isn't the active view.
   if (!UI_CHECK) {
     document.addEventListener('visibilitychange', () => { if (!document.hidden) dashPollTick(); });
+  }
+
+  // Worktrees can be created outside the selected file root, so its mtime
+  // cannot tell us when the picker changes. Refresh the visible picker itself.
+  if (!UI_CHECK) {
+    setInterval(_sidebarRefreshWorktreePicker, 5000);
+    document.addEventListener('visibilitychange', _sidebarRefreshWorktreePicker);
+    window.addEventListener('focus', _sidebarRefreshWorktreePicker);
   }
 
   // Auto-refresh workspace view when any file in the workspace folder changes (mtime check)

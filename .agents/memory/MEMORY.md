@@ -1,5 +1,8 @@
 # Memory index
 
+- [Worktree discovery refreshes live](sidebar-worktree-discovery-refreshes-live.md) — refresh visible choices independently of file mtimes, preserving selection and open documents
+- [Recently updated compares with local main](sidebar-local-main-comparison.md) — separate local and remote main refs, with distinct labels and workspace-scoped persistence
+
 - [Command-click across file previews](file-previews-command-click.md) — shared word highlighting and file modal; cell outlines remain notebook-only
 - [File modal sort labels and type](file-modal-sort-labels-and-type.md) — Modified/Created time desc/asc, Name A–Z/Z–A, and Type (extension)
 

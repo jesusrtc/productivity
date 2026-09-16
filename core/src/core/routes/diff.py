@@ -354,7 +354,7 @@ def api_git_status(repo: str, request: Request):
     return result
 
 
-_SIDEBAR_RECENT_GIT_MODES = {"uncommitted", "origin-main", "last-2-commits"}
+_SIDEBAR_RECENT_GIT_MODES = {"uncommitted", "origin-main", "local-main", "last-2-commits"}
 
 
 def _sidebar_git_run(directory: str, *args: str) -> subprocess.CompletedProcess:
@@ -402,16 +402,17 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
             add(_sidebar_git_run(
                 directory, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
             ))
-        elif mode == "origin-main":
-            base_ref = "refs/remotes/origin/main"
+        elif mode in {"origin-main", "local-main"}:
+            base_name = "main" if mode == "local-main" else "origin/main"
+            base_ref = "refs/heads/main" if mode == "local-main" else "refs/remotes/origin/main"
             exists = _sidebar_git_run(directory, "rev-parse", "--verify", "--quiet", base_ref)
             if exists.returncode != 0:
                 return {
                     "files": [], "mode": mode, "available": False,
-                    "base_ref": "origin/main",
+                    "base_ref": base_name,
                 }
             add(_sidebar_git_run(
-                directory, "diff", "--name-only", "-z", "--relative", "origin/main", "--", ".",
+                directory, "diff", "--name-only", "-z", "--relative", base_ref, "--", ".",
             ))
             add(_sidebar_git_run(
                 directory, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
@@ -430,8 +431,8 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
         return {"files": [], "mode": mode, "available": False}
 
     result = {"files": paths, "mode": mode, "available": True}
-    if mode == "origin-main":
-        result["base_ref"] = "origin/main"
+    if mode in {"origin-main", "local-main"}:
+        result["base_ref"] = base_name
     return result
 
 

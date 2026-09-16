@@ -203,7 +203,7 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
     client, seed_workspace,
 ) -> None:
     pdir = seed_workspace("recent-git-modes")
-    subprocess.run(["git", "init"], cwd=pdir, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "feature"], cwd=pdir, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Lab Test"], cwd=pdir, check=True)
     subprocess.run(
         ["git", "config", "user.email", "lab@example.test"],
@@ -230,10 +230,12 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
     )
 
     (pdir / "commit-two.txt").write_text("two\n")
-    subprocess.run(["git", "add", "commit-two.txt"], cwd=pdir, check=True)
+    (pdir / "local-main-only.txt").write_text("already on local main\n")
+    subprocess.run(["git", "add", "commit-two.txt", "local-main-only.txt"], cwd=pdir, check=True)
     subprocess.run(
         ["git", "commit", "-m", "two"], cwd=pdir, check=True, capture_output=True,
     )
+    subprocess.run(["git", "branch", "main"], cwd=pdir, check=True)
     (pdir / "commit-three.txt").write_text("three\n")
     subprocess.run(["git", "add", "commit-three.txt"], cwd=pdir, check=True)
     subprocess.run(
@@ -249,6 +251,9 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
     origin_main = client.get("/api/sidebar-recent-files", params={
         "repo": str(pdir), "mode": "origin-main",
     })
+    local_main = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "local-main",
+    })
     last_two = client.get("/api/sidebar-recent-files", params={
         "repo": str(pdir), "mode": "last-2-commits",
     })
@@ -258,10 +263,23 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
     assert origin_main.status_code == 200
     assert origin_main.json()["base_ref"] == "origin/main"
     assert set(origin_main.json()["files"]) == {
+        "commit-two.txt", "commit-three.txt", "untracked.txt", "local-main-only.txt",
+    }
+    assert local_main.status_code == 200
+    assert local_main.json()["base_ref"] == "main"
+    assert set(local_main.json()["files"]) == {
         "commit-two.txt", "commit-three.txt", "untracked.txt",
     }
     assert last_two.status_code == 200
-    assert set(last_two.json()["files"]) == {"commit-two.txt", "commit-three.txt"}
+    assert set(last_two.json()["files"]) == {"commit-two.txt", "commit-three.txt", "local-main-only.txt"}
+
+    subprocess.run(["git", "branch", "-D", "main"], cwd=pdir, check=True, capture_output=True)
+    missing_local = client.get("/api/sidebar-recent-files", params={
+        "repo": str(pdir), "mode": "local-main",
+    })
+    assert missing_local.json() == {
+        "files": [], "mode": "local-main", "available": False, "base_ref": "main",
+    }
 
     invalid = client.get("/api/sidebar-recent-files", params={
         "repo": str(pdir), "mode": "all-history",

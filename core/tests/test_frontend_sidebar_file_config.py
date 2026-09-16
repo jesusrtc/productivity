@@ -691,6 +691,146 @@ const fetch = async url => {
     }
 
 
+def test_worktree_refresh_updates_choices_without_reloading_or_losing_selection() -> None:
+    helpers = _between("let showDotFiles = false;", "function filterDotFiles(nodes)")
+    poller = _between(
+        "// Worktrees can be created outside the selected file root",
+        "// Auto-refresh workspace view when any file",
+    )
+    result = _run_node(
+        r"""
+const currentRepo = null;
+const currentWorkspace = {path: '/workspace', repos: [{path: '/repo'}]};
+const localStorage = {getItem() { return null; }};
+const esc = value => String(value);
+const escAttr = esc;
+const callbacks = {};
+const window = {addEventListener(name, fn) { callbacks[name] = fn; }};
+const document = {
+  hidden: false,
+  addEventListener(name, fn) { callbacks[name] = fn; },
+  querySelector() { return select; },
+};
+const UI_CHECK = false;
+let _workspaceDocEditing = false;
+let tick;
+function setInterval(fn, ms) { tick = fn; callbacks.interval = ms; }
+let writes = 0;
+const select = {
+  isConnected: true,
+  value: '/trees/first',
+  options: [{value: '', text: 'main'}, {value: '/trees/first', text: 'first'}],
+  getAttribute() { return '/workspace'; },
+  set innerHTML(html) {
+    writes++;
+    this.options = [...html.matchAll(/<option value="([^"]*)"( selected)?>(.*?)<\/option>/g)]
+      .map(match => ({value: match[1], text: match[3], selected: !!match[2]}));
+    this.value = (this.options.find(option => option.selected) || this.options[0]).value;
+  },
+};
+let calls = 0;
+const pending = [];
+function fetch() { calls++; return new Promise(resolve => pending.push(resolve)); }
+const folders = names => names.map(name => ({name, path: '/trees/' + name}));
+function respond(names, ok = true) {
+  pending.splice(0).forEach(resolve => resolve({ok, json: async () => ({path: '/trees', folders: folders(names)})}));
+}
+"""
+        + helpers + poller
+        + """
+(async () => {
+  _sidebarFileConfig.worktreeFolder = '~/trees';
+  _sidebarFileConfig.selectedWorktrees = {'/workspace': '/trees/first'};
+  _sidebarWorktreeFolders = folders(['first']);
+  const refresh = tick();
+  await callbacks.focus();
+  const concurrent = _sidebarEnsureWorktrees('/workspace');
+  const callsWhilePending = calls;
+  respond(['first', 'new']);
+  await Promise.all([refresh, concurrent]);
+  const added = {choices: select.options.map(row => row.text), value: select.value, writes};
+  await _sidebarEnsureWorktrees('/workspace'); // The normalized response path still caches ~/trees.
+  const callsAfterCacheHit = calls;
+  const unchanged = tick(); respond(['first', 'new']); await unchanged;
+  const unchangedWrites = writes;
+  const failed = tick();
+  const joinedFailure = _sidebarEnsureWorktrees('/workspace');
+  respond([], false); await Promise.all([failed, joinedFailure]);
+  const afterFailure = {choices: select.options.map(row => row.text), value: select.value, writes};
+  const retry = callbacks.focus(); respond(['first', 'new', 'later']); await retry;
+  const afterRetry = select.options.map(row => row.text);
+  const leaving = tick();
+  select.isConnected = false;
+  _sidebarClearWorktreeDiscovery();
+  respond(['old-scope']); await leaving;
+  const staleWrites = writes;
+  const staleCache = _sidebarWorktreeFolders;
+  document.hidden = true; await tick();
+  document.hidden = false; _workspaceDocEditing = true; await tick();
+  process.stdout.write(JSON.stringify({
+    interval: callbacks.interval, visibleListener: !!callbacks.visibilitychange,
+    callsWhilePending, callsAfterCacheHit, added, unchangedWrites, afterFailure,
+    afterRetry, staleWrites, staleCache, calls,
+  }));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    )
+    assert result == {
+        "interval": 5000, "visibleListener": True,
+        "callsWhilePending": 1, "callsAfterCacheHit": 1,
+        "added": {"choices": ["main", "first", "new"], "value": "/trees/first", "writes": 1},
+        "unchangedWrites": 1,
+        "afterFailure": {"choices": ["main", "first", "new"], "value": "/trees/first", "writes": 1},
+        "afterRetry": ["main", "first", "new", "later"],
+        "staleWrites": 2, "staleCache": [], "calls": 5,
+    }
+
+
+def test_local_main_filter_persists_and_requests_its_own_git_comparison() -> None:
+    helpers = _between("let showDotFiles = false;", "function filterDotFiles(nodes)")
+    result = _run_node(
+        """
+const stored = {};
+const localStorage = {getItem: key => stored[key] || null, setItem: (key, value) => { stored[key] = value; }};
+const currentRepo = null;
+const currentWorkspace = {path: '/workspace', is_workspace: false};
+const document = {body: {classList: {contains() { return false; }}}, addEventListener() {}};
+const window = {};
+const esc = value => String(value);
+const escAttr = esc;
+const urls = [];
+const fetch = async url => {
+  urls.push(url);
+  return {ok: true, json: async () => ({available: true, files: ['changed.txt']})};
+};
+"""
+        + helpers
+        + """
+(async () => {
+  const button = {getAttribute() { return 'local-main'; }};
+  await sidebarSelectRecentMode(button);
+  const restored = _loadSidebarFileConfig();
+  const selected = _sidebarRecentSelectorsHtml();
+  const files = await _sidebarResolveRecentFiles([
+    {path: 'changed.txt', type: 'file'}, {path: 'unchanged.txt', type: 'file'},
+  ], '/trees/feature');
+  await sidebarSelectRecentMode(button);
+  process.stdout.write(JSON.stringify({
+    restored: restored.recentMode,
+    activeCount: (selected.match(/aria-pressed="true"/g) || []).length,
+    localActive: selected.includes('data-recent-mode="local-main" onclick="sidebarSelectRecentMode(this)" aria-label="Files changed compared with the local main branch" aria-pressed="true"'),
+    files: files.map(row => row.path), urls, cleared: _sidebarFileConfig.recentMode,
+  }));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    )
+    assert result == {
+        "restored": "local-main", "activeCount": 1, "localActive": True,
+        "files": ["changed.txt"], "cleared": "none",
+        "urls": ["/api/sidebar-recent-files?repo=%2Ftrees%2Ffeature&mode=local-main"],
+    }
+
+
 def test_recent_diagnostic_reports_each_readme_mtime_and_filter_result() -> None:
     sort_helpers = _between(
         "function _sidebarEntryName(entry)",
@@ -905,7 +1045,8 @@ def test_sidebar_config_modal_and_all_sidebar_surfaces_are_wired() -> None:
     assert "['mtime:15', '15m', '15 min'" in source
     assert "['mtime:1440', '24h', '24 hours'" in source
     assert "['uncommitted', 'Uncomm', 'Uncommitted'" in source
-    assert "['origin-main', 'vs main', 'vs origin/main'" in source
+    assert "['origin-main', 'vs remote', 'vs origin/main'" in source
+    assert "['local-main', 'vs local', 'vs local main'" in source
     assert "['last-2-commits', '2 cmts', 'Last 2 commits'" in source
     assert "Show hidden files</label>" not in source
     assert source.count("_sidebarRecentSectionHtml(") >= 4

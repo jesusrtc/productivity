@@ -570,6 +570,9 @@
     .sidebar-recent-label-long { display: inline; }
     .sidebar-recent-selector, .sidebar-recent-selector-row + .sidebar-recent-selector-row .sidebar-recent-selector { padding: 5px 4px; font-size: 10px; }
   }
+  @container lab-sidebar (max-width: 399px) {
+    .sidebar-recent-selector-row + .sidebar-recent-selector-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   .sidebar-file-scope-buttons { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 12px 8px; }
   .sidebar-file-scope-button { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; background: var(--bg-primary); color: var(--text-secondary); font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; cursor: pointer; }
   .sidebar-file-scope-button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
