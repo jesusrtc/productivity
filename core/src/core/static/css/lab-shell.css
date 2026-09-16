@@ -2808,6 +2808,24 @@
 .assistant-tab-menu button:hover, .assistant-tab-menu summary:hover, .assistant-tabs-heading > button:hover { background:var(--bg-tertiary); }
 .assistant-document-error { padding:10px 16px; color:var(--text-secondary); font-size:13px; border-bottom:1px solid var(--border); }
 
+/* Note drafts: quiet line marks and explicit saving, with content kept in place. */
+.assistant-modal-actions > [hidden] { display:none !important; }
+.assistant-note-status { max-width:260px; color:var(--text-dim); font-size:11px; line-height:1.4; }
+.assistant-note-status.is-dirty::before { content:'●'; color:#b28a46; margin-right:6px; font-size:8px; }
+.assistant-note-status.error { color:var(--text-secondary); }
+.assistant-modal-actions > #assistantSaveNote:not(:disabled) { border-color:var(--text-dim); color:var(--text-primary); }
+.assistant-note-dirty::after { content:'●'; color:#b28a46; font-size:8px; margin-left:auto; }
+.assistant-note-editor { position:relative; min-height:320px; width:100%; }
+.assistant-note-editor > .assistant-note-marks,
+.assistant-note-editor > textarea { box-sizing:border-box; width:100%; margin:0; padding:12px; border:0; border-radius:4px; font:14px/24px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:normal; tab-size:4; white-space:pre-wrap; overflow-wrap:break-word; word-break:normal; }
+.assistant-note-editor > .assistant-note-marks { min-height:320px; color:transparent; background:transparent; pointer-events:none; overflow:hidden; }
+.assistant-note-marks > span { display:block; min-height:24px; }
+.assistant-note-marks > .note-line-changed { background:color-mix(in srgb,#b28a46 7%,transparent); box-shadow:-2px 0 #b28a46; }
+.assistant-note-marks > .note-line-deleted { border-radius:0; box-shadow:inset 0 2px color-mix(in srgb,#b28a46 55%,transparent); }
+.assistant-note-editor > textarea { position:absolute; inset:0; height:100%; resize:none; overflow:hidden; color:var(--text-primary); background:transparent; caret-color:var(--text-primary); }
+.assistant-note-editor > textarea:focus { outline:1px solid var(--border); outline-offset:3px; }
+@media(max-width:760px) { .assistant-note-status { max-width:100%; flex-basis:100%; } }
+
 /* Generated document index: compact, neutral, and navigable as a tree. */
 .assistant-index { padding:24px; max-width:1400px; margin:0 auto; }
 .assistant-index h2 { margin:0 0 20px; font-size:20px; font-weight:600; }

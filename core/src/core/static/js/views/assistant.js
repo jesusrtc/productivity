@@ -29,6 +29,7 @@
     currentPane: null,
     modalIndex: false,
     headingMenu: null,
+    noteDrafts: new Map(),
   };
 
   const e = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -589,7 +590,7 @@
     overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
       <header class="assistant-modal-header">
         <div class="assistant-modal-heading"><span id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
-        <div class="assistant-modal-actions"><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
+        <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
@@ -716,6 +717,7 @@
 
   function renderDocumentHeader(detail, kind) {
     closeHeadingMenu();
+    hideNoteControls();
     // Related documents share their meeting's properties; original notes stay read-only.
     const record = detail.metadata?.schema === 2 ? detail : ['content', 'meeting'].includes(kind) ? state.modalRoot : detail;
     const recordKind = kind === 'content' ? 'meeting' : kind;
@@ -829,6 +831,181 @@
       message.classList.add('error');
     } finally {
       controls.forEach(input => { input.disabled = false; });
+    }
+  }
+
+  function noteDraftKey(path) {
+    return (state.data?.root || '') + ':' + path;
+  }
+
+  function noteDraft(detail = state.modalCurrent) {
+    return detail && state.noteDrafts.get(noteDraftKey(detail.path));
+  }
+
+  function dirtyDraft(draft) { return Boolean(draft && draft.body !== draft.base); }
+
+  // Mark only added/replaced lines. Deletions get a small mark at their join.
+  // Trim shared edges first and bound the LCS matrix for unusually large notes.
+  function noteLineChanges(before, after) {
+    const oldLines = before.split('\n'), lines = after.split('\n');
+    const changed = new Set(), deleted = new Set();
+    let start = 0, oldEnd = oldLines.length, end = lines.length, removed = 0;
+    while (start < oldEnd && start < end && oldLines[start] === lines[start]) start++;
+    while (oldEnd > start && end > start && oldLines[oldEnd - 1] === lines[end - 1]) { oldEnd--; end--; }
+    const n = oldEnd - start, m = end - start;
+    if (!n || !m || n * m > 1000000) {
+      for (let j = start; j < end; j++) changed.add(j);
+      removed = n;
+      if (n) deleted.add(Math.min(start, lines.length - 1));
+    } else {
+      const lengths = Array.from({length:n + 1}, () => new Uint32Array(m + 1));
+      for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+        lengths[i][j] = oldLines[start + i] === lines[start + j]
+          ? 1 + lengths[i + 1][j + 1] : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+      }
+      let i = 0, j = 0;
+      while (i < n || j < m) {
+        if (i < n && j < m && oldLines[start + i] === lines[start + j]) { i++; j++; }
+        else if (j < m && (i === n || lengths[i][j + 1] >= lengths[i + 1][j])) changed.add(start + j++);
+        else { removed++; deleted.add(Math.min(start + j, lines.length - 1)); i++; }
+      }
+    }
+    return {lines, changed, deleted, removed};
+  }
+
+  function markNoteChanges(draft) {
+    const diff = noteLineChanges(draft.base, draft.body);
+    draft.marks.innerHTML = diff.lines.map((line, i) => `<span class="${diff.changed.has(i) ? 'note-line-changed' : ''} ${diff.deleted.has(i) ? 'note-line-deleted' : ''}">${e(line) || '&#8203;'}</span>`).join('');
+    draft.summary = dirtyDraft(draft) ? 'Unsaved changes' + (diff.removed ? ` · ${diff.removed} removed line${diff.removed === 1 ? '' : 's'}` : '') : '';
+  }
+
+  function markDraftTabs() {
+    document.querySelectorAll('#assistantDocumentNav [data-record-path]').forEach(button => {
+      const dirty = dirtyDraft(state.noteDrafts.get(noteDraftKey(button.dataset.recordPath)));
+      button.classList.toggle('assistant-note-dirty', dirty);
+      const label = button.querySelector('span:last-child')?.textContent || button.textContent;
+      button.setAttribute('aria-label', label + (dirty ? ' · Unsaved changes' : ''));
+    });
+  }
+
+  function hideNoteControls() {
+    ['assistantEditNote','assistantSaveNote','assistantRevertNote','assistantNoteStatus'].forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.hidden = true;
+    });
+  }
+
+  function renderNoteControls(detail, kind) {
+    hideNoteControls();
+    if (detail.metadata?.schema !== 2 || detail.metadata.type !== 'note' || kind === 'content' || detail.format === 'text') return;
+    const edit = document.getElementById('assistantEditNote');
+    const save = document.getElementById('assistantSaveNote');
+    const revert = document.getElementById('assistantRevertNote');
+    const status = document.getElementById('assistantNoteStatus');
+    const draft = noteDraft(detail), dirty = dirtyDraft(draft);
+    edit.hidden = save.hidden = false;
+    edit.textContent = draft?.editing ? 'Preview' : 'Edit';
+    edit.setAttribute('aria-pressed', String(Boolean(draft?.editing)));
+    edit.disabled = Boolean(draft?.saving);
+    save.disabled = !dirty || Boolean(draft?.saving);
+    save.textContent = draft?.saving ? 'Saving…' : 'Save';
+    revert.hidden = !dirty; revert.disabled = Boolean(draft?.saving);
+    status.hidden = !draft || !(dirty || draft.saved || draft.error);
+    status.textContent = draft?.error || (dirty ? draft.summary || 'Unsaved changes' : draft?.saved ? 'Saved' : '');
+    status.classList.toggle('is-dirty', dirty); status.classList.toggle('error', Boolean(draft?.error));
+    edit.onclick = async () => {
+      let current = noteDraft(detail);
+      if (!current) {
+        current = {path:detail.path, base:detail.body || '', body:detail.body || '', editing:false, scrollTop:0};
+        state.noteDrafts.set(noteDraftKey(detail.path), current);
+      }
+      current.editing = !current.editing;
+      await renderDocumentPane(detail, kind);
+      if (current.editing) current.input.focus({preventScroll:true});
+    };
+    save.onclick = () => saveNoteContent(detail, kind);
+    revert.onclick = async () => {
+      if (!window.confirm('Discard your unsaved changes to this note?')) return;
+      const request = state.modalRequest;
+      try {
+        const latest = await fetchDocument(kind, detail.path);
+        if (request !== state.modalRequest) return;
+        state.noteDrafts.delete(noteDraftKey(detail.path));
+        state.modalCurrent = latest;
+        if (state.modalRoot.path === latest.path) state.modalRoot = latest;
+        await renderModal();
+      } catch (error) { documentError(error.message); }
+    };
+    markDraftTabs();
+  }
+
+  function mountNoteEditor(draft, detail, kind, host) {
+    if (!draft.node) {
+      draft.node = document.createElement('div'); draft.node.className = 'assistant-note-editor';
+      draft.node.innerHTML = '<pre class="assistant-note-marks" aria-hidden="true"></pre><textarea aria-label="Note content" spellcheck="true" wrap="soft"></textarea>';
+      draft.marks = draft.node.querySelector('pre'); draft.input = draft.node.querySelector('textarea');
+      draft.input.value = draft.body;
+      draft.input.addEventListener('input', () => {
+        draft.body = draft.input.value; draft.saved = false;
+        markNoteChanges(draft);
+        renderNoteControls(detail, kind);
+      });
+      draft.input.addEventListener('keydown', event => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+          event.preventDefault(); saveNoteContent(detail, kind);
+        }
+      });
+      markNoteChanges(draft);
+    }
+    if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
+    if (host.firstElementChild !== draft.node) {
+      host.replaceChildren(draft.node); host.scrollTop = draft.scrollTop;
+    }
+    state.currentPane = draft;
+    // Copy actions use the current rendered draft, including while typing.
+    document.getElementById('assistantCopyPlain').onclick = event => {
+      const node = document.createElement('div'); node.innerHTML = window.LabMarkdown.render(draft.body);
+      window.LabMarkdown.copy(node, {button:event.currentTarget, plainOnly:true});
+    };
+    document.getElementById('assistantCopyRich').onclick = event => {
+      const node = document.createElement('div'); node.innerHTML = window.LabMarkdown.render(draft.body);
+      rewriteImages(node, detail.path);
+      window.LabMarkdown.copy(node, {button:event.currentTarget});
+    };
+  }
+
+  async function saveNoteContent(detail, kind) {
+    const draft = noteDraft(detail);
+    if (!dirtyDraft(draft) || draft.saving) return;
+    const request = state.modalRequest, body = draft.body, key = noteDraftKey(detail.path);
+    const database = state.data?.root;
+    draft.saving = true; draft.error = '';
+    if (draft.input) draft.input.readOnly = true;
+    renderNoteControls(detail, kind);
+    try {
+      const response = await fetch('/api/assistant/content', {method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({path:detail.path, body, expected:draft.base})});
+      const saved = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(saved.detail || 'Could not save. Your draft is still here.');
+      // Never reopen a closed document or replace another tab after a late save.
+      draft.base = body; draft.saved = true;
+      if (draft.marks) markNoteChanges(draft);
+      if (request === state.modalRequest && database === state.data?.root && state.modalCurrent?.path === saved.path) {
+        state.modalCurrent = saved;
+        if (state.modalRoot.path === saved.path) state.modalRoot = saved;
+        else if (saved.tree) state.modalRoot.tree = saved.tree;
+        await renderModal();
+      }
+      refresh();
+    } catch (error) {
+      draft.error = error.message || 'Could not save. Your draft is still here.';
+    } finally {
+      draft.saving = false;
+      if (draft.input) draft.input.readOnly = false;
+      if (state.noteDrafts.get(key) === draft && request === state.modalRequest && database === state.data?.root) {
+        renderNoteControls(state.modalCurrent, kind);
+      }
+      markDraftTabs();
     }
   }
 
@@ -1037,6 +1214,7 @@
     }
     nav.querySelectorAll('[data-record-path]').forEach(button => button.classList.toggle('active', !state.modalIndex && button.dataset.recordPath === detail.path));
     nav.querySelector('[data-record-index]')?.classList.toggle('active', state.modalIndex);
+    markDraftTabs();
     const rawButton = nav.querySelector('[data-record-raw]');
     if (rawButton) rawButton.onclick = async event => {
       const request = ++state.modalRequest;
@@ -1101,9 +1279,20 @@
     const request = state.modalRequest;
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
     if (request !== state.modalRequest) return;
-    const body = detail.body || '';
+    const draft = noteDraft(detail);
+    if (draft && !dirtyDraft(draft) && !draft.saving && draft.base !== (detail.body || '')) {
+      draft.base = draft.body = detail.body || ''; draft.saved = false;
+      if (draft.input) { draft.input.value = draft.body; markNoteChanges(draft); }
+    }
+    const body = draft ? draft.body : detail.body || '';
     const host = document.getElementById('assistantModalDocument');
     renderDocumentHeader(detail, kind);
+    if (draft?.editing) {
+      resetCopy(true);
+      mountNoteEditor(draft, detail, kind, host);
+      renderNoteControls(detail, kind);
+      return;
+    }
     if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
     const cacheKey = detail.path + ':' + kind;
     let pane = state.paneCache.get(cacheKey);
@@ -1123,6 +1312,7 @@
     resetCopy(true);
     document.getElementById('assistantCopyPlain').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget, plainOnly: true});
     document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(markdownHost, {button: event.currentTarget});
+    renderNoteControls(detail, kind);
     if (focusHeading) {
       const target = Array.from(markdownHost.querySelectorAll('h1, h2, h3'))
         .find(heading => heading.firstChild && heading.firstChild.textContent.trim() === focusHeading);
@@ -1134,6 +1324,7 @@
   }
 
   function resetCopy(enabled = false) {
+    hideNoteControls();
     if (!enabled) document.getElementById('assistantModalMetadata')?.replaceChildren();
     for (const id of ['assistantCopyPlain', 'assistantCopyRich']) {
       const button = document.getElementById(id);
@@ -1307,6 +1498,9 @@
     const overlay = document.getElementById('assistantDocumentModal');
     const root = state.modalRoot;
     if (!overlay?.classList.contains('active') || !root || overlay.hasAttribute('aria-busy')) return;
+    // Preserve drafts and their selection across background refreshes.
+    const draft = noteDraft();
+    if (draft && (draft.editing || dirtyDraft(draft) || draft.saving)) return;
     // Do not interrupt a property being edited or saved.
     const bar = document.getElementById('assistantModalMetadata');
     if (bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
@@ -1398,6 +1592,12 @@
       }, 5000);
     }
   }
+
+  window.addEventListener('beforeunload', event => {
+    if ([...state.noteDrafts.values()].some(dirtyDraft)) {
+      event.preventDefault(); event.returnValue = '';
+    }
+  });
 
   document.addEventListener('keydown', event => {
     const overlay = document.getElementById('assistantDocumentModal');

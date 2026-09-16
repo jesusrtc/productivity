@@ -395,6 +395,27 @@ def get_subtask(path: str, request: Request) -> dict:
     }
 
 
+class AssistantContentBody(BaseModel):
+    path: str
+    body: str
+    expected: str
+
+
+@router.put("/content")
+def update_content(body: AssistantContentBody, request: Request) -> dict:
+    root = _require_root(request)
+    try:
+        records.update_body(root, body.path, body.body, expected=body.expected)
+        _, metadata, _ = records.resolve(root, body.path)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=409 if 'changed elsewhere' in str(exc) else 400, detail=str(exc)) from exc
+    if metadata.get('note_type') == 'meeting':
+        return get_meeting(body.path, request)
+    if metadata.get('note_type') == 'series':
+        return get_meeting_series(body.path, request)
+    return assistant_v2.detail(root, body.path)
+
+
 class AssistantMetadataBody(BaseModel):
     path: str
     field: str

@@ -209,3 +209,5 @@
 - [Assistant series with document tabs](assistant-series-with-document-tabs.md) — Normal document tabs with a small More in this series button; dates appear on click, newest first, and selection closes the menu.
 
 - [Assistant content belongs to the client](assistant-client-owned-content.md) — empty bodies, free content structure, embedded tabs, and preserved client instructions.
+
+- [Assistant note content editing](assistant-note-content-editing.md) — explicit Save, subtle changed-line marks, retained drafts, and safe subtab body updates.
