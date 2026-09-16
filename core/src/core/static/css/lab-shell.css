@@ -154,7 +154,8 @@
     .sidebar-title-actions > .sidebar-sort-control { flex: 1 0 100%; }
     .sidebar-title-actions > .sidebar-sort-control select { width: 100%; }
   }
-  .sidebar > .sidebar-title { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .sidebar > .sidebar-title,
+  .sidebar-worktree-scope > .sidebar-title:not(:first-child) { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
   .sidebar > .sidebar-title:first-child { margin-top: 0; padding-top: 4px; border-top: 0; }
   .sidebar-agent-instructions-label { padding: 9px 16px 3px; color: var(--text-secondary); font-size: 11px; }
   .sidebar-agent-instructions-note { padding: 3px 16px; color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
