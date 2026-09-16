@@ -94,6 +94,8 @@ occurrence with an empty body and history links in metadata. It does not copy
 prior results or run a background scheduler.
 
 Notes may belong to a series while keeping their own file and tabs. The rail
-shows series history and the current note's tabs together. Optional raw captures
-remain immutable assets. The legacy meeting viewer recognizes old headings
+keeps the normal Document tabs layout. A small **More in this series** button
+by the series name opens a menu of note dates, newest first. Selecting a date
+closes the menu and opens that note's tabs. Optional raw captures remain
+immutable assets. The legacy meeting viewer recognizes old headings
 for compatibility; they are not a template for current notes.

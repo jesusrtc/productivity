@@ -608,6 +608,7 @@
 
   function closeDocumentModal(updateHistory = true) {
     closeHeadingMenu();
+    closeSeriesMenu();
     ++state.modalRequest;
     if (updateHistory) {
       const url = new URL(window.location);
@@ -643,6 +644,7 @@
 
   async function openDocumentModal(kind, path, focusHeading = '') {
     closeHeadingMenu();
+    closeSeriesMenu();
     const overlay = ensureModal();
     const wasOpen = overlay.classList.contains('active');
     const request = ++state.modalRequest;
@@ -924,21 +926,80 @@
     rows = sortedMeetings(rows);
     const signature = JSON.stringify([series.path, series.title, overview ? null : root.path,
       rows.map(row => [row.path,row.title,row.date,row.source,row.tags,row.note_type])]);
-    const title = `<div class="assistant-document-nav-label">Series</div><button type="button" class="assistant-series-overview${overview ? ' active' : ''}" data-assistant-series="${e(series.path)}"${overview ? ' aria-current="page"' : ''} title="${e(series.title)}"><span aria-hidden="true">▤</span><span>${e(series.title)}</span></button>`;
+    const title = `<button type="button" class="assistant-series-overview${overview ? ' active' : ''}" data-assistant-series="${e(series.path)}"${overview ? ' aria-current="page"' : ''} title="${e(series.title)}"><span aria-hidden="true">▤</span><span>${e(series.title)}</span></button>`;
     const history = rows.map(row => {
       const current = !overview && row.path === root.path;
       const kind = row.note_type && row.note_type !== 'meeting' ? 'note' : 'meeting';
-      return `<li><button type="button" class="assistant-series-meeting${current ? ' current' : ''}" data-series-document="${e(row.path)}" data-series-kind="${kind}"${current ? ' aria-current="page"' : ''} title="${e(row.title)}"><span aria-hidden="true">${current ? '▾' : '▸'}</span><span><time>${e(calendarDate(row.date) || 'No date')}</time><span class="assistant-series-meeting-title">${e(row.title || 'Untitled note')}</span></span>${row.source === 'demo' || (row.tags || []).includes('demo') ? '<small class="assistant-demo">Demo</small>' : ''}</button>${current ? `<div class="assistant-series-document">${documentHtml}</div>` : ''}</li>`;
-    }).join('') || '<li class="assistant-nav-empty">No meetings yet.</li>';
-    return {signature, html:`${title}<ul class="assistant-series-meetings" aria-label="Notes in this series">${history}</ul>`};
+      return `<li><button type="button" class="assistant-series-meeting${current ? ' current' : ''}" data-series-document="${e(row.path)}" data-series-kind="${kind}"${current ? ' aria-current="page"' : ''} title="${e(row.title)}"><span aria-hidden="true">${current ? '✓' : ''}</span><span><time>${e(calendarDate(row.date) || 'No date')}</time><span class="assistant-series-meeting-title">${e(row.title || 'Untitled note')}</span></span>${row.source === 'demo' || (row.tags || []).includes('demo') ? '<small class="assistant-demo">Demo</small>' : ''}</button></li>`;
+    }).join('') || '<li class="assistant-nav-empty">No notes yet.</li>';
+    return {signature, html:`<div class="assistant-series-header">${title}<button type="button" class="assistant-series-toggle" data-series-toggle popovertarget="assistantSeriesMenu" aria-controls="assistantSeriesMenu" aria-expanded="false">More in this series <span aria-hidden="true">⌄</span></button></div>
+      <div id="assistantSeriesMenu" class="assistant-series-menu" popover="auto" data-series-root="${e(root.path)}"><div class="assistant-document-nav-label">Notes in this series</div><ul class="assistant-series-meetings" aria-label="Notes in this series">${history}</ul></div>${documentHtml}`};
+  }
+
+  function closeSeriesMenu(restoreFocus = false) {
+    const menu = document.getElementById('assistantSeriesMenu');
+    if (!menu?.matches(':popover-open')) return;
+    menu.hidePopover();
+    if (restoreFocus) document.querySelector('[data-series-toggle]')?.focus({preventScroll:true});
   }
 
   function bindSeriesNavigation(nav) {
     bindSeries(nav);
-    nav.querySelectorAll('[data-series-document]').forEach(button => button.addEventListener('click', () => {
+    const menu = nav.querySelector('#assistantSeriesMenu');
+    const toggle = nav.querySelector('[data-series-toggle]');
+    menu.addEventListener('beforetoggle', event => {
+      toggle.setAttribute('aria-expanded', String(event.newState === 'open'));
+      if (event.newState !== 'open') return;
+      const anchor = toggle.getBoundingClientRect();
+      const width = Math.min(320, Math.max(240, nav.clientWidth - 18), window.innerWidth - 16);
+      const below = window.innerHeight - anchor.bottom - 12;
+      const above = anchor.top - 12;
+      const placeAbove = below < 180 && above > below;
+      menu.style.width = width + 'px';
+      menu.style.left = Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)) + 'px';
+      menu.style.top = placeAbove ? 'auto' : (anchor.bottom + 4) + 'px';
+      menu.style.bottom = placeAbove ? (window.innerHeight - anchor.top + 4) + 'px' : 'auto';
+      menu.style.maxHeight = Math.max(80, Math.min(420, placeAbove ? above : below)) + 'px';
+    });
+    toggle.addEventListener('keydown', event => {
+      if (!['ArrowDown','ArrowUp'].includes(event.key)) return;
+      event.preventDefault();
+      menu.showPopover();
+      const rows = [...menu.querySelectorAll('[data-series-document]')];
+      (event.key === 'ArrowUp' ? rows.at(-1) : rows[0])?.focus();
+    });
+    menu.addEventListener('keydown', event => {
+      if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const rows = [...menu.querySelectorAll('[data-series-document]')];
+      const index = rows.indexOf(document.activeElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1
+        : (index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+      rows[next]?.focus();
+    });
+    nav.querySelectorAll('[data-series-document]').forEach(button => button.addEventListener('click', async () => {
+      closeSeriesMenu(true);
       selectEntry(button.dataset.seriesKind, button.dataset.seriesDocument, true);
-      openDocumentModal(button.dataset.seriesKind, button.dataset.seriesDocument);
+      await openDocumentModal(button.dataset.seriesKind, button.dataset.seriesDocument);
+      if (state.modalRoot?.path === button.dataset.seriesDocument) {
+        nav.querySelector('[data-record-index].active, [data-record-path].active')?.focus({preventScroll:true});
+      }
     }));
+  }
+
+  function replaceSeriesNavigation(nav, html) {
+    const previous = nav.querySelector('#assistantSeriesMenu:popover-open');
+    const current = previous?.dataset.seriesRoot;
+    const scroll = previous?.scrollTop;
+    const focused = previous?.contains(document.activeElement) ? document.activeElement.dataset.seriesDocument : null;
+    nav.innerHTML = html;
+    if (!nav.querySelector('[data-series-toggle]')) return;
+    bindSeriesNavigation(nav);
+    const menu = nav.querySelector('#assistantSeriesMenu');
+    if (current === menu.dataset.seriesRoot) {
+      menu.showPopover(); menu.scrollTop = scroll;
+      [...menu.querySelectorAll('[data-series-document]')].find(row => row.dataset.seriesDocument === focused)?.focus({preventScroll:true});
+    }
   }
 
   async function renderRecordTree(focusHeading = '') {
@@ -960,8 +1021,8 @@
     nav.classList.toggle('assistant-series-nav', Boolean(series));
     if (nav.dataset.structure !== structure || !nav.querySelector('.assistant-record-tree')) {
       const scroll = nav.scrollTop;
-      nav.innerHTML = series?.html || html; nav.dataset.structure = structure; nav.scrollTop = scroll;
-      if (series) bindSeriesNavigation(nav);
+      replaceSeriesNavigation(nav, series?.html || html);
+      nav.dataset.structure = structure; nav.scrollTop = scroll;
       nav.querySelector('[data-record-root-tab]')?.addEventListener('click', () => createRecord('subtab', root.tree, true));
       nav.querySelector('[data-record-index]')?.addEventListener('click', () => {
         ++state.modalRequest; state.modalIndex = true; state.modalCurrent = state.modalRoot;
@@ -1114,10 +1175,9 @@
     if (series) {
       const navigation = seriesNavigation(root);
       nav.classList.add('assistant-series-nav');
-      nav.innerHTML = navigation.html;
+      replaceSeriesNavigation(nav, navigation.html);
       delete nav.dataset.structure;
       nav.dataset.seriesStructure = navigation.signature;
-      bindSeriesNavigation(nav);
       await renderDocumentPane(root, 'series');
     } else {
       const related = (kind, label) => {
@@ -1345,6 +1405,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       if (state.headingMenu) { closeHeadingMenu(true); return; }
+      if (document.querySelector('#assistantSeriesMenu:popover-open')) { closeSeriesMenu(true); return; }
       const more = document.querySelector('#assistantModalMetadata details[open]');
       if (more) { more.open = false; more.querySelector('summary').focus(); }
       else closeDocumentModal();

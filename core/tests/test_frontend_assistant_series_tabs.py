@@ -1,4 +1,4 @@
-"""Series stays visible while navigating an embedded note's tabs."""
+"""Series dates stay in an on-demand menu beside normal document tabs."""
 import json
 import os
 from pathlib import Path
@@ -50,6 +50,10 @@ const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r
 const nav=()=>document.getElementById('assistantDocumentNav');
 const host=()=>document.getElementById('assistantModalDocument');
 const rows=()=>[...nav().querySelectorAll('[data-series-document]')];
+const menu=()=>nav().querySelector('#assistantSeriesMenu');
+const toggle=()=>nav().querySelector('[data-series-toggle]');
+const menuOpen=()=>menu()?.matches(':popover-open');
+const visible=element=>element.getClientRects().length>0;
 let gate=null;
 window.fetch=async (url,options={})=>{
  const u=new URL(url,'https://lab.example');
@@ -70,16 +74,33 @@ window.fetch=async (url,options={})=>{
  AssistantView.init({section:'notes'});
  await until(()=>document.querySelector('[data-assistant-meeting]'));
  await AssistantView.openDocument('note',FIX.paths.nested);
- assert(rows().length===2,'full series shown from subtab deep link');
+ assert(rows().length===2,'full series available from subtab deep link');
+ assert(!menuOpen()&&rows().every(row=>!visible(row)),'dates hidden until requested');
+ assert(toggle().textContent.includes('More in this series'),'compact series button');
  assert(rows()[0].dataset.seriesDocument===FIX.paths.latest,'newest meeting first');
  assert(rows()[1].dataset.seriesDocument===FIX.paths.older,'series includes notes from another workspace');
- assert(nav().querySelectorAll('.assistant-series-document').length===1,'only active note expands document tabs');
- const active=nav().querySelector('.assistant-series-document');
+ assert(!nav().querySelector('.assistant-series-document'),'tabs are not nested beneath a date');
+ const active=nav();
+ assert(active.querySelector('.assistant-tabs-heading').parentElement===nav(),'normal full-width tab heading');
+ assert(active.querySelector('.assistant-record-tree').parentElement===nav(),'normal full-width document tree');
  assert(active.querySelectorAll('[data-record-path]').length===4,'all current note tabs available');
  assert(active.querySelector('[data-record-index]'),'Index remains available');
  assert(active.querySelector('[data-record-root-tab]'),'plus remains scoped to this document');
  assert(nav().querySelector('[data-record-path].active').dataset.recordPath===FIX.paths.nested,'deep linked subtab selected');
  assert(nav().querySelector('[data-assistant-series]').textContent.includes('Weekly 1:1'),'series title stays visible');
+ toggle().click();
+ assert(menuOpen()&&rows().every(visible),'button reveals date menu');
+ assert(toggle().getAttribute('aria-expanded')==='true','expanded state exposed');
+ assert(visible(nav().querySelector('[data-record-index]')),'tabs remain available');
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ assert(!menuOpen()&&document.getElementById('assistantDocumentModal').classList.contains('active'),'Escape dismisses only the menu');
+ assert(document.activeElement===toggle(),'Escape restores button focus');
+ toggle().dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ assert(menuOpen()&&document.activeElement===rows()[0],'keyboard opens newest date');
+ rows()[0].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ assert(document.activeElement===rows()[1],'keyboard moves through dates');
+ toggle().click();
+ assert(!menuOpen(),'button toggles menu closed');
  const rail=nav().firstElementChild;
  const tab=nav().querySelector(`[data-record-path="${FIX.paths.peer}"]`);
  tab.click();await until(()=>tab.classList.contains('active'));
@@ -87,24 +108,32 @@ window.fetch=async (url,options={})=>{
  const pane=host().firstElementChild;
  await AssistantView.refresh();
  assert(nav().firstElementChild===rail&&host().firstElementChild===pane,'unchanged polls preserve rail and pane');
+ toggle().click(); rows()[1].focus();
+ await AssistantView.refresh();
+ assert(menuOpen()&&document.activeElement===rows()[1],'unchanged polling preserves open menu and focus');
  // A sibling's metadata can change without touching the current Markdown file.
  FIX.index.meetings.find(row=>row.path===FIX.paths.older).title='Previous meeting renamed';
  await AssistantView.refresh();
  assert(rows()[1].textContent.includes('renamed'),'poll picks up sibling edits');
+ assert(menuOpen()&&document.activeElement===rows()[1],'sibling edit preserves menu and focus');
  assert(host().firstElementChild===pane,'sibling edit keeps current tab content');
  let release;gate=new Promise(r=>release=r);
  rows()[1].click();
+ assert(!menuOpen(),'selection closes menu immediately');
  await new Promise(r=>setTimeout(r,25));
  assert(host().firstElementChild===pane,'cross-meeting navigation retains outgoing pane during fetch');
  gate=null;release();
  await until(()=>host().textContent.includes('Earlier decisions.'));
  assert(rows().length===2&&nav().querySelectorAll('[data-record-path]').length===1,'single-tab meeting keeps series and only its own tab');
+ assert(!menuOpen()&&rows().every(row=>!visible(row)),'selected note returns to tabs with dates hidden');
  assert(!nav().querySelector('[data-record-index]'),'single-tab note has no Index');
  assert(new URL(location).searchParams.get('meeting')===FIX.paths.older,'meeting URL updated');
  nav().querySelector('[data-assistant-series]').click();
  await until(()=>host().textContent.includes('Series overview.'));
- assert(rows().length===2&&!nav().querySelector('.assistant-series-document'),'overview keeps history without expanding a meeting');
+ assert(rows().length===2&&!nav().querySelector('.assistant-record-tree'),'overview keeps series choices separate from document tabs');
+ assert(!menuOpen(),'overview also waits for menu click');
  assert(!host().querySelector('[data-series-document],.assistant-series-history'),'history not duplicated in body');
+ toggle().click();
  rows()[0].click();
  await until(()=>host().querySelector('.assistant-index'));
  assert(nav().querySelectorAll('[data-record-path]').length===4,'return to meeting restores document tree');
@@ -116,6 +145,10 @@ window.fetch=async (url,options={})=>{
  await AssistantView.openDocument('meeting',FIX.paths.standalone);
  assert(!nav().querySelector('.assistant-series-overview'),'standalone notes have no series rail');
  assert(host().textContent.includes('Standalone decisions.'),'standalone content intact');
+ await AssistantView.openDocument('series',FIX.paths.series);
+ toggle().click();
+ AssistantView.closeDocument();
+ assert(!document.querySelector('#assistantSeriesMenu:popover-open'),'closing the document removes top-layer menu');
  document.getElementById('result').textContent='PASS';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''

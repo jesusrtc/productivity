@@ -1,13 +1,15 @@
-# Assistant series and note tabs share a sidebar
+# Assistant series dates open on demand
 
-Show a note's series as the top level of the document rail. Its name opens the
-series overview; notes are listed newest date first, independent of the main
-list's workspace/search filters. Expand only the current note's Document tabs,
-Index, and nested subtabs beneath its date/title. Keep the + scoped to that
-note. Other notes remain clickable rows in the same sidebar.
+The user's September 16, 2026 revision replaces the expanded series/date tree.
+Keep the normal full-width Document tabs layout, including Index, nested tabs,
+and the document-scoped +. Near the series name, show a small “More in this
+series” button. Dates stay hidden until that button is clicked; the menu lists
+notes newest date first, with unknown dates last. Selecting a date closes the
+menu and opens that note with its own tabs. Escape and outside clicks dismiss
+the menu. The series name still opens the overview.
 
-The series overview uses that same sidebar history; do not repeat history in
-the document body. Standalone notes keep their normal Document tabs view.
-Series membership stays in the root note's series metadata; it is not a tab
-parent relationship. Each note keeps its existing independent Markdown file.
-Switching tabs and polling unchanged data preserve the current pane and rail.
+Series membership is independent of the main list's workspace/search filters
+and is stored in the root note's series metadata, not tab parent relationships.
+Each note keeps its independent Markdown file. Standalone notes keep their
+normal document tabs without a series button. Switching tabs and unchanged
+polls preserve the current pane and rail; sibling edits preserve an open menu.
