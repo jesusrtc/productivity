@@ -30,6 +30,8 @@
     modalIndex: false,
     headingMenu: null,
     noteDrafts: new Map(),
+    tabActivity: null,
+    tabActivityTimer: null,
   };
 
   const e = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({
@@ -610,6 +612,7 @@
   function closeDocumentModal(updateHistory = true) {
     closeHeadingMenu();
     closeSeriesMenu();
+    clearTimeout(state.tabActivityTimer);
     ++state.modalRequest;
     if (updateHistory) {
       const url = new URL(window.location);
@@ -1077,6 +1080,99 @@
     } catch (error) { window.alert(error.message); }
   }
 
+  const TAB_RECENT_MS = 3 * 86400000;
+
+  function tabActivityStore() {
+    const key = 'lab.assistant.tab-activity.v1:' + (state.data?.root || '');
+    if (state.tabActivity?.key === key) return state.tabActivity;
+    let entries = {};
+    try {
+      const saved = JSON.parse(localStorage.getItem(key) || '{}');
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) entries = saved;
+    } catch (_) { /* Keep highlights usable when browser storage is unavailable. */ }
+    return state.tabActivity = {key, entries, seen:new Map()};
+  }
+
+  function saveTabActivity() {
+    const store = tabActivityStore();
+    try { localStorage.setItem(store.key, JSON.stringify(store.entries)); } catch (_) { /* Session state still works. */ }
+  }
+
+  function tabActivityKey(row) { return JSON.stringify([row.type, row.id || row.path]); }
+
+  function observeTabActivity(row, now) {
+    const store = tabActivityStore(), key = tabActivityKey(row);
+    const previous = store.entries[key];
+    const revision = row.tab_revision || JSON.stringify([row.created, row.updated, row.title, row.description, row.status]);
+    // An older open window must not undo a newer window's dismissal when it
+    // repaints its cached tree. Observe each revision once per window.
+    if (store.seen.get(key) === revision) return false;
+    store.seen.set(key, revision);
+    const timestamp = value => { const time = Date.parse(value); return Number.isFinite(time) ? Math.min(now, time) : 0; };
+    const created = timestamp(row.created), updated = timestamp(row.updated);
+    if (!previous || typeof previous !== 'object' || !Number.isFinite(previous.at) || typeof previous.revision !== 'string') {
+      store.entries[key] = {revision, at:Math.max(created, updated), kind:created > now - TAB_RECENT_MS ? 'New' : 'Updated', dismissed:false};
+      return true;
+    }
+    if (previous.revision !== revision) {
+      // A changed tab revision makes the shared file mtime safe to use, even
+      // for direct Markdown edits that did not advance the updated field.
+      const modified = Number(row.mtime) * 1000;
+      const at = Math.min(now, Math.max(created, updated, Number.isFinite(modified) ? modified : now));
+      store.entries[key] = {revision, at, kind:'Updated', dismissed:false};
+      return true;
+    }
+    return false;
+  }
+
+  function recentTabActivity(row, now) {
+    const activity = tabActivityStore().entries[tabActivityKey(row)];
+    return activity && !activity.dismissed && activity.at > 0 && now - activity.at < TAB_RECENT_MS ? activity : null;
+  }
+
+  function markRecentTabs() {
+    clearTimeout(state.tabActivityTimer);
+    const overlay = document.getElementById('assistantDocumentModal');
+    if (!state.modalRoot?.tree || state.modalKind === 'series' || !overlay) return;
+    const now = Date.now(), rows = new Map();
+    let changed = false, expires = Infinity;
+    const visit = row => {
+      rows.set(row.path, row);
+      changed = observeTabActivity(row, now) || changed;
+      const activity = recentTabActivity(row, now);
+      if (activity) expires = Math.min(expires, activity.at + TAB_RECENT_MS);
+      (row.children || []).forEach(visit);
+    };
+    visit(state.modalRoot.tree);
+    if (changed) saveTabActivity();
+    overlay.querySelectorAll('[data-tab-activity]').forEach(badge => {
+      const row = rows.get(badge.dataset.tabActivity);
+      const activity = row && recentTabActivity(row, now);
+      badge.hidden = !activity;
+      badge.textContent = activity?.kind || '';
+      badge.dataset.activityKind = activity?.kind || '';
+      badge.title = activity ? `${activity.kind} · ${new Date(activity.at).toLocaleString()} · Highlight clears after 3 days or when dismissed` : '';
+      badge.closest('[data-record-path]')?.classList.toggle('has-recent-activity', Boolean(activity));
+    });
+    overlay.querySelectorAll('[data-dismiss-tab-activity]').forEach(button => {
+      const row = rows.get(button.dataset.dismissTabActivity);
+      button.hidden = !row || !recentTabActivity(row, now);
+    });
+    if (Number.isFinite(expires)) state.tabActivityTimer = setTimeout(markRecentTabs, Math.max(25, expires - now + 25));
+  }
+
+  function dismissTabActivity(row) {
+    const activity = tabActivityStore().entries[tabActivityKey(row)];
+    if (!activity) return;
+    activity.dismissed = true;
+    saveTabActivity();
+    markRecentTabs();
+  }
+
+  function tabActivityBadge(row) {
+    return `<small class="assistant-tab-activity" data-tab-activity="${e(row.path)}" hidden></small>`;
+  }
+
   function documentTabs(tree) {
     const children = tree.children || [];
     return [{...tree, children:children.filter(row => !row.top_level)}, ...children.filter(row => row.top_level)];
@@ -1186,7 +1282,7 @@
     const rows = new Map();
     const node = row => {
       rows.set(row.path, row);
-      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span>${e(row.title)}</span></button><details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
+      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span class="assistant-record-title">${e(row.title)}</span>${tabActivityBadge(row)}</button><details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button><button type="button" data-dismiss-tab-activity="${e(row.path)}" hidden>Dismiss highlight</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
     };
     const tree = documentTabs(root.tree).map(node).join('');
     const indexTab = root.tree.children?.length ? '<button type="button" class="assistant-record-tab assistant-index-tab" data-record-index><span aria-hidden="true">☷</span><span>Index</span></button>' : '';
@@ -1207,6 +1303,11 @@
         renderRecordTree();
       });
       nav.querySelectorAll('[data-record-path]').forEach(button => button.addEventListener('click', () => selectModalDocument(button.dataset.recordKind, button.dataset.recordPath)));
+      nav.querySelectorAll('[data-dismiss-tab-activity]').forEach(button => button.addEventListener('click', () => {
+        const menu = button.closest('details');
+        menu.open = false; menu.querySelector('summary').focus();
+        dismissTabActivity(rows.get(button.dataset.dismissTabActivity));
+      }));
       nav.querySelectorAll('[data-record-subtab]').forEach(button => button.addEventListener('click', () => {
         nav.querySelectorAll('details[open]').forEach(menu => { menu.open = false; });
         createRecord('subtab', rows.get(button.dataset.recordSubtab));
@@ -1215,6 +1316,7 @@
     nav.querySelectorAll('[data-record-path]').forEach(button => button.classList.toggle('active', !state.modalIndex && button.dataset.recordPath === detail.path));
     nav.querySelector('[data-record-index]')?.classList.toggle('active', state.modalIndex);
     markDraftTabs();
+    markRecentTabs();
     const rawButton = nav.querySelector('[data-record-raw]');
     if (rawButton) rawButton.onclick = async event => {
       const request = ++state.modalRequest;
@@ -1251,7 +1353,7 @@
       const rows = [];
       const visit = (row, depth) => {
         rows.push(`<tr data-index-path="${e(row.path)}" data-index-kind="${e(row.kind)}" tabindex="0" aria-label="Open ${e(row.title)}">
-          <td><button type="button" style="padding-inline-start:${depth * 20}px" data-index-open><span aria-hidden="true">${depth ? '↳' : '▤'}</span> ${e(row.title)}</button><div class="assistant-index-description" style="padding-inline-start:${depth * 20}px" title="${e(row.description)}">${e(row.description || '—')}</div></td>
+          <td><button type="button" style="padding-inline-start:${depth * 20}px" data-index-open><span aria-hidden="true">${depth ? '↳' : '▤'}</span> ${e(row.title)} ${tabActivityBadge(row)}</button><div class="assistant-index-description" style="padding-inline-start:${depth * 20}px" title="${e(row.description)}">${e(row.description || '—')}</div></td>
           <td>${e(labelStatus(row.progress?.status || row.status || 'not_started'))}</td>
           <td>${e(displayDate(row.due) || '—')}</td><td>${e(row.priority || '—')}</td><td>${e(row.owner || '—')}</td></tr>`);
         (row.children || []).forEach(child => visit(child, depth + 1));
@@ -1270,6 +1372,7 @@
       state.paneCache.set(cacheKey,pane);
     }
     host.replaceChildren(pane.node); host.scrollTop = pane.scrollTop; state.currentPane = pane;
+    markRecentTabs();
     resetCopy(true);
     document.getElementById('assistantCopyPlain').onclick = event => window.LabMarkdown.copy(pane.node,{button:event.currentTarget,plainOnly:true});
     document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(pane.node,{button:event.currentTarget});
@@ -1592,6 +1695,19 @@
       }, 5000);
     }
   }
+
+  window.addEventListener('storage', event => {
+    if (event.key === null || event.key === state.tabActivity?.key) {
+      const seen = state.tabActivity?.seen;
+      state.tabActivity = null;
+      if (event.key !== null && seen) tabActivityStore().seen = seen;
+      if (document.getElementById('assistantDocumentModal')?.classList.contains('active')) markRecentTabs();
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && document.getElementById('assistantDocumentModal')?.classList.contains('active')) markRecentTabs();
+  });
 
   window.addEventListener('beforeunload', event => {
     if ([...state.noteDrafts.values()].some(dirtyDraft)) {

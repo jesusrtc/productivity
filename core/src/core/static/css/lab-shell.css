@@ -2868,3 +2868,12 @@
 .assistant-series-meeting.current { color:var(--text-primary); }
 .assistant-series-nav button:focus-visible { outline:1px solid var(--text-secondary); outline-offset:-1px; }
 @media(max-width:760px) { .assistant-document-nav.assistant-series-nav { max-height:35vh; overflow:auto; } }
+
+/* New and updated document tabs keep their markers until dismissed or expired. */
+.assistant-record-tab .assistant-record-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.assistant-tab-activity { flex:none; margin-left:auto; padding:2px 5px; border-radius:4px; background:color-mix(in srgb,#7da4cc 12%,transparent); color:#acc8e4; font-size:10px; font-weight:500; line-height:1.4; white-space:nowrap; }
+.assistant-tab-activity[data-activity-kind="New"] { color:#a0cdb6; background:color-mix(in srgb,#a0cdb6 10%,transparent); }
+.assistant-record-tree .assistant-record-tab.has-recent-activity { box-shadow:inset 2px 0 #7da4cc; }
+.assistant-tab-activity[hidden], .assistant-tab-menu [data-dismiss-tab-activity][hidden] { display:none; }
+.assistant-index .assistant-tab-activity { display:inline-block; margin-left:6px; vertical-align:middle; }
+.assistant-index .assistant-tab-activity[hidden] { display:none; }

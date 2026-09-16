@@ -99,3 +99,11 @@ by the series name opens a menu of note dates, newest first. Selecting a date
 closes the menu and opens that note's tabs. Optional raw captures remain
 immutable assets. The legacy meeting viewer recognizes old headings
 for compatibility; they are not a template for current notes.
+
+Task and note document tabs show **New** or **Updated** for recent changes,
+including in the generated Index. Highlights last three days from the change;
+opening a tab does not clear them. Use the tab's **⋮ → Dismiss highlight** to
+clear one early. A later change highlights that tab again. Dismissal is saved
+in this browser, separately for each Assistant database; it does not change
+the Markdown. Tab revisions distinguish each tab's own content and metadata
+from changes elsewhere in the same file.

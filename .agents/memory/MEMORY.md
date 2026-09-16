@@ -211,3 +211,5 @@
 - [Assistant content belongs to the client](assistant-client-owned-content.md) — empty bodies, free content structure, embedded tabs, and preserved client instructions.
 
 - [Assistant note content editing](assistant-note-content-editing.md) — explicit Save, subtle changed-line marks, retained drafts, and safe subtab body updates.
+
+- [Assistant recent tab highlights](assistant-tab-recent-highlights.md) — New/Updated markers in Tasks and Notes; dismiss per tab or expire after three days; later edits highlight again.

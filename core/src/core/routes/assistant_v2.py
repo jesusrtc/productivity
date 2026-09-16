@@ -1,5 +1,7 @@
 """Schema 2 presentation and link resolution for Assistant routes."""
 from pathlib import Path
+import hashlib
+import json
 from urllib.parse import urlparse, unquote, urlencode
 
 from fastapi import HTTPException
@@ -11,6 +13,16 @@ def kind(row):
     if row['type'] == 'task':
         return 'task'
     return {'meeting':'meeting','series':'series','question':'note','document':'note'}.get(row.get('note_type'), 'note')
+
+
+def tab_revision(row):
+    # A physical file's mtime and root updated timestamp also change when a
+    # sibling/child is edited. Hash only this tab's own content and metadata.
+    ignored = {'mtime', 'updated', 'path', 'document_path', 'embedded', 'legacy_metadata', 'aliases', 'legacy_path'}
+    if row.get('embedded'):
+        ignored.update({'workspace', 'project'})
+    content = {key:value for key,value in row.items() if key not in ignored}
+    return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def detail(root, reference, collection=None):
@@ -31,7 +43,7 @@ def detail(root, reference, collection=None):
             children = sorted([r for r in rows if records.parent_key(r) == records.key(row)],
                               key=lambda r:(r.get('position',0),r['id']))
             return {k:v for k,v in row.items() if k not in {'body','legacy_metadata'}} | {
-                'kind':kind(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
+                'kind':kind(row), 'tab_revision':tab_revision(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
                 'progress':progress[records.key(row)], 'children':[node(child) for child in children]}
         return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body,
                 'workspace':records.workspace(root,metadata.get('workspace')),
