@@ -832,7 +832,23 @@
 
   /* Interactive notebook cells (editor mode). Dark by default; light-mode
      overrides below match the existing .nb-* dark/light pattern. */
+  .nb-cell-interactive { position: relative; }
   .nb-cell-interactive .nb-cell-header { background: var(--bg-secondary); }
+  .nb-cell-interactive > .nb-cell-header,
+  .nb-code-hidden > .nb-cell-interactive > .nb-outputs > .nb-outputs-toggle {
+    min-height: 32px; box-sizing: border-box; padding-right: 44px;
+  }
+  /* Outside the header so the corner action survives output-only mode. */
+  .nb-cell-del {
+    position: absolute; top: 4px; right: 8px; z-index: 2;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 24px; padding: 0;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--text-secondary); cursor: pointer;
+  }
+  .nb-cell-del:hover { color: var(--red); border-color: var(--red); }
+  .nb-cell-del:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .nb-cell-del:disabled { opacity: 0.5; cursor: not-allowed; }
   .nb-cell-actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
   .nb-cell-actions button {
     background: transparent; border: 1px solid var(--border);
@@ -879,24 +895,6 @@
     .nb-click-point { animation: none; }
   }
   .nb-cell-actions button:disabled { opacity: 0.5; cursor: progress; }
-  /* Armed delete-confirm state — red, attention-grabbing, gently pulsing so
-     the user notices the button changed before the 3-second timeout. */
-  .nb-cell-actions .nb-cell-del-confirming {
-    background: var(--red);
-    color: #fff;
-    border-color: var(--red);
-    font-weight: 600;
-    animation: nb-del-confirm-pulse 1.2s ease-in-out infinite;
-  }
-  .nb-cell-actions .nb-cell-del-confirming:hover {
-    background: #d2342a;
-    border-color: #d2342a;
-    color: #fff;
-  }
-  @keyframes nb-del-confirm-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.5); }
-    50%      { box-shadow: 0 0 0 4px rgba(248, 81, 73, 0); }
-  }
   .nb-cell-actions .nb-cell-busy {
     font-size: 11px; color: var(--accent); font-family: ui-monospace, monospace;
     margin-right: 4px;
@@ -1232,7 +1230,6 @@
      sources, cell action headers, empty committed code cells, and inserters.
      Draft/running cells and user-pinned cells remain fully visible. Pins are
      fixed slots; the active .nb-code-peek cell is the transient slot. */
-  .nb-container.nb-code-hidden .nb-cell-del { display:none; }
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-cell-header,
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-source,
   .nb-container.nb-code-hidden > .nb-cell[data-cell-type="code"]:not(.nb-cell-pending):not(.nb-cell-running):not(.nb-code-pinned):not(.nb-code-peek) > .nb-cell-edit-wrap {

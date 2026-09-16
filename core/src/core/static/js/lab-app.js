@@ -4840,8 +4840,7 @@
     let activateCodeCell = null;
     if (notebook) {
       activateCodeCell = (event) => {
-        const expand = event.target.closest('[data-nb-expand-cell]');
-        if (expand) return;
+        if (event.target.closest('[data-nb-expand-cell], .nb-cell-del')) return;
         const cell = _activateNotebookCodeCell(
           notebook, event.target, scope, path, codeHidden,
         );
@@ -4976,6 +4975,10 @@
     const clientPending = !!opts.pending;
     const pending = clientPending || serverPending;
     const isCode = cell.cell_type === 'code';
+    const deleteLabel = clientPending ? 'Discard draft' : 'Delete cell';
+    const deleteButton = `<button class="nb-cell-del" type="button" title="${deleteLabel}" aria-label="${deleteLabel}"${serverPending ? ' disabled' : ''}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>
+    </button>`;
     const metadata = (cell && cell.metadata) || {};
     const actor = metadata.lab_actor === 'agent' || metadata.lab_actor === 'human'
       ? metadata.lab_actor : '';
@@ -5019,13 +5022,14 @@
       </div>`;
     }
 
-    // Markdown stays read-only for now — edit is code-only in v1.
+    // Text cells can be deleted; source editing remains code-only.
     if (!isCode) {
       let bodyHtml = '';
       try { bodyHtml = `<div class="nb-markdown">${LabMarkdown.render(cell.source)}</div>`; }
       catch (e) { bodyHtml = `<div class="nb-source">${esc(cell.source)}</div>`; }
       const markdownCellIdAttr = cell.id ? ` data-cell-id="${escAttr(String(cell.id))}"` : '';
       return `<div class="nb-cell nb-cell-interactive nb-cell-no-outputs" data-cell-index="${index}"${markdownCellIdAttr} data-cell-type="markdown">
+        ${deleteButton}
         <div class="nb-cell-header">
           <span class="nb-type">${cell.cell_type}</span>
           <div class="nb-cell-actions">${_renderNbExpandButton()}</div>
@@ -5073,6 +5077,7 @@
     const serverReadonlyAttr = serverPending ? ' readonly aria-busy="true"' : '';
     const outputStateCls = outputsHtml ? ' nb-cell-has-outputs' : ' nb-cell-no-outputs';
     return `<div class="nb-cell nb-cell-interactive${pendingCls}${unseenCls}${actorCls}${outputStateCls}" data-cell-index="${idxAttr}"${cellIdAttr}${pendingAttr}${insertAtAttr}${liveSequenceAttr}${queuePosAttr} data-exec-count="${execCountNum}" data-cell-type="code">
+      ${deleteButton}
       <div class="nb-cell-header">
         <span class="nb-type">code</span>
         <span class="nb-exec">${execCount}</span>
@@ -5084,7 +5089,6 @@
           <button class="nb-cell-copy-src" type="button" title="Copy cell source to clipboard">⧉ copy</button>
           ${clientPending ? '' : _renderNbPinCodeButton() + _renderNbExpandButton()}
           <button class="nb-cell-run" type="button" title="Run (Cmd/Ctrl+Enter)"${serverBusyAttr}>▶ Run</button>
-          <button class="nb-cell-del" type="button" title="${pending ? 'Discard draft' : 'Delete cell'}"${serverBusyAttr}>✕</button>
         </div>
       </div>
       <div class="nb-cell-edit-wrap">
@@ -5099,7 +5103,6 @@
   function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, vaultId = null) {
     if (!wrap || !wrap.classList.contains('nb-cell-interactive')) return;
     const ta = wrap.querySelector('.nb-cell-edit-area');
-    if (!ta) return;  // markdown cell
     const runBtn = wrap.querySelector('.nb-cell-run');
     const delBtn = wrap.querySelector('.nb-cell-del');
     const busy = wrap.querySelector('.nb-cell-busy');
@@ -5115,6 +5118,51 @@
     // pending cells persist via the path-scoped pending list so they survive
     // navigation away and back.
     const draftKey = isPending ? null : _cellDraftKey(relPath, cellKey);
+    let deleting = false;
+    delBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (delBtn.disabled || deleting || wrap.classList.contains('nb-cell-running')) return;
+      const question = isPending
+        ? 'Discard this draft cell?\n\nThis cannot be undone.'
+        : 'Delete this cell and its outputs from the notebook?\n\nThis cannot be undone.';
+      if (!confirm(question)) return;
+      if (isPending) {
+        if (pendingId) _removePending(relPath, pendingId);
+        wrap.remove();
+        if (typeof onPendingRemoved === 'function') onPendingRemoved();
+        return;
+      }
+      deleting = true;
+      delBtn.disabled = true;
+      if (runBtn) runBtn.disabled = true;
+      if (ta) ta.readOnly = true;
+      _clearCellError(wrap);
+      try {
+        const res = await fetch('/api/nb/cell/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cellId
+            ? { path: relPath, cell_id: cellId, ...(vaultId ? {vault: vaultId} : {}) }
+            : { path: relPath, cell_index: cellIndex, ...(vaultId ? {vault: vaultId} : {}) }),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(e.detail || ('delete failed (' + res.status + ')'));
+        }
+        // Legacy positional draft/seen keys become stale when indices shift.
+        _clearAllDraftsForPath(relPath);
+        _clearAllSeenForPath(relPath);
+        openWorkspaceDoc(filepath, { preserveScroll: true });
+      } catch (err) {
+        _showCellError(wrap, err.message || String(err));
+        deleting = false;
+        delBtn.disabled = false;
+        if (runBtn) runBtn.disabled = false;
+        if (ta) ta.readOnly = false;
+      }
+    });
+    if (!ta) return;  // Text cells only need the delete binding.
+
     let localRunOutputSnapshot = null;
     const idleExecText = wrap.querySelector('.nb-exec')?.textContent || '';
     // While an agent/human execution is live, the server snapshot is the code
@@ -5203,6 +5251,7 @@
     }
 
     async function run() {
+      if (runBtn.disabled || deleting) return;
       const code = ta.value || '';
       if (!code.trim()) return;
       setRunning(true);
@@ -5245,79 +5294,7 @@
       }
     }
 
-    // Two-step delete confirmation. First click on ✕ swaps the button into a
-    // "⚠ Click again" state for 3s; the second click within that window
-    // actually deletes. Auto-resets after the timeout or if the user runs
-    // the cell instead. Empty pending drafts skip the confirm — there's
-    // nothing to lose.
-    let _delConfirmTimer = null;
-    function _resetDeleteButton() {
-      delBtn.textContent = '✕';
-      delBtn.classList.remove('nb-cell-del-confirming');
-      delBtn.title = isPending ? 'Discard draft' : 'Delete cell';
-      if (_delConfirmTimer) { clearTimeout(_delConfirmTimer); _delConfirmTimer = null; }
-    }
-    function _armDeleteConfirm(label, hint) {
-      delBtn.classList.add('nb-cell-del-confirming');
-      delBtn.textContent = label;
-      delBtn.title = hint;
-      if (_delConfirmTimer) clearTimeout(_delConfirmTimer);
-      _delConfirmTimer = setTimeout(_resetDeleteButton, 3000);
-    }
-    // If the user starts editing the textarea after arming, dismiss the
-    // pending confirm — they clearly didn't mean to delete.
-    ta.addEventListener('input', _resetDeleteButton, { passive: true });
-
-    async function del() {
-      const armed = delBtn.classList.contains('nb-cell-del-confirming');
-      if (isPending) {
-        const hasContent = (ta.value || '').trim() !== '';
-        // Empty draft → discard outright. With content → require a second
-        // click so a fat-finger doesn't wipe what the user typed.
-        if (hasContent && !armed) {
-          _armDeleteConfirm('⚠ Discard?', 'Click again within 3s to discard this draft');
-          return;
-        }
-        _resetDeleteButton();
-        if (pendingId) _removePending(relPath, pendingId);
-        wrap.parentNode && wrap.parentNode.removeChild(wrap);
-        if (typeof onPendingRemoved === 'function') onPendingRemoved();
-        return;
-      }
-      // Committed cell — always two-step. The first click arms; the second
-      // (within 3s) actually rewrites the .ipynb.
-      if (!armed) {
-        _armDeleteConfirm('⚠ Click again', 'Click again within 3s to delete this cell — this rewrites the .ipynb');
-        return;
-      }
-      _resetDeleteButton();
-      setRunning(true);
-      try {
-        const res = await fetch('/api/nb/cell/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(cellId
-            ? { path: relPath, cell_id: cellId, ...(vaultId ? {vault: vaultId} : {}) }
-            : { path: relPath, cell_index: cellIndex, ...(vaultId ? {vault: vaultId} : {}) }),
-        });
-        if (!res.ok) {
-          const e = await res.json().catch(() => ({ detail: res.statusText }));
-          throw new Error(e.detail || ('delete failed (' + res.status + ')'));
-        }
-        // Deletion shifts indices; safest to clear all per-cell drafts AND
-        // seen markers for this notebook so stale code/baselines don't
-        // reappear at the wrong index.
-        _clearAllDraftsForPath(relPath);
-        _clearAllSeenForPath(relPath);
-        openWorkspaceDoc(filepath, { preserveScroll: true });
-      } catch (err) {
-        _showCellError(wrap, err.message || String(err));
-        setRunning(false);
-      }
-    }
-
     runBtn.addEventListener('click', run);
-    delBtn.addEventListener('click', del);
     ta.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();

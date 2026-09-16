@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notebook cell deletion](notebook-cell-delete-corner-confirmation.md) — visible upper-right trash button in output-only mode too; confirm code, text, and draft removal
+
 - [Worktree recent files ignore the initial checkout](worktree-recent-files-ignore-initial-checkout.md) — hide untouched checkout copies from time filters while retaining new, edited, and subsequently committed files
 
 - [Worktree discovery refreshes live](sidebar-worktree-discovery-refreshes-live.md) — refresh visible choices independently of file mtimes, preserving selection and open documents

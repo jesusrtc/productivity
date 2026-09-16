@@ -406,12 +406,13 @@ process.stdout.write(JSON.stringify({
     assert "box-shadow:none" in css
     assert "body.sidebar-collapsed .nb-jump-controls { left:0; }" in css
     assert "right:var(--term-width)" in css
-    assert "right:24px" not in css
+    notebook_toolbar_css = css[css.index("  .nb-jump-controls {"):css.index("  .nb-runtime-dialog {")]
+    assert "right:24px" not in notebook_toolbar_css
     assert ".nb-jump-controls-spacer" in css
     assert "bottom:22px" not in css
     assert ".nb-container.nb-code-hidden" in css
     assert ".nb-jump-controls .nb-jump-running" in css
-    assert ".nb-container.nb-code-hidden .nb-cell-del { display:none; }" in css
+    assert ".nb-container.nb-code-hidden .nb-cell-del { display:none; }" not in css
     assert ":not(.nb-code-peek) > .nb-cell-edit-wrap" in css
     assert ".nb-output-code-toggle" not in css
     assert ".nb-cell-no-outputs" in css
@@ -868,6 +869,106 @@ process.stdout.write(JSON.stringify({html}));
     assert "first\n" in html
 
 
+def test_cell_delete_confirms_cancel_failure_drafts_and_stable_identity() -> None:
+    binding = _js_between(
+        "function bindNbCellInteractive(wrap, relPath, filepath, onPendingRemoved, vaultId = null)",
+        "// Generic clipboard helper",
+    )
+    result = _run_node(
+        binding
+        + """
+let active;
+function confirm(question) { active.questions.push(question); return active.accept; }
+function _cellDraftKey(path, key) { return `${path}:${key}`; }
+const localStorage = {getItem() { return null; }};
+function _clearCellError() {}
+function _showCellError(_wrap, message) { active.errors.push(message); }
+function _clearAllDraftsForPath() { active.cleared.push('drafts'); }
+function _clearAllSeenForPath() { active.cleared.push('seen'); }
+function _removePending(path, id) { active.discarded.push({path, id}); }
+function openWorkspaceDoc(path, options) { active.opened.push({path, options}); }
+async function fetch(url, options) {
+  active.requests.push({url, body: JSON.parse(options.body)});
+  // The request has not finished: another click must not send it twice.
+  await active.listeners['delete:click']({stopPropagation() {}});
+  return {ok: !active.fail, status: 409, async json() {return {detail: 'Cannot delete'};}};
+}
+async function scenario({type = 'code', accept = true, pending = false,
+                         running = false, fail = false, id = 'stable-cell'} = {}) {
+  active = {accept, fail, questions: [], requests: [], errors: [], cleared: [],
+    discarded: [], opened: [], listeners: {}, removed: false, notified: false};
+  const state = active;
+  const button = name => ({disabled: running,
+    addEventListener(event, fn) { state.listeners[`${name}:${event}`] = fn; }});
+  const delBtn = button('delete');
+  const runBtn = type === 'code' ? button('run') : null;
+  const ta = type === 'code' ? {value: '', defaultValue: '', readOnly: running,
+    addEventListener(event, fn) {state.listeners[`textarea:${event}`] = fn;}} : null;
+  const wrap = {
+    classList: {contains(name) {
+      return name === 'nb-cell-interactive' || (running && name === 'nb-cell-running');
+    }},
+    getAttribute(name) {
+      return {'data-cell-index': pending ? 'new' : '4',
+        'data-cell-id': pending ? null : id, 'data-pending-id': pending ? 'draft-1' : null}[name];
+    },
+    querySelector(selector) {
+      return {'.nb-cell-edit-area': ta, '.nb-cell-run': runBtn, '.nb-cell-del': delBtn}[selector] || null;
+    },
+    remove() {state.removed = true;},
+  };
+  bindNbCellInteractive(wrap, 'workspaces/demo/a.ipynb', 'a.ipynb',
+    () => {state.notified = true;}, 'owning-vault');
+  await state.listeners['delete:click']({stopPropagation() {}});
+  return {...state, listeners: undefined, deleteDisabled: delBtn.disabled,
+    readOnly: ta?.readOnly || false};
+}
+(async () => {
+  const results = {};
+  for (const type of ['code', 'markdown', 'raw']) {
+    results[type] = await scenario({type});
+    results[`${type}Cancel`] = await scenario({type, accept: false});
+  }
+  results.emptyDraft = await scenario({pending: true});
+  results.draftCancel = await scenario({pending: true, accept: false});
+  results.running = await scenario({running: true});
+  results.failure = await scenario({fail: true});
+  results.legacy = await scenario({id: null});
+  process.stdout.write(JSON.stringify(results));
+})();
+"""
+    )
+    for cell_type in ("code", "markdown", "raw"):
+        deleted = result[cell_type]
+        assert len(deleted["questions"]) == 1
+        assert deleted["requests"] == [{
+            "url": "/api/nb/cell/delete",
+            "body": {"path": "workspaces/demo/a.ipynb", "cell_id": "stable-cell",
+                     "vault": "owning-vault"},
+        }]
+        assert deleted["opened"] == [{"path": "a.ipynb", "options": {"preserveScroll": True}}]
+        cancelled = result[f"{cell_type}Cancel"]
+        assert len(cancelled["questions"]) == 1
+        assert cancelled["requests"] == cancelled["cleared"] == cancelled["opened"] == []
+        assert not cancelled["removed"]
+    assert len(result["emptyDraft"]["questions"]) == 1
+    assert result["emptyDraft"]["removed"] and result["emptyDraft"]["notified"]
+    assert result["emptyDraft"]["discarded"] == [{
+        "path": "workspaces/demo/a.ipynb", "id": "draft-1",
+    }]
+    assert result["emptyDraft"]["requests"] == []
+    assert not result["draftCancel"]["removed"]
+    assert result["draftCancel"]["discarded"] == []
+    assert result["running"]["questions"] == result["running"]["requests"] == []
+    assert result["failure"]["errors"] == ["Cannot delete"]
+    assert result["failure"]["opened"] == result["failure"]["cleared"] == []
+    assert not result["failure"]["deleteDisabled"]
+    assert not result["failure"]["readOnly"]
+    assert result["legacy"]["requests"][0]["body"] == {
+        "path": "workspaces/demo/a.ipynb", "cell_index": 4, "vault": "owning-vault",
+    }
+
+
 def test_starting_a_cell_clears_stale_output_without_stealing_scroll() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     css = LAB_SHELL_CSS.read_text(encoding="utf-8")
@@ -892,8 +993,6 @@ def test_starting_a_cell_clears_stale_output_without_stealing_scroll() -> None:
     assert "runningCell.querySelector('.nb-cell-header') || runningCell" not in open_block
     assert "const runningCell = container.querySelector" not in open_block
     assert "runningCell.scrollIntoView({ behavior: 'smooth', block: 'center' })" not in open_block
-    assert "delBtn.classList.contains('nb-cell-del-confirming')" in bindings
-    assert "Click again within 3s to delete this cell" in bindings
     assert ".nb-output-local-running" in css
     assert "@keyframes nb-running-spin" in css
 
