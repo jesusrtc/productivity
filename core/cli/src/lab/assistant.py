@@ -284,7 +284,7 @@ def iter_subtasks(
 
 def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
     if records.enabled(root):
-        return records.resolve(root, task_id, 'tasks')
+        return records.resolve(root, task_id, 'documents')
     matches: list[tuple[Path, dict[str, Any], str]] = []
     for source in (naming.workspaces_dir(root)).glob("*/tasks/*.md"):
         metadata, body = read_markdown(source)
@@ -299,7 +299,7 @@ def find_task(root: Path, task_id: str) -> tuple[Path, dict[str, Any], str]:
 
 def find_subtask(root: Path, subtask_id: str) -> tuple[Path, dict[str, Any], str]:
     if records.enabled(root):
-        return records.resolve(root, subtask_id, 'tasks')
+        return records.resolve(root, subtask_id, 'documents')
     matches: list[tuple[Path, dict[str, Any], str]] = []
     for source in (naming.workspaces_dir(root)).glob("*/subtasks/*.md"):
         metadata, body = read_markdown(source)
@@ -470,7 +470,7 @@ def create_subtask(
 
 def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
     if records.enabled(root):
-        return records.update(root, task_id, field, value, collection='tasks')
+        return records.update(root, task_id, field, value, collection='documents')
     source, metadata, body = find_task(root, task_id)
     if field == "status" and value not in STATUSES:
         raise ValueError(f"status must be one of: {', '.join(STATUSES)}")
@@ -509,7 +509,7 @@ def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
 
 def update_subtask(root: Path, subtask_id: str, field: str, value: Any) -> Path:
     if records.enabled(root):
-        return records.update(root, subtask_id, field, value, collection='tasks')
+        return records.update(root, subtask_id, field, value, collection='documents')
     source, metadata, body = find_subtask(root, subtask_id)
     if field == "status" and value not in STATUSES:
         raise ValueError(f"status must be one of: {', '.join(STATUSES)}")

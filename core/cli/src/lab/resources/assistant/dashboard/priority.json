@@ -1,0 +1,9 @@
+{
+  "schema": 3,
+  "id": "priority",
+  "title": "Priority",
+  "position": 0,
+  "where": "source = 'open' AND (priority IN ('P1') OR due <= TODAY + 2)",
+  "sort": "due",
+  "limit": 20
+}

@@ -14,6 +14,82 @@ Read the database's existing instructions and resolve the exact mapped
 workspace before writing. Preserve IDs, relationships, unknown fields and
 unrelated content; re-read the latest file before a targeted edit.
 
+## Shared Documents library
+
+Tasks and notes share the **Documents** entry, with All, Open tasks, Documents,
+Starred, Meetings, Series, and task history views. Existing `tasks/` and `notes/`
+paths are compatibility storage; this change does not move or duplicate files.
+All existing content, IDs, tabs, aliases, original captures, and series links stay
+in place. The labels and filters do not change a record's storage type.
+
+`track_task: true|false` controls whether a tab has its own task lifecycle.
+New ordinary tabs are untracked; **Add task** (CLI `subtab add --task`) creates a
+tracked tab. **Track this tab** can change an existing tab in either direction,
+preserving its content and stored status. A direct status edit enables tracking.
+For older records without the field, task records and tabs with a stored status
+retain their existing tracking. Only tracked child branches contribute to
+progress; untracked content with no tracked descendants has no status. A
+containing document appears in Open tasks whenever its overall work is pending.
+Completing or reopening a tracked child updates that document's progress.
+
+`keep_in_documents: true|false` belongs to the root. It defaults to true for
+notes and false for transient tasks. Completion never changes this preference:
+retained documents stay in Documents; completed transient tasks stay in Completed
+history and leave All/Open tasks. History has no seven-day cutoff. **Keep in
+Documents** retains the result of a task in the same Markdown file.
+
+`starred: true|false` is independent of tracking, completion, and retention.
+Use the star beside an item or in its header. A series and each of its notes
+have separate stars; starring a series adds just the series to Starred. Its
+existing dates menu provides access to the member notes.
+
+Use **Label → Meeting** to include a document in Meetings, then optionally set
+its date and series. **+ Series** creates a meeting series with an empty body.
+A series with members cannot be relabeled until those memberships are removed.
+
+Client-defined attributes live in the optional `attributes` JSON object on a
+task, note, or subtab. Names such as `is_investigation` and `is_RFC` are examples,
+not defaults. The **Attributes** button edits this object. Subtabs own their
+values; attributes are not inherited. CLI `set <id> attributes '{"is_RFC":true}'`
+replaces the whole object, so preserve other attributes when editing a property.
+Use `{}` or `null` to clear it. Values support JSON booleans, text, finite numbers,
+null, arrays and objects; names are case-sensitive.
+
+Dashboard sections use schema-3 JSON with a SQL-style `where` string, for
+example `source = 'open' AND (is_RFC = true OR is_investigation = true)`.
+Combine conditions with AND/OR/NOT and parentheses. Custom names refer to root
+attributes; `attributes.name` is explicit and `any_tab.name` includes subtabs.
+Comparisons, IN, BETWEEN, LIKE, CONTAINS, IS NULL and IS MISSING are supported.
+Use single quotes for text and true/false for flags. Missing values differ
+from false: `is_RFC IS MISSING` checks absence. `due <= TODAY + 2` includes
+overdue work; `due BETWEEN TODAY AND TODAY + 2` excludes it. Existing schema-2
+JSON filters are converted without changing behavior, with original backups.
+Dashboard sections match independently; an item appears in every matching
+section. To exclude starred items from a section, explicitly add
+`AND starred = false` to its WHERE condition. Each series appears once per
+section, opening the latest note. Reordering or limiting one section never
+removes items from another.
+
+```bash
+lab assistant document ls
+lab assistant document ls --starred
+lab assistant document ls --kind meeting
+lab assistant document ls --status open
+lab assistant document add "Reference"
+lab assistant document add "Weekly sync" --kind meeting
+lab assistant document set <id> starred true
+lab assistant document set <id> note_type meeting
+lab assistant document set <id> keep_in_documents true
+lab assistant document set <id> track_task false
+lab assistant subtab add "Review" --parent <id> --parent-type note --task
+```
+
+Document edits use the same Save workflow for tasks and notes, with conflict
+checks and preservation of sibling tabs. Unchecked Markdown items still block
+explicit completion of a tracked leaf; ordinary prose and headings never become
+tasks automatically.
+
+
 ## One task/note file, including all subtabs
 
 The current format is `embedded-subtabs-v1` within schema 2. An independent task
@@ -60,7 +136,7 @@ visibly labels fictional examples. `group` is a searchable workstream label.
 Today includes planned or due tasks through today. This week includes planned
 or due tasks through Sunday, including overdue tasks. Waiting includes all
 waiting work; To review includes reviewable subtasks. Recurring lists tasks
-with `recurrence`. Completed includes the last seven days.
+with `recurrence`. Completed keeps task history without an age cutoff.
 Within each view, rows retain creation-date headers, newest day first and
 priority/attention ordering within each day. Unknown dates appear last.
 

@@ -1,0 +1,9 @@
+{
+  "schema": 3,
+  "id": "starred",
+  "title": "Starred",
+  "position": 10,
+  "where": "starred = true",
+  "sort": "newest",
+  "limit": 10
+}

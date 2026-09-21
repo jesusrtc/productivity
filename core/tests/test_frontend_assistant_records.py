@@ -83,9 +83,9 @@ window.fetch=async (url,options={})=>{
  assert(!field('project')&&!field('workspace'),'subtabs inherit document relationships');
  assert(nav.querySelector('[data-record-index]'),'multiple tabs have Index');
  const previous=host().firstElementChild;
- const contentRow=document.querySelector('[data-assistant-task]');
+ const contentRow=document.querySelector('[data-assistant-document][data-document-kind="task"]');
  await AssistantView.refresh();
- assert(document.querySelector('[data-assistant-task]')===contentRow,'identical poll keeps list DOM');
+ assert(document.querySelector('[data-assistant-document][data-document-kind="task"]')===contentRow,'identical poll keeps list DOM');
  let release;gate=new Promise(r=>release=r);
  nav.querySelector(`[data-record-path="${FIX.paths[2]}"]`).click();
  await new Promise(r=>setTimeout(r,25));
@@ -99,8 +99,8 @@ window.fetch=async (url,options={})=>{
  nav.querySelector('[data-record-index]').click();
  await until(()=>host().querySelector('.assistant-index'));
  assert(host().querySelectorAll('[data-index-path]').length===3,'index contains complete nested tree');
- FIX.index.tasks.find(row=>row.path===FIX.paths[0]).mtime += 1;
- FIX.details[FIX.paths[0]].tree.mtime = FIX.index.tasks.find(row=>row.path===FIX.paths[0]).mtime;
+ FIX.index.documents.find(row=>row.path===FIX.paths[0]).mtime += 1;
+ FIX.details[FIX.paths[0]].tree.mtime = FIX.index.documents.find(row=>row.path===FIX.paths[0]).mtime;
  FIX.details[FIX.paths[0]].tree.children[0].owner='Updated POC';
  FIX.details[FIX.paths[1]].tree=FIX.details[FIX.paths[0]].tree;
  FIX.details[FIX.paths[2]].tree=FIX.details[FIX.paths[0]].tree;
@@ -151,9 +151,9 @@ window.fetch=async (url,options={})=>{
  assert(creates===2,'both creation actions completed');
  AssistantView.closeDocument();AssistantView.setSection('notes');
  await AssistantView.refresh();
- document.querySelector('[data-assistant-view="other_notes"]').click();
- assert(document.querySelectorAll('[data-assistant-note]').length===1,'only independent notes appear in the list');
- document.querySelector('[data-assistant-note]').click();
+ document.querySelector('[data-assistant-view="documents"]').click();
+ assert(document.querySelectorAll('[data-assistant-document]').length===1,'only independent notes appear in the list');
+ document.querySelector('[data-assistant-document]').click();
  await until(()=>host().textContent.includes('Only this tab.'));
  assert(!nav.querySelector('[data-record-index]'),'single document has no Index');
  document.getElementById('result').textContent='PASS';

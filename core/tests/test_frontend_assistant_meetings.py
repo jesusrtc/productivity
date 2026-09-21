@@ -77,7 +77,7 @@ window.fetch=async (url, options={})=>{
  return {ok:!!FIX.details[path],json:async()=>FIX.details[path]||{detail:'Missing content'}};
 };
 (async()=>{
- AssistantView.init();
+ AssistantView.init({section:'tasks'});
  await until(()=>document.querySelector('[data-assistant-task]'));
  assert(AssistantView.section()==='tasks','Assistant opens to Tasks');
  const taskRows=()=>[...document.querySelectorAll('[data-testid="assistant-task-row"]')];

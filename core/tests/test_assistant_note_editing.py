@@ -52,7 +52,8 @@ def test_subtab_save_preserves_fresh_siblings_and_properties(client, note_data):
     assert documents.read(note)[1] == original_main
     assert documents.read(sibling)[1] == 'Changed by another editor'
     assert documents.read(child)[1] == 'Changed in this tab\n'
-    assert response.json()['progress']['status'] == 'not_started'
+    assert response.json()['progress']['status'] is None
+    assert response.json()['progress']['tracked'] is False
     assert records.verify(root)['valid']
 
 
@@ -86,8 +87,9 @@ def test_empty_body_and_originals_protected(client, note_data):
     raw = root/'.assistant/assets/original/raw.txt'
     raw.parent.mkdir(parents=True)
     raw.write_text('Immutable original')
-    for path in ['../AGENTS.md', str(raw.relative_to(root)), 'tasks/'+task.name]:
+    for path in ['../AGENTS.md', str(raw.relative_to(root))]:
         assert save(client, path, '', 'Bad write').status_code == 400
+    assert save(client, 'tasks/'+task.name, '', 'Stale task draft').status_code == 409
     assert raw.read_text() == 'Immutable original'
     assert records.verify(root)['valid']
 

@@ -117,7 +117,7 @@ def test_root_level_tab_placement_stays_in_document_and_tracks_progress(client, 
     assert (root/'tasks'/task.name).read_bytes()==before
     assert len(list((root/'tasks').glob('*.md')))==1 and not list((root/'notes').glob('*.md'))
     for status in ['in_progress','skipped']:
-        changed=client.patch('/api/assistant/metadata',json={'path':nested['path'],'field':'status','expected':nested['metadata']['status'],'value':status})
+        changed=client.patch('/api/assistant/metadata',json={'path':nested['path'],'field':'status','expected':nested['metadata'].get('status'),'value':status})
         assert changed.status_code==200,changed.text
         nested=changed.json()
         assert nested['tree']['progress']['status']==('done' if status=='skipped' else status)

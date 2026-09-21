@@ -61,8 +61,8 @@ window.fetch=async (url,options={})=>{
   const request=JSON.parse(options.body);
   assert(request.field==='series'&&request.value===null,'detach series');
   FIX.details[request.path]=FIX.detached;
-  FIX.index.meetings.find(row=>row.path===request.path).series=null;
-  FIX.index.meetings.find(row=>row.path===request.path).series_path=null;
+  FIX.index.documents.find(row=>row.path===request.path).series=null;
+  FIX.index.documents.find(row=>row.path===request.path).series_path=null;
   return {ok:true,json:async()=>structuredClone(FIX.detached)};
  }
  if(u.pathname==='/api/assistant')return {ok:true,json:async()=>structuredClone(FIX.index)};
@@ -72,7 +72,7 @@ window.fetch=async (url,options={})=>{
 };
 (async()=>{
  AssistantView.init({section:'notes'});
- await until(()=>document.querySelector('[data-assistant-meeting]'));
+ await until(()=>document.querySelector('[data-assistant-document][data-document-kind="meeting"]'));
  await AssistantView.openDocument('note',FIX.paths.nested);
  assert(rows().length===2,'full series available from subtab deep link');
  assert(!menuOpen()&&rows().every(row=>!visible(row)),'dates hidden until requested');
@@ -112,7 +112,7 @@ window.fetch=async (url,options={})=>{
  await AssistantView.refresh();
  assert(menuOpen()&&document.activeElement===rows()[1],'unchanged polling preserves open menu and focus');
  // A sibling's metadata can change without touching the current Markdown file.
- FIX.index.meetings.find(row=>row.path===FIX.paths.older).title='Previous meeting renamed';
+ FIX.index.documents.find(row=>row.path===FIX.paths.older).title='Previous meeting renamed';
  await AssistantView.refresh();
  assert(rows()[1].textContent.includes('renamed'),'poll picks up sibling edits');
  assert(menuOpen()&&document.activeElement===rows()[1],'sibling edit preserves menu and focus');

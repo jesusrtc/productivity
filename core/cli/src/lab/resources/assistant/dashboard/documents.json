@@ -1,0 +1,9 @@
+{
+  "schema": 3,
+  "id": "documents",
+  "title": "Documents",
+  "position": 20,
+  "where": "source = 'active'",
+  "sort": "newest",
+  "limit": 20
+}

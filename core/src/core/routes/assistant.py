@@ -1,18 +1,19 @@
 """API for the client-owned global Assistant task database."""
 from __future__ import annotations
 
-from lab import naming, assistant_meetings as meeting_db, assistant_records as records, assistant_documents as documents
+from lab import naming, assistant_meetings as meeting_db, assistant_records as records, assistant_documents as documents, assistant_dashboard as dashboard
 from core.routes import assistant_v2
 
 import os
 import re
 from threading import Lock
+from typing import Any
 from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool, StrictStr
 
 from lab import assistant as assistant_db
 from lab import paths
@@ -205,6 +206,8 @@ def get_assistant(request: Request) -> dict:
         "tasks": tasks,
         "meetings": meetings,
         "meeting_series": series_rows,
+        "documents": list(assistant_v2.document_rows(root)) if records.enabled(root) else None,
+        "dashboard": dashboard.read(root) if records.enabled(root) else None,
         "schema": 2 if records.enabled(root) else 1,
         "projects": list(records.records(root, "projects")) if records.enabled(root) else [],
         "notes": [{**row,"search_text":" ".join(str(child.get(field) or "") for child in [row,*records.descendants(list(records.records(root)),row)] for field in ("title","tldr","owner"))} for row in records.records(root, "notes") if not row.get("embedded") and row.get("note_type") in {"plain","thread","subtab"}] if records.enabled(root) else [],
@@ -255,7 +258,7 @@ def _safe_meeting_path(root: Path, relative: str) -> Path:
 def get_task(path: str, request: Request) -> dict:
     root = _require_root(request)
     if records.enabled(root):
-        return assistant_v2.detail(root, path, 'tasks')
+        return assistant_v2.detail(root, path, 'documents')
     source = _safe_task_path(root, path)
     metadata, body = assistant_db.read_markdown(source)
     workspace_id = str(metadata.get("workspace") or source.parent.parent.name)
@@ -348,7 +351,8 @@ def get_meeting_series(path: str, request: Request) -> dict:
     root = _require_root(request)
     source, metadata, body = _meeting_record(root, path, "meeting-series")
     return {"path": str(source.relative_to(root)), "metadata": metadata, "body": body,
-            "workspace": _meeting_workspace(root, source), "meetings": _series_history(root, source)}
+            "workspace": _meeting_workspace(root, source), "meetings": _series_history(root, source),
+            **(assistant_v2.detail(root, path) if records.enabled(root) else {})}
 
 
 def _safe_meeting_content(root: Path, path: str):
@@ -419,8 +423,8 @@ def update_content(body: AssistantContentBody, request: Request) -> dict:
 class AssistantMetadataBody(BaseModel):
     path: str
     field: str
-    value: str | None
-    expected: str | None
+    value: StrictStr | StrictBool | dict[str, Any] | None
+    expected: StrictStr | StrictBool | dict[str, Any] | None
 
 
 _metadata_lock = Lock()
@@ -432,11 +436,16 @@ def update_metadata(body: AssistantMetadataBody, request: Request) -> dict:
     root = _require_root(request)
     if records.enabled(root):
         fields = {'title','tldr','project','workspace','status','priority','due','recurrence','group','owner',
-                  'scheduled','defer_until','waiting_on','follow_up_at','date','series'}
+                  'scheduled','defer_until','waiting_on','follow_up_at','date','series',
+                  'starred','track_task','keep_in_documents','note_type','attributes'}
         if body.field not in fields:
             raise HTTPException(status_code=400, detail='This property cannot be edited')
         try:
-            value = body.value.strip() or None if body.value is not None else None
+            value = (body.value.strip() or None) if isinstance(body.value, str) else body.value
+            if isinstance(value,dict) and body.field != 'attributes':
+                raise ValueError('Only attributes accept a JSON object')
+            if isinstance(value, bool) and body.field not in {'starred','track_task','keep_in_documents'}:
+                raise ValueError('This property requires text')
             records.update(root, body.path, body.field, value, expected=body.expected)
             _, metadata, _ = records.resolve(root, body.path)
         except (OSError,ValueError) as exc:
@@ -447,6 +456,8 @@ def update_metadata(body: AssistantMetadataBody, request: Request) -> dict:
             return get_meeting_series(body.path, request)
         return assistant_v2.detail(root, body.path)
     source = _safe_markdown_path(root, body.path)
+    if isinstance(body.value, (bool,dict)):
+        raise HTTPException(status_code=400, detail='This property requires text')
     collection = source.parent.name
     fields = {"title", "tldr"}
     if collection in {"tasks", "subtasks"}:
@@ -543,7 +554,7 @@ def get_asset(task: str, src: str, request: Request):
 
 @router.get("/note")
 def get_note(path: str, request: Request) -> dict:
-    return assistant_v2.detail(_require_root(request), path, 'notes')
+    return assistant_v2.detail(_require_root(request), path, 'documents')
 
 
 @router.get("/link")
@@ -553,6 +564,20 @@ def get_link(document: str, src: str, request: Request):
     return assistant_v2.asset(root, document, src, _allowed_asset_roots(root, source), link=True)
 
 
+class AssistantDashboardBody(BaseModel):
+    sections: list[dict]
+    expected: str
+
+
+@router.put('/dashboard')
+def update_dashboard(body: AssistantDashboardBody, request: Request):
+    root = _require_root(request)
+    try:
+        return dashboard.write(root,body.sections,expected=body.expected)
+    except (OSError,ValueError) as exc:
+        raise HTTPException(status_code=409 if 'changed elsewhere' in str(exc) else 400,detail=str(exc)) from exc
+
+
 class AssistantRecordBody(BaseModel):
     type: str
     title: str
@@ -560,6 +585,8 @@ class AssistantRecordBody(BaseModel):
     workspace: str | None = None
     parent: dict[str, str] | None = None
     top_level: bool = False
+    track_task: StrictBool = False
+    note_type: str | None = None
 
 
 @router.post("/record")
@@ -570,11 +597,12 @@ def create_record(body: AssistantRecordBody, request: Request):
     try:
         if body.type == 'subtab':
             overrides = {field:getattr(body, field) for field in ('project','workspace') if field in body.model_fields_set}
-            source = records.create_subtab(root, body.title, parent=body.parent, top_level=body.top_level, **overrides)
+            source = records.create_subtab(root, body.title, parent=body.parent, top_level=body.top_level, track_task=body.track_task, **overrides)
             return assistant_v2.detail(root, source.relative_to(root).as_posix())
         fields = {'project':body.project,'workspace':body.workspace,'parent':body.parent} if body.type != 'project' else {'status':'active'}
         if body.type == 'note':
-            fields['note_type'] = 'subtab' if body.parent else 'plain'
+            fields['note_type'] = 'subtab' if body.parent else body.note_type or 'plain'
+            fields['track_task'] = body.track_task
         source = records.create(root, body.type, body.title, **fields)
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

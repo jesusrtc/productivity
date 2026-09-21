@@ -74,7 +74,7 @@ window.fetch=async (url,options={})=>{
 };
 (async()=>{
  AssistantView.init({section:'tasks'});
- await until(()=>document.querySelector('[data-assistant-task]'));
+ await until(()=>document.querySelector('[data-assistant-document][data-document-kind="task"]'));
  const task=FIX.cases.task;
  await AssistantView.openDocument('task',task.root);
  if(!sessionStorage.getItem('activity-reloaded')){

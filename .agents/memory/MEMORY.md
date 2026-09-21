@@ -39,8 +39,6 @@
 
 - [Workspace renames move folders](workspace-renames-move-folders.md) — physical folder rename, stable internal ID, independent terminal UUID index, and path migration
 
-- [Workspace context menu actions](workspace-context-menu-actions.md) — Rename and Delete in both vault lists and workspace tabs; stable IDs for rename and exact-folder confirmation for deletion
-
 - [Workspace creation needs only a name](workspace-creation-needs-only-name.md) — single name field in the selected vault; automatic folder IDs; picker clicks survive replacing menu contents
 
 - [Terminal multi-selection](terminal-multi-selection.md) — Cmd/Ctrl-click toggles tabs; secondary-click groups, associates, unlinks, or closes the captured selection
@@ -60,6 +58,8 @@
 - [Markdown copy respects disclosure state](markdown-copy-respects-disclosures.md) — native details/summary folds; copy excludes closed blocks and flattens open blocks from the live view for every clipboard format
 
 - [Terminal labels follow rail width](terminal-tabs-resize-labels-automatically.md) — drag the tabs/console separator between compact icons and full labels; persist width and adapt labels automatically
+
+- [Terminal metadata closes SQLite connections](terminal-metadata-closes-sqlite-connections.md) — use `contextlib.closing`; SQLite transaction contexts leave handles open and can exhaust the server's descriptor limit
 
 - [Keep client-specific work out of Lab](framework-keeps-client-domain-out.md) — framework code, defaults, skills, docs, and examples stay general-purpose; notebooks require a configured local runtime.
 
@@ -142,16 +142,17 @@
 
 - [Vault → Workspace → Terminal](vault-workspace-terminal-naming.md) — consistent entity names throughout UI, CLI, APIs, code, configuration, and docs; old names only at compatibility boundaries.
 
+- [Vault overview prioritizes recent workspaces](vault-overview-workspaces-first.md) — Workspaces first, newest visit first, configuration below; visits persist by absolute path in browser storage
+
+- [Workspace context menu actions](workspace-context-menu-actions.md) — Rename and Delete in both vault lists and workspace tabs; stable IDs for rename and exact-folder confirmation for deletion
+
 - [Vaults are sections inside Home](vaults-are-home-sections.md) — vault navigation stays beneath Home alongside Overview and Admin; only workspaces open separate tabs
 
 - [Home shares one terminal area](home-shares-one-terminal-area.md) — Overview, Admin, and all vault sections use the existing Home terminal scope, selection, connection, and settings
 
 - [Closing workspace tabs preserves resources](workspace-close-preserves-resources.md) — close is navigation only; vault rows show live terminals, servers, and notebook kernels, independent of open tabs
 
-- [Terminal metadata closes SQLite connections](terminal-metadata-closes-sqlite-connections.md) — use `contextlib.closing`; SQLite transaction contexts leave handles open and can exhaust the server's descriptor limit
-
 - [Terminal polling preserves unchanged DOM](terminal-polling-preserves-dom.md) — skip unchanged tab/header DOM replacement while preserving updates and focus
-
 - [Terminal connect filesystem work stays off the event loop](terminal-connect-filesystem-off-event-loop.md) — authentication/discovery/access checks run in a worker; local authenticated echo benchmark covers polling load
 
 - [Terminal latency needs a browser frame baseline](terminal-browser-latency-baseline.md) — browser input-to-render probe includes an empty-page frame control; endpoint budgets exclude test-only index rebuilds
@@ -170,9 +171,9 @@
 
 - [Home terminal section associations](home-terminal-section-associations.md) — Logs keeps the terminal visible; Home/vault/Logs labels select each section's latest terminal from the shared pool
 
-- [Workspace new-tab button](workspace-new-tab-button.md) — small + beside the tabs; picker selects a vault and creates or opens a workspace in that vault
-
 - [Terminal tabs use folder badges](terminal-tabs-use-folder-badges.md) — replace provider text and vertical bars with colored Home/Logs or folder-alias badges and explicit worktree indicators
+
+- [Workspace new-tab button](workspace-new-tab-button.md) — small + beside the tabs; picker selects a vault and creates or opens a workspace in that vault
 
 - [Scoped proxy compatibility](scoped-proxy-compatibility.md) — scoped Referer rewriting, auth parsing, legacy aliases, and matching Vite/React Router base paths
 
@@ -213,3 +214,17 @@
 - [Assistant note content editing](assistant-note-content-editing.md) — explicit Save, subtle changed-line marks, retained drafts, and safe subtab body updates.
 
 - [Assistant recent tab highlights](assistant-tab-recent-highlights.md) — New/Updated markers in Tasks and Notes; dismiss per tab or expire after three days; later edits highlight again.
+
+- [Assistant unified documents and stars](assistant-unified-documents-and-stars.md) — shared library, optional task tracking, independent retention, meeting labels, and separate series/note stars.
+
+- [Assistant dashboard and single series entry](assistant-dashboard-and-single-series.md) — editable saved sections; one latest series entry; previous dates and filters inside the modal.
+
+- [Dashboard sections use JSON only](assistant-dashboard-json-sections.md) — Show filter reveals complete editable JSON; one file per section, including position and all settings.
+
+- [Grouped row star controls](assistant-group-star-controls.md) — filled star reflects series or member notes; separate mutation controls and starred history.
+- [Explicit dashboard filter logic](assistant-explicit-filter-logic.md) — schema-2 AND/OR expressions; readable JSON, inactive filters omitted, preserved migration semantics.
+- [Client-defined Assistant attributes](assistant-custom-attributes.md) — JSON metadata on notes/tasks/tabs, Attributes editor, and typed dashboard conditions with explicit scope.
+
+- [SQL-style dashboard filters](assistant-sql-style-filters.md) — schema-3 JSON with readable WHERE conditions, custom attributes, and preserved legacy semantics.
+
+- [Independent dashboard sections](assistant-independent-dashboard-sections.md) — items appear in every matching section; only explicit filters exclude stars; series collapse within each section.

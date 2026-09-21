@@ -76,6 +76,27 @@ def test_metadata_index_refreshes_after_cli_and_external_edits(tmp_path,monkeypa
         records.update(root,note.stem,'owner','Other',expected=None)
 
 
+def test_custom_attributes_cli_preserves_content_and_subtab_ownership(tmp_path,monkeypatch):
+    root,task,child,note,standalone=seed(tmp_path)
+    documents.migrate(root,dry_run=False)
+    monkeypatch.setenv('LAB_ASSISTANT_HOME',str(root))
+    before={row['id']:row['body'] for row in records.records(root)}
+    runner=CliRunner()
+    values={'is_RFC':True,'is_investigation':False,'tags':['draft'],'number':3,'result':None}
+    for command,identifier in [([],task.stem),(['note'],standalone.stem),(['subtab'],note.stem)]:
+        result=runner.invoke(main,['assistant',*command,'set',identifier,'attributes',json.dumps(values)])
+        assert result.exit_code == 0,result.output
+        assert records.resolve(root,identifier)[1]['attributes'] == values
+    assert 'attributes' not in records.resolve(root,child.stem)[1]
+    result=runner.invoke(main,['assistant','note','set',standalone.stem,'attributes','null'])
+    assert result.exit_code == 0,result.output
+    assert records.resolve(root,standalone.stem)[1]['attributes'] is None
+    invalid=runner.invoke(main,['assistant','set',task.stem,'attributes','true'])
+    assert invalid.exit_code != 0 and records.resolve(root,task.stem)[1]['attributes'] == values
+    assert before == {row['id']:row['body'] for row in records.records(root)}
+    assert records.verify(root)['valid']
+
+
 @pytest.mark.parametrize(('states','expected'),[
     (['not_started','not_started'],'not_started'),(['in_progress','not_started'],'in_progress'),
     (['done','not_started'],'in_progress'),(['skipped','not_started'],'in_progress'),
@@ -227,3 +248,29 @@ def test_embedded_meeting_preview_accepts_any_headings(tmp_path):
     records.update(root,note.stem,'tldr','Descripción del cliente')
     assert next(records.note_rows(root,'meeting'))['summary']=='Descripción del cliente'
     assert records.read_document(note)[1]==body
+
+
+def test_unified_cli_controls_existing_tasks_and_notes(tmp_path, monkeypatch):
+    root,task,child,note,standalone=seed(tmp_path)
+    documents.migrate(root,dry_run=False)
+    monkeypatch.setenv('LAB_ASSISTANT_HOME',str(root))
+    runner=CliRunner()
+    def run(*args):
+        result=runner.invoke(main,['assistant',*args])
+        assert result.exit_code==0,result.output
+        return result.output
+    listing=run('document','ls')
+    assert task.stem in listing and standalone.stem in listing and child.stem not in listing
+    run('document','set',task.stem,'starred','true')
+    assert task.stem in run('document','ls','--starred')
+    run('document','set',standalone.stem,'track_task','true')
+    assert standalone.stem in run('document','ls','--status','open')
+    run('done',standalone.stem)
+    assert standalone.stem in run('document','ls','--status','done')
+    run('document','set',standalone.stem,'track_task','false')
+    assert records.resolve(root,standalone.stem)[2]=='Independent note.'
+    run('document','add','Team series','--kind','series')
+    assert 'Team series' in run('document','ls','--kind','series')
+    run('subtab','add','Work','--parent',standalone.stem,'--parent-type','note','--task')
+    assert standalone.stem in run('document','ls','--status','open')
+    assert records.verify(root)['valid']

@@ -146,8 +146,12 @@ def create(root, record_type, title, identifier, body, fields):
         metadata = dict(schema=2, type=record_type, id=identifier, title=title, created=now, updated=now)
         if record_type in {'task','note'}:
             metadata.update(project=None,workspace=None,parent=None)
-        if record_type == 'task' or parent:
+        if record_type == 'task' or fields.get('track_task'):
             metadata.update(status='not_started',priority='P2')
+        if record_type in {'task','note'}:
+            metadata.update(track_task=record_type == 'task' or bool(fields.get('status')), keep_in_documents=record_type == 'note')
+            if parent:
+                metadata.pop('keep_in_documents', None)
         if record_type == 'note':
             metadata['note_type'] = 'subtab' if parent else 'plain'
         metadata.update(fields)

@@ -39,7 +39,7 @@ def workspace(root: Path, workspace_id: str) -> Path:
 
 def validate_owner(source: Path, metadata: dict) -> None:
     if metadata.get('schema') == 2:
-        if metadata.get('id') != source.stem or metadata.get('type') != 'note':
+        if metadata.get('id') != source.stem or metadata.get('type') not in {'task','note'}:
             raise ValueError('Invalid note identity')
         return
     if str(metadata.get("id") or source.stem) != source.stem:

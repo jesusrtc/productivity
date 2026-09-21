@@ -10,9 +10,38 @@ from lab import assistant_records as records, assistant_documents as documents
 
 
 def kind(row):
+    if row.get('note_type') in {'meeting','series'}:
+        return row['note_type']
     if row['type'] == 'task':
         return 'task'
     return {'meeting':'meeting','series':'series','question':'note','document':'note'}.get(row.get('note_type'), 'note')
+
+
+def document_rows(root):
+    """A single library over existing stable files, independent of storage type."""
+    rows = list(records.records(root))
+    progress = records.progress_map(rows)
+    tasks = {row['path']:row for row in records.task_rows(root)}
+    meetings = {row['path']:row for row in records.note_rows(root, 'meeting')}
+    for row in rows:
+        if row['type'] not in {'task','note'} or row.get('parent'):
+            continue
+        children = records.descendants(rows, row)
+        state = progress[records.key(row)]
+        related = [item for item in rows if item.get('series') == row['id'] and not item.get('parent')]
+        yield {**{k:v for k,v in row.items() if k not in {'body','legacy_metadata'}},
+               **{k:v for k,v in tasks.get(row['path'], {}).items() if k not in {'body','legacy_metadata'}},
+               'kind':kind(row), 'progress':state, 'status':state['status'], 'tracked':state['tracked'],
+               'starred':row.get('starred') is True, 'keep_in_documents':records.keeps_document(row),
+               'workspace_name':records.workspace(root,row.get('workspace')).get('name'),
+               'summary':row.get('tldr') or documents.summary(row['body']),
+               'search_text':' '.join(str(item.get(field) or '') for item in [row,*children]
+                                      for field in ('title','tldr','owner','body')),
+               'series_title':meetings.get(row['path'],{}).get('series_title'),
+               'series_path':meetings.get(row['path'],{}).get('series_path'),
+               'tab_attributes':[item.get('attributes') or {} for item in children],
+               'meeting_count':len(related),
+               'latest_date':max((item.get('date') or '' for item in related),default='')}
 
 
 def tab_revision(row):
@@ -44,6 +73,7 @@ def detail(root, reference, collection=None):
                               key=lambda r:(r.get('position',0),r['id']))
             return {k:v for k,v in row.items() if k not in {'body','legacy_metadata'}} | {
                 'kind':kind(row), 'tab_revision':tab_revision(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
+                'track_task':records.tracks_task(row),
                 'progress':progress[records.key(row)], 'children':[node(child) for child in children]}
         return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body,
                 'workspace':records.workspace(root,metadata.get('workspace')),

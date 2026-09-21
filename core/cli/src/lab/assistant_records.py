@@ -11,6 +11,8 @@ import re
 import tempfile
 import uuid
 
+from lab import assistant_attributes as attributes
+
 
 def manifest(root):
     path = root / '.assistant/manifest.json'
@@ -169,12 +171,14 @@ def resolve(root, reference, collection=None):
     if Path(reference).is_absolute() or '..' in Path(reference).parts:
         raise ValueError('Invalid Assistant reference')
     collections = {'subtasks': 'tasks', 'meetings': 'notes', 'meeting-series': 'notes'}
-    folder = collections.get(collection, collection)
+    folder = None if collection in {'meetings', 'meeting-series', 'documents'} else collections.get(collection, collection)
     matches = [row for row in records(root, folder) if reference in
                [row['id'], row['path'], *(row.get('aliases') or [])]]
     if len(matches) != 1:
         raise ValueError('Assistant document not found or reference is ambiguous')
     row = matches[0]
+    if collection == 'documents' and row['type'] not in {'task','note'}:
+        raise ValueError('Expected a task or note document')
     if collection == 'meetings' and row.get('note_type') != 'meeting':
         raise ValueError('Expected a meeting note')
     if collection == 'meeting-series' and row.get('note_type') != 'series':
@@ -213,6 +217,8 @@ def validate_graph(rows, refs):
         raise ValueError('Duplicate Assistant IDs')
     aliases = {}
     for row in rows:
+        if 'attributes' in row:
+            attributes.validate(row['attributes'])
         for alias in [row['path'], *(row.get('aliases') or [])]:
             if alias in aliases and aliases[alias] != key(row):
                 raise ValueError('Ambiguous legacy alias: ' + alias)
@@ -240,9 +246,20 @@ def validate_graph(rows, refs):
             if not owner or owner.get('parent'):
                 raise ValueError('Top-level tabs must link directly to the document root')
         if row.get('series'):
-            series = by_key.get(('note', row['series']), {})
+            series = next((item for item in rows if item['id'] == row['series']), {})
             if series.get('note_type') != 'series':
                 raise ValueError('Missing meeting series for ' + row['id'])
+
+
+def tracks_task(row):
+    """Explicit tracking wins; preserve existing task/tab statuses on old records."""
+    if row.get('type') not in {'task', 'note'}:
+        return False
+    return row.get('track_task', row.get('type') == 'task' or bool(row.get('status'))) is True
+
+
+def keeps_document(row):
+    return row.get('keep_in_documents', row.get('type') == 'note') is True
 
 
 def progress_map(rows):
@@ -259,6 +276,8 @@ def progress_map(rows):
             raise ValueError('Document parent cycle')
         visiting.add(identity)
         children = [visit(child) for child in by_parent.get(identity, [])]
+        children = [child for child in children if child['tracked']]
+        tracked = tracks_task(row) or bool(children)
         raw = row.get('status') or 'not_started'
         normalized = {'inbox':'not_started','ready':'not_started','waiting':'in_progress',
                       'blocked':'in_progress','ready_to_review':'in_progress','completed':'done'}.get(raw,raw)
@@ -268,8 +287,9 @@ def progress_map(rows):
                 'in_progress' if any(status != 'not_started' for status in statuses) else 'not_started')
         else:
             automatic = 'not_started' if normalized == 'cancelled' else normalized
-        status = normalized if normalized in {'cancelled','skipped'} else automatic
-        result[identity] = dict(status=status, automatic_status=automatic, derived=bool(children),
+        status = normalized if tracks_task(row) and normalized in {'cancelled','skipped'} else automatic
+        result[identity] = dict(status=status if tracked else None, automatic_status=automatic if tracked else None,
+                                tracked=tracked, derived=bool(children),
                                 completed=sum(child['status'] in {'done','skipped'} for child in children), total=len(children))
         visiting.remove(identity)
         return result[identity]
@@ -287,11 +307,13 @@ def task_rows(root, children_only=False):
     for row in rows:
         if embedded and not children_only and row.get('embedded'):
             continue
-        if row['type'] != 'task' or children_only and not row.get('parent'):
+        if (not progress[key(row)]['tracked'] if embedded else row['type'] != 'task') or children_only and not row.get('parent'):
             continue
         reference = workspace(root, row.get('workspace'))
         children = []
         for child in descendants(rows, row):
+            if embedded and not progress[key(child)]['tracked']:
+                continue
             if not embedded and child['type'] != 'task':
                 continue
             context = workspace(root, child.get('workspace'))
@@ -315,7 +337,7 @@ def task_rows(root, children_only=False):
 def note_rows(root, note_type):
     from lab import assistant_meetings as meetings, assistant_documents as documents
     embedded = documents.enabled(root)
-    notes = list(records(root, 'notes'))
+    notes = [row for row in records(root) if row['type'] in {'task','note'}]
     for row in notes:
         if row.get('note_type') != note_type:
             continue
@@ -348,7 +370,7 @@ def resolve_content(root, reference):
         return source, meeting, {'title': 'Raw notes', 'kind': 'raw', 'workspace': metadata.get('workspace')}
     source, metadata, _ = resolve(root, reference, 'notes')
     parent = parent_key(metadata)
-    if not parent or parent[0] != 'note':
+    if not parent or parent[0] not in {'task','note'}:
         raise ValueError('Content has no meeting parent')
     meeting, _, _ = resolve(root, parent[1], 'meetings')
     return source, meeting, {**metadata, 'kind': metadata.get('note_type')}
@@ -356,7 +378,7 @@ def resolve_content(root, reference):
 
 def contents(root, source):
     for row in records(root, 'notes'):
-        if parent_key(row) == ('note', read_document(source)[0]['id']):
+        if parent_key(row) == key(read_document(source)[0]):
             yield {**row, 'kind': row.get('note_type')}
 
 
@@ -411,6 +433,8 @@ def validate_value(root, metadata, field, value):
     from lab import assistant as db, assistant_meetings as meetings
     if field in {'id', 'type', 'schema', 'aliases', 'legacy_path', 'tabs', 'document_path', 'embedded'}:
         raise ValueError('Record identity cannot be edited')
+    if field == 'attributes':
+        attributes.validate(value)
     if field == 'title':
         meetings.validate_title(value)
     if field == 'status' and value not in (*db.STATUSES, 'not_started', 'skipped', 'cancelled'):
@@ -427,6 +451,18 @@ def validate_value(root, metadata, field, value):
         raise ValueError('A task can reference at most one project and one workspace')
     if field == 'top_level' and not isinstance(value, bool):
         raise ValueError('top_level must be true or false')
+    if field in {'starred', 'track_task', 'keep_in_documents'} and not isinstance(value, bool):
+        raise ValueError(field + ' must be true or false')
+    if field == 'note_type':
+        if value not in {'plain', 'meeting', 'series', 'subtab', 'thread', 'question', 'document'}:
+            raise ValueError('Invalid document label')
+        if metadata.get('parent') and value in {'meeting', 'series'}:
+            raise ValueError('Label the containing document as a meeting or series')
+        if metadata.get('note_type') == 'series' and value != 'series' and any(
+                row.get('series') == metadata['id'] for row in records(root)):
+            raise ValueError('Remove the notes from this series before changing its label')
+    if field == 'keep_in_documents' and metadata.get('parent'):
+        raise ValueError('Document retention belongs to the containing document')
     if field == 'position' and (not isinstance(value, (int,float)) or isinstance(value, bool)):
         raise ValueError('Position must be a number')
     if field == 'parent' and value is not None and not (isinstance(value, dict) and
@@ -441,8 +477,10 @@ def update(root, reference, field, value, *, collection=None, expected=UNSET):
     from lab import assistant as db
     with lock(root):
         source, metadata, body = resolve(root, reference, collection)
-        if expected is not UNSET and metadata.get(field) != expected:
-            raise ValueError('This property changed elsewhere. Reload the document.')
+        if expected is not UNSET:
+            matches = attributes.equal(metadata.get(field),expected) if field == 'attributes' else metadata.get(field) == expected
+            if not matches:
+                raise ValueError('This property changed elsewhere. Reload the document.')
         validate_value(root, metadata, field, value)
         rows = list(records(root))
         from lab import assistant_documents as documents
@@ -496,7 +534,11 @@ def update(root, reference, field, value, *, collection=None, expected=UNSET):
                     raise ValueError('Reopen the completed parent task first')
                 current = ancestor.get('parent')
         metadata.update({field: value, 'updated': db.now_iso()})
+        if field == 'track_task' and value:
+            metadata.setdefault('status', 'not_started')
+            metadata.setdefault('priority', 'P2')
         if field == 'status':
+            metadata['track_task'] = True
             if value == 'done':
                 metadata['completed'] = db.now_iso()
             else:
@@ -521,8 +563,8 @@ def update_body(root, reference, body, *, expected):
         if not enabled(root):
             raise ValueError('Note editing requires schema 2')
         source, metadata, current = resolve(root, reference)
-        if metadata.get('type') != 'note':
-            raise ValueError('Only note content can be edited here')
+        if metadata.get('type') not in {'task', 'note'}:
+            raise ValueError('Only document content can be edited here')
         if current != expected:
             raise ValueError('This note changed elsewhere. Your draft is retained. Copy your changes before discarding the draft to load the latest version.')
         if body == current:
@@ -543,7 +585,7 @@ def verify(root):
             'workspaces': len(workspaces(root)), 'valid': True}
 
 
-def create_subtab(root, title, *, parent, project=UNSET, workspace=UNSET, top_level=False):
+def create_subtab(root, title, *, parent, project=UNSET, workspace=UNSET, top_level=False, track_task=False):
     """Create a tab in the same document, nested by default or beside its main tab."""
     if not isinstance(parent, dict) or set(parent) != {'type', 'id'} or parent['type'] not in {'task', 'note'}:
         raise ValueError('A subtab requires a typed task/note parent')
@@ -552,7 +594,8 @@ def create_subtab(root, title, *, parent, project=UNSET, workspace=UNSET, top_le
         raise ValueError('Top-level tabs must link directly to the document root')
     siblings = [row for row in records(root) if parent_key(row) == (parent['type'], parent['id'])]
     position = max((row.get('position', 0) for row in siblings), default=-1) + 1
-    return create(root, 'note', title, note_type='subtab', parent=parent, position=position, status='not_started', priority='P2',
+    return create(root, 'note', title, note_type='subtab', parent=parent, position=position, track_task=track_task,
+                  **({'status':'not_started', 'priority':'P2'} if track_task else {}),
                   project=owner.get('project') if project is UNSET else project,
                   workspace=owner.get('workspace') if workspace is UNSET else workspace,
                   **({'top_level':True} if top_level else {}))

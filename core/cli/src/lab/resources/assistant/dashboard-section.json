@@ -1,0 +1,9 @@
+{
+  "schema": 3,
+  "id": "new-section",
+  "title": "New section",
+  "position": 0,
+  "where": "source = 'active'",
+  "sort": "newest",
+  "limit": 20
+}

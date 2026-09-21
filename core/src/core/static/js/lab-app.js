@@ -329,7 +329,10 @@
 
     _contextSubView = 'overview';
 
-    if (currentWorkspace.is_workspace) workspaceTabsSetOpen(currentWorkspace.path, true);
+    if (currentWorkspace.is_workspace) {
+      _workspaceMarkUsed(currentWorkspace.path);
+      workspaceTabsSetOpen(currentWorkspace.path, true);
+    }
 
     document.title = _workspaceDisplayName(currentWorkspace);
     // replaceState (not pushState): the caller (goToWorkspace / popstate
@@ -6662,9 +6665,8 @@
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      const assistantSection = _workspaceDocPath ? 'document' : (window.AssistantView ? window.AssistantView.section() : 'tasks');
-      html += `<button class="repo-tab${assistantSection === 'tasks' ? ' active' : ''}" data-assistant-section="tasks" onclick="AssistantView.setSection('tasks')" style="font-weight:600">&#x2726; Tasks</button>`;
-      html += `<button class="repo-tab${assistantSection === 'notes' ? ' active' : ''}" data-assistant-section="notes" onclick="AssistantView.setSection('notes')">&#x1F4DD; Notes</button>`;
+      const assistantSection = _workspaceDocPath ? 'document' : 'documents';
+      html += `<button class="repo-tab${assistantSection === 'documents' ? ' active' : ''}" data-assistant-section="documents" onclick="AssistantView.setSection('documents')" style="font-weight:600">&#x2726; Documents</button>`;
     } else if (isSelf || isVault) {
       if (LAB_IS_ADMIN) {
         html += `<button class="repo-tab${isSelf && overviewActive ? ' active' : ''}" onclick="${isSelf ? 'selfShowWorkbench()' : 'goToProductivity()'}" style="font-weight:600">&#x1F4CB; Overview</button>`;
@@ -8138,6 +8140,9 @@
 
   function renderWorkspaceDoc(filepath, container) {
     if (!container) container = document.getElementById('content');
+    if (container.id === 'docModalBody') {
+      document.querySelectorAll('#docModalFiles button').forEach(button => { button.disabled = _workspaceDocEditing; });
+    }
     const fn = filepath.replace(/'/g, "\\'");
     const commentsCollapsed = localStorage.getItem('workspaceDocCommentsCollapsed') !== '0';
 
@@ -8674,7 +8679,7 @@
 
   function showWorkspaceDashboard() {
     if (document.body.classList.contains('assistant-active') && window.AssistantView) {
-      window.AssistantView.setSection('tasks');
+      window.AssistantView.setSection('documents');
       return;
     }
     _contextSubView = 'overview';
@@ -9962,6 +9967,20 @@
 
   // Workspace tabs the user has opened. The durable bit still lives in each
   // workspace's own workspace.json. Vaults are sections inside Home.
+  // Absolute paths keep same-named workspaces in different vaults independent.
+  // Navigation history is browser-local and survives closing a workspace tab.
+  function _workspaceLastUsed(path) {
+    try {
+      const value = Number(localStorage.getItem('labWorkspaceLastUsed:' + path));
+      return Number.isFinite(value) && value > 0 ? value : 0;
+    } catch { return 0; }
+  }
+
+  function _workspaceMarkUsed(path) {
+    if (!path) return;
+    try { localStorage.setItem('labWorkspaceLastUsed:' + path, String(Date.now())); } catch {}
+  }
+
   function workspaceTabsOpenIds() {
     return (workspaceTabsAll || []).filter(p => p && p.tab_open).map(p => p.path);
   }
@@ -15194,7 +15213,7 @@
       return;
     }
     _swapViewState();
-    const section = ['notes', 'meetings'].includes(opts.subview) ? 'notes' : 'tasks';
+    const section = 'documents';
     _contextSubView = section;
     if (!opts.replace) {
       const url = new URL(window.location);
@@ -15205,21 +15224,10 @@
       url.searchParams.delete('tail');
       url.searchParams.delete('vault');
       url.searchParams.set('view', 'assistant');
-      if (section === 'notes') {
-        url.searchParams.set('subview', 'notes');
-        url.searchParams.delete('task');
-        url.searchParams.delete('assistant_workspace');
-        if (opts.series) url.searchParams.set('series', opts.series);
-        else url.searchParams.delete('series');
-        if (opts.meeting) url.searchParams.set('meeting', opts.meeting);
-        else url.searchParams.delete('meeting');
-      } else if (section === 'tasks') {
-        url.searchParams.set('subview', 'tasks');
-        url.searchParams.delete('meeting');
-        url.searchParams.delete('series');
-        if (taskPath) url.searchParams.set('task', taskPath);
-        else url.searchParams.delete('task');
-      }
+      url.searchParams.set('subview', 'documents');
+      for (const field of ['task','note','meeting','series']) url.searchParams.delete(field);
+      if (taskPath) url.searchParams.set('task', taskPath);
+      for (const field of ['note','meeting','series']) if (opts[field]) url.searchParams.set(field, opts[field]);
       history.pushState({nav: 'assistant', task: taskPath, meeting: opts.meeting || ''}, '', url.pathname + url.search + url.hash);
     }
     initAssistant(taskPath, opts);
@@ -16238,7 +16246,7 @@
     _workspaceDocPath = null;
     _workspaceDocRoot = null;
     window.LAB_ASSISTANT_DOCUMENT_OPEN = false;
-    const section = ['notes', 'meetings'].includes(options.subview) ? 'notes' : 'tasks';
+    const section = 'documents';
     _contextSubView = section;
     const diffTabs = document.getElementById('diffTabs');
     if (diffTabs) diffTabs.style.display = 'none';
@@ -17088,7 +17096,7 @@
   }
 
   // Overview scaffold: header (name + id badge + active pill + path) and
-  // the three cards. Reuses the productivity workbench's .s-inner /
+  // the overview cards. Reuses the productivity workbench's .s-inner /
   // .s-workbench-grid / .s-section card classes so it reads like the
   // existing dashboards. vaultRefreshCards() fills the card bodies.
   function vaultPaintOverview(current) {
@@ -17106,6 +17114,11 @@
         <div class="vault-ov-path" title="${escAttr(current.path)}">${selfEsc(current.path)}</div>
         ${LAB_IS_ADMIN ? '<div class="s-toolbar"><button class="refresh-btn" onclick="showScopedCodeSearch()">Search this vault</button></div>' : ''}
         <div class="s-workbench-grid vault-ov-grid">
+          <div class="s-section" id="vaultWorkspacesCard">
+            <h2>Workspaces <span class="count" id="vaultWorkspacesCount"></span>
+              <button class="refresh-btn" type="button" onclick="openVaultWorkspaceModal()">+ New workspace</button></h2>
+            <ul class="vault-workspace-list" id="vaultWorkspacesList"><li class="s-empty">Loading…</li></ul>
+          </div>
           <div class="s-section" id="vaultAppearanceCard">
             <h2>Appearance</h2>
             <form class="vault-appearance-form" onsubmit="return vaultSaveAppearance(event)">
@@ -17128,11 +17141,6 @@
           <div class="s-section" id="vaultAgentsCard">
             <h2>Agents</h2>
             <div class="vault-card-body" id="vaultAgentsBody"><div class="vault-muted">Loading…</div></div>
-          </div>
-          <div class="s-section" id="vaultWorkspacesCard">
-            <h2>Workspaces <span class="count" id="vaultWorkspacesCount"></span>
-              <button class="refresh-btn" type="button" onclick="openVaultWorkspaceModal()">+ New workspace</button></h2>
-            <ul class="vault-workspace-list" id="vaultWorkspacesList"><li class="s-empty">Loading…</li></ul>
           </div>
         </div>
       </div>`;
@@ -17725,7 +17733,10 @@
       list.innerHTML = `<li class="s-empty">${selfEsc(vault.detail || 'vault volume unavailable')}</li>`;
       return;
     }
-    const workspaces = vault.workspace_rows || [];
+    const workspaces = [...(vault.workspace_rows || [])].sort((a, b) =>
+      _workspaceLastUsed(b.path) - _workspaceLastUsed(a.path)
+      || _workspaceDisplayName(a).localeCompare(_workspaceDisplayName(b))
+      || a.path.localeCompare(b.path));
     if (count) count.textContent = workspaces.length ? String(workspaces.length) : '';
     if (!workspaces.length) {
       list.innerHTML = '<li class="s-empty">No workspaces yet.</li>';
@@ -18495,7 +18506,7 @@
         }
       }
     });
-  } else if (urlView === 'cerebro' || urlView === 'assistant' || urlView === 'productivity' || urlView === 'vault' || urlView === 'code-search' || urlView === 'logs') {
+  } else if (['cerebro', 'assistant', 'productivity', 'vault', 'code-search', 'logs'].includes(new URLSearchParams(location.search).get('view'))) {
     // These views were initialized by the dispatch above.
   } else {
     // No explicit target means the framework-owned Productivity home.

@@ -92,11 +92,63 @@ as the `task` or `note` query parameter. Old IDs and paths remain aliases.
 Preserve aliases, legacy_path (relative asset base), legacy_metadata and unknown
 fields. Never regenerate IDs when renaming or reordering tabs.
 
+## Shared Documents library
+
+Tasks and notes share the **Documents** entry, with All, Open tasks, Documents,
+Starred, Meetings, Series, and task history views. Existing `tasks/` and `notes/`
+paths are compatibility storage; this change does not move or duplicate files.
+All existing content, IDs, tabs, aliases, original captures, and series links stay
+in place. The labels and filters do not change a record's storage type.
+
+`track_task: true|false` controls whether a tab has its own task lifecycle.
+New ordinary tabs are untracked; **Add task** (CLI `subtab add --task`) creates a
+tracked tab. **Track this tab** can change an existing tab in either direction,
+preserving its content and stored status. A direct status edit enables tracking.
+For older records without the field, task records and tabs with a stored status
+retain their existing tracking. Only tracked child branches contribute to
+progress; untracked content with no tracked descendants has no status. A
+containing document appears in Open tasks whenever its overall work is pending.
+Completing or reopening a tracked child updates that document's progress.
+
+`keep_in_documents: true|false` belongs to the root. It defaults to true for
+notes and false for transient tasks. Completion never changes this preference:
+retained documents stay in Documents; completed transient tasks stay in Completed
+history and leave All/Open tasks. History has no seven-day cutoff. **Keep in
+Documents** retains the result of a task in the same Markdown file.
+
+`starred: true|false` is independent of tracking, completion, and retention.
+Use the star beside an item or in its header. A series and each of its notes
+have separate stars; starring a series adds just the series to Starred. Its
+existing dates menu provides access to the member notes.
+
+Use **Label → Meeting** to include a document in Meetings, then optionally set
+its date and series. **+ Series** creates a meeting series with an empty body.
+A series with members cannot be relabeled until those memberships are removed.
+
+```bash
+lab assistant document ls
+lab assistant document ls --starred
+lab assistant document ls --kind meeting
+lab assistant document ls --status open
+lab assistant document add "Reference"
+lab assistant document add "Weekly sync" --kind meeting
+lab assistant document set <id> starred true
+lab assistant document set <id> note_type meeting
+lab assistant document set <id> keep_in_documents true
+lab assistant document set <id> track_task false
+lab assistant subtab add "Review" --parent <id> --parent-type note --task
+```
+
+Document edits use the same Save workflow for tasks and notes, with conflict
+checks and preservation of sibling tabs. Unchecked Markdown items still block
+explicit completion of a tracked leaf; ordinary prose and headings never become
+tasks automatically.
+
 ## Progress
 
 Leaf statuses: `not_started`, `in_progress`, `done` (Completed), `skipped`.
 The overall task/note can be explicitly `cancelled`; subtabs use `skipped`.
-Parents derive status from direct child branches recursively:
+Parents derive status from tracked direct child branches recursively; content-only branches do not contribute:
 
 - All children done or skipped → Completed.
 - At least one child started, done or skipped, with work remaining → In progress.

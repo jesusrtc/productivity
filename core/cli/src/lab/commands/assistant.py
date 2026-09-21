@@ -12,6 +12,7 @@ from lab import paths
 
 
 EDITABLE_FIELDS = (
+    "starred", "track_task", "keep_in_documents", "note_type", "date", "series",
     "project", "workspace", "parent", "position",
     "title",
     "group",
@@ -33,6 +34,7 @@ EDITABLE_FIELDS = (
     "reviewer",
     "review_requested_at",
     "executor",
+    "attributes",
 )
 
 
@@ -202,7 +204,7 @@ def set_task(task_id: str, field: str, value: str) -> None:
         except ValueError as exc:
             raise click.ClickException('Parent must be JSON: {"type":"task","id":"…"}') from exc
     normalized: object = None if isinstance(value, str) and value.lower() in {"none", "null", ""} else value
-    if field == 'position' and isinstance(normalized, str):
+    if field in {'position','attributes'} and isinstance(normalized, str):
         normalized = assistant_db._decode_scalar(normalized)
     try:
         source = assistant_db.update_task(_root(), task_id, field, normalized)
@@ -320,7 +322,7 @@ def set_subtask(subtask_id: str, field: str, value: str) -> None:
         except ValueError as exc:
             raise click.ClickException('Parent must be JSON: {"type":"task","id":"…"}') from exc
     normalized: object = None if isinstance(value, str) and value.lower() in {"none", "null", ""} else value
-    if field == 'position' and isinstance(normalized, str):
+    if field in {'position','attributes'} and isinstance(normalized, str):
         normalized = assistant_db._decode_scalar(normalized)
     try:
         source = assistant_db.update_subtask(_root(), subtask_id, field, normalized)
@@ -585,6 +587,69 @@ def _v2_root():
     return root
 
 
+@assistant_group.group("document")
+def document_group():
+    """One library for tasks, notes, meetings, and series; existing IDs stay valid."""
+
+
+@document_group.command("ls")
+@click.option("--starred", is_flag=True)
+@click.option("--kind", type=click.Choice(['meeting','series']))
+@click.option("--status", type=click.Choice(['open','done','cancelled']))
+@click.option("--workspace")
+@click.option("--project")
+def document_ls(starred, kind, status, workspace, project):
+    rows = list(records.records(_v2_root()))
+    progress = records.progress_map(rows)
+    for row in rows:
+        if row['type'] not in {'task','note'} or row.get('parent'):
+            continue
+        state = progress[records.key(row)]
+        if starred and not row.get('starred') or kind and row.get('note_type') != kind:
+            continue
+        if workspace and row.get('workspace') != workspace or project and row.get('project') != project:
+            continue
+        if status == 'open' and (not state['tracked'] or state['status'] in {'done','skipped','cancelled'}):
+            continue
+        if status and status != 'open' and state['status'] != status:
+            continue
+        click.echo(f"{row['id']}  {'★' if row.get('starred') else ' '}  {state['status'] or 'document'}  {row['title']}")
+
+
+@document_group.command("add")
+@click.argument("title")
+@click.option("--kind", type=click.Choice(['plain','meeting','series']), default='plain')
+@click.option("--task", is_flag=True, help="Track work on this document")
+@click.option("--workspace")
+@click.option("--project")
+def document_add(title, kind, task, workspace, project):
+    try:
+        click.echo(records.create(_v2_root(), 'note', title, note_type=kind, track_task=task,
+                                  workspace=workspace, project=project))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@document_group.command("show")
+@click.argument("identifier")
+def document_show(identifier):
+    try:
+        click.echo(records.encode_document(*records.resolve(_v2_root(), identifier)[1:]).decode())
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@document_group.command("set")
+@click.argument("identifier")
+@click.argument("field", type=click.Choice(EDITABLE_FIELDS))
+@click.argument("value")
+def document_set(identifier, field, value):
+    try:
+        click.echo(records.update(_v2_root(), identifier, field, assistant_db._decode_scalar(value)))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @assistant_group.group("project")
 def project_group():
     """Independent projects; each can span several workspaces."""
@@ -648,7 +713,7 @@ def note_show(note_id):
 
 @note_group.command("set")
 @click.argument("note_id")
-@click.argument("field", type=click.Choice(['title','tldr','workspace','project','parent','position','date','series','status','priority','due','owner']))
+@click.argument("field", type=click.Choice(EDITABLE_FIELDS))
 @click.argument("value")
 def note_set(note_id, field, value):
     try:
@@ -667,9 +732,10 @@ def subtab_group():
 @click.option("--parent", required=True, help="Parent task or note ID")
 @click.option("--parent-type", required=True, type=click.Choice(['task', 'note']))
 @click.option("--top-level", is_flag=True, help="Place beside the main tab; parent must be the document root")
-def subtab_add(title, parent, parent_type, top_level):
+@click.option("--task", is_flag=True, help="Track this tab as a task; ordinary tabs have no status")
+def subtab_add(title, parent, parent_type, top_level, task):
     try:
-        click.echo(records.create_subtab(_v2_root(), title, parent={'type':parent_type,'id':parent}, top_level=top_level))
+        click.echo(records.create_subtab(_v2_root(), title, parent={'type':parent_type,'id':parent}, top_level=top_level, track_task=task))
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 

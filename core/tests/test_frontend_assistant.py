@@ -51,15 +51,12 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "Open workspace" not in source
 
 
-def test_assistant_repo_tabs_include_only_tasks_and_notes() -> None:
+def test_assistant_repo_tabs_use_one_documents_entry() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
-    assert 'data-assistant-section="overview"' not in source
-    assert 'data-assistant-section="tasks"' in source
-    assert 'data-assistant-section="notes"' in source
-    assert 'data-assistant-section="meetings"' not in source
-    assert "AssistantView.setSection('tasks')" in source
-    assert "AssistantView.setSection('notes')" in source
-    assert 'data-assistant-section="tasks-1"' not in source
+    assert 'data-assistant-section="documents"' in source
+    assert 'data-assistant-section="tasks"' not in source
+    assert 'data-assistant-section="notes"' not in source
+    assert "AssistantView.setSection('documents')" in source
 
 
 def test_assistant_is_configurable_from_home_admin() -> None:
@@ -71,14 +68,14 @@ def test_assistant_is_configurable_from_home_admin() -> None:
     assert "ASSISTANT_ROOT = data.root" in source
 
 
-def test_assistant_reuses_workspace_sidebar_and_defaults_to_tasks() -> None:
+def test_assistant_reuses_workspace_sidebar_and_defaults_to_documents() -> None:
     app = LAB_APP.read_text(encoding="utf-8")
     view = ASSISTANT_APP.read_text(encoding="utf-8")
     assert "_sidebarActivateFileConfig();" in app
     assert "if (ASSISTANT_ROOT) _refreshWorkspaceSidebar();" in app
     assert "function assistantSectionShell" in app
     assert "function renderOverview" not in view
-    assert "section: 'tasks'" in view
+    assert "section: 'documents'" in view
     assert "function renderNotes" in view
     assert "Other notes" in view
     assert "assistantOverviewTasks" not in view

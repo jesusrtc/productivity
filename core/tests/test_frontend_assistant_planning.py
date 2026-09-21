@@ -44,7 +44,7 @@ console.log(JSON.stringify({views, grouped, unchanged:dataBefore===JSON.stringif
 def test_switching_to_meetings_clears_task_filters_and_late_refresh_hints():
     source = ASSISTANT_APP.read_text()
     helpers = source[source.index('  const e ='):source.index('  function progressLabel(')]
-    lifecycle = source[source.index('  async function refresh('):source.index("  document.addEventListener('keydown'")]
+    lifecycle = source[source.index('  async function refresh('):source.index("  window.addEventListener('storage'")]
     result = _run_node('''
 const data={configured:true, exists:true, root:'/fixture', workspaces:[{id:'demo'},{id:'other'}],
  tasks:[{path:'task.md', workspace:'demo'}], meetings:[{path:'one',workspace:'demo'},{path:'two',workspace:'other'}]};
