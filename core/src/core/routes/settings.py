@@ -61,6 +61,7 @@ class SettingsPatch(BaseModel):
     # Per-agent map: launch this agent with its autopilot flag (see
     # lab.settings.AUTOPILOT_FLAGS). Partial patches merge per key.
     autopilot: dict[str, bool] | None = None
+    documentTerminals: dict | None = None
 
 
 @router.post("/api/settings")

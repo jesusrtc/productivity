@@ -5,6 +5,7 @@ from lab import naming, assistant_meetings as meeting_db, assistant_records as r
 from core.routes import assistant_v2
 
 import os
+import subprocess
 import re
 from threading import Lock
 from typing import Any
@@ -607,3 +608,36 @@ def create_record(body: AssistantRecordBody, request: Request):
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return assistant_v2.detail(root, source.relative_to(root).as_posix())
+
+
+class DocumentTerminalAction(BaseModel):
+    path: str
+    action: str = 'open'
+
+
+@router.post('/document-terminal')
+def document_terminal(body: DocumentTerminalAction, request: Request):
+    from core import document_terminals
+    root = _require_root(request)
+    try:
+        return document_terminals.operate(root, body.path, body.action)
+    except subprocess.SubprocessError as exc:
+        raise HTTPException(503, 'The terminal server did not respond. Try again.') from exc
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get('/document-terminal/settings')
+def document_terminal_settings(request: Request) -> dict:
+    from lab import settings
+    return settings.load(_require_root(request))['documentTerminals']
+
+
+@router.post('/document-terminal/settings')
+def set_document_terminal_settings(body: dict, request: Request) -> dict:
+    from lab import settings
+    root = _require_root(request)
+    try:
+        return settings.update(root, {'documentTerminals': body})['documentTerminals']
+    except settings.SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc

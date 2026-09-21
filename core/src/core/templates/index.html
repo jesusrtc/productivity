@@ -5,6 +5,7 @@
 <meta charset="UTF-8">
 <script src="/static/js/lib/markdown-content.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/external-links.js?v={{ ASSET_V }}" defer></script>
+<script src="/static/js/lib/document-terminal.js?v={{ ASSET_V }}" defer></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Git Diff Viewer</title>
 <link rel="icon" href="data:,">
@@ -261,6 +262,9 @@
         <label><input type="checkbox" value="terminal" onchange="termSetNewOption(this.value,this.checked)"> Terminal</label>
         <label><input type="checkbox" value="attach" onchange="termSetNewOption(this.value,this.checked)"> Attach tmux session</label>
       </div>
+      <h3>Document terminals</h3>
+      <p>Automatic document agents sleep after 1 hour and expire after 36 hours by default.</p>
+      <button type="button" onclick="LabDocumentTerminal.settings()">Configure document terminals…</button>
       <h3>Recent tabs</h3>
         <label for="termRecentMinutes">
           <span>Recent window</span>

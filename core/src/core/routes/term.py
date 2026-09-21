@@ -2138,6 +2138,8 @@ def _session_rows_for_root(
         row["attach_command"] = _attach_command(name, socket_name)
         if workspace_id and row.get("workspace_id") != workspace_id:
             continue
+        if workspace_id and row.get("document_key"):
+            continue
         logical = row.get("logical_name")
         saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
         if saved:
@@ -3545,6 +3547,8 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
         await websocket.close(code=4401)
         return
     prefixes, known_socket = context
+    from core import document_terminals
+    document_input = document_terminals.input_callback(name)
     loop = asyncio.get_running_loop()
     path_info = f"/ws/term/{name}"
     init_cols = _clamp_dim(websocket.query_params.get("cols"), 80, 2, 1000)
@@ -3748,6 +3752,8 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
             if t == "input":
                 data = ctrl.get("data", "")
                 if isinstance(data, str):
+                    if document_input and data:
+                        document_input(data)
                     if not await _pty_write(data.encode("utf-8")):
                         # PTY went away under us (tmux exited). Bail so
                         # the finally block runs cleanup.

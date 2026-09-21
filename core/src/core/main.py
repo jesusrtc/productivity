@@ -440,6 +440,8 @@ async def lifespan(app: FastAPI):
     # tick (via app.state.index_cache.root), so it survives `switch_vault`
     # without needing to be restarted. Gated by LAB_SERVER_SUPERVISOR.
     servers_route.start_supervisor(app)
+    from core import document_terminals
+    document_terminals.start_supervisor()
 
     # Print useful URLs on boot (absorbed from gdiff's on_startup).
     try:
@@ -458,6 +460,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        document_terminals.stop_supervisor()
         servers_route.stop_supervisor()
         _stop_vault_runtime(app)
 

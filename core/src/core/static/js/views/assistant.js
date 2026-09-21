@@ -1043,6 +1043,7 @@
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
+      <section id="assistantDocumentTerminal" class="assistant-document-terminal" hidden aria-label="Document terminal"></section>
     </section>`;
     overlay.addEventListener('click', event => {
       if (event.target === overlay) closeDocumentModal();
@@ -1057,6 +1058,7 @@
   }
 
   function closeDocumentModal(updateHistory = true) {
+    window.LabDocumentTerminal?.close();
     closeHeadingMenu();
     closeSeriesMenu();
     clearTimeout(state.tabActivityTimer);
@@ -1118,7 +1120,10 @@
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
       state.modalIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length);
       await renderModal(focusHeading);
-      if (request === state.modalRequest) overlay.classList.add('active');
+      if (request === state.modalRequest) {
+        overlay.classList.add('active');
+        window.LabDocumentTerminal?.open(detail);
+      }
     } catch (error) {
       if (request !== state.modalRequest) return;
       if (!wasOpen) {
@@ -1544,6 +1549,7 @@
       if (detail.tree) state.modalRoot.tree = detail.tree;
       if (detail.path === state.modalRoot.path) state.modalRoot = detail;
       await renderModal(focusHeading);
+      if (request === state.modalRequest) window.LabDocumentTerminal?.open(detail);
     } catch (error) {
       if (request === state.modalRequest) documentError(error.message || String(error));
     } finally {
@@ -2256,7 +2262,8 @@
   });
 
   document.addEventListener('keydown', event => {
-    if (document.getElementById('assistantAttributesEditor')?.open) return;
+    if (document.getElementById('assistantAttributesEditor')?.open || document.getElementById('documentTerminalSettings')?.open) return;
+    if (event.target.closest?.('.assistant-terminal-screen')) return;
     const overlay = document.getElementById('assistantDocumentModal');
     if (event.key === 'Escape' && overlay && overlay.classList.contains('active')) {
       event.preventDefault();

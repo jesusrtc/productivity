@@ -37,3 +37,10 @@ agent instruction, skill, or memory files merely to integrate with Lab.
   and `lab migrations vault-workspace-names`. These commands only print
   documentation. Inspect the current format and local instructions, preserve
   IDs/content/references, and migrate only within the user's authorized task.
+
+- When `LAB_DOCUMENT_CONTEXT` is set, this terminal belongs to an Assistant
+  document. Read that JSON file for its current absolute Markdown path and tab
+  ID before working on a document request; it is context, not authorization to
+  modify the document. Follow the client's instructions and preserve siblings.
+  Opening the terminal alone does not request an agent task. If present,
+  `LAB_ASSISTANT_HOME` selects the owning Assistant database.

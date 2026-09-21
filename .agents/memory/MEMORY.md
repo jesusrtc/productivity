@@ -232,3 +232,5 @@
 - [Independent dashboard sections](assistant-independent-dashboard-sections.md) — items appear in every matching section; only explicit filters exclude stars; series collapse within each section.
 
 - [Assistant document storage and external links](assistant-document-storage-and-external-links.md) — explicit per-client documents/ migration, preserved paths and client-side associated-document buttons.
+
+- [Document terminals are resource bounded](document-terminals-are-resource-bounded.md) — one visible renderer, 60-minute sleep, 36-hour expiry, cap of 3, and conservative busy protection.

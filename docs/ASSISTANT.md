@@ -240,6 +240,52 @@ policy. Initialization and migration preserve those files when they exist.
 Framework documentation is available through `lab context tasks`,
 `lab context meetings`, and `lab migrations`.
 
+## Document terminals
+
+Opening a schema-2 document opens one terminal with the Assistant's default
+agent. All tabs inside the same Markdown file share that terminal. The agent
+receives the document path and selected tab as context; opening a document does
+not send a task or change its content. Dashboard rendering and refreshes never
+start terminals.
+
+The defaults are **60 minutes to sleep**, **36 hours to expire**, and **3 running
+document terminals**. Change them in the document terminal's **Settings** button
+or **Terminal settings → Configure document terminals**. The validated settings
+are stored under `documentTerminals` in the Assistant root's `.agents/config.json`.
+Turning off **Open automatically** prevents future automatic starts; existing
+agents still follow cleanup rules.
+
+Sleep stops the tmux session and agent process, releasing their memory. Reopening
+before expiry resumes the exact saved agent conversation where the installed
+provider supports it. Expiry removes the managed association and context file;
+opening it again starts a fresh conversation. Documents and the provider's
+ordinary saved chat history are preserved. A provider's missing, changed, or
+unreadable activity format is treated conservatively: an agent that might be
+working stays alive rather than being interrupted.
+
+Keyboard/mouse interaction and confirmed work completion count as activity;
+status polling and merely leaving a document visible do not. A submitted task,
+a tool call, and waiting for an approval remain busy until an explicit provider
+turn-completion event. Cleanup checks once a minute, including while the browser
+is closed. It can run late while the computer is asleep or Lab is stopped and
+catches up after restart. At the running limit, a safely idle older terminal may
+sleep early. When no safe slot is available, the new document offers **Try again**
+instead of launching another agent. Ordinary manually opened terminals are
+outside these limits.
+
+Only the visible document has an xterm renderer and WebSocket. Closing, switching,
+or hiding the document releases those browser resources. Terminal input updates
+activity in RAM; the byte path does not scan files, query databases, or spawn
+processes. The single cleanup worker scans only the bounded live set and at most
+512 KiB of each provider's recent activity trace.
+
+The runtime registry is `.lab/state/document-terminals.json`; selected-document
+context lives in `.lab/state/document-context/`. They are generated state, not
+client-authored document metadata. No document migration is required for this
+feature. Update and restart Lab on each client; existing schema-2 tasks/notes and
+migrated `documents/` libraries both work. Older record formats still need their
+existing explicit Assistant migration.
+
 ## Current storage contract
 
 For `document_format: "embedded-subtabs-v1"` in the schema-2 manifest:

@@ -2954,3 +2954,21 @@
 @media (max-width:600px) {
   .assistant-unified-item > .assistant-external-doc { font-size:11px; padding:6px; margin-inline:2px; }
 }
+
+/* A single document terminal renderer is disposed whenever its document closes. */
+.assistant-document-modal:has(.assistant-document-terminal:not([hidden])) { height:94vh; }
+.assistant-document-modal:has(.assistant-document-terminal:not([hidden])) .assistant-modal-body { min-height:150px; flex:1; }
+.assistant-document-terminal { flex:none; height:280px; min-height:150px; max-height:50vh; border-top:1px solid var(--border); background:#0a0e13; display:flex; flex-direction:column; resize:vertical; overflow:hidden; }
+.assistant-document-terminal[hidden] { display:none; }
+.assistant-terminal-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:7px 12px; color:var(--text-secondary); font-size:12px; }
+.assistant-terminal-toolbar [data-terminal-status] { flex:1; min-width:120px; }
+.assistant-terminal-toolbar button { padding:5px 9px; border:1px solid var(--border); border-radius:5px; color:var(--text-primary); background:transparent; cursor:pointer; }
+.assistant-terminal-toolbar .error { color:var(--red); }
+.assistant-terminal-screen { flex:1; min-height:0; padding:0 10px 8px; }
+.assistant-terminal-settings { width:min(460px,90vw); border:1px solid var(--border); border-radius:10px; color:var(--text-primary); background:var(--bg-secondary); }
+.assistant-terminal-settings::backdrop { background:#0008; }
+.assistant-terminal-settings p { color:var(--text-secondary); line-height:1.5; }
+.assistant-terminal-settings label { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 0; }
+.assistant-terminal-settings input[type="number"] { width:85px; padding:6px; color:var(--text-primary); background:var(--bg-primary); border:1px solid var(--border); border-radius:4px; }
+.assistant-terminal-settings button { padding:7px 13px; color:var(--text-primary); background:var(--bg-tertiary); border:1px solid var(--border); border-radius:5px; }
+.assistant-terminal-settings [role="alert"] { color:var(--red); }

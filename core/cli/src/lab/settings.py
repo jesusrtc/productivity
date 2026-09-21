@@ -37,6 +37,7 @@ DEFAULTS: dict[str, Any] = {
     "defaultAgent": DEFAULT_AGENT,
     "model": None,
     "theme": "dark",
+    "documentTerminals": {"enabled": True, "sleepMinutes": 60, "expireHours": 36, "maxRunning": 3},
     "autopilot": {"claude": True, "codex": False, "copilot": False},
 }
 
@@ -47,7 +48,7 @@ class SettingsError(ValueError):
 
 def load(root: Path) -> dict[str, Any]:
     """Return the merged global settings (defaults + any saved overrides)."""
-    merged = dict(DEFAULTS)
+    merged = {**DEFAULTS, "documentTerminals": dict(DEFAULTS["documentTerminals"])}
     merged["autopilot"] = dict(DEFAULTS["autopilot"])
     p = paths.config_file(root)
     if p.is_file():
@@ -59,7 +60,13 @@ def load(root: Path) -> dict[str, Any]:
             for key in DEFAULTS:
                 if key not in data:
                     continue
-                if key == "autopilot":
+                if key == "documentTerminals":
+                    try:
+                        candidate = {**DEFAULTS[key], **data[key]}
+                        merged[key] = _validate(key, candidate)
+                    except (SettingsError, TypeError):
+                        pass
+                elif key == "autopilot":
                     # Per-agent merge over the defaults; ignore junk shapes.
                     if isinstance(data[key], dict):
                         for agent, on in data[key].items():
@@ -71,6 +78,20 @@ def load(root: Path) -> dict[str, Any]:
 
 
 def _validate(key: str, value: Any) -> Any:
+    if key == "documentTerminals":
+        if not isinstance(value, dict) or set(value) - set(DEFAULTS[key]):
+            raise SettingsError("documentTerminals: expected enabled, sleepMinutes, expireHours, maxRunning")
+        for name, setting in value.items():
+            if name == 'enabled':
+                if not isinstance(setting, bool):
+                    raise SettingsError('documentTerminals.enabled must be true or false')
+            else:
+                maximum = {'sleepMinutes':10080, 'expireHours':8760, 'maxRunning':20}[name]
+                if isinstance(setting,bool) or not isinstance(setting,int) or not 1 <= setting <= maximum:
+                    raise SettingsError(f'documentTerminals.{name} must be an integer from 1 to {maximum}')
+        if {'sleepMinutes', 'expireHours'} <= value.keys() and value['expireHours'] * 60 <= value['sleepMinutes']:
+            raise SettingsError('Document terminal expiry must be longer than its sleep timeout')
+        return dict(value)
     if key == "defaultAgent":
         if value not in VALID_AGENTS:
             raise SettingsError(
@@ -108,10 +129,13 @@ def update(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
     current = load(root)
     for key, value in patch.items():
         validated = _validate(key, value)
-        if key == "autopilot":
+        if key in {"autopilot", "documentTerminals"}:
             current[key] = {**current.get(key, {}), **validated}
         else:
             current[key] = validated
+    policy = current['documentTerminals']
+    if policy['expireHours'] * 60 <= policy['sleepMinutes']:
+        raise SettingsError('Document terminal expiry must be longer than its sleep timeout')
     storage.write_json(paths.config_file(root), current)
     return current
 
