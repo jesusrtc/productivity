@@ -234,3 +234,5 @@
 - [Assistant document storage and external links](assistant-document-storage-and-external-links.md) — explicit per-client documents/ migration, preserved paths and client-side associated-document buttons.
 
 - [Document terminals are resource bounded](document-terminals-are-resource-bounded.md) — one visible renderer, 60-minute sleep, 36-hour expiry, cap of 3, and conservative busy protection.
+
+- [Central settings use explicit scopes](central-settings-use-explicit-scopes.md) — Cmd/Ctrl+, consolidates settings; inactive workspace edits never borrow the active scope.

@@ -3,7 +3,8 @@
 The client wants an agent terminal associated with each opened document without
 accumulating processes. Defaults: sleep after 60 idle minutes, expire the managed
 association after 36 idle hours, and admit at most 3 running document terminals.
-Settings are Assistant-scoped. All embedded tabs share the root document's stable
+Policy and default agent are Lab-wide in the central settings view. Legacy
+Assistant config remains a fallback until a global choice is saved. All embedded tabs share the root document's stable
 identity. Opening alone never sends an agent task or modifies content.
 
 Sleep kills the managed tmux/agent process and retains the exact provider thread

@@ -6,6 +6,8 @@
 <script src="/static/js/lib/markdown-content.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/external-links.js?v={{ ASSET_V }}" defer></script>
 <script src="/static/js/lib/document-terminal.js?v={{ ASSET_V }}" defer></script>
+<script src="/static/js/lib/settings-center.js?v={{ ASSET_V }}" defer></script>
+<link rel="stylesheet" href="/static/css/settings-center.css?v={{ ASSET_V }}">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Git Diff Viewer</title>
 <link rel="icon" href="data:,">
@@ -124,7 +126,7 @@
   </select>
   <span class="branch" id="branchLabel"></span>
   {% if IS_ADMIN %}<button class="theme-toggle framework-update-btn" id="updateRestartBtn" onclick="labUpdateAndRestart()" title="Pull origin/main, then restart Lab" aria-label="Update and restart Lab"><span class="framework-update-icon" aria-hidden="true">↻</span></button>{% endif %}
-  {% if IS_ADMIN %}<button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>{% endif %}
+  {% if IS_ADMIN %}<button class="theme-toggle" id="settingsBtn" onclick="openSettings()" title="Settings (⌘,)" aria-label="Settings" style="font-size:15px;line-height:1;padding:4px 10px">⚙</button>{% endif %}
   <div class="auth-user" title="Signed in as {{ USER.username }}">
     <span class="auth-user-name">{{ USER.name }}</span>
     <span class="auth-user-role">{{ USER.role }}</span>

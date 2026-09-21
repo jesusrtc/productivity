@@ -24,6 +24,10 @@ Use `lab vault list` and `lab vault use <path>` to select the default vault. In 
 
 The naming hierarchy is **Vault → Workspace → Terminal**. See [Naming and compatibility](docs/NAMING.md) for commands, configuration, and support for existing Local and SSD vaults.
 
+Press **⌘,** (or **Ctrl+,**) for [central settings](docs/SETTINGS.md): Lab-wide
+defaults and each workspace’s agent, terminal sessions, and file sidebar. Existing
+settings buttons open the matching section.
+
 ## Agent context
 
 Lab supplies framework capabilities when it launches an agent. Workspaces own

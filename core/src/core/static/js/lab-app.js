@@ -3251,6 +3251,7 @@
   }
 
   function openSidebarFileConfig() {
+    if (window.LabSettings) return window.LabSettings.open({scope:LabSettingsBridge.currentScope('files'),section:'files'});
     const modal = document.getElementById('sidebarFileConfigModal');
     if (!modal) return;
     const hidden = document.getElementById('sidebarConfigHidden');
@@ -9638,7 +9639,66 @@
   let _setAgentTouched = false;
   let _setWorkspaceTouched = false;
 
+  // The settings center reads explicit scopes; it never navigates the workspace
+  // or borrows the active sidebar's mutable configuration to edit another one.
+  window.LabSettingsBridge = {
+    currentScope(section = 'terminals') {
+      const workspace = typeof currentWorkspace !== 'undefined' ? currentWorkspace : null;
+      const id = section === 'files' ? workspace?.name : _termActiveWorkspaceId();
+      if (id === ASSISTANT_WORKSPACE_ID) return {key:'assistant',id,vault:ASSISTANT_VAULT_ID,path:ASSISTANT_ROOT,label:'Assistant',kind:'assistant'};
+      if (!id || id === SELF_WORKSPACE_ID) return {key:'home',id:SELF_WORKSPACE_ID,vault:null,path:SELF_REPO_PATH,label:'Home',kind:'home'};
+      if (workspace?.path) return {key:workspace.path,id:workspace.name,vault:workspace.vault || _termVaultId(),path:workspace.path,label:workspace.display_name || workspace.name,kind:workspace.name?.startsWith('__')?'folder':'workspace'};
+      return {key:'home',id:SELF_WORKSPACE_ID,vault:null,path:SELF_REPO_PATH,label:'Home',kind:'home'};
+    },
+    initialScopes() {
+      const scopes = [{key:'home',id:SELF_WORKSPACE_ID,vault:null,path:SELF_REPO_PATH,label:'Home',kind:'home'}];
+      if (ASSISTANT_ROOT) scopes.push({key:'assistant',id:ASSISTANT_WORKSPACE_ID,vault:ASSISTANT_VAULT_ID,path:ASSISTANT_ROOT,label:'Assistant',kind:'assistant'});
+      return scopes;
+    },
+    terminalOptions(scope) { return _termReadNewOptions(_termSessionsKey(scope.id,scope.vault)); },
+    saveTerminalOptions(scope, options) {
+      const key = _termSessionsKey(scope.id,scope.vault);
+      localStorage.setItem(_TERM_NEW_OPTIONS_KEY + key, JSON.stringify(_TERM_NEW_OPTIONS.filter(value => options.includes(value))));
+      if (key === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'),key);
+    },
+    appearance() { return {orientation:termSessionOrientation,recentMinutes:termRecentMinutes,recentColor:termRecentColor}; },
+    saveAppearance(value) {
+      termSetSessionView('orientation',value.orientation);
+      termSetRecentMinutes(value.recentMinutes); termSetRecentColor(value.recentColor);
+    },
+    sidebar(scope) {
+      const key = encodeURIComponent(_sidebarNormalizeFolderPath(scope.path));
+      if (key === _sidebarFileConfigScope) return structuredClone(_sidebarFileConfig);
+      let value = {};
+      try { value = JSON.parse(localStorage.getItem(_sidebarFileConfigStorageKey(key)) || '{}'); } catch {}
+      return _sidebarNormalizeFileConfig(value);
+    },
+    extensions(scope) {
+      return encodeURIComponent(_sidebarNormalizeFolderPath(scope.path)) === _sidebarFileConfigScope ? [..._sidebarAvailableExtensions] : [];
+    },
+    saveSidebar(scope,value) {
+      const key = encodeURIComponent(_sidebarNormalizeFolderPath(scope.path));
+      const normalized = _sidebarNormalizeFileConfig(value);
+      localStorage.setItem(_sidebarFileConfigStorageKey(key), JSON.stringify(normalized));
+      if (key !== _sidebarFileConfigScope) return;
+      _sidebarFileConfig = normalized;
+      showDotFiles = showWorkspaceDotFiles = normalized.showHidden;
+      _sidebarClearWorktreeDiscovery(); termRenderSessionList();
+      void _refreshSidebarAfterFileConfig();
+    },
+    settingsSaved(value) {
+      _settings = value; _vaultAgentPolicy = null; applyTheme(value.theme);
+      window.dispatchEvent(new CustomEvent('lab-settings-changed'));
+    },
+    canStop(scope) { return _termSessionsKey(scope.id,scope.vault) === _termGroupScopeKey(); },
+    stop(scope) {
+      if (!this.canStop(scope)) throw new Error('Open that workspace before stopping its sessions.');
+      return termKillAll();
+    },
+  };
+
   async function openSettings() {
+    if (window.LabSettings) return window.LabSettings.open();
     const policy = await loadVaultAgentPolicy();
     _setAgentTouched = false;
     _setWorkspaceTouched = false;
@@ -10153,6 +10213,7 @@
 
   let _termSettingsReturnFocus = null;
   function termOpenSettings() {
+    if (window.LabSettings) return window.LabSettings.open({scope:LabSettingsBridge.currentScope(),section:'terminals'});
     termCloseGroupMenu();
     document.getElementById('termNewPicker')?.classList.remove('open');
     _termSettingsReturnFocus = document.activeElement;

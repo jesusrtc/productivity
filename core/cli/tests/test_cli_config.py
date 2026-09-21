@@ -96,3 +96,17 @@ def test_autopilot_rejects_bad_shapes(monorepo: Path) -> None:
         settings.update(monorepo, {"autopilot": {"claude": "yes"}})
     with _pytest.raises(settings.SettingsError):
         settings.update(monorepo, {"autopilot": ["claude"]})
+
+
+def test_global_cli_settings_match_ui_and_warn_when_legacy_is_shadowed(monorepo: Path, tmp_path) -> None:
+    runner = CliRunner()
+    other = tmp_path / 'another-vault'
+    other.mkdir()
+    result = runner.invoke(main, ['config', 'set', '--global', 'defaultAgent', 'codex'])
+    assert result.exit_code == 0, result.output
+    assert settings.resolve_agent(other) == 'codex'
+    assert json.loads(settings.client_settings_file().read_text()) == {'defaultAgent': 'codex'}
+    legacy = runner.invoke(main, ['config', 'set', 'defaultAgent', 'copilot'])
+    assert legacy.exit_code == 0 and 'Use --global' in legacy.output
+    assert settings.resolve_agent(monorepo) == 'codex'
+    assert runner.invoke(main, ['config', 'get', 'defaultAgent']).output.strip() == 'codex'

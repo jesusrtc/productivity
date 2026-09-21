@@ -242,7 +242,7 @@ Framework documentation is available through `lab context tasks`,
 
 ## Document terminals
 
-Opening a schema-2 document opens one terminal with the Assistant's default
+Opening a schema-2 document opens one terminal with the Lab-wide default
 agent. All tabs inside the same Markdown file share that terminal. The agent
 receives the document path and selected tab as context; opening a document does
 not send a task or change its content. Dashboard rendering and refreshes never
@@ -250,8 +250,12 @@ start terminals.
 
 The defaults are **60 minutes to sleep**, **36 hours to expire**, and **3 running
 document terminals**. Change them in the document terminal's **Settings** button
-or **Terminal settings → Configure document terminals**. The validated settings
-are stored under `documentTerminals` in the Assistant root's `.agents/config.json`.
+or **⌘, → Global → Document terminals**. The validated settings
+are stored under `documentTerminals` in `$LAB_HOME/settings.json` (normally
+`~/.lab/settings.json`). **Global → General** selects the default agent and shows
+which agents are installed on the computer running Lab. Legacy Assistant
+`.agents/config.json` values remain a fallback until explicitly changed. See
+[Settings](SETTINGS.md) for scope and migration details.
 Turning off **Open automatically** prevents future automatic starts; existing
 agents still follow cleanup rules.
 

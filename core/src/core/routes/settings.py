@@ -1,8 +1,7 @@
 """Global lab/agent settings and read-only framework context checks.
 
-Reads/writes ``.agents/config.json`` through the validated ``lab.settings``
-library (no subprocess — the server already depends on ``lab``). The settings
-modal in the UI is the primary client.
+Uses the validated ``lab.settings`` writer. ``/api/settings/global`` stores
+Lab-wide choices; ``/api/settings`` retains legacy vault-scoped compatibility.
 """
 from __future__ import annotations
 
@@ -104,3 +103,22 @@ def agent_launch_context() -> dict:
     except ImportError as exc:
         raise HTTPException(status_code=503, detail="The installed Lab CLI does not expose launch context yet.") from exc
     return {"content": read_context()}
+
+
+@router.get('/api/settings/global')
+def get_global_settings(request: Request) -> dict:
+    auth.require_admin(request)
+    return _with_flags(lab_settings.load(Path(request.app.state.index_cache.root)))
+
+
+@router.post('/api/settings/global')
+def update_global_settings(body: SettingsPatch, request: Request) -> dict:
+    auth.require_admin(request)
+    patch = body.model_dump(exclude_unset=True)
+    agent = patch.get('defaultAgent')
+    if agent and agent in _AGENT_BIN and not _agent_available(agent):
+        raise HTTPException(400, f'{agent} is not installed on the computer running Lab. Choose an installed agent.')
+    try:
+        return _with_flags(lab_settings.update_global(Path(request.app.state.index_cache.root), patch))
+    except lab_settings.SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc

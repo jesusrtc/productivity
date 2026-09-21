@@ -154,6 +154,7 @@
     void wake(state);
   }
   async function openSettings() {
+    if (window.LabSettings) return window.LabSettings.open({section:current && !['running','sleeping'].includes(current.result?.state) ? 'general' : 'documents'});
     if (document.getElementById('documentTerminalSettings')) return;
     const dialog = document.createElement('dialog'); dialog.id = 'documentTerminalSettings';
     dialog.className = 'assistant-terminal-settings';

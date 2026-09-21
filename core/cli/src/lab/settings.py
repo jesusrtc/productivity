@@ -1,10 +1,11 @@
-"""Global lab/agent settings stored at ``.agents/config.json`` (committed).
+"""Client-wide defaults with compatible vault settings and workspace overrides.
 
 This is the single source of truth for the **default agent** a workspace terminal
 launches (Claude Code / Codex / Copilot), the **default model**, and the UI
 **theme**. A workspace may override ``agent``/``model`` in its ``workspace.json``
-(see ``lab.model.Workspace``); resolution is: workspace override → global config →
-built-in default.
+(see ``lab.model.Workspace``); resolution is: workspace override → explicit
+Lab-wide choice → legacy vault config → built-in default. Lab-wide choices live in ``$LAB_HOME/settings.json`` (normally
+``~/.lab/settings.json``); legacy vault config is read without migration.
 
 The server reads/writes this module directly (no subprocess) — it already
 imports ``lab`` as a dependency — so the "use lab, don't hand-edit JSON" rule is
@@ -13,6 +14,7 @@ honored through this validated writer.
 from __future__ import annotations
 
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 from lab import paths, storage
@@ -20,6 +22,7 @@ from lab.model import VALID_AGENTS
 
 VALID_THEMES = ("dark", "light")
 DEFAULT_AGENT = "claude"
+_GLOBAL_WRITE_LOCK = RLock()
 
 # Per-agent "autopilot" launch flags — the extra argv appended when a
 # vault enables autopilot for that agent. Claude has always launched
@@ -46,7 +49,7 @@ class SettingsError(ValueError):
     """Raised when a settings key/value fails validation."""
 
 
-def load(root: Path) -> dict[str, Any]:
+def _load_legacy(root: Path) -> dict[str, Any]:
     """Return the merged global settings (defaults + any saved overrides)."""
     merged = {**DEFAULTS, "documentTerminals": dict(DEFAULTS["documentTerminals"])}
     merged["autopilot"] = dict(DEFAULTS["autopilot"])
@@ -75,6 +78,52 @@ def load(root: Path) -> dict[str, Any]:
                 else:
                     merged[key] = data[key]
     return merged
+
+
+def client_settings_file() -> Path:
+    return paths.global_config_dir() / 'settings.json'
+
+
+def _client_overrides() -> dict[str, Any]:
+    try:
+        data = storage.read_json(client_settings_file())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def load(root: Path) -> dict[str, Any]:
+    """Explicit Lab-wide choices win over legacy vault defaults.
+
+    Existing workspace agent/model overrides remain the final authority.
+    Reading settings never migrates or rewrites user configuration.
+    """
+    merged = _load_legacy(root)
+    for key, value in _client_overrides().items():
+        if key not in DEFAULTS:
+            continue
+        try:
+            if key in {'autopilot', 'documentTerminals'}:
+                value = {**merged[key], **value}
+            merged[key] = _validate(key, value)
+        except (SettingsError, TypeError):
+            continue
+    return merged
+
+
+def update_global(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
+    """Persist only explicitly chosen client-wide defaults, atomically."""
+    with _GLOBAL_WRITE_LOCK:
+        current, overrides = load(root), _client_overrides()
+        if not patch:
+            return current
+        for key, value in patch.items():
+            validated = _validate(key, value)
+            if key in {'autopilot', 'documentTerminals'}:
+                validated = _validate(key, {**current[key], **validated})
+            current[key] = overrides[key] = validated
+        storage.write_json(client_settings_file(), overrides)
+        return current
 
 
 def _validate(key: str, value: Any) -> Any:
@@ -126,7 +175,7 @@ def _validate(key: str, value: Any) -> Any:
 
 def update(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
     """Validate + merge ``patch`` into the saved config, write atomically."""
-    current = load(root)
+    current = _load_legacy(root)
     for key, value in patch.items():
         validated = _validate(key, value)
         if key in {"autopilot", "documentTerminals"}:

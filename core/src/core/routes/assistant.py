@@ -638,6 +638,6 @@ def set_document_terminal_settings(body: dict, request: Request) -> dict:
     from lab import settings
     root = _require_root(request)
     try:
-        return settings.update(root, {'documentTerminals': body})['documentTerminals']
+        return settings.update_global(root, {'documentTerminals': body})['documentTerminals']
     except settings.SettingsError as exc:
         raise HTTPException(400, str(exc)) from exc

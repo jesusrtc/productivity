@@ -200,13 +200,13 @@ def test_explicit_provider_turn_boundaries(agent,busy,finished):
     assert dm.trace_state(agent,[busy,{**finished,'isSidechain':True}])[0]=='busy'
 
 
-def test_settings_are_assistant_scoped_and_validated(client,engine,monorepo):
+def test_document_policy_is_client_wide_and_validated(client,engine,monorepo):
     policy='/api/assistant/document-terminal/settings'
     assert client.get(policy).json()==settings.DEFAULTS['documentTerminals']
     result=client.post(policy,json={'sleepMinutes':20,'maxRunning':2})
     assert result.status_code==200 and result.json()['sleepMinutes']==20
     assert settings.load(engine.root)['documentTerminals']['maxRunning']==2
-    assert settings.load(monorepo)['documentTerminals']['maxRunning']==3
+    assert settings.load(monorepo)['documentTerminals']['maxRunning']==2
     for value in [{'maxRunning':0},{'sleepMinutes':True},{'enabled':'yes'},{'expireHours':-1},{'other':2},{'sleepMinutes':3000}]:
         assert client.post(policy,json=value).status_code==400
     path=engine.library[2].relative_to(engine.root).as_posix()

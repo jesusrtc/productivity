@@ -35,11 +35,14 @@ def get(key: str) -> None:
 @config_group.command("set")
 @click.argument("key")
 @click.argument("value")
-def set_cmd(key: str, value: str) -> None:
-    """Set a setting (validated): defaultAgent | model | theme."""
+@click.option("--global", "client_wide", is_flag=True, help="Apply throughout Lab, including documents and other vaults.")
+def set_cmd(key: str, value: str, client_wide: bool) -> None:
+    """Set a legacy vault default, or a Lab-wide choice with --global."""
     root = paths.find_monorepo_root()
     try:
-        cfg = settings.set_value(root, key, value)
+        cfg = settings.update_global(root, {key: value}) if client_wide else settings.set_value(root, key, value)
     except settings.SettingsError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"{key} = {cfg.get(key)!r}")
+    if not client_wide and settings.load(root).get(key) != cfg.get(key):
+        click.echo("A Lab-wide choice overrides this vault value. Use --global to change it.", err=True)

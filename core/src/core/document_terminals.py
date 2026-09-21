@@ -341,7 +341,7 @@ def _spawn(root, entry, entries):
     if not shutil.which('tmux'):
         raise HTTPException(503, 'tmux is not installed on this client')
     if not shutil.which(entry['agent']):
-        raise HTTPException(503, f'{entry["agent"]} is not installed on this client')
+        raise HTTPException(503, f'{entry["agent"]} is not installed on the computer running Lab. Open Settings → Global → General to choose an installed default agent.')
     command = ['env','LAB_DOCUMENT_CONTEXT='+str(_context_path(root,entry['key'])),
         'LAB_ASSISTANT_HOME='+str(root),*_argv(root,entry)]
     with tmux_sockets.state_lock():
@@ -425,6 +425,16 @@ def operate(root, reference, action='open'):
                 agent=agent,conversation_id=str(uuid.uuid4()) if agent in {'claude','copilot'} else None,
                 state='sleeping',last_used=now,last_submit=0,cwd=str(root),title=owner['title'])
             entries[key]=entry
+        # A failed first launch has no conversation to preserve. Follow a
+        # corrected global default when the user retries from Settings.
+        if entry['state'] == 'sleeping' and not entry.get('pane_pid') and not entry.get('had_work'):
+            agent = settings.resolve_agent(root)
+            supported = vault_config.supported_agents(root)
+            if agent not in supported:
+                agent = supported[0]
+            if agent != entry['agent']:
+                entry['agent'] = agent
+                entry['conversation_id'] = str(uuid.uuid4()) if agent in {'claude', 'copilot'} else None
         entry.update(title=owner['title'],last_used=now)
         records.write_json(_context_path(root,key),dict(document_id=owner['id'],path=str(source),
             title=owner['title'],tab_id=current['id'],reference=source.relative_to(root).as_posix()))
