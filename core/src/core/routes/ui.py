@@ -11,16 +11,56 @@ vaults does not reuse stale frontend state.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 
 from core import auth
 
 router = APIRouter()
 
 _PSEUDO_TAB_IDS = {"__logs__", "__self__"}
+
+
+def can_open_external(request: Request) -> bool:
+    """Only the local owner may launch applications on the server's desktop."""
+    return (
+        auth.is_admin(auth.user_from_connection(request))
+        and request.client is not None
+        and request.client.host in {"127.0.0.1", "::1"}
+        and request.url.hostname in {"localhost", "127.0.0.1", "::1"}
+    )
+
+
+class ExternalLink(BaseModel):
+    url: HttpUrl
+
+
+@router.post("/api/ui/open-external")
+def open_external(body: ExternalLink, request: Request) -> dict:
+    auth.require_admin(request)
+    if not can_open_external(request):
+        raise HTTPException(status_code=403, detail="Browser opening requires a local session")
+    if request.headers.get("origin") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Browser opening requires the Lab origin")
+    url = str(body.url)
+    try:
+        if sys.platform == "win32":
+            os.startfile(url)
+        else:
+            command = "/usr/bin/open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.run(
+                [command, url], check=True, timeout=5,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HTTPException(status_code=503, detail="Could not open the default browser") from exc
+    return {"ok": True}
 
 
 def _pseudo_tab_ids() -> set[str]:

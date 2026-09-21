@@ -1,5 +1,7 @@
 # Memory index
 
+- [External links use the default browser](external-links-use-default-browser.md) — local links leave the Lab PWA through the OS browser; shared handling across document views and terminal hyperlinks.
+
 - [Notebook cell deletion](notebook-cell-delete-corner-confirmation.md) — visible upper-right trash button in output-only mode too; confirm code, text, and draft removal
 
 - [Worktree recent files ignore the initial checkout](worktree-recent-files-ignore-initial-checkout.md) — hide untouched checkout copies from time filters while retaining new, edited, and subsequently committed files

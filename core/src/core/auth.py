@@ -475,6 +475,7 @@ _ADMIN_PREFIXES = (
     "/api/log/tail",
 )
 _ADMIN_EXACT = {
+    "/api/ui/open-external",
     "/api/vaults/use",
     "/api/agents/sync",
 }

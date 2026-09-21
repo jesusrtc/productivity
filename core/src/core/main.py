@@ -622,6 +622,7 @@ def create_app() -> FastAPI:
         _STATIC_DIR / "js" / "lab-app.js",
         _STATIC_DIR / "js" / "views" / "assistant.js",
         _STATIC_DIR / "js" / "lib" / "markdown-content.js",
+        _STATIC_DIR / "js" / "lib" / "external-links.js",
         _STATIC_DIR / "css" / "lab-shell.css",
         _STATIC_DIR / "js" / "lib" / "error-report.js",
     )
@@ -630,6 +631,7 @@ def create_app() -> FastAPI:
     async def index_page(request: Request):
         user = auth.require_user(request)
         admin = auth.is_admin(user)
+        external_browser = ui_route.can_open_external(request)
         root = auth.request_root(request)
         shell_root = root
         if not admin:
@@ -659,6 +661,7 @@ def create_app() -> FastAPI:
             str(assistant_root or ""),
             user["username"],
             user["role"],
+            external_browser,
             state["INITIAL_VIEW"],
             state["INITIAL_BODY_CLASS"],
             state["INITIAL_WORKSPACE_NAME"],
@@ -676,6 +679,7 @@ def create_app() -> FastAPI:
                 ASSISTANT_ROOT=str(assistant_root or ""),
                 USER=auth.public_user(user),
                 IS_ADMIN=admin,
+                EXTERNAL_BROWSER=external_browser,
                 ASSET_V=asset_v,
                 **state,
             )

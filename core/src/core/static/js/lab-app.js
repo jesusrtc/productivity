@@ -7988,7 +7988,7 @@
     // reachable). Falls back to the direct upstream URL only if we
     // can't build a proxy mount (no current workspace id).
     const url = _proxyInitialUrl(p, name) || _proxyDirectUrl(p);
-    if (url) window.open(url, '_blank', 'noopener');
+    if (url) void LabExternalLinks.open(url);
   }
 
   function _workspaceProxyAppName(name) {
@@ -14116,6 +14116,11 @@
       return;
     }
     termXterm = new Terminal({
+      linkHandler: {
+        activate: (event, url) => { event.preventDefault(); void LabExternalLinks.open(url); },
+        hover: (event, url) => { event.target.title = url; },
+        leave: event => { event.target.removeAttribute('title'); },
+      },
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',

@@ -4,6 +4,7 @@
 <script src="/static/js/lib/naming-migration.js"></script>
 <meta charset="UTF-8">
 <script src="/static/js/lib/markdown-content.js?v={{ ASSET_V }}" defer></script>
+<script src="/static/js/lib/external-links.js?v={{ ASSET_V }}" defer></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Git Diff Viewer</title>
 <link rel="icon" href="data:,">
@@ -656,6 +657,7 @@
   window.LAB_ASSISTANT_ROOT = {{ ASSISTANT_ROOT | tojson }};
   window.LAB_USER = {{ USER | tojson }};
   window.LAB_IS_ADMIN = {{ IS_ADMIN | tojson }};
+  window.LAB_EXTERNAL_BROWSER = {{ EXTERNAL_BROWSER | tojson }};
 </script>
 <script>
   (function () {
