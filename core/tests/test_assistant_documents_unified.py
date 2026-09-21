@@ -110,3 +110,48 @@ def test_task_content_is_editable_in_same_document(client,library):
     assert response.status_code==200,response.text
     assert response.json()['metadata']['id']==metadata['id']
     assert response.json()['body']=='The resulting document.'
+
+
+def test_external_document_api_preserves_content_and_checks_conflicts(client, library):
+    root, _, note, content, work, series, meeting = library
+    before = {row['id']:row['body'] for row in records.records(root)}
+    url = 'https://docs.google.com/document/d/example/edit'
+    for source in (note,content,series,meeting):
+        detail = change(client,root,source,'external_url',url)
+        assert detail['metadata']['external_url'] == url
+    listing = client.get('/api/assistant').json()['documents']
+    assert all(next(row for row in listing if row['id']==source.stem)['external_url']==url for source in (note,series,meeting))
+    ref = note.relative_to(root).as_posix()
+    stale = client.patch('/api/assistant/metadata',json={'path':ref,'field':'external_url','value':None,'expected':None})
+    assert stale.status_code == 409
+    for value in ['javascript:alert(1)','file:///tmp/document','https://user:secret@example.com']:
+        invalid = client.patch('/api/assistant/metadata',json={'path':ref,'field':'external_url','value':value,'expected':url})
+        assert invalid.status_code == 400
+    change(client,root,note,'external_url',None)
+    assert not records.read_document(work)[0].get('external_url')
+    assert before == {row['id']:row['body'] for row in records.records(root)}
+
+
+def test_unified_paths_keep_legacy_routes_and_relative_assets(client, library):
+    from lab import assistant_storage as storage
+    from core.routes import assistant_v2
+    root,task,note,content,*_ = library
+    (root/'notes/attachment.txt').write_text('Source attachment')
+    oldref = note.relative_to(root).as_posix()
+    records.update_body(root,oldref,'[Other]('+note.name+'#tab='+str(content).split('#tab=')[1]+')\n![Asset](attachment.txt)',expected='The actual guide.\n')
+    records.update(root,oldref,'external_url','https://example.com/document')
+    storage.migrate(root,dry_run=False)
+    result = client.get('/api/assistant/note',params={'path':oldref})
+    assert result.status_code == 200 and result.json()['path'].startswith('documents/')
+    assert result.json()['metadata']['external_url'] == 'https://example.com/document'
+    for source,route in [(task,'task'),(note,'note'),(content,'note')]:
+        response = client.get('/api/assistant/'+route,params={'path':source.relative_to(root).as_posix()})
+        assert response.status_code == 200 and response.json()['path'].startswith('documents/')
+    target,_,_ = assistant_v2.local_target(root,oldref,'attachment.txt')
+    assert target.read_text() == 'Source attachment'
+    target,meta,_ = assistant_v2.local_target(root,oldref,note.name+'#tab='+str(content).split('#tab=')[1])
+    assert meta['id'] == str(content).split('#tab=')[1]
+    change(client,root,note,'external_url','https://example.com/updated')
+    listing = client.get('/api/assistant').json()['documents']
+    assert all(row['path'].startswith('documents/') for row in listing)
+    assert records.verify(root)['valid']

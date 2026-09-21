@@ -76,6 +76,10 @@ const click = (link, options = {}) => {
   assert(tabs.length === 1 && tabs[0][1] === '_blank' && tabs[0][2].includes('noopener'), 'remote browser tab');
   assert(requests.length === 7, 'remote click never calls host opener');
   window.LAB_EXTERNAL_BROWSER = true;
+  const associated = anchor('https://example.com/associated');
+  associated.dataset.labClientExternal = '';
+  click(associated);
+  assert(tabs.length === 2 && requests.length === 7, 'associated documents stay on the client even with a loopback/server flag');
   assert(await LabExternalLinks.open('javascript:alert(1)') === false, 'terminal URLs are validated');
 
   window.fetch = async () => ({ok:false});
@@ -86,7 +90,8 @@ const click = (link, options = {}) => {
   fallback.addEventListener('click', event => { retried = true; event.preventDefault(); });
   fallback.click();
   assert(retried, 'fallback is not intercepted again');
-  document.querySelector('dialog button').click(); await tick();
+  const closed = new Promise(resolve => document.querySelector('dialog').addEventListener('close', resolve, {once:true}));
+  document.querySelector('dialog button').click(); await closed;
   assert(!document.querySelector('dialog'), 'fallback cleans up');
   document.getElementById('result').textContent = 'PASS';
 })().catch(error => document.getElementById('result').textContent = 'FAIL: ' + error.stack);

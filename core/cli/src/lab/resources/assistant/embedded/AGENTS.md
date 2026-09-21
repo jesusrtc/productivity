@@ -111,3 +111,19 @@ same file. Add subtab in a row menu nests a child. Top-level tab metadata uses
 `top_level: true` and a parent reference to the document root; existing children
 retain their nesting. CLI equivalent: `lab assistant subtab add "Title" --parent
 <root-id> --parent-type task|note --top-level` (one command line).
+
+## Unified document storage and external links
+
+Read `lab migrations assistant-documents` for the current storage contract and
+per-client migration steps. After `lab assistant migrate --documents --apply`,
+all independent tasks/notes/meetings/series live in `documents/<id>.md`; projects
+remain in projects/. Without `storage_layout: "unified-documents-v1"`, the
+older tasks/notes paths above still apply. Never move files or edit the generated
+manifest/index manually. Preserve IDs, embedded subtabs, content and aliases.
+Migration does not rewrite existing client instructions; update obsolete
+technical path references while preserving client-authored writing rules.
+
+Optional `external_url` on a document or tab is an absolute HTTP(S) URL or null.
+Set it in **External document URL** in the header or with
+`lab assistant document set <id> external_url '<url>'`. The **External doc**
+button opens the linked document in the clicking client's browser.

@@ -2942,3 +2942,15 @@
 .assistant-attributes-button:hover { color:var(--text-primary); background:var(--bg-tertiary); }
 #assistantAttributesEditor textarea { height:min(34dvh,320px); }
 #assistantSectionJson { white-space:pre-wrap; overflow-wrap:anywhere; }
+
+/* Associated documents stay on the clicking client, including SSH sessions. */
+.assistant-external-doc { display:inline-flex; align-items:center; justify-content:center; gap:5px; flex:none; padding:7px 10px; margin:4px; border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; line-height:1.4; text-decoration:none; white-space:nowrap; }
+.assistant-external-doc:hover { background:var(--bg-tertiary); }
+.assistant-external-doc:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.assistant-external-doc.compact { padding:5px 7px; font-size:16px; }
+.assistant-metadata-field:has([data-metadata-field="external_url"]) { min-width:180px; max-width:320px; flex:1; }
+.assistant-series-meetings li[data-series-history]:not([hidden]) { display:flex; align-items:center; }
+.assistant-series-meetings .assistant-series-meeting { flex:1; min-width:0; }
+@media (max-width:600px) {
+  .assistant-unified-item > .assistant-external-doc { font-size:11px; padding:6px; margin-inline:2px; }
+}

@@ -651,7 +651,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 if git_root in checkout_groups:
                     checkout_groups[git_root][1].append((child.relative_to(git_root).as_posix(), entry))
             elif child.is_dir():
-                if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"tasks", "notes", "projects"}):
+                if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"documents", "tasks", "notes", "projects"}):
                     rel = str(child.relative_to(workspace_path))
                     entry = {"name": rel, "path": rel, "type": "dir"}
                     _with_symlink_fields(entry, child)

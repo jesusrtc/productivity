@@ -1,5 +1,9 @@
 # Assistant: one Markdown document with embedded subtabs
 
+Current storage: read `lab migrations assistant-documents` to consolidate
+independent tasks and notes in `documents/`. The format and legacy path examples
+below remain valid for clients that have not yet run that migration.
+
 Current document format: `embedded-subtabs-v1`, stored in the schema-2 manifest
 as `document_format`. Read the database AGENTS.md, README.md, and manifest first.
 `lab migrations assistant-subtabs` prints this guide; it never changes data.

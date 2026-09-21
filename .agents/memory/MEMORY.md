@@ -230,3 +230,5 @@
 - [SQL-style dashboard filters](assistant-sql-style-filters.md) — schema-3 JSON with readable WHERE conditions, custom attributes, and preserved legacy semantics.
 
 - [Independent dashboard sections](assistant-independent-dashboard-sections.md) — items appear in every matching section; only explicit filters exclude stars; series collapse within each section.
+
+- [Assistant document storage and external links](assistant-document-storage-and-external-links.md) — explicit per-client documents/ migration, preserved paths and client-side associated-document buttons.

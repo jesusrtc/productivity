@@ -170,10 +170,12 @@ def resolve(root, reference, collection=None):
     reference = str(reference)
     if Path(reference).is_absolute() or '..' in Path(reference).parts:
         raise ValueError('Invalid Assistant reference')
+    from lab import assistant_storage as storage
+    canonical = storage.canonical(root, reference)
     collections = {'subtasks': 'tasks', 'meetings': 'notes', 'meeting-series': 'notes'}
     folder = None if collection in {'meetings', 'meeting-series', 'documents'} else collections.get(collection, collection)
     matches = [row for row in records(root, folder) if reference in
-               [row['id'], row['path'], *(row.get('aliases') or [])]]
+               [row['id'], row['path'], *(row.get('aliases') or [])] or canonical == row['path']]
     if len(matches) != 1:
         raise ValueError('Assistant document not found or reference is ambiguous')
     row = matches[0]
@@ -217,6 +219,7 @@ def validate_graph(rows, refs):
         raise ValueError('Duplicate Assistant IDs')
     aliases = {}
     for row in rows:
+        validate_external_url(row.get('external_url'))
         if 'attributes' in row:
             attributes.validate(row['attributes'])
         for alias in [row['path'], *(row.get('aliases') or [])]:
@@ -429,10 +432,28 @@ def create(root, record_type, title, *, identifier=None, body='', **fields):
     return source
 
 
+def validate_external_url(value):
+    if value is None:
+        return
+    from urllib.parse import urlsplit
+    if not isinstance(value, str) or not value or len(value) > 8192 or any(ord(c) <= 32 or ord(c) == 127 for c in value) or "\\" in value:
+        raise ValueError('External document must be an absolute HTTP or HTTPS URL without spaces')
+    try:
+        url = urlsplit(value)
+        _ = url.port  # Access validates malformed and out-of-range ports.
+        valid = url.scheme in {'http','https'} and url.hostname and url.username is None and url.password is None
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError('External document must be an absolute HTTP or HTTPS URL without credentials')
+
+
 def validate_value(root, metadata, field, value):
     from lab import assistant as db, assistant_meetings as meetings
     if field in {'id', 'type', 'schema', 'aliases', 'legacy_path', 'tabs', 'document_path', 'embedded'}:
         raise ValueError('Record identity cannot be edited')
+    if field == 'external_url':
+        validate_external_url(value)
     if field == 'attributes':
         attributes.validate(value)
     if field == 'title':
@@ -580,7 +601,8 @@ def update_body(root, reference, body, *, expected):
 def verify(root):
     rows = list(records(root))
     validate_graph(rows, {row['id'] for row in workspaces(root)})
-    return {'schema': 2, 'document_format':manifest(root).get('document_format','separate-records'), 'counts': dict(Counter(row['type'] for row in rows)),
+    return {'schema': 2, 'document_format':manifest(root).get('document_format','separate-records'), 'storage_layout':manifest(root).get('storage_layout','separate-collections'),
+            'counts': dict(Counter(row['type'] for row in rows)),
             'task_roots': sum(row['type'] == 'task' and not row.get('parent') for row in rows),
             'workspaces': len(workspaces(root)), 'valid': True}
 

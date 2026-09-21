@@ -30,11 +30,11 @@
     dialog.showModal();
   }
 
-  async function open(value) {
+  async function open(value, {clientOnly = false} = {}) {
     const url = webUrl(value);
     if (!url) return false;
     // A remote browser must open its own tab, never the server's desktop.
-    if (!window.LAB_EXTERNAL_BROWSER) {
+    if (clientOnly || !window.LAB_EXTERNAL_BROWSER) {
       window.open(url.href, '_blank', 'noopener,noreferrer');
       return true;
     }
@@ -61,7 +61,7 @@
     if (!url || url.origin === window.location.origin) return;
     event.preventDefault();
     event.stopPropagation();
-    void open(url.href);
+    void open(url.href, {clientOnly:link.hasAttribute('data-lab-client-external')});
   }
 
   function bindFrame(frame) {

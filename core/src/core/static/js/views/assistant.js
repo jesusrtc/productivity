@@ -817,6 +817,16 @@
     }));
   }
 
+  function externalDocument(row, compact = false) {
+    if (!row?.external_url) return '';
+    try {
+      const url = new URL(row.external_url);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+      const label = 'Open external document for ' + (row.title || 'this document');
+      return `<a class="assistant-external-doc${compact ? ' compact' : ''}" data-lab-client-external href="${e(url.href)}" target="_blank" rel="noopener noreferrer" aria-label="${e(label)}" title="${e(label)}">${compact ? '' : 'External doc '}<span aria-hidden="true">↗</span></a>`;
+    } catch { return ''; }
+  }
+
   function documentCard(row, scope = 'list') {
     const series = row.displaySeries;
     const kind = documentKind(row);
@@ -830,7 +840,7 @@
       <button type="button" class="assistant-compact-row assistant-document-row" data-assistant-document="${e(row.path)}" data-document-kind="${e(kind)}">
         ${documentIcon(row)}<span class="assistant-row-content"><span class="assistant-row-title">${work.length || !series && row.tracked ? `<span class="assistant-priority ${e(priority.toLowerCase())}">${e(priority)}</span>` : ''}<strong>${e(series?.title || row.title)}</strong></span>${summary ? `<span class="assistant-row-tldr">${e(summary)}</span>` : ''}</span>
         <span class="assistant-row-meta">${series ? `<small>${row.seriesMembers.length} notes</small>${starredNotes ? `<small>${starredNotes} starred note${starredNotes === 1 ? '' : 's'}</small>` : ''}${openNotes ? `<small>Open tasks in ${openNotes} note${openNotes === 1 ? '' : 's'}</small>` : ''}` : ''}${row.workspace_name ? `<span class="assistant-task-workspace-label">${e(row.workspace_name)}</span>` : ''}${row.date ? `<time>${e(row.date)}</time>` : ''}${!series && row.tracked ? `<span class="assistant-status status-${e(row.status)}">${e(labelStatus(row.status))}</span>` : ''}${due ? `<span class="assistant-task-due">Due ${e(displayDate(due))}</span>` : ''}${row.source === 'demo' || (row.tags || []).includes('demo') ? '<span class="assistant-demo">Demo</span>' : ''}</span>
-      </button>${series ? seriesStarControl(row,scope) : starButton(row)}</article>`;
+      </button>${externalDocument(row)}${series ? seriesStarControl(row,scope) : starButton(row)}</article>`;
   }
 
   function renderDocuments(rows) {
@@ -1255,6 +1265,7 @@
       metadataSelect('workspace', 'Workspace', metadata.workspace, [['', 'None'], ...workspaceRows().map(row => [row.id,row.name || row.id])]),
     );
     if (metadata.schema === 2) {
+      primary.push(metadataInput('external_url', 'External document URL', metadata.external_url, 'url'), externalDocument(metadata));
       primary.push(`<button type="button" class="assistant-attributes-button" data-edit-attributes aria-label="Edit custom attributes">Attributes${Object.keys(metadata.attributes || {}).length ? ' (' + Object.keys(metadata.attributes).length + ')' : ''}</button>`);
       primary.unshift(metadataToggle('track_task', 'Track this tab', metadata.track_task ?? (metadata.type === 'task' || Boolean(metadata.status))));
       const owner = state.modalRoot || record;
@@ -1698,15 +1709,15 @@
       rows = [...rows.filter(row => row.path !== root.path), {...current, ...metadata, path:root.path, status:root.progress?.status ?? current.status ?? metadata.status, tracked:root.progress?.tracked ?? current.tracked}];
     }
     rows = sortedMeetings(rows);
-    const signature = JSON.stringify([series.path, series.title, series.starred, overview ? null : root.path,
-      rows.map(row => [row.path,row.title,row.date,row.source,row.tags,row.note_type,row.starred,row.status,row.tracked])]);
+    const signature = JSON.stringify([series.path, series.title, series.starred, series.external_url, overview ? null : root.path,
+      rows.map(row => [row.path,row.title,row.date,row.source,row.tags,row.note_type,row.starred,row.status,row.tracked,row.external_url])]);
     const title = `<button type="button" class="assistant-series-overview${overview ? ' active' : ''}" data-assistant-series="${e(series.path)}"${overview ? ' aria-current="page"' : ''} title="${e(series.title)}"><span aria-hidden="true">▤</span><span>${e(series.title)}</span></button>`;
     const history = rows.map(row => {
       const current = !overview && row.path === root.path;
       const kind = row.note_type && row.note_type !== 'meeting' ? 'note' : 'meeting';
-      return `<li data-series-history data-series-search="${e([row.date,row.title].join(' ').toLowerCase())}" data-series-starred="${row.starred === true}" data-series-open="${row.tracked === true && !['done','skipped','cancelled'].includes(row.status)}"><button type="button" class="assistant-series-meeting${current ? ' current' : ''}" data-series-document="${e(row.path)}" data-series-kind="${kind}"${current ? ' aria-current="page"' : ''} title="${e(row.title)}"><span aria-hidden="true">${current ? '✓' : ''}</span><span><time>${e(calendarDate(row.date) || 'No date')}</time><span class="assistant-series-meeting-title">${e(row.title || 'Untitled note')}</span></span>${row.source === 'demo' || (row.tags || []).includes('demo') ? '<small class="assistant-demo">Demo</small>' : ''}</button></li>`;
+      return `<li data-series-history data-series-search="${e([row.date,row.title].join(' ').toLowerCase())}" data-series-starred="${row.starred === true}" data-series-open="${row.tracked === true && !['done','skipped','cancelled'].includes(row.status)}"><button type="button" class="assistant-series-meeting${current ? ' current' : ''}" data-series-document="${e(row.path)}" data-series-kind="${kind}"${current ? ' aria-current="page"' : ''} title="${e(row.title)}"><span aria-hidden="true">${current ? '✓' : ''}</span><span><time>${e(calendarDate(row.date) || 'No date')}</time><span class="assistant-series-meeting-title">${e(row.title || 'Untitled note')}</span></span>${row.source === 'demo' || (row.tags || []).includes('demo') ? '<small class="assistant-demo">Demo</small>' : ''}</button>${externalDocument(row, true)}</li>`;
     }).join('') || '<li class="assistant-nav-empty">No notes yet.</li>';
-    return {signature, html:`<div class="assistant-series-header">${title}${metadata.schema === 2 ? starButton(series, 'series') : ''}<button type="button" class="assistant-series-toggle" data-series-toggle popovertarget="assistantSeriesMenu" aria-controls="assistantSeriesMenu" aria-expanded="false">More in this series <span aria-hidden="true">⌄</span></button></div>
+    return {signature, html:`<div class="assistant-series-header">${title}${externalDocument(series, true)}${metadata.schema === 2 ? starButton(series, 'series') : ''}<button type="button" class="assistant-series-toggle" data-series-toggle popovertarget="assistantSeriesMenu" aria-controls="assistantSeriesMenu" aria-expanded="false">More in this series <span aria-hidden="true">⌄</span></button></div>
       <div id="assistantSeriesMenu" class="assistant-series-menu" popover="auto" data-series-root="${e(root.path)}" data-series-id="${e(series.id)}"><div class="assistant-document-nav-label">Notes in this series</div><div class="assistant-series-filters"><input type="search" id="assistantSeriesSearch" aria-label="Filter series dates or titles" placeholder="Filter dates or titles…"><select id="assistantSeriesFilter" aria-label="Filter series notes"><option value="">All dates</option><option value="starred">Starred notes</option><option value="open">Open tasks</option></select></div><p class="assistant-nav-empty" data-series-empty hidden>No dates match this filter.</p><ul class="assistant-series-meetings" aria-label="Notes in this series">${history}</ul></div>${documentHtml}`};
   }
 
@@ -1806,7 +1817,7 @@
     const rows = new Map();
     const node = row => {
       rows.set(row.path, row);
-      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span class="assistant-record-title">${e(row.title)}</span>${tabActivityBadge(row)}</button><details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button><button type="button" data-record-task="${e(row.path)}">+ Add task</button><button type="button" data-dismiss-tab-activity="${e(row.path)}" hidden>Dismiss highlight</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
+      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span class="assistant-record-title">${e(row.title)}</span>${tabActivityBadge(row)}</button>${externalDocument(row, true)}<details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button><button type="button" data-record-task="${e(row.path)}">+ Add task</button><button type="button" data-dismiss-tab-activity="${e(row.path)}" hidden>Dismiss highlight</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
     };
     const tree = documentTabs(root.tree).map(node).join('');
     const indexTab = root.tree.children?.length ? '<button type="button" class="assistant-record-tab assistant-index-tab" data-record-index><span aria-hidden="true">☷</span><span>Index</span></button>' : '';
@@ -1883,15 +1894,15 @@
         rows.push(`<tr data-index-path="${e(row.path)}" data-index-kind="${e(row.kind)}" tabindex="0" aria-label="Open ${e(row.title)}">
           <td><button type="button" style="padding-inline-start:${depth * 20}px" data-index-open><span aria-hidden="true">${depth ? '↳' : '▤'}</span> ${e(row.title)} ${tabActivityBadge(row)}</button><div class="assistant-index-description" style="padding-inline-start:${depth * 20}px" title="${e(row.description)}">${e(row.description || '—')}</div></td>
           <td>${row.progress?.tracked === false ? '—' : e(labelStatus(row.progress?.status || row.status || 'not_started'))}</td>
-          <td>${e(displayDate(row.due) || '—')}</td><td>${e(row.priority || '—')}</td><td>${e(row.owner || '—')}</td></tr>`);
+          <td>${e(displayDate(row.due) || '—')}</td><td>${e(row.priority || '—')}</td><td>${e(row.owner || '—')}</td><td>${externalDocument(row)}</td></tr>`);
         (row.children || []).forEach(child => visit(child, depth + 1));
       };
       documentTabs(root.tree).forEach(row => visit(row, 0));
       const node = document.createElement('section'); node.className = 'assistant-index';
-      node.innerHTML = `<h2>Index</h2><div class="assistant-index-scroll"><table><thead><tr><th scope="col">Tab / Description</th><th scope="col">Status</th><th scope="col">Due</th><th scope="col">Priority</th><th scope="col">POC</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+      node.innerHTML = `<h2>Index</h2><div class="assistant-index-scroll"><table><thead><tr><th scope="col">Tab / Description</th><th scope="col">Status</th><th scope="col">Due</th><th scope="col">Priority</th><th scope="col">POC</th><th scope="col">Document</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
       node.querySelectorAll('[data-index-path]').forEach(row => {
         const open = () => selectModalDocument(row.dataset.indexKind, row.dataset.indexPath);
-        row.addEventListener('click', open);
+        row.addEventListener('click', event => { if (!event.target.closest('a')) open(); });
         row.addEventListener('keydown', event => {
           if (event.target === row && ['Enter',' '].includes(event.key)) { event.preventDefault(); open(); }
         });

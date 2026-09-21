@@ -14,7 +14,7 @@ from lab import paths
 EDITABLE_FIELDS = (
     "starred", "track_task", "keep_in_documents", "note_type", "date", "series",
     "project", "workspace", "parent", "position",
-    "title",
+    "title", "external_url",
     "group",
     "tldr",
     "status",
@@ -558,12 +558,16 @@ def repeat_task(task_id):
 @click.option("--apply", "apply_changes", is_flag=True, help="Apply after staging and verifying a full backup")
 @click.option("--dry-run", is_flag=True, help="Inspect only (the default)")
 @click.option("--embedded", is_flag=True, help="Keep subtabs inside their task/note Markdown file")
-def migrate_cmd(apply_changes, dry_run, embedded):
-    """Move existing documents into independent tasks/, notes/, and projects/."""
+@click.option('--documents', 'unified', is_flag=True, help='Unify task/note files into documents/ (after --embedded)')
+def migrate_cmd(apply_changes, dry_run, embedded, unified):
+    """Migrate Assistant storage with verified backups; inspect by default."""
+    from lab import assistant_storage as storage
+    if embedded and unified:
+        raise click.ClickException('Choose --embedded or --documents; migrate in separate steps')
     if apply_changes and dry_run:
         raise click.ClickException("Choose --apply or --dry-run")
     try:
-        result = (documents.migrate if embedded else assistant_migration.migrate)(_root(), dry_run=not apply_changes)
+        result = (storage.migrate if unified else documents.migrate if embedded else assistant_migration.migrate)(_root(), dry_run=not apply_changes)
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(result, ensure_ascii=False, indent=2))

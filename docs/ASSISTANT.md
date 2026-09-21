@@ -1,5 +1,13 @@
 # Assistant tasks, notes, and tabs
 
+Current task/note storage is `documents/<id>.md` after an explicit per-client
+migration. Read `lab migrations assistant-documents` for the backup, conversion,
+verification, client-instruction updates and restart sequence. Existing clients
+continue using tasks/notes until migrated. `external_url` optionally associates
+an external document with any root or subtab; its **External doc** button opens
+in the clicking client's browser from dashboards, lists and document views.
+
+
 Assistant stores client-owned tasks and notes and displays tabs inside each
 one. The client alone decides their content, structure, headings, language,
 and formatting. Lab supplies storage, metadata, tab relationships, navigation,

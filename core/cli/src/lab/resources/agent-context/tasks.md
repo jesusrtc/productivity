@@ -1,5 +1,11 @@
 # Tasks and tabs in Assistant
 
+Current storage uses `documents/<id>.md` for all independent tasks, notes,
+meetings and series, with embedded subtabs. Older clients may still use tasks/
+and notes/. Read `lab migrations assistant-documents` before migrating; never
+move files manually. Optional `external_url` links a document or tab to a web
+document, exposed as **External doc** on the dashboard and document views.
+
 The client alone decides the content, structure, headings, language, and
 formatting of tasks, notes, and their tabs. Lab supplies storage, metadata,
 tab relationships, and rendering. New document bodies are empty; do not
@@ -93,7 +99,7 @@ tasks automatically.
 ## One task/note file, including all subtabs
 
 The current format is `embedded-subtabs-v1` within schema 2. An independent task
-lives in `tasks/<id>.md`, a note in `notes/<id>.md`, and all its nested subtabs
+or note lives in `documents/<id>.md` after the storage migration, and all its nested subtabs
 live inside that same file. Metadata for subtabs goes in the frontmatter `tabs`
 array; stable body markers delimit their Markdown. Independent projects use
 `projects/<id>.md`. Subtabs inherit the root's project/workspace references.

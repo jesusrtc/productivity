@@ -437,7 +437,7 @@ def update_metadata(body: AssistantMetadataBody, request: Request) -> dict:
     if records.enabled(root):
         fields = {'title','tldr','project','workspace','status','priority','due','recurrence','group','owner',
                   'scheduled','defer_until','waiting_on','follow_up_at','date','series',
-                  'starred','track_task','keep_in_documents','note_type','attributes'}
+                  'starred','track_task','keep_in_documents','note_type','attributes','external_url'}
         if body.field not in fields:
             raise HTTPException(status_code=400, detail='This property cannot be edited')
         try:

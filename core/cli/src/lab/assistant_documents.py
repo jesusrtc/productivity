@@ -84,9 +84,10 @@ def write(source, metadata, body):
 
 
 def _fingerprint(root):
-    files = sorted(path for folder in ('tasks','notes','projects') for path in (root/folder).glob('*.md'))
+    from lab import assistant_storage as storage
+    files = sorted(path for folder in storage.folders(root) for path in (root/folder).glob('*.md'))
     signature = []
-    for source in [*files, root/'.assistant/workspaces.json']:
+    for source in [*files, root/'.assistant/workspaces.json', root/'.assistant/manifest.json']:
         records.safe(root, source)
         if source.exists():
             stat = source.stat()
@@ -100,6 +101,7 @@ def summary(body):
 
 
 def snapshot(root, *, force=False):
+    from lab import assistant_storage as storage
     files, signature = _fingerprint(root)
     cache = _CACHE.get(str(root))
     index_path = root/'.assistant/index.json'
@@ -110,7 +112,7 @@ def snapshot(root, *, force=False):
     for source in files:
         metadata, body, tabs = unpack(source.read_bytes())
         path = source.relative_to(root).as_posix()
-        if metadata.get('id') != source.stem or str(metadata.get('type')) + 's' != source.parent.name or metadata.get('schema') != 2:
+        if metadata.get('type') not in {'task','note','project'} or metadata.get('id') != source.stem or storage.folder(root, str(metadata.get('type'))) != source.parent.name or metadata.get('schema') != 2:
             raise ValueError('Invalid document identity: ' + path)
         if metadata.get('parent'):
             raise ValueError('Top-level documents cannot have a parent; embed them as subtabs')
@@ -175,7 +177,8 @@ def create(root, record_type, title, identifier, body, fields):
             owner['updated'] = now
             records.atomic_bytes(target, pack(owner,main,[*tabs,(metadata,body)]))
         else:
-            source = records.safe(root,root/(record_type+'s')/(identifier+'.md'))
+            from lab import assistant_storage as storage
+            source = records.safe(root,root/storage.folder(root,record_type)/(identifier+'.md'))
             records.validate_graph([*rows,{**metadata,'path':source.relative_to(root).as_posix(),'body':body}],
                                    {row['id'] for row in records.workspaces(root)})
             records.atomic_bytes(source,pack(metadata,body,[]))

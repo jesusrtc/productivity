@@ -5,6 +5,7 @@ read packaged guides; they do not inspect, modify or migrate the client's files.
 
 ```bash
 lab migrations
+lab migrations assistant-documents
 lab migrations assistant-subtabs
 lab migrations assistant-records-v2
 lab migrations workspace-agent-context
@@ -19,7 +20,7 @@ business projects or workspace mappings from similar folder names.
 
 ## Assistant: expected layout
 
-`tasks/<id>.md` and `notes/<id>.md` each contain one independent task/note plus
+`documents/<id>.md` contains one independent task/note plus
 all nested subtabs. `projects/<id>.md` holds independent business projects.
 Subtab metadata lives in the containing file's frontmatter `tabs` array; stable
 body markers identify each subtab. Typed parent references build the tree.
@@ -34,6 +35,12 @@ older separate-record schema 2. `lab migrations assistant-subtabs` gives the
 exact format, aggregate status rules, preservation requirements and existing
 conversion commands. `lab migrations assistant-records-v2` documents the older
 flat-record migration as an intermediate step for workspace-folder databases.
+
+After `lab assistant migrate --documents --apply`, the manifest also records
+`storage_layout: "unified-documents-v1"`. Existing clients retain tasks/notes
+until explicitly migrated. Read `lab migrations assistant-documents` for the
+per-client sequence, verified backup/rollback, old-link compatibility and the
+optional `external_url` property. Restart the updated backend after migration.
 
 ## Other compatibility guides
 

@@ -1,5 +1,11 @@
 # Notes and meeting metadata in Lab
 
+Current storage uses `documents/<id>.md` for all independent tasks, notes,
+meetings and series, with embedded subtabs. Older clients may still use tasks/
+and notes/. Read `lab migrations assistant-documents` before migrating; never
+move files manually. Optional `external_url` links a document or tab to a web
+document, exposed as **External doc** on the dashboard and document views.
+
 The client decides the content, structure, headings, language, and formatting
 of every note and tab. Lab does not require summaries, highlights, action
 items, questions, or any other section. Creation commands leave bodies empty

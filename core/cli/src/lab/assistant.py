@@ -148,7 +148,8 @@ def write_markdown(path: Path, metadata: dict[str, Any], body: str) -> None:
 def initialize(root: Path | None = None) -> Path:
     target = (root or configured_root()).expanduser().resolve()
     if records.enabled(target):
-        for folder in ('tasks', 'notes', 'projects'):
+        from lab import assistant_storage as storage
+        for folder in storage.folders(target):
             (target / folder).mkdir(exist_ok=True)
         return target
     (naming.workspaces_dir(target)).mkdir(parents=True, exist_ok=True)

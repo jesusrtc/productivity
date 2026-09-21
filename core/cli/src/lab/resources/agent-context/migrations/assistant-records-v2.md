@@ -1,5 +1,9 @@
 # Assistant schema 2: format and migration instructions
 
+Current storage: read `lab migrations assistant-documents` to consolidate
+independent tasks and notes in `documents/`. The format and legacy path examples
+below remain valid for clients that have not yet run that migration.
+
 Scope: the client-global Assistant database selected by LAB_ASSISTANT_HOME.
 Workspace-local tasks.json files use a different contract. Read the target's
 AGENTS.md and README.md, then inspect its manifest before editing.

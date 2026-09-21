@@ -41,3 +41,19 @@ Read AGENTS.md and `lab migrations assistant-subtabs` for the exact format and
 commands. `lab agent context tasks` and `lab agent context migrations` point to
 the same contract. Legacy IDs, links, original bodies and backups are retained.
 The database is selected by LAB_ASSISTANT_HOME; `.lab/` holds runtime state.
+
+## Unified document storage and external links
+
+Read `lab migrations assistant-documents` for the current storage contract and
+per-client migration steps. After `lab assistant migrate --documents --apply`,
+all independent tasks/notes/meetings/series live in `documents/<id>.md`; projects
+remain in projects/. Without `storage_layout: "unified-documents-v1"`, the
+older tasks/notes paths above still apply. Never move files or edit the generated
+manifest/index manually. Preserve IDs, embedded subtabs, content and aliases.
+Migration does not rewrite existing client instructions; update obsolete
+technical path references while preserving client-authored writing rules.
+
+Optional `external_url` on a document or tab is an absolute HTTP(S) URL or null.
+Set it in **External document URL** in the header or with
+`lab assistant document set <id> external_url '<url>'`. The **External doc**
+button opens the linked document in the clicking client's browser.

@@ -6,7 +6,7 @@ from urllib.parse import urlparse, unquote, urlencode
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from lab import assistant_records as records, assistant_documents as documents
+from lab import assistant_records as records, assistant_documents as documents, assistant_storage as storage
 
 
 def kind(row):
@@ -91,7 +91,7 @@ def local_target(root, document, src):
         raise ValueError('Only local references are resolved here')
     raw = Path(unquote(parsed.path)).expanduser()
     if parsed.fragment.startswith('tab='):
-        oldbase = (root / meta.get('legacy_path', documents.physical(source).relative_to(root).as_posix())).parent
+        oldbase = (root / storage.origin(root, source, meta)).parent
         candidates = [documents.physical(source)] if not parsed.path else ([raw] if raw.is_absolute() else [source.parent/raw, oldbase/raw])
         for candidate in candidates:
             candidate = candidate.resolve()
@@ -110,7 +110,7 @@ def local_target(root, document, src):
     else:
         # Existing bodies retain their original relative base; newly authored links
         # can point at canonical files when no legacy target exists.
-        oldbase = (root / meta.get('legacy_path', source.relative_to(root).as_posix())).parent
+        oldbase = (root / storage.origin(root, source, meta)).parent
         target = (oldbase / raw).resolve()
     relative = None
     if target.is_relative_to(root.resolve()):
