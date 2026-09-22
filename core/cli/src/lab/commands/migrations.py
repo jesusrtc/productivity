@@ -8,6 +8,7 @@ from lab.agent_context import GUIDE_DIR
 
 GUIDES = {
     'overview': 'migrations.md',
+    'assistant-document-tasks': 'migrations/assistant-document-tasks.md',
     'assistant-documents': 'migrations/assistant-documents.md',
     'assistant-subtabs': 'migrations/assistant-subtabs.md',
     'assistant-records-v2': 'migrations/assistant-records-v2.md',

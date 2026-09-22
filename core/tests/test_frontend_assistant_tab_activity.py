@@ -91,6 +91,7 @@ window.fetch=async (url,options={})=>{
  }
  assert(label(task.new)==='','dismissal survives real page reload');
  assert(label(task.updated)==='Updated','undismissed tab survives reload');
+ assert(tab(task.new).classList.contains('active'),'last opened tab survives real reload');
  const original=nav().querySelector('.assistant-record-tree');
  await AssistantView.refresh();
  assert(nav().querySelector('.assistant-record-tree')===original,'highlight polling keeps existing tabs');
@@ -99,6 +100,7 @@ window.fetch=async (url,options={})=>{
  await AssistantView.openDocument('task',task.root);
  assert(label(task.new)==='Updated','later revision highlights dismissed tab again');
  assert(label(task.root)===''&&label(task.old)==='','child edit does not highlight parent or siblings');
+ nav().querySelector('[data-record-index]').click();
  assert([...document.querySelectorAll('.assistant-index [data-tab-activity]')].some(row=>row.dataset.tabActivity===task.new&&row.textContent==='Updated'&&!row.hidden),'Index mirrors tab markers');
  dismiss(task.new);
  assert([...document.querySelectorAll('.assistant-index [data-tab-activity]')].find(row=>row.dataset.tabActivity===task.new).hidden,'dismiss clears Index marker');

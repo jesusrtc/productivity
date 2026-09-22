@@ -1,5 +1,9 @@
 # Assistant: one documents folder and external documents
 
+After unified storage, `lab migrations assistant-document-tasks` describes the
+next migration to independent tasks inside each document. For a database marked
+`task_format: "document-tasks-v1"`, use that guide for task lifecycle and commands.
+
 This guide is read-only. It does not migrate data. Read the client's AGENTS.md
 and README.md and obtain authorization for a migration before executing it.
 

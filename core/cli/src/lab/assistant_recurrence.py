@@ -8,6 +8,11 @@ from lab.assistant_meetings import safe_path, validate_date, write_record
 
 
 def advance(root: Path, task_id: str) -> Path:
+    from lab import assistant_tasks as tasks
+    if tasks.enabled(root):
+        document,_ = tasks.find(root,task_id)
+        result=tasks.repeat(root,document,task_id)
+        return root/result['path']
     source, metadata, _body = db.find_task(root, task_id)
     safe_path(root, source)
     status = records.progress_map(list(records.records(root)))[records.key(metadata)]["status"] if documents.enabled(root) else metadata.get("status")

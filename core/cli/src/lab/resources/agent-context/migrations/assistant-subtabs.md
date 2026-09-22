@@ -1,5 +1,10 @@
 # Assistant: one Markdown document with embedded subtabs
 
+For databases marked `task_format: "document-tasks-v1"`, read
+`lab migrations assistant-document-tasks` for task storage, commands and progress.
+The embedded Markdown serialization here still applies; tracked-tab lifecycle
+and Markdown checkbox rules below describe only databases not yet migrated.
+
 Current storage: read `lab migrations assistant-documents` to consolidate
 independent tasks and notes in `documents/`. The format and legacy path examples
 below remain valid for clients that have not yet run that migration.

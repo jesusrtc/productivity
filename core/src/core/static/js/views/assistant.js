@@ -209,17 +209,17 @@
         const parent = item.parent && children.find(row => row.id === item.parent.id);
         return !parent || pending(parent);
       };
-      const planned = [task, ...children.filter(pending)];
+      const planned = Array.isArray(task.task_items) ? pendingWork(task) : [task, ...children.filter(pending)];
       const scheduledBy = limit => planned.some(item =>
         [item.scheduled,item.due].some(date => calendarDate(date) && date <= limit)
         && !(calendarDate(item.defer_until) && item.defer_until > today && !(calendarDate(item.due) && item.due <= today)));
       if (state.view === 'today' && !scheduledBy(today)) return false;
       if (state.view === 'week' && !scheduledBy(weekEnd())) return false;
-      if (['today', 'week'].includes(state.view) && calendarDate(task.defer_until) && task.defer_until > today && !(calendarDate(task.due) && task.due <= today)) return false;
-      if (state.view === 'recurring' && !task.recurrence) return false;
-      if (state.view === 'someday' && !(task.priority === 'P3' || calendarDate(task.defer_until) && task.defer_until > today)) return false;
+      if (!task.task_items && ['today', 'week'].includes(state.view) && calendarDate(task.defer_until) && task.defer_until > today && !(calendarDate(task.due) && task.due <= today)) return false;
+      if (state.view === 'recurring' && !(task.task_items ? planned.some(item => item.recurrence) : task.recurrence)) return false;
+      if (state.view === 'someday' && !planned.some(item => item.priority === 'P3' || calendarDate(item.defer_until) && item.defer_until > today)) return false;
       if (state.view === 'p0' && task.priority !== 'P0') return false;
-      if (state.view === 'in_progress' && task.status !== 'in_progress') return false;
+      if (state.view === 'in_progress' && !(task.task_items ? planned.some(item => item.status === 'in_progress') : task.status === 'in_progress')) return false;
       if (state.view === 'ready_to_review' && !hasReview(task)) return false;
       if (state.view === 'waiting' && task.status !== 'waiting') return false;
       if (state.view === 'inbox' && !['inbox','not_started'].includes(task.status)) return false;
@@ -275,6 +275,16 @@
     });
   }
 
+  let taskLoader;
+  async function ensureDocumentTasks() {
+    if (window.AssistantTasks) return;
+    taskLoader ||= new Promise((resolve,reject) => {
+      const script=document.createElement('script');script.src='/static/js/views/assistant-tasks.js';
+      script.onload=resolve;script.onerror=()=>{taskLoader=null;script.remove();reject(new Error('Could not load document tasks. Refresh to retry.'))};document.head.appendChild(script);
+    });
+    await taskLoader;
+  }
+
   function setSection(section, options = {}) {
     if (state.data?.documents || section === 'documents') {
       closeDocumentModal(false);
@@ -289,6 +299,7 @@
       }
       window.assistantSectionShell?.('documents');
       render();
+      void refresh();
       return;
     }
     const nextSection = ['notes', 'meetings'].includes(section) ? 'notes' : 'tasks';
@@ -469,6 +480,7 @@
   }
 
   function pendingWork(row) {
+    if (Array.isArray(row.task_items)) return row.task_items.filter(task => !['done','skipped','cancelled'].includes(task.status));
     if (!row.tracked || ['done','skipped','cancelled'].includes(row.status)) return [];
     const children = taskChildren(row);
     const pending = (item, seen = new Set()) => {
@@ -731,7 +743,7 @@
 
   function documentIcon(row) {
     const recurring = row.displaySeries || row.note_type === 'series' || row.series || row.note_type === 'meeting' && row.recurrence === 'weekly';
-    const kind = recurring ? 'recurring' : row.note_type === 'meeting' ? 'meeting' : row.type === 'task' ? 'task' : 'note';
+    const kind = recurring ? 'recurring' : row.note_type === 'meeting' ? 'meeting' : row.type === 'task' && !row.task_format ? 'task' : 'note';
     const paths = {
       note:'<path d="M14 2H5v20h14V7l-5-5Zm0 0v6h5M8 12h8M8 16h6"/>',
       task:'<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m7 12 3 3 7-7"/>',
@@ -827,19 +839,25 @@
     } catch { return ''; }
   }
 
+  function documentTaskBadges(summary) {
+    if (!summary) return '';
+    return `<span class="assistant-work-status ${summary.pending ? 'pending' : summary.total ? 'completed' : 'empty'}">${summary.pending ? summary.pending + ' pending' : summary.status === 'cancelled' ? 'Cancelled' : summary.total ? 'All tasks completed' : 'No tasks'}</span>${summary.wip ? `<span class="assistant-work-status wip">${summary.wip} WIP</span>` : ''}${summary.blocked ? `<span class="assistant-work-status blocked">${summary.blocked} blocked</span>` : ''}`;
+  }
+
   function documentCard(row, scope = 'list') {
     const series = row.displaySeries;
     const kind = documentKind(row);
     const work = (series ? [series,...row.seriesMembers] : [row]).flatMap(pendingWork);
     const priority = work.map(item => item.priority || 'P2').sort()[0] || row.priority || 'P2';
     const due = work.map(item => calendarDate(item.due)).filter(Boolean).sort()[0] || (!series ? row.due : '');
+    const taskSummary = series && row.task_format ? [series,...row.seriesMembers].reduce((total,item) => { const summary=item.task_summary || {}; for(const key of ['pending','total','wip','blocked']) total[key]+=(summary[key] || 0); return total; }, {pending:0,total:0,wip:0,blocked:0}) : row.task_summary;
     const openNotes = series ? row.seriesMembers.filter(item => pendingWork(item).length).length : 0;
     const starredNotes = series ? row.seriesMembers.filter(item => item.starred).length : 0;
     const summary = series ? (row.path !== series.path ? `Latest: ${row.title}` : '') : row.tldr || row.summary;
     return `<article class="assistant-list-item assistant-unified-item" data-assistant-entry-wrap="${e(row.path)}" data-document-key="${e(row.displayKey || row.path)}">
       <button type="button" class="assistant-compact-row assistant-document-row" data-assistant-document="${e(row.path)}" data-document-kind="${e(kind)}">
         ${documentIcon(row)}<span class="assistant-row-content"><span class="assistant-row-title">${work.length || !series && row.tracked ? `<span class="assistant-priority ${e(priority.toLowerCase())}">${e(priority)}</span>` : ''}<strong>${e(series?.title || row.title)}</strong></span>${summary ? `<span class="assistant-row-tldr">${e(summary)}</span>` : ''}</span>
-        <span class="assistant-row-meta">${series ? `<small>${row.seriesMembers.length} notes</small>${starredNotes ? `<small>${starredNotes} starred note${starredNotes === 1 ? '' : 's'}</small>` : ''}${openNotes ? `<small>Open tasks in ${openNotes} note${openNotes === 1 ? '' : 's'}</small>` : ''}` : ''}${row.workspace_name ? `<span class="assistant-task-workspace-label">${e(row.workspace_name)}</span>` : ''}${row.date ? `<time>${e(row.date)}</time>` : ''}${!series && row.tracked ? `<span class="assistant-status status-${e(row.status)}">${e(labelStatus(row.status))}</span>` : ''}${due ? `<span class="assistant-task-due">Due ${e(displayDate(due))}</span>` : ''}${row.source === 'demo' || (row.tags || []).includes('demo') ? '<span class="assistant-demo">Demo</span>' : ''}</span>
+        <span class="assistant-row-meta">${series ? `<small>${row.seriesMembers.length} notes</small>${starredNotes ? `<small>${starredNotes} starred note${starredNotes === 1 ? '' : 's'}</small>` : ''}${openNotes ? `<small>Open tasks in ${openNotes} note${openNotes === 1 ? '' : 's'}</small>` : ''}` : ''}${row.workspace_name ? `<span class="assistant-task-workspace-label">${e(row.workspace_name)}</span>` : ''}${row.date ? `<time>${e(row.date)}</time>` : ''}${documentTaskBadges(taskSummary)}${!taskSummary && !series && row.tracked ? `<span class="assistant-status status-${e(row.status)}">${e(labelStatus(row.status))}</span>` : ''}${due ? `<span class="assistant-task-due">Due ${e(displayDate(due))}</span>` : ''}${row.source === 'demo' || (row.tags || []).includes('demo') ? '<span class="assistant-demo">Demo</span>' : ''}</span>
       </button>${externalDocument(row)}${series ? seriesStarControl(row,scope) : starButton(row)}</article>`;
   }
 
@@ -1058,6 +1076,7 @@
   }
 
   function closeDocumentModal(updateHistory = true) {
+    window.AssistantTasks?.reset();
     window.LabDocumentTerminal?.close();
     closeHeadingMenu();
     closeSeriesMenu();
@@ -1098,12 +1117,13 @@
   async function openDocumentModal(kind, path, focusHeading = '') {
     closeHeadingMenu();
     closeSeriesMenu();
+    window.AssistantTasks?.reset();
     const overlay = ensureModal();
     const wasOpen = overlay.classList.contains('active');
     const request = ++state.modalRequest;
     overlay.setAttribute('aria-busy', 'true');
     try {
-      const detail = await fetchDocument(kind, path);
+      let detail = await fetchDocument(kind, path);
       if (request !== state.modalRequest) return;
       let root = detail, rootKind = kind;
       if (detail.metadata?.schema === 2 && detail.root_path) {
@@ -1116,9 +1136,24 @@
         rootKind = parent ? 'task' : 'subtask';
       }
       if (request !== state.modalRequest) return;
+      let showIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length || root.document_tasks);
+      // Explicit subtab links and heading targets always win over remembered navigation.
+      if (!focusHeading && !path.includes('#tab=') && detail.path === root.path && root.tree) {
+        const remembered = rememberedDocumentTab(root);
+        if (remembered === 'index' && (root.tree.children?.length || root.document_tasks)) showIndex = true;
+        else if (remembered) {
+          const find = node => node.path === remembered ? node : (node.children || []).map(find).find(Boolean);
+          const tab = find(root.tree);
+          if (tab) {
+            if (tab.path !== root.path) detail = await fetchDocument(tab.kind, tab.path);
+            showIndex = false;
+          }
+        }
+      }
+      if (request !== state.modalRequest) return;
       state.modalRoot = root; state.modalKind = rootKind;
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
-      state.modalIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length);
+      state.modalIndex = showIndex;
       await renderModal(focusHeading);
       if (request === state.modalRequest) {
         overlay.classList.add('active');
@@ -1231,9 +1266,9 @@
     const recordKind = kind === 'content' ? 'meeting' : kind;
     const metadata = record.metadata || {};
     const workspace = record.workspace || {};
-    const task = ['task', 'subtask'].includes(recordKind);
+    const task = !detail.document_tasks && ['task', 'subtask'].includes(recordKind);
     const subtab = Boolean(metadata.parent);
-    const tracked = record.progress?.tracked ?? (task || subtab || Boolean(record.progress?.derived));
+    const tracked = !detail.document_tasks && (record.progress?.tracked ?? (task || subtab || Boolean(record.progress?.derived)));
     const progress = record.path === state.modalRoot?.path ? state.modalRoot.tree?.progress || record.progress : record.progress;
     const status = progress?.status || metadata.status || 'not_started';
     const lifecycle = progress?.derived
@@ -1272,7 +1307,7 @@
     if (metadata.schema === 2) {
       primary.push(metadataInput('external_url', 'External document URL', metadata.external_url, 'url'), externalDocument(metadata));
       primary.push(`<button type="button" class="assistant-attributes-button" data-edit-attributes aria-label="Edit custom attributes">Attributes${Object.keys(metadata.attributes || {}).length ? ' (' + Object.keys(metadata.attributes).length + ')' : ''}</button>`);
-      primary.unshift(metadataToggle('track_task', 'Track this tab', metadata.track_task ?? (metadata.type === 'task' || Boolean(metadata.status))));
+      if (!detail.document_tasks) primary.unshift(metadataToggle('track_task', 'Track this tab', metadata.track_task ?? (metadata.type === 'task' || Boolean(metadata.status))));
       const owner = state.modalRoot || record;
       primary.unshift(starButton({...owner.metadata,path:owner.path}, owner.metadata.note_type === 'series' ? 'series' : 'document'));
     }
@@ -1558,7 +1593,7 @@
   }
 
   async function renderModal(focusHeading = '') {
-    if (state.modalRoot?.metadata?.schema === 2 && state.modalRoot.tree && (state.modalKind !== 'series' || state.modalRoot.tree.children?.length)) {
+    if (state.modalRoot?.metadata?.schema === 2 && state.modalRoot.tree && (state.modalRoot.document_tasks || state.modalKind !== 'series' || state.modalRoot.tree.children?.length)) {
       await renderRecordTree(focusHeading); return;
     }
     if (['meeting', 'series'].includes(state.modalKind)) { await renderMeetingModal(); return; }
@@ -1816,17 +1851,34 @@
     }
   }
 
+  function documentTabKey(root) {
+    return 'lab.assistant.last-tab.v1:' + (state.data?.root || window.ASSISTANT_ROOT || '') + ':' + root.metadata.id;
+  }
+
+  function rememberedDocumentTab(root) {
+    try {
+      const saved=localStorage.getItem(documentTabKey(root));
+      if (saved) return saved;
+      const previous=JSON.parse(localStorage.getItem('lab.assistant.poc.v1:' + (state.data?.root || '') + ':' + root.metadata.id + ':tab'));
+      return previous === 'dashboard' ? 'index' : previous ? root.path + '#tab=' + previous : null;
+    } catch (_) { return null; }
+  }
+
   async function renderRecordTree(focusHeading = '') {
     const root = state.modalRoot;
     const detail = state.modalCurrent;
+    const request=state.modalRequest;
+    if (root.document_tasks) await ensureDocumentTasks();
+    if (request !== state.modalRequest) return;
+    try { localStorage.setItem(documentTabKey(root), state.modalIndex ? 'index' : detail.path); } catch (_) {}
     const nav = document.getElementById('assistantDocumentNav');
     const rows = new Map();
     const node = row => {
       rows.set(row.path, row);
-      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span class="assistant-record-title">${e(row.title)}</span>${tabActivityBadge(row)}</button>${externalDocument(row, true)}<details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button><button type="button" data-record-task="${e(row.path)}">+ Add task</button><button type="button" data-dismiss-tab-activity="${e(row.path)}" hidden>Dismiss highlight</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
+      return `<li><div class="assistant-record-tab-row"><button type="button" class="assistant-record-tab${detail.path === row.path ? ' active' : ''}" data-record-path="${e(row.path)}" data-record-kind="${e(row.kind)}" title="${e(row.title)}"><span aria-hidden="true">▤</span><span class="assistant-record-title">${e(row.title)}</span>${tabActivityBadge(row)}${root.document_tasks && row.task_summary?.wip ? '<small class="assistant-work-status wip">WIP</small>' : ''}</button>${externalDocument(row, true)}<details class="assistant-tab-menu"><summary aria-label="Options for ${e(row.title)}">⋮</summary><div><button type="button" data-record-subtab="${e(row.path)}">+ Add subtab</button><button type="button" data-record-task="${e(row.path)}">+ Add task</button><button type="button" data-dismiss-tab-activity="${e(row.path)}" hidden>Dismiss highlight</button></div></details></div>${row.children?.length ? `<ul>${row.children.map(node).join('')}</ul>` : ''}</li>`;
     };
     const tree = documentTabs(root.tree).map(node).join('');
-    const indexTab = root.tree.children?.length ? '<button type="button" class="assistant-record-tab assistant-index-tab" data-record-index><span aria-hidden="true">☷</span><span>Index</span></button>' : '';
+    const indexTab = root.tree.children?.length || root.document_tasks ? '<button type="button" class="assistant-record-tab assistant-index-tab" data-record-index><span aria-hidden="true">☷</span><span>' + (root.document_tasks ? 'Dashboard' : 'Index') + '</span></button>' : '';
     const html = `<div class="assistant-tabs-heading"><span>Document tabs</span><button type="button" data-record-root-tab aria-label="Add tab" title="Add tab">+</button></div>${indexTab}<ul class="assistant-record-tree">${tree}</ul>
       ${root.raw ? `<button type="button" class="assistant-record-tab" data-record-raw="${e(root.raw.path)}">Original notes</button>` : ''}`;
     // Keep existing tab elements and keyboard focus when only selection changes.
@@ -1851,7 +1903,10 @@
       }));
       nav.querySelectorAll('[data-record-task]').forEach(button => button.addEventListener('click', () => {
         nav.querySelectorAll('details[open]').forEach(menu => { menu.open = false; });
-        createRecord('subtab', rows.get(button.dataset.recordTask), false, true);
+        if (root.document_tasks) {
+          const row=rows.get(button.dataset.recordTask);
+          selectModalDocument(row.kind,row.path).then(()=>window.AssistantTasks.add());
+        } else createRecord('subtab', rows.get(button.dataset.recordTask), false, true);
       }));
       nav.querySelectorAll('[data-record-subtab]').forEach(button => button.addEventListener('click', () => {
         nav.querySelectorAll('details[open]').forEach(menu => { menu.open = false; });
@@ -1881,13 +1936,14 @@
         catch (_) { button.textContent = 'Copy failed'; }
       };
     };
-    if (state.modalIndex && root.tree.children?.length) { renderIndex(root); return; }
+    if (state.modalIndex && (root.tree.children?.length || root.document_tasks)) { renderIndex(root); return; }
     const kind = documentKind(detail.metadata);
     await renderDocumentPane(detail, kind, focusHeading);
   }
 
 
   function renderIndex(root) {
+    if (root.document_tasks) { renderTaskDashboard(root); return; }
     const host = document.getElementById('assistantModalDocument');
     renderDocumentHeader(root, documentKind(root.metadata));
     if (state.currentPane && host.contains(state.currentPane.node)) state.currentPane.scrollTop = host.scrollTop;
@@ -1923,6 +1979,43 @@
     document.getElementById('assistantCopyRich').onclick = event => window.LabMarkdown.copy(pane.node,{button:event.currentTarget});
   }
 
+  function mountDocumentTasks(host, tab) {
+    const root=state.modalRoot;
+    if (!root.document_tasks) return;
+    let taskHost=host.querySelector(':scope > [data-document-tasks]');
+    if (!taskHost) { taskHost=document.createElement('div');taskHost.dataset.documentTasks='';host.prepend(taskHost); }
+    window.AssistantTasks.mount(taskHost,{database:state.data.root,root,tab,
+      navigate:id=>{ const find=row=>row.id===id ? row : (row.children || []).map(find).find(Boolean); const row=find(state.modalRoot.tree); if(row) return selectModalDocument(row.kind,row.path); },
+      changed:async saved=>{
+        if (state.modalRoot?.path !== saved.path) return;
+        const request=state.modalRequest, current=state.modalCurrent;
+        const updated=await fetchDocument(state.modalKind,saved.path);
+        const detail=current.path === saved.path ? updated : await fetchDocument(documentKind(current.metadata),current.path);
+        if (request !== state.modalRequest || state.modalRoot?.path !== saved.path) return;
+        state.modalRoot=updated;state.modalCurrent=detail;
+        await renderRecordTree();
+        await refresh();
+      }});
+  }
+
+  function renderTaskDashboard(root) {
+    const host=document.getElementById('assistantModalDocument');
+    renderDocumentHeader(root,documentKind(root.metadata));
+    const rows=[];
+    const visit=(row,depth)=>{
+      rows.push(`<li><button type="button" data-tab-dashboard-path="${e(row.path)}" data-kind="${e(row.kind)}" style="padding-left:${12+depth*18}px"><span>▤ ${e(row.title)}</span><small>${row.task_summary?.pending ? row.task_summary.pending + ' pending' : 'No pending tasks'}</small></button></li>`);
+      (row.children || []).forEach(child=>visit(child,depth+1));
+    };
+    documentTabs(root.tree).forEach(row=>visit(row,0));
+    host.innerHTML=`<section class="assistant-task-dashboard"><h2>Tabs</h2><ul class="assistant-task-dashboard-tabs">${rows.join('')}</ul></section>`;
+    mountDocumentTasks(host,'dashboard');
+    host.querySelectorAll('[data-tab-dashboard-path]').forEach(button=>button.onclick=()=>selectModalDocument(button.dataset.kind,button.dataset.tabDashboardPath));
+    state.currentPane=null;
+    resetCopy(true);
+    document.getElementById('assistantCopyPlain').onclick=event=>window.LabMarkdown.copy(host,{button:event.currentTarget,plainOnly:true});
+    document.getElementById('assistantCopyRich').onclick=event=>window.LabMarkdown.copy(host,{button:event.currentTarget});
+  }
+
   async function renderDocumentPane(detail, kind, focusHeading = '') {
     const request = state.modalRequest;
     if (typeof window.ensureMarked === 'function') await window.ensureMarked().catch(() => {});
@@ -1938,6 +2031,7 @@
     if (draft?.editing) {
       resetCopy(true);
       mountNoteEditor(draft, detail, kind, host);
+      mountDocumentTasks(host,detail.metadata.id);
       renderNoteControls(detail, kind);
       return;
     }
@@ -1954,6 +2048,7 @@
     state.paneCache.delete(cacheKey); state.paneCache.set(cacheKey, pane);
     while (state.paneCache.size > 20) state.paneCache.delete(state.paneCache.keys().next().value);
     if (host.firstElementChild !== pane.node || host.children.length !== 1) host.replaceChildren(pane.node);
+    mountDocumentTasks(host,detail.metadata.id);
     host.scrollTop = pane.scrollTop;
     state.currentPane = pane;
     const markdownHost = pane.node;
@@ -2153,7 +2248,8 @@
     // Do not interrupt a property being edited or saved.
     const bar = document.getElementById('assistantModalMetadata');
     if (bar.contains(document.activeElement) || bar.querySelector('[data-metadata-field]:disabled')) return;
-    if (state.modalKind === 'series') {
+    if (window.AssistantTasks?.busy() || window.AssistantTasks?.editing()) return;
+    if (state.modalKind === 'series' && !root.document_tasks) {
       const navigation = seriesNavigation(root);
       if (document.getElementById('assistantDocumentNav').dataset.seriesStructure !== navigation.signature) await renderMeetingModal();
       return;
@@ -2213,6 +2309,12 @@
         if (isTaskSection() && state.selectedTaskPath) await openDocumentModal('task', state.selectedTaskPath);
         else if (state.selectedMeetingPath) await openDocumentModal('meeting', state.selectedMeetingPath);
         else if (state.selectedSeriesPath) await openDocumentModal('series', state.selectedSeriesPath);
+        else if (new URL(window.location).searchParams.get('poc_document')) {
+          const url=new URL(window.location), id=url.searchParams.get('poc_document'), tab=url.searchParams.get('poc_tab');
+          const row=state.data.documents.find(item=>item.id===id);
+          if(row) await openDocumentModal(documentKind(row),row.path+(tab && tab !== 'dashboard' ? '#tab='+encodeURIComponent(tab) : ''));
+          url.searchParams.delete('poc_document');url.searchParams.delete('poc_tab');url.searchParams.set('subview','documents');history.replaceState(history.state,'',url.pathname+url.search+url.hash);
+        }
         else if (new URL(window.location).searchParams.get('note')) await openDocumentModal('note', new URL(window.location).searchParams.get('note'));
       } else await refreshOpenDocument();
     } catch (error) {

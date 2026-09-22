@@ -235,4 +235,6 @@
 
 - [Document terminals are resource bounded](document-terminals-are-resource-bounded.md) — one visible renderer, 60-minute sleep, 36-hour expiry, cap of 3, and conservative busy protection.
 
+- [Document tasks and tab memory](assistant-document-tasks.md) — production document-owned tasks, independent content tabs, migrated checklists, preserved dashboard/stars, and last-tab memory.
+
 - [Central settings use explicit scopes](central-settings-use-explicit-scopes.md) — Cmd/Ctrl+, consolidates settings; inactive workspace edits never borrow the active scope.

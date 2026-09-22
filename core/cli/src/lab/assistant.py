@@ -470,6 +470,11 @@ def create_subtask(
 
 
 def update_task(root: Path, task_id: str, field: str, value: Any) -> Path:
+    from lab import assistant_tasks as tasks
+    if tasks.enabled(root) and field in tasks.FIELDS:
+        document,_ = tasks.find(root,task_id)
+        result = tasks.change(root,document,{field:tasks.LEGACY_STATUS.get(value,value) if field == 'status' else value},task_id=task_id)
+        return root/result['path']
     if records.enabled(root):
         return records.update(root, task_id, field, value, collection='documents')
     source, metadata, body = find_task(root, task_id)

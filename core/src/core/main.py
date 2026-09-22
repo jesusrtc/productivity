@@ -25,6 +25,7 @@ from lab import paths as lab_paths
 from core.routes import auth as auth_route
 from core.routes import appstate as appstate_route
 from core.routes import assistant as assistant_route
+from core.routes import assistant_tasks as assistant_tasks_route
 from core.routes import cerebro as cerebro_route
 from core.routes import code_search as code_search_route
 from core.routes import diff as diff_route
@@ -507,6 +508,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_route.router)
     app.include_router(assistant_route.router)
+    app.include_router(assistant_tasks_route.router)
     app.include_router(appstate_route.router)
     app.include_router(index_route.router)
     app.include_router(workspace_route.router)
@@ -624,6 +626,8 @@ def create_app() -> FastAPI:
         _TEMPLATES_DIR / "index.html",
         _STATIC_DIR / "js" / "lab-app.js",
         _STATIC_DIR / "js" / "views" / "assistant.js",
+        _STATIC_DIR / "js" / "views" / "assistant-tasks.js",
+        _STATIC_DIR / "css" / "assistant-tasks.css",
         _STATIC_DIR / "js" / "lib" / "markdown-content.js",
         _STATIC_DIR / "js" / "lib" / "external-links.js",
         _STATIC_DIR / "css" / "lab-shell.css",

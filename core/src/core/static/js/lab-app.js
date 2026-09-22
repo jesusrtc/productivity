@@ -6666,7 +6666,7 @@
     const codeSearchActive = _contextSubView === 'code-search';
 
     if (isAssistant) {
-      const assistantSection = _workspaceDocPath ? 'document' : 'documents';
+      const assistantSection = _workspaceDocPath ? 'document' : (window.AssistantView?.section() || 'documents');
       html += `<button class="repo-tab${assistantSection === 'documents' ? ' active' : ''}" data-assistant-section="documents" onclick="AssistantView.setSection('documents')" style="font-weight:600">&#x2726; Documents</button>`;
     } else if (isSelf || isVault) {
       if (LAB_IS_ADMIN) {
@@ -15290,7 +15290,7 @@
       url.searchParams.delete('tail');
       url.searchParams.delete('vault');
       url.searchParams.set('view', 'assistant');
-      url.searchParams.set('subview', 'documents');
+      url.searchParams.set('subview', section);
       for (const field of ['task','note','meeting','series']) url.searchParams.delete(field);
       if (taskPath) url.searchParams.set('task', taskPath);
       for (const field of ['note','meeting','series']) if (opts[field]) url.searchParams.set(field, opts[field]);

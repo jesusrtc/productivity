@@ -135,6 +135,9 @@ window.fetch=async (url,options={})=>{
  assert(!host().querySelector('[data-series-document],.assistant-series-history'),'history not duplicated in body');
  toggle().click();
  rows()[0].click();
+ await until(()=>nav().querySelectorAll('[data-record-path]').length===4);
+ assert(nav().querySelector('[data-record-path].active'),'returning to meeting restores its last content tab');
+ nav().querySelector('[data-record-index]').click();
  await until(()=>host().querySelector('.assistant-index'));
  assert(nav().querySelectorAll('[data-record-path]').length===4,'return to meeting restores document tree');
  const field=document.querySelector('[data-metadata-field="series"]');

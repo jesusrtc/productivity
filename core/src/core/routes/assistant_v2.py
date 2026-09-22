@@ -6,7 +6,7 @@ from urllib.parse import urlparse, unquote, urlencode
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from lab import assistant_records as records, assistant_documents as documents, assistant_storage as storage
+from lab import assistant_records as records, assistant_documents as documents, assistant_storage as storage, assistant_tasks as document_tasks
 
 
 def kind(row):
@@ -31,12 +31,13 @@ def document_rows(root):
         related = [item for item in rows if item.get('series') == row['id'] and not item.get('parent')]
         yield {**{k:v for k,v in row.items() if k not in {'body','legacy_metadata'}},
                **{k:v for k,v in tasks.get(row['path'], {}).items() if k not in {'body','legacy_metadata'}},
+               **({'task_items':document_tasks.normalize(row.get('tasks',[])), 'task_summary':document_tasks.summary(row.get('tasks',[]))} if row.get('task_format') == document_tasks.FORMAT else {}),
                'kind':kind(row), 'progress':state, 'status':state['status'], 'tracked':state['tracked'],
                'starred':row.get('starred') is True, 'keep_in_documents':records.keeps_document(row),
                'workspace_name':records.workspace(root,row.get('workspace')).get('name'),
                'summary':row.get('tldr') or documents.summary(row['body']),
                'search_text':' '.join(str(item.get(field) or '') for item in [row,*children]
-                                      for field in ('title','tldr','owner','body')),
+                                      for field in ('title','tldr','owner','body')) + ' ' + ' '.join(str(item.get('title','')) for item in row.get('tasks',[])),
                'series_title':meetings.get(row['path'],{}).get('series_title'),
                'series_path':meetings.get(row['path'],{}).get('series_path'),
                'tab_attributes':[item.get('attributes') or {} for item in children],
@@ -68,14 +69,19 @@ def detail(root, reference, collection=None):
                 raise ValueError('Document parent cycle')
             seen.add(records.key(ancestor))
             ancestor = by_key[records.parent_key(ancestor)]
+        all_tasks = document_tasks.normalize(ancestor.get('tasks',[])) if ancestor.get('task_format') == document_tasks.FORMAT else []
         def node(row):
+            own_tasks = [task for task in all_tasks if document_tasks.linked_tab(all_tasks,task) == row['id']]
+            own_ids = {task['id'] for task in own_tasks}
+            own_tasks = [task | {'parent_id':task.get('parent_id') if task.get('parent_id') in own_ids else None} for task in own_tasks]
             children = sorted([r for r in rows if records.parent_key(r) == records.key(row)],
                               key=lambda r:(r.get('position',0),r['id']))
             return {k:v for k,v in row.items() if k not in {'body','legacy_metadata'}} | {
-                'kind':kind(row), 'tab_revision':tab_revision(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
+                'kind':kind(row), 'task_summary':document_tasks.summary(own_tasks), 'tab_revision':tab_revision(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
                 'track_task':records.tracks_task(row),
                 'progress':progress[records.key(row)], 'children':[node(child) for child in children]}
-        return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body,
+        task_data = document_tasks.view(root, ancestor['id']) if ancestor.get('task_format') == document_tasks.FORMAT else None
+        return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body, 'document_tasks':task_data,
                 'workspace':records.workspace(root,metadata.get('workspace')),
                 'progress':progress[records.key(metadata)], 'embedded':current.get('embedded',False),
                 'tldr':metadata.get('tldr') or '', 'root_path':ancestor['path'], 'root_kind':kind(ancestor),

@@ -559,15 +559,17 @@ def repeat_task(task_id):
 @click.option("--dry-run", is_flag=True, help="Inspect only (the default)")
 @click.option("--embedded", is_flag=True, help="Keep subtabs inside their task/note Markdown file")
 @click.option('--documents', 'unified', is_flag=True, help='Unify task/note files into documents/ (after --embedded)')
-def migrate_cmd(apply_changes, dry_run, embedded, unified):
+@click.option('--document-tasks', 'owned_tasks', is_flag=True, help='Move tracked tabs and checklists into document task JSON')
+def migrate_cmd(apply_changes, dry_run, embedded, unified, owned_tasks):
     """Migrate Assistant storage with verified backups; inspect by default."""
     from lab import assistant_storage as storage
-    if embedded and unified:
-        raise click.ClickException('Choose --embedded or --documents; migrate in separate steps')
+    from lab import assistant_tasks
+    if sum([embedded,unified,owned_tasks]) > 1:
+        raise click.ClickException('Choose one migration per step')
     if apply_changes and dry_run:
         raise click.ClickException("Choose --apply or --dry-run")
     try:
-        result = (storage.migrate if unified else documents.migrate if embedded else assistant_migration.migrate)(_root(), dry_run=not apply_changes)
+        result = (assistant_tasks.migrate if owned_tasks else storage.migrate if unified else documents.migrate if embedded else assistant_migration.migrate)(_root(), dry_run=not apply_changes)
     except (OSError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(result, ensure_ascii=False, indent=2))
@@ -774,5 +776,74 @@ def subtab_show(identifier):
 def subtab_set(identifier, field, value):
     try:
         click.echo(records.update(_v2_root(),identifier,field,assistant_db._decode_scalar(value)))
+    except (OSError,ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@assistant_group.group('task')
+def document_task_group():
+    """Tasks stored inside a document, optionally linked to a content tab."""
+
+
+@document_task_group.command('ls')
+@click.argument('document')
+def document_task_ls(document):
+    from lab import assistant_tasks as tasks
+    try:
+        click.echo(json.dumps(tasks.view(_v2_root(),document)['tasks'],ensure_ascii=False,indent=2))
+    except (OSError,ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@document_task_group.command('add')
+@click.argument('title')
+@click.option('--document', required=True)
+@click.option('--tab', 'tab_id')
+@click.option('--parent', 'parent_id')
+@click.option('--priority', type=click.Choice(['P0','P1','P2','P3']), default='P2')
+@click.option('--due')
+@click.option('--owner')
+def document_task_add(title, document, tab_id, parent_id, priority, due, owner):
+    from lab import assistant_tasks as tasks
+    try:
+        result=tasks.change(_v2_root(),document,dict(title=title,tab_id=tab_id,parent_id=parent_id,priority=priority,due=due,owner=owner))
+        click.echo(result['task_id'])
+    except (OSError,ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@document_task_group.command('set')
+@click.argument('document')
+@click.argument('task_id')
+@click.argument('field')
+@click.argument('value')
+def document_task_set(document,task_id,field,value):
+    from lab import assistant_tasks as tasks
+    try:
+        result=tasks.change(_v2_root(),document,{field:assistant_db._decode_scalar(value)},task_id=task_id)
+        click.echo(result['task_id'] + '.' + field + ' saved')
+    except (OSError,ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@document_task_group.command('done')
+@click.argument('document')
+@click.argument('task_id')
+def document_task_done(document,task_id):
+    from lab import assistant_tasks as tasks
+    try:
+        tasks.change(_v2_root(),document,{'status':'done'},task_id=task_id)
+        click.echo(task_id + ' completed')
+    except (OSError,ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@document_task_group.command('repeat')
+@click.argument('document')
+@click.argument('task_id')
+def document_task_repeat(document,task_id):
+    from lab import assistant_tasks as tasks
+    try:
+        click.echo(tasks.repeat(_v2_root(),document,task_id)['task_id'])
     except (OSError,ValueError) as exc:
         raise click.ClickException(str(exc)) from exc

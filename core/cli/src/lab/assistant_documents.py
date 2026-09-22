@@ -121,7 +121,7 @@ def snapshot(root, *, force=False):
         for tab, text in [(metadata,body), *tabs]:
             if tab is not metadata and records.parent_key(tab) not in identities:
                 raise ValueError('A subtab parent must be in the same Markdown document')
-            rows.append({**tab, **({field:metadata.get(field) for field in ('project','workspace')} if tab is not metadata else {}), 'path':path if tab is metadata else path+'#tab='+tab['id'],
+            rows.append({**tab, **({field:metadata.get(field) for field in ('project','workspace','task_format')} if tab is not metadata else {}), 'path':path if tab is metadata else path+'#tab='+tab['id'],
                          'document_path':path, 'embedded':tab is not metadata,
                          'body':text, 'mtime':source.stat().st_mtime})
     records.validate_graph(rows, {row['id'] for row in records.workspaces(root)})
@@ -162,6 +162,22 @@ def create(root, record_type, title, identifier, body, fields):
         for field in fields:
             if field not in {'id','schema','type'} and not (record_type == 'project' and field == 'status'):
                 records.validate_value(root, metadata, field, metadata[field])
+        from lab import assistant_tasks as tasks
+        owned_tasks = tasks.enabled(root) and record_type in {'task','note'}
+        initial_task = None
+        if owned_tasks:
+            if metadata.get('track_task') or record_type == 'task':
+                initial_task = {key:value for key,value in metadata.items() if key in tasks.FIELDS}
+                initial_task.update(id=identifier, title=title, priority=metadata.get('priority','P2'),
+                                    status=tasks.LEGACY_STATUS.get(metadata.get('status'),metadata.get('status') or 'not_started'),
+                                    tab_id=identifier,parent_id=None,created=now,updated=now)
+                initial_task['done'] = initial_task['status'] in {'done','skipped'}
+            metadata['track_task'] = False
+            if not parent:
+                metadata['task_format'] = tasks.FORMAT
+                metadata['tasks'] = [initial_task] if initial_task else []
+            for field in tasks.FIELDS - {'title','tldr','attributes'}:
+                metadata.pop(field,None)
         if parent:
             parent_row = next((row for row in rows if records.key(row) == records.parent_key(metadata)), None)
             if not parent_row:
@@ -175,6 +191,8 @@ def create(root, record_type, title, identifier, body, fields):
             candidate = {**metadata,'path':source.relative_to(root).as_posix(),'body':body}
             records.validate_graph([*rows,candidate], {row['id'] for row in records.workspaces(root)})
             owner['updated'] = now
+            if initial_task:
+                owner.setdefault('tasks',[]).append(initial_task)
             records.atomic_bytes(target, pack(owner,main,[*tabs,(metadata,body)]))
         else:
             from lab import assistant_storage as storage

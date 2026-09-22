@@ -218,7 +218,10 @@ def validate_graph(rows, refs):
     if len(by_key) != len(rows):
         raise ValueError('Duplicate Assistant IDs')
     aliases = {}
+    from lab import assistant_tasks as tasks
     for row in rows:
+        if row.get('task_format') == tasks.FORMAT and not row.get('parent'):
+            tasks.validate(row.get('tasks', []), {row['id'], *(child['id'] for child in descendants(rows,row))})
         validate_external_url(row.get('external_url'))
         if 'attributes' in row:
             attributes.validate(row['attributes'])
@@ -256,6 +259,8 @@ def validate_graph(rows, refs):
 
 def tracks_task(row):
     """Explicit tracking wins; preserve existing task/tab statuses on old records."""
+    if row.get('task_format') == 'document-tasks-v1':
+        return False
     if row.get('type') not in {'task', 'note'}:
         return False
     return row.get('track_task', row.get('type') == 'task' or bool(row.get('status'))) is True
@@ -298,6 +303,18 @@ def progress_map(rows):
         return result[identity]
     for row in rows:
         visit(row)
+    from lab import assistant_tasks as tasks
+    for row in rows:
+        if row.get('task_format') != tasks.FORMAT or row.get('parent'):
+            continue
+        items = tasks.normalize(row.get('tasks', []))
+        result[key(row)] = tasks.summary(items)
+        for tab in descendants(rows,row):
+            own = [item for item in items if tasks.linked_tab(items,item) == tab['id']]
+            # Task parentage can cross content tabs; select all roots within scope.
+            own_ids = {item['id'] for item in own}
+            own = [item | {'parent_id':item.get('parent_id') if item.get('parent_id') in own_ids else None} for item in own]
+            result[key(tab)] = tasks.summary(own)
     return result
 
 
@@ -313,6 +330,17 @@ def task_rows(root, children_only=False):
         if (not progress[key(row)]['tracked'] if embedded else row['type'] != 'task') or children_only and not row.get('parent'):
             continue
         reference = workspace(root, row.get('workspace'))
+        if row.get('task_format') == 'document-tasks-v1':
+            from lab import assistant_tasks as tasks
+            items = tasks.normalize(row.get('tasks', []))
+            pending = [item for item in items if item['status'] not in tasks.CLOSED]
+            yield {**row,'workspace':row.get('workspace') or '', 'workspace_name':reference.get('name'),
+                   'document_backed':True,'status':progress[key(row)]['status'],'progress':progress[key(row)],
+                   'priority':min((item.get('priority','P2') for item in pending),default='P2'),
+                   'task_items':items,'subtasks':items,'first_class_subtasks':items,'legacy_subtasks':[],
+                   'subtasks_done':sum(item['done'] for item in items),'subtasks_total':len(items),
+                   'done':progress[key(row)]['status'] in {'done','skipped'}}
+            continue
         children = []
         for child in descendants(rows, row):
             if embedded and not progress[key(child)]['tracked']:
@@ -495,9 +523,23 @@ UNSET = object()
 
 
 def update(root, reference, field, value, *, collection=None, expected=UNSET):
-    from lab import assistant as db
+    from lab import assistant as db, assistant_documents as documents
     with lock(root):
         source, metadata, body = resolve(root, reference, collection)
+        from lab import assistant_tasks as tasks
+        if tasks.enabled(root) and field == 'track_task':
+            raise ValueError('Tabs are content. Add or edit a task in this document instead.')
+        if tasks.enabled(root) and field in tasks.FIELDS - {'title','tldr','attributes','tab_id','parent_id','done'}:
+            physical, raw, owner, main, tabs = tasks.read(root, reference)
+            task = next((item for item in owner.get('tasks',[]) if item['id'] == metadata['id']), None)
+            if task is None:
+                raise ValueError('Choose a task ID with lab assistant task set; tabs have no lifecycle')
+            if expected is not UNSET and task.get(field) != expected:
+                raise ValueError('This property changed elsewhere. Reload the document.')
+            tasks.mutate(owner,tabs,{field:tasks.LEGACY_STATUS.get(value,value) if field == 'status' else value},task['id'])
+            atomic_bytes(physical, documents.pack(owner,main,tabs))
+            documents.snapshot(root,force=True)
+            return source
         if expected is not UNSET:
             matches = attributes.equal(metadata.get(field),expected) if field == 'attributes' else metadata.get(field) == expected
             if not matches:
@@ -601,7 +643,7 @@ def update_body(root, reference, body, *, expected):
 def verify(root):
     rows = list(records(root))
     validate_graph(rows, {row['id'] for row in workspaces(root)})
-    return {'schema': 2, 'document_format':manifest(root).get('document_format','separate-records'), 'storage_layout':manifest(root).get('storage_layout','separate-collections'),
+    return {'task_format':manifest(root).get('task_format'), 'document_tasks':sum(len(row.get('tasks',[])) for row in rows if not row.get('parent')), 'schema': 2, 'document_format':manifest(root).get('document_format','separate-records'), 'storage_layout':manifest(root).get('storage_layout','separate-collections'),
             'counts': dict(Counter(row['type'] for row in rows)),
             'task_roots': sum(row['type'] == 'task' and not row.get('parent') for row in rows),
             'workspaces': len(workspaces(root)), 'valid': True}

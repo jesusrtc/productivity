@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, StrictBool, StrictStr
 
 from lab import assistant as assistant_db
-from lab import paths
+from lab import paths, assistant_tasks as document_tasks
 
 from core import auth
 
@@ -212,7 +212,7 @@ def get_assistant(request: Request) -> dict:
         "schema": 2 if records.enabled(root) else 1,
         "projects": list(records.records(root, "projects")) if records.enabled(root) else [],
         "notes": [{**row,"search_text":" ".join(str(child.get(field) or "") for child in [row,*records.descendants(list(records.records(root)),row)] for field in ("title","tldr","owner"))} for row in records.records(root, "notes") if not row.get("embedded") and row.get("note_type") in {"plain","thread","subtab"}] if records.enabled(root) else [],
-        "statuses": ["not_started","in_progress","done","cancelled"] if documents.enabled(root) else list(assistant_db.STATUSES),
+        "statuses": ["not_started","in_progress","blocked","done","skipped","cancelled"] if document_tasks.enabled(root) else ["not_started","in_progress","done","cancelled"] if documents.enabled(root) else list(assistant_db.STATUSES),
         "priorities": list(assistant_db.PRIORITIES),
     }
 

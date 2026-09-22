@@ -5,6 +5,7 @@ read packaged guides; they do not inspect, modify or migrate the client's files.
 
 ```bash
 lab migrations
+lab migrations assistant-document-tasks
 lab migrations assistant-documents
 lab migrations assistant-subtabs
 lab migrations assistant-records-v2
@@ -41,6 +42,14 @@ After `lab assistant migrate --documents --apply`, the manifest also records
 until explicitly migrated. Read `lab migrations assistant-documents` for the
 per-client sequence, verified backup/rollback, old-link compatibility and the
 optional `external_url` property. Restart the updated backend after migration.
+
+Document-owned tasks: `lab migrations assistant-document-tasks` describes the
+explicit migration from tracked tabs and Markdown checklists into each document’s
+JSON tasks array, preserving content tabs, stars, and saved dashboard sections.
+
+The manifest marker `task_format: "document-tasks-v1"` identifies a migrated
+database. Without it, the existing tracked-tab model remains active. Updating
+Lab alone does not migrate client data.
 
 ## Other compatibility guides
 

@@ -2972,3 +2972,23 @@
 .assistant-terminal-settings input[type="number"] { width:85px; padding:6px; color:var(--text-primary); background:var(--bg-primary); border:1px solid var(--border); border-radius:4px; }
 .assistant-terminal-settings button { padding:7px 13px; color:var(--text-primary); background:var(--bg-tertiary); border:1px solid var(--border); border-radius:5px; }
 .assistant-terminal-settings [role="alert"] { color:var(--red); }
+
+/* Compact document lists: keep title, summary and status on one desktop row. */
+.assistant-document-row{min-height:40px;padding:7px 12px;gap:10px}
+.assistant-document-row .assistant-document-icon{width:16px;height:18px}
+.assistant-document-row .assistant-row-content{display:flex;align-items:center;gap:12px}
+.assistant-document-row .assistant-row-title{flex:0 1 auto;max-width:65%}
+.assistant-document-row .assistant-row-title:only-child{max-width:100%}
+.assistant-document-row .assistant-row-title strong{font-size:14px;font-weight:550;line-height:1.4}
+.assistant-document-row .assistant-row-tldr{flex:1 1 180px;display:block;font-size:12px;line-height:1.4;white-space:nowrap}
+@media(max-width:760px){
+  .assistant-document-row .assistant-row-content{flex-basis:calc(100% - 28px)}
+  .assistant-document-row .assistant-row-title{max-width:100%}
+  .assistant-document-row .assistant-row-tldr{display:none}
+  .assistant-document-row .assistant-row-meta{width:100%;padding-left:26px}
+  .assistant-document-row .assistant-row-meta:empty{display:none}
+}
+
+.assistant-work-status{display:inline-block;border:1px solid var(--border);border-radius:4px;padding:1px 6px;white-space:nowrap;font-size:10px;font-weight:600;line-height:1.5;color:var(--text-secondary)}
+.assistant-work-status.pending{color:var(--text-primary)}.assistant-work-status.completed{color:#7ee787}.assistant-work-status.wip{color:#e3b341;background:#e3b3410d;border-color:#e3b34150}.assistant-work-status.blocked{color:#ff7b72;background:#ff7b720d;border-color:#ff7b7250}
+.assistant-task-dashboard h2{font-size:16px;margin:18px 0 10px}.assistant-task-dashboard-tabs{list-style:none;padding:0;margin:0;border:1px solid var(--border);border-radius:6px}.assistant-task-dashboard-tabs li+li{border-top:1px solid var(--border)}.assistant-task-dashboard-tabs button{width:100%;display:flex;gap:12px;justify-content:space-between;border:0;background:transparent;color:var(--text-primary);text-align:left;padding:9px 12px;cursor:pointer}.assistant-task-dashboard-tabs button:hover{background:var(--bg-secondary)}.assistant-task-dashboard-tabs small{color:var(--text-secondary);white-space:nowrap}

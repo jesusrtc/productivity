@@ -1,5 +1,11 @@
 # Tasks and tabs in Assistant
 
+For a database marked `task_format: "document-tasks-v1"`, tasks live in the owning
+document’s JSON `tasks` array. Tabs are content, with no lifecycle. Use
+`lab assistant task add/set/done/repeat` with a document ID and task ID; read
+`lab migrations assistant-document-tasks` for the full contract. The legacy
+tracked-tab instructions below apply only to databases not yet migrated.
+
 Current storage uses `documents/<id>.md` for all independent tasks, notes,
 meetings and series, with embedded subtabs. Older clients may still use tasks/
 and notes/. Read `lab migrations assistant-documents` before migrating; never
