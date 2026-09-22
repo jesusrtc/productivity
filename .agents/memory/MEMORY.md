@@ -242,3 +242,5 @@
 - [Central settings use explicit scopes](central-settings-use-explicit-scopes.md) — Cmd/Ctrl+, consolidates settings; inactive workspace edits never borrow the active scope.
 
 - [Terminal completion unread dot](terminal-completion-unread-dot.md) — verified Codex/Claude/Copilot response boundaries; blue dot persists until viewed, independent of the green recent line.
+
+- [Terminal browser resources are bounded](terminal-browser-resources-are-bounded.md) — cap and expire hidden views, dispose active renderers and observers, and recover graphics without restarting sessions.

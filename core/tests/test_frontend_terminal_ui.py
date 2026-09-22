@@ -1864,9 +1864,10 @@ def test_soft_detach_removes_pending_pane_without_websocket() -> None:
         "  // ─── Workspace tabs",
     )
     term_detach = _js_between(
-        "function termDetach(soft = false)",
+        "function termDetach(soft = false,",
         "  // Compute the next reconnect delay",
     )
+    dispose_pane = _js_between("  function _termDisposePane(", "  function _termPruneCache(")
     result = _run_node(
         """
 console.log = () => {};
@@ -1903,11 +1904,12 @@ const _termCache = new Map();
 
 function _termActiveWorkspaceId() { return activeWorkspace; }
 function _termDisableWebgl() {}
+function _termPruneCache() {}
 function _termEvictCache() { throw new Error('full eviction should not run for soft detach'); }
 const CEREBRO_WORKSPACE_ID = '__cerebro__';
 const SELF_WORKSPACE_ID = '__self__';
 const LOGS_WORKSPACE_ID = '__logs__';
-""" + helper_block + term_detach + """
+""" + helper_block + dispose_pane + term_detach + """
 
 termDetach(true);
 process.stdout.write(JSON.stringify({
@@ -2229,13 +2231,14 @@ def test_hidden_parked_xterm_cannot_send_input_to_active_terminal() -> None:
         "  // ─── Workspace tabs",
     )
     term_detach = _js_between(
-        "function termDetach(soft = false)",
+        "function termDetach(soft = false,",
         "  // Compute the next reconnect delay",
     )
     term_attach = _js_between(
         "async function termAttach(name",
         "  function termSetStatus",
     )
+    dispose_pane = _js_between("  function _termDisposePane(", "  function _termPruneCache(")
     result = _run_node(
         """
 console.log = () => {};
@@ -2317,6 +2320,7 @@ function _termStripModes(s) { return s; }
 function termSendResize() {}
 function _termEnableWebgl() {}
 function _termDisableWebgl() {}
+function _termPruneCache() {}
 function _termMarkDead() {}
 function termRefreshSessions() {}
 function termRefreshSessionsByWorkspaceId() {}
@@ -2348,7 +2352,7 @@ const CEREBRO_WORKSPACE_ID = '__cerebro__';
 const SELF_WORKSPACE_ID = '__self__';
 const LOGS_WORKSPACE_ID = '__logs__';
 const location = {protocol: 'http:', host: 'localhost'};
-""" + helper_block + term_detach + term_attach + """
+""" + helper_block + dispose_pane + term_detach + term_attach + """
 
 (async () => {
   await termAttach('lab-demo-a', 'demo');

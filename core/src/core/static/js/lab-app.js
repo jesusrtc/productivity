@@ -10538,6 +10538,8 @@
   const TERM_RECONNECT_BASE_MS = 800;
   const TERM_RECONNECT_CAP_MS = 30000;
   const TERM_FAST_PARK_MS = 10 * 60 * 1000;
+  const TERM_MAX_PARKED_PANES = 3;
+  let termCachePruneTimer = null;
 
   // Per-workspace "last selected" memory so leaving and returning to a workspace
   // (full page reload) restores whichever session pill the user had active
@@ -11263,8 +11265,7 @@
       <button onclick="termCreateNew('claude')" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;margin-right:8px">Start fresh Claude</button>
       <button onclick="termCreateNew('terminal')" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer">New terminal</button>`;
     el.style.display = '';
-    termXterm = null;
-    termFitAddon = null;
+    if (termXterm || termWS || termContainer) termDetach();
   }
 
   async function termReconnectOrRefresh() {
@@ -14179,7 +14180,12 @@
 
   function _termGuardViewportDisposal(xt) {
     const dispose = xt.dispose.bind(xt);
+    let disposed = false;
     xt.dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      xt._labDisposeView?.();
+      xt._labDisposeView = null;
       // xterm 5.3 leaves viewport timers/animation frames queued on disposal.
       // Their callbacks otherwise read dimensions from the disposed renderer.
       // Keep this version-specific workaround here, not in the immutable vendor asset.
@@ -14283,38 +14289,44 @@
   let _termWebglFailed = false;  // hard failure → stop retrying this page-load
   function _termEnableWebgl() {
     if (_termWebglFailed || !termXterm || typeof WebglAddon === 'undefined') return;
-    if (termXterm._webglAddon) return;  // already on
+    const xt = termXterm;
+    if (xt._webglAddon) return;
+    let addon;
     try {
-      const addon = new WebglAddon.WebglAddon();
+      addon = new WebglAddon.WebglAddon();
       addon.onContextLoss(() => {
-        // GPU context evicted (too many contexts / driver reset). Drop to
-        // the DOM renderer for this terminal; next attach retries WebGL.
-        try { addon.dispose(); } catch {}
-        if (termXterm && termXterm._webglAddon === addon) termXterm._webglAddon = null;
+        // Capture the owner: this callback can arrive after a tab switch.
+        // Do not repeatedly recreate GPU contexts after a driver failure.
+        if (xt._webglAddon !== addon) return;
+        _termWebglFailed = true;
+        _termDisableWebgl(xt);
       });
-      termXterm.loadAddon(addon);
-      termXterm._webglAddon = addon;
+      xt._webglAddon = addon;
+      xt.loadAddon(addon);
     } catch (e) {
-      console.warn('[term] WebGL renderer unavailable, using DOM renderer', e);
       _termWebglFailed = true;
+      _termDisableWebgl(xt);
+      console.warn('[term] WebGL renderer unavailable, using DOM renderer', e);
     }
   }
   function _termDisableWebgl(xt) {
-    if (xt && xt._webglAddon) {
-      try { xt._webglAddon.dispose(); } catch {}
-      xt._webglAddon = null;
-    }
+    const addon = xt?._webglAddon;
+    if (!addon) return;
+    xt._webglAddon = null;
+    try { addon.dispose(); } catch {}
+    try { xt.refresh(0, xt.rows - 1); } catch {}
   }
   // The vendored 0.16 addon can throw from inside xterm's render loop when
   // a queued frame races a resize that shrank the buffer (upstream xterm.js
   // "Cannot read properties of undefined (reading 'loadCell')"). That
   // exception escapes to window.onerror — no try/catch here sees it — so
-  // recover the same way onContextLoss does: drop to the DOM renderer for
-  // this terminal; the next attach retries WebGL.
+  // recover the same way onContextLoss does: use the DOM renderer for the
+  // rest of this page load, without re-entering a graphics crash loop.
   window.addEventListener('error', (ev) => {
     if (!termXterm || !termXterm._webglAddon) return;
     const fromAddon = (ev.filename || '').includes('xterm-addon-webgl');
     if (!fromAddon && !(ev.message || '').includes('loadCell')) return;
+    _termWebglFailed = true;
     console.warn('[term] WebGL renderer crashed, using DOM renderer', ev.message);
     _termDisableWebgl(termXterm);
   });
@@ -14333,8 +14345,7 @@
     }
     el.innerHTML = `Click <b>+ New</b> to spawn a <code>tmux</code> session running <code>claude</code> in this workspace's folder. You can also attach from iTerm anytime with <code>tmux attach -t &lt;name&gt;</code>.`;
     el.style.display = '';
-    termXterm = null;
-    termFitAddon = null;
+    if (termXterm || termWS || termContainer) termDetach();
   }
 
   function termSendResize() {
@@ -14344,7 +14355,7 @@
 
   // soft=true: tab-switch — keep WS+xterm alive in cache, just un-mount DOM.
   // soft=false (default): full close — evict cache entry, close WS.
-  function termDetach(soft = false) {
+  function termDetach(soft = false, keepCacheKey = null) {
     window.LabTerminalCompletion?.stopViewing();
     console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
     const prev = termCurrentSession;
@@ -14357,7 +14368,7 @@
     termUserDetached = true;  // mark so onclose doesn't try to recover
     if (termReconnectTimer) { clearTimeout(termReconnectTimer); termReconnectTimer = null; }
     if (soft) {
-      // Park: hide the session's container div, stash refs in cache. Never evict.
+      // Park a bounded number of recent views; tmux owns the running work.
       // We deliberately leave the WS listeners attached so server output
       // continues to land in the cached xterm — that's what keeps the
       // pane warm so a switch back doesn't have to replay scrollback
@@ -14391,19 +14402,12 @@
         // If a pane was still connecting, it may not have a WebSocket yet.
         // Do not leave that orphaned container visible behind the next
         // terminal; there is no live stream to preserve.
-        if (termWS) {
-          try { termWS.send(JSON.stringify({ type: 'detach' })); } catch {}
-          try { termWS.close(); } catch {}
-        }
-        if (termXterm) { try { termXterm.dispose(); } catch {} }
-        if (prevContainer) { try { prevContainer.remove(); } catch {} }
+        _termDisposePane({ws: termWS, xterm: termXterm, container: prevContainer});
       }
     } else {
-      if (termWS) {
-        try { termWS.send(JSON.stringify({ type: 'detach' })); } catch {}
-        try { termWS.close(); } catch {}
-        termWS = null;
-      }
+      // Active panes have already been removed from _termCache. Dispose
+      // the active view as well as any cached entry before dropping refs.
+      _termDisposePane({ws: termWS, xterm: termXterm, container: termContainer});
       if (prev) _termEvictCache(prev, prevWorkspaceId);
     }
     termXterm = null;
@@ -14412,6 +14416,7 @@
     termContainer = null;
     termCurrentSession = null;
     termCurrentWorkspaceId = null;
+    _termPruneCache(keepCacheKey);
     const badge = document.getElementById('termAutoBadge');
     if (badge) badge.style.display = 'none';
   }
@@ -14542,6 +14547,44 @@
     return entry && entry.xterm ? entry.xterm : null;
   }
 
+  // Disconnect only the browser view; the tmux session and its input stay alive.
+  function _termDisposePane(entry) {
+    if (!entry) return;
+    const ws = entry.ws;
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      try { ws.send(JSON.stringify({type: 'detach'})); } catch {}
+      try { ws.close(); } catch {}
+    }
+    _termDisableWebgl(entry.xterm);
+    try { entry.xterm?.dispose(); } catch {}
+    try { entry.container?.remove(); } catch {}
+  }
+
+  function _termPruneCache(keepKey = null) {
+    clearTimeout(termCachePruneTimer);
+    termCachePruneTimer = null;
+    const now = Date.now();
+    for (const [key, entry] of _termCache) {
+      if (key === keepKey) continue; // The requested pane is about to become active.
+      if (!entry.ws || entry.ws.readyState !== WebSocket.OPEN
+          || now - entry.parkedAt >= TERM_FAST_PARK_MS) {
+        _termEvictCache(entry.name, entry.workspaceId);
+      }
+    }
+    const parked = [..._termCache.entries()].filter(([key]) => key !== keepKey)
+      .sort((a, b) => a[1].parkedAt - b[1].parkedAt);
+    while (parked.length > TERM_MAX_PARKED_PANES) {
+      const [, entry] = parked.shift();
+      _termEvictCache(entry.name, entry.workspaceId);
+    }
+    if (!_termCache.size) return;
+    const nextExpiry = Math.min(...[..._termCache.values()]
+      .map(entry => entry.parkedAt + TERM_FAST_PARK_MS));
+    // Age out views even if the user never selects those tabs again.
+    termCachePruneTimer = setTimeout(() => _termPruneCache(), Math.max(1, nextExpiry - now));
+  }
+
   // Evict a session from the xterm cache: close its WS, dispose the
   // Terminal instance, and remove its container from the DOM.
   function _termEvictCache(name, workspaceId = termCurrentWorkspaceId || _termActiveWorkspaceId()) {
@@ -14558,10 +14601,7 @@
       const entry = _termCache.get(key);
       if (!entry) continue;
       _termCache.delete(key);
-      try { entry.ws.send(JSON.stringify({ type: 'detach' })); } catch {}
-      try { entry.ws.close(); } catch {}
-      try { entry.xterm.dispose(); } catch {}
-      try { entry.container.remove(); } catch {}
+      _termDisposePane(entry);
     }
   }
 
@@ -14604,8 +14644,8 @@
     }
     if (!_termAttachRequestIsCurrent(attachRequestSeq, workspaceId, name)) return;
 
-    // Park the current session: hide its container, stash refs in cache.
-    termDetach(true);
+    // Preserve the requested warm pane while making room for the old view.
+    termDetach(true, _termCacheKey(workspaceId, name));
     termUserDetached = false;  // fresh attach — future drops should trigger recovery
     termCurrentSession = name;
     termCurrentWorkspaceId = workspaceId;
@@ -14867,6 +14907,10 @@
       }, 100);
     });
     myRO.observe(myContainer);
+    termXterm._labDisposeView = () => {
+      clearTimeout(_resizeTimer);
+      myRO.disconnect();
+    };
     termXterm.onData(data => {
       if (termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId) return;
       if (termContainer !== myContainer) return;

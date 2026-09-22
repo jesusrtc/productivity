@@ -226,6 +226,7 @@ const WebSocket = {OPEN: 1};
 const ensureTerminalLibs = async () => {};
 const termSetStatus = () => {}, termRenderSessionList = () => {};
 const _termEnableWebgl = () => {}, _termDisableWebgl = () => {};
+const _termPruneCache = () => {}, _termDisposePane = () => {};
 const _termOpenLinkedFile = async () => {};
 const panes = new Map();
 const termEnsureXterm = () => { throw Error('Must reuse live transcript'); };
@@ -282,6 +283,7 @@ process.stdout.write(JSON.stringify({selected, navigation}));
 def test_newer_terminal_click_wins_during_vault_navigation():
     result = run('''
 const TERM_LAST_KEY = 'last';
+let termCurrentSession = null, termCurrentWorkspaceId = null;
 termSessions = [{name: 'ssd', logical_name: 'ssd'}, {name: 'logs', logical_name: 'logs'}];
 _termSaveHomeAssociation('ssd', 'vault:ssd', 100);
 _termSaveHomeAssociation('logs', 'logs', 200);
