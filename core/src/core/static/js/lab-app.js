@@ -12168,7 +12168,9 @@
 
   function _termSessionTooltipPayload(s) {
     const identity = _termSessionIdentity(s);
+    const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
+      ...(completion ? {completion: completion.label} : {}),
       ...(identity.length ? {identity} : {})});
   }
 
@@ -12337,6 +12339,7 @@
       : [];
     const latest = _termPreviewRequests(items);
     const identityHtml = _termSessionIdentityHtml(Array.isArray(payload.identity) ? payload.identity : []);
+    const completion = typeof payload.completion === 'string' ? payload.completion : '';
     const anchorRect = anchor.getBoundingClientRect();
     const panel = anchor.closest?.('.term-panel');
     const boundary = panel ? panel.getBoundingClientRect().left : anchorRect.left;
@@ -12344,7 +12347,7 @@
     const availableWidth = boundary - gap * 2;
     // Never flip above/below or into the terminal. A full-width terminal may
     // leave no usable space on the left; its selected header still has history.
-    if ((!latest.length && !identityHtml) || availableWidth < 120) {
+    if ((!latest.length && !identityHtml && !completion) || availableWidth < 120) {
       _termHideSessionTooltip();
       return;
     }
@@ -12355,6 +12358,7 @@
       tooltip._termInteractive = true;
     }
     tooltip.innerHTML = `
+      ${completion ? `<div class="term-completion-summary">${termSessEsc(completion)}</div>` : ''}
       ${identityHtml ? `<div class="term-context-identity">${identityHtml}</div>` : ''}
       ${latest.length ? `<div class="term-session-tooltip-context">
         <div class="term-session-tooltip-label">${latest.length > 1 ? 'Latest requests' : 'Latest request'}</div>
@@ -12397,6 +12401,7 @@
     const active = (s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId) ? ' active' : '';
     const recentMeta = _termSessionRecentMeta(s);
     const recent = recentMeta ? ' recent' : '';
+    const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -12404,8 +12409,8 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${visual.badge}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
-    const tooltip = _termSessionTooltipPayload(s, [statusTitle, recentTitle].filter(Boolean).join(' · '));
+    const ariaLabel = `${display} · ${visual.badge}${completion ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
@@ -12415,10 +12420,22 @@
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
+      ${completion ? `<span class="sess-completion" role="img" aria-label="${termSessEsc(completion.label)}" title="${termSessEsc(completion.label)}"></span>` : ''}
     </span>`;
   }
 
+  function _termMarkVisibleCompletionSeen() {
+    if (!window.LabTerminalCompletion || document.hidden || !document.hasFocus()) return;
+    if (termCurrentWorkspaceId !== _termActiveWorkspaceId()) return;
+    if (!termWS || termWS.readyState !== WebSocket.OPEN || !termXterm) return;
+    if (!document.body.classList.contains('term-open') || document.body.classList.contains('term-collapsed')) return;
+    if (!termContainer?.getClientRects().length) return;
+    const session = termSessions.find(s => s.name === termCurrentSession);
+    if (session) window.LabTerminalCompletion.see(_termRecentScopeKey(), session);
+  }
+
   function termRenderSessionList() {
+    if (typeof _termMarkVisibleCompletionSeen === 'function') _termMarkVisibleCompletionSeen();
     if (_termDragState) {
       if (_termDragState.scope === _termGroupScopeKey()) return;
       _termFinishDrag(false);
@@ -14555,6 +14572,7 @@
       console.log('[term] early return — same session already open');
       _termShowPane(termContainer);
       _termFocusActiveSoon();
+      termRenderSessionList();
       return;
     }
     // A previous connect confirmed the session is gone. Don't hammer

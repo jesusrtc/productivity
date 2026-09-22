@@ -1280,8 +1280,13 @@ def _enrich_agent_session_names(rows: list[dict]) -> None:
         requests = []
         if agent == "codex":
             metadata = codex_metadata.get(_tty_key(row.get("pane_tty")))
+            # Saved IDs can belong to a prior /new or resumed process. Only
+            # the live TTY mapping is authoritative for completion signals.
+            session_id = None
             if metadata:
                 session_id, display, objective, requests = metadata
+            else:
+                row.pop("agent_session_id", None)
         elif agent == "claude" and isinstance(session_id, str):
             display, objective, requests = _claude_session_metadata(
                 session_id, str(row.get("cwd") or ""),
@@ -2157,7 +2162,10 @@ def _session_rows_for_root(
 
 
 def _enrich_session_details(rows: list[dict]) -> None:
+    from core import agent_activity
+
     _enrich_agent_session_names(rows)
+    agent_activity.enrich(rows)
     for row in rows:
         if row.get("summary"):
             continue
