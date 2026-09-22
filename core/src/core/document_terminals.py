@@ -73,7 +73,7 @@ def input_callback(name):
     def used(data):
         # Mouse reports do not change an agent's prompt. Bracketed pastes can
         # contain newlines without submitting; preserve those drafts too.
-        if re.fullmatch(r'\x1b(?:\[<\d+;\d+;\d+[Mm]|\[[?0-9;]*[cRn]|\[[IO]|\]\d+;[^\x1b\x07]*(?:\x07|\x1b\\))', data):
+        if re.fullmatch(r'\x1b(?:\[<\d+;\d+;\d+[Mm]|\[[?>0-9;]*[cRn]|\[[IO]|\]\d+;[^\x1b\x07]*(?:\x07|\x1b\\))', data):
             return
         slot[0] = time.time()
         if '\x1b[200~' not in data and data.endswith('\r'):

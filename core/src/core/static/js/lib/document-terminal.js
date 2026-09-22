@@ -38,7 +38,7 @@
     wake.hidden = result.state === 'running' && !error;
     wake.disabled = result.state === 'disabled';
     wake.textContent = result.state === 'sleeping' ? 'Wake' : result.state === 'absent' ? 'Open terminal' : 'Try again';
-    state.host.querySelector('[data-terminal-sleep]').hidden = result.state !== 'running';
+    state.host.querySelector('[data-terminal-sleep]').hidden = result.state !== 'running' || Boolean(error);
     if (result.state !== 'running') releaseView(state);
   }
   function used(state) {
@@ -95,7 +95,7 @@
       let message; try { message = JSON.parse(event.data); } catch { return; }
       if (message.type === 'data') terminal.write(window._termStripModes ? window._termStripModes(message.data) : message.data);
       if (message.type === 'exit') {
-        state.connectionEnded = true;
+        state.connectionEnded = !state.sleepRequested;
         releaseView(state);
         void refresh(state).catch(() => {});
       }
@@ -114,7 +114,7 @@
     try {
       const result = await request(state.path,'status',state.abort.signal);
       if (state !== current) return;
-      show(state,result,state.connectionEnded && result.state === 'running' ? 'Connection closed. Reopen the terminal to reconnect.' : '');
+      show(state,result,state.connectionEnded ? 'Terminal disconnected. Open it again to reconnect.' : '');
       if (result.state === 'running' && !state.socket && !state.connectionEnded) await attach(state,result);
     } catch (error) {
       if (error.name !== 'AbortError') show(state,state.result || {},error.message);
@@ -123,6 +123,7 @@
   async function wake(state) {
     if (state !== current || state.opening) return;
     state.opening = true;
+    state.sleepRequested = false;
     state.host.querySelector('[data-terminal-status]').textContent = 'Opening terminal…';
     try {
       const result = await request(state.path,'open',state.abort.signal);
@@ -148,8 +149,9 @@
     host.querySelector('[data-terminal-wake]').onclick = () => void wake(state);
     host.querySelector('[data-terminal-settings]').onclick = () => void openSettings();
     host.querySelector('[data-terminal-sleep]').onclick = async () => {
+      state.sleepRequested = true;
       try { show(state,await request(state.path,'sleep',state.abort.signal)); }
-      catch (error) { if (error.name !== 'AbortError') show(state,state.result || {},error.message); }
+      catch (error) { state.sleepRequested = false; if (error.name !== 'AbortError') show(state,state.result || {},error.message); }
     };
     for (const event of ['pointerdown','keydown','wheel']) host.addEventListener(event,() => used(state),{signal:state.abort.signal,passive:true});
     state.poll = setInterval(() => void refresh(state),30000);

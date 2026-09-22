@@ -365,7 +365,7 @@ def test_live_thread_is_checkpointed_before_sleep_deadline(engine, monkeypatch):
 
 def test_terminal_protocol_replies_do_not_create_phantom_drafts(engine):
     e=engine;row=open_doc(e);callback=dm.input_callback(row['name'])
-    for reply in ['\x1b[?1;2c','\x1b[12;30R','\x1b[I','\x1b[O','\x1b]11;rgb:0000/0000/0000\x1b\\']:
+    for reply in ['\x1b[?1;2c','\x1b[>0;276;0c','\x1b[12;30R','\x1b[I','\x1b[O','\x1b]11;rgb:0000/0000/0000\x1b\\']:
         callback(reply)
     e.clock.now+=300;dm.sweep(e.root)
     assert row['name'] not in e.live

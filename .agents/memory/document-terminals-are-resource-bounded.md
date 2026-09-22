@@ -26,3 +26,7 @@ Input callbacks only update RAM; ignore terminal protocol/mouse replies when
 tracking unsent text. Cleanup runs at low frequency. Inspect OS memory only
 during startup/cleanup, never on the terminal byte path. See
 docs/document-terminals.md for settings and compatibility.
+
+Both primary and secondary terminal device-attribute replies (CSI ?…c and
+CSI >…c) must be ignored as input. Real xterm attach sends both; treating the
+secondary reply as typed text produced a false unsent-draft flag on every open.

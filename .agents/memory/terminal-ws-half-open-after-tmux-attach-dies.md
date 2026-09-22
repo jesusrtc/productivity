@@ -1,24 +1,16 @@
----
-name: terminal-ws-half-open-after-tmux-attach-dies
-description: Server keeps the terminal WS open after its `tmux attach` child dies; clients only find out on next keystroke or via the 8s session poll
-metadata:
-  type: workspace
----
+# Terminal WebSockets close when their PTY exits
 
-When the server-side `tmux attach` PTY child exits (session killed, client
-detached), the WS handler in `core/src/core/routes/term.py` does NOT close the
-WebSocket: `pump_pty_to_ws` just returns on EOF and the `receive_text()` loop
-keeps waiting. The browser still shows "attached" on a frozen pane until either
-(a) the user types (PTY write fails → server breaks → WS closes) or (b) the
-frontend's 8s periodic session refresh notices the session vanished.
+A tmux attach process can exit while the browser is still connected. The old
+handler returned from its output pump but left receive_text waiting forever,
+so document terminals showed Ready above [exited].
 
-**Why:** verified live 2026-07-09 while building terminal auto-reconnect —
-`tmux detach-client`/`kill-session` produced no WS close for 30s+.
+The connection now waits for either its PTY output pump or keyboard input pump
+to finish, then cancels both, releases the PTY, sends an exit frame and closes
+the WebSocket. Keep this event-driven; do not depend on a keypress or a session
+poll to discover EOF. Browser document terminals expose a reconnect action and
+do not automatically relaunch agents that keep failing at startup.
 
-**How to apply:** the frontend auto-reconnect (endless capped backoff +
-`_termSessionGone` auto-restore in `lab-app.js`) deliberately leans on the 8s
-poll to catch confirmed-gone sessions, so worst-case detection is ~8s. If that
-lag ever matters, the server fix is to close the WS when the pump hits EOF.
-Related: [[terminal-latency-invariants]]. Testing gotcha: Playwright's
-`context.setOffline(true)` does not kill established WebSockets — only new
-dials/fetches fail.
+Regression coverage: test_document_terminal_connection.py exercises real pipe
+EOF with and without final error output and verifies cancellation/descriptor
+release. test_frontend_document_terminal.py covers the browser exit frame.
+Normal terminal auto-reconnect behavior remains owned by lab-app.js.

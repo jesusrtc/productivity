@@ -3749,7 +3749,7 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
                 return False
         return True
 
-    try:
+    async def pump_ws_to_pty() -> None:
         while True:
             msg = await websocket.receive_text()
             try:
@@ -3770,6 +3770,15 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
                 _set_winsize(fd, int(ctrl.get("rows", 24)), int(ctrl.get("cols", 80)))
             elif t == "detach":
                 break
+    input_task = asyncio.create_task(pump_ws_to_pty())
+    try:
+        # Either direction ending closes the connection. A completed PTY pump
+        # must not leave receive_text waiting forever on a dead terminal.
+        finished, _ = await asyncio.wait(
+            {reader_task, input_task}, return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in finished:
+            task.result()
     except _WS_SEND_RACE_ERRORS:
         # Any flavor of "client is gone" — WSDisconnect,
         # ClientDisconnected, ConnectionClosed, OSError from a torn-down
@@ -3792,10 +3801,12 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
             except (OSError, ValueError):
                 pass
         reader_task.cancel()
-        try:
-            await reader_task
-        except (asyncio.CancelledError, Exception):
-            pass
+        input_task.cancel()
+        for task in (reader_task, input_task):
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         try:
             os.kill(pid, signal.SIGHUP)
         except ProcessLookupError:

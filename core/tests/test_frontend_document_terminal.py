@@ -110,6 +110,14 @@ const poll=async()=>{for(const fn of intervals.values())fn();await new Promise(r
  const disconnected=counters.created;await poll();await poll();
  assert(counters.created===disconnected&&!host().querySelector('[data-terminal-wake]').hidden,'closed connection requires deliberate retry');
  host().querySelector('[data-terminal-wake]').click();await until(()=>counters.sockets===1);
+ // Actual server EOF arrives as an exit frame, even if the status cache still
+ // calls the process running. It must expose reconnect and dispose the view.
+ latestSocket.onmessage({data:JSON.stringify({type:'exit'})});
+ await until(()=>host().textContent.includes('Terminal disconnected'));
+ assert(!counters.sockets&&!counters.terminals&&!host().querySelector('[data-terminal-wake]').hidden,'EOF cannot leave Ready above a dead terminal');
+ const exitedOpens=counters.opened;await poll();await poll();
+ assert(counters.opened===exitedOpens,'startup exits do not cause restart storms');
+ host().querySelector('[data-terminal-wake]').click();await until(()=>counters.sockets===1);
  for(let i=0;i<24;i++){
   LabDocumentTerminal.open(FIX.details[i%2?FIX.paths.note:FIX.paths.task]);
   await until(()=>counters.sockets===1);
