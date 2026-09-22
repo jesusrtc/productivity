@@ -319,7 +319,7 @@
     } catch (err) {}
   }
 
-  async function selectRepo(workspaceKey) {
+  async function selectRepo(workspaceKey, {initialLoad = false} = {}) {
     if (!workspaceKey) return;
     currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
       || workspacesList.find(p => p.name === workspaceKey);
@@ -367,8 +367,8 @@
       };
       // Decide synchronously whether a doc or the dashboard will paint
       // the content area. On cold full-page loads, keep the server-rendered
-      // shell isolated from sidebar/dashboard fetches; warm in-app switches
-      // hydrate immediately.
+      // shell isolated from sidebar/dashboard fetches. Explicit navigation
+      // hydrates immediately, including clicks during the first two seconds.
       // Set `_workspaceDocPath` up-front so showWorkspaceInfo's dashboard-paint
       // race guard knows a doc is on its way and doesn't stomp the doc
       // render. If no remembered doc, _workspaceDocPath is null and
@@ -376,16 +376,19 @@
       const remembered = getLastWorkspaceDoc(currentWorkspace.path);
       _workspaceDocPath = remembered || null;
       if (!remembered) paintWorkspaceShell();
-      afterColdPageQuiet(hydrateWorkspaceChrome);
+      if (initialLoad) afterColdPageQuiet(hydrateWorkspaceChrome);
+      else hydrateWorkspaceChrome();
       if (remembered) openWorkspaceDoc(remembered);
       // Workspace-scoped terminal panel: auto-open + attach latest session (if any).
       // Skip under ?ui_check=1 so headless validator reaches network idle.
       if (!(new URLSearchParams(location.search).get('ui_check') === '1')) {
         const terminalWorkspaceId = currentWorkspace.name;
-        afterPageQuiet(() => {
+        const restoreTerminal = () => {
           if (typeof _termIsScopeActive === 'function' && !_termIsScopeActive(terminalWorkspaceId)) return;
           termOpenForWorkspace(terminalWorkspaceId);
-        });
+        };
+        if (initialLoad) afterPageQuiet(restoreTerminal);
+        else restoreTerminal();
       }
       // Re-render workspace tabs so the active highlight tracks the selection.
       if (typeof workspaceTabsRender === 'function') workspaceTabsRender();
@@ -18631,7 +18634,7 @@
       workspacesList = workspaces;
       const workspace = workspaces.find(p => p.path === _effectiveWorkspace);
       if (workspace) {
-        selectRepo(workspace.path);
+        selectRepo(workspace.path, {initialLoad: true});
       }
     });
   } else if (urlRepo) {
@@ -18639,7 +18642,7 @@
       workspacesList = workspaces;
       const workspace = workspaces.find(p => p.repos.some(r => r.path === urlRepo));
       if (workspace) {
-        selectRepo(workspace.path);
+        selectRepo(workspace.path, {initialLoad: true});
         if (workspace.repos.length > 1) {
           const targetRepo = workspace.repos.find(r => r.path === urlRepo);
           if (targetRepo) selectWorkspaceRepo(targetRepo.path);

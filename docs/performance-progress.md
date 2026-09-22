@@ -163,3 +163,56 @@ It alternates invocation order, clears the metadata TTL before every call,
 checks full result equality without printing private content, and reports
 all candidate samples at or above 200 ms as failures. It does not flush the
 OS file cache or change provider data.
+
+## Follow-on: early workspace clicks
+
+The browser probe found an explicit 750 ms startup timer on user navigation.
+`selectRepo` inferred cold startup from page age, so clicking an already visible
+workspace tab during the first two seconds postponed both dashboard/sidebar
+hydration and terminal restoration. Only initial URL dispatch now opts into
+that scheduling. Tab clicks, workspace opening, and back/forward navigation
+start hydration immediately. Remembered documents and terminal scope guards
+remain in place. Full-page startup itself is still deferred and requires work.
+
+The new `scripts/perf/lab_navigation_latency.py` runs a normal-lifespan local
+server with polling enabled, two CLI-created temporary workspaces, two Markdown
+documents per workspace, and a fresh headless Chrome profile. All registry,
+auth, Assistant and framework paths belong to the disposable fixture. Automatic
+agent creation is disabled using the fixture's real UI preference endpoint;
+there are no live terminals in this workload. The running user server and
+saved user tabs are untouched.
+
+The first tab click runs as soon as tabs appear. The probe uses real CDP mouse
+input and waits for complete dashboard/document content followed by an animation
+frame and task. This estimates a browser paint opportunity, not physical display
+scanout. It retains every sample and API timing, includes background requests,
+reports HTTP/network/browser errors, and fails for any measured 200 ms miss.
+
+| 20 samples per action | Prior JS (`01dab6e`) first / p95 / max | Candidate first / p95 / max |
+| --- | ---: | ---: |
+| Workspace tab → complete dashboard | **820.40 / 221.60 / 820.40 ms** | 65.60 / 72.80 / 75.00 ms |
+| Sidebar document → rendered Markdown | 68.40 / 39.80 / 68.40 ms | 64.50 / 46.90 / 64.50 ms |
+
+The baseline also recorded one `/api/workspace-info` HTTP 404; no browser
+exceptions were observed. The candidate recorded **408 API requests**, maximum
+**49.40 ms**, with no HTTP, network, or browser errors. Earlier diagnostic runs
+reproduced the early-click reduction (799.40 → 66.10 ms); warm tab switches
+were already below 78 ms. These are small-fixture results, not a replacement
+for the unresolved cold real-vault metadata failures or heavy-workspace tests.
+
+Regression coverage exercises selection while the page is only 500 ms old,
+remembered documents, explicit initial-load scheduling, and stale terminal
+restoration after another workspace becomes active. Existing notebook,
+workspace order, navigation, picker, rename, proxy, and browser terminal
+**disposal checks passed: 35 tests**. The notebook source-extraction fixture now
+accepts the added optional argument to `selectRepo`.
+
+```sh
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py --samples 20
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 20 --app-revision 01dab6e
+```
+
+The earlier one-second runtime-metadata read did not recur in a follow-up
+per-file probe: all three metadata files read in under 1 ms. That observation
+does not resolve or invalidate the previously measured storage-sensitive miss.
