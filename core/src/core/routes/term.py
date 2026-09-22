@@ -1587,9 +1587,16 @@ def _sync_meta(root: Path, live: list[dict] | None) -> dict:
     # only sessions already owned by this registry or whose deterministic
     # hash/name parses for this root; otherwise each vault scan would
     # adopt every other vault's sessions into its own sessions.json.
+    from lab.workspace_identity import session_owners
+    uuid_names = {str(row.get("name") or "") for row in live
+                  if row.get("name") not in meta
+                  and re.fullmatch(r"neurona-[0-9a-f]{32}", str(row.get("name") or ""))}
+    owners = session_owners(root, uuid_names)
     live = [
         row for row in live
-        if row.get("name") in meta or _parse_tmux_name(root, str(row.get("name") or "")) is not None
+        if row.get("name") in meta or row.get("name") in owners
+        or (row.get("name") not in uuid_names
+            and _parse_tmux_name(root, str(row.get("name") or "")) is not None)
     ]
     live_by_name = {s["name"]: s for s in live}
     changed = False

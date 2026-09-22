@@ -246,3 +246,5 @@
 - [Terminal browser resources are bounded](terminal-browser-resources-are-bounded.md) — cap and expire hidden views, dispose active renderers and observers, and recover graphics without restarting sessions.
 
 - [Terminal process discovery is TTY-scoped](terminal-process-scan-is-tty-scoped.md) — query only requested panes; a whole-machine ps scan can exceed the interaction budget by itself.
+
+- [Batch terminal ownership per vault](terminal-ownership-batched-per-vault.md) — resolve unknown UUIDs from one fresh metadata scan; retain durable recovery and legacy name handling.
