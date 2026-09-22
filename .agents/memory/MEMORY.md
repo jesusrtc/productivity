@@ -244,3 +244,5 @@
 - [Terminal completion blinks green line](terminal-completion-blinking-line.md) — steady means recent; blinking means ready to review, with the configurable 20-second viewing delay for Codex, Claude, and Copilot.
 
 - [Terminal browser resources are bounded](terminal-browser-resources-are-bounded.md) — cap and expire hidden views, dispose active renderers and observers, and recover graphics without restarting sessions.
+
+- [Terminal process discovery is TTY-scoped](terminal-process-scan-is-tty-scoped.md) — query only requested panes; a whole-machine ps scan can exceed the interaction budget by itself.

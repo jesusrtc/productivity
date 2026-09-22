@@ -1090,7 +1090,10 @@ def _codex_session_metadata_by_tty(
         return {}
     try:
         proc = subprocess.run(
-            ["ps", "-axo", "pid=,tty="], capture_output=True, text=True,
+            # Query only the displayed panes. On macOS an all-process scan
+            # can take hundreds of milliseconds on a busy workstation.
+            ["ps", "-t", ",".join(sorted(wanted)), "-o", "pid=,tty="],
+            capture_output=True, text=True,
             timeout=1.0,
         )
         if proc.returncode != 0:

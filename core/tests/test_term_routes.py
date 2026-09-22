@@ -622,6 +622,37 @@ def test_codex_metadata_cache_covers_ttys_without_a_matching_thread(
     ) == cached
 
 
+@pytest.mark.parametrize("ttys,selection", [
+    ({"/dev/ttys002", "ttys001"}, "ttys001,ttys002"),
+    ({"/dev/pts/4", "pts/2"}, "pts/2,pts/4"),
+])
+def test_codex_metadata_limits_process_scan_to_requested_ttys(
+    monkeypatch, tmp_path: Path, ttys, selection,
+) -> None:
+    import core.routes.term as term_mod
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    (codex_home / "state_5.sqlite").touch()
+    (codex_home / "logs_2.sqlite").touch()
+    monkeypatch.setattr(term_mod, "_CODEX_METADATA_CACHE", None)
+    commands = []
+
+    def processes(command, **kwargs):
+        commands.append(command)
+        # Defensively ignore unexpected rows as well as narrowing ps itself.
+        return subprocess.CompletedProcess(command, 0, stdout="999 ttys999\n")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", processes)
+    assert term_mod._codex_session_metadata_by_tty(ttys) == {}
+    assert commands == [["ps", "-t", selection, "-o", "pid=,tty="]]
+    assert term_mod._CODEX_METADATA_CACHE[1] == set(selection.split(","))
+    # A pane with no agent still belongs to the covered set.
+    assert term_mod._codex_session_metadata_by_tty(ttys) == {}
+    assert len(commands) == 1
+
+
 def test_codex_metadata_returns_all_user_requests_after_clear(
     monkeypatch, tmp_path: Path, metadata_connections_closed,
 ) -> None:
