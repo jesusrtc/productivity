@@ -12408,6 +12408,7 @@
     const recentMeta = _termSessionRecentMeta(s);
     const recent = recentMeta ? ' recent' : '';
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
+    const ready = completion ? ' completion-ready' : '';
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -12420,13 +12421,12 @@
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
-    return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+    return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${ready}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
-      ${completion ? `<span class="sess-completion" role="img" aria-label="${termSessEsc(completion.label)}" title="${termSessEsc(completion.label)}"></span>` : ''}
     </span>`;
   }
 

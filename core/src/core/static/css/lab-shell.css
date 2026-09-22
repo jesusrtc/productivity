@@ -2040,10 +2040,12 @@
   .term-context-identity-part { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .term-context-identity-arrow { color: var(--text-dim); font-weight: 400; }
   .term-session-tooltip > .term-context-identity { margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid #414852; }
-  .term-sessions .sess.recent:not(.active)::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-recent-color, var(--green)); pointer-events: none; }
-  .term-sessions .sess .sess-completion { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); width: 7px; height: 7px; border-radius: 50%; background: #58a6ff; box-shadow: 0 0 0 2px var(--bg-tertiary); }
-  .term-panel.term-sessions-full .term-sessions .sess:has(.sess-completion) { padding-right: 15px; }
-  .term-completion-summary { color: #58a6ff; margin-bottom: 6px; }
+  .term-sessions .sess.recent:not(.active)::after,
+  .term-sessions .sess.completion-ready::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-recent-color, var(--green)); pointer-events: none; }
+  .term-sessions .sess.completion-ready::after { animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--term-recent-color, var(--green)); }
+  @keyframes term-completion-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .term-sessions .sess.completion-ready::after { animation: none; } }
+  .term-completion-summary { color: var(--green); margin-bottom: 6px; }
 
   .term-sessions .sess.active { color: var(--text-primary); background: #388bfd26; border-color: #388bfd; }
   /* Dead session: server told us the tmux session is gone, or the
