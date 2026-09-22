@@ -117,7 +117,10 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  assert(form().elements.recentMinutes.value==='60'&&q('[data-title]').textContent.includes('Beta'),'dirty navigation can be cancelled');
  discard=true;q('[data-scope="global"]').click();await until(()=>form()?.elements.defaultAgent);
  await section('documents');field('sleepMinutes','20');field('maxRunning','2');await save();assert(cfg.documentTerminals.sleepMinutes===20&&cfg.documentTerminals.maxRunning===2,'global policy saved');
- await section('terminals');field('orientation','horizontal');await save();assert(termSessionOrientation==='horizontal','appearance bridge');
+ await section('terminals');assert(form().elements.completionReadSeconds.value==='20','completion delay defaults to twenty seconds');
+ field('orientation','horizontal');field('completionReadSeconds','7');await save();assert(termSessionOrientation==='horizontal','appearance bridge');
+ assert(localStorage.getItem('labTerminalCompletionReadSeconds')==='7','completion delay persisted');
+ await section('documents');await section('terminals');assert(form().elements.completionReadSeconds.value==='7','saved delay restored');
  await section('general');field('theme','dark');failSave=true;form().requestSubmit();await until(()=>q('[data-message]').classList.contains('error'));
  assert(form().elements.theme.value==='dark'&&document.getElementById('labSettingsCenter').open,'failed save keeps draft');failSave=false;await save();
  delayA=true;q('[data-scope="/vault-a/same"]').click();await until(()=>releaseA);
@@ -131,7 +134,7 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''
     page=tmp_path/'settings.html'
-    page.write_text('<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/settings-center.css').read_text()+'</style><body><input id="terminalInput"><pre id="result">PENDING</pre><script>'+setup+'\n'+helpers+'</script><script>'+(STATIC/'js/lib/settings-center.js').read_text()+'</script><script>'+checks+'</script>')
+    page.write_text('<!doctype html><meta charset="utf-8"><style>'+(STATIC/'css/lab-shell.css').read_text()+(STATIC/'css/settings-center.css').read_text()+'</style><body><input id="terminalInput"><pre id="result">PENDING</pre><script>'+setup+'\n'+helpers+'</script><script>'+(STATIC/'js/lib/terminal-completion.js').read_text()+'</script><script>'+(STATIC/'js/lib/settings-center.js').read_text()+'</script><script>'+checks+'</script>')
     profile=tmp_path/'chrome-profile'
     process=subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run','--no-default-browser-check','--allow-file-access-from-files','--user-data-dir='+str(profile),'--remote-debugging-port=0','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:

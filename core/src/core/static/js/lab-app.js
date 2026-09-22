@@ -9661,10 +9661,11 @@
       localStorage.setItem(_TERM_NEW_OPTIONS_KEY + key, JSON.stringify(_TERM_NEW_OPTIONS.filter(value => options.includes(value))));
       if (key === _termGroupScopeKey()) _termApplyNewOptions(document.getElementById('termNewPicker'),key);
     },
-    appearance() { return {orientation:termSessionOrientation,recentMinutes:termRecentMinutes,recentColor:termRecentColor}; },
+    appearance() { return {orientation:termSessionOrientation,recentMinutes:termRecentMinutes,recentColor:termRecentColor,completionReadSeconds:window.LabTerminalCompletion?.getDelaySeconds() ?? 20}; },
     saveAppearance(value) {
       termSetSessionView('orientation',value.orientation);
       termSetRecentMinutes(value.recentMinutes); termSetRecentColor(value.recentColor);
+      if ('completionReadSeconds' in value) window.LabTerminalCompletion?.setDelaySeconds(value.completionReadSeconds);
     },
     sidebar(scope) {
       const key = encodeURIComponent(_sidebarNormalizeFolderPath(scope.path));
@@ -9966,10 +9967,8 @@
     const workspaceId = _termActiveWorkspaceId();
     const session = (termSessions || []).find(row => row.name === name);
     if (!session || !workspaceId) return;
-    // Clicking acknowledges the existing response immediately, even while
-    // navigation or reconnecting is still pending. Later responses stay unread.
-    if (window.LabTerminalCompletion?.see(_termRecentScopeKey(), session)) {
-      termRenderSessionList();
+    if (name !== termCurrentSession || workspaceId !== termCurrentWorkspaceId) {
+      window.LabTerminalCompletion?.stopViewing();
     }
     if (workspaceId === '__self__') {
       const section = _termHomeAssociation(session);
@@ -11286,6 +11285,7 @@
     document.body.classList.toggle('term-collapsed');
     const shown = !document.body.classList.contains('term-collapsed');
     _termRememberVisibility(_termVisibilityKey(), shown);
+    if (typeof _termMarkVisibleCompletionSeen === 'function') _termMarkVisibleCompletionSeen();
     if (shown && termXterm && termFitAddon) {
       setTimeout(() => { try { termFitAddon.fit(); termSendResize(); } catch {} }, 60);
     }
@@ -12430,13 +12430,18 @@
   }
 
   function _termMarkVisibleCompletionSeen() {
-    if (!window.LabTerminalCompletion || document.hidden || !document.hasFocus()) return;
-    if (termCurrentWorkspaceId !== _termActiveWorkspaceId()) return;
-    if (!termWS || termWS.readyState !== WebSocket.OPEN || !termXterm) return;
-    if (!document.body.classList.contains('term-open') || document.body.classList.contains('term-collapsed')) return;
-    if (!termContainer?.getClientRects().length) return;
+    if (!window.LabTerminalCompletion) return;
+    if (document.hidden || !document.hasFocus()
+        || termCurrentWorkspaceId !== _termActiveWorkspaceId()
+        || !termWS || termWS.readyState !== WebSocket.OPEN || !termXterm
+        || !document.body.classList.contains('term-open') || document.body.classList.contains('term-collapsed')
+        || !termContainer?.getClientRects().length) {
+      window.LabTerminalCompletion.stopViewing();
+      return;
+    }
     const session = termSessions.find(s => s.name === termCurrentSession);
-    if (session) window.LabTerminalCompletion.see(_termRecentScopeKey(), session);
+    if (session) window.LabTerminalCompletion.watch(_termRecentScopeKey(), session);
+    else window.LabTerminalCompletion.stopViewing();
   }
 
   function termRenderSessionList() {
@@ -14340,6 +14345,7 @@
   // soft=true: tab-switch — keep WS+xterm alive in cache, just un-mount DOM.
   // soft=false (default): full close — evict cache entry, close WS.
   function termDetach(soft = false) {
+    window.LabTerminalCompletion?.stopViewing();
     console.log('[term] termDetach soft=', soft, 'prev=', termCurrentSession, 'cacheSize=', _termCache.size);
     const prev = termCurrentSession;
     const prevWorkspaceId = termCurrentWorkspaceId;
@@ -14777,6 +14783,7 @@
         detachListeners();
         if (isStale()) return;
         if (termUserDetached || termCurrentSession !== name || termCurrentWorkspaceId !== workspaceId) return;
+        window.LabTerminalCompletion?.stopViewing();
         if (termDeadSessions.has(name)) return;
         _termScheduleReconnect(name, workspaceId, myWS);
       };

@@ -153,7 +153,8 @@
         ${field('Tab layout',choices('orientation',p.orientation,[['vertical','Vertical'],['horizontal','Horizontal']]))}
         <p class="settings-hint">Drag the border beside vertical tabs to resize them. Labels appear when there is room.</p>
         ${field('Recent tab window',choices('recentMinutes',p.recentMinutes,[15,30,60,180,360,720,1440].map(n=>[n,n<60?n+' minutes':n/60+' hours'])))}
-        ${field('Recent tab color',input('recentColor',p.recentColor,'color'))}`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value}));
+        ${field('Recent tab color',input('recentColor',p.recentColor,'color'))}
+        ${field('Clear blue dot after viewing (seconds)',input('completionReadSeconds',p.completionReadSeconds,'number','min="1" max="3600" step="1" required'),'Default: 20 seconds. Keep the terminal visible in the active Lab window for this long. Switching away resets the timer.')}`,async f=>bridge().saveAppearance({orientation:f.elements.orientation.value,recentMinutes:Number(f.elements.recentMinutes.value),recentColor:f.elements.recentColor.value,completionReadSeconds:Number(f.elements.completionReadSeconds.value)}));
       return;
     }
     const selected=bridge().terminalOptions(scope);

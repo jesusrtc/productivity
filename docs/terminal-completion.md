@@ -5,11 +5,18 @@ response that has not been viewed. The green left-edge line continues to mean
 recently selected. Hovering shows when the response finished without clearing
 the dot.
 
-Clicking the terminal tab or its dot clears the existing dot immediately,
-including while navigation or reconnecting is pending. Keyboard activation does
-the same. A response finishing while its pane is visible and connected in the
-focused Lab window is acknowledged automatically. Background windows, hidden
-panels, and hovering do not automatically acknowledge responses. Confirmed unread events
+The dot clears after the terminal has been continuously selected, visible, and
+connected in the focused Lab window for **20 seconds**. Clicking or keyboard
+activation alone does not clear it. Switching terminals, hiding the panel,
+leaving the Lab window, disconnecting, or reloading resets the viewing interval.
+A new response gets its own full interval, including when it finishes in an
+already open terminal. Hovering never acknowledges a response.
+
+Configure the delay under **Settings → Global → Terminal appearance → Clear
+blue dot after viewing (seconds)**. It accepts 1–3600 seconds and is saved for
+all terminal agents in this browser. Changing it restarts any pending interval.
+
+Confirmed unread events
 and acknowledgements persist in browser storage, scoped by vault/workspace,
 terminal incarnation, provider, and conversation. A later completion produces a
 new dot. An unread event survives temporary loss of provider-state information.
@@ -51,7 +58,9 @@ Provider format changes should add fixtures before extending recognition.
 errors, interruptions, children, malformed/partial files, cache invalidation,
 bounded reads, and exact conversation lookup. `test_frontend_terminal_completion.py`
 covers unread persistence, scope isolation, newer responses, uncertain state,
-immediate click acknowledgement, and focused/visible/connected automatic acknowledgement.
+the exact viewing threshold, switching/visibility resets, configurable delay,
+and focused/visible/connected acknowledgement. Settings browser checks verify
+the default, saving, and reopening the delay field.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.
