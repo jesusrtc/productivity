@@ -1,5 +1,7 @@
 # Memory index
 
+- [Codex launch options](codex-launch-explicit-autopilot-options.md) — use explicit workspace sandbox and on-request approvals; removed `--full-auto` made terminal tabs exit immediately
+
 - [External links use the default browser](external-links-use-default-browser.md) — local links leave the Lab PWA through the OS browser; shared handling across document views and terminal hyperlinks.
 
 - [Notebook cell deletion](notebook-cell-delete-corner-confirmation.md) — visible upper-right trash button in output-only mode too; confirm code, text, and draft removal

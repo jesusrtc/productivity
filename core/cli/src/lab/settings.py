@@ -30,7 +30,8 @@ _GLOBAL_WRITE_LOCK = RLock()
 # are opt-in.
 AUTOPILOT_FLAGS: dict[str, tuple[str, ...]] = {
     "claude": ("--permission-mode", "auto"),
-    "codex": ("--full-auto",),
+    # The former --full-auto alias was removed from the interactive CLI.
+    "codex": ("--sandbox", "workspace-write", "--ask-for-approval", "on-request"),
     "copilot": ("--autopilot",),
 }
 

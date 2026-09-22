@@ -2075,6 +2075,35 @@ def test_claude_launch_respects_vault_autopilot(client, seed_workspace, isolated
     assert r.json()["auto"] is True
 
 
+@pytest.mark.parametrize("auto_override, enabled", [(None, True), (False, False)])
+def test_codex_autopilot_uses_supported_sandbox_and_approval_options(
+    client, seed_workspace, isolated_prefix, monorepo, tmp_path, monkeypatch,
+    auto_override, enabled,
+) -> None:
+    import shlex
+    import shutil as real_shutil
+
+    from core.routes import term as term_route
+    from lab import settings as lab_settings
+
+    seed_workspace("demo")
+    real_which = real_shutil.which
+    monkeypatch.setattr(term_route.shutil, "which", lambda command:
+                        "/fake/codex" if command == "codex" else real_which(command))
+    lab_settings.update(monorepo, {"autopilot": {"codex": True}})
+    body = {"workspace_id": "demo", "kind": "claude", "agent": "codex", "name": "codex"}
+    if auto_override is not None:
+        body["auto"] = auto_override
+    response = client.post("/api/term/sessions", json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["auto"] is enabled
+    state = json.loads((tmp_path / "fake-tmux-state.json").read_text())
+    argv = shlex.split(state["sessions"][response.json()["name"]]["cmd"])
+    flags = argv[argv.index("--") + 1:]
+    assert flags == (["--sandbox", "workspace-write", "--ask-for-approval", "on-request"]
+                     if enabled else [])
+
+
 def test_copilot_launch_appends_autopilot_flag(client, seed_workspace, isolated_prefix,
                                                monorepo: Path, tmp_path: Path,
                                                monkeypatch) -> None:
