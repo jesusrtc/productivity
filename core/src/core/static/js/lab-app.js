@@ -9966,6 +9966,11 @@
     const workspaceId = _termActiveWorkspaceId();
     const session = (termSessions || []).find(row => row.name === name);
     if (!session || !workspaceId) return;
+    // Clicking acknowledges the existing response immediately, even while
+    // navigation or reconnecting is still pending. Later responses stay unread.
+    if (window.LabTerminalCompletion?.see(_termRecentScopeKey(), session)) {
+      termRenderSessionList();
+    }
     if (workspaceId === '__self__') {
       const section = _termHomeAssociation(session);
       // Remember the exact clicked session before navigation restores the

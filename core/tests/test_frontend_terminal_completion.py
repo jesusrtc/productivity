@@ -1,3 +1,5 @@
+import pytest
+
 from .test_frontend_terminal_ui import _run_node, _js_between, ROOT
 
 
@@ -31,6 +33,37 @@ const staleDoesNotReturn = C.meta('vault1', session) === null;
 const reloadRead = window.LabTerminalCompletion.meta('vault1', session) === null;
 console.log(JSON.stringify({unread, stillUnread, read, otherVault, otherThread,
   cannotReadFuture, nextUnread, unknown, unknownRetainsConfirmed, staleDoesNotReturn, reloadRead}));
+''')
+    assert all(result.values()), result
+
+
+@pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
+def test_click_clears_before_navigation_or_attachment_finishes(agent):
+    module = (ROOT / 'core/src/core/static/js/lib/terminal-completion.js').read_text()
+    activate = _js_between('  let _termTabActivationSeq =', '  function _termHomeAssociationHtml(session)')
+    result = _run_node('''
+const values = {};
+const localStorage = {getItem: key => values[key], setItem: (key, value) => values[key] = value};
+window.addEventListener = () => {};
+const document = {hidden:true, hasFocus:()=>false, addEventListener() {}};
+''' + module + '''
+const session={name:'one', logical_name:'one', agent:AGENT, agent_session_id:'thread1',
+  agent_activity:{state:'completed', completed_at:100, completion_id:'turn1'}};
+const termSessions=[session];
+const _termActiveWorkspaceId=()=> '__self__', _termRecentScopeKey=()=> 'home';
+const _termHomeAssociation=()=> 'logs', _termHomeSection=()=> 'home';
+const _termRememberLast=()=>{};
+let rendered=0, navigating=false;
+const termRenderSessionList=()=> rendered++;
+const goToProductivity=()=>{navigating=true; return new Promise(()=>{});};
+'''.replace('AGENT', repr(agent)) + activate + '''
+const C=window.LabTerminalCompletion;
+const before=!!C.meta('home',session);
+void _termActivateTab('one');
+const immediate=C.meta('home',session)===null && rendered===1 && navigating;
+session.agent_activity={state:'completed', completed_at:200, completion_id:'turn2'};
+const nextUnread=!!C.meta('home',session);
+console.log(JSON.stringify({before,immediate,nextUnread}));
 ''')
     assert all(result.values()), result
 

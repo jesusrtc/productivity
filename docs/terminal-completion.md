@@ -5,10 +5,11 @@ response that has not been viewed. The green left-edge line continues to mean
 recently selected. Hovering shows when the response finished without clearing
 the dot.
 
-Opening the terminal clears its dot once its pane is visible and connected in
-the focused Lab window. A response finishing while that pane is already visible
-is acknowledged automatically. Background windows, hidden panels, failed
-attachments, and hovering do not acknowledge responses. Confirmed unread events
+Clicking the terminal tab or its dot clears the existing dot immediately,
+including while navigation or reconnecting is pending. Keyboard activation does
+the same. A response finishing while its pane is visible and connected in the
+focused Lab window is acknowledged automatically. Background windows, hidden
+panels, and hovering do not automatically acknowledge responses. Confirmed unread events
 and acknowledgements persist in browser storage, scoped by vault/workspace,
 terminal incarnation, provider, and conversation. A later completion produces a
 new dot. An unread event survives temporary loss of provider-state information.
@@ -50,7 +51,7 @@ Provider format changes should add fixtures before extending recognition.
 errors, interruptions, children, malformed/partial files, cache invalidation,
 bounded reads, and exact conversation lookup. `test_frontend_terminal_completion.py`
 covers unread persistence, scope isolation, newer responses, uncertain state,
-and the focused/visible/connected acknowledgement conditions.
+immediate click acknowledgement, and focused/visible/connected automatic acknowledgement.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment
 only; it must not send input to or replace the user's live agent sessions.
