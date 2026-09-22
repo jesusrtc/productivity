@@ -30,7 +30,8 @@
     if (state !== current) return;
     state.result = result;
     const label = state.host.querySelector('[data-terminal-status]');
-    label.textContent = error || ({running:'Running',sleeping:'Sleeping — memory released',absent:'Terminal expired',disabled:'Document terminals are off'}[result.state] || 'Ready');
+    const waiting = result.reason === 'memory_check' ? 'Checking available memory — will retry automatically' : 'Waiting for memory — will resume automatically';
+    label.textContent = error || (result.state === 'waiting' ? waiting : '') || ({running:({busy:'Working',idle:'Ready',draft:'Unsent text kept open'}[result.work_state] || 'Running'),sleeping:'Sleeping — memory released',absent:'Ready to open',disabled:'Document terminals are off'}[result.state] || 'Ready');
     label.classList.toggle('error',Boolean(error));
     state.host.querySelector('[data-terminal-agent]').textContent = result.agent || 'Default agent';
     const wake = state.host.querySelector('[data-terminal-wake]');
@@ -107,7 +108,8 @@
     };
   }
   async function refresh(state) {
-    if (state !== current || document.hidden || state.checking) return;
+    if (state !== current || document.hidden || state.checking || state.opening) return;
+    if (state.result?.state === 'waiting') return wake(state);
     state.checking = true;
     try {
       const result = await request(state.path,'status',state.abort.signal);
@@ -158,7 +160,7 @@
     if (document.getElementById('documentTerminalSettings')) return;
     const dialog = document.createElement('dialog'); dialog.id = 'documentTerminalSettings';
     dialog.className = 'assistant-terminal-settings';
-    dialog.innerHTML = `<form><h2>Document terminals</h2><p>Use the default agent when you open a document. Sleep releases the process and memory; reopening resumes its saved conversation.</p><label><input name="enabled" type="checkbox"> Open automatically</label><label>Sleep after inactivity (minutes)<input name="sleepMinutes" type="number" min="1" max="10080" required></label><label>Remove after inactivity (hours)<input name="expireHours" type="number" min="1" max="8760" required></label><label>Maximum running document terminals<input name="maxRunning" type="number" min="1" max="20" required></label><p>Agents doing work stay running. These limits apply to document terminals only. Ordinary terminals and saved agent history are preserved.</p><p role="alert"></p><div><button type="button" data-cancel>Cancel</button><button type="submit" disabled>Save</button></div></form>`;
+    dialog.innerHTML = `<form><h2>Document terminals</h2><p>Use the default agent when you open a document. Sleep releases the process and memory; reopening resumes its saved conversation.</p><label><input name="enabled" type="checkbox"> Open automatically</label><label>Sleep hidden idle terminals after (minutes)<input name="sleepMinutes" type="number" min="1" max="10080" required></label><label>Remove unused terminal bookmarks after (hours)<input name="expireHours" type="number" min="1" max="8760" required></label><label>Idle terminals to keep ready<input name="maxRunning" type="number" min="1" max="20" required></label><p>Working agents and unsent text stay protected. Saved conversations remain linked to their documents. Low memory delays new starts automatically. Ordinary terminals are unchanged.</p><p role="alert"></p><div><button type="button" data-cancel>Cancel</button><button type="submit" disabled>Save</button></div></form>`;
     document.body.append(dialog); dialog.showModal();
     dialog.addEventListener('close',() => dialog.remove());
     dialog.querySelector('[data-cancel]').onclick = () => dialog.close();

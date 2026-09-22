@@ -35,7 +35,7 @@ def test_global_policy_is_validated_and_cannot_choose_missing_agent(client, mono
     for body in [{'documentTerminals':{'maxRunning':0}},{'documentTerminals':{'sleepMinutes':3000}},{'theme':'unknown'},{'documentTerminals':None}]:
         assert client.post('/api/settings/global',json=body).status_code==400
     assert client.post('/api/settings/global',json={'documentTerminals':{'sleepMinutes':30}}).status_code==200
-    assert settings.load(monorepo)['documentTerminals']=={'enabled':True,'sleepMinutes':30,'expireHours':36,'maxRunning':3}
+    assert settings.load(monorepo)['documentTerminals']=={'enabled':True,'sleepMinutes':30,'expireHours':36,'maxRunning':1}
 
 
 def test_global_read_does_not_migrate_legacy_config(client,monorepo):

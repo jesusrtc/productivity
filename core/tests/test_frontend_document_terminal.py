@@ -48,7 +48,7 @@ window.WebSocket=class {
  close(){if(this.readyState===1){this.readyState=3;--counters.sockets;}}
 };
 let hidden=false;Object.defineProperty(document,'hidden',{get:()=>hidden});
-let policy={enabled:true,sleepMinutes:60,expireHours:36,maxRunning:3},forcedError='',savedSettings=0;
+let policy={enabled:true,sleepMinutes:5,expireHours:36,maxRunning:1},forcedError='',lowMemory=false,savedSettings=0;
 const managed=new Map();
 window.fetch=async(url,options={})=>{
  const u=new URL(url,'https://lab.example');
@@ -60,6 +60,7 @@ window.fetch=async(url,options={})=>{
   const {path,action}=JSON.parse(options.body),detail=FIX.details[path],key=detail.root_path||path;
   if(action==='open'){
    ++counters.opened;
+   if(lowMemory)return {ok:true,json:async()=>({key,state:'waiting',reason:'memory',policy})};
    if(forcedError)return {ok:false,json:async()=>({detail:forcedError})};
    managed.set(key,{key,name:'managed-'+key,state:policy.enabled?'running':'disabled',agent:'codex',policy});
   }
@@ -116,15 +117,21 @@ const poll=async()=>{for(const fn of intervals.values())fn();await new Promise(r
  assert(counters.peakSockets===1&&counters.peakTerminals===1,'document switches never accumulate renderers or sockets');
  LabDocumentTerminal.close();
  assert(!counters.sockets&&!counters.terminals&&!intervals.size&&!activityTimers.size,'closing disposes timers too');
- forcedError='All three agents are working. Try again later.';
+ lowMemory=true;
  LabDocumentTerminal.open(FIX.details[FIX.paths.note]);
- await until(()=>host().textContent.includes('All three'));
- assert(!counters.sockets&&!host().querySelector('[data-terminal-wake]').hidden,'capacity errors are retryable');
+ await until(()=>host().textContent.includes('Waiting for memory'));
+ assert(!counters.sockets,'waiting starts no terminal');
+ lowMemory=false;await poll();await until(()=>counters.sockets===1);
+ LabDocumentTerminal.close();
+ forcedError='Terminal server unavailable.';
+ LabDocumentTerminal.open(FIX.details[FIX.paths.note]);
+ await until(()=>host().textContent.includes('Terminal server unavailable'));
+ assert(!counters.sockets&&!host().querySelector('[data-terminal-wake]').hidden,'transport errors are retryable');
  forcedError='';host().querySelector('[data-terminal-wake]').click();await until(()=>counters.sockets===1);
  host().querySelector('[data-terminal-settings]').click();
  await until(()=>document.querySelector('#documentTerminalSettings [type="submit"]:not([disabled])'));
  const form=document.querySelector('#documentTerminalSettings form');
- assert(form.elements.sleepMinutes.value==='60'&&form.elements.expireHours.value==='36'&&form.elements.maxRunning.value==='3','conservative configurable defaults');
+ assert(form.elements.sleepMinutes.value==='5'&&form.elements.expireHours.value==='36'&&form.elements.maxRunning.value==='1','conservative configurable defaults');
  form.elements.sleepMinutes.value='20';form.elements.maxRunning.value='2';form.requestSubmit();
  await until(()=>savedSettings===1&&!document.getElementById('documentTerminalSettings'));
  assert(policy.sleepMinutes===20&&policy.maxRunning===2,'settings saved in Assistant scope');
@@ -135,7 +142,7 @@ const poll=async()=>{for(const fn of intervals.values())fn();await new Promise(r
  LabDocumentTerminal.close();policy.enabled=true;
  document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).click();
  await until(()=>counters.sockets===1);
- latestTerminal.write('This terminal follows the document.\r\nSleep after 1 hour · Remove after 36 hours\r\n');
+ latestTerminal.write('This terminal follows the document.\r\nIdle processes sleep · Saved conversations stay available\r\n');
  document.getElementById('result').textContent='PASS '+JSON.stringify(counters);
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''

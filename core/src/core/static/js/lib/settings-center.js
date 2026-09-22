@@ -135,10 +135,10 @@
     form(panel,`<p class="settings-intro">Documents use the global agent, <strong>${esc(labels[s.config.defaultAgent])}</strong>. Sleeping stops the agent process and releases memory; reopening resumes its saved conversation.</p>
       <button type="button" data-global-agent>Change default agent</button>
       ${check('enabled','Open a terminal when opening a document',p.enabled)}
-      ${field('Sleep after inactivity (minutes)',input('sleepMinutes',p.sleepMinutes,'number','min="1" max="10080" required'))}
-      ${field('Remove after inactivity (hours)',input('expireHours',p.expireHours,'number','min="1" max="8760" required'))}
-      ${field('Maximum running document terminals',input('maxRunning',p.maxRunning,'number','min="1" max="20" required'))}
-      <p class="settings-hint">Working agents and approval waits stay protected. Document content and saved agent history are preserved.</p>`,async f=>{
+      ${field('Sleep hidden idle terminals after (minutes)',input('sleepMinutes',p.sleepMinutes,'number','min="1" max="10080" required'))}
+      ${field('Remove unused terminal bookmarks after (hours)',input('expireHours',p.expireHours,'number','min="1" max="8760" required'))}
+      ${field('Idle terminals to keep ready',input('maxRunning',p.maxRunning,'number','min="1" max="20" required'))}
+      <p class="settings-hint">Working agents, approval waits and unsent text stay protected. Saved conversations remain linked to their documents. Low memory delays new starts automatically.</p>`,async f=>{
         const policy={enabled:f.elements.enabled.checked};
         for(const key of ['sleepMinutes','expireHours','maxRunning'])policy[key]=Number(f.elements[key].value);
         if(policy.expireHours*60<=policy.sleepMinutes)throw new Error('Removal must be later than sleep.');

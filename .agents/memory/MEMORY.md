@@ -233,7 +233,7 @@
 
 - [Assistant document storage and external links](assistant-document-storage-and-external-links.md) — explicit per-client documents/ migration, preserved paths and client-side associated-document buttons.
 
-- [Document terminals are resource bounded](document-terminals-are-resource-bounded.md) — one visible renderer, 60-minute sleep, 36-hour expiry, cap of 3, and conservative busy protection.
+- [Document terminals are resource bounded](document-terminals-are-resource-bounded.md) — saved conversations, one idle process, memory-aware startup, stale-session recovery, and protected active work.
 
 - [Document tasks and tab memory](assistant-document-tasks.md) — production document-owned tasks, independent content tabs, migrated checklists, preserved dashboard/stars, and last-tab memory.
 

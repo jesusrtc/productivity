@@ -52,6 +52,7 @@ def test_real_tmux_sleep_releases_agent_and_child(monkeypatch, library, tmp_path
         assert '--append-system-prompt-file' in launched['args'] and '--session-id' in launched['args']
         assert all(alive(pid) for pid in pids)
         assert dm.operate(root,note.stem)['name']==first['name']
+        assert dm._probe({'name':'missing-document-session','socket':socket}) is None
         result=dm.operate(root,note.stem,'sleep')
         assert result['state']=='sleeping'
         wait_for(lambda:not any(alive(pid) for pid in pids))

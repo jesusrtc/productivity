@@ -19,6 +19,7 @@ def engine(monkeypatch, library, tmp_path):
     clock = SimpleNamespace(now=1_800_000_000.)
     monkeypatch.setattr(dm, 'time', SimpleNamespace(time=lambda:clock.now))
     monkeypatch.setattr(dm, '_INPUT', {})
+    monkeypatch.setattr(dm, '_memory_available', lambda:(16 * 1024**3, 12 * 1024**3))
     monkeypatch.setattr(term, '_active_tmux_socket', lambda:tmux_sockets.DEFAULT_SOCKET)
     monkeypatch.setattr(term, '_configure_tmux_wheel_scrolling', lambda *a:None)
     monkeypatch.setattr(term, '_invalidate_workspace_term_caches', lambda:None)
@@ -32,11 +33,11 @@ def engine(monkeypatch, library, tmp_path):
             assert name not in live
             serial[0] += 1
             live[name] = dict(created=int(clock.now), pid=serial[0], tty='/dev/ttys999',dead=False,marker=entry['key'])
-        elif command == 'display-message':
+        elif command == 'list-panes':
             p = live.get(name)
             if not p:
                 return CompletedProcess(args, 1, '', "can't find session: "+name)
-            return CompletedProcess(args, 0, f"{p['created']}|{p['pid']}|{p['tty']}|{int(p['dead'])}", '')
+            return CompletedProcess(args, 0, f"{p['created']}|{p['pid']}|{p['tty']}|{int(p['dead'])}|{p.get('attached',0)}", '')
         elif command == 'kill-session':
             live.pop(name,None)
         elif command == 'show-environment':
@@ -59,6 +60,9 @@ def entry(e, result):
 
 
 def event(e, result, kind, *, stamp=None):
+    items = dm._load(e.root)
+    items[result['key']]['conversation_id'] = 'thread-' + result['key']
+    dm._save(e.root, items)
     item = entry(e,result)
     path = e.transcript(item,None)
     with path.open('a') as stream:
@@ -79,10 +83,10 @@ def test_one_terminal_per_root_and_no_content_writes(engine):
     assert term._load_meta(e.root)[result['name']]['document_key']==result['key']
 
 
-def test_sleep_frees_process_resume_and_36_hour_expiry(engine):
+def test_sleep_frees_process_and_conversation_survives_bookmark_expiry(engine):
     e=engine; result=open_doc(e); name=result['name']
     entries=dm._load(e.root); entries[result['key']]['conversation_id']='exact-conversation'; dm._save(e.root,entries)
-    e.clock.now+=3599; dm.sweep(e.root); assert name in e.live
+    e.clock.now+=299; dm.sweep(e.root); assert name in e.live
     e.clock.now+=1; dm.sweep(e.root)
     assert name not in e.live and entry(e,result)['state']=='sleeping'
     assert name not in term._load_meta(e.root) and dm._context_path(e.root,result['key']).is_file()
@@ -90,7 +94,10 @@ def test_sleep_frees_process_resume_and_36_hour_expiry(engine):
     assert '--last' not in dm._argv(e.root,entry(e,result))
     reopened=open_doc(e); assert reopened['name']==name and name in e.live
     e.clock.now+=36*3600; dm.sweep(e.root)
-    assert not e.live and not dm._load(e.root) and not dm._context_path(e.root,result['key']).exists()
+    assert not e.live and entry(e,result)['conversation_id']=='exact-conversation'
+    assert dm._context_path(e.root,result['key']).exists()
+    assert open_doc(e)['state']=='running'
+    assert 'exact-conversation' in dm._argv(e.root,entry(e,result))
     assert e.library[2].is_file()
 
 
@@ -121,27 +128,92 @@ def test_recent_submission_beats_stale_finished_trace_and_unknown_is_protected(e
     assert result['name'] in e.live
 
 
-def test_capacity_reclaims_old_idle_and_never_starts_fourth_busy_agent(engine):
+def test_idle_cache_reclaims_unused_processes_without_a_hard_active_limit(engine):
     e=engine
-    rows=[open_doc(e,source) for source in [e.library[1],e.library[2],e.library[5]]]
-    fourth=e.library[6]
-    with pytest.raises(HTTPException) as failure: open_doc(e,fourth)
-    assert failure.value.status_code==409 and len(e.live)==3
-    for row in rows:event(e,row,'task_started')
+    first=open_doc(e,e.library[1])
+    second=open_doc(e,e.library[2])
+    assert first['name'] not in e.live and len(e.live)==1
+    event(e,second,'task_started')
+    rows=[second]
+    for source in [e.library[1],e.library[5],e.library[6]]:
+        row=open_doc(e,source)
+        event(e,row,'task_started')
+        rows.append(row)
+    assert len(e.live)==4  # real work is not limited to three documents
     e.clock.now+=100
-    with pytest.raises(HTTPException):open_doc(e,fourth)
-    assert len(e.live)==3
     event(e,rows[0],'task_complete')
-    e.clock.now+=61
-    new=open_doc(e,fourth)
-    assert new['name'] in e.live and rows[0]['name'] not in e.live and len(e.live)==3
+    event(e,rows[1],'task_complete')
+    dm.sweep(e.root)
+    assert len(e.live)==3  # two working + one idle cached process
+    assert rows[2]['name'] in e.live and rows[3]['name'] in e.live
 
 
-def test_capacity_recovers_manually_closed_session(engine):
-    e=engine
-    rows=[open_doc(e,source) for source in [e.library[1],e.library[2],e.library[5]]]
-    e.live.pop(rows[0]['name'])
-    assert open_doc(e,e.library[6])['state']=='running' and len(e.live)==3
+def test_memory_pressure_waits_then_recovers_without_losing_conversation(engine,monkeypatch):
+    e=engine;first=open_doc(e)
+    event(e,first,'task_started')
+    monkeypatch.setattr(dm,'_memory_available',lambda:(16*1024**3, 512*1024**2))
+    result=open_doc(e,e.library[1])
+    assert result['state']=='waiting' and result['reason']=='memory' and len(e.live)==1
+    event(e,first,'task_complete')
+    dm.sweep(e.root)
+    assert not e.live and entry(e,first)['conversation_id']
+    monkeypatch.setattr(dm,'_memory_available',lambda:(16*1024**3,12*1024**3))
+    assert open_doc(e)['state']=='running'
+    assert entry(e,first)['conversation_id']=='thread-'+first['key']
+
+
+def test_memory_inspection_failure_does_not_launch_unbounded_agents(engine,monkeypatch):
+    def failed():raise OSError('unavailable')
+    monkeypatch.setattr(dm,'_memory_available',failed)
+    assert open_doc(engine)['reason']=='memory_check' and not engine.live
+
+
+def test_missing_sessions_are_reconciled_without_display_message_false_success(engine,monkeypatch):
+    e=engine;row=open_doc(e)
+    e.live.pop(row['name'])
+    tmux=dm._tmux
+    def with_display_quirk(item,*args):
+        if args[0]=='display-message':return CompletedProcess(args,0,'|||','')
+        return tmux(item,*args)
+    monkeypatch.setattr(dm,'_tmux',with_display_quirk)
+    status=dm.operate(e.root,e.library[2].stem,'status')
+    assert status['state']=='sleeping'
+    assert open_doc(e)['state']=='running' and len(e.live)==1
+    assert all(args[0]!='display-message' for _,args in e.calls)
+
+
+def test_visible_idle_and_unsent_drafts_are_not_discarded(engine):
+    e=engine;row=open_doc(e)
+    e.live[row['name']]['attached']=1
+    e.clock.now+=3600;dm.sweep(e.root)
+    assert row['name'] in e.live
+    e.live[row['name']]['attached']=0
+    callback=dm.input_callback(row['name'])
+    callback('\x1b[200~draft\nwith another line\x1b[201~')
+    e.clock.now+=3600;dm.sweep(e.root)
+    assert row['name'] in e.live and entry(e,row)['work_state']=='draft'
+    assert entry(e,row)['unsent_input'] and not entry(e,row)['last_submit']
+    dm._INPUT.clear();dm._restore_input_slots(e.root)
+    dm.sweep(e.root);assert row['name'] in e.live
+    dm.input_callback(row['name'])('\r')
+    event(e,row,'task_complete')
+    e.clock.now+=300;dm.sweep(e.root)
+    assert row['name'] not in e.live
+
+
+def test_missing_resume_id_keeps_completed_agent_alive(engine):
+    e=engine;row=open_doc(e)
+    event(e,row,'task_complete')
+    entries=dm._load(e.root);entries[row['key']]['conversation_id']=None;dm._save(e.root,entries)
+    e.clock.now+=3600;dm.sweep(e.root)
+    assert row['name'] in e.live
+
+
+def test_unused_bookmark_expires_without_touching_document(engine):
+    e=engine;row=open_doc(e)
+    e.clock.now+=36*3600;dm.sweep(e.root)
+    assert not e.live and not dm._load(e.root)
+    assert e.library[2].is_file()
 
 
 def test_interrupted_spawn_is_adopted_once_and_unknown_name_is_untouched(engine):
@@ -168,7 +240,9 @@ def test_input_restored_before_startup_connections_and_status_never_keeps_alive(
     e=engine; result=open_doc(e)
     dm._INPUT.clear(); dm._restore_input_slots(e.root)
     callback=dm.input_callback(result['name']); assert callback
-    e.clock.now+=100; callback('x')
+    e.clock.now+=100; callback('\x1b[<65;1;1M')
+    callback('\r')
+    event(e,result,'task_complete')
     assert entry(e,result)['last_used']<e.clock.now  # no disk write on a keystroke
     status=dm.operate(e.root,e.library[2].stem,'status')
     assert status['last_used']==e.clock.now
@@ -287,3 +361,52 @@ def test_live_thread_is_checkpointed_before_sleep_deadline(engine, monkeypatch):
     e.live.pop(result['name'])
     dm.sweep(e.root)
     assert 'current-exact-thread' in dm._argv(e.root,entry(e,result))
+
+
+def test_terminal_protocol_replies_do_not_create_phantom_drafts(engine):
+    e=engine;row=open_doc(e);callback=dm.input_callback(row['name'])
+    for reply in ['\x1b[?1;2c','\x1b[12;30R','\x1b[I','\x1b[O','\x1b]11;rgb:0000/0000/0000\x1b\\']:
+        callback(reply)
+    e.clock.now+=300;dm.sweep(e.root)
+    assert row['name'] not in e.live
+
+
+def test_exited_pane_reopens_instead_of_attaching_a_dead_terminal(engine):
+    e=engine;row=open_doc(e);event(e,row,'task_complete')
+    previous=e.live[row['name']]['pid']
+    e.live[row['name']]['dead']=True
+    result=open_doc(e)
+    assert result['state']=='running' and e.live[row['name']]['pid']!=previous
+    assert entry(e,result)['conversation_id']=='thread-'+row['key']
+
+
+def test_startup_reservation_prevents_burst_launches(engine,monkeypatch):
+    e=engine
+    monkeypatch.setattr(dm,'_memory_available',lambda:(8*1024**3,2*1024**3))
+    first=open_doc(e);event(e,first,'task_started')
+    second=open_doc(e,e.library[1]);event(e,second,'task_started')
+    assert open_doc(e,e.library[5])['state']=='waiting'
+    e.clock.now+=dm.STARTUP_GRACE_SECONDS
+    assert open_doc(e,e.library[5])['state']=='running'
+
+
+def test_normal_server_shutdown_checkpoints_unsent_input(engine,monkeypatch):
+    from lab import paths
+    e=engine;row=open_doc(e)
+    monkeypatch.setattr(paths,'assistant_root',lambda:e.root)
+    monkeypatch.setattr(dm,'_WORKER',None)
+    dm.input_callback(row['name'])('unfinished thought')
+    dm.stop_supervisor()
+    assert entry(e,row)['unsent_input']
+    dm._INPUT.clear();dm._restore_input_slots(e.root)
+    e.clock.now+=3600;dm.sweep(e.root)
+    assert row['name'] in e.live
+
+
+def test_macos_memory_pressure_sample_and_measurement_failure(monkeypatch):
+    monkeypatch.setattr(dm.sys,'platform','darwin')
+    sample='The system has 17179869184 (1048576 pages with a page size of 16384).\nSystem-wide memory free percentage: 49%\n'
+    monkeypatch.setattr(dm.subprocess,'run',lambda *a,**kw:CompletedProcess(a,0,sample,''))
+    assert dm._memory_available()==(17179869184,17179869184*49//100)
+    monkeypatch.setattr(dm.subprocess,'run',lambda *a,**kw:CompletedProcess(a,0,'unexpected output',''))
+    assert dm._memory_ready({},0)==(False,'memory_check')

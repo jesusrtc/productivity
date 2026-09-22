@@ -40,7 +40,7 @@ DEFAULTS: dict[str, Any] = {
     "defaultAgent": DEFAULT_AGENT,
     "model": None,
     "theme": "dark",
-    "documentTerminals": {"enabled": True, "sleepMinutes": 60, "expireHours": 36, "maxRunning": 3},
+    "documentTerminals": {"enabled": True, "sleepMinutes": 5, "expireHours": 36, "maxRunning": 1},
     "autopilot": {"claude": True, "codex": False, "copilot": False},
 }
 

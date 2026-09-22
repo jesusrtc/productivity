@@ -1,4 +1,4 @@
-"""Bounded, resumable Assistant terminals. No work runs on the terminal byte path.
+"""Resumable Assistant terminals with a bounded idle cache and memory admission.
 
 Only entries in this registry are managed; ordinary terminals are untouched.
 A single low-frequency worker retires confirmed-idle agents, even with no browser.
@@ -26,11 +26,13 @@ from lab import assistant_records as records, assistant_documents as documents, 
 
 log = logging.getLogger(__name__)
 _LOCK = threading.RLock()
-_INPUT = {}  # name -> [last input, last submitted input]; RAM only, flushed on sweep
+_INPUT = {}  # name -> [last input, last submission, unsent input]; RAM only
 _STOP = threading.Event()
 _WORKER = None
 TAIL_BYTES = 512 * 1024
 TICK_SECONDS = 60
+STARTUP_GRACE_SECONDS = 10
+MEMORY_RESERVE_BYTES = 1024 ** 3
 
 
 def registry_path(root):
@@ -64,21 +66,28 @@ def _identity(root, reference):
 
 
 def input_callback(name):
-    """Bind once per WS; each input only updates two RAM timestamps."""
+    """Bind once per WS; input updates timestamps and draft state in RAM."""
     slot = _INPUT.get(name)
     if slot is None:
         return None
     def used(data):
+        # Mouse reports do not change an agent's prompt. Bracketed pastes can
+        # contain newlines without submitting; preserve those drafts too.
+        if re.fullmatch(r'\x1b(?:\[<\d+;\d+;\d+[Mm]|\[[?0-9;]*[cRn]|\[[IO]|\]\d+;[^\x1b\x07]*(?:\x07|\x1b\\))', data):
+            return
         slot[0] = time.time()
-        if '\r' in data or '\n' in data:
-            slot[1] = slot[0]
+        if '\x1b[200~' not in data and data.endswith('\r'):
+            slot[1], slot[2] = slot[0], False
+        else:
+            slot[2] = True
     return used
 
 
 def _merge_input(entry):
-    values = _INPUT.get(entry.get('name'), [0, 0])
+    values = _INPUT.get(entry.get('name'), [0, 0, entry.get('unsent_input', False)])
     entry['last_used'] = max(entry.get('last_used',0), values[0])
     entry['last_submit'] = max(entry.get('last_submit',0), values[1])
+    entry['unsent_input'] = values[2]
 
 
 def _tmux(entry, *args):
@@ -89,17 +98,20 @@ def _tmux(entry, *args):
 
 def _probe(entry):
     """None is missing; exceptions mean unknown, never permission to kill."""
-    response = _tmux(entry, 'display-message', '-p', '-t', entry['name'],
-        '#{session_created}|#{pane_pid}|#{pane_tty}|#{pane_dead}')
+    # display-message can succeed with "|||" for a missing target. list-panes
+    # targets the exact session and reliably fails when it no longer exists.
+    response = _tmux(entry, 'list-panes', '-s', '-t', '=' + entry['name'], '-F',
+        '#{session_created}|#{pane_pid}|#{pane_tty}|#{pane_dead}|#{session_attached}')
     if response.returncode:
         error = (response.stderr or '').lower()
-        if tmux_sockets.is_no_server_error(error) or 'can\'t find' in error or 'no such session' in error:
+        if tmux_sockets.is_no_server_error(error) or "can't find" in error or 'no such session' in error:
             return None
         raise RuntimeError('Cannot inspect document terminal')
     values = response.stdout.strip().split('|')
-    if len(values) != 4 or not values[0].isdigit() or not values[1].isdigit():
+    if len(values) != 5 or not all(values[i].isdigit() for i in (0, 1, 4)):
         raise RuntimeError('Unrecognized terminal identity')
-    return {'created':int(values[0]), 'pid':int(values[1]), 'tty':values[2], 'dead':values[3]=='1'}
+    return {'created':int(values[0]), 'pid':int(values[1]), 'tty':values[2],
+            'dead':values[3]=='1', 'attached':int(values[4])}
 
 
 def _owns(entry, probe):
@@ -172,6 +184,9 @@ def _idle(entry, probe):
         return True
     try:
         path = _transcript(entry, probe)
+        if entry.get('unsent_input'):
+            entry['work_state'] = 'draft'
+            return False
         events, malformed, truncated = [], False, False
         if path and path.is_file():
             with path.open('rb') as stream:
@@ -196,7 +211,8 @@ def _idle(entry, probe):
         if state == 'busy':
             return False
         if state == 'idle':
-            return not malformed
+            # Never discard a conversation before its exact resume ID is saved.
+            return not malformed and bool(entry.get('conversation_id'))
         # Opening an interactive CLI sends no prompt or agent task.
         return not (entry.get('last_submit') or entry.get('had_work') or malformed or truncated) and all(
             event.get('type') in {'session_meta', 'session.start', 'session.model_change'}
@@ -206,14 +222,17 @@ def _idle(entry, probe):
         return False
 
 
-def _retire(root, entry, probe):
+def _retire(root, entry, probe, *, automatic=False):
     from core.routes import term
     if probe and not _owns(entry, probe):
         raise RuntimeError('Document terminal identity changed; leaving it untouched')
     if probe:
+        current = _probe(entry)
+        if current and (not _owns(entry, current) or automatic and current.get('attached') and not current['dead']):
+            raise RuntimeError('Terminal reattached or changed during cleanup')
         checked_activity = (entry['last_used'], entry.get('last_submit', 0))
         _merge_input(entry)
-        if checked_activity != (entry['last_used'], entry.get('last_submit', 0)):
+        if current and not current['dead'] and (checked_activity != (entry['last_used'], entry.get('last_submit', 0)) or entry.get('unsent_input')):
             raise HTTPException(409, 'New terminal input arrived; keeping the agent running.')
         result = _tmux(entry,'kill-session','-t',entry['name'])
         if result.returncode and _probe(entry) is not None:
@@ -226,6 +245,7 @@ def _retire(root, entry, probe):
     _INPUT.pop(entry['name'],None)
     entry['state'] = 'sleeping'
     entry['work_state'] = 'idle'
+    entry['unsent_input'] = False
 
 
 def _forget(root, entries, key):
@@ -237,7 +257,7 @@ def _forget(root, entries, key):
 def _remember(root, entry, probe):
     from core.routes import term
     entry.update(state='running', pane_pid=probe['pid'], tmux_created=probe['created'])
-    _INPUT.setdefault(entry['name'], [entry['last_used'], entry.get('last_submit', 0)])
+    _INPUT.setdefault(entry['name'], [entry['last_used'], entry.get('last_submit', 0), entry.get('unsent_input', False)])
     meta = term._load_meta(root)
     meta[entry['name']] = dict(workspace_id=term.ASSISTANT_WORKSPACE_ID,
         logical_name=entry['logical_name'], kind='claude', agent=entry['agent'], cwd=str(root),
@@ -259,45 +279,91 @@ def _reconcile(root, entry):
         _remember(root, entry, probe)
     elif not _owns(entry, probe):
         raise RuntimeError('Document terminal identity changed')
+    if probe and probe['dead']:
+        _retire(root, entry, probe)
+        return None
     return probe
 
 
-def _live_count(entries):
-    return sum(entry['state'] in {'running', 'starting'} for entry in entries.values())
+def _memory_available():
+    """Read OS memory headroom only during admission/cleanup, never on input."""
+    if sys.platform == 'darwin':
+        result = subprocess.run(['/usr/bin/memory_pressure', '-Q'],
+            capture_output=True, text=True, timeout=3)
+        total = re.search(r'The system has (\d+)', result.stdout)
+        free = re.search(r'System-wide memory free percentage:\s*(\d+)%', result.stdout)
+        if result.returncode or not total or not free:
+            raise OSError('Cannot read system memory headroom')
+        total = int(total[1])
+        return total, total * int(free[1]) // 100
+    values = {}
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        key, value = line.split(':', 1)
+        values[key] = int(value.split()[0]) * 1024
+    return values['MemTotal'], values['MemAvailable']
 
 
-def _sweep(root, entries, policy, now, *, make_room=False):
-    for key, entry in sorted(list(entries.items()), key=lambda pair:pair[1]['last_used']):
+def _memory_ready(entries, now):
+    try:
+        total, available = _memory_available()
+        # Reserve headroom for the OS, other applications and agents still
+        # starting up whose full footprint is not visible in the OS sample yet.
+        starting = sum(e.get('state') in {'starting', 'running'} and
+            now - e.get('started_at', 0) < STARTUP_GRACE_SECONDS for e in entries.values())
+        reserve = max(MEMORY_RESERVE_BYTES, total * .15) + starting * (512 * 1024 ** 2)
+        return available > reserve, 'memory'
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        return False, 'memory_check'
+
+
+def _can_forget(entry):
+    # A lightweight document→conversation bookmark must outlive the process.
+    return not (entry.get('conversation_id') or entry.get('last_submit') or
+                entry.get('had_work') or entry.get('unsent_input'))
+
+
+def _sweep(root, entries, policy, now, *, incoming=None, pressure=False):
+    idle = []
+    for key, entry in list(entries.items()):
         _merge_input(entry)
         age = max(0, now - entry['last_used'])
         if entry['state'] == 'sleeping':
-            if age >= policy['expireHours'] * 3600:
+            if _can_forget(entry) and age >= policy['expireHours'] * 3600:
                 _forget(root, entries, key)
             continue
         try:
-            # Only the bounded live set is probed; reclaim manually closed panes
-            # even before the sleep deadline, and recover interrupted launches.
             probe = _reconcile(root, entry)
             if not probe:
-                if age >= policy['expireHours'] * 3600:
+                if _can_forget(entry) and age >= policy['expireHours'] * 3600:
                     _forget(root, entries, key)
                 continue
-            # Capture provider thread IDs/completion while the agent is alive,
-            # so a client restart can resume it even before the sleep deadline.
-            # This is bounded to the live set, once per worker tick or admission.
-            if not _idle(entry, probe):
-                continue
-            age = max(0, now - entry['last_used'])
-            if age < (60 if make_room else policy['sleepMinutes'] * 60):
-                continue
-            _retire(root, entry, probe)
-            if age >= policy['expireHours'] * 3600:
-                _forget(root, entries, key)
-            if make_room and _live_count(entries) < policy['maxRunning']:
-                break
+            # Checkpoint the conversation while the process still exists, even
+            # when it is visible. Attached panes, drafts and working agents stay.
+            safe = _idle(entry, probe)
+            if safe:
+                idle.append((key, entry, probe))
         except (OSError, RuntimeError, subprocess.SubprocessError, HTTPException):
             entry['work_state'] = 'unknown'
             log.warning('Could not inspect/retire a managed document terminal', exc_info=True)
+    # maxRunning is the legacy settings key; it now budgets READY/IDLE
+    # processes only. Working agents never consume an arbitrary document slot.
+    budget = max(0, policy['maxRunning'] - (1 if incoming else 0))
+    excess = max(0, len(idle) - budget)
+    for key, entry, probe in sorted(idle, key=lambda item:item[1]['last_used']):
+        if key == incoming or probe.get('attached'):
+            continue
+        age = max(0, now - entry['last_used'])
+        expired = age >= policy['sleepMinutes'] * 60
+        if not (expired or pressure or excess > 0):
+            continue
+        try:
+            _retire(root, entry, probe, automatic=True)
+            excess = max(0, excess - 1)
+            if _can_forget(entry) and age >= policy['expireHours'] * 3600:
+                _forget(root, entries, key)
+        except (OSError, RuntimeError, subprocess.SubprocessError, HTTPException):
+            entry['work_state'] = 'unknown'
+            log.warning('Could not release an idle document terminal', exc_info=True)
 
 
 def sweep(root):
@@ -307,13 +373,12 @@ def sweep(root):
         entries = _load(root)
         if not entries:
             return
-        before = json.dumps(entries,sort_keys=True)
+        before = json.dumps(entries, sort_keys=True)
         policy = settings.load(root)['documentTerminals']
-        _sweep(root, entries, policy, time.time())
-        if _live_count(entries) > policy['maxRunning']:
-            _sweep(root, entries, policy, time.time(), make_room=True)
-        if json.dumps(entries,sort_keys=True) != before:
-            _save(root,entries)
+        ready, _ = _memory_ready(entries, time.time())
+        _sweep(root, entries, policy, time.time(), pressure=not ready)
+        if json.dumps(entries, sort_keys=True) != before:
+            _save(root, entries)
 
 
 def _argv(root, entry):
@@ -349,6 +414,7 @@ def _spawn(root, entry, entries):
         if entry['socket'] != tmux_sockets.DEFAULT_SOCKET and not term._tmux_server_alive(entry['socket']):
             raise HTTPException(409,'The terminal server is unavailable. Run lab terminal rotate from iTerm.')
         entry['state'] = 'starting'
+        entry['started_at'] = time.time()
         _save(root, entries)  # durable intent + exact socket before process creation
         result = _tmux(entry,'new-session','-d','-s',entry['name'],'-c',str(root),
                        '-e', 'LAB_DOCUMENT_KEY=' + entry['key'],
@@ -381,6 +447,11 @@ def operate(root, reference, action='open'):
         if action == 'status':
             if entry:
                 _merge_input(entry)
+                if entry['state'] in {'running', 'starting'}:
+                    probe = _reconcile(root, entry)
+                    if probe:
+                        _idle(entry, probe)
+                _save(root, entries)
             return _public(entry,policy) if entry else {'key':key,'state':'absent','policy':policy}
         if action == 'activity':
             if entry:
@@ -405,15 +476,18 @@ def operate(root, reference, action='open'):
             _merge_input(entry)
             _reconcile(root, entry)
             if entry['state'] == 'running':
-                _INPUT.setdefault(entry['name'], [entry['last_used'], entry.get('last_submit', 0)])
+                _INPUT.setdefault(entry['name'], [entry['last_used'], entry.get('last_submit', 0), entry.get('unsent_input', False)])
         if not entry or entry['state'] != 'running':
-            _sweep(root,entries,policy,now)
+            _sweep(root, entries, policy, now, incoming=key)
             entry = entries.get(key)
-            if _live_count(entries) >= policy['maxRunning']:
-                _sweep(root,entries,policy,now,make_room=True)
-            if _live_count(entries) >= policy['maxRunning']:
-                _save(root,entries)
-                raise HTTPException(409,f'The limit of {policy["maxRunning"]} running document terminals is reached. Active agents are protected. Try again after one becomes idle, or change the limit in Terminal settings.')
+            ready, reason = _memory_ready(entries, now)
+            if not ready:
+                _sweep(root, entries, policy, now, incoming=key, pressure=True)
+                ready, reason = _memory_ready(entries, now)
+            if not ready:
+                _save(root, entries)
+                return {'key':key, 'state':'waiting', 'reason':reason, 'policy':policy}
+
         if not entry:
             agent = settings.resolve_agent(root)
             supported = vault_config.supported_agents(root)
@@ -450,7 +524,7 @@ def _restore_input_slots(root):
     with _LOCK:
         for entry in _load(root).values():
             if entry['state'] in {'running', 'starting'}:
-                _INPUT.setdefault(entry['name'], [entry['last_used'], entry.get('last_submit', 0)])
+                _INPUT.setdefault(entry['name'], [entry['last_used'], entry.get('last_submit', 0), entry.get('unsent_input', False)])
 
 
 def start_supervisor():
@@ -487,3 +561,12 @@ def stop_supervisor():
     _STOP.set()
     if _WORKER:
         _WORKER.join(timeout=2)
+    # A normal backend restart must not forget unsent text still in a live CLI.
+    from lab import paths
+    root = paths.assistant_root()
+    if root and registry_path(root).exists():
+        with _LOCK:
+            entries = _load(root)
+            for entry in entries.values():
+                _merge_input(entry)
+            _save(root, entries)

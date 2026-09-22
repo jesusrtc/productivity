@@ -1,17 +1,28 @@
-# Document terminals release idle resources
+# Document terminals preserve conversations and release idle processes
 
-The client wants an agent terminal associated with each opened document without
-accumulating processes. Defaults: sleep after 60 idle minutes, expire the managed
-association after 36 idle hours, and admit at most 3 running document terminals.
-Policy and default agent are Lab-wide in the central settings view. Legacy
-Assistant config remains a fallback until a global choice is saved. All embedded tabs share the root document's stable
-identity. Opening alone never sends an agent task or modifies content.
+The client wants a terminal ready on opening each task/document, with the exact
+previous conversation, without runaway resource use. They rejected a hard cap
+of three running document terminals. Opening never sends an agent task.
 
-Sleep kills the managed tmux/agent process and retains the exact provider thread
-ID for resume. Active work, approvals and unknown activity states are protected.
-The cap rejects new starts if no safely idle slot can be reclaimed. Expiry deletes
-runtime context/association, not document content or provider chat history.
+Keep one idle agent process ready by default; hidden idle processes sleep after
+five minutes or sooner when another document needs the idle slot. The legacy
+settings key maxRunning now controls the idle cache only, not active work.
+Attached terminals, unsent input, active turns, approval waits and unknown work
+stay protected. Low OS memory headroom delays new starts with a visible waiting
+state and automatic retry; reserve additional headroom for recent launches.
 
-Keep one visible xterm/WS, disposing it on close/switch/hidden-page transitions.
-Never touch the normal terminal cache or manually opened processes. The byte path
-only updates RAM timestamps; cleanup runs in a low-frequency background worker.
+Save exact provider conversation IDs before sleeping. These small bookmarks
+never expire once a conversation exists. The 36-hour expiry applies only to
+unused bookmarks, not saved conversations. All content tabs share the root
+identity. Keep one visible xterm/WS and dispose it on close/switch/hidden-page
+transitions; ordinary terminals are untouched.
+
+Use list-panes -s with an exact session target for identity checks. tmux
+display-message may return success and empty fields for a missing session;
+treating this as unknown activity caused phantom running entries and blocked
+new terminals. Reconcile missing/exited sessions on status and opening too.
+
+Input callbacks only update RAM; ignore terminal protocol/mouse replies when
+tracking unsent text. Cleanup runs at low frequency. Inspect OS memory only
+during startup/cleanup, never on the terminal byte path. See
+docs/document-terminals.md for settings and compatibility.
