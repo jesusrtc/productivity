@@ -1,38 +1,67 @@
-# Document terminals
+# Task and document terminal links
 
-Opening a task or document makes its agent terminal available. All of the
-content tabs share that document's conversation. Reopening resumes the exact
-saved provider conversation; it never selects whichever chat was most recent.
-The document path and selected tab are supplied as context. Opening alone sends
-no task to the agent and makes no edits to document content.
+Opening Assistant, a task or a document never creates or wakes a terminal. Create the
+terminals you want with **+ New** in the terminal bar, then link them:
 
-Defaults keep one idle terminal ready and put hidden idle terminals to sleep
-after five minutes, or earlier when another document needs the idle slot.
-Sleeping releases the managed process. Conversation bookmarks remain on disk;
-the 36-hour cleanup applies only to unused bookmarks without conversation or
-submitted input. Existing provider conversation IDs and histories are retained.
+- Drag an existing terminal tab onto a document row in Assistant.
+- Inside a document, choose **Link terminal…**. Drag a terminal from the
+  chooser onto an individual task, including a visible subtask, or select the
+  task in **Terminal for task** and click an existing terminal.
+- A linked task shows a **Terminal** button. Clicking it displays that exact
+  session in the document modal. Reopening remembers the selected task terminal.
+- **Unlink** removes only the association. It does not stop the process,
+  delete its conversation, change its cwd, or alter its file/folder links.
+  Terminal-tab secondary-click also offers **Unlink from task/document**.
+- A task or document has one terminal owner; assigning another terminal
+  transfers the link. Each terminal has one task/document association,
+  independent of its file and folder/worktree associations.
 
-Working agents, approval waits, unknown work and unsent input are protected.
-An attached terminal stays ready. Unsent text keeps its process alive until
-submission; saved conversation history resumes after process sleep. The browser
-keeps only the visible document's xterm renderer and WebSocket.
+The original process, conversation and unsent input stay in that session.
+Linking does not send a prompt or replace the agent's startup instructions.
+**Copy context** copies the document path and selected task identity for the
+user to paste when needed. Task edits, priorities, status, content tabs and
+nested subtabs retain their existing behavior.
 
-There is no three-document active-process cutoff. Before launching, Lab checks
-OS memory headroom and reserves the larger of 1 GiB or 15 percent of RAM, plus
-512 MiB per process launched during the preceding ten seconds. Low memory first
-reclaims eligible idle processes, then delays the new launch if necessary. The
-terminal displays a waiting state and retries every 30 seconds while visible.
-If memory cannot be measured, it waits instead of launching unchecked. Existing
-work continues. This is admission control, not an OS limit on memory used by
-already-running agents or unrelated applications.
+The chooser lists existing running sessions across accessible workspaces and
+vaults. A linked session that has stopped remains linked and shows its state;
+click **Resume terminal** to deliberately restart that saved session. External
+attached sessions use **Attach** in the terminal bar. Viewing, polling, hiding and
+reopening documents never start replacement processes. The modal retains one
+visible terminal renderer and WebSocket and releases them on close or hide.
+Ordinary terminal lifecycle and close controls continue to own those processes.
 
-Settings are under Global → Documents. The existing `maxRunning` JSON key is
-retained for compatibility but now means **Idle terminals to keep ready**. Saved
-values remain effective as idle-cache budgets. The UI describes the new meaning.
-`sleepMinutes` controls hidden idle timeout; `expireHours` removes only unused
-bookmarks. The new defaults are 5 minutes, 36 hours and 1 idle terminal. Existing
-explicit settings are preserved. No Assistant data migration is needed.
+## Storage and compatibility
 
-Missing or exited tmux sessions are reconciled during opening, status checks
-and cleanup. Exact session identity and process ownership are verified before
-retirement. Browser closure, tab switching and polling never submit agent work.
+The optional `linked_task` field belongs to durable workspace session metadata,
+alongside `linked_file` and `linked_scope`. It contains the canonical
+`assistant_root`, root `document_id`, optional JSON `task_id`, document `path`
+and display `title`. A null task ID links the containing document. The server
+resolves and validates the document and task in the client's configured
+Assistant database; clients cannot select an arbitrary database root.
+
+`PATCH /api/term/sessions/metadata` accepts
+`linked_task: {document_id, task_id}` or `linked_task: null`, using the saved
+session's logical `name`, `workspace_id` and `vault`. Link transfers are
+serialized with file transfers, and every affected scope is authorized before
+writes. `GET /api/term/task-terminals` lists running saved sessions; adding
+`?document_id=<id>` lists that document's associations, including stopped ones.
+Neither endpoint launches agents or sends terminal input.
+
+No Assistant document migration is required. Existing JSON tasks, Markdown,
+IDs, tab trees and saved provider conversations are unchanged. Update Lab and
+reload each browser to use the manual linking UI.
+
+## Previous managed document conversations
+
+Previously created document conversations remain recoverable. When no manual
+document link is selected, a saved sleeping conversation offers **Resume
+previous conversation**. This is an explicit action; opening the document
+does not resume it. Existing running managed conversations may be displayed.
+
+Global → Documents settings apply only to these previous managed sessions:
+`enabled` allows explicit resume, `sleepMinutes` controls the hidden idle
+timeout, `maxRunning` is the idle cache budget, and `expireHours` expires only
+unused bookmarks. Saved conversations, working agents, approval waits and
+unsent drafts remain protected. These controls do not manage manually linked
+ordinary terminals. The existing startup memory guard still applies to an
+explicit legacy resume, and a waiting resume requires another deliberate retry.

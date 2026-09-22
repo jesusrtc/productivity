@@ -1,7 +1,20 @@
-/* One visible renderer/connection, bounded server agents, no hidden pane cache. */
+/* Task links reuse existing sessions. Opening a document never starts a process. */
 (function () {
   'use strict';
-  let current = null;
+  let current = null, dragged = null;
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function api(url, options = {}) {
+    const response = await fetch(url, options), result = await response.json();
+    if (!response.ok) throw new Error(result.detail || 'Could not load terminals');
+    return result;
+  }
+  function remembered(state, value) {
+    const key = 'lab.task-terminal:' + state.database + ':' + state.documentId;
+    try {
+      if (value !== undefined) localStorage.setItem(key, JSON.stringify(value));
+      return JSON.parse(localStorage.getItem(key) || 'null');
+    } catch (_) { return null; }
+  }
   async function request(path, action, signal) {
     const response = await fetch('/api/assistant/document-terminal', {method:'POST',
       headers:{'Content-Type':'application/json'}, body:JSON.stringify({path,action}), signal});
@@ -30,19 +43,20 @@
     if (state !== current) return;
     state.result = result;
     const label = state.host.querySelector('[data-terminal-status]');
-    const waiting = result.reason === 'memory_check' ? 'Checking available memory — will retry automatically' : 'Waiting for memory — will resume automatically';
-    label.textContent = error || (result.state === 'waiting' ? waiting : '') || ({running:({busy:'Working',idle:'Ready',draft:'Unsent text kept open'}[result.work_state] || 'Running'),sleeping:'Sleeping — memory released',absent:'Ready to open',disabled:'Document terminals are off'}[result.state] || 'Ready');
+    const waiting = result.reason === 'memory_check' ? 'Memory check unavailable — retry when ready' : 'Low memory — retry when ready';
+    label.textContent = error || (result.state === 'waiting' ? waiting : '') || ({running:({busy:'Working',idle:'Ready',draft:'Unsent text kept open'}[result.work_state] || 'Running'),sleeping:'Sleeping — memory released',absent:'Drag a terminal onto a task or choose an existing terminal',stopped:'Linked terminal is stopped',disabled:'Previous document terminals are disabled'}[result.state] || 'Ready');
     label.classList.toggle('error',Boolean(error));
-    state.host.querySelector('[data-terminal-agent]').textContent = result.agent || 'Default agent';
+    state.host.querySelector('[data-terminal-agent]').textContent = result.label || result.agent || '';
+    state.host.classList.toggle('has-terminal', result.state === 'running');
     const wake = state.host.querySelector('[data-terminal-wake]');
-    wake.hidden = result.state === 'running' && !error;
+    wake.hidden = result.linked ? !(result.state === 'stopped' && result.kind !== 'attached' || result.state === 'running' && error) : !['sleeping','waiting'].includes(result.state) && !error;
     wake.disabled = result.state === 'disabled';
-    wake.textContent = result.state === 'sleeping' ? 'Wake' : result.state === 'absent' ? 'Open terminal' : 'Try again';
-    state.host.querySelector('[data-terminal-sleep]').hidden = result.state !== 'running' || Boolean(error);
+    wake.textContent = result.linked ? (result.state === 'stopped' ? 'Resume terminal' : 'Reconnect') : result.state === 'sleeping' ? 'Resume previous conversation' : 'Try again';
+    state.host.querySelector('[data-terminal-sleep]').hidden = result.linked || result.state !== 'running' || Boolean(error);
     if (result.state !== 'running') releaseView(state);
   }
   function used(state) {
-    if (state !== current || state.result?.state !== 'running') return;
+    if (state !== current || state.result?.state !== 'running' || state.result.linked) return;
     
     if (state.activityTimer) return;
     state.activityTimer = setTimeout(() => {
@@ -52,10 +66,10 @@
     }, 30000); // At most two activity writes/minute; WS keystrokes stay in RAM.
   }
   async function attach(state, result) {
-    if (state !== current || document.hidden || state.socket || result.state !== 'running') return;
+    if (state !== current || state.result !== result || document.hidden || state.socket || result.state !== 'running') return;
     if (typeof window.ensureTerminalLibs !== 'function') throw new Error('Terminal support is loading. Try again.');
     await Promise.all([window.ensureTerminalLibs(), window.loadStyleOnce?.('/static/vendor/xterm@5.3.0/xterm.min.css')]);
-    if (state !== current || document.hidden || state.socket) return;
+    if (state !== current || state.result !== result || document.hidden || state.socket) return;
     const screen = state.host.querySelector('.assistant-terminal-screen');
     state.viewAbort = new AbortController();
     const terminal = state.terminal = new Terminal({fontSize:12,scrollback:2000,cursorBlink:false,
@@ -107,62 +121,201 @@
       show(state,result,'Connection closed. Reopen the terminal to reconnect.');
     };
   }
+  function decorate(host = document) {
+    if (!current) return;
+    for (const row of host.querySelectorAll('[data-terminal-task]')) {
+      if (row.dataset.terminalDocument !== current.documentId) continue;
+      const slot = row.querySelector(':scope > .assistant-tasks-task-row > [data-linked-terminal]');
+      if (!slot) continue;
+      const linked = current.links?.find(item => item.linked_task?.task_id === row.dataset.terminalTask);
+      slot.replaceChildren();
+      if (linked) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'assistant-linked-terminal';
+        button.textContent = '›_ Terminal'; button.title = linked.label;
+        button.onclick = () => selectTask(row.dataset.terminalTask);
+        slot.append(button);
+      }
+    }
+  }
+  function selectTask(taskId) {
+    if (!current) return;
+    current.taskId = taskId || null; remembered(current,current.taskId);
+    current.connectionEnded = false; current.result = null; releaseView(current);
+    void refresh(current);
+  }
+  function renderLinks(state) {
+    const select = state.host.querySelector('[data-terminal-target]');
+    const tasks = state.root.document_tasks?.tasks || [];
+    select.innerHTML = '<option value="">Document</option>' + tasks.map(task => `<option value="${esc(task.id)}">${esc(task.title)}</option>`).join('');
+    select.value = state.taskId || '';
+    state.host.querySelector('[data-terminal-unlink]').hidden = !state.links.some(row => (row.linked_task.task_id || null) === state.taskId);
+    decorate();
+  }
   async function refresh(state) {
-    if (state !== current || document.hidden || state.checking || state.opening) return;
-    if (state.result?.state === 'waiting') return wake(state);
-    state.checking = true;
+    if (state !== current || document.hidden || state.opening) return;
+    if (state.checking) { state.refreshAgain = true; return; }
+    state.refreshAgain = false; state.checking = true;
+    const taskId = state.taskId;
     try {
-      const result = await request(state.path,'status',state.abort.signal);
-      if (state !== current) return;
-      show(state,result,state.connectionEnded ? 'Terminal disconnected. Open it again to reconnect.' : '');
+      state.links = await api('/api/term/task-terminals?document_id=' + encodeURIComponent(state.documentId), {signal:state.abort.signal});
+      if (state !== current || state.taskId !== taskId) return;
+      renderLinks(state);
+      const linked = state.links.find(row => (row.linked_task.task_id || null) === state.taskId);
+      const result = linked ? {...linked,linked:true} : state.taskId ? {state:'absent'} : await request(state.path,'status',state.abort.signal);
+      if (state !== current || state.taskId !== taskId) return;
+      if (state.result?.name !== result.name) releaseView(state);
+      show(state,result,state.connectionEnded ? 'Terminal disconnected. Reconnect when ready.' : '');
       if (result.state === 'running' && !state.socket && !state.connectionEnded) await attach(state,result);
     } catch (error) {
-      if (error.name !== 'AbortError') show(state,state.result || {},error.message);
-    } finally { state.checking = false; }
+      if (state === current && error.name !== 'AbortError') show(state,state.result || {},error.message);
+    } finally {
+      state.checking = false;
+      if (state === current && (state.taskId !== taskId || state.refreshAgain)) void refresh(state);
+    }
   }
   async function wake(state) {
     if (state !== current || state.opening) return;
-    state.opening = true;
-    state.sleepRequested = false;
-    state.host.querySelector('[data-terminal-status]').textContent = 'Opening terminal…';
+    if (state.result?.linked) {
+      const linked=state.result;
+      if (linked.state === 'stopped') {
+        if (linked.kind === 'attached') return;
+        state.opening=true;
+        try {
+          await api('/api/term/sessions',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({workspace_id:linked.workspace_id,vault:linked.vault,
+              name:linked.logical_name,kind:linked.kind || 'terminal',agent:linked.agent})});
+        } catch (error) {
+          if (state === current) show(state,linked,error.message);
+          return;
+        } finally { state.opening=false; }
+      }
+      if (state !== current) return;
+      state.connectionEnded = false; releaseView(state); return refresh(state);
+    }
+    // Only an explicit click resumes an existing managed conversation.
+    if (!['sleeping','waiting','running'].includes(state.result?.state)) return refresh(state);
+    state.opening = true; state.sleepRequested = false;
     try {
       const result = await request(state.path,'open',state.abort.signal);
       if (state !== current) return;
-      state.connectionEnded = false;
-      show(state,result); await attach(state,result);
+      state.connectionEnded = false; show(state,result); await attach(state,result);
     } catch (error) {
       if (error.name !== 'AbortError') show(state,state.result || {},error.message);
     } finally { state.opening = false; }
   }
-  function open(detail) {
+  function dropContext(target) {
+    const row = target?.closest?.('[data-terminal-document]');
+    return row ? {kind:'task',row,documentId:row.dataset.terminalDocument,taskId:row.dataset.terminalTask || null} : null;
+  }
+  async function link(ctx, session, context) {
+    if (!session?.logical_name || !context?.workspaceId) return;
+    try {
+      await window.LabTaskTerminalBridge.patch(session,{linked_task:{document_id:ctx.documentId,task_id:ctx.taskId}},context);
+      window.labFeatureUsage?.('Link terminal to task');
+      if (current?.documentId === ctx.documentId) {
+        current.taskId = ctx.taskId; remembered(current,ctx.taskId);
+        current.connectionEnded = false; current.result = null; releaseView(current);
+        current.host.querySelector('[data-terminal-picker]').hidden = true;
+        await refresh(current);
+      }
+      if (typeof explorerToast === 'function') explorerToast('Terminal linked. Existing conversation kept.');
+    } catch (error) {
+      if (current) current.host.querySelector('[data-terminal-status]').textContent = error.message;
+      if (typeof explorerToast === 'function') explorerToast(error.message,true);
+    }
+  }
+  async function choose(taskId) {
+    const state = current;
+    if (!state) return;
+    if (taskId !== undefined) { state.taskId=taskId || null; remembered(state,state.taskId); state.result=null; releaseView(state); void refresh(state); }
+    const picker = state.host.querySelector('[data-terminal-picker]');
+    picker.hidden = false; picker.textContent = 'Loading existing terminals…';
+    try {
+      const sessions = await api('/api/term/task-terminals',{signal:state.abort.signal});
+      if (state !== current) return;
+      picker.innerHTML = '<p>Drag a terminal onto a task, or click one to link it to the selected task. No new terminal is created.</p>';
+      if (!sessions.length) picker.append(document.createTextNode('No running terminals. Create one with + New in the terminal bar.'));
+      for (const session of sessions) {
+        const button = document.createElement('button'); button.type = 'button'; button.draggable = true;
+        button.textContent = session.label + ' · ' + session.workspace_name;
+        const context = {workspaceId:session.workspace_id,vaultId:session.vault};
+        button.onclick = () => link({documentId:state.documentId,taskId:state.taskId},session,context);
+        button.ondragstart = event => { dragged={session,context}; event.dataTransfer.effectAllowed='link'; event.dataTransfer.setData('application/x-lab-task-terminal',session.name); };
+        button.ondragend = () => { dragged=null; document.querySelectorAll('.term-link-drop-target').forEach(row=>row.classList.remove('term-link-drop-target')); };
+        picker.append(button);
+      }
+      const dismiss = document.createElement('button'); dismiss.type='button'; dismiss.textContent='Cancel'; dismiss.onclick=()=>picker.hidden=true; picker.append(dismiss);
+    } catch (error) { if (error.name !== 'AbortError') picker.textContent=error.message; }
+  }
+  document.addEventListener('dragover',event=>{
+    if (!dragged) return;
+    const ctx=dropContext(event.target);
+    document.querySelectorAll('.term-link-drop-target').forEach(row=>row.classList.remove('term-link-drop-target'));
+    if (!ctx) return;
+    event.preventDefault(); event.dataTransfer.dropEffect='link'; ctx.row.classList.add('term-link-drop-target');
+  });
+  document.addEventListener('drop',event=>{
+    if (!dragged) return;
+    const ctx=dropContext(event.target), source=dragged; dragged=null;
+    if (!ctx) return;
+    event.preventDefault(); event.stopPropagation(); ctx.row.classList.remove('term-link-drop-target');
+    void link(ctx,source.session,source.context);
+  });
+  function updateRoot(root) {
+    if (!current || (root.tree?.id || root.metadata.id) !== current.documentId) return;
+    current.root=root;
+    if (current.taskId && !root.document_tasks?.tasks?.some(task=>task.id===current.taskId)) return selectTask(null);
+    renderLinks(current);
+  }
+  function open(detail, root = detail, database = '') {
     const host = document.getElementById('assistantDocumentTerminal');
     if (!host || detail?.metadata?.schema !== 2) return;
     const key = detail.root_path || detail.path;
-    if (current?.key === key) {
-      if (current.path !== detail.path) { current.path = detail.path; void wake(current); }
-      return;
-    }
+    if (current?.key === key) { current.path=detail.path; updateRoot(root); return; }
     close();
-    const state = current = {key,path:detail.path,host,abort:new AbortController()};
-    host.hidden = false;
-    host.innerHTML = `<div class="assistant-terminal-toolbar"><strong>Terminal</strong><span data-terminal-agent>Default agent</span><span role="status" data-terminal-status>Opening terminal…</span><button type="button" data-terminal-wake hidden>Wake</button><button type="button" data-terminal-sleep hidden>Sleep</button><button type="button" data-terminal-settings>Settings</button></div><div class="assistant-terminal-screen" aria-label="Document agent terminal"></div>`;
+    const state = current = {key,path:detail.path,root,documentId:root.tree?.id || root.metadata.id,database,links:[],host,abort:new AbortController()};
+    state.taskId = remembered(state);
+    if (state.taskId && !root.document_tasks?.tasks?.some(task=>task.id===state.taskId)) state.taskId=null;
+    host.hidden = false; host.dataset.terminalDocument=state.documentId;
+    const header = document.querySelector('#assistantDocumentModal .assistant-modal-header');
+    if (header) header.dataset.terminalDocument=state.documentId;
+    host.innerHTML = `<div class="assistant-terminal-toolbar"><strong>Terminal</strong><select data-terminal-target aria-label="Terminal for task"></select><span data-terminal-agent></span><span role="status" data-terminal-status>Checking linked terminals…</span><button type="button" data-terminal-choose>Link terminal…</button><button type="button" data-terminal-unlink hidden>Unlink</button><button type="button" data-terminal-context>Copy context</button><button type="button" data-terminal-wake hidden>Reconnect</button><button type="button" data-terminal-sleep hidden>Sleep</button><button type="button" data-terminal-settings>Settings</button></div><div class="assistant-terminal-picker" data-terminal-picker hidden></div><div class="assistant-terminal-screen" aria-label="Linked task terminal"></div>`;
+    host.querySelector('[data-terminal-target]').onchange = event => selectTask(event.target.value);
+    host.querySelector('[data-terminal-choose]').onclick = () => void choose();
     host.querySelector('[data-terminal-wake]').onclick = () => void wake(state);
     host.querySelector('[data-terminal-settings]').onclick = () => void openSettings();
+    host.querySelector('[data-terminal-unlink]').onclick = async () => {
+      const session=state.links.find(row=>(row.linked_task.task_id || null)===state.taskId);
+      if (!session) return;
+      try {
+        await window.LabTaskTerminalBridge.patch(session,{linked_task:null},{workspaceId:session.workspace_id,vaultId:session.vault});
+        if (state !== current) return;
+        releaseView(state); await refresh(state);
+      } catch (error) { if (state === current) show(state,state.result,error.message); }
+    };
+    host.querySelector('[data-terminal-context]').onclick = async () => {
+      const task=state.root.document_tasks?.tasks?.find(task=>task.id===state.taskId);
+      const path=state.database ? state.database.replace(/\/$/,'') + '/' + state.root.path : state.root.path;
+      try { await navigator.clipboard.writeText(path + (task ? '\nTask: ' + task.title + '\nTask ID: ' + task.id : '')); host.querySelector('[data-terminal-status]').textContent='Context copied — paste it when ready'; }
+      catch (_) { host.querySelector('[data-terminal-status]').textContent='Could not copy context'; }
+    };
     host.querySelector('[data-terminal-sleep]').onclick = async () => {
       state.sleepRequested = true;
       try { show(state,await request(state.path,'sleep',state.abort.signal)); }
       catch (error) { state.sleepRequested = false; if (error.name !== 'AbortError') show(state,state.result || {},error.message); }
     };
     for (const event of ['pointerdown','keydown','wheel']) host.addEventListener(event,() => used(state),{signal:state.abort.signal,passive:true});
+    renderLinks(state);
     state.poll = setInterval(() => void refresh(state),30000);
-    void wake(state);
+    void refresh(state);
   }
   async function openSettings() {
-    if (window.LabSettings) return window.LabSettings.open({section:current && !['running','sleeping'].includes(current.result?.state) ? 'general' : 'documents'});
+    if (window.LabSettings) return window.LabSettings.open({section:'documents'});
     if (document.getElementById('documentTerminalSettings')) return;
     const dialog = document.createElement('dialog'); dialog.id = 'documentTerminalSettings';
     dialog.className = 'assistant-terminal-settings';
-    dialog.innerHTML = `<form><h2>Document terminals</h2><p>Use the default agent when you open a document. Sleep releases the process and memory; reopening resumes its saved conversation.</p><label><input name="enabled" type="checkbox"> Open automatically</label><label>Sleep hidden idle terminals after (minutes)<input name="sleepMinutes" type="number" min="1" max="10080" required></label><label>Remove unused terminal bookmarks after (hours)<input name="expireHours" type="number" min="1" max="8760" required></label><label>Idle terminals to keep ready<input name="maxRunning" type="number" min="1" max="20" required></label><p>Working agents and unsent text stay protected. Saved conversations remain linked to their documents. Low memory delays new starts automatically. Ordinary terminals are unchanged.</p><p role="alert"></p><div><button type="button" data-cancel>Cancel</button><button type="submit" disabled>Save</button></div></form>`;
+    dialog.innerHTML = `<form><h2>Document terminals</h2><p>Tasks link to existing terminals. These settings only control previous managed document conversations.</p><label><input name="enabled" type="checkbox"> Allow resuming previous document conversations</label><label>Sleep hidden idle terminals after (minutes)<input name="sleepMinutes" type="number" min="1" max="10080" required></label><label>Remove unused terminal bookmarks after (hours)<input name="expireHours" type="number" min="1" max="8760" required></label><label>Idle terminals to keep ready<input name="maxRunning" type="number" min="1" max="20" required></label><p>Working agents and unsent text stay protected. Saved conversations remain linked to their documents. Low memory delays new starts automatically. Ordinary terminals are unchanged.</p><p role="alert"></p><div><button type="button" data-cancel>Cancel</button><button type="submit" disabled>Save</button></div></form>`;
     document.body.append(dialog); dialog.showModal();
     dialog.addEventListener('close',() => dialog.remove());
     dialog.querySelector('[data-cancel]').onclick = () => dialog.close();
@@ -195,5 +348,5 @@
     if (document.hidden) releaseView(current); else void refresh(current);
   });
   window.addEventListener('pagehide',close);
-  window.LabDocumentTerminal = {open,close,settings:openSettings};
+  window.LabDocumentTerminal = {open,close,settings:openSettings,dropContext,link,choose,decorate,updateRoot,refresh:() => current && refresh(current)};
 })();

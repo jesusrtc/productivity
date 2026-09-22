@@ -2997,3 +2997,15 @@
 .assistant-work-status{display:inline-block;border:1px solid var(--border);border-radius:4px;padding:1px 6px;white-space:nowrap;font-size:10px;font-weight:600;line-height:1.5;color:var(--text-secondary)}
 .assistant-work-status.pending{color:var(--text-primary)}.assistant-work-status.completed{color:#7ee787}.assistant-work-status.wip{color:#e3b341;background:#e3b3410d;border-color:#e3b34150}.assistant-work-status.blocked{color:#ff7b72;background:#ff7b720d;border-color:#ff7b7250}
 .assistant-task-dashboard h2{font-size:16px;margin:18px 0 10px}.assistant-task-dashboard-tabs{list-style:none;padding:0;margin:0;border:1px solid var(--border);border-radius:6px}.assistant-task-dashboard-tabs li+li{border-top:1px solid var(--border)}.assistant-task-dashboard-tabs button{width:100%;display:flex;gap:12px;justify-content:space-between;border:0;background:transparent;color:var(--text-primary);text-align:left;padding:9px 12px;cursor:pointer}.assistant-task-dashboard-tabs button:hover{background:var(--bg-secondary)}.assistant-task-dashboard-tabs small{color:var(--text-secondary);white-space:nowrap}
+
+/* Existing terminals can be linked without allocating a document process. */
+.assistant-document-terminal:not(.has-terminal) { height:auto; min-height:0; max-height:50vh; }
+.assistant-document-terminal:not(.has-terminal) .assistant-terminal-screen { display:none; }
+.assistant-terminal-toolbar { flex-wrap:wrap; }
+.assistant-terminal-toolbar select { max-width:220px; background:var(--bg-secondary); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; padding:4px; }
+.assistant-terminal-picker { overflow:auto; max-height:180px; padding:8px; border-top:1px solid var(--border); }
+.assistant-terminal-picker[hidden] { display:none; }
+.assistant-terminal-picker p { color:var(--text-secondary); margin:4px 0 8px; font-size:12px; }
+.assistant-terminal-picker button { display:inline-flex; margin:3px; padding:6px 9px; gap:6px; border:1px solid var(--border); border-radius:5px; background:var(--bg-secondary); color:var(--text-primary); cursor:grab; }
+.assistant-linked-terminal { background:none; color:var(--accent); border:1px solid var(--border); border-radius:4px; padding:3px 6px; white-space:nowrap; }
+[data-terminal-document].term-link-drop-target { outline:2px solid var(--accent); outline-offset:-2px; background:rgba(88,166,255,.1); }

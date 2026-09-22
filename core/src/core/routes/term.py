@@ -1557,7 +1557,7 @@ def _reconstruct_meta_entry(
                 entry["claude_session_id"] = s["claude_session_id"]
             if s.get("agent_session_id"):
                 entry["agent_session_id"] = s["agent_session_id"]
-            for key in ("label", "summary", "linked_file", "linked_scope"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
                 if s.get(key):
                     entry[key] = s[key]
             break
@@ -2148,7 +2148,7 @@ def _session_rows_for_root(
         logical = row.get("logical_name")
         saved = saved_by_logical.get(logical) if isinstance(logical, str) else None
         if saved:
-            for key in ("label", "summary", "linked_file", "linked_scope"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
                 if saved.get(key):
                     row[key] = saved[key]
         rows.append(row)
@@ -2443,6 +2443,11 @@ class LinkedFile(BaseModel):
     path: str
 
 
+class LinkedTask(BaseModel):
+    document_id: str
+    task_id: str | None = None
+
+
 class SessionMetadata(BaseModel):
     workspace_id: str
     vault: str | None = None
@@ -2453,6 +2458,7 @@ class SessionMetadata(BaseModel):
     summary: str | None = None
     # File links are one-to-one. Assigning a file transfers its previous link.
     linked_file: LinkedFile | None = None
+    linked_task: LinkedTask | None = None
     linked_scope: LinkedScope | None = None
 
 
@@ -2622,9 +2628,21 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         else:
             entry["linked_scope"] = body.linked_scope.model_dump()
 
+    if "linked_task" in fields:
+        if body.linked_task is None:
+            entry.pop("linked_task", None)
+        else:
+            from core import terminal_task_links
+            entry["linked_task"] = terminal_task_links.validate(request, body.linked_task)
+
     displaced = []
-    if body.linked_file is not None:
-        identity = _linked_file_identity(entry.get("linked_file"))
+    if body.linked_file is not None or body.linked_task is not None:
+        identities = {}
+        if body.linked_file is not None:
+            identities['linked_file'] = (_linked_file_identity, _linked_file_identity(entry.get('linked_file')))
+        if body.linked_task is not None:
+            from core.terminal_task_links import identity as task_identity
+            identities['linked_task'] = (task_identity, task_identity(entry.get('linked_task')))
         seen_paths = set()
         pending = []
         for vault in _known_vaults(active_root):
@@ -2643,7 +2661,7 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
                     continue
                 matches = [s for s in other_data.get("sessions", [])
                            if isinstance(s, dict) and s is not entry
-                           and _linked_file_identity(s.get("linked_file")) == identity]
+                           and any(identify(s.get(key)) == value for key, (identify, value) in identities.items())]
                 if not matches:
                     continue
                 _require_workspace_access(request, active_root, other_root, workspace_id)
@@ -2652,15 +2670,21 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         for other_root, workspace_id, other_data, matches, same in pending:
             other_meta = _load_meta(other_root)
             for previous in matches:
-                old_file = previous.pop("linked_file")
-                if previous.get("label") == Path(old_file["path"]).name:
-                    previous.pop("label", None)
+                removed = [key for key, (identify, value) in identities.items()
+                           if identify(previous.get(key)) == value]
+                old_file = previous.get('linked_file') if 'linked_file' in removed else None
+                old_label = Path(old_file['path']).name if old_file else None
+                for key in removed:
+                    previous.pop(key, None)
+                if old_label and previous.get('label') == old_label:
+                    previous.pop('label', None)
                 for runtime in other_meta.values():
                     if (runtime.get("workspace_id") == workspace_id
                             and runtime.get("logical_name") == previous.get("name")):
-                        runtime.pop("linked_file", None)
-                        if runtime.get("label") == Path(old_file["path"]).name:
-                            runtime.pop("label", None)
+                        for key in removed:
+                            runtime.pop(key, None)
+                        if old_label and runtime.get('label') == old_label:
+                            runtime.pop('label', None)
                 displaced.append({"workspace_id": workspace_id,
                                   "current_workspace": same,
                                   "vault": _vault_id_for_root(active_root, other_root),
@@ -2693,6 +2717,11 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
                 meta[tmux_name]["linked_file"] = entry["linked_file"]
             else:
                 meta[tmux_name].pop("linked_file", None)
+        if "linked_task" in fields:
+            if entry.get("linked_task"):
+                meta[tmux_name]["linked_task"] = entry["linked_task"]
+            else:
+                meta[tmux_name].pop("linked_task", None)
         if "linked_scope" in fields:
             if entry.get("linked_scope"):
                 meta[tmux_name]["linked_scope"] = entry["linked_scope"]
@@ -2710,6 +2739,14 @@ def _update_session_metadata(body: SessionMetadata, request: Request) -> dict:
         },
     )
     return {"ok": True, "session": entry, "displaced": displaced}
+
+
+@router.get("/api/term/task-terminals")
+def task_terminals(request: Request, document_id: str | None = None) -> list[dict]:
+    """Inspect existing sessions; never create or resume a process."""
+    from core.terminal_task_links import list_terminals
+    with _SESSION_METADATA_LOCK:
+        return list_terminals(request, document_id)
 
 
 @router.post("/api/term/paste-image")
@@ -3095,7 +3132,7 @@ def create_session(body: NewSession, request: Request) -> dict:
                 info.get("logical_name") or preferred_sane
             )
             if saved:
-                for key in ("label", "summary", "linked_file", "linked_scope"):
+                for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
                     if saved.get(key):
                         row[key] = saved[key]
         log.info(
@@ -3303,10 +3340,10 @@ def create_session(body: NewSession, request: Request) -> dict:
         _upsert_workspace_session(root, body.workspace_id, entry)
         saved = _workspace_session_by_name(root, body.workspace_id).get(logical)
         if saved:
-            for key in ("label", "summary", "linked_file", "linked_scope"):
+            for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
                 if saved.get(key):
                     meta[tmux_name][key] = saved[key]
-            if any(saved.get(key) for key in ("label", "summary", "linked_file", "linked_scope")):
+            if any(saved.get(key) for key in ("label", "summary", "linked_file", "linked_scope", "linked_task")):
                 _save_meta(root, meta)
         _invalidate_workspace_term_caches()
 

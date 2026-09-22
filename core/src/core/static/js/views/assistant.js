@@ -854,7 +854,7 @@
     const openNotes = series ? row.seriesMembers.filter(item => pendingWork(item).length).length : 0;
     const starredNotes = series ? row.seriesMembers.filter(item => item.starred).length : 0;
     const summary = series ? (row.path !== series.path ? `Latest: ${row.title}` : '') : row.tldr || row.summary;
-    return `<article class="assistant-list-item assistant-unified-item" data-assistant-entry-wrap="${e(row.path)}" data-document-key="${e(row.displayKey || row.path)}">
+    return `<article class="assistant-list-item assistant-unified-item" data-assistant-entry-wrap="${e(row.path)}" data-document-key="${e(row.displayKey || row.path)}" data-terminal-document="${e(row.id)}">
       <button type="button" class="assistant-compact-row assistant-document-row" data-assistant-document="${e(row.path)}" data-document-kind="${e(kind)}">
         ${documentIcon(row)}<span class="assistant-row-content"><span class="assistant-row-title">${work.length || !series && row.tracked ? `<span class="assistant-priority ${e(priority.toLowerCase())}">${e(priority)}</span>` : ''}<strong>${e(series?.title || row.title)}</strong></span>${summary ? `<span class="assistant-row-tldr">${e(summary)}</span>` : ''}</span>
         <span class="assistant-row-meta">${series ? `<small>${row.seriesMembers.length} notes</small>${starredNotes ? `<small>${starredNotes} starred note${starredNotes === 1 ? '' : 's'}</small>` : ''}${openNotes ? `<small>Open tasks in ${openNotes} note${openNotes === 1 ? '' : 's'}</small>` : ''}` : ''}${row.workspace_name ? `<span class="assistant-task-workspace-label">${e(row.workspace_name)}</span>` : ''}${row.date ? `<time>${e(row.date)}</time>` : ''}${documentTaskBadges(taskSummary)}${!taskSummary && !series && row.tracked ? `<span class="assistant-status status-${e(row.status)}">${e(labelStatus(row.status))}</span>` : ''}${due ? `<span class="assistant-task-due">Due ${e(displayDate(due))}</span>` : ''}${row.source === 'demo' || (row.tags || []).includes('demo') ? '<span class="assistant-demo">Demo</span>' : ''}</span>
@@ -1157,7 +1157,7 @@
       await renderModal(focusHeading);
       if (request === state.modalRequest) {
         overlay.classList.add('active');
-        window.LabDocumentTerminal?.open(detail);
+        window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root);
       }
     } catch (error) {
       if (request !== state.modalRequest) return;
@@ -1584,7 +1584,7 @@
       if (detail.tree) state.modalRoot.tree = detail.tree;
       if (detail.path === state.modalRoot.path) state.modalRoot = detail;
       await renderModal(focusHeading);
-      if (request === state.modalRequest) window.LabDocumentTerminal?.open(detail);
+      if (request === state.modalRequest) window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root);
     } catch (error) {
       if (request === state.modalRequest) documentError(error.message || String(error));
     } finally {
@@ -1982,6 +1982,7 @@
   function mountDocumentTasks(host, tab) {
     const root=state.modalRoot;
     if (!root.document_tasks) return;
+    window.LabDocumentTerminal?.updateRoot(root);
     let taskHost=host.querySelector(':scope > [data-document-tasks]');
     if (!taskHost) { taskHost=document.createElement('div');taskHost.dataset.documentTasks='';host.prepend(taskHost); }
     window.AssistantTasks.mount(taskHost,{database:state.data.root,root,tab,

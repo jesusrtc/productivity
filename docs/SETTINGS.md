@@ -11,10 +11,10 @@ vaults are reported without blocking other settings.
   remote browser. An agent marked “Not installed” cannot be selected as the
   global default. An existing unavailable default stays visible until changed.
 - **Global → Terminal appearance:** tab orientation and recent-tab indicator.
-- **Global → Document terminals:** automatic opening, inactivity timeouts and
-  running limit. These terminals use the global agent. Existing conversations
-  retain their provider; a failed first launch can retry with the corrected
-  default. Opening settings does not start an agent.
+- **Global → Document terminals:** explicit resume and idle cleanup for previous
+  managed document conversations. Tasks now link to existing terminal sessions;
+  opening a document never creates a process. These settings do not stop or
+  sleep manually linked terminals. See [Task terminal links](document-terminals.md).
 - **Workspace → Agent:** agent/model overrides or inheritance. The effective
   agent is shown. The expandable vault availability section controls which
   agents are allowed across that vault; it does not install an agent.

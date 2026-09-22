@@ -132,9 +132,9 @@
   }
   function documents(panel,s) {
     const p=s.config.documentTerminals;
-    form(panel,`<p class="settings-intro">Documents use the global agent, <strong>${esc(labels[s.config.defaultAgent])}</strong>. Sleeping stops the agent process and releases memory; reopening resumes its saved conversation.</p>
+    form(panel,`<p class="settings-intro">Drag an existing terminal onto a task or document to link it. Opening a document never starts a new terminal. These settings apply only to previous managed document conversations.</p>
       <button type="button" data-global-agent>Change default agent</button>
-      ${check('enabled','Open a terminal when opening a document',p.enabled)}
+      ${check('enabled','Allow resuming previous document conversations',p.enabled)}
       ${field('Sleep hidden idle terminals after (minutes)',input('sleepMinutes',p.sleepMinutes,'number','min="1" max="10080" required'))}
       ${field('Remove unused terminal bookmarks after (hours)',input('expireHours',p.expireHours,'number','min="1" max="8760" required'))}
       ${field('Idle terminals to keep ready',input('maxRunning',p.maxRunning,'number','min="1" max="20" required'))}

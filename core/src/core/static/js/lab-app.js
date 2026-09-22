@@ -11158,7 +11158,9 @@
     const toRestore = saved.filter(s =>
       s && s.name && s.kind !== 'attached' && !liveLogicalNames.has(s.name)
     );
-    const globalAutoSpawn = localStorage.getItem('labTermAutoSpawn') !== '0';
+    // Assistant links user-created sessions; entering Tasks must not revive
+    // every saved terminal or allocate a default agent.
+    const globalAutoSpawn = workspaceId !== '__assistant__' && localStorage.getItem('labTermAutoSpawn') !== '0';
     const workspaceAutoSpawn = globalAutoSpawn && await termAutoSpawnEnabled(workspaceId, vaultId);
     if (!_termIsScopeActive(workspaceId)) return;
     if (_termKillAllPending.has(_termSessionsKey(workspaceId, vaultId))
@@ -11905,6 +11907,7 @@
       (_termActiveWorkspaceId() === '__self__' ? '<hr><div class="term-group-menu-title">Associate with</div>' +
         _termHomeAssociationOptions().map(item => row('associate:' + item.id,
           (_termHomeAssociation(session) === item.id ? '✓ ' : '') + item.name)).join('') + '<hr>' : '') +
+      (session?.linked_task ? row('unlink-task', 'Unlink from task/document') : '') +
       (session?.linked_file ? row('unlink-file', 'Unlink from file') : '') +
       (session?.linked_scope ? row('unlink-scope', 'Unlink from folder/worktree') : '') +
       row('new', 'Add to new group…') +
@@ -11918,6 +11921,7 @@
           _termSaveHomeAssociation(logical, action.slice(10));
           termRenderSessionList();
         }
+        else if (action === 'unlink-task') void _termPatchLinks(session, {linked_task:null}).then(() => window.LabDocumentTerminal?.refresh()).catch(error => explorerToast(error.message,true));
         else if (action === 'unlink-file') void termUnlinkTarget(sessionName, 'file');
         else if (action === 'unlink-scope') void termUnlinkTarget(sessionName, 'scope');
         else if (action === 'new') termAssignTabGroup(sessionName, 'new');
@@ -12053,6 +12057,7 @@
     const scope = s.linked_scope;
     const fileName = String(s.linked_file?.path || '').split('/').pop();
     if (manual) return manual;
+    if (s.linked_task?.title) return s.linked_task.title;
     if (fileName) return fileName;
     if (scope) {
       const project = String(scope.label || '').split(' · ')[0].trim();
@@ -12125,6 +12130,7 @@
       text: scope.worktree ? String(scope.label || '').split(' · ').slice(1).join(' · ') || basename(scope.worktree) : 'main',
       title: `Worktree: ${scope.worktree || scope.root || 'main'}`, color: _termScopeColor(scope)});
     const linked = String(s?.linked_file?.path || '').trim();
+    if (s?.linked_task) identity.push({kind:'task', text:s.linked_task.title, title:'Linked task/document: ' + s.linked_task.title, color:'var(--accent)'});
     if (linked) identity.push({kind: 'file', text: linked, title: `Linked file: ${linked}`, color: 'var(--accent)'});
     return identity;
   }
@@ -12901,13 +12907,15 @@
     termSessions = (termSessions || []).map(row => {
       const updated = updates.get(row.logical_name);
       return updated ? {...row, label: updated.label || null, linked_file: updated.linked_file || null,
-        linked_scope: updated.linked_scope || null} : row;
+        linked_scope: updated.linked_scope || null, linked_task: updated.linked_task || null} : row;
     });
     _termSessionsCache.set(_termSessionsKey(context.workspaceId, context.vaultId), termSessions);
     termRenderSessionList();
     _termRenderActiveSessionHeader();
     return body.session;
   }
+
+  window.LabTaskTerminalBridge = {patch:_termPatchLinks};
 
   function _termSessionsLinkedToContext(ctx) {
     const absolute = _termLinkedAbsolutePath(ctx.root, ctx.path);
@@ -12917,6 +12925,7 @@
   }
 
   async function termLinkTarget(ctx, sessionName, method = 'secondary click') {
+    if (ctx.kind === 'task') return window.LabDocumentTerminal.link(ctx, (termSessions || []).find(row => row.name === sessionName), _termLinkContext());
     const session = (termSessions || []).find(row => row.name === sessionName);
     const context = _termLinkContext();
     if (!session?.logical_name || !context.workspaceId) {
@@ -12957,6 +12966,8 @@
   }
 
   function _termLinkDropContext(target) {
+    const task = window.LabDocumentTerminal?.dropContext(target);
+    if (task) return task;
     const row = target?.closest?.('[data-entry-kind][data-entry-path], .sidebar-file-scope-button, .sidebar-worktree-picker');
     if (!row) return null;
     if (row.matches('[data-entry-kind]')) return _explorerContextFromRow(row);

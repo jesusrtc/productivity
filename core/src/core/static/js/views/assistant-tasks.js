@@ -33,16 +33,18 @@
     const collapsed = get(doc.id + ':collapsed', []), expanded = state.showAll && !collapsed.includes(task.id);
     const allChildren = children(doc, task.id);
     const label = task.title;
-    return `<li class="assistant-tasks-task${completed ? ' is-done' : ''}" data-task="${esc(task.id)}">
+    return `<li class="assistant-tasks-task${completed ? ' is-done' : ''}" data-task="${esc(task.id)}" data-terminal-document="${esc(doc.id)}" data-terminal-task="${esc(task.id)}">
       <div class="assistant-tasks-task-row">
         ${nested.length && state.showAll ? `<button type="button" class="assistant-tasks-disclosure" data-collapse="${esc(task.id)}" aria-label="${expanded ? 'Hide' : 'Show'} subtasks for ${esc(label)}" aria-expanded="${expanded}">${expanded ? '▾' : '▸'}</button>` : '<span class="assistant-tasks-disclosure"></span>'}
         <input type="checkbox" data-check="${esc(task.id)}" aria-label="Complete ${esc(label)}"${completed ? ' checked' : ''}${state.busy ? ' disabled' : ''}>
         ${tab ? `<a class="assistant-tasks-task-label" href="#assistant-tasks-tab=${encodeURIComponent(tab.id)}" data-open-tab="${esc(tab.id)}" title="Open ${esc(tab.title)}">` : '<div class="assistant-tasks-task-label">'}<span>${esc(label)}</span>${allChildren.length ? `<small>${allChildren.filter(child => done(doc, child)).length}/${allChildren.length} subtasks</small>` : ''}${tab ? '</a>' : '</div>'}
+        <span data-linked-terminal></span>
         ${task.due ? `<small class="assistant-tasks-task-due">${esc(task.due)}</small>` : ''}<select class="assistant-tasks-status status-${esc(taskStatus(task))}" data-status="${esc(task.id)}" aria-label="Estado de ${esc(label)}"${state.busy ? ' disabled' : ''}>${statusOptions(taskStatus(task))}</select>
         <select class="assistant-tasks-priority priority-${esc(task.priority)}" data-priority="${esc(task.id)}" aria-label="Priority for ${esc(label)}"${state.busy ? ' disabled' : ''}>${priorityOptions(task.priority)}</select>
         <details class="assistant-tasks-task-menu"><summary aria-label="Options for ${esc(label)}">⋯</summary><div>
           <label>Title<input data-task-title="${esc(task.id)}" value="${esc(task.title)}" maxlength="2000"></label><label>Due<input type="date" data-task-due="${esc(task.id)}" value="${esc(task.due || '')}"></label><label>Owner<input data-task-owner="${esc(task.id)}" value="${esc(task.owner || '')}"></label><label>Repeats<select data-task-recurrence="${esc(task.id)}">${['','weekly','monthly','yearly'].map(value => `<option value="${value}"${(task.recurrence || '') === value ? ' selected' : ''}>${value || 'Once'}</option>`).join('')}</select></label><label>Linked tab<select data-link="${esc(task.id)}" aria-label="Linked tab for ${esc(label)}"${state.busy ? ' disabled' : ''}>${tabOptions(doc, task.tab_id, !!task.parent_id)}</select></label>
           <details class="assistant-tasks-extra"><summary>More task properties</summary>${[['tldr','Summary','text'],['group','Group','text'],['scheduled','Planned','date'],['defer_until','Deferred until','date'],['waiting_on','Waiting on','text'],['follow_up_at','Follow up','date'],['reviewer','Reviewer','text'],['executor','Executor','text']].map(([field,label,type])=>`<label>${label}<input type="${type}" data-task-property="${field}" data-task-id="${esc(task.id)}" value="${esc(task[field] || '')}"></label>`).join('')}<label>Attributes<textarea data-task-attributes="${esc(task.id)}" aria-label="Task attributes">${esc(JSON.stringify(task.attributes || {},null,2))}</textarea></label></details>
+          <button type="button" data-task-terminal="${esc(task.id)}">Link terminal…</button>
           <button type="button" data-add-child="${esc(task.id)}"${state.busy ? ' disabled' : ''}>+ Add subtask</button>
         ${task.recurrence ? `<button type="button" data-repeat-task="${esc(task.id)}"${taskStatus(task) !== 'done' ? ' disabled' : ''}>Create next occurrence</button>` : ''}<button type="button" data-delete-task="${esc(task.id)}">Delete task${allChildren.length ? ' and subtasks' : ''}</button></div></details>
       </div>${nested.length && expanded ? `<ul class="assistant-tasks-subtasks">${nested.map(child => taskRow(doc, child, scope, depth + 1)).join('')}</ul>` : ''}
@@ -128,6 +130,8 @@
   }
 
   function bind(host, doc) {
+    host.querySelectorAll('[data-task-terminal]').forEach(button => button.onclick = () => window.LabDocumentTerminal?.choose(button.dataset.taskTerminal));
+    window.LabDocumentTerminal?.decorate(host);
     host.querySelectorAll('[data-open-tab]').forEach(button => button.onclick = event => { event.preventDefault(); state.options.navigate(button.dataset.openTab); });
     host.querySelectorAll('[data-check]').forEach(input => {
       const task = doc.tasks.find(task => task.id === input.dataset.check);

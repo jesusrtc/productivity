@@ -1,6 +1,12 @@
-# Document terminals preserve conversations and release idle processes
+# Previous managed document terminals preserve conversations and release idle processes
 
-The client wants a terminal ready on opening each task/document, with the exact
+Superseded interaction (2026-09-22): the client now wants explicit terminal
+creation and drag-and-drop task linking. Opening a document only reconnects to
+an existing session; it never creates or wakes one. See
+[task terminal links](task-terminals-use-existing-sessions.md). The policy below
+continues to protect previously created managed conversations.
+
+The previous design kept a terminal ready on opening each task/document, with the exact
 previous conversation, without runaway resource use. They rejected a hard cap
 of three running document terminals. Opening never sends an agent task.
 
