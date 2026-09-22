@@ -103,3 +103,63 @@ The HTTP probe accepts additional absolute request paths and an optional
 sample, raises on HTTP errors, performs no retries, prints every over-budget
 sample, and exits nonzero if any request reaches 200 ms. Its default route
 list is deliberately limited and is not a comprehensive UI performance gate.
+
+## Follow-on: snapshot query, isolated on `perf/cold-metadata`
+
+This branch builds on the three checkpoints above; `perf/response-budget`
+remains unchanged while its local merge approval is pending. No merge or push
+has occurred. Automatic approval review rejected merging into `main`; an
+explicit approval question is pending rather than bypassing that restriction.
+
+The next change avoids loading log records for named threads whose snapshot
+is already covered by their first-pass maximum timestamp. It uses existing,
+read-only provider indexes only when their columns match and the recent window
+exceeds 1,024 entries. Small windows and older schemas retain the previous
+query. Untitled and unprojected conversations remain eligible. Nanosecond and
+row-ID ordering are explicit to preserve the timestamp index's tie behavior.
+
+Validation includes 24 randomized equivalence cases with multiple native
+processes per TTY, reused PID generations, unknown threads, missing names,
+archived/API threads, and tied seconds, plus explicit nanosecond ordering,
+`/new`/`/clear`, and old-schema fallback cases. **160 targeted terminal,
+activity, metadata and latency tests passed** after the final query changes.
+
+Observed evidence, with all misses retained:
+
+- A deterministic 20,000-row fixture with 8 KiB payloads reduced the snapshot
+  query from 4.27–4.65 ms to 0.82–0.86 ms in six alternating runs. This measures
+  only that query, not the earlier process/thread grouping or full endpoint.
+- A live alternating comparison before the small-window guard returned
+  identical mappings in 24 pairs. Baseline median/p95/max: 35.80/36.92/113.89 ms;
+  candidate: 36.21/37.29/38.27 ms. Warm latency was effectively unchanged, and
+  OS-cache effects prevent treating those maxima as a controlled cold comparison.
+- The final adaptive query also returned identical mappings in 24 live pairs.
+  Baseline median/p95/max: 36.03/38.89/87.90 ms; candidate:
+  36.47/39.22/40.87 ms. Neither version exceeded 200 ms in this warm-OS-cache
+  comparison, which does not negate the HTTP cold-request failures below.
+- An initial 30-request HTTP run had Home maximum 154.77 ms. Five fresh-process
+  runs then had first Home requests 153.74, 70.51, 71.91, 70.88 and 71.69 ms.
+  One global terminal-list request in those runs still took **1,086.88 ms**.
+- The final adaptive candidate's 30-request run **failed**: Home first/max
+  **418.44 ms**, another Home request **241.90 ms**, and the global terminal
+  list first/max **1,093.33 ms**. These results supersede any impression that
+  the initial passing Home runs proved the cold path solved.
+- Profiling the global request reproduced **1,089.54 ms**, with **1,063 ms**
+  spent reading runtime metadata in `_load_meta`. Its next request took
+  49.20 ms. This identifies another storage-sensitive first-request path;
+  it is not attributed to browser rendering or hidden behind a warm-up.
+
+The original 200 ms objective remains unachieved. Further work must address
+cold runtime metadata reads and provider process/thread grouping, as well as
+the browser-action and typing coverage listed above. The new comparison tool
+can be run with:
+
+```sh
+core/.venv/bin/python scripts/perf/lab_codex_metadata_latency.py \
+  --baseline perf/response-budget --samples 24
+```
+
+It alternates invocation order, clears the metadata TTL before every call,
+checks full result equality without printing private content, and reports
+all candidate samples at or above 200 ms as failures. It does not flush the
+OS file cache or change provider data.

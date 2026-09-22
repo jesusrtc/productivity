@@ -248,3 +248,5 @@
 - [Terminal process discovery is TTY-scoped](terminal-process-scan-is-tty-scoped.md) — query only requested panes; a whole-machine ps scan can exceed the interaction budget by itself.
 
 - [Batch terminal ownership per vault](terminal-ownership-batched-per-vault.md) — resolve unknown UUIDs from one fresh metadata scan; retain durable recovery and legacy name handling.
+
+- [Codex snapshots preserve timestamp ties](codex-snapshot-index-preserves-tie-order.md) — skip redundant named-thread snapshots on large windows without losing empty/untitled conversations or changing same-second ordering.

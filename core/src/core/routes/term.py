@@ -1177,17 +1177,50 @@ def _codex_session_metadata_by_tty(
             with closing(sqlite3.connect(
                 f"file:{logs_path}?mode=ro", uri=True, timeout=0.2,
             )) as conn:
+                # A snapshot in a named thread is already represented by
+                # that process/thread's MAX(ts) above, so it cannot advance
+                # best[tty]. Only unprojected or untitled threads can do so.
+                # Use the provider's thread/time index to reject named-thread
+                # rows and old timestamps before reading large log records.
+                # Older databases without the index retain the original query.
+                index_columns = [row[2] for row in conn.execute(
+                    "PRAGMA index_info('idx_logs_thread_id_ts')",
+                ).fetchall()]
+                time_columns = [row[2] for row in conn.execute(
+                    "PRAGMA index_info('idx_logs_ts')",
+                ).fetchall()]
+                indexed = (index_columns == ["thread_id", "ts", "ts_nanos", "id"]
+                           and time_columns == ["ts", "ts_nanos", "id"])
+                # A small recent window is cheaper to read in time order than
+                # walking the entire thread index. This covering probe visits
+                # at most 1,025 entries and never loads a log body.
+                if indexed:
+                    indexed = conn.execute(
+                        "SELECT 1 FROM logs INDEXED BY idx_logs_ts WHERE ts > ? "
+                        "LIMIT 1 OFFSET 1024", (earliest_known,),
+                    ).fetchone() is not None
+                named_threads = [key for key, thread in threads.items()
+                                 if _clean_optional_text(thread[2] or thread[1], max_len=100)]
+                index_hint = " INDEXED BY idx_logs_thread_id_ts" if indexed else ""
+                exclude_named = (
+                    f" AND thread_id NOT IN ({','.join('?' for _ in named_threads)})"
+                    if indexed and named_threads else ""
+                )
+                # Match the timestamp index's tie order as well: using only
+                # seconds lets a different scan order choose an older /new.
+                snapshot_order = "ts DESC, ts_nanos DESC, id DESC" if indexed else "ts DESC"
                 starts = conn.execute(
                     f"""
                     SELECT process_uuid, thread_id, ts AS started_at
-                    FROM logs
-                    WHERE ts > ?
+                    FROM logs{index_hint}
+                    WHERE thread_id IS NOT NULL{exclude_named}
+                      AND ts > ?
                       AND target = 'codex_core::shell_snapshot'
-                      AND thread_id IS NOT NULL
                       AND process_uuid IN ({process_placeholders})
-                    ORDER BY ts DESC
+                    ORDER BY {snapshot_order}
                     """,
-                    [earliest_known, *sorted(live_process_uuids)],
+                    [*(named_threads if indexed else []), earliest_known,
+                     *sorted(live_process_uuids)],
                 ).fetchall()
             for process_uuid, thread_id, started_at in starts:
                 match = _CODEX_PROCESS_UUID_RE.match(str(process_uuid))

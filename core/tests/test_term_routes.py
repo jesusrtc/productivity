@@ -729,8 +729,9 @@ def test_codex_metadata_returns_all_user_requests_after_clear(
     }
 
 
+@pytest.mark.parametrize("indexed", [False, True])
 def test_codex_metadata_uses_empty_thread_started_by_clear(
-    monkeypatch, tmp_path: Path, metadata_connections_closed,
+    monkeypatch, tmp_path: Path, metadata_connections_closed, indexed,
 ) -> None:
     import core.routes.term as term_mod
 
@@ -754,12 +755,16 @@ def test_codex_metadata_uses_empty_thread_started_by_clear(
         conn.execute(
             """
             CREATE TABLE logs (
+                id INTEGER PRIMARY KEY, ts_nanos INTEGER DEFAULT 0,
                 process_uuid TEXT, thread_id TEXT, ts INTEGER, target TEXT
             )
             """,
         )
+        if indexed:
+            conn.execute("CREATE INDEX idx_logs_thread_id_ts ON logs(thread_id, ts DESC, ts_nanos DESC, id DESC)")
+            conn.execute("CREATE INDEX idx_logs_ts ON logs(ts DESC, ts_nanos DESC, id DESC)")
         conn.executemany(
-            "INSERT INTO logs VALUES ('pid:123:live', ?, ?, ?)",
+            "INSERT INTO logs (process_uuid,thread_id,ts,target) VALUES ('pid:123:live', ?, ?, ?)",
             [
                 ("thread-old", 10, "codex_core::shell_snapshot"),
                 ("thread-old", 20, "codex_core::session::turn"),
