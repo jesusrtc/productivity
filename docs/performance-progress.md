@@ -216,3 +216,66 @@ core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
 The earlier one-second runtime-metadata read did not recur in a follow-up
 per-file probe: all three metadata files read in under 1 ms. That observation
 does not resolve or invalidate the previously measured storage-sensitive miss.
+
+## Follow-on: large workspace sidebars
+
+The browser fixture now accepts `--extra-files 2000`, adding 2,000 Markdown
+notes to **each** workspace while retaining the original two documents and all
+normal polling. A profile of an eight-switch run found about 1.9 seconds in
+`_refreshWorkspaceSidebar`; HTML parsing and forced layout dominated. The
+baseline's slowest file-list request was only 63.30 ms. This is a browser
+rendering problem as well as a backend budget exercise.
+
+Changes in this checkpoint:
+
+- Keep reading the saved workspace flag, but do not rewrite it when the tab
+  is already open. The old no-op PUT changed workspace.json's mtime and caused
+  additional file-tree reconciliation and DOM replacement. An external close
+  is still detected and reopened, with other metadata preserved.
+- Reuse one natural-sort `Intl.Collator` with the existing numeric/base options.
+- Cache parsed sidebar templates by exact markup and workspace scope. Stable
+  folder IDs make identical trees reusable. Mount fresh clones so previous
+  selection, Git badges, controls, or listeners cannot contaminate a revisit.
+  Retention is capped at four scopes and 60,000 aggregate elements. Oversized
+  trees remain fully rendered but are not retained in the cache.
+- Extend the probe with large fixtures, optional Chrome CPU profiling, settled
+  scroll coordinates before clicking, and partial result reporting on failure.
+
+No file rows, actions, metadata, refreshes, or sorting choices are removed.
+The dashboard still waits for its existing sidebar refresh path. Concurrent
+fetching was tested and reverted after it worsened cold samples; row-level
+rendering containment was also reverted after it failed click targeting.
+
+| 20 samples per action, 2,000 extra files per workspace | Before median / p95 / max | Final candidate median / p95 / max |
+| --- | ---: | ---: |
+| Workspace switch | **290.20 / 390.90 / 393.80 ms** | 166.90 / **238.40 / 252.70 ms** |
+| Document click | 33.90 / 54.40 / 199.70 ms | 29.00 / 50.80 / 61.40 ms |
+
+The final large run **still fails**: its two cold workspace visits took
+**238.40 ms and 252.70 ms**. All 18 subsequent workspace switches were below
+186.80 ms. The baseline first click was 234.50 ms, so cold performance has not
+been demonstrated to improve. All 337 recorded API requests stayed below
+80.90 ms, with no HTTP, network, or browser errors. These fixture API results
+do not erase the earlier cold real-vault metadata failures.
+
+The small-fixture follow-up passed all 40 actions: workspace maximum 68.90 ms,
+document maximum 67.20 ms, and no request/browser errors. **54 targeted tests
+passed**, including real Chrome verification of cloned click handlers, clean
+selection and form state, changed file lists, LRU eviction, aggregate element
+limits, complete oversized trees, and existing sidebar/navigation/notebook
+regressions. The probe's first two cold samples remain included in every
+budget decision; the warm subset is reported only to locate remaining work.
+
+```sh
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 20 --extra-files 2000
+LAB_PERF_CPU_PROFILE=/tmp/lab-navigation.cpuprofile \
+  core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 8 --extra-files 2000
+```
+
+Use unprofiled runs for final timings. Remaining work includes cold large-tree
+rendering, larger or mixed trees, rapid scope switching and state retention,
+full-page startup, real-vault backend outliers, and typing under active UI and
+terminal workloads. This checkpoint remains isolated; the earlier merge
+approval request is still pending.

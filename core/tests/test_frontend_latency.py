@@ -139,3 +139,42 @@ const workspaceTabsRender = () => {};
     }
     assert result['initial'] == {'calls': ['shell:alpha'], 'timers': 2}
     assert 'terminal:alpha' not in result['late']
+
+
+def test_open_workspace_tabs_do_not_rewrite_metadata_but_reconcile_external_close():
+    helper = _js_between('  async function workspaceTabsSetOpen(', '  // Knowledge-view state.')
+    result = _run_node(r'''
+let stored = {id: 'alpha', tab_open: true, references: [{title: 'Keep me'}]};
+const writes = [], reads = [];
+const workspaceTabsAll = [{path: '/alpha', tab_open: true}];
+const fetch = async (url, options) => {
+  if (options?.method === 'PUT') {
+    const body = JSON.parse(options.body);
+    writes.push(body);
+    stored = body.data;
+    return {ok: true};
+  }
+  reads.push(url);
+  return {ok: true, json: async () => structuredClone(stored)};
+};
+''' + helper + r'''
+(async () => {
+  for (let i = 0; i < 10; i++) await workspaceTabsSetOpen('/alpha', true);
+  const repeated = {reads: reads.length, writes: writes.length};
+  stored.tab_open = false; // another client closed it after our catalog refresh
+  await workspaceTabsSetOpen('/alpha', true);
+  const reopened = {stored: structuredClone(stored), cache: workspaceTabsAll[0].tab_open};
+  await workspaceTabsSetOpen('/alpha', false);
+  await workspaceTabsSetOpen('/alpha', false);
+  const closed = {stored: structuredClone(stored), cache: workspaceTabsAll[0].tab_open};
+  console.log(JSON.stringify({repeated, reopened, closed, writes}));
+})();
+''')
+    assert result['repeated'] == {'reads': 10, 'writes': 0}
+    assert result['reopened']['stored']['tab_open'] is True
+    assert result['reopened']['cache'] is True
+    assert result['closed']['stored']['tab_open'] is False
+    assert result['closed']['cache'] is False
+    assert len(result['writes']) == 2
+    assert all(w['path'] == '/alpha' and w['data']['references'] == [{'title': 'Keep me'}]
+               for w in result['writes'])

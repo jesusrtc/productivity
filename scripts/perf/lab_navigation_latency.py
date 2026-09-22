@@ -23,10 +23,13 @@ from urllib.parse import quote
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--samples', type=int, default=20, help='Samples per action (at least 2)')
+parser.add_argument('--extra-files', type=int, default=0, help='Additional Markdown files in each workspace')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
+if args.extra_files < 0:
+    parser.error('--extra-files must be nonnegative')
 checkout = Path(__file__).resolve().parents[2]
 source_paths = [str(checkout / 'core/src'), str(checkout / 'core/cli/src')]
 sys.path[:0] = source_paths
@@ -61,6 +64,10 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 f'# {name.title()} review {number}\n\n' + '\n\n'.join(
                     f'## Section {i}\n\nFixture paragraph with **formatting** and `code`.'
                     for i in range(30)))
+        for number in range(args.extra_files):
+            folder = root / 'workspaces' / name / 'notes' / f'batch-{number // 100:03}'
+            folder.mkdir(exist_ok=True)
+            (folder / f'entry-{number:05}.md').write_text(f'# Fixture note {number}\n\nSmall document.\n')
     import uvicorn
     from core import auth
     from core.main import create_app
@@ -113,7 +120,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 assert response.status == 200
         result = subprocess.run(['node', str(checkout / 'scripts/perf/lab_navigation_latency.mjs'), url,
                                  str(root / 'workspaces'), str(args.samples)],
-                                env={**os.environ, 'LAB_PROBE_COOKIE': cookie},
+                                env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
+                                     'LAB_PERF_EXTRA_FILES': str(args.extra_files)},
                                 timeout=max(120, args.samples * 26))
     finally:
         server.should_exit = True

@@ -3,7 +3,7 @@
 // Real CDP mouse events -> rendered content -> next animation-frame task.
 // This is a browser paint opportunity estimate, not physical display latency.
 import {spawn} from 'node:child_process';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const baseUrl = process.argv[2];
@@ -111,6 +111,7 @@ async function main() {
   const port=9900+Math.floor(Math.random()*200);
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking',`--remote-debugging-port=${port}`,`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client;
+  const rows=[];
   try {
     await waitForChrome(port); ({client}=await newPage(port));
     await client.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -143,7 +144,10 @@ async function main() {
     // Start immediately: early user navigation must not inherit boot delays.
     // No ui_check, mocked fetch, disabled polling, or cache flush.
     await evaluate('performance.setResourceTimingBufferSize(10000)');
-    const rows=[];
+    if(process.env.LAB_PERF_CPU_PROFILE) {
+      await client.send('Profiler.enable');
+      await client.send('Profiler.start');
+    }
     const actions=[];
     for(let i=0;i<samples;i++) {
       const name=i%2?'beta':'alpha';
@@ -165,10 +169,12 @@ async function main() {
         if(Date.now()>until)throw new Error('Click target did not appear: '+selector);
         await sleep(10);
       }
-      await evaluate(`(()=>{
+      await evaluate(`(async()=>{
         const tab=document.querySelector(${JSON.stringify(selector)});
         if(tab.dataset.kind==='workspace' && !tab.dataset.key.startsWith(${JSON.stringify(workspaceRoot + '/')})) throw new Error('Unexpected fixture workspace');
-        tab.scrollIntoView({block:'nearest'});
+        tab.scrollIntoView({block:'center'});
+        // Scrolling can schedule layout and anchoring; target the settled row.
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
         const rect=tab.getBoundingClientRect();
         window.__probe={start:null,done:false};
         tab.addEventListener('click',()=>{
@@ -195,6 +201,10 @@ async function main() {
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,requests:row.requests});
       await sleep(100);
     }
+    if(process.env.LAB_PERF_CPU_PROFILE) {
+      const {profile}=await client.send('Profiler.stop');
+      await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));
+    }
     const stats={};
     for(const kind of ['workspace','document']) {
       const group=rows.filter(r=>r.kind===kind), times=group.map(r=>r.ms).sort((a,b)=>a-b);
@@ -210,8 +220,13 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,ms:r.duration,status:r.responseStatus}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    console.log(JSON.stringify({stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    const fixture={extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0)};
+    console.log(JSON.stringify({fixture,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
     if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length)process.exitCode=1;
+  } catch(error) {
+    // A failed click must retain earlier samples, not erase the run's evidence.
+    console.log(JSON.stringify({error:error.message,rows},null,2));
+    process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}
     if(chrome.exitCode===null){chrome.kill();await new Promise(r=>chrome.once('exit',r));}

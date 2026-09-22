@@ -252,3 +252,6 @@
 - [Codex snapshots preserve timestamp ties](codex-snapshot-index-preserves-tie-order.md) — skip redundant named-thread snapshots on large windows without losing empty/untitled conversations or changing same-second ordering.
 
 - [Workspace clicks bypass startup delay](workspace-clicks-bypass-startup-delay.md) — schedule initial URL hydration separately; early user clicks must not inherit the 750 ms quiet window.
+
+- [Open tabs avoid redundant writes](workspace-tab-open-avoids-noop-writes.md) — read current saved state, but only write a changed open/closed flag; no-op writes trigger file-tree rebuilds.
+- [Sidebar templates stay pristine and bounded](sidebar-template-cache-is-pristine-and-bounded.md) — exact markup, deterministic folder IDs, fresh clones, four scopes and 60,000 retained elements; cold rendering remains separate work.

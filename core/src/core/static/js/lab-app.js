@@ -1125,11 +1125,9 @@
     return String(entry && (entry.path || entry.name) || '').split('/').pop();
   }
 
+  const _sidebarNameCollator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
   function _sidebarCompareNames(a, b) {
-    return String(a || '').localeCompare(String(b || ''), undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
+    return _sidebarNameCollator.compare(String(a || ''), String(b || ''));
   }
 
   function _sidebarCompareFiles(a, b, mode = 'name') {
@@ -3120,7 +3118,7 @@
     const renderNode = node => {
       let nodeHtml = '';
       node.folders.forEach(folder => {
-        const fid = 'recent-folder-' + Math.random().toString(36).slice(2, 8);
+        const fid = 'recent-folder-' + encodeURIComponent(JSON.stringify([scope, folder.path]));
         const open = _treeIsOpen(scope, folder.path, true);
         nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
         nodeHtml += `<div class="sidebar-folder-children${open ? ' open' : ''}" id="${fid}">${renderNode(folder.children)}</div>`;
@@ -8892,6 +8890,41 @@
     }
   }
 
+  // Parsing thousands of file rows on every workspace switch is expensive.
+  // Keep pristine, detached templates, never live nodes: cloning cannot revive
+  // stale selection, Git badges, control state, or event listeners from a visit.
+  // Exact markup equality covers file/scope/configuration changes. Both entry
+  // count and retained element count are bounded across all workspaces.
+  const _sidebarMarkupCache = new Map();
+  let _sidebarMarkupCacheElements = 0;
+  const _SIDEBAR_MARKUP_CACHE_ENTRIES = 4;
+  const _SIDEBAR_MARKUP_CACHE_ELEMENTS = 60000;
+  function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope) {
+    let cached = _sidebarMarkupCache.get(scope);
+    if (cached) {
+      _sidebarMarkupCache.delete(scope);
+      _sidebarMarkupCacheElements -= cached.elements;
+    }
+    if (!cached || cached.markup !== markup) {
+      const template = document.createElement('template');
+      template.innerHTML = markup;
+      cached = {markup, template, elements: template.content.querySelectorAll('*').length};
+    }
+    if (cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
+      sidebar.replaceChildren(cached.template.content);
+      return;
+    }
+    while (_sidebarMarkupCache.size >= _SIDEBAR_MARKUP_CACHE_ENTRIES
+        || _sidebarMarkupCacheElements + cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
+      const oldest = _sidebarMarkupCache.keys().next().value;
+      _sidebarMarkupCacheElements -= _sidebarMarkupCache.get(oldest).elements;
+      _sidebarMarkupCache.delete(oldest);
+    }
+    _sidebarMarkupCache.set(scope, cached);
+    _sidebarMarkupCacheElements += cached.elements;
+    sidebar.replaceChildren(cached.template.content.cloneNode(true));
+  }
+
   // Re-renders just the workspace file sidebar from scratch. Pulled out
   // of showWorkspaceInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
@@ -9064,8 +9097,8 @@
           // Render folders first
           const folders = treeFolderNames(node, _sidebarCurrentSortMode('files'));
           folders.forEach(folder => {
-            const fid = 'folder-' + Math.random().toString(36).substr(2, 6);
             const fullPath = parentPath ? `${parentPath}/${folder}` : folder;
+            const fid = 'folder-' + encodeURIComponent(JSON.stringify([_workspaceTreeScope, fullPath]));
             const d = treeFolderEntry(node, folder, fullPath);
             const autoOpen = depth === 0 && AUTO_OPEN_FOLDERS.has(folder);
             const open = _treeIsOpen(_workspaceTreeScope, fullPath, autoOpen);
@@ -9123,7 +9156,7 @@
       // doc pane) since they're real external links. The folder is
       // auto-expanded like docs/ so curated reading lives in plain sight.
       if (references.length > 0) {
-        const extId = 'folder-ext-' + Math.random().toString(36).substr(2, 6);
+        const extId = 'folder-ext-' + encodeURIComponent(_workspaceTreeScope);
         const _extOpen = _treeIsOpen(_workspaceTreeScope, 'external-references', true);
         const _extArrow = _extOpen ? ' open' : '';
         const _extChildren = _extOpen ? ' open' : '';
@@ -9140,7 +9173,7 @@
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
-      sidebar.innerHTML = sbHtml;
+      _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
@@ -10057,12 +10090,17 @@
       const infoRes = await fetch('/api/workspace-info?path=' + encodeURIComponent(workspacePath));
       if (!infoRes.ok) throw new Error('workspace not found');
       const info = await infoRes.json();
-      info.tab_open = !!open;
-      await fetch('/api/workspace-info', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: workspacePath, data: info}),
-      });
+      // Selecting an already-open tab must not rewrite workspace.json: its
+      // mtime drives sidebar refreshes in every client. Read the current flag
+      // first so an external close still gets reopened by this navigation.
+      if (!!info.tab_open !== !!open) {
+        info.tab_open = !!open;
+        await fetch('/api/workspace-info', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({path: workspacePath, data: info}),
+        });
+      }
     } catch (e) { /* best-effort; next refresh will pick up the truth */ }
     const p = (workspaceTabsAll || []).find(x => x && x.path === workspacePath);
     if (p) p.tab_open = !!open;
