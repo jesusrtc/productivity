@@ -296,3 +296,6 @@
 - [Compact project location rows](compact-project-location-rows.md) — inline names and Default/Custom buttons; reveal paths only on click.
 - [Worktrees inherit project colors](worktrees-inherit-project-colors.md) — inheritance follows project edits; per-worktree overrides are optional and resettable.
 - [Recent files require Git tracking](recent-files-require-git-tracking.md) — Recently updated excludes ignored and untracked files across time and Git filters.
+
+- [Git history loads local and recent work first](git-history-loads-local-and-recent-first.md) — independent local status, 20 commits/60 days, lazy older pages, and rename-safe pagination.
+- [File scan capacity is queued](file-scan-capacity-is-queued.md) — bounded cold-first admission, quiet 202 retries, immediate cached listings, and existing FSEvents reconciliation.

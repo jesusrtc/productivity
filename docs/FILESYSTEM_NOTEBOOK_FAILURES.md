@@ -172,3 +172,33 @@ restart that Lab server when its running work can be stopped, and reload the
 browser to load the updated JavaScript. Restart also releases descriptors held
 by the old process. Historical error entries are retained; the relevant check
 is whether new entries recur after that deployment.
+
+## Scan capacity queues first listings instead of reporting an error
+
+A separate September 23 report showed the red “File scans are busy” toast. That
+message was emitted when both snapshot workers were occupied and another root
+needed a scan. It was a capacity response, not evidence of a failed file read.
+The native directory cache and five-minute reconciliation were already present;
+replacing them with an mtime-filtered `find` would still enumerate the tree and
+would not report deleted paths.
+
+The store now admits one pending scan per scope, bounded by the existing 32-scope
+limit, and retains the two-worker limit. First listings precede queued refreshes;
+FIFO order within each priority does not change when clients poll. Completion
+starts the next pending scan without requiring another HTTP request. A first
+listing waiting for capacity returns 202 and Retry-After, which the browser
+collects quietly. If every scope slot is occupied, admission itself is retryable
+without allocating another job. Shutdown discards pending work.
+
+A completed snapshot returns immediately even when its refresh is queued or
+running; it no longer waits the 150 ms initial-read allowance. Real scan errors
+and stalled filesystem calls retain their diagnostics and retry behavior.
+Native FSEvents invalidation, five-minute full reconciliation, the thirty-second
+fallback without healthy notifications, and adaptive rest for slow volumes are
+unchanged. Caches remain in memory; the first visit after a server restart still
+needs a scan. This fixes saturation handling without claiming that a genuinely
+blocked OS call can be interrupted.
+
+Regression coverage verifies queued/scanning/ready transitions without error
+logging, automatic queue draining, shared requests, cold-listing priority,
+immediate cached responses, capacity bounds, shutdown, and native edit events.

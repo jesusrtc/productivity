@@ -378,6 +378,8 @@
   .explorer-history-list { grid-area: commits; min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--bg-secondary); }
   .explorer-history-column-title { position: sticky; top: 0; z-index: 2; padding: 10px 13px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font-size: 10px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; }
   .explorer-history-summary { padding: 11px 13px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-size: 11px; }
+  .explorer-history-more { display: block; width: calc(100% - 26px); margin: 13px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+  .explorer-history-more:hover { background: var(--tree-hover); }
   .explorer-history-commit { width: 100%; padding: 11px 13px; display: block; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
   .explorer-history-commit:hover { background: var(--tree-hover); }
   .explorer-history-commit.active { background: var(--bg-tertiary); box-shadow: inset 3px 0 var(--accent); }

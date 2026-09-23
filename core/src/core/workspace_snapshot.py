@@ -77,6 +77,7 @@ class _Entry:
     index: DirectoryIndex | None = None
     reconciled: float = 0
     duration: float = 0
+    queued: tuple[Callable, bool] | None = None
 
 
 @dataclass
@@ -88,7 +89,7 @@ class Read:
     def status_code(self) -> int:
         if self.snapshot is not None:
             return 200
-        return 202 if self.scan["state"] == "scanning" else 503
+        return 202 if self.scan["state"] in {"scanning", "queued"} else 503
 
 
 class Store:
@@ -99,6 +100,31 @@ class Store:
         self._closed = False
         self._hub = ChangeHub()
         self._retired = []
+
+    def _start_pending_locked(self) -> None:
+        """Bounded admission; first listings take priority over cached refreshes."""
+        while not self._closed and len(self._threads) < MAX_WORKERS:
+            pending = [(key, entry) for key, entry in self._entries.items() if entry.queued]
+            if not pending:
+                return
+            # FIFO within each priority, independent of repeated HTTP polls.
+            key, entry = min(pending, key=lambda item: (
+                item[1].snapshot is not None, item[1].progress.started,
+            ))
+            collect, full = entry.queued
+            entry.queued = None
+            entry.progress = Progress(key[1])
+            thread = threading.Thread(target=self._scan, args=(key, entry, collect, full),
+                                      name="workspace-scan", daemon=True)
+            self._threads.add(thread)
+            try:
+                thread.start()
+            except RuntimeError:
+                self._threads.discard(thread)
+                entry.done.set()
+                entry.error = "Could not start file scan"
+                entry.failures += 1
+                entry.checked = time.monotonic()
 
     def _scan(self, key: tuple, entry: _Entry, collect: Callable[[Progress], Snapshot], full: bool):
         view = None
@@ -141,6 +167,7 @@ class Store:
                 entry.duration = entry.checked - entry.progress.started
                 entry.done.set()
                 self._threads.discard(threading.current_thread())
+                self._start_pending_locked()
 
     def read(self, vault: Path, root: Path, include_dotfiles: bool,
              collect: Callable[[Progress], Snapshot], *, refresh: bool = False) -> Read:
@@ -155,7 +182,9 @@ class Store:
                 while len(self._entries) >= MAX_ROOTS:
                     victim = next((k for k, e in self._entries.items() if e.done.is_set()), None)
                     if victim is None:
-                        return Read(None, {"state": "busy", "detail": "File scans are busy"})
+                        # The bounded scope queue is full. Retry admission; this
+                        # is normal backpressure, not a failed filesystem read.
+                        return Read(None, {"state": "queued", "detail": "Waiting for a file scan slot"})
                     self._retired.append(self._entries.pop(victim).index)
                 entry = _Entry(index=DirectoryIndex(root, include_dotfiles, self._hub))
                 entry.done.set()
@@ -171,34 +200,24 @@ class Store:
             due = entry.snapshot is None or full or bool(entry.error) or pending and quiet
             if entry.error and age < min(60, 2 ** min(entry.failures, 6)):
                 due = False
-            busy = False
             if entry.done.is_set() and due:
-                if len(self._threads) >= MAX_WORKERS:
-                    busy = True  # No executor queue behind a stuck volume.
-                else:
-                    entry.done = threading.Event()
-                    entry.progress = Progress(str(root))
-                    entry.error = None
-                    thread = threading.Thread(target=self._scan, args=(key, entry, collect, full),
-                                              name="workspace-scan", daemon=True)
-                    self._threads.add(thread)
-                    try:
-                        thread.start()
-                    except RuntimeError:
-                        self._threads.discard(thread)
-                        entry.done.set()
-                        entry.error = "Could not start file scan"
-                        entry.checked = time.monotonic()
+                entry.done = threading.Event()
+                entry.progress = Progress(str(root), operation="waiting for scan slot")
+                entry.error = None
+                entry.queued = (collect, full)
+                self._start_pending_locked()
             done = entry.done
+            cached = entry.snapshot is not None
 
         # Small trees retain synchronous, fresh reads. A slow tree never holds
         # a request worker for the ten-second FS deadline or restarts at it.
-        done.wait(REQUEST_WAIT_SECONDS)
+        if not cached:
+            done.wait(REQUEST_WAIT_SECONDS)
         with self._lock:
-            if busy:
-                return Read(entry.snapshot, {"state": "busy", "detail": "File scans are busy"})
             progress = entry.progress
-            if entry.done.is_set():
+            if entry.queued:
+                state = "refreshing" if entry.snapshot is not None else "queued"
+            elif entry.done.is_set():
                 state = "error" if entry.error else "ready"
             else:
                 state = "refreshing" if entry.snapshot is not None else "scanning"
@@ -229,6 +248,9 @@ class Store:
             for entry in self._entries.values():
                 if entry.progress:
                     entry.progress.cancelled.set()
+                if entry.queued:
+                    entry.queued = None
+                    entry.done.set()
             threads = list(self._threads)
             self._entries.clear()
         # Cooperative walks exit promptly. A blocked OS call must not prevent

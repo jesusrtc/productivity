@@ -1215,15 +1215,16 @@ def test_sidebar_waits_for_complete_snapshot_and_keeps_requests_shared():
     helpers = _between('  const _sidebarFileRequests =', '  function _sidebarFileConfigCogHtml(')
     result = _run_node(helpers + """
 let showWorkspaceDotFiles = false;
-const urls = [], timers = [], logs = [];
+const urls = [], timers = [], logs = [], states = [];
 const _sidebarRecentLog = (...args) => logs.push(args);
-function setTimeout(callback, delay) { timers.push(delay); queueMicrotask(callback); }
+function setTimeout(callback, delay) { timers.push(delay); states.push(_sidebarScanStates.get('/large')); queueMicrotask(callback); }
 function fetch(url) {
   urls.push(url);
   const status = urls.length < 3 ? 202 : 200;
+  const state = urls.length === 1 ? 'queued' : 'scanning';
   return Promise.resolve({ok: true, status,
-    headers: {get: name => name === 'Retry-After' ? '2' : (status === 202 ? 'scanning' : 'ready')},
-    json: async () => status === 202 ? {scan: {state: 'scanning'}} : [{path: 'complete.md'}]});
+    headers: {get: name => name === 'Retry-After' ? '2' : (status === 202 ? state : 'ready')},
+    json: async () => status === 202 ? {scan: {state}} : [{path: 'complete.md'}]});
 }
 (async () => {
   const first = _sidebarFetchWorkspaceFiles('/large');
@@ -1231,7 +1232,7 @@ function fetch(url) {
   if (first !== second) throw new Error('duplicate request');
   showWorkspaceDotFiles = true;
   const rows = await first;
-  process.stdout.write(JSON.stringify({urls, timers, logs, rows, state: _sidebarScanStates.get('/large')}));
+  process.stdout.write(JSON.stringify({urls, timers, logs, rows, states, state: _sidebarScanStates.get('/large')}));
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """)
     assert result == {
@@ -1239,6 +1240,7 @@ function fetch(url) {
                  '/api/workspace-files?path=%2Flarge&include_dotfiles=false&refresh=false',
                  '/api/workspace-files?path=%2Flarge&include_dotfiles=false&refresh=false'],
         'timers': [2000, 2000], 'logs': [], 'rows': [{'path': 'complete.md'}], 'state': 'ready',
+        'states': ['queued', 'scanning'],
     }
 
 

@@ -1227,7 +1227,7 @@ def _entry_notebook_history_diff(
     sha: str,
 ) -> dict:
     if sha == _ENTRY_WORKTREE_SHA:
-        _, states = _entry_worktree_diff(repo_root, repo_rel)
+        states = _entry_worktree_states(repo_root, repo_rel)
         before_raw = _entry_git_blob(repo_root, "HEAD", repo_rel)
         try:
             size = target.stat().st_size
@@ -1313,61 +1313,142 @@ def workspace_entry_history(
     file: str,
     request: Request,
     limit: int = 50,
+    phase: str = "all",
+    offset: int = 0,
+    since: int = 0,
+    revision: str = "",
 ):
+    """Read local status separately from bounded, snapshot-pinned commit pages.
+
+    ``since`` is a fixed Unix timestamp (zero includes older history). Keeping
+    the same revision/offset when expanding the range avoids duplicate rows,
+    including across renames and commits made while the modal is open.
+    """
+    if phase not in {"all", "working-tree", "commits"}:
+        raise HTTPException(status_code=400, detail="Invalid history phase")
+    if offset < 0 or since < 0 or (revision and not _ENTRY_SHA_RE.fullmatch(revision)):
+        raise HTTPException(status_code=400, detail="Invalid history page")
     root = _entry_root(path, request)
-    target = _entry_target(root, file)
+    # Only this read endpoint accepts the root; explorer mutations must still
+    # reject it so rename/delete cannot target an entire workspace.
+    target = root if file == "." else _entry_target(root, file)
     repo_root, repo_rel = _entry_git_context(root, target)
     limit = max(1, min(limit, 200))
-    args = [
-        "git", "-C", str(repo_root), "log", f"--max-count={limit}",
-        "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%s%x1e",
-    ]
-    if target.is_file() or target.is_symlink():
-        args.append("--follow")
-    args.extend(["--", repo_rel])
     commits = []
-    # ``git log`` exits 128 before the repository's first commit. That is a
-    # valid history state: indexed/untracked files still need a WORKTREE row
-    # and diff, so skip the commit lookup while HEAD is unborn.
-    if _entry_has_head(repo_root):
-        try:
-            proc = subprocess.run(args, capture_output=True, text=True, timeout=15)
-        except subprocess.TimeoutExpired:
-            raise HTTPException(status_code=504, detail="Git history timed out")
-        if proc.returncode != 0:
-            raise HTTPException(status_code=400, detail=proc.stderr.strip() or "Could not read Git history")
-        for record in proc.stdout.split("\x1e"):
-            parts = record.strip().split("\x1f", 6)
-            if len(parts) != 7:
-                continue
-            sha, short_sha, author, email, date_iso, relative_date, message = parts
+    if phase != "commits" and offset == 0:
+        working_states = _entry_worktree_states(repo_root, repo_rel)
+        if working_states:
             commits.append({
-                "sha": sha,
-                "short_sha": short_sha,
-                "author": author,
-                "email": email,
-                "date": date_iso,
-                "relative_date": relative_date,
-                "message": message,
+                "sha": _ENTRY_WORKTREE_SHA,
+                "short_sha": "uncommitted",
+                "author": "Working tree",
+                "email": "",
+                "date": "",
+                "relative_date": "now",
+                "message": "Uncommitted changes",
+                "kind": "working-tree",
+                "states": working_states,
             })
-    working_patch, working_states = _entry_worktree_diff(repo_root, repo_rel)
-    if working_patch:
-        commits.insert(0, {
-            "sha": _ENTRY_WORKTREE_SHA,
-            "short_sha": "uncommitted",
-            "author": "Working tree",
-            "email": "",
-            "date": "",
-            "relative_date": "now",
-            "message": "Uncommitted changes",
-            "kind": "working-tree",
-            "states": working_states,
-        })
+    page = {"commits": [], "revision": revision, "next_offset": offset, "has_more": False}
+    if phase != "working-tree":
+        page = _entry_history_page(
+            repo_root, repo_rel, follow=target.is_file() or target.is_symlink(),
+            limit=limit, offset=offset, since=since, revision=revision,
+        )
     return {
+        **page,
         "file": file,
         "repo": str(repo_root),
         "repo_file": repo_rel,
-        "commits": commits,
+        "commits": commits + page["commits"],
+        "since": since,
+        "can_load_older": bool(since and page["revision"]),
+    }
+
+
+def _entry_worktree_states(repo_root: Path, repo_rel: str) -> list[str]:
+    """Status only: never generate patches just to display a WORKTREE row."""
+    try:
+        proc = subprocess.run(
+            ["git", "--no-optional-locks", "--literal-pathspecs", "-C", str(repo_root),
+             "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--", repo_rel],
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git status timed out")
+    if proc.returncode != 0:
+        raise HTTPException(status_code=400, detail=proc.stderr.strip() or "Could not read Git status")
+    states = set()
+    records = iter(proc.stdout.split("\0"))
+    for record in records:
+        if len(record) < 3:
+            continue
+        xy = record[:2]
+        if xy == "??":
+            states.add("untracked")
+            continue
+        if xy[0] != " ":
+            states.add("staged")
+        if xy[1] != " ":
+            states.add("unstaged")
+        if "R" in xy or "C" in xy:
+            next(records, None)  # -z renames/copies have a second path field.
+    return [state for state in ("staged", "unstaged", "untracked") if state in states]
+
+
+def _entry_history_page(
+    repo_root: Path, repo_rel: str, *, follow: bool,
+    limit: int, offset: int, since: int, revision: str,
+) -> dict:
+    if not revision:
+        try:
+            head = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-parse", "--verify", "HEAD^{commit}"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Git commit lookup timed out")
+        # An unborn repository still has valid local changes.
+        if head.returncode != 0:
+            return {"commits": [], "revision": "", "next_offset": offset, "has_more": False}
+        revision = head.stdout.strip()
+    # Git's --skip can skip rename processing under --follow, losing revisions
+    # before a rename. Replay the bounded prefix for files, then slice it here.
+    prefix = offset if follow else 0
+    args = [
+        "git", "--literal-pathspecs", "-C", str(repo_root), "log",
+        f"--max-count={prefix + limit + 1}", f"--skip={0 if follow else offset}",
+        "--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%s%x1e",
+    ]
+    if since:
+        # --since stops the walk at the date boundary. --since-as-filter would
+        # still traverse years of history for rarely changed files.
+        args.append(f"--since=@{since}")
+    if follow:
+        args.append("--follow")
+    args.extend([revision, "--", repo_rel])
+    commits = []
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git history timed out; existing revisions are still available")
+    if proc.returncode != 0:
+        raise HTTPException(status_code=400, detail=proc.stderr.strip() or "Could not read Git history")
+    for record in proc.stdout.split("\x1e"):
+        parts = record.strip().split("\x1f", 6)
+        if len(parts) != 7:
+            continue
+        sha, short_sha, author, email, date_iso, relative_date, message = parts
+        commits.append({
+            "sha": sha, "short_sha": short_sha, "author": author, "email": email,
+            "date": date_iso, "relative_date": relative_date, "message": message,
+        })
+    commits = commits[prefix:]
+    return {
+        "commits": commits[:limit],
+        "revision": revision,
+        "next_offset": offset + min(len(commits), limit),
+        "has_more": len(commits) > limit,
     }
 
 
@@ -1391,7 +1472,7 @@ def workspace_entry_history_diff(path: str, file: str, sha: str, request: Reques
         })
         return result
     if sha == _ENTRY_WORKTREE_SHA:
-        _, states = _entry_worktree_diff(repo_root, repo_rel)
+        states = _entry_worktree_states(repo_root, repo_rel)
         return {
             "file": file,
             "repo": str(repo_root),

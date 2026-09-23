@@ -247,11 +247,10 @@ def test_saved_diff_files_use_structured_diff_renderer_everywhere() -> None:
 def test_git_history_includes_working_tree_as_latest_entry() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     history = _between(
-        "async function openExplorerHistory(ctx)",
+        "function _explorerHistoryRenderCommits()",
         "function closeExplorerHistory()",
     )
 
-    assert "commit.kind !== 'working-tree'" in history
     assert "uncommitted changes included" in history
     assert "WORKTREE" in history
     assert "not committed" in history
@@ -272,12 +271,10 @@ def test_repository_history_modal_keeps_files_left_and_revisions_right() -> None
         "async function explorerHistorySelect(sha, button)",
     )
 
-    assert "type=uncommitted" in repository_history
-    assert "type=branch" in repository_history
-    assert "/api/commits?repo=" in repository_history
+    assert "_explorerHistoryLoadMore(state)" in repository_history
     assert "sha: 'WORKTREE'" in repository_history
     assert "sha: 'BRANCH'" in repository_history
-    assert "working tree, base comparison" in repository_history
+    assert "Working tree, base comparison" in repository_history
     assert template.index('id="explorerHistoryFiles"') < template.index('id="explorerHistoryDiff"')
     assert template.index('id="explorerHistoryDiff"') < template.index('id="explorerHistoryList"')
     assert 'grid-template-areas: "files diff commits"' in css

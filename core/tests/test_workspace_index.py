@@ -137,8 +137,11 @@ def test_store_idle_reads_do_not_scan_and_native_failure_uses_periodic_fallback(
         assert len(calls) == 1
         entry.reconciled -= ws.FALLBACK_SECONDS
         store.read(tmp_path, tmp_path, False, scan)
+        assert entry.done.wait(1)
         assert len(calls) == 2
-        assert store.read(tmp_path, tmp_path, False, scan, refresh=True).snapshot.revision == '3'
+        store.read(tmp_path, tmp_path, False, scan, refresh=True)
+        assert entry.done.wait(1)
+        assert store.read(tmp_path, tmp_path, False, scan).snapshot.revision == '3'
     finally:
         store.close()
 

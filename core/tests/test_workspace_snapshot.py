@@ -69,6 +69,7 @@ def test_refresh_keeps_complete_snapshot_until_new_scan_finishes(store):
         assert updating.scan['state'] == 'refreshing'
         assert updating.snapshot is old.snapshot
         release.set()
+        assert next(iter(store._entries.values())).done.wait(1)
         ready = store.read(Path('/vault'), Path('/repo'), False, scan)
         assert ready.scan['state'] == 'ready'
         assert ready.snapshot.files == [{'path': 'new.md'}]
@@ -107,27 +108,91 @@ def test_stall_reports_exact_path_once_without_spawning_replacements(store, monk
         release.set()
 
 
-def test_capacity_is_bounded_without_queue_and_cache_is_evicted(store, monkeypatch):
+def test_capacity_queues_and_starts_without_another_request(store, monkeypatch):
     monkeypatch.setattr(ws, 'MAX_WORKERS', 1)
     monkeypatch.setattr(ws, 'MAX_ROOTS', 2)
     release = threading.Event()
+    queued_done = threading.Event()
     calls = []
 
     def scan(progress):
         calls.append(progress.path)
         release.wait(1)
+        if progress.path == '/two':
+            queued_done.set()
         return snapshot()
 
     try:
         store.read(Path('/vault'), Path('/one'), False, scan)
-        result = store.read(Path('/vault'), Path('/two'), False, scan)
-        assert result.status_code == 503 and result.scan['state'] == 'busy'
-        assert calls == ['/one']
+        for _ in range(3):
+            result = store.read(Path('/vault'), Path('/two'), False, scan)
+            assert result.status_code == 202 and result.scan['state'] == 'queued'
+        # Even saturation of the bounded queue is retryable, with no extra job.
+        overflow = store.read(Path('/vault'), Path('/three'), False, scan)
+        assert overflow.status_code == 202 and len(store._entries) == 2
+        assert calls == ['/one'] and len(store._threads) == 1
         release.set()
-        store.read(Path('/vault'), Path('/one'), False, scan)
+        assert queued_done.wait(1), 'queued work needed another browser poll to start'
+        assert calls == ['/one', '/two']
         result = store.read(Path('/vault'), Path('/three'), False, lambda _: snapshot())
         assert result.status_code == 200
         assert len(store._entries) == 2
+    finally:
+        release.set()
+
+
+def test_cold_scans_take_priority_and_cached_refreshes_return_immediately(store, monkeypatch):
+    monkeypatch.setattr(ws, 'MAX_WORKERS', 1)
+    monkeypatch.setattr(ws, 'REQUEST_WAIT_SECONDS', .5)
+    cached = store.read(Path('/vault'), Path('/cached'), False, lambda _: snapshot())
+    release = threading.Event()
+    calls = []
+
+    def scan(progress):
+        calls.append(progress.path)
+        release.wait(2)
+        return snapshot('updated.md')
+
+    try:
+        # Occupy the only worker, then queue a refresh and a first-time listing.
+        monkeypatch.setattr(ws, 'REQUEST_WAIT_SECONDS', .001)
+        store.read(Path('/vault'), Path('/active'), False, scan)
+        monkeypatch.setattr(ws, 'REQUEST_WAIT_SECONDS', .5)
+        start = time.monotonic()
+        refreshing = store.read(Path('/vault'), Path('/cached'), False, scan, refresh=True)
+        assert time.monotonic() - start < .1, 'cached response waited for a scan'
+        assert refreshing.snapshot is cached.snapshot and refreshing.status_code == 200
+        assert refreshing.scan['state'] == 'refreshing'
+        monkeypatch.setattr(ws, 'REQUEST_WAIT_SECONDS', .001)
+        queued = store.read(Path('/vault'), Path('/cold'), False, scan)
+        assert queued.scan['state'] == 'queued'
+        release.set()
+        for entry in list(store._entries.values()):
+            assert entry.done.wait(1)
+        assert calls == ['/active', '/cold', '/cached']
+        ready = store.read(Path('/vault'), Path('/cached'), False, scan)
+        assert ready.snapshot.files == [{'path': 'updated.md'}]
+    finally:
+        release.set()
+
+
+def test_shutdown_discards_queued_jobs(store, monkeypatch):
+    monkeypatch.setattr(ws, 'MAX_WORKERS', 1)
+    release = threading.Event()
+    calls = []
+
+    def scan(progress):
+        calls.append(progress.path)
+        release.wait(2)
+        return snapshot()
+
+    try:
+        store.read(Path('/vault'), Path('/active'), False, scan)
+        store.read(Path('/vault'), Path('/queued'), False, scan)
+        store.close()
+        release.set()
+        assert calls == ['/active']
+        assert not store._entries
     finally:
         release.set()
 
@@ -140,6 +205,8 @@ def test_failure_retains_last_success_and_backs_off(store, monkeypatch):
         calls.append(1)
         raise OSError(errno.EMFILE, 'too many open files')
 
+    store.read(Path('/vault'), Path('/repo'), False, fail, refresh=True)
+    assert next(iter(store._entries.values())).done.wait(1)
     for _ in range(3):
         result = store.read(Path('/vault'), Path('/repo'), False, fail, refresh=True)
         assert result.status_code == 200
@@ -148,7 +215,9 @@ def test_failure_retains_last_success_and_backs_off(store, monkeypatch):
     assert calls == [1]
     for entry in store._entries.values():
         entry.checked -= 61
-    result = store.read(Path('/vault'), Path('/repo'), False, lambda _: snapshot('recovered.md'))
+    store.read(Path('/vault'), Path('/repo'), False, lambda _: snapshot('recovered.md'))
+    assert next(iter(store._entries.values())).done.wait(1)
+    result = store.read(Path('/vault'), Path('/repo'), False, lambda _: pytest.fail('unexpected rescan'))
     assert result.snapshot.revision == 'recovered.md'
 
 

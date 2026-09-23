@@ -1648,14 +1648,17 @@
     return {modal, files, list, diff};
   }
 
-  function _explorerHistoryRenderCommits(summary) {
+  function _explorerHistoryRenderCommits() {
     const state = _explorerHistoryState;
     const list = document.getElementById('explorerHistoryList');
     if (!state || !list) return;
-    if (!state.commits.length) {
-      list.innerHTML = '<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">No commits found.</div>';
-      return;
-    }
+    const scrollTop = list.scrollTop;
+    const focused = list.contains(document.activeElement) ? document.activeElement : null;
+    const focusedSha = focused?.getAttribute('data-sha');
+    const focusedMore = focused?.classList.contains('explorer-history-more');
+    const committedCount = state.commits.filter(commit => !commit.kind || commit.kind === 'commit').length;
+    const hasWorkingTree = state.commits.some(commit => commit.kind === 'working-tree');
+    const summary = `${committedCount} commits loaded · ${state.since ? 'last 60 days' : 'all dates'}${hasWorkingTree ? ' · uncommitted changes included' : ''}`;
     list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-summary">${esc(summary)}</div>` + state.commits.map(commit => {
       const workingTree = commit.kind === 'working-tree';
       const branchDiff = commit.kind === 'branch';
@@ -1666,9 +1669,9 @@
       const meta = workingTree
         ? `<code>WORKTREE</code><span>${esc(states)}</span><span>·</span><span>not committed</span>`
         : (branchDiff
-          ? `<code>BASE</code><span>${esc(commit.base_branch || 'main/master')}</span><span>·</span><span>${commit.file_count || 0} files</span>`
+          ? `<code>BASE</code><span>${esc(commit.base_branch || 'main/master')}</span>`
           : `<code>${esc(commit.short_sha || commit.sha.slice(0, 7))}</code><span>${esc(commit.author || '')}</span><span>·</span><span>${esc(commit.relative_date || commit.date || '')}</span>`);
-      return `<button class="explorer-history-commit${workingTree ? ' working-tree' : ''}${branchDiff ? ' branch-diff' : ''}" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
+      return `<button class="explorer-history-commit${workingTree ? ' working-tree' : ''}${branchDiff ? ' branch-diff' : ''}${commit.sha === state.selectedSha ? ' active' : ''}" type="button" data-sha="${escAttr(commit.sha)}" title="${escAttr(title)}">
         <span class="eh-message">${esc(commit.message)}</span>
         <span class="eh-meta">${meta}</span>
       </button>`;
@@ -1676,8 +1679,36 @@
     list.querySelectorAll('.explorer-history-commit').forEach(button => {
       button.addEventListener('click', () => explorerHistorySelect(button.getAttribute('data-sha'), button));
     });
+    let footer = '';
+    if (state.workingLoading) footer += '<div class="explorer-history-summary" role="status">Checking uncommitted changes…</div>';
+    if (state.workingError) footer += `<div class="explorer-history-summary" role="status">${esc(state.workingError)} <button type="button" class="explorer-history-retry-working">Retry local changes</button></div>`;
+    if (state.loading) {
+      footer += `<div class="explorer-history-summary" role="status">Loading ${state.offset ? 'more' : 'recent'} commits…</div>`;
+    } else if (state.error) {
+      footer += `<div class="explorer-history-summary" role="status">${esc(state.error)}</div><button class="explorer-history-more" type="button">Retry loading commits</button>`;
+    } else if (state.hasMore || state.canLoadOlder) {
+      const label = state.hasMore ? 'Load 20 more commits' : 'Load commits older than 60 days';
+      footer += `<button class="explorer-history-more" type="button">${label}</button>`;
+    } else {
+      footer += '<div class="explorer-history-summary">End of history</div>';
+    }
+    if (!committedCount && !state.loading && !state.error) {
+      footer = `<div class="explorer-history-summary">${state.since ? 'No commits in the last 60 days.' : 'No commits found.'}</div>` + footer;
+    }
+    list.insertAdjacentHTML('beforeend', footer);
+    const more = list.querySelector('.explorer-history-more');
+    more?.addEventListener('click', () => _explorerHistoryLoadMore(state));
+    list.querySelector('.explorer-history-retry-working')?.addEventListener('click', () => _explorerHistoryLoadWorkingTree(state));
+    list.onscroll = () => {
+      if (state.hasMore && !state.loading && !state.error && list.scrollHeight > list.clientHeight &&
+          list.scrollHeight - list.scrollTop - list.clientHeight < 120) _explorerHistoryLoadMore(state);
+    };
+    list.scrollTop = scrollTop;
+    if (focusedSha) [...list.querySelectorAll('.explorer-history-commit')].find(el => el.getAttribute('data-sha') === focusedSha)?.focus({preventScroll: true});
+    else if (focusedMore) more?.focus({preventScroll: true});
+    // Appending history must not reset the user's selected diff or scroll.
     const first = list.querySelector('.explorer-history-commit');
-    if (first) explorerHistorySelect(first.getAttribute('data-sha'), first);
+    if (!state.selectedSha && !state.workingLoading && first) explorerHistorySelect(first.getAttribute('data-sha'), first);
   }
 
   function explorerHistoryScrollFile(index, button) {
@@ -1716,64 +1747,101 @@
     activateNotebookScripts(diff);
   }
 
+  function _explorerHistoryStart(mode, ctx) {
+    closeExplorerHistory();
+    const title = mode === 'entry' ? `History · ${ctx.path}` : `Git history · ${ctx.label || 'main'}`;
+    if (!_explorerHistoryShell(title, 'Loading recent commits…')) return null;
+    const state = {
+      mode, ctx, commits: [], revisionCache: {}, controller: new AbortController(),
+      selectedSha: '', offset: 0, revision: '', since: Math.floor(Date.now() / 1000) - 60 * 86400,
+      hasMore: false, canLoadOlder: false, loading: false, error: '',
+      workingLoading: mode === 'entry', workingError: '',
+    };
+    _explorerHistoryState = state;
+    return state;
+  }
+
+  async function _explorerHistoryJson(url, signal) {
+    const response = await fetch(url, {signal});
+    if (!response.ok) throw new Error(await _explorerResponseError(response));
+    return response.json();
+  }
+
+  function _explorerHistoryUrl(state) {
+    const file = state.mode === 'entry' ? state.ctx.path : '.';
+    return `/api/workspace-entry/history?path=${encodeURIComponent(state.ctx.root)}&file=${encodeURIComponent(file)}`;
+  }
+
+  async function _explorerHistoryLoadWorkingTree(state) {
+    state.workingLoading = true;
+    state.workingError = '';
+    _explorerHistoryRenderCommits();
+    try {
+      const data = await _explorerHistoryJson(`${_explorerHistoryUrl(state)}&phase=working-tree`, state.controller.signal);
+      if (_explorerHistoryState !== state) return;
+      state.commits = [...(data.commits || []), ...state.commits.filter(commit => commit.kind !== 'working-tree')];
+    } catch (e) {
+      if (_explorerHistoryState !== state) return;
+      state.workingError = e.message || String(e);
+    } finally {
+      if (_explorerHistoryState === state) {
+        state.workingLoading = false;
+        _explorerHistoryRenderCommits();
+      }
+    }
+  }
+
+  async function _explorerHistoryLoadMore(state) {
+    if (_explorerHistoryState !== state || state.loading) return;
+    if (!state.hasMore && state.canLoadOlder && !state.error) state.since = 0;
+    state.loading = true;
+    state.error = '';
+    _explorerHistoryRenderCommits();
+    try {
+      const url = `${_explorerHistoryUrl(state)}&phase=commits&limit=20&offset=${state.offset}&since=${state.since}&revision=${encodeURIComponent(state.revision)}`;
+      const data = await _explorerHistoryJson(url, state.controller.signal);
+      if (_explorerHistoryState !== state) return;
+      const known = new Set(state.commits.map(commit => commit.sha));
+      state.commits.push(...(data.commits || []).filter(commit => !known.has(commit.sha)));
+      state.offset = data.next_offset;
+      state.revision = data.revision;
+      state.hasMore = !!data.has_more;
+      state.canLoadOlder = !!data.can_load_older;
+    } catch (e) {
+      if (_explorerHistoryState !== state) return;
+      state.error = e.message || String(e);
+    } finally {
+      if (_explorerHistoryState === state) {
+        state.loading = false;
+        _explorerHistoryRenderCommits();
+      }
+    }
+  }
+
   async function openExplorerHistory(ctx) {
     if (!ctx) return;
-    const shell = _explorerHistoryShell(`History · ${ctx.path}`, 'Loading file history…');
-    if (!shell) return;
-    _explorerHistoryState = {mode: 'entry', ctx, commits: [], revisionCache: {}};
-    const requestId = ++_explorerHistoryRequest;
-    try {
-      const response = await fetch(`/api/workspace-entry/history?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&limit=100`);
-      if (!response.ok) throw new Error(await _explorerResponseError(response));
-      const data = await response.json();
-      if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
-      const commits = data.commits || [];
-      _explorerHistoryState.commits = commits;
-      const committedCount = commits.filter(commit => commit.kind !== 'working-tree').length;
-      const hasWorkingTree = commits.some(commit => commit.kind === 'working-tree');
-      const summary = `${committedCount} commit${committedCount === 1 ? '' : 's'} · newest first${hasWorkingTree ? ' · uncommitted changes included' : ''}`;
-      _explorerHistoryRenderCommits(summary);
-    } catch (e) {
-      if (requestId !== _explorerHistoryRequest) return;
-      shell.list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">${esc(e.message || e)}</div>`;
-    }
+    const state = _explorerHistoryStart('entry', ctx);
+    if (!state) return;
+    // Local status and recent history render independently as each arrives.
+    await Promise.allSettled([
+      _explorerHistoryLoadWorkingTree(state),
+      _explorerHistoryLoadMore(state),
+    ]);
   }
   window.openExplorerHistory = openExplorerHistory;
 
   async function openRepositoryHistory(ctx) {
     if (!ctx || !ctx.root) return;
-    const label = ctx.label || 'main';
-    const shell = _explorerHistoryShell(`Git history · ${label}`, 'Loading repository history…');
-    if (!shell) return;
-    _explorerHistoryState = {mode: 'repository', ctx, commits: [], revisionCache: {}};
-    const requestId = ++_explorerHistoryRequest;
-    const getJson = async url => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(await _explorerResponseError(response));
-      return response.json();
-    };
-    try {
-      const repo = encodeURIComponent(ctx.root);
-      const [workingTree, branchDiff, commits] = await Promise.all([
-        getJson(`/api/diff?repo=${repo}&type=uncommitted`),
-        getJson(`/api/diff?repo=${repo}&type=branch`),
-        getJson(`/api/commits?repo=${repo}&count=100`),
-      ]);
-      if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
-      const branch = workingTree.branch || branchDiff.branch || label;
-      const base = branchDiff.base_branch || 'main/master';
-      const revisions = [
-        {sha: 'WORKTREE', kind: 'working-tree', message: 'Uncommitted changes', states: ['working tree'], file_count: (workingTree.files || []).length},
-        {sha: 'BRANCH', kind: 'branch', message: `Changes vs ${base}`, branch, base_branch: base, file_count: (branchDiff.files || []).length},
-        ...(Array.isArray(commits) ? commits.map(commit => ({...commit, kind: 'commit'})) : []),
-      ];
-      _explorerHistoryState.commits = revisions;
-      _explorerHistoryState.revisionCache = {WORKTREE: workingTree, BRANCH: branchDiff};
-      _explorerHistoryRenderCommits(`${branch} · working tree, base comparison, and ${Math.max(0, revisions.length - 2)} commits`);
-    } catch (e) {
-      if (requestId !== _explorerHistoryRequest) return;
-      shell.list.innerHTML = `<div class="explorer-history-column-title">Revisions</div><div class="explorer-history-empty">${esc(e.message || e)}</div>`;
-    }
+    const state = _explorerHistoryStart('repository', ctx);
+    if (!state) return;
+    // Working tree, base comparison, and commits share the modal. Patches are
+    // fetched only on selection; a costly base diff never blocks local work.
+    state.commits = [
+      {sha: 'WORKTREE', kind: 'working-tree', message: 'Uncommitted changes', states: ['working tree']},
+      {sha: 'BRANCH', kind: 'branch', message: 'Changes vs base branch'},
+    ];
+    _explorerHistoryRenderCommits();
+    await _explorerHistoryLoadMore(state);
   }
   window.openRepositoryHistory = openRepositoryHistory;
 
@@ -1783,6 +1851,9 @@
     const filesRail = document.getElementById('explorerHistoryFiles');
     if (!state || !diff || !filesRail || !sha) return;
     const requestId = ++_explorerHistoryRequest;
+    state.selectedSha = sha;
+    state.diffController?.abort();
+    state.diffController = new AbortController();
     document.querySelectorAll('#explorerHistoryList .explorer-history-commit').forEach(el => el.classList.toggle('active', el === button));
     const selected = state.commits.find(item => item.sha === sha) || {};
     const isWorkingTree = selected.kind === 'working-tree';
@@ -1792,16 +1863,17 @@
     try {
       let data = state.revisionCache[sha];
       if (!data) {
+        let url;
         if (state.mode === 'repository') {
-          const response = await fetch(`/api/commit-diff?repo=${encodeURIComponent(state.ctx.root)}&sha=${encodeURIComponent(sha)}`);
-          if (!response.ok) throw new Error(await _explorerResponseError(response));
-          data = await response.json();
+          const repo = encodeURIComponent(state.ctx.root);
+          url = isWorkingTree || isBranchDiff
+            ? `/api/diff?repo=${repo}&type=${isWorkingTree ? 'uncommitted' : 'branch'}`
+            : `/api/commit-diff?repo=${repo}&sha=${encodeURIComponent(sha)}`;
         } else {
           const ctx = state.ctx;
-          const response = await fetch(`/api/workspace-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`);
-          if (!response.ok) throw new Error(await _explorerResponseError(response));
-          data = await response.json();
+          url = `/api/workspace-entry/history-diff?path=${encodeURIComponent(ctx.root)}&file=${encodeURIComponent(ctx.path)}&sha=${encodeURIComponent(sha)}`;
         }
+        data = await _explorerHistoryJson(url, state.diffController.signal);
         state.revisionCache[sha] = data;
       }
       if (requestId !== _explorerHistoryRequest || !_explorerHistoryState) return;
@@ -1833,6 +1905,8 @@
   function closeExplorerHistory() {
     const modal = document.getElementById('explorerHistoryModal');
     if (modal) modal.classList.remove('active');
+    _explorerHistoryState?.controller.abort();
+    _explorerHistoryState?.diffController?.abort();
     _explorerHistoryState = null;
     _explorerHistoryRequest += 1;
   }
@@ -2944,6 +3018,7 @@
   const _sidebarScanStates = new Map();
   function _sidebarScanLabel(state) {
     if (state === 'scanning') return 'Loading files…';
+    if (state === 'queued') return 'Waiting to load files…';
     if (state === 'stalled' || state === 'error' || state === 'busy') return 'Files temporarily unavailable. Showing the last listing.';
     return '';
   }
@@ -2987,8 +3062,8 @@
     // A 202 means the initial snapshot is still being built, not an empty
     // workspace. Keep all subscribers on this promise and collect that scan.
     while (response.status === 202) {
-      await response.json();
-      _sidebarSetScanState(workspacePath, 'scanning');
+      const body = await response.json();
+      _sidebarSetScanState(workspacePath, body.scan?.state || 'scanning');
       const retrySeconds = Number(response.headers && response.headers.get('Retry-After')) || 2;
       await new Promise(resolve => setTimeout(resolve, Math.min(10, Math.max(1, retrySeconds)) * 1000));
       response = await fetch(url + '&refresh=false');
