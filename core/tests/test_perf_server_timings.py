@@ -191,3 +191,203 @@ def test_async_function_tracing_keeps_await_result_and_exception():
     assert len(timings.functions) == 2
     assert all(row['ms'] >= 1 for row in timings.functions)
     assert 'private' not in str(timings.report())
+
+
+def test_terminal_timings_preserve_frames_context_and_omit_payloads():
+    incoming = {'type': 'websocket.receive', 'text': '{"type":"input","data":"private input"}'}
+    outgoing = {'type': 'websocket.send', 'text': '{"type":"data","data":"private output"}'}
+    seen = []
+
+    async def app(scope, receive, send):
+        connection = timings._terminal_id.get()
+        assert connection is not None
+        assert await receive() is incoming
+        await asyncio.sleep(.001)
+        assert timings._terminal_id.get() == connection
+        await send(outgoing)
+        return connection
+
+    async def receive():
+        return incoming
+
+    async def send(message):
+        assert message is outgoing
+        seen.append(message)
+
+    timings = ServerTimings(app, trace_terminal=True)
+
+    async def exercise():
+        ids = await asyncio.gather(*[timings({'type': 'websocket', 'path': '/ws/term/private-name'}, receive, send) for _ in range(2)])
+        assert timings._terminal_id.get() is None
+        return ids
+
+    assert asyncio.run(exercise()) == [1, 2]
+    for connection in (1, 2):
+        received, sent = [r for r in timings.terminal if r['connection'] == connection]
+        assert received['stage'] == 'ws.receive' and received['kind'] == 'input'
+        assert received['dataLength'] == len('private input')
+        assert sent['stage'] == 'ws.send' and sent['kind'] == 'data'
+        assert sent['dataLength'] == len('private output') and sent['ms'] >= 0
+        assert sent['epoch'] >= received['epoch']
+    assert 'private' not in str(timings.report())
+    assert len(seen) == 2
+
+
+def test_terminal_pty_timing_keeps_short_writes_errors_and_descriptor_scope():
+    calls = []
+    fail = False
+
+    def read(fd, size):
+        calls.append(('read', fd, size))
+        if fail:
+            raise BlockingIOError('private error')
+        return b'private bytes'
+
+    def write(fd, data):
+        calls.append(('write', fd, data))
+        return 2  # Preserve the partial count for the application's retry loop.
+
+    original_os = SimpleNamespace(read=read, write=write, close=lambda fd:calls.append(('close', fd)), sentinel=object())
+    original_pty = SimpleNamespace(fork=lambda:(42, 8))
+    module = SimpleNamespace(os=original_os, pty=original_pty)
+    timings = ServerTimings(None, trace_terminal=True)
+    with timings.trace_terminal_io(module):
+        assert module.os.sentinel is original_os.sentinel
+        assert module.pty.fork() == (42, 8)  # No connection context: no recording.
+        assert module.os.read(8, 99) == b'private bytes'
+        assert timings.terminal == []
+        token = timings._terminal_id.set(7)
+        try:
+            assert module.pty.fork() == (42, 8)
+        finally:
+            timings._terminal_id.reset(token)
+        assert module.os.read(8, 100) == b'private bytes'
+        assert module.os.write(8, b'private write') == 2
+        fail = True
+        with pytest.raises(BlockingIOError, match='private error'):
+            module.os.read(8, 101)
+        fail = False
+        module.os.close(8)
+        assert module.os.read(8, 102) == b'private bytes'  # Reused/closed fd is untracked.
+    assert module.os is original_os and module.pty is original_pty
+    assert [(r['stage'], r.get('bytes'), r.get('error')) for r in timings.terminal] == [
+        ('pty.read', len(b'private bytes'), None), ('pty.write', 2, None), ('pty.read', None, 'BlockingIOError')]
+    assert all(r['connection'] == 7 and r['ms'] >= 0 for r in timings.terminal)
+    assert 'private' not in str(timings.report())
+    assert calls[-1] == ('read', 8, 102)
+
+
+def test_terminal_tracing_keeps_unrelated_websockets_untouched():
+    original = []
+
+    async def app(*args):
+        original.append(args)
+        return 3
+
+    timings = ServerTimings(app, trace_terminal=True)
+    scope = {'type': 'websocket', 'path': '/ws'}
+    assert asyncio.run(timings(scope, 'receive', 'send')) == 3
+    assert original == [(scope, 'receive', 'send')]
+    assert timings.terminal == []
+
+
+def _terminal_probe_module():
+    spec = importlib.util.spec_from_file_location(
+        'lab_perf_terminal_probe', Path(__file__).resolve().parents[2]
+        / 'scripts/perf/lab_terminal_latency.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize('traced', [False, True])
+def test_owned_echo_program_preserves_bytes_and_exports_only_timing(tmp_path, traced):
+    import json
+    import os
+    import pty
+    import select
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    module = _terminal_probe_module()
+    path = tmp_path / 'echo.json'
+    master, slave = pty.openpty()
+    child = subprocess.Popen([sys.executable, '-u', '-c', module.echo_program('READY', path if traced else None)],
+                             stdin=slave, stdout=slave, stderr=subprocess.PIPE)
+    os.close(slave)
+
+    def read_exact(expected):
+        output = b''
+        deadline = time.monotonic() + 3
+        while len(output) < len(expected):
+            assert time.monotonic() < deadline and child.poll() is None
+            if select.select([master], [], [], .1)[0]:
+                output += os.read(master, 4096)
+        assert output == expected
+
+    try:
+        read_exact(b'READY')
+        for value in (b'a', b'bc'):
+            os.write(master, value)
+            read_exact(value)
+        if traced:
+            assert int(path.with_suffix('.pid').read_text()) == child.pid
+            child.send_signal(signal.SIGUSR1)
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    rows = json.loads(path.read_text())
+                    break
+                except (FileNotFoundError, json.JSONDecodeError):
+                    assert time.monotonic() < deadline
+                    time.sleep(.01)
+            assert sum(row['bytes'] for row in rows) == 3
+            assert all(row['bytes'] == row['written'] and row['writeEpoch'] >= row['readEpoch'] for row in rows)
+            assert all(set(row) == {'readEpoch', 'writeEpoch', 'bytes', 'written'} for row in rows)
+        else:
+            assert not path.exists() and not path.with_suffix('.pid').exists()
+    finally:
+        child.terminate()
+        child.wait(timeout=3)
+        child.stderr.close()
+        os.close(master)
+
+
+@pytest.mark.parametrize('owns_pane', [False, True])
+def test_echo_export_never_signals_a_reused_pid(tmp_path, monkeypatch, owns_pane):
+    module = _terminal_probe_module()
+    path = tmp_path / 'echo.json'
+    path.with_suffix('.pid').write_text('321')
+    monkeypatch.setattr(module.subprocess, 'check_output', lambda *args, **kwargs:'321' if owns_pane else '654')
+    signaled = []
+
+    def kill(pid, sig):
+        signaled.append((pid, sig))
+        path.write_text('[]')
+
+    monkeypatch.setattr(module.os, 'kill', kill)
+    if owns_pane:
+        asyncio.run(module.dump_echo_trace('fixture', 'owned-terminal', path))
+        assert signaled == [(321, module.signal.SIGUSR1)]
+    else:
+        with pytest.raises(RuntimeError, match='no longer owns'):
+            asyncio.run(module.dump_echo_trace('fixture', 'owned-terminal', path))
+        assert signaled == []
+
+
+def test_failed_terminal_send_is_reported_and_preserves_the_exception():
+    async def app(scope, receive, send):
+        await send({'type':'websocket.send', 'text':'private body'})
+
+    async def send(message):
+        raise OSError('private exception')
+
+    timings = ServerTimings(app, trace_terminal=True)
+    with pytest.raises(OSError, match='private exception'):
+        asyncio.run(timings({'type':'websocket', 'path':'/ws/term/private-name'}, None, send))
+    row, = timings.terminal
+    assert row['stage'] == 'ws.send' and row['error'] == 'OSError' and row['ms'] >= 0
+    assert timings._terminal_id.get() is None
+    assert 'private' not in str(timings.report())

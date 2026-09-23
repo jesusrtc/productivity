@@ -286,3 +286,7 @@
 - [Retired sidebar templates transfer unchanged folders](sidebar-retired-templates-transfer-unchanged-folders.md) — reconcile before transfer; expand placeholders on every fallback; retain complete bounded pristine caches
 
 - [Terminal transport includes negotiation replies](typing-transport-includes-terminal-negotiation.md) — retain owned socket metadata, but distinguish xterm replies from measured native keys
+
+- [Latency fixtures match production WebSocket settings](latency-fixture-matches-websocket-configuration.md) — explicitly disable compression by default, verify negotiation, and retain labeled legacy comparisons
+
+- [Trace terminal latency across the PTY boundary](terminal-latency-trace-crosses-pty.md) — correlate browser, ASGI, PTY and owned echo metadata while preserving byte semantics and safe cleanup

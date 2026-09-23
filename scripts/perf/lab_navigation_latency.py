@@ -35,6 +35,8 @@ parser.add_argument('--resize', action='store_true', help='Also measure native s
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
+parser.add_argument('--trace-terminal', action='store_true', help='Time owned terminal WebSocket and PTY bytes without payloads (requires --typing and --server-timings)')
+parser.add_argument('--websocket-deflate', action='store_true', help='Diagnostic comparison only: enable WebSocket compression (production disables it)')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
@@ -46,6 +48,8 @@ if args.resize and args.typing:
     parser.error('--resize measures navigation gestures and cannot be combined with --typing')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
+if args.trace_terminal and (not args.typing or not args.server_timings):
+    parser.error('--trace-terminal requires --typing and --server-timings')
 if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
 if args.extra_files < 0:
@@ -122,10 +126,14 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
             return Response(css_source, media_type='text/css')
         app.router.routes.insert(0, Route('/static/css/lab-shell.css', baseline_css))
     timings = None
+    instrumentation = contextlib.ExitStack()
     if args.server_timings:
         from server_timings import ServerTimings
-        timings = ServerTimings(app, correlate_requests=True)
+        timings = ServerTimings(app, correlate_requests=True, trace_terminal=args.trace_terminal)
         timings.instrument_sessions()
+        if args.trace_terminal:
+            from core.routes import term
+            instrumentation.enter_context(timings.trace_terminal_io(term))
         if args.trace_files:
             from core import fsguard
             from core.routes import nb_exec
@@ -143,7 +151,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                          '_workspace_session_by_name', '_home_session_rows',
                          '_sessions_for_root'):
                 timings.trace_function(term, name)
-    server = uvicorn.Server(uvicorn.Config(timings or app, access_log=False, log_level='warning'))
+    server = uvicorn.Server(uvicorn.Config(timings or app, access_log=False, log_level='warning',
+        timeout_graceful_shutdown=5, ws_per_message_deflate=args.websocket_deflate))
     def run_server():
         # Lifespan prints fixture URLs; leave stdout as machine-readable results.
         with contextlib.redirect_stdout(sys.stderr):
@@ -184,6 +193,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
                                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
                                      'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
+                                     'LAB_PERF_WS_DEFLATE': str(int(args.websocket_deflate)),
+                                     'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal else '',
                                      'LAB_PERF_SIDEBAR_RESIZE': str(int(args.resize)),
                                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                                 timeout=max(120, args.samples * 26))
@@ -191,9 +202,13 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         server.should_exit = True
         thread.join(15)
         sock.close()
+        instrumentation.close()
         if timings:
             args.server_timings.parent.mkdir(parents=True, exist_ok=True)
-            report = {**timings.report(), 'serverStopped': not thread.is_alive()}
+            report = {**timings.report(), 'serverStopped': not thread.is_alive(),
+                      'websocketDeflate': args.websocket_deflate}
+            if args.trace_terminal and (base / 'echo-timings.json').exists():
+                report['echo'] = json.loads((base / 'echo-timings.json').read_text())
             args.server_timings.write_text(json.dumps(report, indent=2) + '\n')
     if thread.is_alive():
         raise RuntimeError('Fixture server did not stop')

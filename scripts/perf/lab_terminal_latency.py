@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -40,6 +41,49 @@ def percentiles(values: list[float]) -> dict[str, float]:
     }
 
 
+def echo_program(marker: str, trace_path: Path | None = None) -> str:
+    lines = ['import os,tty', 'tty.setraw(0)']
+    if trace_path is not None:
+        lines += [
+            'import json,signal,time',
+            'from pathlib import Path',
+            f'trace_path=Path({str(trace_path)!r})',
+            'events=[]',
+            'def dump(signum,frame):',
+            ' trace_path.write_text(json.dumps(events))',
+            'signal.signal(signal.SIGUSR1,dump)',
+            'trace_path.with_suffix(".pid").write_text(str(os.getpid()))',
+        ]
+    lines += [f'os.write(1,bytes.fromhex({marker.encode().hex()!r}))',
+              'while True:', ' data=os.read(0,4096)', ' if not data: break']
+    if trace_path is None:
+        lines += [' os.write(1,data)']
+    else:
+        lines += [' received=time.time()*1000', ' written=os.write(1,data)',
+                  ' events.append({"readEpoch":received,"writeEpoch":time.time()*1000,"bytes":len(data),"written":written})']
+    return '\n'.join(lines)
+
+
+async def dump_echo_trace(socket: str, name: str, trace_path: Path) -> None:
+    # The PID file was written by our raw echo program. Verify that it still owns
+    # the uniquely named fixture pane before signaling, never a reused PID.
+    pid = int(trace_path.with_suffix('.pid').read_text())
+    pane_pid = int(subprocess.check_output(
+        _tmux_command(socket, 'display-message', '-p', '-t', name, '#{pane_pid}'),
+        text=True, timeout=5).strip())
+    if pid != pane_pid:
+        raise RuntimeError('Owned echo process no longer owns the benchmark pane')
+    os.kill(pid, signal.SIGUSR1)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            json.loads(trace_path.read_text())
+            return
+        except (FileNotFoundError, json.JSONDecodeError):
+            await asyncio.sleep(.01)
+    raise RuntimeError('Owned echo process did not export its timing trace')
+
+
 async def measure(samples: int, interval: float, browser: bool = False, base_url: str | None = None,
                   workspace: str | None = None) -> None:
     base = base_url or subprocess.check_output([str(ROOT / 'scripts/lab-url.sh')], text=True).strip()
@@ -57,17 +101,20 @@ async def measure(samples: int, interval: float, browser: bool = False, base_url
         response.raise_for_status()
         name = response.json()['name']
         resource = '/api/term/sessions/' + quote(name, safe='')
+        echo_trace = None
+        socket = None
         try:
             # Replace only our newly created shell with a deterministic echo
             # process: shell initialization and completion plugins aren't PTY
             # transport cost. A fixture-scoped session is purged in finally,
             # including its saved workspace entry.
             marker = 'ready-' + uuid.uuid4().hex
-            code = (
-                'import os,tty; tty.setraw(0); '
-                f'os.write(1,bytes.fromhex({marker.encode().hex()!r})); '
-                'exec("while True:\\n os.write(1,os.read(0,4096))")'
-            )
+            if os.environ.get('LAB_PERF_ECHO_TRACE'):
+                echo_trace = Path(os.environ['LAB_PERF_ECHO_TRACE']).resolve()
+                fixture = Path(workspace).resolve().parents[2] if workspace else None
+                if not fixture or not fixture.name.startswith('lab-navigation-') or echo_trace.parent != fixture:
+                    raise RuntimeError('Echo tracing requires the disposable navigation fixture')
+            code = echo_program(marker, echo_trace)
             socket = _tmux_find_session_socket(name)
             if not socket:
                 raise RuntimeError('Could not find the newly created benchmark terminal')
@@ -132,9 +179,13 @@ async def measure(samples: int, interval: float, browser: bool = False, base_url
                         'samples': len(times), 'requests': requests,
                     }), flush=True)
         finally:
-            response = await client.delete(resource + '?purge=true')
-            response.raise_for_status()
-            print('Removed benchmark terminal.', file=sys.stderr)
+            try:
+                if echo_trace is not None and socket:
+                    await dump_echo_trace(socket, name, echo_trace)
+            finally:
+                response = await client.delete(resource + '?purge=true')
+                response.raise_for_status()
+                print('Removed benchmark terminal.', file=sys.stderr)
 
 
 if __name__ == '__main__':

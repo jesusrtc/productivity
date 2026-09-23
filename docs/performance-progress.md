@@ -1384,3 +1384,96 @@ All six fixture servers stopped; all five owned typing terminals were removed.
 The overall goal remains active: terminal transport stalls, remaining startup
 work, earlier request outliers, broader actions and iTerm comparison still need
 work. This checkpoint includes no main merge, push or live-server restart.
+
+
+## Checkpoint: trace terminal transport and match production WebSocket settings
+
+The fixture's direct `uvicorn.Config` used its default WebSocket compression,
+while `core.main.run()` explicitly disables permessage-deflate. The fixture now
+matches production (`ws_per_message_deflate=False`, graceful shutdown timeout 5 s).
+`--websocket-deflate` retains the prior setting as an explicit diagnostic
+comparison. Chrome records the owned terminal's handshake status and negotiated
+compression bit and fails if they differ from the requested configuration.
+No cookie/header values or frame payloads enter the report. Production code and
+the live server are unchanged by this checkpoint; this repairs measurement parity.
+
+`--trace-terminal` adds fixture-only timestamps at WebSocket receive/send and at
+term.py's PTY reads/writes. Connection context identifies only descriptors created
+for traced terminal connections. Module-local proxies leave global `os`/`pty`
+untouched and restore the original dependencies after shutdown. Traces preserve
+short writes, byte counts, exceptions and frame identity; only metadata is stored.
+Closed descriptors lose their association. Unrelated WebSockets and normal
+untraced operation retain their original calls.
+
+The owned raw echo process can also timestamp its read and write in memory. It
+exports metadata after the browser run, on SIGUSR1, so file logging does not delay
+measured input. The controller checks its recorded PID against the still-owned
+fixture pane before signaling. Export failures still go through terminal cleanup.
+This separates input reaching tmux, reaching the application, and returning from
+tmux into the server's bridge. **16 diagnostic regression tests passed**, including
+real raw-PTY echo with/without tracing, payload privacy, simultaneous connection
+contexts, short writes/errors, failed sends, descriptor reuse, dependency cleanup,
+and refusal to signal a PID that no longer owns the fixture pane.
+
+The half-second stall was reproduced with per-stage tracing in explicit compressed
+mode, retaining **22 missed keys**, maximum **581.80 ms**. Relative to the first
+affected native input:
+
+| Observation | Time after input |
+| --- | ---: |
+| Server received input frame | 2.410 ms |
+| Server completed one-byte PTY write | 2.439 ms |
+| First subsequent PTY read (24 accumulated bytes) | 581.390 ms |
+| Server started echo frame send | 581.412 ms |
+| xterm finished parsing that key | 581.600 ms |
+| xterm rendered that key | 581.800 ms |
+
+Other keys kept arriving at the server and completing PTY writes throughout that
+interval. The server's echo send took 0.021 ms. Thus this captured stall occurs
+between the bridge's PTY write and return read, not in HTTP handling, browser
+input queueing, or the final WebSocket send/render. The responsible component
+inside that interval is **not yet identified**; compression was present but is
+not established as the cause. An echo-process trace was added afterward and did
+not reproduce the half-second stall in its two runs. The fixture still uses its
+owned session on the shared default tmux server, so server contention remains a
+possible factor to test with a separately owned socket, not an established cause.
+
+A different compressed run retained a **52.20 ms normal-typing miss**. Its echo
+program read/wrote at 1.484/1.503 ms, the bridge read at 1.654 ms, and xterm parsed
+at about 1.7 ms, then rendered at 52.2 ms. This is a separate browser render delay;
+the new measurements prevent confusing it with the PTY stall.
+
+All runs retained every key and verified changing file mtimes/recent ordering in
+the 5,000-file flat `ipynb,pdf,svg,js` fixture with normal polling:
+
+| Run / transport / tracing | Keys | Normal max | Loaded max | Misses ≥50 ms | API max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Initial legacy defaults / bridge trace | 1,200 | 43.80 ms | 43.70 ms | 0 | 171.50 ms |
+| Longer legacy defaults / bridge trace | 2,000 | 40.70 ms | 49.40 ms | 0 | 175.30 ms |
+| Explicit compressed / bridge trace | 600 | 32.90 ms | 581.80 ms | 22 | 74.50 ms |
+| Production uncompressed / bridge trace | 600 | 42.90 ms | 45.00 ms | 0 | 87.70 ms |
+| Production uncompressed / bridge + echo trace | 600 | 36.60 ms | 40.50 ms | 0 | 161.70 ms |
+| Explicit compressed / bridge + echo trace | 600 | 52.20 ms | 43.10 ms | 1 | 101.10 ms |
+| Final production uncompressed / byte tracing off | 1,200 | 35.20 ms | 51.90 ms | 1 | 103.00 ms |
+
+The final untraced-byte run kept **30 file updates** and **422 APIs**. Its normal
+median/p95 were 3.70/22.90 ms and loaded median/p95 5.40/24.10 ms. The missed key
+queued **24.10 ms** before its handler and took **27.80 ms** afterward; it occurred
+at the first loaded refresh. This remains a failing typing-budget result, not
+sustained compliance. The 59 ms pre-readiness task also remains recorded. The two
+echo traces exported all 600 bytes each; one coalesced read correctly represented
+two keys. Chrome verified compression on/off for all runs after the handshake
+instrumentation was added.
+
+All seven fixture servers stopped and their owned terminals were removed. All
+API records matched server IDs/routes. There were no input-content, timestamp,
+HTTP, network, browser, handshake or diagnostic errors in these runs. Artifact
+prefixes (each with `-browser.json`, `-server.json`, `.log`):
+`/tmp/lab-terminal-path-before`, `/tmp/lab-terminal-path-long`,
+`/tmp/lab-terminal-compressed`, `/tmp/lab-terminal-uncompressed`,
+`/tmp/lab-terminal-echo`, `/tmp/lab-terminal-echo-compressed`,
+`/tmp/lab-terminal-production-final`.
+
+The overall goal remains active. Both PTY stalls and browser render misses need
+further work; broader UI actions and prior API outliers are still unproven. This
+checkpoint includes no main merge, push, production change or live-server restart.

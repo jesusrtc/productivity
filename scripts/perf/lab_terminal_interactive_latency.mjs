@@ -117,7 +117,7 @@ async function main() {
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client,evaluate;
   const sent=[], phases=[], updates=[], browserErrors=[],requestFailures=[],pendingRequests=new Map();
-  const terminalSocketIds=new Set(), terminalFrames=[];
+  const terminalSockets=new Map(), terminalFrames=[];
   let networkEpochOffset=null;
   try {
     let port;
@@ -137,8 +137,12 @@ async function main() {
     client.ws.addEventListener('message',event=>{
       const m=JSON.parse(event.data),p=m.params;
       if(m.method==='Network.requestWillBeSent' && networkEpochOffset===null)networkEpochOffset=(p.wallTime-p.timestamp)*1000;
-      if(m.method==='Network.webSocketCreated' && new URL(p.url).pathname==='/ws/term/'+encodeURIComponent(name))terminalSocketIds.add(p.requestId);
-      if((m.method==='Network.webSocketFrameSent' || m.method==='Network.webSocketFrameReceived') && terminalSocketIds.has(p.requestId)) {
+      if(m.method==='Network.webSocketCreated' && new URL(p.url).pathname==='/ws/term/'+encodeURIComponent(name))terminalSockets.set(p.requestId,{});
+      if(m.method==='Network.webSocketHandshakeResponseReceived' && terminalSockets.has(p.requestId)) {
+        const deflate=Object.entries(p.response.headers||{}).some(([key,value])=>key.toLowerCase()==='sec-websocket-extensions'&&String(value).includes('permessage-deflate'));
+        terminalSockets.set(p.requestId,{status:p.response.status,deflate});
+      }
+      if((m.method==='Network.webSocketFrameSent' || m.method==='Network.webSocketFrameReceived') && terminalSockets.has(p.requestId)) {
         // Only the disposable echo terminal; never record output or credentials.
         // CDP timestamps distinguish socket transport from later xterm parsing.
         let message;try{message=JSON.parse(p.response.payloadData)}catch{}
@@ -300,13 +304,15 @@ async function main() {
     result.requestErrors=result.requests.filter(r=>r.status>=400);
     result.misses=result.rows.filter(r=>r.total>=50);
     result.phases=phases;result.sent=sent;result.browserErrors=browserErrors;result.requestFailures=requestFailures;
-    result.terminalFrames=terminalFrames;
+    result.terminalFrames=terminalFrames;result.terminalSockets=[...terminalSockets.values()];
     // xterm also sends terminal-query replies; retain those frames but count
     // only the one-letter fixture keys when validating measured input.
     const inputs=terminalFrames.filter(frame=>frame.direction==='sent'&&frame.type==='input'&&frame.keyInput);
     result.transportErrors=[];
+    const expectedDeflate=process.env.LAB_PERF_WS_DEFLATE==='1';
+    if(!result.terminalSockets.length || result.terminalSockets.some(socket=>socket.status!==101 || socket.deflate!==expectedDeflate))result.transportErrors.push('Terminal WebSocket negotiation differs from fixture configuration');
     if(inputs.length!==sent.length || inputs.some(frame=>frame.length!==1 || !Number.isFinite(frame.epoch)))result.transportErrors.push('Owned terminal input frames do not match native key count');
-    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,changeFiles};
+    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,changeFiles,websocketDeflate:expectedDeflate};
     result.updates=updates;
     await client.send('Page.navigate',{url:baseUrl+'/api/ping'});
     await wait(`location.pathname==='/api/ping' && !document.getElementById('termPanel') && document.body.textContent.includes('status')`,'Frame control failed to load');

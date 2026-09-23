@@ -1,10 +1,12 @@
 """Opt-in diagnostics for the isolated latency fixture, never production middleware."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 from inspect import iscoroutinefunction
 from itertools import count
+import json
 from threading import get_ident
 import time
 from urllib.parse import parse_qs
@@ -18,9 +20,13 @@ class ServerTimings:
     Optional fixture-only Server-Timing headers correlate browser/server records.
     """
 
-    def __init__(self, app, *, correlate_requests=False):
+    def __init__(self, app, *, correlate_requests=False, trace_terminal=False):
         self.app = app
         self.correlate_requests = correlate_requests
+        self.trace_terminal = trace_terminal
+        self._terminal_id = ContextVar('lab_perf_terminal_id', default=None)
+        self._terminal_numbers = count(1)
+        self.terminal = []
         self._numbers = count(1)
         self._request_id = ContextVar('lab_perf_request_id', default=None)
         self.requests = []
@@ -29,6 +35,8 @@ class ServerTimings:
         self.functions = []
 
     async def __call__(self, scope, receive, send):
+        if self.trace_terminal and scope['type'] == 'websocket' and scope.get('path', '').startswith('/ws/term/'):
+            return await self._terminal_connection(scope, receive, send)
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         start = time.perf_counter()
@@ -60,6 +68,112 @@ class ServerTimings:
             row['appMs'] = (time.perf_counter() - start) * 1000
             self.requests.append(row)
             self._request_id.reset(token)
+
+    async def _terminal_connection(self, scope, receive, send):
+        connection = next(self._terminal_numbers)
+
+        def record(stage, message):
+            row = {'connection': connection, 'stage': stage, 'epoch': time.time() * 1000,
+                   'event': message['type']}
+            text = message.get('text')
+            if isinstance(text, str):
+                row['characters'] = len(text)
+                try:
+                    body = json.loads(text)
+                except (ValueError, TypeError):
+                    body = None
+                if isinstance(body, dict):
+                    kind = body.get('type')
+                    if kind in ('input', 'resize', 'data', 'exit', 'detach'):
+                        row['kind'] = kind
+                    if isinstance(body.get('data'), str):
+                        row['dataLength'] = len(body['data'])
+            self.terminal.append(row)
+            return row
+
+        async def timed_receive():
+            message = await receive()
+            record('ws.receive', message)
+            return message
+
+        async def timed_send(message):
+            row = record('ws.send', message)
+            start = time.perf_counter()
+            try:
+                return await send(message)
+            except BaseException as error:
+                row['error'] = type(error).__name__
+                raise
+            finally:
+                row['ms'] = (time.perf_counter() - start) * 1000
+
+        token = self._terminal_id.set(connection)
+        try:
+            return await self.app(scope, timed_receive, timed_send)
+        finally:
+            self._terminal_id.reset(token)
+
+    @contextmanager
+    def trace_terminal_io(self, module):
+        """Observe only term.py's owned PTY descriptors, without altering global os.
+
+        Wrappers keep byte content private and preserve short writes/errors. The
+        original module dependencies are restored when the fixture finishes.
+        """
+        original_os, original_pty = module.os, module.pty
+        descriptors = {}
+        owner = self
+
+        def record(connection, stage, start, **fields):
+            owner.terminal.append({'connection': connection, 'stage': stage,
+                'epoch': time.time() * 1000, 'ms': (time.perf_counter() - start) * 1000, **fields})
+
+        class OsProxy:
+            def __getattr__(self, name):
+                return getattr(original_os, name)
+
+            def _io(self, operation, fd, value):
+                connection = descriptors.get(fd)
+                if connection is None:
+                    return getattr(original_os, operation)(fd, value)
+                start = time.perf_counter()
+                try:
+                    result = getattr(original_os, operation)(fd, value)
+                except BaseException as error:
+                    record(connection, 'pty.' + operation, start, error=type(error).__name__)
+                    raise
+                record(connection, 'pty.' + operation, start,
+                       bytes=len(result) if operation == 'read' else result)
+                return result
+
+            def read(self, fd, size):
+                return self._io('read', fd, size)
+
+            def write(self, fd, data):
+                return self._io('write', fd, data)
+
+            def close(self, fd):
+                try:
+                    return original_os.close(fd)
+                finally:
+                    descriptors.pop(fd, None)
+
+        class PtyProxy:
+            def __getattr__(self, name):
+                return getattr(original_pty, name)
+
+            def fork(self):
+                pid, fd = original_pty.fork()
+                connection = owner._terminal_id.get()
+                if pid > 0 and connection is not None:
+                    descriptors[fd] = connection
+                return pid, fd
+
+        module.os, module.pty = OsProxy(), PtyProxy()
+        try:
+            yield
+        finally:
+            module.os, module.pty = original_os, original_pty
 
     def instrument_sessions(self):
         """Measure the synchronous handler separately from dependencies/worker queuing."""
@@ -153,4 +267,4 @@ class ServerTimings:
     def report(self):
         return {'measurement': 'ASGI entry through final response body; excludes pre-entry queueing',
                 'requests': self.requests, 'sessions': self.sessions,
-                'handlers': self.handlers, 'functions': self.functions}
+                'handlers': self.handlers, 'functions': self.functions, 'terminal': self.terminal}
