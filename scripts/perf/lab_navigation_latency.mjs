@@ -3,7 +3,7 @@
 // Timestamped CDP mouse release -> rendered content -> animation-frame task.
 // This is a browser paint opportunity estimate, not physical display latency.
 import {spawn} from 'node:child_process';
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const baseUrl = process.argv[2];
@@ -161,18 +161,36 @@ async function main() {
       await client.send('Profiler.start');
     }
     const actions=[];
-    for(let i=0;i<samples;i++) {
-      const name=i%2?'beta':'alpha';
-      actions.push({kind:'workspace', target:name,
-        selector:'.workspace-tab[data-workspace-id='+JSON.stringify(name)+']',
-        ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent === ${JSON.stringify(name==='alpha'?'Alpha':'Beta')}`});
-    }
-    const lastWorkspace=samples%2?'Alpha':'Beta';
-    for(let i=0;i<samples;i++) {
-      const number=i%2+1;
-      actions.push({kind:'document', target:'review-'+number,
-        selector:'.sidebar-file[data-filepath="docs/review-'+number+'.md"]',
-        ready:`Array.from(document.querySelectorAll('#content h1')).some(h=>h.textContent === ${JSON.stringify(lastWorkspace+' review '+number)})`});
+    const createWorkspaces=process.env.LAB_PERF_CREATE_WORKSPACES==='1';
+    const initialWorkspaceTabs=createWorkspaces
+      ? await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`)
+      : [];
+    if(createWorkspaces) {
+      for(let i=0;i<samples;i++) {
+        const name='Latency workspace '+String(i+1).padStart(3,'0');
+        const id=name.toLowerCase().replaceAll(' ','-');
+        actions.push(
+          {kind:'create-picker',target:id,selector:'#workspaceTabsPlusBtn',ready:`document.getElementById('workspaceTabsPicker')?.classList.contains('open')`},
+          {kind:'create-vaults',target:id,selector:'#workspaceTabsPicker [data-action="create"]',ready:`!!document.querySelector('#workspaceTabsPicker [data-create-vault]')`},
+          {kind:'create-form',target:id,selector:'#workspaceTabsPicker [data-create-vault]',ready:`document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && document.activeElement?.id==='vaultWorkspaceName'`},
+          {kind:'create-workspace',target:id,selector:'#vaultWorkspaceSubmit',input:name,
+            ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
+        );
+      }
+    } else {
+      for(let i=0;i<samples;i++) {
+        const name=i%2?'beta':'alpha';
+        actions.push({kind:'workspace', target:name,
+          selector:'.workspace-tab[data-workspace-id='+JSON.stringify(name)+']',
+          ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent === ${JSON.stringify(name==='alpha'?'Alpha':'Beta')}`});
+      }
+      const lastWorkspace=samples%2?'Alpha':'Beta';
+      for(let i=0;i<samples;i++) {
+        const number=i%2+1;
+        actions.push({kind:'document', target:'review-'+number,
+          selector:'.sidebar-file[data-filepath="docs/review-'+number+'.md"]',
+          ready:`Array.from(document.querySelectorAll('#content h1')).some(h=>h.textContent === ${JSON.stringify(lastWorkspace+' review '+number)})`});
+      }
     }
     for(const [i,action] of actions.entries()) {
       const {selector}=action;
@@ -180,6 +198,10 @@ async function main() {
       while(!await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) {
         if(Date.now()>until)throw new Error('Click target did not appear: '+selector);
         await sleep(10);
+      }
+      if(action.input) {
+        if(!await evaluate(`document.activeElement?.id==='vaultWorkspaceName' && !document.getElementById('vaultWorkspaceName').value`))throw new Error('New workspace name field is not ready');
+        await client.send('Input.insertText',{text:action.input});
       }
       let sentEpoch;
       await evaluate(`(async()=>{
@@ -230,6 +252,21 @@ async function main() {
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,requests:row.requests});
       if(Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Mouse event timestamp did not match dispatched source time');
       await sleep(100);
+    }
+    if(createWorkspaces) {
+      const tabs=await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`);
+      const expectedTabs=[...initialWorkspaceTabs,...Array.from({length:samples},(_,i)=>workspaceRoot+'/latency-workspace-'+String(i+1).padStart(3,'0'))];
+      if(JSON.stringify(tabs)!==JSON.stringify(expectedTabs))throw new Error('Creation changed existing tab order or duplicated a tab');
+      const created=await evaluate(`workspacesList.filter(row=>row.path?.startsWith(${JSON.stringify(workspaceRoot+'/latency-workspace-')})).map(row=>({id:row.name,path:row.path}))`);
+      if(created.length!==samples||new Set(created.map(row=>row.path)).size!==samples)throw new Error('Created workspace catalog count or identity mismatch');
+      for(let i=0;i<samples;i++) {
+        const id='latency-workspace-'+String(i+1).padStart(3,'0');
+        if(!created.some(row=>row.id===id&&row.path===workspaceRoot+'/'+id))throw new Error('Created workspace escaped its fixture vault');
+        const metadata=JSON.parse(await readFile(join(workspaceRoot,id,'workspace.json'),'utf8'));
+        const tasks=JSON.parse(await readFile(join(workspaceRoot,id,'tasks.json'),'utf8'));
+        if(metadata.id!==id||metadata.name!=='Latency workspace '+String(i+1).padStart(3,'0')||metadata.tab_open!==true||tasks.next_id!==1||tasks.tasks.length)throw new Error('Created workspace storage is incomplete');
+        for(const folder of ['docs','notes','assets'])if(!(await stat(join(workspaceRoot,id,folder))).isDirectory())throw new Error('Created workspace folder is missing');
+      }
     }
     if(process.env.LAB_PERF_SIDEBAR_RESIZE==='1') {
       // Compare steady-state drags as well as the early navigation above.

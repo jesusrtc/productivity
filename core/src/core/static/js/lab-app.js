@@ -18038,8 +18038,13 @@
 
       _vaultWorkspaceCreateBusy = false;
       closeVaultWorkspaceModal();
-      if (workspace && workspace.path) goToWorkspace(workspace.path);
-      else await vaultRenderWorkspacesCard();
+      if (workspace && workspace.path) {
+        // Navigation renders tabs from a separate catalog. Remember this
+        // confirmed row now instead of waiting for its five-second poll.
+        // Keep existing tab objects/order, including pending open/close state.
+        if (!workspaceTabsAll.some(row => row.path === workspace.path)) workspaceTabsAll.push(workspace);
+        goToWorkspace(workspace.path);
+      } else await vaultRenderWorkspacesCard();
     } catch (e) {
       if (error) {
         error.textContent = e.message || String(e);

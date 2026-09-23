@@ -1560,3 +1560,73 @@ UI actions, and physical comparison with iTerm remain unresolved or unmeasured.
 Passing these finite samples does not establish a universal latency guarantee.
 This checkpoint includes no main merge, push or live-server restart; the earlier
 explicit merge-approval question remains pending after automatic review rejection.
+
+## Checkpoint: show the new workspace tab without waiting for catalog polling
+
+The new native creation probe found a UI overrun outside the previous navigation
+coverage. Opening the + picker, choosing New workspace and selecting a vault were
+fast. Submitting a name created and opened the workspace, but the new tab waited
+for the next five-second catalog poll. `submitVaultWorkspace` refreshed
+`workspacesList`; `workspaceTabsRender` uses the independent `workspaceTabsAll`.
+The first measured POST returned in 80.7 ms and the post-create catalog in 2.3 ms,
+but the workflow did not have its new workspace tab until **4,688.7 ms**.
+
+After successful creation and its authoritative catalog refresh, the UI now adds
+the confirmed row to the tab collection before normal navigation. It checks the
+absolute path to prevent duplicates and preserve same-ID workspaces in other
+vaults. Existing tab objects, pending state and order remain intact. The CLI,
+creation API, persisted workspace format, captured vault, validation, error UI,
+missing-row fallback, catalog polling and automatic terminal preference behavior
+are unchanged.
+
+`lab_navigation_latency.py --create --samples N` measures four native click
+stages per workspace, including the final dashboard **and tab** through a rendered
+frame. It uses an authenticated disposable vault, production polling and server
+lifecycle. Its known future workspace IDs have automatic agent startup disabled
+through the preferences API before the browser starts. All created data stays in
+that temporary vault. The probe validates original tab order, unique created paths,
+workspace names/IDs, initial task data, saved open flags and workspace directories.
+Optional server timings include the actual POST handler and its CLI subprocess;
+all HTTP samples, failures and over-budget actions are retained.
+
+| Native action | Before maximum (5 each) | Candidate maximum (20 each) |
+| --- | ---: | ---: |
+| Open + picker | 35.3 ms | 40.0 ms |
+| Choose New workspace | 37.1 ms | 39.8 ms |
+| Open the name form | 56.0 ms | 56.5 ms |
+| Create and open workspace with its tab | 4,688.7 ms | 185.3 ms |
+
+Creation median fell from **4,383.0 ms** to **154.2 ms**. The baseline retains all
+five missed creation actions; all 80 candidate actions passed 200 ms. All 230
+baseline API requests passed 200 ms (maximum 139.7 ms), as did all 553 candidate
+requests (maximum 105.0 ms). Server POST times were 69.5–100.8 ms before and
+68.1–104.0 ms after; no backend speedup is claimed. All API IDs/routes correlated,
+all correctness checks passed, and both fixture servers stopped without browser,
+HTTP or network failures. Artifacts:
+`/tmp/lab-create-before-{browser,server}.json` and
+`/tmp/lab-create-after-{browser,server}.json`, with corresponding `.log` files.
+
+**48 targeted tests passed** for picker creation, tab order/navigation, workspace
+rename/delete/resources, mutations and vault routes. Added creation cases retain
+the selected vault while it changes elsewhere, wait for the old catalog to settle,
+make the confirmed tab available before navigation, preserve other tab identities
+and flags, avoid duplicates if polling already found the row, and avoid ghost tabs
+on failed creation or a missing post-create catalog row. Test log:
+`/tmp/lab-create-tests.log`.
+
+The larger-fixture follow-up kept 5,000 mixed notebook/PDF/SVG/JavaScript files in
+each of the two existing workspaces and created 20 more through the native UI.
+All 80 actions passed: creation median **151.1 ms**, maximum **178.9 ms**; picker,
+vault-choice and form maxima **38.2 / 39.2 / 56.6 ms**. All 556 API requests passed,
+maximum **111.1 ms**, with correct server-ID/route correlation and no browser,
+network or HTTP failures. Original tabs stayed in order, each new tab appeared
+once, and all created metadata/task files, saved open flags and docs/notes/assets
+directories were verified. The fixture server stopped normally. Artifacts:
+`/tmp/lab-create-large-{browser,server}.json` and `/tmp/lab-create-large.log`.
+
+The overall goal remains active. These creation checks use empty new workspaces
+and deliberately disable automatic agent startup in fixture preferences; they do
+not establish agent-launch, notebook/server-control, all-vault-scale or physical
+terminal latency. Previous PTY stalls, startup tasks, API outliers and other UI
+actions still require work. No main merge, push or live-server restart is included;
+the earlier merge-approval question remains pending after automatic review rejection.

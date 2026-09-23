@@ -1,5 +1,7 @@
 # Memory index
 
+- [Creation publishes its workspace tab immediately](workspace-creation-publishes-tab-immediately.md) — remember the confirmed row before navigation without replacing existing tab state or waiting for polling
+
 - [Prepared sidebar groups retain containment](sidebar-preparation-retains-containment.md) — preserve auto's layout/style/paint boundaries after idle preparation, and check focused group-boundary pixels
 
 - [Prepare sidebar layout in idle callbacks](sidebar-idle-layout-prepares-live-groups.md) — keep live preparation out of template keys, cancel stale jobs, and invalidate it before width changes
