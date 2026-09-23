@@ -4175,3 +4175,124 @@ and cold-navigation outliers, unmeasured UI/API actions and physical/iTerm parit
 remain unresolved. The Git timer change is a verified local reduction, not proof
 that every action meets the overall budget. Main merge and push remain pending
 after the earlier automatic approval rejection; no live-server restart occurred.
+
+## 2026-09-23 — Reject an unhelpful PTY yield; sample the private producer
+
+A candidate yielded one event-loop turn after receiving the first PTY chunk,
+before collecting queued fragments for a WebSocket frame. It preserved the
+incremental UTF-8 decoder and EOF/send-failure cleanup. Four real-pipe tests
+split ASCII or UTF-8/ANSI data into four-byte reads, required exact output and
+verified cleanup. The unmodified implementation failed the two coalescing
+assertions; the candidate passed **79 focused tests**, including document
+terminal connections, WebSocket reliability and server timing instrumentation.
+
+The fixed native sequence used 1,200 keys per run, scrolling output, 5,000 mixed
+files, 2,500 Git changes, sidebar updates and terminal-boundary diagnostics.
+It ran baseline shared/private, then candidate shared/private; this was not an
+ABBA comparison. All runs and misses were retained.
+
+| Code / transport | Failed keys (>50 ms) | Output median / p95 / max | Loaded median / p95 / max |
+| --- | ---: | ---: | ---: |
+| Baseline / shared | 2 | 11.3 / 25.8 / 55.3 ms | 19.6 / 29.7 / 48.1 ms |
+| Baseline / private | 1 | 5.8 / 28.1 / 43.0 ms | 7.4 / 26.5 / 51.5 ms |
+| Yield / shared | 2 | 11.0 / 22.3 / 46.2 ms | 13.0 / 27.0 / 61.4 ms |
+| Yield / private | 4 | 8.6 / 29.2 / 58.2 ms | 8.9 / 27.1 / 50.2 ms |
+
+The largest frame increased from 1,024 to 2,048 characters and tiny-frame counts
+fell, but this did not establish a typing-latency improvement. Producer writes
+still reached 21.65 ms in the candidate's private run. The candidate and its
+tests were removed; production returned exactly to `04620e7`. Their patch/test
+are archived in `/tmp/lab-pty-yield-candidate.patch` and
+`/tmp/lab-pty-yield-candidate-test.py`, with baseline/candidate test logs.
+
+All 4,800 keys passed exact source hashes and independent parse/render checks;
+Git and API validation passed. Browser/server API maxima were 134.5/127.85 ms,
+83.0/73.34 ms, 77.6/74.06 ms and 135.1/133.70 ms, respectively. Each run had one
+browser terminal socket and one server connection. Geometry remained 49 columns
+by 48 xterm rows / 47 producer rows, with only startup resize messages. Total
+repaint bytes varied despite the same generated load; frame counts alone cannot
+establish an end-to-end improvement. HTTP servers stopped, private PIDs were
+independently confirmed gone and private sockets were removed.
+
+Artifacts: `/tmp/lab-output-transport-yield-{before,after}-{shared,private}-{browser,server,transport,summary}.json`,
+logs, `/tmp/lab-pty-yield-{before,after}-runs.json`, and
+`/tmp/lab-pty-yield-comparison.json`.
+
+### Private process sampling is diagnostic evidence
+
+With unmodified `04620e7`, an owned private server and its single owned Python
+output producer were sampled for 15 seconds at 2 ms intervals. The wrapper
+checked the private socket inode/server PID and uniquely identified the
+`lab-navigation-` Python pane before sampling. Both samplers exited normally;
+both process PIDs were independently confirmed gone after normal fixture
+cleanup, and the socket was absent. No shared/user tmux process was sampled.
+
+The native run retained all 1,600 keys, exact source hash, 40 updates/refreshes,
+ongoing rendered output and valid Git state. Seven keys missed 50 ms, with
+output/loaded maxima 57.2/34.3 ms. Browser/server API maxima were
+100.5/89.95 ms (580/611 requests). This instrumented run is not a final latency
+result: native sampling can perturb scheduling.
+
+During the sampled window, 10 of 300 producer batches spent more than 10 ms in
+their writes; the maximum was 23.47 ms. Five of the seven slow keys fell within
+that window. Across all seven slow keys, producer input was read 21.88–26.17 ms
+after the measured key start, following a batch write of 19.50–23.47 ms. The
+corresponding input-to-render windows contained 256–282 PTY reads and 256–282
+WebSocket sends. This establishes overlap, not a complete causal attribution.
+
+The aggregate tmux sample spent 5,765 of 5,990 main-thread samples in `select`;
+the producer spent 5,843 of 6,010 in `select` and 98 in the system write path.
+These aggregates do not distinguish healthy waiting from a scheduling problem
+and cannot explain an individual stall by themselves. The tmux 3.6a Darwin
+implementation explicitly selects this event backend; its presence is not
+evidence of the unrelated newer-version spin report.
+[tmux 3.6a Darwin implementation](https://raw.githubusercontent.com/tmux/tmux/3.6a/osdep-darwin.c).
+Kernel watermarks depend on terminal speed in the XNU source, but no terminal
+speed, tmux configuration or kernel setting was changed and no benefit from
+such a change is established.
+[XNU tty implementation](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/tty.c).
+
+Artifacts: `/tmp/lab-output-transport-sample-private-{browser,server,transport,summary}.json`,
+`/tmp/lab-output-transport-sample-private-{tmux,producer}-sample.txt`, its log,
+and `/tmp/lab-pty-sample-runs.json`.
+
+### Reject a one-millisecond burst frame interval
+
+A second candidate sent the first/idle chunk immediately, then waited only for
+the remainder of a one-millisecond interval after the preceding send. The fd
+reader continued collecting bytes during that wait. It did not drop output,
+alter input cadence, change terminal settings or change the fixture workload.
+The final **83 focused tests passed**. Real-pipe tests additionally checked that
+post-idle output had no added wait, burst waits requested at most one millisecond,
+split UTF-8/ANSI data survived, and EOF/disconnect cleanup remained intact.
+
+A fresh fixed sequence again measured baseline shared/private followed by
+candidate shared/private, 1,200 keys each. This order is not ABBA, and the
+differences are not sufficient to attribute every change to the candidate.
+
+| Code / transport | Failed keys (>50 ms) | Output median / p95 / max | Loaded median / p95 / max |
+| --- | ---: | ---: | ---: |
+| Baseline / shared | 0 | 11.2 / 21.8 / 47.0 ms | 19.3 / 28.8 / 49.8 ms |
+| Baseline / private | 3 | 7.4 / 27.1 / 51.8 ms | 11.8 / 27.2 / 38.3 ms |
+| Interval / shared | 15 | 14.0 / 38.3 / 75.7 ms | 10.1 / 29.6 / 47.9 ms |
+| Interval / private | 0 | 15.7 / 26.2 / 45.9 ms | 15.8 / 26.9 / 38.3 ms |
+
+Tiny frames fell again, but producer write stalls remained and the shared
+candidate's maximum reached 75.7 ms. Its source writes reached 30.41 ms, compared
+with 1.10 ms for this shared baseline. Private medians increased even though
+its failed-key count decreased. These mixed results do not justify a production
+delay. The patch and tests were removed, restoring the production file exactly
+to `04620e7`; this checkpoint records diagnostics only.
+
+All 4,800 keys passed exact source hash and independent parse/render checks.
+Each run completed 30 document updates and 30 or 31 refreshes; ongoing rendered
+output, real Git state, native clocks and transport checks passed. Browser/server
+API maxima were 79.6/72.59 ms, 116.5/114.77 ms, 82.7/81.78 ms and 134.1/132.15 ms.
+All four HTTP servers stopped. Both private server PIDs were independently
+confirmed gone and their sockets absent.
+
+Artifacts: `/tmp/lab-output-transport-batch-{before,after}-{shared,private}-{browser,server,transport,summary}.json`,
+logs, `/tmp/lab-pty-batch-{before,after}-runs.json`,
+`/tmp/lab-pty-batch-comparison.json`, `/tmp/lab-pty-batch-final-tests.log`,
+and the rejected `/tmp/lab-pty-batch-rejected.patch` / test archive.
+No production timing, buffering or tmux configuration change remains.

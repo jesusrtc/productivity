@@ -1,5 +1,7 @@
 # Memory index
 
+- [Fewer terminal frames do not prove lower typing latency](terminal-frame-count-is-not-typing-latency.md) — preserve native timing failures and source/render proof; zero-yield and timed burst candidates were rejected
+
 - [Periodic Git polling skips the cached repaint](periodic-git-poll-skips-cached-repaint.md) — refresh existing decorations once from live data, while newly mounted rows retain their fast cached paint
 
 - [Terminal footer includes a full margin cell](terminal-footer-includes-full-margin-cell.md) — a visible terminator can occupy the cursor cell; verify the full row without waiting for the next key, preserving exact input and render checks
