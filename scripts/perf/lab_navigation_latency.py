@@ -28,9 +28,12 @@ parser.add_argument('--extra-files', type=int, default=0, help='Additional files
 parser.add_argument('--extra-file-types', default='md', help='Comma-separated extensions for extra files, e.g. md,py,json,sql')
 parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default='folders')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
+parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
+if args.typing and args.samples < 20:
+    parser.error('--typing requires at least 20 samples per phase')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
 extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
@@ -127,8 +130,12 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                        headers={'Cookie': 'lab_session=' + cookie, 'Content-Type': 'application/json'})
             with urllib.request.urlopen(request, timeout=10) as response:
                 assert response.status == 200
-        result = subprocess.run(['node', str(checkout / 'scripts/perf/lab_navigation_latency.mjs'), url,
-                                 str(root / 'workspaces'), str(args.samples)],
+        command = ([sys.executable, str(checkout / 'scripts/perf/lab_terminal_latency.py'),
+                    '--browser', '--base-url', url, '--workspace', str(root / 'workspaces/alpha'),
+                    '--samples', str(args.samples)] if args.typing else
+                   ['node', str(checkout / 'scripts/perf/lab_navigation_latency.mjs'), url,
+                    str(root / 'workspaces'), str(args.samples)])
+        result = subprocess.run(command,
                                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
                                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
                                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),

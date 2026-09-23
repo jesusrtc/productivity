@@ -517,3 +517,91 @@ The overall objective remains active. These fixtures do not resolve earlier
 real-vault cold metadata outliers, full-page startup, all remaining UI actions,
 or typing latency during active UI/terminal workloads. No merge or live-server
 restart is included in this checkpoint.
+
+## Follow-on: queued terminal input and unchanged sidebar refreshes
+
+The earlier synthetic typing probe started its clock inside the browser and used
+`ui_check=1`, which disables normal polling. It could not see keys waiting behind
+a busy main thread. The navigation fixture now supports `--typing`: it creates
+one owned raw-echo terminal in its disposable workspace, uses normal UI polling,
+and sends native CDP keys from Node with explicit timestamps. The timestamps are
+checked against the resulting browser events. Keys are posted without waiting
+for renderer acknowledgments, so a blocked browser cannot silently delay the
+start of a sample. This follows the timestamp field in Chromium's
+[input protocol](https://chromium.googlesource.com/devtools/devtools-frontend/+/main/third_party/blink/public/devtools_protocol/browser_protocol.json).
+
+Every character must appear in xterm's buffer in order and receive a render
+callback covering the echo cursor. Wrapped lines remain part of the check;
+tmux's separate status bar is excluded by reading through the app cursor.
+The result retains all keys, pre-handler queue time, parse/render timestamps,
+browser/API failures, and an empty-page frame control. Neither hardware input
+nor physical display scanout is measured. The second phase deliberately refreshes
+the sidebar every 500 ms; this is controlled load, not a claim about production
+refresh frequency. The fixture removes only its own terminal afterward.
+Navigation clicks now also start from the externally timestamped mouse release.
+
+The new baseline found 14 keys at or above 50 ms in a 200-key run. CPU profiling
+showed repeated sidebar replacement as a substantial cost. Background refreshes
+now retain live rows when newly generated markup, scope, and mounted root identity
+are unchanged. They still read fresh data and compute current selection, folder,
+filter, and notebook state. Explicit navigation, changed markup, and a replaced
+view still rebuild. Instruction-file and Git refreshes continue. Template cache
+bounds are unchanged.
+
+Unprofiled measurements, 5,000 mixed Markdown/Python/JSON/SQL files in one folder,
+100 keys per phase, including first input:
+
+| Phase | Baseline median / p95 / max | Candidate median / p95 / max |
+| --- | --- | --- |
+| Normal polling | 3.90 / 32.50 / 128.40 ms | 3.50 / 23.10 / 117.10 ms |
+| Controlled sidebar refreshes | 9.00 / 74.40 / 102.40 ms | 3.50 / 41.40 / 66.60 ms |
+
+The candidate still failed the typing target: **3 normal-polling keys and 5 keys
+under refresh load** reached 50 ms. All 200 characters arrived correctly, no input
+timestamp mismatch or skipped render range occurred, and all 57 API requests
+stayed below 56.10 ms. The empty-page frame maximum was 16.80 ms. Source posting
+slip was at most 2.85 ms and is reported separately. These measurements are from
+`/tmp/lab-typing-baseline.json` and `/tmp/lab-typing-final.json`.
+
+A Chrome timeline found a separate 94.52 ms layout task during normal typing.
+An invalidation trace identified `DisplayLock` changes for the offscreen sidebar
+groups immediately before a 153.96 ms layout in that instrumented run. There was
+no Lab sidebar replacement at that point. The underlying browser trigger remains
+unresolved; this evidence does not justify disabling browser features or hiding
+files. Unchanged-render CPU work also remains: final controlled refreshes took
+39.90–55.50 ms. Profiling numbers are diagnostic, not final latency claims.
+
+A small-workspace repeat passed with normal/loaded typing maxima **34.20 / 29.70
+ms**, 57 API requests below 37.20 ms, and no lost input. An earlier small-workspace
+run had an unexplained **581.70 ms** render completion affecting its final 18 keys,
+without a long main-thread task. The repeat does not erase that failure. Parse
+timestamps and skipped-render diagnostics were added afterward to distinguish
+transport/parse delays from render-range issues if it recurs.
+
+Validation: **33 tests passed** across sidebar cache/state, stale navigation,
+5,000-file Chrome rendering and interactions, file configuration, and dashboard
+loading. The added checks cover retaining rows/focus/Git state on unchanged
+background refreshes, rebuilding changed files, pristine explicit navigation,
+scope changes, and invalidation after another view replaces the sidebar. JS
+syntax, Python parsing, and whitespace checks passed.
+
+Final timestamped navigation validation passed all 40 actions: workspace first
+and maximum **167.80 ms**, median 113.20 ms; document maximum **66.50 ms**, median
+34.20 ms. All 335 APIs stayed below 70.10 ms, with no HTTP, network, browser, or
+timestamp errors. Maximum measured click queueing was 1.60 ms. Earlier cold
+navigation failures remain unresolved rather than being superseded by this run.
+
+```sh
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py --typing \
+  --samples 100 --extra-files 5000 --extra-file-types md,py,json,sql \
+  --extra-file-layout flat
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 20 --extra-files 5000 --extra-file-types md,py,json,sql \
+  --extra-file-layout flat
+```
+
+Optional `LAB_PERF_CPU_PROFILE=/tmp/input.cpuprofile` or
+`LAB_PERF_TRACE=/tmp/input-trace.json` captures browser diagnostics. The overall
+goal remains active, including real-vault metadata outliers, cold startup, other
+UI actions, and typing under active workloads. No main-branch merge or live-server
+restart is included.

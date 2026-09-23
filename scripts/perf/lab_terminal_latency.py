@@ -2,10 +2,12 @@
 """Measure authenticated local Lab PTY/WebSocket echo, with and without polling.
 
 Run with core/.venv/bin/python scripts/perf/lab_terminal_latency.py.
-Creates and removes its own unsaved terminal; never types into a user terminal.
+Creates and removes its own terminal; never types into a user terminal.
 Uses the same local signed-session mechanism as scripts/check-ui.sh. Measures
 transport latency by default. Add --browser for synthetic keyboard-to-render
 latency and an empty-page frame baseline (not physical keyboard/display delay).
+The navigation fixture's --typing mode supplies --workspace and uses native CDP
+input timestamps with normal polling instead of the older synthetic probe.
 """
 from __future__ import annotations
 
@@ -38,8 +40,9 @@ def percentiles(values: list[float]) -> dict[str, float]:
     }
 
 
-async def measure(samples: int, interval: float, browser: bool = False) -> None:
-    base = subprocess.check_output([str(ROOT / 'scripts/lab-url.sh')], text=True).strip()
+async def measure(samples: int, interval: float, browser: bool = False, base_url: str | None = None,
+                  workspace: str | None = None) -> None:
+    base = base_url or subprocess.check_output([str(ROOT / 'scripts/lab-url.sh')], text=True).strip()
     user = auth.get_user(os.environ.get('UI_CHECK_USER', 'admin'))
     if user is None:
         raise RuntimeError('Local benchmark user does not exist')
@@ -47,16 +50,18 @@ async def measure(samples: int, interval: float, browser: bool = False) -> None:
     async with httpx.AsyncClient(base_url=base, timeout=30, cookies={auth.SESSION_COOKIE: cookie}) as client:
         response = await client.get('/api/auth/me')
         response.raise_for_status()  # Fail before reporting login-page timings.
-        response = await client.post('/api/term/sessions', json={
-            'kind': 'terminal', 'cwd': str(ROOT), 'name': 'latency-check-' + uuid.uuid4().hex,
-        })
+        body = {'kind': 'terminal', 'cwd': workspace or str(ROOT), 'name': 'latency-check-' + uuid.uuid4().hex}
+        if workspace:
+            body['workspace_id'] = Path(workspace).name
+        response = await client.post('/api/term/sessions', json=body)
         response.raise_for_status()
         name = response.json()['name']
         resource = '/api/term/sessions/' + quote(name, safe='')
         try:
             # Replace only our newly created shell with a deterministic echo
             # process: shell initialization and completion plugins aren't PTY
-            # transport cost. No changes to saved workspace terminal lists.
+            # transport cost. A fixture-scoped session is purged in finally,
+            # including its saved workspace entry.
             marker = 'ready-' + uuid.uuid4().hex
             code = (
                 'import os,tty; tty.setraw(0); '
@@ -69,10 +74,12 @@ async def measure(samples: int, interval: float, browser: bool = False) -> None:
             command = shlex.join([sys.executable, '-u', '-c', code])
             subprocess.run(_tmux_command(socket, 'respawn-pane', '-k', '-t', name, command), check=True)
             if browser:
+                probe = 'lab_terminal_interactive_latency.mjs' if workspace else 'lab_terminal_render_latency.mjs'
                 subprocess.run([
-                    'node', str(ROOT / 'scripts/perf/lab_terminal_render_latency.mjs'),
-                    base, name, marker, str(samples),
-                ], cwd=ROOT, check=True)
+                    'node', str(ROOT / 'scripts/perf' / probe),
+                    base, name, marker, str(samples), workspace or '', str(interval),
+                ], cwd=ROOT, check=True, env={**os.environ, 'LAB_PROBE_COOKIE': cookie},
+                   timeout=max(90, samples * interval * 2 + 60))
                 return
             uri = base.replace('http:', 'ws:').replace('https:', 'wss:')
             uri += '/ws/term/' + quote(name, safe='') + '?cols=120&rows=32'
@@ -135,7 +142,11 @@ if __name__ == '__main__':
     parser.add_argument('--browser', action='store_true', help='Also exercise xterm input, parsing, and rendering in Chrome')
     parser.add_argument('--samples', type=int, default=200)
     parser.add_argument('--interval', type=float, default=.025, help='Seconds between keys')
+    parser.add_argument('--base-url', help='Override the server URL, for an isolated fixture')
+    parser.add_argument('--workspace', help='Workspace path for normal-UI input and sidebar-load measurements')
     args = parser.parse_args()
     if args.samples < 20 or args.interval < 0:
         parser.error('Use at least 20 samples and a nonnegative interval')
-    asyncio.run(measure(args.samples, args.interval, args.browser))
+    if args.workspace and not args.browser:
+        parser.error('--workspace requires --browser')
+    asyncio.run(measure(args.samples, args.interval, args.browser, args.base_url, args.workspace))

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Browser stage of lab_navigation_latency.py; run the Python wrapper.
-// Real CDP mouse events -> rendered content -> next animation-frame task.
+// Timestamped CDP mouse release -> rendered content -> animation-frame task.
 // This is a browser paint opportunity estimate, not physical display latency.
 import {spawn} from 'node:child_process';
 import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
@@ -181,6 +181,7 @@ async function main() {
         if(Date.now()>until)throw new Error('Click target did not appear: '+selector);
         await sleep(10);
       }
+      let sentEpoch;
       await evaluate(`(async()=>{
         let tab=document.querySelector(${JSON.stringify(selector)});
         if(tab.dataset.kind==='workspace' && !tab.dataset.key.startsWith(${JSON.stringify(workspaceRoot + '/')})) throw new Error('Unexpected fixture workspace');
@@ -199,7 +200,9 @@ async function main() {
             __probe.error='Click reached another target: '+event.target.tagName+'.'+event.target.className;
             __probe.done=true;return;
           }
-          __probe.start=performance.now();
+          __probe.start=event.timeStamp;
+          __probe.sourceEpoch=performance.timeOrigin+event.timeStamp;
+          __probe.queue=performance.now()-event.timeStamp;
           const check=()=>{
             if(${action.ready}) {
               requestAnimationFrame(()=>setTimeout(()=>{__probe.ms=performance.now()-__probe.start;__probe.done=true;},0));
@@ -210,7 +213,8 @@ async function main() {
         return {x,y};
       })()`).then(async({x,y})=>{
         await client.send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
-        await client.send('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',clickCount:1});
+        sentEpoch=Date.now();
+        await client.send('Input.dispatchMouseEvent',{type:'mouseReleased',timestamp:sentEpoch/1000,x,y,button:'left',clickCount:1});
       });
       const clickDeadline=Date.now()+12000;
       while(!await evaluate('__probe.done')) {
@@ -219,7 +223,8 @@ async function main() {
       }
       const row=await evaluate(`({...__probe,requests:performance.getEntriesByType('resource').filter(r=>r.startTime>=__probe.start && r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,start:r.startTime-__probe.start,ms:r.duration}))})`);
       if(row.error)throw new Error(row.error);
-      rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,requests:row.requests});
+      rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,requests:row.requests});
+      if(Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Mouse event timestamp did not match dispatched source time');
       await sleep(100);
     }
     if(process.env.LAB_PERF_CPU_PROFILE) {

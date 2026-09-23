@@ -14,6 +14,11 @@ exclude physical keyboard hardware and display scanout. Optional
 `LAB_PERF_CPU_PROFILE=/tmp/trace.cpuprofile` records a Chrome CPU profile;
 profiling itself can affect timings, so use an unprofiled run for final numbers.
 
+For normal polling and input queueing, prefer the newer navigation fixture's
+`--typing` mode; see [the input measurement rules](input-latency-includes-browser-queueing.md).
+The older synthetic probe starts inside the renderer and disables normal polling,
+so it cannot validate those parts of the typing budget.
+
 Endpoint latency tests use the raw authenticated TestClient after one initial
 index materialization. Functional tests' per-request index rebuild is a test
 convenience, not part of the live server request path, and must stay outside

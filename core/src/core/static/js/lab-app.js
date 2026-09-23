@@ -8923,10 +8923,23 @@
   // Exact markup equality covers file/scope/configuration changes. Both entry
   // count and retained element count are bounded across all workspaces.
   const _sidebarMarkupCache = new Map();
+  const _sidebarMountedMarkup = new WeakMap();
   let _sidebarMarkupCacheElements = 0;
   const _SIDEBAR_MARKUP_CACHE_ENTRIES = 4;
   const _SIDEBAR_MARKUP_CACHE_ELEMENTS = 60000;
-  function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope) {
+  function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope, preserveLive = false) {
+    // Background refreshes still build current markup (including selection,
+    // folders, settings, and notebook activity). If it is unchanged, retain
+    // the live rows and their focus/hover/Git state instead of cloning and
+    // laying out the whole tree again. A view replacement invalidates this
+    // identity even when a later workspace produces the same HTML.
+    const mounted = _sidebarMountedMarkup.get(sidebar);
+    if (preserveLive && mounted && mounted.scope === scope && mounted.markup === markup
+        && mounted.first === sidebar.firstChild && mounted.last === sidebar.lastChild
+        && mounted.count === sidebar.childNodes.length) return false;
+    const remember = () => _sidebarMountedMarkup.set(sidebar, {
+      scope, markup, first: sidebar.firstChild, last: sidebar.lastChild, count: sidebar.childNodes.length,
+    });
     let cached = _sidebarMarkupCache.get(scope);
     if (cached) {
       _sidebarMarkupCache.delete(scope);
@@ -8939,7 +8952,8 @@
     }
     if (cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
       sidebar.replaceChildren(cached.template.content);
-      return;
+      remember();
+      return true;
     }
     while (_sidebarMarkupCache.size >= _SIDEBAR_MARKUP_CACHE_ENTRIES
         || _sidebarMarkupCacheElements + cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
@@ -8950,6 +8964,8 @@
     _sidebarMarkupCache.set(scope, cached);
     _sidebarMarkupCacheElements += cached.elements;
     sidebar.replaceChildren(cached.template.content.cloneNode(true));
+    remember();
+    return true;
   }
 
   // Re-renders just the workspace file sidebar from scratch. Pulled out
@@ -9212,15 +9228,15 @@
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
-      _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath);
+      _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath, preserveScroll);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
       // rendered above — re-sync so they appear/update as soon as the list
       // is known (cold load fetch or background reconcile).
       renderRepoTabs();
-      // Git decorations: the rebuild wiped the row classes — repaint from
-      // cache synchronously, then fetch fresh in the background if stale.
+      // Git decorations: repaint from cache after a rebuild (unchanged rows
+      // already retain their classes), then fetch in the background if stale.
       _sidebarGitStatusRefresh();
     } catch(e) {
       // Surface the underlying failure so it lands in the browser console
