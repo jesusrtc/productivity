@@ -1,5 +1,7 @@
 # Memory index
 
+- [Batch terminal setup with failure recovery](terminal-wheel-setup-batches-idempotent-commands.md) — one tmux client on successful creation, individual retries retain later settings after an error
+
 - [Open terminals with visible font metrics](terminal-open-needs-visible-font-metrics.md) — avoid the initial 50 ms geometry retry while retaining fitted connections and fallback
 - [Terminal creation checks rendered output and identity](terminal-creation-probe-requires-render-and-identity.md) — native New/Terminal clicks, exact echoes, saved identity and owned-only exact-name cleanup
 

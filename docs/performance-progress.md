@@ -4551,3 +4551,76 @@ Terminal creation, output typing, the retained workspace/IME/cold-navigation
 outliers, remaining action/endpoint coverage and physical/iTerm comparison
 still need work. Main merge remains pending after the prior automatic approval
 rejection. No merge, push or live-server restart was attempted.
+
+
+## Batch tmux setup without dropping failure recovery — 2026-09-23
+
+The next measured portion of terminal creation was
+`_configure_tmux_wheel_scrolling`: four serial tmux client processes for mouse
+mode, alternate-screen behavior, WheelUpPane routing and WheelDownPane cleanup.
+A fresh 20-creation baseline spent a median **30.60 ms** in this helper.
+
+The helper now sends the same four commands, in the same order and on the same
+socket, in one tmux command sequence. The environment, option values and exact
+wheel condition remain unchanged. A failed sequence retries all four idempotent
+commands individually so a missing/exited session or failed option does not
+prevent later binding cleanup. This matters because tmux stops the remainder
+of a semicolon-separated sequence after an error; the
+[tmux 3.6a manual](https://raw.githubusercontent.com/tmux/tmux/3.6a/tmux.1)
+documents that behavior in Parsing Syntax. The native failure test confirms it
+on the installed tmux. The failure path can make five client calls instead of
+four; the successful creation path makes one.
+
+### Matched native comparison
+
+Both runs used 20 ordinary New/Terminal creations in the same 5,000-file,
+2,500-Git-change-per-workspace fixture, retaining every first sample and normal
+polling. Both enabled only the same coarse session-function diagnostics.
+
+| Measurement | Before | Batched setup |
+| --- | ---: | ---: |
+| Wheel setup median / maximum | 30.60 / 36.59 ms | 8.21 / 18.64 ms |
+| Creation endpoint median / maximum | 66.13 / 88.04 ms | 45.07 / 63.94 ms |
+| Creation click median / p95 | 204.8 / 236.1 ms | 188.3 / 218.6 ms |
+| Creation click first / maximum | 316.7 ms | 285.1 ms |
+| Creation clicks above 200 ms | 11/20 | 4/20 |
+
+A longer run **without function tracing** retained all 40 creations, all
+40 picker clicks, and its initial workspace click. Creation median/p95/max
+was **183.7 / 208.4 / 298.2 ms**, with **7/40 misses above 200 ms**; first
+creation was also the maximum. Picker maximum was 57.0 ms, and the workspace
+click was 198.2 ms. The creation endpoint median/max was 52.53/68.20 ms.
+These results show a partial improvement, with cold startup and some subsequent
+creations still outside the goal.
+
+Across all three runs, all **1,124 browser and 1,297 server API records** stayed
+below 200 ms (maximum 156.9/155.47 ms). There were no browser/request errors.
+All 80 creations passed unique live/saved identity, workspace isolation,
+selected/focused/open-socket state, actual rendered marker plus native-key
+verification, input-clock checks and the three-parked-plus-one-active pane
+bounds. Each fixture reported cleanup complete and server stopped; all 80
+recorded producer PIDs were independently checked absent. A final read-only
+tmux listing also found none of the 80 exact owned names still present.
+
+### Correctness checks
+
+**110 focused tests passed** across terminal routes and the new real-tmux
+integration check. The integration check uses its own temporary TMUX_TMPDIR,
+private socket and empty configuration. It verifies the exact wheel binding,
+no root WheelDownPane override, mouse/alternate-screen settings only on the
+intended session, and correct global bindings even when the target session is
+missing. Both default and named-socket fallback are covered separately. The
+private native test was rerun after adding an explicit check that its owned
+server PID exits; it passed. `git diff --check` passed. The earlier broad
+suite's two known baseline failures remain separate from these focused checks.
+
+Artifacts: `/tmp/lab-terminal-create-tmux-batch-{before,after,final}-{browser,server}.json`,
+associated logs, `/tmp/lab-terminal-tmux-batch-comparison.json`,
+`/tmp/lab-terminal-tmux-batch-tests.log`, and
+`/tmp/lab-terminal-tmux-batch-native-final.log`.
+
+This checkpoint changes session setup only. It does not establish a steady-state
+typing improvement. Cold creation, remaining creation misses, previously retained
+output-typing/IME/navigation failures, complete action/endpoint coverage and
+physical/iTerm parity still require work. Main merge remains pending after the
+prior automatic approval rejection; no merge, push or live restart was attempted.

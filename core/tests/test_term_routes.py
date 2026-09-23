@@ -474,7 +474,16 @@ def test_wheel_binding_passes_mouse_apps_through(monkeypatch) -> None:
 
     term_mod._configure_tmux_wheel_scrolling("sess-x")
 
-    wheel_up = [c for c in calls if "WheelUpPane" in c]
+    assert len(calls) == 1
+    commands, command = [], ["tmux"]
+    for arg in calls[0][1:]:
+        if arg == ";":
+            commands.append(command)
+            command = ["tmux"]
+        else:
+            command.append(arg)
+    commands.append(command)
+    wheel_up = [c for c in commands if "WheelUpPane" in c]
     assert wheel_up == [[
         "tmux", "bind-key", "-T", "root", "WheelUpPane",
         "if-shell", "-F", "#{||:#{pane_in_mode},#{mouse_any_flag}}",
@@ -482,11 +491,34 @@ def test_wheel_binding_passes_mouse_apps_through(monkeypatch) -> None:
     ]]
     # Wheel-down stays unbound: tmux forwards it to mouse-enabled panes
     # itself and drops it for plain shells (nothing injected into stdin).
-    assert ["tmux", "unbind-key", "-T", "root", "WheelDownPane"] in calls
-    assert not any("bind-key" in c and "WheelDownPane" in c for c in calls)
-    # Per-session options still applied.
-    assert ["tmux", "set-option", "-t", "sess-x", "mouse", "on"] in calls
-    assert ["tmux", "set-option", "-t", "sess-x", "alternate-screen", "off"] in calls
+    assert ["tmux", "unbind-key", "-T", "root", "WheelDownPane"] in commands
+    assert not any("bind-key" in c and "WheelDownPane" in c for c in commands)
+    assert ["tmux", "set-option", "-t", "sess-x", "mouse", "on"] in commands
+    assert ["tmux", "set-option", "-t", "sess-x", "alternate-screen", "off"] in commands
+
+
+@pytest.mark.parametrize("socket_name", ["default", "lab-wheel-test"])
+def test_wheel_configuration_continues_after_batch_failure(monkeypatch, socket_name):
+    from core.routes import term
+    calls = []
+    env = {"PATH": "/fixture/bin"}
+    monkeypatch.setattr(term, "_tmux_available", lambda: True)
+    monkeypatch.setattr(term, "_tmux_child_env", lambda: env)
+
+    def run(argv, **kwargs):
+        assert kwargs == {"capture_output": True, "text": True, "env": env}
+        calls.append(argv)
+        # Failed options must not prevent either root-table binding command.
+        return subprocess.CompletedProcess(argv, 1 if "set-option" in argv else 0)
+
+    monkeypatch.setattr(term.subprocess, "run", run)
+    term._configure_tmux_wheel_scrolling("missing-session", socket_name)
+    prefix = ["tmux"] if socket_name == "default" else ["tmux", "-L", socket_name]
+    assert len(calls) == 5 and all(argv[:len(prefix)] == prefix for argv in calls)
+    individual = calls[1:]
+    assert [argv[len(prefix)] for argv in individual] == ["set-option", "set-option", "bind-key", "unbind-key"]
+    assert all(";" not in argv for argv in individual)
+    assert "WheelUpPane" in individual[2] and "WheelDownPane" in individual[3]
 
 
 def test_agent_argv_copilot_prefers_standalone(monkeypatch) -> None:

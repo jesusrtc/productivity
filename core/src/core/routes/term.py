@@ -1918,54 +1918,35 @@ def _configure_tmux_wheel_scrolling(
     if not _tmux_available():
         return
     env = _tmux_child_env()
-    # Per-session mouse intercept.
-    subprocess.run(
-        _tmux_command(socket_name, "set-option", "-t", session_name, "mouse", "on"),
+    commands = [
+        # Per-session mouse intercept.
+        ["set-option", "-t", session_name, "mouse", "on"],
+        # Keep pager output in the main buffer after the app exits.
+        ["set-option", "-t", session_name, "alternate-screen", "off"],
+        ["bind-key", "-T", "root", "WheelUpPane", "if-shell", "-F",
+         "#{||:#{pane_in_mode},#{mouse_any_flag}}", "send-keys -M", "copy-mode -e"],
+        # Reset any previous root-table override; copy-mode keeps its own keys.
+        ["unbind-key", "-T", "root", "WheelDownPane"],
+    ]
+    # One client connection avoids four process launches on every creation.
+    # A tmux command sequence stops at its first error. On failure, retry the
+    # idempotent commands individually so later settings retain their previous
+    # best-effort behavior (for example if the new session exited immediately).
+    batch = []
+    for command in commands:
+        if batch:
+            batch.append(";")
+        batch.extend(command)
+    result = subprocess.run(
+        _tmux_command(socket_name, *batch),
         capture_output=True, text=True, env=env,
     )
-    # Keep altscreen-app output (git log's pager, less, man, etc.) in the
-    # main buffer so it lands in scrollback after the app exits. Default
-    # `alternate-screen on` wipes the pane back to pre-command state on
-    # exit, which reads as "the terminal cleared my output."
-    subprocess.run(
-        _tmux_command(
-            socket_name,
-            "set-option",
-            "-t",
-            session_name,
-            "alternate-screen",
-            "off",
-        ),
-        capture_output=True, text=True, env=env,
-    )
-    subprocess.run(
-        _tmux_command(
-            socket_name,
-            "bind-key",
-            "-T",
-            "root",
-            "WheelUpPane",
-            "if-shell",
-            "-F",
-            "#{||:#{pane_in_mode},#{mouse_any_flag}}",
-            "send-keys -M",
-            "copy-mode -e",
-        ),
-        capture_output=True, text=True, env=env,
-    )
-    # Wheel-down: let tmux's built-in copy-mode-vi/emacs table handle it.
-    # Reset any prior root-table override so we don't inherit garbage from
-    # an earlier run of this process.
-    subprocess.run(
-        _tmux_command(
-            socket_name,
-            "unbind-key",
-            "-T",
-            "root",
-            "WheelDownPane",
-        ),
-        capture_output=True, text=True, env=env,
-    )
+    if result.returncode:
+        for command in commands:
+            subprocess.run(
+                _tmux_command(socket_name, *command),
+                capture_output=True, text=True, env=env,
+            )
 
 
 # ─── naming ─────────────────────────────────────────────────────────────────
