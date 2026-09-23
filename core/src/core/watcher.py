@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - platform/package dependent
     KqueueObserver = None  # type: ignore[assignment]
 
 from core.state import IndexCache
+from core.polling import SnapshotPollingObserver
 
 
 class IndexWatcher:
@@ -92,7 +93,7 @@ class IndexWatcher:
         except ValueError:
             poll_interval = 1.0
         poll_interval = max(0.05, poll_interval)
-        return PollingObserver(timeout=poll_interval)
+        return SnapshotPollingObserver(timeout=poll_interval)
 
     def _make_observer(self) -> BaseObserver:
         observer_kind = os.environ.get("LAB_WATCHER_OBSERVER", "").lower()

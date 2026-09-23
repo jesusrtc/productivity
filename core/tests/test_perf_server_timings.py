@@ -19,6 +19,63 @@ _spec.loader.exec_module(_module)
 ServerTimings = _module.ServerTimings
 
 
+def test_watcher_observer_preserves_snapshots_diffs_errors_and_restores_methods(tmp_path):
+    from watchdog.utils.dirsnapshot import DirectorySnapshot, DirectorySnapshotDiff
+    from core.watcher import IndexWatcher
+    from core.state import IndexCache
+    hooks = [(DirectorySnapshot, '__init__'), (DirectorySnapshotDiff, '__init__'),
+             (IndexWatcher, '_refresh_workspace_watches_for_event'), (IndexCache, 'rebuild')]
+    originals = [getattr(target, name) for target, name in hooks]
+    file = tmp_path / 'private-name.txt'
+    file.write_text('private content')
+    expected = DirectorySnapshot(str(tmp_path))
+    timings = ServerTimings(None)
+    assert timings.report()['watchers'] is None
+    with pytest.raises(RuntimeError, match='original failure'):
+        with timings.trace_watchers(limit=2):
+            before = DirectorySnapshot(str(tmp_path))
+            assert before.paths == expected.paths
+            assert all(before.stat_info(path) == expected.stat_info(path) for path in before.paths)
+            file.rename(tmp_path / 'moved.txt')
+            after = DirectorySnapshot(str(tmp_path))
+            changes = DirectorySnapshotDiff(before, after)
+            assert changes.files_moved == [(str(file), str(tmp_path / 'moved.txt'))]
+            raise RuntimeError('original failure')
+    assert [getattr(target, name) for target, name in hooks] == originals
+    report = timings.report()['watchers']
+    assert report['dropped'] == 1
+    assert [row['entries'] for row in report['operations']] == [2, 2]
+    assert all(row['ms'] >= 0 and row['threadCpuMs'] >= 0 for row in report['operations'])
+    assert not any(secret in str(report) for secret in ('private-name', 'private content', str(tmp_path)))
+    with pytest.raises(ValueError, match='positive'):
+        with timings.trace_watchers(limit=0):
+            pass
+    assert [getattr(target, name) for target, name in hooks] == originals
+
+
+@pytest.mark.parametrize('flag', ['--trace-watchers', '--trace-file-scans'])
+def test_coarse_traces_require_sidecar_before_fixture_start(flag):
+    import subprocess
+    import sys
+    script = Path(__file__).resolve().parents[2] / 'scripts/perf/lab_navigation_latency.py'
+    result = subprocess.run([sys.executable, str(script), flag], text=True, capture_output=True, timeout=10)
+    assert result.returncode == 2
+    assert flag + ' requires --server-timings' in result.stderr
+    assert result.stdout == ''
+
+
+def test_watcher_observer_bounds_concurrent_snapshot_records(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from watchdog.utils.dirsnapshot import DirectorySnapshot
+    timings = ServerTimings(None)
+    with timings.trace_watchers(limit=3):
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            snapshots = list(pool.map(lambda _: DirectorySnapshot(str(tmp_path)), range(16)))
+    assert all(snapshot.paths == {str(tmp_path)} for snapshot in snapshots)
+    assert len(timings.watchers['operations']) == 3
+    assert timings.watchers['dropped'] == 13
+
+
 def test_gc_observer_records_real_cycles_without_changing_runtime_policy():
     import gc
     before_callbacks = list(gc.callbacks)

@@ -8,7 +8,7 @@ from inspect import iscoroutinefunction
 from itertools import count
 import gc
 import json
-from threading import get_ident
+from threading import Lock, get_ident
 import time
 from urllib.parse import parse_qs
 
@@ -35,6 +35,58 @@ class ServerTimings:
         self.handlers = []
         self.functions = []
         self.garbage_collection = None
+        self.watchers = None
+
+    @contextmanager
+    def trace_watchers(self, *, limit=10000):
+        """Time whole watcher operations without observing individual files.
+
+        Polling, event delivery and rebuild policy stay unchanged. Keep sync
+        thread CPU separate from elapsed time and restore every method on exit.
+        """
+        if limit < 1:
+            raise ValueError('Watcher trace limit must be positive')
+        from watchdog.utils.dirsnapshot import DirectorySnapshot, DirectorySnapshotDiff
+        from core.watcher import IndexWatcher
+        from core.state import IndexCache
+        report = {'operations': [], 'dropped': 0}
+        records_lock = Lock()
+        self.watchers = report
+        hooks = [(DirectorySnapshot, '__init__', 'snapshot'),
+                 (DirectorySnapshotDiff, '__init__', 'snapshot-diff'),
+                 (IndexWatcher, '_refresh_workspace_watches_for_event', 'refresh-watches'),
+                 (IndexCache, 'rebuild', 'index-rebuild')]
+        originals = []
+
+        def wrapper(original, label):
+            @wraps(original)
+            def timed(*args, **kwargs):
+                row = {'operation': label, 'thread': get_ident(),
+                       'requestId': self._request_id.get(), 'startEpoch': time.time() * 1000}
+                start, cpu_start = time.perf_counter(), time.thread_time()
+                try:
+                    return original(*args, **kwargs)
+                finally:
+                    row['ms'] = (time.perf_counter() - start) * 1000
+                    row['threadCpuMs'] = (time.thread_time() - cpu_start) * 1000
+                    if label == 'snapshot' and args:
+                        row['entries'] = len(getattr(args[0], '_stat_info', {}))
+                    with records_lock:
+                        if len(report['operations']) < limit:
+                            report['operations'].append(row)
+                        else:
+                            report['dropped'] += 1
+            return timed
+
+        try:
+            for target, name, label in hooks:
+                original = getattr(target, name)
+                originals.append((target, name, original))
+                setattr(target, name, wrapper(original, label))
+            yield
+        finally:
+            for target, name, original in reversed(originals):
+                setattr(target, name, original)
 
     @contextmanager
     def trace_garbage_collection(self, *, limit=10000):
@@ -315,4 +367,4 @@ class ServerTimings:
         return {'measurement': 'ASGI entry through final response body; excludes pre-entry queueing',
                 'requests': self.requests, 'sessions': self.sessions,
                 'handlers': self.handlers, 'functions': self.functions, 'terminal': self.terminal,
-                'garbageCollection': self.garbage_collection}
+                'garbageCollection': self.garbage_collection, 'watchers': self.watchers}

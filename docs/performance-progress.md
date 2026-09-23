@@ -3797,3 +3797,123 @@ owned browsers/servers. The goal remains active, including IME/cold-navigation
 outliers, broader UI/API/typing coverage and physical/iTerm parity. No main
 merge, push or live-server restart occurred; main merge remains pending after
 the earlier automatic approval rejection.
+
+## Reduce polling snapshot bookkeeping (2026-09-23)
+
+### Evidence for concurrent watcher work
+
+A coarse diagnostic captured an **83.43 ms** file-list response. Its filesystem
+worker took **73.32 ms elapsed / 32.09 ms thread CPU**, overlapping both
+5,000-entry watcher snapshots (84.81/92.74 ms elapsed, about 38.9 ms CPU each).
+No GC pause over 1 ms overlapped that request. A later 79.42 ms response also
+overlapped both snapshots. Other slower requests overlapped filesystem workers
+without watcher snapshots, so this is not a complete explanation of all delays.
+
+`--trace-watchers` now observes entire snapshots, diffs, watch refreshes and
+index rebuilds. Records omit paths/content, are bounded under concurrent
+callbacks and retain elapsed/thread CPU separately; every method is restored
+on exit. `--trace-file-scans` retains the handler/worker/serialization observers
+while omitting per-notebook lookup tracing. Both require a server timing
+sidecar. Normal polling, event delivery, rebuilds and GC policy stay intact.
+These are isolated diagnostics, not production hooks or final latency claims.
+
+### Production change and equivalence
+
+Lab's polling observer now uses a private snapshot subclass. Fresh native
+`DirEntry` paths and stats replace repeated path joining and per-file context
+manager construction. The traversal retains only directories for recursion,
+while keeping the original enumeration-before-stat ordering and error handling.
+Links are followed as before, and custom stat/listing adapters use the upstream
+traversal. There is no cross-poll metadata cache.
+
+The completed private snapshot supplies its dictionary key view to watchdog's
+existing set comparisons, avoiding eight full path-set copies per diff. Its
+path map is never changed after construction. Watchdog's event comparison,
+queue, polling wait and observer lifecycle are unchanged, as are Lab's watch
+scopes and debounce. Native/FSEvents/kqueue choices are unaffected. This uses
+the emitter's snapshot factory; dependency upgrades must retain that seam.
+
+**177 distinct focused checks passed**. The 176-check regression run covered
+native polling-to-WebSocket propagation, index/workspace changes, rename/delete,
+notebooks and benchmark guards. After synchronizing the diagnostic record bound,
+all 25 observer checks passed, including one additional concurrency case.
+Snapshot comparisons cover file/directory creation, removal, moves, modification,
+atomic replacement, hard links, directory/file symlinks, missing targets,
+recursive/non-recursive trees, Unicode/byte paths, custom adapters, permissions
+and deletion between enumeration and stat. No test changes the production
+polling interval to obtain a latency pass. Logs:
+`/tmp/lab-watcher-snapshot-regressions.log` and
+`/tmp/lab-watcher-observer-final-tests.log`.
+
+### Component and concurrent-work measurements
+
+`scripts/perf/lab_watcher_snapshot_latency.py --files 5000 --samples 40`
+alternates the upstream and candidate snapshots on the same owned static tree.
+It retains all 80 observations and checks paths, inode maps and every field
+used for event detection. It is a component comparison after fixture creation
+and reference validation, not a cold UI measurement.
+
+| Component median | Upstream | Candidate |
+| --- | ---: | ---: |
+| Snapshot elapsed | 15.72 ms | 12.73 ms |
+| Snapshot thread CPU | 15.72 ms | 12.73 ms |
+| Diff elapsed | 3.51 ms | 2.98 ms |
+| Diff thread CPU | 3.51 ms | 2.98 ms |
+
+Artifact: `/tmp/lab-watcher-snapshot-component-final.json`. The preliminary
+component experiment also reduced snapshot/diff medians (12.34→9.98 and
+2.88→2.46 ms); absolute times varied between runs. Artifact:
+`/tmp/lab-watcher-component.json`.
+
+The matching 20-visit diagnostic pair used 200-cell notebooks, 5,000 mixed
+files and 2,500 real Git changes per workspace. All 120 clicks passed in each
+run. Large-snapshot medians changed **15.59→12.43 ms elapsed** and
+**15.42→12.21 ms CPU**; their maxima changed 98.42→50.65 ms. File-response
+maxima were **83.43→48.44 ms**, while medians were **35.13→36.16 ms**.
+The candidate cold request did not overlap either snapshot, so the entire cold
+click change (186.4→165.1 ms) cannot be attributed to faster snapshot work.
+No diagnostic records were dropped. Both servers stopped. Artifacts:
+`/tmp/lab-watcher-overlap-{before,after}-{browser,server}.json`, logs, and
+`/tmp/lab-watcher-overlap-comparison.json`.
+
+### Final validation with detailed diagnostics disabled
+
+The fixed sequence used the same 5,000 mixed files and 2,500 Git changes per
+workspace, normal lifecycle/polling and ordinary request timing only:
+
+- **Notebook:** all **120 clicks passed**, maximum **170.0 ms**. All 200
+  cells' identities/source/highlights/outputs and controls were checked. Twenty
+  persistence checks read 40 files; the two notebooks remained byte-identical
+  at 264,642 bytes. No notebook mutation request occurred. All **470 browser
+  API requests** passed (maximum **84.3 ms**) and all **498 server requests**
+  passed (maximum **82.43 ms**).
+- **Documents:** all **140 clicks passed**, maximum **184.2 ms**. All **1,122
+  native editor keys** passed 200 ms, maximum **58.4 ms**; 10 keys shared a
+  paint opportunity with later input. Back/Forward passed at **168.21/161.21 ms**.
+  All 62 persistence checks passed, reading 248 files and verifying 405,464
+  final bytes across four files. All **840 browser API requests** passed
+  (maximum **79.5 ms**) and all **869 server requests** passed (maximum
+  **78.74 ms**). However, **two of 40 IME insertions failed**: Save Alpha
+  sample 18 at **259.69 ms** and Cancel Alpha sample 132 at **249.11 ms**.
+  The document run **failed overall**; these failures were retained without
+  replacement runs.
+- **Terminal:** all **2,400 keys passed 50 ms**, maximum **36.1 ms** normally
+  and **48.7 ms** during 60 document updates and 60 sidebar refreshes. Independent
+  parse and cursor-row rendering checks verified every character, including
+  88 scrolled reads per verifier. No long task, clock, transport or browser
+  error occurred. All **786 browser API requests** passed (maximum **100.6 ms**)
+  and all **817 server requests** passed (maximum **99.54 ms**).
+
+All runs passed request-ID/route correlation, real Git and native-clock checks.
+CPU/file-function/layout/watcher/GC diagnostics were disabled, and WebSocket
+compression retained its production setting. The owned terminal was removed;
+all three final browsers/servers and both diagnostic servers stopped. These
+checks validate the candidate; they do not attribute each end-to-end timing
+change to the snapshot implementation or establish physical/iTerm parity.
+Artifacts: `/tmp/lab-watcher-final-{notebooks,docs,typing}-{browser,server,summary}.json`,
+matching logs, and `/tmp/lab-watcher-final-runs.json`.
+
+The goal remains active. IME insertion misses, previously observed cold-navigation
+outliers, broader UI/API/typing coverage and physical/iTerm parity are unresolved.
+No main merge, push or live-server restart occurred; main merge remains pending
+after the earlier automatic approval rejection.

@@ -1,5 +1,8 @@
 # Memory index
 
+- [Polling snapshots reuse native entries](polling-snapshots-reuse-native-entries.md) — reduce snapshot bookkeeping while preserving fresh metadata, complete event detection and normal watcher policy
+- [Watcher diagnostics observe whole operations](watcher-diagnostics-observe-whole-operations.md) — bounded coarse timings distinguish concurrent watcher/worker CPU from waiting without tracing every file
+
 - [Notebook session metadata is lightweight](notebook-session-metadata-is-lightweight.md) — share stable session identity without importing Jupyter for metadata; retain real-kernel behavior and measure complete notebook controls
 
 - [Cold dashboard reads follow file dispatch](cold-dashboard-reads-follow-file-dispatch.md) — overlap independent I/O after dispatching files first; retain one batch, complete sidebar data, errors and navigation ownership

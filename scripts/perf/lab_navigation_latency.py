@@ -53,6 +53,8 @@ parser.add_argument('--trace-sessions', action='store_true', help='Also time ter
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
 parser.add_argument('--trace-terminal', action='store_true', help='Time owned terminal WebSocket/PTY operations without payloads (requires --typing or --terminal-tabs, and --server-timings)')
 parser.add_argument('--trace-gc', action='store_true', help='Observe server garbage-collection pauses without changing runtime policy (requires --server-timings)')
+parser.add_argument('--trace-watchers', action='store_true', help='Time complete watcher snapshots/diffs, watch refreshes and index rebuilds without changing their policy (requires --server-timings)')
+parser.add_argument('--trace-file-scans', action='store_true', help='Time file handlers, guarded workers and serialization without per-notebook tracing (requires --server-timings)')
 parser.add_argument('--websocket-deflate', action='store_true', help='Diagnostic comparison only: enable WebSocket compression (production disables it)')
 args = parser.parse_args()
 if args.samples < 2:
@@ -102,6 +104,10 @@ if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
 if args.trace_gc and not args.server_timings:
     parser.error('--trace-gc requires --server-timings')
+if args.trace_watchers and not args.server_timings:
+    parser.error('--trace-watchers requires --server-timings')
+if args.trace_file_scans and not args.server_timings:
+    parser.error('--trace-file-scans requires --server-timings')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
 if args.git_changes < 0 or args.git_changes > args.extra_files:
@@ -225,6 +231,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         timings.instrument_sessions()
         if args.trace_gc:
             instrumentation.enter_context(timings.trace_garbage_collection())
+        if args.trace_watchers:
+            instrumentation.enter_context(timings.trace_watchers())
         if args.create:
             from core.routes import mutation
             timings.instrument_handler('/api/workspaces')
@@ -238,15 +246,16 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 timings.trace_function(term, '_tmux_has_session')
                 timings.trace_function(term, '_tmux_available')
                 timings.trace_function(term.tmux_sockets, 'socket_names')
-        if args.trace_files:
+        if args.trace_files or args.trace_file_scans:
             from core import fsguard
-            from core.routes import nb_exec
             from fastapi import routing
             timings.instrument_handler('/api/workspace-files')
             timings.instrument_handler('/api/workspace-mtime')
             timings.trace_function(fsguard, 'guarded')
             timings.trace_function(fsguard, '_run_tracked')
-            timings.trace_function(nb_exec, 'is_path_pending')
+            if args.trace_files:
+                from core.routes import nb_exec
+                timings.trace_function(nb_exec, 'is_path_pending')
             timings.trace_function(routing, 'serialize_response')
         if args.trace_sessions:
             from core.routes import term
