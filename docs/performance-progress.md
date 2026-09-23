@@ -4422,3 +4422,132 @@ output typing, earlier IME/cold-navigation outliers, remaining UI/API coverage
 and physical/iTerm parity still require work. Main merge remains pending after
 the earlier automatic approval rejection; no main merge, push or live restart
 was attempted.
+
+
+## Visible terminal initialization and native creation coverage — 2026-09-23
+
+Added `--terminal-create` to the isolated native navigation runner. It clicks
+**New → Terminal**, waits for the new session's exact echo marker in an actual
+xterm render, then sends and verifies a native key. Every creation checks unique
+live/saved identities, the owning workspace, focus, selected tab, open socket,
+one visible pane, and the three-parked-plus-one-active resource bounds. The
+fixture uses a configured owned echo shell and the ordinary creation endpoint;
+it does not measure user login scripts or provider startup. Initial workspace
+and picker clicks remain separate timed actions, and no first samples are
+removed. Normal server lifespan, polling and the default tmux generation remain.
+Cleanup disables only fixture autospawn, verifies owned name/cwd/command/PID,
+purges through the normal API, checks exact live names and saved entries, and
+restores the fixture process's prior SHELL environment.
+
+The new workload exposed a consistent miss. With 5,000 mixed flat files and
+2,500 real Git changes per workspace, all 20 original creations exceeded
+200 ms. The retained production change moves `_termShowPane(myContainer)` just
+before `termXterm.open(myContainer)`. xterm can measure its font during open;
+the existing fit, valid-dimension guard, retry fallback, and WebSocket ordering
+remain. Pane switching, focus scheduling, parked retention, and GPU ownership
+are unchanged.
+
+### Measured creation results
+
+Every row below includes 20 creations plus 20 picker clicks and one workspace
+click. These runs have no detailed Chrome tracing:
+
+| Run | Creation first/max | Creation median | Creation p95 | Creation misses >200 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Original baseline | 348.6 ms | 221.5 ms | 266.1 ms | 20/20 |
+| Visible initialization | 288.4 ms | 200.7 ms | 235.4 ms | 10/20 |
+| Baseline repeated from HEAD | 298.7 ms | 230.4 ms | 248.2 ms | 19/20 |
+| Visible initialization repeated | 283.4 ms | 201.3 ms | 209.6 ms | 12/20 |
+
+The last run also retained a **203.3 ms workspace click**. Picker maxima were
+50.1/55.0/56.5/53.1 ms. All 1,207 browser and 1,411 server request records across
+these four runs stayed under 200 ms; largest browser/server durations were
+160.2/159.13 ms. All functional/input/clock/resource checks passed. This is a
+repeatable partial improvement, not completion of the creation budget.
+
+The original baseline and the rejected containment run below reported cleanup
+failure for `bash-2` even though all owned processes exited. The fixture had
+used tmux `has-session`, which also matches prefixes: after deleting `bash-2`,
+its check found `bash-20`. Cleanup now uses the normal exact-name listing
+helper. A regression test retains both names and exercises this case, failure
+cleanup, environment restoration and preservation of foreign sessions. The
+subsequent baseline and both visible-initialization runs reported successful
+cleanup; all recorded producer PIDs were independently checked absent.
+
+Artifacts: `/tmp/lab-terminal-create-{before,visible-open,visible-control,visible-repeat}-{browser,server}.json`,
+associated logs, and `/tmp/lab-terminal-creation-comparison.json`.
+A final read-only tmux listing found none of the 113 exact owned names from
+the comparison, diagnostic, tab and typing runs still present; see
+`/tmp/lab-terminal-creation-cleanup.json`.
+
+### Why visibility matters
+
+Separate six-creation diagnostics show **six 50 ms retry timers before, zero
+after**. All six original timer callbacks map to the `_openWS` geometry retry
+in lab-app.js; actual delays were 52.59, 73.58, 50.54, 50.05, 50.17 and 51.21 ms.
+Both traces cover the first measured click through the final verified native
+key render, with no reported data loss. The later snapshot can include a
+cursor repaint after profiling stopped; coverage uses the per-action verified
+render, not that later snapshot. A real-Chrome regression check executes the
+actual fresh-pane initialization fragment with vendored xterm and FitAddon at
+three pane sizes. It proves valid, fitted initial geometry before connection,
+correct Unicode output and focus. The same check fails on the unchanged HEAD
+source because its initial dimensions require a later font measurement frame.
+
+The CPU profiles do **not** show lower glyph-measurement CPU: sampled `_measure`
+time was 229.73 ms before and 240.98 ms after. This change removes an avoidable
+connection delay, rather than establishing that glyph layout became cheaper.
+Diagnostic timings are retained separately from the untraced comparison.
+
+Artifacts: `/tmp/lab-terminal-create-{diagnostic,visible-diagnostic}-{browser,server}.json`,
+`/tmp/lab-terminal-create{,-visible}-trace.json` and metadata,
+`/tmp/lab-terminal-create{,-visible}-cpu.json`, and
+`/tmp/lab-terminal-create-trace-comparison.json`.
+
+### Rejected width-container experiment
+
+An earlier candidate applied strict CSS containment only to xterm 5.3's
+body-mounted glyph measurement box, including after WebGL disposal. It passed
+108 focused checks, including equal real-Chrome glyph widths across fonts,
+sizes, weights/styles and Unicode, equal rendered rows, renderer fallback and
+disposal. However, the 20-creation run still missed 19/20: median 219.1 ms,
+p95 251.6 ms, first/max 400.5 ms. It provided no material overall improvement
+against the original baseline and was fully removed, including its test-only
+helper changes. No vendor asset was edited.
+Artifacts: `/tmp/lab-terminal-width-containment-rejected.patch`,
+`/tmp/lab-terminal-width-containment-tests-2.log`, and
+`/tmp/lab-terminal-create-contained-{browser,server}.json` plus its log.
+
+### Functional and latency checks
+
+- **120 distinct focused checks passed**: terminal UI, resources, lifecycle,
+  WebSocket behavior, native tab probe and creation fixture guards. The first
+  119 passed together; the additional geometry test and both existing lifecycle
+  checks then passed together. The original-code geometry failure was reproduced
+  separately. Node syntax and `git diff --check` passed. This does not replace
+  the earlier broad suite's two known baseline failures.
+- Native terminal tab workload: **68/68 actions below 200 ms**, including six
+  first selections, 30 warm switches and 30 cycles beyond retained panes.
+  Workspace max 148.3 ms; first selections 123.1 ms; mounted 52.9 ms; warm
+  90.1 ms; cycle/eviction 129.1 ms. Exact echoed input survived replay, focus and
+  pane bounds passed, zero browser errors, and all 67 browser/105 server API
+  records passed (max 60.3/58.45 ms). All six owned sessions were removed.
+- Native scrolling-output typing: **1,200 exact keys**, 600 per phase, with
+  30 real file updates and 31 sidebar refreshes. All producer hash, parsed/rendered
+  continuity, rendered output, Git and timestamp checks passed. Output-only
+  median/p95/max was 13.2/41.7/62.6 ms with **four >50 ms misses**; output plus
+  sidebar updates was 10.9/27.1/37.6 ms, with none. There were no Long Tasks or
+  browser errors, and all 409 browser/441 server API records passed (max
+  119.4/117.46 ms). The owned session was purged and fixture server stopped.
+  This is a functional recheck with retained latency failures, not evidence of
+  a steady-state typing improvement or physical/iTerm parity.
+
+Artifacts: `/tmp/lab-terminal-visible-final-tests.log`,
+`/tmp/lab-terminal-visible-geometry-tests.log`,
+`/tmp/lab-terminal-create-visible-{tabs,output}-{browser,server}.json`, logs and
+`/tmp/lab-terminal-create-visible-output-summary.json`.
+
+Terminal creation, output typing, the retained workspace/IME/cold-navigation
+outliers, remaining action/endpoint coverage and physical/iTerm comparison
+still need work. Main merge remains pending after the prior automatic approval
+rejection. No merge, push or live-server restart was attempted.

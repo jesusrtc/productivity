@@ -9,6 +9,7 @@ import {join} from 'node:path';
 import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 import {captureInputClock,validateInputClock} from './input_clock.mjs';
 import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
+import {terminalCreationActions,verifyTerminalCreation} from './terminal_creation_workload.mjs';
 import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 import {documentEditActions,verifyEditedDocuments,verifyDocumentHistory} from './document_edit_workload.mjs';
@@ -216,6 +217,7 @@ async function main() {
     const documentEdit=process.env.LAB_PERF_DOCUMENT_EDIT==='1';
     const notebookView=process.env.LAB_PERF_NOTEBOOK_VIEW==='1';
     const terminalTabs=JSON.parse(process.env.LAB_PERF_TERMINAL_TABS||'[]');
+    const terminalCreation=JSON.parse(process.env.LAB_PERF_TERMINAL_CREATE||'null');
     if(terminalTabs.length)await installTerminalTabProbe(evaluate,terminalTabs);
     const initialWorkspaceTabs=createWorkspaces
       ? await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`)
@@ -232,6 +234,8 @@ async function main() {
             ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
         );
       }
+    } else if(terminalCreation) {
+      actions.push(...await terminalCreationActions(evaluate,workspaceRoot,samples,terminalCreation));
     } else if(notebookView) {
       actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples));
     } else if(documentEdit) {
@@ -396,6 +400,7 @@ async function main() {
       const terminalState=action.terminal?await evaluate(`__terminalTabs.state(${JSON.stringify(action.target)})`):null;
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,clock:row.clock,clockCheck,requests:row.requests,...(action.terminal?{cacheState,terminalState}:{})});
       if(!clockCheck.valid)throw new Error('Mouse input clock validation failed: '+clockCheck.reason);
+      if(action.kind==='terminal-create')rows.at(-1).creationVerification=await verifyTerminalCreation(client,evaluate,workspaceRoot,action.target);
       if(action.expectedDocuments)rows.at(-1).documentVerification=await verifyEditedDocuments(action.expectedDocuments);
       if(action.terminal) {
         if(terminalState.cacheSize>3||terminalState.panes>4)throw new Error('Terminal pane retention exceeded its production bound');
@@ -518,13 +523,13 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:notebookView?'notebook-view':documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const fixture={workflow:terminalCreation?'terminal-create':notebookView?'notebook-view':documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     if(notebookView)fixture.notebookCells=await evaluate('__notebookViewExpected.alpha.cells.length');
     fixture.documentTyping=process.env.LAB_PERF_DOCUMENT_TYPING==='1';
     fixture.documentHistory=process.env.LAB_PERF_DOCUMENT_HISTORY==='1';
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
-    const terminals=terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;
+    const terminals=terminalCreation?await evaluate('__terminalCreation.snapshot()'):terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;
     const refreshStress=process.env.LAB_PERF_NAVIGATION_REFRESH_DELAY?await evaluate('__navigationRefreshStress()'):null;
     if(refreshStress){
       refreshStress.coverage=navigationRefreshCoverage(rows,refreshStress.events,workspaceRoot);

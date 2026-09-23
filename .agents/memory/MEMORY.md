@@ -1,5 +1,8 @@
 # Memory index
 
+- [Open terminals with visible font metrics](terminal-open-needs-visible-font-metrics.md) — avoid the initial 50 ms geometry retry while retaining fitted connections and fallback
+- [Terminal creation checks rendered output and identity](terminal-creation-probe-requires-render-and-identity.md) — native New/Terminal clicks, exact echoes, saved identity and owned-only exact-name cleanup
+
 - [Producer CPU separates terminal work from waiting](terminal-source-cpu-separates-write-waiting.md) — optional whole-write CPU diagnostics expose upstream stalls; private PTY controls do not replace native rendering checks
 
 - [Fewer terminal frames do not prove lower typing latency](terminal-frame-count-is-not-typing-latency.md) — preserve native timing failures and source/render proof; zero-yield and timed burst candidates were rejected

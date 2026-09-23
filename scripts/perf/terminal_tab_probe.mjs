@@ -40,6 +40,7 @@ function install(fixtures) {
   };
   window.__terminalTabs={
     state,
+    addFixture(name,marker){if(expected.has(name))throw Error('Duplicate fixture terminal');expected.set(name,marker);},
     ready(name){const s=state(name);return s.current===name&&s.workspace==='alpha'&&s.selected&&s.visible===1&&s.ownsVisible&&s.open&&s.focused&&s.correctText&&s.rendered;},
     cacheState(name){const entry=_termCache.get(_termCacheKey('alpha',name));return termCurrentSession===name?'mounted':entry?(entry.ws.readyState===1?'warm':'stale'):'cold';},
     expectInput(name,key){expected.set(name,expected.get(name)+key);},

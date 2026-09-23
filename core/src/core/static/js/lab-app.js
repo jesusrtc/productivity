@@ -15341,6 +15341,9 @@
     const myContainer = _termMakeContainer();
     myContainer.classList.add('term-pane');
     termContainer = myContainer;
+    // xterm measures its font during open(). Give it a visible pane first;
+    // the fitted geometry below still precedes the WebSocket connection.
+    _termShowPane(myContainer);
     termXterm.open(myContainer);
     // Debounced ResizeObserver: only send resize when rows/cols actually change.
     let _resizeTimer = null;
@@ -15373,7 +15376,6 @@
         termWS.send(JSON.stringify({ type: 'input', data }));
       }
     });
-    _termShowPane(myContainer);
     _termFocusActiveSoon(myContainer, termXterm);
     // Fit BEFORE dialing the WebSocket so _openWS can pass the real
     // geometry in the URL and tmux attaches at the right size from byte

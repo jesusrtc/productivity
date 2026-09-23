@@ -41,6 +41,7 @@ parser.add_argument('--create', action='store_true', help='Measure native worksp
 parser.add_argument('--settings', action='store_true', help='Measure settings open, scoped model/sidebar saves and close with native clicks')
 parser.add_argument('--pins', action='store_true', help='Measure native Pin and Unpin clicks through persisted metadata and sidebar redraw')
 parser.add_argument('--terminal-tabs', action='store_true', help='Measure native terminal tab clicks across retained panes and cache eviction')
+parser.add_argument('--terminal-create', action='store_true', help='Measure native New/Terminal clicks through first rendered output of an owned configured echo shell')
 parser.add_argument('--quick-files', action='store_true', help='Measure Command+K, filtering, selection, file opening and Escape with native keys')
 parser.add_argument('--document-edit', action='store_true', help='Measure document editor open, save, cancel and close in alternating fixture workspaces')
 parser.add_argument('--document-typing', action='store_true', help='Also measure native editor keys, Enter and Tab before Save/Cancel (requires --document-edit; IME setup remains separate)')
@@ -52,7 +53,7 @@ parser.add_argument('--document-edit-input', choices=['replace', 'append'], defa
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
-parser.add_argument('--trace-terminal', action='store_true', help='Time owned WebSocket/PTY operations without payloads, plus producer CPU for output typing (requires --typing or --terminal-tabs, and --server-timings)')
+parser.add_argument('--trace-terminal', action='store_true', help='Time owned WebSocket/PTY operations without payloads, plus producer CPU for output typing (requires --typing, --terminal-tabs or --terminal-create, and --server-timings)')
 parser.add_argument('--trace-gc', action='store_true', help='Observe server garbage-collection pauses without changing runtime policy (requires --server-timings)')
 parser.add_argument('--trace-watchers', action='store_true', help='Time complete watcher snapshots/diffs, watch refreshes and index rebuilds without changing their policy (requires --server-timings)')
 parser.add_argument('--trace-file-scans', action='store_true', help='Time file handlers, guarded workers and serialization without per-notebook tracing (requires --server-timings)')
@@ -60,6 +61,8 @@ parser.add_argument('--websocket-deflate', action='store_true', help='Diagnostic
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
+if args.terminal_create and any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit,args.notebook_view)):
+    parser.error('--terminal-create measures a separate workflow and cannot be combined with other workflows')
 if args.typing and args.samples < 20:
     parser.error('--typing requires at least 20 samples per phase')
 if args.typing_updates and not args.typing:
@@ -97,12 +100,12 @@ if args.notebook_cells < 2 or args.notebook_cells > 2000:
 if args.navigation_refresh_delay is not None:
     if not 1 <= args.navigation_refresh_delay <= 1000:
         parser.error('--navigation-refresh-delay must be between 1 and 1000 ms')
-    if any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit,args.notebook_view)):
+    if any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.terminal_create,args.quick_files,args.document_edit,args.notebook_view)):
         parser.error('--navigation-refresh-delay requires the standalone navigation workflow')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
-if args.trace_terminal and (not (args.typing or args.terminal_tabs) or not args.server_timings):
-    parser.error('--trace-terminal requires --typing or --terminal-tabs, and --server-timings')
+if args.trace_terminal and (not (args.typing or args.terminal_tabs or args.terminal_create) or not args.server_timings):
+    parser.error('--trace-terminal requires --typing, --terminal-tabs or --terminal-create, and --server-timings')
 if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
 if args.trace_gc and not args.server_timings:
@@ -243,7 +246,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         if args.trace_terminal:
             from core.routes import term
             instrumentation.enter_context(timings.trace_terminal_io(term))
-            if args.terminal_tabs:
+            if args.terminal_tabs or args.terminal_create:
                 timings.trace_function(term, '_tmux_find_session_socket')
                 timings.trace_function(term, '_term_ws_context')
                 timings.trace_function(term, '_tmux_has_session')
@@ -267,6 +270,11 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                          '_workspace_session_by_name', '_home_session_rows',
                          '_sessions_for_root'):
                 timings.trace_function(term, name)
+            if args.terminal_create:
+                for name in ('_configure_tmux_wheel_scrolling', '_save_meta', '_upsert_workspace_session'):
+                    timings.trace_function(term, name)
+                if not args.trace_terminal:
+                    timings.trace_function(term, '_tmux_find_session_socket')
     server = uvicorn.Server(uvicorn.Config(timings or app, access_log=False, log_level='warning',
         timeout_graceful_shutdown=5, ws_per_message_deflate=args.websocket_deflate))
     def run_server():
@@ -275,6 +283,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
             server.run(sockets=[sock])
     thread = threading.Thread(target=run_server)
     thread.start()
+    creation_report = None
     try:
         deadline = time.monotonic() + 15
         while not server.started:
@@ -309,11 +318,16 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         if args.terminal_tabs or args.typing_detaches:
             from terminal_tab_fixture import terminal_tab_fixture
             terminal_context = terminal_tab_fixture(url, cookie, root / 'workspaces/alpha', count=6 if args.terminal_tabs else 1)
-        with terminal_context as terminal_tabs:
+        creation_context = contextlib.nullcontext(None)
+        if args.terminal_create:
+            from terminal_creation_fixture import terminal_creation_fixture
+            creation_context = terminal_creation_fixture(url, cookie, root / 'workspaces/alpha')
+        with terminal_context as terminal_tabs, creation_context as creation_report:
             result = subprocess.run(
                 command,
                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
                      'LAB_PERF_TERMINAL_TABS': json.dumps(terminal_tabs),
+                     'LAB_PERF_TERMINAL_CREATE': json.dumps(creation_report),
                      'LAB_PERF_TYPING_DETACH': json.dumps(terminal_tabs[0] if args.typing_detaches else None),
                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
                      'LAB_PERF_NAVIGATION_REFRESH_DELAY': str(args.navigation_refresh_delay or ''),
@@ -350,6 +364,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 report['echo'] = json.loads((base / 'echo-timings.json').read_text())
             if args.typing_output:
                 report['outputLoad'] = json.loads((base / 'output-load.json').read_text()) if (base / 'output-load.json').exists() else None
+            if args.terminal_create:
+                report['terminalCreation'] = creation_report
             args.server_timings.write_text(json.dumps(report, indent=2) + '\n')
     if thread.is_alive():
         raise RuntimeError('Fixture server did not stop')
