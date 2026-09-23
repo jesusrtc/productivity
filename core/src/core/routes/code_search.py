@@ -19,6 +19,8 @@ hang a worker indefinitely.
 """
 from __future__ import annotations
 
+import io
+import locale
 import os
 import re
 import shutil
@@ -310,6 +312,30 @@ def _rg_thread_options(q: str) -> list[str]:
     return []
 
 
+def _capture_search_output(command: list[str], repo_dir: Path) -> subprocess.CompletedProcess:
+    if os.name != "posix":
+        return subprocess.run(
+            command, cwd=str(repo_dir), capture_output=True, text=True, timeout=20.0,
+        )
+    # Match subprocess text mode's current encoding, including UTF-8 mode and
+    # opt-in EncodingWarning. Select it before starting the command.
+    encoding = io.text_encoding(None)
+    if encoding == "locale":
+        encoding = locale.getencoding()
+    proc = subprocess.run(
+        command, cwd=str(repo_dir), capture_output=True, text=False, timeout=20.0,
+    )
+    # Decode after run releases its intermediate pipe chunks. Most rg output
+    # contains no CR, so avoid two whole-string newline replacement scans.
+    # Keep full capture/strict decoding of both streams, stdout first.
+    for stream in ("stdout", "stderr"):
+        value = getattr(proc, stream).decode(encoding)
+        if "\r" in value:
+            value = value.replace("\r\n", "\n").replace("\r", "\n")
+        setattr(proc, stream, value)
+    return proc
+
+
 def _search_code(repo_dir: Path, q: str, limit: int) -> dict:
     # Prefer ripgrep — faster, better defaults (respects .gitignore,
     # skips binary files). Fall back to `git grep` so a system without
@@ -329,10 +355,7 @@ def _search_code(repo_dir: Path, q: str, limit: int) -> dict:
             ".",
         ]
         try:
-            proc = subprocess.run(
-                cmd, cwd=str(repo_dir), capture_output=True, text=True,
-                timeout=20.0,
-            )
+            proc = _capture_search_output(cmd, repo_dir)
         except subprocess.TimeoutExpired:
             return {"mode": "code", "results": [], "truncated": True,
                     "error": "search timed out (>20s) — try a more specific query"}

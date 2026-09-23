@@ -57,7 +57,8 @@ def test_search_retains_every_other_argument_and_capture_option(monkeypatch, mac
 
     def run(command, **kwargs):
         calls.append((command, kwargs))
-        return subprocess.CompletedProcess(command, 0, 'file.py:1:match\n', '')
+        output, error = ('file.py:1:match\n', '') if kwargs['text'] else (b'file.py:1:match\n', b'')
+        return subprocess.CompletedProcess(command, 0, output, error)
 
     monkeypatch.setattr(code_search.subprocess, 'run', run)
     assert code_search._search_code(Path('/owned/repo'), query, 100) == {
@@ -65,7 +66,8 @@ def test_search_retains_every_other_argument_and_capture_option(monkeypatch, mac
     }
     assert calls == [(['/owned/wrapper rg', *options, '--max-count', '20', '--max-columns', '300',
                       '-n', '--no-heading', '--color', 'never', '--', query, '.'],
-                     {'cwd': '/owned/repo', 'capture_output': True, 'text': True, 'timeout': 20.0})]
+                     {'cwd': '/owned/repo', 'capture_output': True,
+                      'text': code_search.os.name != 'posix', 'timeout': 20.0})]
 
 
 @pytest.mark.skipif(shutil.which('rg') is None, reason='Native ripgrep equivalence check')

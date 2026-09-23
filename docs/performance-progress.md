@@ -5824,3 +5824,114 @@ combinations, cold UI/terminal creation, terminal output typing tails, broader
 UI/API coverage and physical/iTerm parity. Main merge remains pending after
 the earlier automatic approval rejection; no merge, push or live-server restart
 was attempted.
+
+## Decode complete search output after releasing capture chunks
+
+Code search now collects stdout and stderr through the original subprocess
+pipes as bytes on POSIX, then decodes both complete streams in their original
+order. Returning from the runner releases intermediate pipe chunks before text
+allocation. Most output contains no carriage return, so a fast check avoids
+the two full-string universal-newline replacement scans. Output containing CR
+still receives the original CRLF-to-LF and CR-to-LF transformations.
+
+This uses public APIs, not a replacement collector or private subprocess hook.
+Encoding is selected before launch using
+[`io.text_encoding(None)`](https://docs.python.org/3.14/library/io.html#io.text_encoding),
+which honors UTF-8 mode and opt-in EncodingWarning. Its `locale` result is
+resolved through [`locale.getencoding()`](https://docs.python.org/3.14/library/locale.html#locale.getencoding).
+The measured interpreter uses UTF-8 mode even though the underlying locale is
+ASCII; substituting locale encoding alone would break Unicode results. Python
+3.11 is the repository's minimum, and supports these APIs. Non-POSIX keeps the
+original text-mode runner, including its existing capture/error behavior.
+
+Both pipe EOFs and process completion are still required. Nothing stops or
+truncates the command at the response limit. Strict decoding still examines
+all stdout and stderr, preserves the original error bytes/offsets/reason, and
+reports stdout decoding failures before stderr failures. Timeouts still discard
+partial results and reap the direct child. No worker policy, search arguments,
+result parsing/order, Git fallback or API completion semantics changed.
+
+### Complete HTTP comparison
+
+The unchanged 5,000-file/100,000-match fixture uses normal authenticated server
+lifespan and polling, checks 100 unique valid rows and exact snippets in every
+response, then commits and finds a fresh Unicode result. Two clients are released
+together each round. Every first response and failure remains included.
+Only `code_search.py` was restored to `e35ae0a` for the later original control.
+
+| Two-client run, 40 requests each | First pair maximum | Overall maximum | Median | Misses >=200 ms | Fresh query |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original, coarse diagnostic timers | 262.68 ms | 262.68 ms | 183.96 ms | 6 / 40 | 48.57 ms |
+| Prototype, coarse diagnostic timers | 214.95 ms | 214.95 ms | 147.65 ms | 2 / 40 | 45.45 ms |
+| Production candidate, unprofiled | 209.27 ms | 218.85 ms | 141.51 ms | 4 / 40 | 45.58 ms |
+| Restored original, unprofiled | 288.19 ms | 288.19 ms | 182.07 ms | 2 / 40 | 45.82 ms |
+| Restored candidate repeat, unprofiled | 197.37 ms | 197.37 ms | 139.41 ms | 0 / 40 | 44.74 ms |
+
+The two unprofiled candidate runs passed **76/80 requests**. The earlier four
+misses are not superseded by the passing repeat; simultaneous search is still
+not guaranteed below 200 ms. In fact, the candidate and restored control have
+the same 5% miss rate when these small unprofiled samples are pooled, despite
+the candidate's substantial median/headroom improvement. The result is an
+incremental improvement, not completion of the overall target.
+
+A separate single-client candidate run passed 20/20 requests: median
+**109.58 ms**, first/maximum **171.17 ms**, fresh query **47.92 ms**. All 220 timed
+responses and six fresh reads in the table plus single-client run passed content
+verification; all six servers stopped and their fixture roots were removed.
+The coarse diagnostic showed median parent-thread CPU falling from 70.89 to
+49.22 ms per large search; prototype decoding used a median 5.43 ms CPU. These
+coarse phases are nested, not additive timing totals.
+
+### Allocation evidence
+
+A separate owned child emitted the exact 27,455,000-byte synthetic result into
+the original and candidate capture paths in two alternating pairs. Every full
+stdout hash, length, stderr, argument list and return code matched. Tracemalloc
+was stopped before hashing; these measurements are Python allocation evidence,
+not latency or total-process-RSS measurements.
+
+| Capture path | Peak traced bytes, pair 1 | Peak traced bytes, pair 2 |
+| --- | ---: | ---: |
+| Original text capture | 82,403,439 | 82,402,832 |
+| Decode after binary capture | 55,013,887 | 55,013,903 |
+
+Peak capture allocations fell by about **27.39 MB (33%)** while the retained
+output stayed about 27.46 MB in both versions. Child-process and OS memory are
+outside this measurement. The owned child completed and its fixture was removed.
+
+### Verification and diagnostic limits
+
+**259 focused checks passed**. Native comparisons with the original text runner
+cover UTF-8, ASCII, Latin-1 and UTF-16LE; empty, mixed-newline and large output;
+zero/nonzero return codes; invalid stdout/stderr/both; and exact decoding-error
+identity, including the complete offending bytes' hash and offsets. Fresh
+interpreters exercise UTF-8 mode on/off and EncodingWarning on/off. Additional
+checks cover encoding selection before launch and fresh selection on the next
+call, the non-POSIX fallback, delayed descendant stdout and stderr, and timeout
+cleanup even when partial output is invalid. Existing parser, worker-policy,
+repository, Git-invocation and search-route checks remain included. Python
+compilation and `git diff --check` passed. Older broad-suite baseline failures
+remain separate.
+
+An earlier per-request cProfile attempt failed one concurrent request with
+`ValueError: Another profiling tool is already active`. A nonblocking profiler
+guard allowed both requests to proceed, but yielded inconsistent function data
+(for example, poll self time 87.83 ms versus cumulative time 2.13 ms). Those
+function costs were rejected as evidence. The guarded diagnostic retained
+14/40 HTTP misses, maximum 582.81 ms; its profiler-perturbed timings are not a
+passing latency claim. Both diagnostic servers stopped, and a final filesystem
+inventory found no remaining owned HTTP fixture roots. Raw failures and timings
+are preserved.
+
+Artifacts: `/tmp/lab-code-search-{binary-control,binary-after}-{http,server}.json`;
+`/tmp/lab-code-search-decoding-{after,control,repeat,single}-{http,server}.json`;
+`/tmp/lab-code-search-decoding-{summary,memory}.json`;
+`/tmp/lab-code-search-decoding-memory.py` and log;
+`/tmp/lab-code-search-capture-profile{,-fixed}-{http,server}.json` and logs;
+`/tmp/lab-code-search-decoding-retained-tests.log`.
+
+The Code Search UI remains a placeholder; this is backend evidence. The full
+objective remains open for retained search misses, other corpora/regexes, cold
+UI and terminal creation, terminal output typing tails, broader UI/API coverage
+and physical/iTerm parity. Main merge remains pending after the earlier automatic
+approval rejection; no merge, push or live user-server restart was attempted.

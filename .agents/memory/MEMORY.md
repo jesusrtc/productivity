@@ -1,5 +1,8 @@
 # Memory index
 
+- [Search decodes after complete pipe capture](search-decodes-after-complete-pipe-capture.md) — reduce transient allocation and unnecessary newline scans while preserving encoding, both EOFs, strict errors and timeout behavior.
+- [Concurrent cProfile needs consistency checks](concurrent-cprofile-needs-consistency-checks.md) — overlapping sessions failed and guarded function costs were inconsistent; retain diagnostics and use coarse timers with unprofiled controls.
+
 - [Literal search workers need concurrent evidence](literal-search-workers-need-concurrent-evidence.md) — smaller macOS literal-query pools reduce latency, while regex/config guards and overlapping-client failures constrain the retained policy.
 
 - [Capped search keeps complete process output](capped-search-keeps-complete-process-output.md) — parse only consumed lines while preserving pipe EOF, strict decoding and timeout behavior; file-backed capture lost descendant output.

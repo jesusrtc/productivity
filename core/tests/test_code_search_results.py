@@ -23,9 +23,9 @@ def test_capped_results_preserve_boundaries_order_numbers_and_snippets(monkeypat
     calls = []
     monkeypatch.setattr(code_search.shutil, 'which', lambda _: '/owned/rg' if backend == 'rg' else None)
 
-    def rg(command, **kwargs):
+    def rg(command, repo_dir):
         calls.append(command)
-        assert kwargs == {'cwd': '/owned/repo', 'capture_output': True, 'text': True, 'timeout': 20.0}
+        assert repo_dir == Path('/owned/repo')
         return subprocess.CompletedProcess(command, 0, output, '')
 
     def git(root, args, timeout):
@@ -33,7 +33,7 @@ def test_capped_results_preserve_boundaries_order_numbers_and_snippets(monkeypat
         assert root == Path('/owned/repo') and timeout == 20.0
         return 0, output, ''
 
-    monkeypatch.setattr(code_search.subprocess, 'run', rg)
+    monkeypatch.setattr(code_search, '_capture_search_output', rg)
     monkeypatch.setattr(code_search, '_git', git)
     actual = code_search._search_code(Path('/owned/repo'), '--query', limit)
     expected = [
@@ -53,7 +53,7 @@ def test_capped_results_preserve_boundaries_order_numbers_and_snippets(monkeypat
 @pytest.mark.parametrize('output', ['', '\n\r\v\f\x85\u2028', 'bad\nwrong:nan:line\n'])
 def test_empty_or_invalid_output_keeps_existing_error_handling(monkeypatch, backend, returncode, output):
     monkeypatch.setattr(code_search.shutil, 'which', lambda _: '/owned/rg' if backend == 'rg' else None)
-    monkeypatch.setattr(code_search.subprocess, 'run', lambda command, **kwargs:
+    monkeypatch.setattr(code_search, '_capture_search_output', lambda command, repo_dir:
                         subprocess.CompletedProcess(command, returncode, output, 'tool diagnostic'))
     monkeypatch.setattr(code_search, '_git', lambda *args, **kwargs: (returncode, output, 'tool diagnostic'))
     assert code_search._search_code(Path('/owned/repo'), 'needle', 100) == {
@@ -64,10 +64,10 @@ def test_empty_or_invalid_output_keeps_existing_error_handling(monkeypatch, back
 def test_rg_timeout_still_discards_partial_output(monkeypatch):
     monkeypatch.setattr(code_search.shutil, 'which', lambda _: '/owned/rg')
 
-    def timeout(command, **kwargs):
+    def timeout(command, repo_dir):
         raise subprocess.TimeoutExpired(command, 20, output='a.py:1:partial\n')
 
-    monkeypatch.setattr(code_search.subprocess, 'run', timeout)
+    monkeypatch.setattr(code_search, '_capture_search_output', timeout)
     assert code_search._search_code(Path('/owned/repo'), 'needle', 100) == {
         'mode': 'code', 'results': [], 'truncated': True,
         'error': 'search timed out (>20s) — try a more specific query',
@@ -81,7 +81,7 @@ def test_parser_does_not_materialize_unused_output_lines(monkeypatch):
 
     output = SearchOutput('first.py:1:kept\n' + 'later.py:2:unused\n' * 10_000)
     monkeypatch.setattr(code_search.shutil, 'which', lambda _: '/owned/rg')
-    monkeypatch.setattr(code_search.subprocess, 'run', lambda command, **kwargs:
+    monkeypatch.setattr(code_search, '_capture_search_output', lambda command, repo_dir:
                         subprocess.CompletedProcess(command, 0, output, ''))
     assert code_search._search_code(Path('/owned/repo'), 'needle', 1) == {
         'mode': 'code', 'results': [{'path': 'first.py', 'line': 1, 'snippet': 'kept'}],

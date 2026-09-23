@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,12 +43,14 @@ def test_native_search_preserves_newlines_unicode_and_nonzero_exit(owned_search)
     ], 'truncated': False}
 
 
-def test_native_timeout_reaps_child_and_discards_partial_results(tmp_path, owned_search):
+@pytest.mark.parametrize('invalid_output', [False, True])
+def test_native_timeout_reaps_child_and_discards_partial_results(tmp_path, owned_search, invalid_output):
     pid_file = tmp_path / 'owned.pid'
+    payload = b'\xff' if invalid_output else b'a.py:1:partial\n'
     result = owned_search(
         'import os,time,sys; from pathlib import Path; '
         'Path(sys.argv[1]).write_text(str(os.getpid())); '
-        'os.write(1,b"a.py:1:partial\\n"); time.sleep(5)', str(pid_file), timeout=.5,
+        f'os.write(1,{payload!r}); time.sleep(5)', str(pid_file), timeout=.5,
     )
     assert result == {'mode': 'code', 'results': [], 'truncated': True,
                       'error': 'search timed out (>20s) — try a more specific query'}
@@ -75,6 +78,44 @@ def test_search_waits_for_a_wrapper_descendants_stdout(tmp_path, owned_search):
             {'path': 'first.py', 'line': 1, 'snippet': 'first'},
             {'path': 'late.py', 'line': 2, 'snippet': 'late'},
         ], 'truncated': False}
+    finally:
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            assert time.monotonic() < deadline, 'Owned descendant did not exit'
+            time.sleep(.01)
+
+
+@pytest.mark.skipif(not hasattr(os, 'fork'), reason='POSIX descendant-output check')
+@pytest.mark.parametrize('invalid_stderr', [False, True])
+def test_capture_waits_for_descendant_stderr_before_decoding(monkeypatch, tmp_path, invalid_stderr):
+    monkeypatch.setattr(code_search, 'io', SimpleNamespace(text_encoding=lambda _: 'utf-8'))
+    pid_file, completed = tmp_path / 'descendant.pid', tmp_path / 'finished'
+    payload = b'\xff' if invalid_stderr else b'diagnostic\r\n'
+    command = [sys.executable, '-c',
+        'import os,time,sys; from pathlib import Path\n'
+        'pid=os.fork()\n'
+        'if pid == 0:\n'
+        ' os.close(1)\n'
+        ' time.sleep(.2)\n'
+        f' os.write(2,{payload!r})\n'
+        ' Path(sys.argv[2]).write_bytes(b"done")\n'
+        ' os._exit(0)\n'
+        'Path(sys.argv[1]).write_text(str(pid))\n'
+        'os.write(1,b"a.py:1:kept\\n")\n'
+        'os._exit(0)\n', str(pid_file), str(completed)]
+    try:
+        if invalid_stderr:
+            with pytest.raises(UnicodeDecodeError):
+                code_search._capture_search_output(command, tmp_path)
+        else:
+            proc = code_search._capture_search_output(command, tmp_path)
+            assert (proc.stdout, proc.stderr) == ('a.py:1:kept\n', 'diagnostic\n')
+        assert completed.read_bytes() == b'done'
     finally:
         pid = int(pid_file.read_text())
         deadline = time.monotonic() + 5
