@@ -242,11 +242,36 @@ Framework documentation is available through `lab context tasks`,
 
 ## Document terminals
 
-Opening a schema-2 document opens one terminal with the Lab-wide default
-agent. All tabs inside the same Markdown file share that terminal. The agent
-receives the document path and selected tab as context; opening a document does
-not send a task or change its content. Dashboard rendering and refreshes never
-start terminals.
+Drag an existing terminal tab onto a document or task to link it. The document
+modal also offers **Link terminal…** to select an existing session. Opening a
+document shows its linked terminal without starting an agent, sending input, or
+changing its working directory. Each document/task has one terminal link;
+file and folder links remain independent. **Terminal position** selects Right
+or Bottom and remembers the choice for that document in this browser.
+
+Drag an Assistant document onto a workspace tab or the workspace sidebar's
+**Documents** section, above **Recently updated**. This saves a reference to the
+document's immutable ID under the workspace's `.lab/document-links.json`;
+content stays in Assistant. The same document can be linked to several
+workspaces. Clicking its file-like row opens the existing document modal over
+the workspace.
+
+Sessions owned elsewhere appear under **Document terminals** in the workspace.
+These are views of the same running sessions. Dragging a workspace terminal
+onto a document row links it without transferring ownership. When unlinking a
+document/task terminal from within a workspace, choose **Keep in workspace** or
+**Move to Assistant**. Both preserve the session, conversation, working
+directory, and independent file/folder links. Removing a document's workspace
+reference only removes its shared views; it never stops a terminal.
+
+A blinking green dot on a workspace tab means one of its terminals has finished
+work that has not been reviewed. Inactive workspace tabs update in the
+background. Shared views use one acknowledgement, so reviewing a terminal
+clears its notification everywhere. The configurable viewing delay and separate
+second-click shortcut still apply; recency stays on the vertical line.
+
+The following lifecycle settings apply to previous managed document
+conversations, which can still be explicitly resumed from their documents.
 
 The defaults are **60 minutes to sleep**, **36 hours to expire**, and **3 running
 document terminals**. Change them in the document terminal's **Settings** button

@@ -9056,6 +9056,7 @@
       // hit `ReferenceError: _workspaceTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
       const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
+      if (!isAssistant) sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
@@ -9143,6 +9144,7 @@
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
       sidebar.innerHTML = sbHtml;
+      if (!isAssistant) void window.LabWorkspaceDocuments?.mount({workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace)}, sidebar);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
@@ -10643,7 +10645,7 @@
   }
   function _termSessionBelongsTo(workspaceId, name) {
     const meta = _termSessionMeta(name);
-    return !!meta && (!meta.workspace_id || meta.workspace_id === workspaceId);
+    return !!meta && (!!meta.document_source || !meta.workspace_id || meta.workspace_id === workspaceId);
   }
   function _termCanAttach(workspaceId, name) {
     return _termIsScopeActive(workspaceId) && _termSessionBelongsTo(workspaceId, name);
@@ -10734,6 +10736,7 @@
       }
     } catch { /* leave stale state; next tick will retry */ }
     workspaceTabsRender();
+    void window.LabWorkspaceDocuments?.poll();
     vaultRefreshWorkspaceResources();
   }
 
@@ -10789,9 +10792,10 @@
     // Polling should preserve the existing nodes, listeners, and focus when
     // the visible tabs have not changed. Compare source markup, not innerHTML
     // (the browser normalizes entities and attribute serialization).
-    if (el._labTabsHtml === html) return;
+    if (el._labTabsHtml === html) { globalThis.LabWorkspaceDocuments?.paintAttention(); return; }
     el._labTabsHtml = html;
     el.innerHTML = html;
+    globalThis.LabWorkspaceDocuments?.paintAttention();
 
     workspaceTabsWireDnD(el);
     el.querySelectorAll('.workspace-tab').forEach(node => {
@@ -11912,6 +11916,14 @@
     const membership = state.tabMembership[logical];
     const horizontal = termSessionOrientation === 'horizontal';
     const session = (termSessions || []).find(item => item.name === sessionName);
+    if (session?.document_source) {
+      _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
+        termCloseGroupMenu();
+        if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
+        else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
+      });
+      return;
+    }
     const row = (action, label, danger = false) => `<button role="menuitem" class="term-group-menu-row${danger ? ' danger' : ''}" data-action="${termSessEsc(action)}">${termSessEsc(label)}</button>`;
     _termShowGroupMenu(anchor,
       row('rename', 'Rename tab…') +
@@ -11932,7 +11944,7 @@
           _termSaveHomeAssociation(logical, action.slice(10));
           termRenderSessionList();
         }
-        else if (action === 'unlink-task') void _termPatchLinks(session, {linked_task:null}).then(() => window.LabDocumentTerminal?.refresh()).catch(error => explorerToast(error.message,true));
+        else if (action === 'unlink-task') void window.LabWorkspaceDocuments.unlink(session, _termLinkContext()).then(() => window.LabDocumentTerminal?.refresh()).catch(error => explorerToast(error.message,true));
         else if (action === 'unlink-file') void termUnlinkTarget(sessionName, 'file');
         else if (action === 'unlink-scope') void termUnlinkTarget(sessionName, 'scope');
         else if (action === 'new') termAssignTabGroup(sessionName, 'new');
@@ -12021,6 +12033,10 @@
     const scope = _termSessionsKey(workspaceId, vaultId);
     if (!workspaceId || !names.length || _termCloseTabsPending.has(scope)) return false;
     names = [...new Set(names)];
+    if (names.some(name => termSessions.find(row => row.name === name)?.document_source)) {
+      explorerToast('Document terminals are shared. Use Unlink from document to choose where to keep one.');
+      return false;
+    }
     const label = groupName ? `group "${groupName}" (${names.length} tabs)`
       : names.length > 1 ? `${names.length} selected terminal tabs` : 'this terminal tab';
     if (!confirm(`Close ${label}? Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
@@ -12233,6 +12249,11 @@
   async function termRenameSession(name) {
     const session = _termSessionMeta(name);
     if (!session) return;
+    if (session.document_source) {
+      const label = prompt('Rename terminal tab', session.label || session.document_source.logical_name);
+      if (label !== null) await _termPatchLinks(session, {label:label.trim() || null}).catch(error => explorerToast(error.message,true));
+      return;
+    }
     const workspaceId = _termActiveWorkspaceId();
     const vaultId = _termVaultId();
     const logical = session.logical_name || '';
@@ -12487,6 +12508,7 @@
 
   function _termMarkVisibleCompletionSeen() {
     if (!window.LabTerminalCompletion) return;
+    if (window.LabDocumentTerminal?.watchCompletion?.()) return;
     if (document.hidden || !document.hasFocus()
         || termCurrentWorkspaceId !== _termActiveWorkspaceId()
         || !termWS || termWS.readyState !== WebSocket.OPEN || !termXterm
@@ -12502,6 +12524,7 @@
 
   function termRenderSessionList() {
     if (typeof _termMarkVisibleCompletionSeen === 'function') _termMarkVisibleCompletionSeen();
+    window.LabWorkspaceDocuments?.updateSessions(_termRecentScopeKey(), termSessions || []);
     if (_termDragState) {
       if (_termDragState.scope === _termGroupScopeKey()) return;
       _termFinishDrag(false);
@@ -12546,13 +12569,13 @@
       if (renderedGroups.has(groupId)) return '';
       renderedGroups.add(groupId);
       const members = order.filter(token => token.startsWith('s:') && groupState.tabMembership[token.slice(2)] === groupId)
-        .map(token => sessionsByLogical.get(token.slice(2))).filter(Boolean);
+        .map(token => sessionsByLogical.get(token.slice(2))).filter(row => row && !row.session.document_source);
       const active = members.some(item => item.session.name === termCurrentSession);
       const contents = order.map(token => {
         if (dividerOwners.get(token) === groupId) return dividerHtml(groupsById.get(token.slice(2)));
         if (!token.startsWith('s:') || groupState.tabMembership[token.slice(2)] !== groupId) return '';
         const member = sessionsByLogical.get(token.slice(2));
-        return member ? _termSessionPillHtml(member.session, member.index) : '';
+        return member && !member.session.document_source ? _termSessionPillHtml(member.session, member.index) : '';
       }).join('');
       return `<div class="term-tab-group" style="--term-group-color:${termSessEsc(group.color)}">
         <button class="term-tab-group-label${active ? ' has-active' : ''}" data-tab-group="${termSessEsc(group.id)}" aria-expanded="${!group.collapsed}" title="${termSessEsc(group.name)} · Right-click for group options">${group.collapsed ? '▸' : '▾'} <span>${termSessEsc(group.name)}</span><small>${members.length}</small></button>
@@ -12582,11 +12605,13 @@
         return;
       }
       const row = sessionsByLogical.get(token.slice(2));
-      if (!row) return;
+      if (!row || row.session.document_source) return;
       if (currentDivider) currentRows.push(row);
       else html += renderRow(row);
     });
     flushDivider();
+    const borrowed = termSessions.map((session,index) => ({session,index})).filter(row => row.session.document_source);
+    if (borrowed.length) html += '<div class="term-document-section"><span class="term-document-section-label" title="Shared through linked documents">Document terminals</span>' + borrowed.map(row => _termSessionPillHtml(row.session,row.index)).join('') + '</div>';
     html += _termNewButtonHtml();
     // Unchanged polls must not recreate every tab or dismiss its tooltip.
     if (el._labTabsHtml === html) return;
@@ -12941,15 +12966,18 @@
 
   async function _termPatchLinks(session, patch, context = _termLinkContext()) {
     if (!session?.logical_name || !context.workspaceId) throw new Error('Select a saved terminal to link.');
+    const source = session.document_source;
+    const owner = source ? {workspaceId:source.workspace_id,vaultId:source.vault} : context;
     const response = await fetch('/api/term/sessions/metadata', {
       method: 'PATCH', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({workspace_id: context.workspaceId, vault: context.vaultId,
-        name: session.logical_name, ...patch}),
+      body: JSON.stringify({workspace_id: owner.workspaceId, vault: owner.vaultId,
+        name: source?.logical_name || session.logical_name, ...patch}),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || 'Could not update terminal link.');
     // Displaced file owners may belong to a different open workspace.
     _termSessionsCache.clear();
+    if (source) { await _termRefreshSessionsForWorkspaceId(_termActiveWorkspaceId()); return body.session; }
     if (context.workspaceId !== _termActiveWorkspaceId() || context.vaultId !== _termVaultId()) return body.session;
     const updates = new Map((body.displaced || [])
       .filter(row => row.current_workspace)
@@ -12967,6 +12995,19 @@
   }
 
   window.LabTaskTerminalBridge = {patch:_termPatchLinks};
+  window.LabWorkspaceDocuments?.configure({
+    workspace: () => document.body.classList.contains('workspace-active') && currentWorkspace?.is_workspace
+      ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace)} : null,
+    refresh: async () => {
+      _termSessionsCache.clear();
+      const workspaceId = _termActiveWorkspaceId();
+      if (workspaceId) await _termRefreshSessionsForWorkspaceId(workspaceId);
+      if (workspaceId === _termActiveWorkspaceId() && termCurrentWorkspaceId === workspaceId
+          && termCurrentSession && !termSessions.some(row => row.name === termCurrentSession)) {
+        termDetach(); termShowEmpty();
+      }
+    },
+  });
 
   function _termSessionsLinkedToContext(ctx) {
     const absolute = _termLinkedAbsolutePath(ctx.root, ctx.path);

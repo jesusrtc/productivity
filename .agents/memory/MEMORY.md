@@ -258,3 +258,7 @@
 - [Provider idle-event boundaries](terminal-provider-idle-events.md) — Claude local commands do not start work; Copilot shutdown preserves a verified final response.
 
 - [Modal fonts and Obsidian-style settings](modal-font-settings-and-obsidian-layout.md) — independent document/interface sizes, live preview, browser persistence, and row controls with switches.
+
+- [Workspace document references](workspace-document-references.md) — drag Assistant documents into workspaces, share existing terminals, choose ownership when unlinking, and remember modal placement.
+
+- [Workspace completion indicators](workspace-completion-indicators.md) — inactive workspace tabs blink for unreviewed terminal work; shared views use one acknowledgement.

@@ -151,6 +151,10 @@ def _session_metadata(root: Path, workspace_id: str) -> Path:
 
 
 def session_owner(root: Path, tmux_name: str) -> tuple[str, str] | None:
+    transfers = _read(_state(root) / "session-transfers.json")
+    if tmux_name in transfers:
+        row = transfers[tmux_name]
+        return (row['workspace_id'], row['logical_name']) if row else None
     if not tmux_name.startswith("neurona-"):
         return None
     token = tmux_name.removeprefix("neurona-")
@@ -172,6 +176,38 @@ def session_owner(root: Path, tmux_name: str) -> tuple[str, str] | None:
             if isinstance(row, dict) and str(row.get("session_id", "")).replace("-", "") == token:
                 return data.get("id", fallback_id), row["name"]
     return None
+
+
+def session_transferred_away(root: Path, name: str) -> bool:
+    transfers = _read(_state(root) / 'session-transfers.json')
+    return name in transfers and transfers[name] is None
+
+
+def session_transfer_writes(source, workspace, logical, destination, target_workspace,
+                            target_logical, session_id, runtime_name):
+    """Plan identity changes under both identity locks; caller commits with metadata.
+
+    The aliases retain ownership for legacy tmux names as well as UUID names.
+    A source tombstone prevents legacy discovery from re-adopting a moved tab.
+    """
+    writes = {}
+    indexes = {root: _read(_state(root) / 'session-index.json') for root in {source, destination}}
+    old_key = json.dumps([workspace, logical], separators=(',', ':'))
+    previous = indexes[source].pop(old_key, {})
+    session_id = session_id or previous.get('session_id')
+    if session_id:
+        key = json.dumps([target_workspace, target_logical], separators=(',', ':'))
+        indexes[destination][key] = {'session_id': session_id, 'workspace_id': target_workspace,
+                                     'logical_name': target_logical}
+    for root, index in indexes.items():
+        writes[_state(root) / 'session-index.json'] = index
+    if runtime_name:
+        aliases = {root: _read(_state(root) / 'session-transfers.json') for root in {source, destination}}
+        aliases[source][runtime_name] = None
+        aliases[destination][runtime_name] = {'workspace_id': target_workspace, 'logical_name': target_logical}
+        for root, index in aliases.items():
+            writes[_state(root) / 'session-transfers.json'] = index
+    return writes
 
 
 def forget_workspace(root: Path, workspace_id: str) -> None:

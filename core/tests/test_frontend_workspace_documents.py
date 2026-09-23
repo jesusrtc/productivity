@@ -1,0 +1,160 @@
+"""Real browser interactions for workspace references and modal terminals."""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import time
+
+import pytest
+from .test_assistant_document_tasks import legacy_tasks, owned_tasks  # noqa: F401
+
+ROOT = Path(__file__).resolve().parents[2]
+STATIC = ROOT / 'core/src/core/static'
+
+
+def test_workspace_document_interactions_browser(client, owned_tasks, tmp_path):
+    chrome = os.environ.get('CHROME_BIN') or shutil.which('chromium') or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    if not Path(chrome).is_file() or not shutil.which('node'):
+        pytest.skip('Chrome and Node required')
+    root, note, *_ = owned_tasks
+    path = str(note.relative_to(root))
+    detail = client.get('/api/assistant/note', params={'path':path}).json()
+    details = {}
+    def visit(row):
+        details[row['path']] = client.get('/api/assistant/note', params={'path':row['path']}).json()
+        for child in row['children']:
+            visit(child)
+    visit(detail['tree'])
+    fixture = {'index':client.get('/api/assistant').json(), 'details':details, 'path':path,
+               'link':{'assistant_root':str(root),'document_id':note.stem,'task_id':None,
+                       'title':'Task document','path':path}}
+    setup = r'''
+const assert=(ok,message)=>{if(!ok)throw new Error(message)};
+const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw new Error('Timed out: '+fn)};
+const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null;
+const scope={workspace_id:'demo',vault:'client'};
+const source={name:'same-running-process',logical_name:'claude',workspace_id:'demo',vault:'client',label:'Claude conversation',kind:'claude',agent:'claude',agent_session_id:'conversation',created_at:123,
+  agent_activity:{state:'completed',completed_at:500,completion_id:'turn'}};
+function explorerToast(message,error){notices.push([message,error])}
+const background={...source,name:'background-process',agent_session_id:'background-conversation'};
+function termRenderSessionList(){
+ if(window.LabDocumentTerminal?.watchCompletion?.())return;
+ if(activeView)LabTerminalCompletion.watch('client::demo',background);
+}
+window.fetch=async(url,options={})=>{
+ const u=new URL(url,'https://example.test'), body=options.body?JSON.parse(options.body):null;
+ calls.push([u.pathname,options.method||'GET',body]);
+ let result={};
+ if(u.pathname==='/api/assistant')result=FIX.index;
+ else if(u.pathname==='/api/assistant/note')result=FIX.details[u.searchParams.get('path')];
+ else if(u.pathname==='/api/term/task-terminals')result=taskLinks;
+ else if(u.pathname==='/api/assistant/document-terminal'){assert(body.action==='status','opening must not create a process');result={state:'absent'}}
+ else if(u.pathname==='/api/workspace-documents/attention')result={'client::demo':[source],'client::inactive':[source]};
+ else if(u.pathname==='/api/workspace-documents/unlink-terminal'){taskLinks=[];result={ok:true}}
+ else if(u.pathname==='/api/workspace-documents'){
+  if(options.method==='POST')documents.splice(0,documents.length,FIX.link);
+  if(options.method==='DELETE')documents.splice(0);
+  result=options.method?{ok:true}:documents;
+ } else throw new Error('Unexpected request '+url);
+ return {ok:!!result,json:async()=>structuredClone(result||{})};
+};
+let sockets=0;
+class FakeSocket {static OPEN=1;readyState=1;constructor(url){sockets++;assert(url.includes(source.name),'must attach the same process')}send(){}close(){this.readyState=3}}
+window.WebSocket=FakeSocket;
+window.Terminal=class {cols=80;rows=24;loadAddon(){}open(host){host.textContent='Existing Claude conversation — same running session';}onData(){return {dispose(){}}}dispose(){}write(){}focus(){}};
+window.FitAddon={FitAddon:class{fit(){}}};
+window.ensureTerminalLibs=async()=>{};
+window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
+ assert(session.name===source.name,'same source session');
+ calls.push(['patch','PATCH',{patch,context}]);
+ taskLinks=patch.linked_task?[{...source,state:'running',linked_task:FIX.link}]:[];
+}};
+'''
+    checks = r'''
+(async()=>{
+ const W=LabWorkspaceDocuments;
+ W.configure({workspace:()=>scope,refresh:async()=>{}});
+ await W.mount(scope,document.getElementById('sidebar'));
+ // Drag the actual document button area, rather than relying on blank row padding.
+ const article=document.getElementById('document-drag');
+ article.dataset.terminalDocument=FIX.link.document_id;article.dataset.assistantRoot=FIX.link.assistant_root;
+ const transfer=new DataTransfer();
+ article.querySelector('strong').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
+ assert(JSON.parse(transfer.getData('application/x-lab-assistant-document')).document_id===FIX.link.document_id,'stable document drag identity');
+ const target=document.querySelector('[data-workspace-id="demo"]');
+ target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+ assert(target.classList.contains('workspace-document-drop'),'drop target highlighted');
+ target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+ await until(()=>document.querySelector('.workspace-document-open'));
+ const docRow=document.querySelector('.workspace-document');
+ assert(docRow.compareDocumentPosition(document.getElementById('recent'))&Node.DOCUMENT_POSITION_FOLLOWING,'Documents above Recently updated');
+ assert(LabDocumentTerminal.dropContext(docRow).documentId===FIX.link.document_id,'terminal drop resolves the linked document');
+ await LabDocumentTerminal.link(LabDocumentTerminal.dropContext(docRow),source,{workspaceId:'demo',vaultId:'client'});
+ docRow.querySelector('button').click();
+ await until(()=>document.querySelector('select[data-terminal-placement]')&&sockets===1);
+ assert(document.body.classList.contains('workspace-active'),'opening preserves workspace');
+ const modal=document.querySelector('.assistant-document-modal');
+ const select=document.querySelector('select[data-terminal-placement]');
+ select.value='right';select.dispatchEvent(new Event('change'));
+ assert(getComputedStyle(modal).display==='grid','right layout is a real side-by-side split');
+ const body=document.querySelector('.assistant-modal-body').getBoundingClientRect(), terminal=document.getElementById('assistantDocumentTerminal').getBoundingClientRect();
+ assert(terminal.left>=body.right-1&&Math.abs(terminal.top-body.top)<2,'terminal placed right of document');
+ select.value='bottom';select.dispatchEvent(new Event('change'));
+ assert(document.getElementById('assistantDocumentTerminal').getBoundingClientRect().top>=document.querySelector('.assistant-modal-body').getBoundingClientRect().bottom-1,'bottom placement');
+ select.value='right';select.dispatchEvent(new Event('change'));
+ assert(sockets===1,'changing layout never reconnects or launches');
+ // The inactive workspace gets the same unread state without being opened.
+ await W.poll(true);
+ assert(document.querySelectorAll('.workspace-attention-dot').length===2,'active and inactive workspace dots');
+ assert(getComputedStyle(document.querySelector('.workspace-attention-dot')).animationName==='workspace-attention-blink','green dot blinks');
+ assert(LabTerminalCompletion.meta('client::demo',background),'background response starts unread');
+ LabTerminalCompletion.setDelaySeconds(1);activeView=true;termRenderSessionList();
+ await until(()=>!document.querySelector('.workspace-attention-dot'));
+ assert(LabTerminalCompletion.meta('client::demo',background),'modal review never acknowledges its obscured background terminal');
+ activeView=null;LabTerminalCompletion.stopViewing();
+ source.agent_activity={state:'completed',completed_at:600,completion_id:'next'};
+ await W.poll(true);assert(document.querySelectorAll('.workspace-attention-dot').length===2,'next response alerts again');
+ // Cancel is a no-op; both ownership choices send the captured source and target.
+ let pending=W.unlink(taskLinks[0]);await until(()=>document.querySelector('dialog[open]'));
+ document.querySelector('dialog button[value="cancel"]').click();assert(await pending===false,'cancel');
+ assert(!calls.some(row=>row[0].endsWith('/unlink-terminal')),'cancel writes nothing');
+ for(const destination of ['workspace','assistant']){
+  pending=W.unlink({...source,linked_task:FIX.link});await until(()=>document.querySelector('dialog[open]'));
+  document.querySelector(`dialog button[value="${destination}"]`).click();assert(await pending,'unlink completed');
+  const sent=calls.filter(row=>row[0].endsWith('/unlink-terminal')).at(-1)[2];
+  assert(sent.destination===destination&&sent.source_workspace_id==='demo'&&sent.name==='claude','explicit destination and original source');
+ }
+ AssistantView.closeDocument();
+ taskLinks=[{...source,state:'running',linked_task:FIX.link}];
+ await AssistantView.openLinkedTask(FIX.link);
+ await until(()=>document.querySelector('select[data-terminal-placement]')?.value==='right');
+ assert(!notices.some(row=>row[1]),'no errors');
+ document.getElementById('result').textContent='PASS';
+})().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
+'''
+    scripts = '\n'.join('<script>' + (STATIC / name).read_text() + '</script>' for name in [
+        'vendor/marked@12.0.1/marked.min.js','vendor/dompurify@3.4.15/purify.min.js',
+        'js/lib/markdown-content.js','js/lib/document-terminal.js','js/lib/terminal-completion.js',
+        'js/lib/workspace-documents.js','js/views/assistant.js','js/views/assistant-tasks.js'])
+    css = '\n'.join((STATIC / name).read_text() for name in ['css/lab-shell.css','css/assistant-tasks.css','css/workspace-documents.css'])
+    page = tmp_path / 'workspace-documents.html'
+    page.write_text('<!doctype html><meta charset="utf-8"><style>:root{--accent:#58a6ff;--text-primary:#e6edf3;--text-secondary:#8b949e;--bg-secondary:#161b22;--border:#30363d;--green:#3fb950}body{background:#0d1117;color:#e6edf3}'+css+'</style><body class="workspace-active"><div id="workspaceTabs"><div class="workspace-tab" data-kind="workspace" data-workspace-id="demo" data-vault="client">Demo<button class="x">×</button></div><div class="workspace-tab" data-kind="workspace" data-workspace-id="inactive" data-vault="client">Inactive<button class="x">×</button></div></div><div id="sidebar"><section data-workspace-documents></section><div id="recent">Recently updated</div></div><article id="document-drag" data-assistant-document-drag draggable="true"><button class="assistant-document-row"><strong>Task document</strong></button></article><div id="content"></div><pre id="result">PENDING</pre><script>const FIX='+json.dumps(fixture).replace('</','<\\/')+';'+setup+'</script>'+scripts+'<script>'+checks+'</script>')
+    profile = tmp_path / 'profile'
+    browser = subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run','--no-default-browser-check','--allow-file-access-from-files','--user-data-dir='+str(profile),'--remote-debugging-port=0','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 10
+        while not (profile / 'DevToolsActivePort').exists():
+            assert browser.poll() is None and time.monotonic() < deadline
+            time.sleep(.05)
+        driver = tmp_path / 'focused-browser.mjs'
+        driver.write_text((ROOT/'scripts/chrome-dump-auth.mjs').read_text().replace(
+            "await send('Page.enable');", "await send('Page.enable');\nawait send('Emulation.setFocusEmulationEnabled', {enabled:true});"))
+        subprocess.run(['node',str(driver),str(profile),page.as_uri(),str(tmp_path/'dom.html'),str(tmp_path/'workspace-documents.png')],check=True,timeout=25,env={**os.environ,'LAB_UI_AUTH_COOKIE':''})
+        html = (tmp_path/'dom.html').read_text()
+        result = re.search(r'<pre id="result">(.*?)</pre>',html,re.S)
+        assert result and result[1] == 'PASS', result[1] if result else html[-2000:]
+    finally:
+        browser.terminate()
+        browser.wait(timeout=10)

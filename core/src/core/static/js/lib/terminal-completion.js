@@ -42,7 +42,8 @@
   }
   reload();
   function key(scope, session) {
-    return JSON.stringify([scope, session.name, session.created_at,
+    // A shared terminal has one acknowledgement across workspace/document views.
+    return JSON.stringify(['session', session.name, session.created_at,
       session.agent, session.agent_session_id]);
   }
   function completion(session) {
@@ -61,6 +62,8 @@
   function record(scope, session) {
     if (!session?.agent_session_id) return null;
     const id = key(scope, session);
+    const legacy = JSON.stringify([scope, session.name, session.created_at, session.agent, session.agent_session_id]);
+    if (!seen[id] && seen[legacy]) { seen[id] = seen[legacy]; save(); }
     const activity = completion(session);
     if (activity && !(seen[id]?.completed?.at >= activity.completed_at)) {
       reload();
@@ -87,6 +90,7 @@
     const id = key(scope, session);
     seen[id] = {...previous, at: previous.completed.at};
     save();
+    window.dispatchEvent?.(new Event('lab-terminal-completion-change'));
     return true;
   }
   function watch(scope, session) {
@@ -161,9 +165,11 @@
     if (event.key !== storageKey) return;
     reload();
     if (typeof termRenderSessionList === 'function') termRenderSessionList();
+    window.dispatchEvent?.(new Event('lab-terminal-completion-change'));
   });
   function refresh() {
     if (!document.hidden && typeof termRenderSessionList === 'function') termRenderSessionList();
+    else if (!document.hidden) window.LabDocumentTerminal?.watchCompletion();
   }
   window.addEventListener('blur', stopViewing);
   window.addEventListener('pagehide', stopViewing);

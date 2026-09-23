@@ -1439,7 +1439,9 @@ def _parse_tmux_name(root: Path, name: str) -> tuple[str, str] | None:
     that literal prefix is recognized (test mode). Returns None for names we
     can't attribute (e.g. the UUID fallback for workspace-less terminals).
     """
-    from lab.workspace_identity import session_owner
+    from lab.workspace_identity import session_owner, session_transferred_away
+    if session_transferred_away(root, name):
+        return None
     owner = session_owner(root, name)
     if owner:
         return owner
@@ -1480,7 +1482,9 @@ def _parse_tmux_name_with_workspace_ids(
     workspace_ids: list[str],
 ) -> tuple[str, str] | None:
     """Like ``_parse_tmux_name`` but uses a pre-scanned workspace id list."""
-    from lab.workspace_identity import session_owner
+    from lab.workspace_identity import session_owner, session_transferred_away
+    if session_transferred_away(root, name):
+        return None
     owner = session_owner(root, name)
     if owner:
         return owner
@@ -1557,6 +1561,8 @@ def _reconstruct_meta_entry(
                 entry["claude_session_id"] = s["claude_session_id"]
             if s.get("agent_session_id"):
                 entry["agent_session_id"] = s["agent_session_id"]
+            if s.get("cwd"):
+                entry["cwd"] = s["cwd"]
             for key in ("label", "summary", "linked_file", "linked_scope", "linked_task"):
                 if s.get(key):
                     entry[key] = s[key]
@@ -1565,6 +1571,11 @@ def _reconstruct_meta_entry(
 
 
 def _sync_meta(root: Path, live: list[dict] | None) -> dict:
+    with _SESSION_METADATA_LOCK:
+        return _sync_meta_locked(root, live)
+
+
+def _sync_meta_locked(root: Path, live: list[dict] | None) -> dict:
     """Load .sessions.json reconciled against the live tmux listing.
 
     - ``live is None`` (listing failed) → return the registry untouched.
@@ -2263,6 +2274,8 @@ def list_sessions(
             # Unsaved rows sort after saved ones, newest-first within them.
             return (1, -row.get("created", 0))
         rows.sort(key=_key)
+        from core.workspace_documents import borrowed_terminals
+        rows.extend(borrowed_terminals(request, root, workspace_id, rows))
         return rows
 
     rows = []
@@ -2754,7 +2767,12 @@ def task_terminals(request: Request, document_id: str | None = None) -> list[dic
     """Inspect existing sessions; never create or resume a process."""
     from core.terminal_task_links import list_terminals
     with _SESSION_METADATA_LOCK:
-        return list_terminals(request, document_id)
+        rows = list_terminals(request, document_id)
+    if document_id:
+        from core import agent_activity
+        _enrich_agent_session_names(rows)
+        agent_activity.enrich(rows)
+    return rows
 
 
 @router.post("/api/term/paste-image")

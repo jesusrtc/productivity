@@ -48,7 +48,7 @@ advance(19999);
 assert(C.meta('vault1', s), 'reopening starts from zero');
 advance(1);
 assert(C.meta('vault1', s) === null, 'exactly twenty continuous seconds clears');
-assert(C.meta('vault2', s), 'other scope stays unread');
+assert(C.meta('vault2', s) === null, 'same shared terminal is acknowledged in every scope');
 assert(C.meta('vault1', {...s, agent_session_id:'other'}), 'other conversation stays unread');
 console.log(JSON.stringify({passed:true}));
 """.replace('AGENT', repr(agent)))

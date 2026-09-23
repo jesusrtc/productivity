@@ -47,11 +47,14 @@ def list_terminals(request, document_id=None):
     live = term._tmux_list(term._tmux_discovery_prefixes_all(vaults), prune_draining=False)
     if live is None:
         raise HTTPException(503, 'Could not check running terminals. Try again.')
-    live_names = {row['name'] for row in live}
+    live_by_name = {row['name']: row for row in live}
+    live_names = set(live_by_name)
     # Home saves tabs in one shared file, but runtime registrations can belong
     # to different vaults (and old framework-root sessions). Resolve all of them
     # before deduplicating the metadata files; never allocate UUIDs on a read.
     runtime_by_tab = {}
+    runtime_by_name = {}
+    runtime_root_by_name = {}
     framework = term.lab_paths.find_framework_root().resolve()
     runtime_roots = [Path(vault['path']) for vault in vaults]
     if framework not in runtime_roots:
@@ -60,6 +63,8 @@ def list_terminals(request, document_id=None):
         if not runtime_root.is_dir():
             continue
         for name, row in term._load_meta(runtime_root).items():
+            runtime_by_name[name] = row
+            runtime_root_by_name[name] = runtime_root
             workspace = row.get('workspace_id')
             logical = row.get('logical_name')
             if not workspace or not logical:
@@ -95,8 +100,11 @@ def list_terminals(request, document_id=None):
                 running = name in live_names
                 if not owner and not running:
                     continue
-                result.append({'name': name, 'logical_name': saved['name'],
-                               'workspace_id': workspace_id, 'vault': vault['id'],
+                result.append({**saved, **live_by_name.get(name, {}), **runtime_by_name.get(name, {}),
+                               'name': name, 'logical_name': saved['name'],
+                               'workspace_id': workspace_id,
+                               'vault': term._vault_id_for_root(active_root, runtime_root_by_name[name])
+                                        if name in runtime_root_by_name else vault['id'],
                                'workspace_name': data.get('name') or workspace_id,
                                'label': saved.get('label') or saved['name'],
                                'kind': saved.get('kind') or 'terminal',
