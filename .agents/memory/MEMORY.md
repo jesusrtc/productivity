@@ -1,5 +1,7 @@
 # Memory index
 
+- [Reuse pristine sidebar folder fragments](sidebar-template-fragments-reuse-pristine-folders.md) — source-range reuse avoids reparsing unchanged folders; transient identity proofs must not retain older templates
+
 - [Separate browser and server latency](latency-probes-separate-server-and-browser-time.md) — optional isolated ASGI/handler/function timings correlate route, workspace scope, and start time without logging headers or bodies
 
 - [Codex launch options](codex-launch-explicit-autopilot-options.md) — use explicit workspace sandbox and on-request approvals; removed `--full-auto` made terminal tabs exit immediately

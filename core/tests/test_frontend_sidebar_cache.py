@@ -106,7 +106,7 @@ try {
   // Reorder whole sections, reorder retained files, rename one label, and add
   // a row. The caller still applies current Git status after changed markup.
   const secondTree = section('beta', row('c.md','Renamed label')) + section('alpha', row('b.md')+row('d.md')+row('a.md'),66);
-  _replaceWorkspaceSidebarMarkup(sidebar, secondTree, 'tree', true);
+  assert(_replaceWorkspaceSidebarMarkup(sidebar, secondTree, 'tree', true), 'new/changed rows need cached decorations');
   assert(sidebar.firstChild === beta && sidebar.lastChild === alpha, 'reordered containers retain identity');
   assert(sidebar.querySelector('[data-filepath="a.md"]') === a && sidebar.querySelector('[data-filepath="b.md"]') === b, 'unchanged file rows retain identity');
   assert(document.activeElement === button && a.querySelector('.git-badge'), 'retained focus and Git decoration survive section moves');
@@ -118,7 +118,7 @@ try {
   // browser lacks moveBefore, and a deletion removes only the obsolete row.
   Object.defineProperty(sidebar, 'moveBefore', {value:undefined,configurable:true});
   const thirdTree = section('alpha', row('a.md')) + section('beta', row('c.md','Renamed label'));
-  _replaceWorkspaceSidebarMarkup(sidebar, thirdTree, 'tree', true);
+  assert(!_replaceWorkspaceSidebarMarkup(sidebar, thirdTree, 'tree', true), 'moves/deletions must not repaint already decorated rows');
   delete sidebar.moveBefore;
   assert(sidebar.firstChild === alpha && alpha.children.length === 1 && alpha.firstChild === a, 'deletion retains surviving rows');
   assert(document.activeElement === button, 'fallback move restores surviving focus');
@@ -139,6 +139,59 @@ try {
       sidebar.querySelector('.sidebar-folder-children').appendChild(document.createElement('em'));
     }
   }
+  // Build balanced source ranges just as the folder renderers do. Nested
+  // candidates let a changed parent reuse its unchanged descendants.
+  const combine = items => {
+    let html='', parts=[];
+    for(const item of items) {
+      parts.push(...item.parts.map(p=>({...p,start:p.start+html.length,end:p.end+html.length})));
+      html+=item.html;
+    }
+    return {html,parts};
+  };
+  const leaf = html => ({html,parts:[]});
+  const fragment = (id, content, extra='') => {
+    const start=`<div class="sidebar-folder-children open" id="${id}"${extra}>`;
+    const html=start+content.html+'</div>';
+    return {html,parts:[{id,start:0,end:html.length},...content.parts.map(p=>({...p,start:p.start+start.length,end:p.end+start.length}))]};
+  };
+  const keep = fragment('keep',leaf(row('stable.md','KEEP UNCHANGED &amp; résumé')));
+  const makeParts = step => combine([
+    leaf('outside text\n'),
+    fragment('outer',combine(step%2 ? [fragment('changed',leaf(row('updated.md','Revision '+step))),keep]
+                                  : [keep,fragment('changed',leaf(row('updated.md','Revision '+step)))]),step%3?' data-state="yes"':''),
+    leaf('<span>Trailing sibling '+step+'</span>'),
+  ]);
+  let input=makeParts(0);
+  _replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',false,input.parts);
+  const stable=sidebar.querySelector('[data-filepath="stable.md"]');
+  stable.classList.add('git-m'); stable.querySelector('button').focus();
+  const pristine=_sidebarMarkupCache.get('parts').template;
+  for(let step=1;step<=30;step++) {
+    input=makeParts(step);
+    const parsed=[];
+    const innerHTML=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
+    Object.defineProperty(Element.prototype,'innerHTML',{...innerHTML,set(value){if(this.tagName==='TEMPLATE')parsed.push(String(value));innerHTML.set.call(this,value)}});
+    try {_replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',true,input.parts);}
+    finally {Object.defineProperty(Element.prototype,'innerHTML',innerHTML);}
+    assert(parsed.length===1&&!parsed[0].includes('KEEP UNCHANGED'), 'unchanged descendant reparsed at step '+step);
+    assert(sidebar.querySelector('[data-filepath="stable.md"]')===stable, 'reused template must retain unchanged live rows');
+    assert(stable.classList.contains('git-m')&&document.activeElement===stable.querySelector('button'),'fragment reuse lost live decoration/focus');
+    const expected=document.createElement('template');expected.innerHTML=input.html;
+    const cached=_sidebarMarkupCache.get('parts');
+    assert(cached.template.innerHTML===expected.innerHTML,'fragment assembly differs from full parse at step '+step);
+    assert([...cached.parts.values()].every(p=>cached.template.content.contains(p.node)),'fragment index retained nodes from another template');
+    assert(!cached.template.content.querySelector('[data-sidebar-part],.git-m'),'placeholders or live decorations leaked into template');
+  }
+  assert(pristine.content.querySelector('#keep'),'cloning fragments must not consume older pristine templates');
+  _replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',false,input.parts);
+  const expectedParts=document.createElement('template');expectedParts.innerHTML=input.html;
+  assert(sidebar.innerHTML===expectedParts.innerHTML,'explicit navigation using assembled template differs from full parse');
+  // Literal application content cannot be mistaken for an internal placeholder.
+  const literal=combine([keep,leaf('<template DATA-SIDEBAR-PART="0"><i>Literal template</i></template>')]);
+  _replaceWorkspaceSidebarMarkup(sidebar,literal.html,'parts',true,literal.parts);
+  expectedParts.innerHTML=literal.html;
+  assert(_sidebarMarkupCache.get('parts').template.innerHTML===expectedParts.innerHTML,'literal template was consumed as a reuse marker');
   for (let i=0;i<10;i++) _replaceWorkspaceSidebarMarkup(sidebar, '<a>'+i+'</a>', 'scope-'+i);
   assert(_sidebarMarkupCache.size === 4, 'workspace count bounded');
   assert([..._sidebarMarkupCache.keys()].join(',') === 'scope-6,scope-7,scope-8,scope-9', 'oldest scopes evicted');

@@ -797,3 +797,80 @@ and preserving traced function results/exceptions without logging arguments.
 Both modified browser probes pass Node syntax checking; `git diff --check` passes.
 This is a measurement checkpoint, with the UI/typing misses and intermittent
 request outlier still open. Production code remains at the previous checkpoint.
+
+## Follow-on: parse only changed sidebar folder fragments
+
+Workspace Files and Recently updated now record source ranges for complete folder
+elements. When building the next pristine template, exact matching source ranges
+reuse clones of the previous parsed folders. The largest unchanged ancestor wins;
+if an ancestor changed, unchanged descendants can still be reused. Only changed
+markup and temporary placeholders enter the HTML parser. After assembly, the
+template matches a full parse and contains no placeholders. Literal content using
+the placeholder attribute bypasses reuse. No asynchronous rendering boundary or
+new navigation race is introduced.
+
+Fragment indexes retain offsets and nodes inside the existing template, without
+an additional set of DOM copies or overlapping cached fragment strings. Existing
+four-scope/60,000-element retention limits remain. A temporary clone/source map
+avoids traversing known-equal cloned subtrees during live reconciliation; it is
+discarded after that synchronous update, so it cannot retain older templates.
+When live reconciliation only moves/deletes nodes, it also skips reapplying fresh
+Git decorations. Newly mounted nodes still get cached styling, and stale/missing
+Git data still fetches and applies normally.
+
+Validation: **41 tests passed**, including both actual renderers' source ranges
+and assembled DOM against complete HTML parses for nested and flat 5,000-file
+trees, changing file names/selection, 30 repeated nested fragment updates, and
+literal placeholder-like content. Checks cover focus, handlers, Git decorations,
+explicit navigation, pristine cache state, unexpected live mutations, cache
+bounds, configuration and response races. Native find, scrolling, 22 px rows,
+file/history/modal clicks, folder toggles, drag/context metadata, and both widths
+and zoom levels still pass. The generated screenshot was inspected and matched.
+After adding the transient identity shortcut, all **nine cache/Git tests passed
+again**. Node syntax checking and `git diff --check` also pass.
+
+The first fragment-only typing run retained all 200 keys and five file updates,
+and had no refresh tasks at/above 50 ms. Changing-file p95 was 39.40 ms and maximum
+59.70 ms; startup maximum was still 108.50 ms. API maximum was 153.60 ms. Artifact:
+`/tmp/lab-sidebar-fragment-browser.json` (overall typing failure retained).
+
+A sequential prior-checkpoint/candidate comparison, followed by a flat-layout run,
+used fresh Chrome profiles and normal server lifespan/polling. Each typed 100 keys
+per phase while alternating five fixture-file updates in the loaded phase:
+
+| Run / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Prior `795241a`, normal | 3.70 ms | 22.90 ms | 97.60 ms | 2 |
+| Prior `795241a`, changing files | 6.70 ms | 49.60 ms | 77.40 ms | 5 |
+| Fragment + repaint changes, normal | 3.30 ms | 22.40 ms | 98.80 ms | 2 |
+| Fragment + repaint changes, changing files | 11.90 ms | 44.60 ms | 55.00 ms | 3 |
+| Flat layout, normal | 3.50 ms | 25.10 ms | 107.60 ms | 3 |
+| Flat layout, changing files | 3.70 ms | 38.30 ms | 57.60 ms | 3 |
+
+The prior run had 57–65 ms refresh tasks; both candidates had no refresh tasks
+at/above 50 ms. Startup tasks still reached 110–116 ms. Medians vary with input
+and frame timing and did not uniformly improve. All keys, updates, final mtimes,
+and recent-file ordering were verified; no input, HTTP, network, or browser errors
+occurred. API maxima were 51.80, 101.50, and 108.90 ms. All three runs fail the
+overall typing budget. Artifacts: `/tmp/lab-sidebar-fragments-{baseline,candidate,flat}-{browser,server}.json`.
+
+The final candidate with the identity shortcut recorded normal median 3.70 / p95
+30.10 / maximum **129.50 ms** (four misses), and changing-file median 9.80 / p95
+38.40 / maximum **61.40 ms** (one miss). The loaded input queue maximum was 26.80
+ms, down from 45.60 ms in the prior comparison run. There were no refresh tasks
+at/above 50 ms, but a 117 ms startup task remained. All 200 keys and five updates
+passed content checks; 106 APIs stayed below **88.30 ms**, with no HTTP, network,
+browser, or timestamp errors. The 55,435-element template remained within bounds.
+The owned echo terminals were removed after every run. Artifact:
+`/tmp/lab-sidebar-fragments-typing-final-{browser,server}.json`.
+
+Final navigation passed all 40 actions: workspace first/maximum **186.30 ms**,
+median 119.20 / p95 152.20 ms; document first/maximum **74.30 ms**, median 33.40 /
+p95 47.60 ms. All 337 APIs stayed below **84.00 ms**, with no HTTP, network,
+browser, or timestamp errors. Artifact:
+`/tmp/lab-sidebar-fragments-navigation-final-{browser,server}.json`.
+
+This checkpoint reduces changed-file refresh work. It does not establish the
+50 ms typing target, erase prior navigation/request outliers, solve startup
+content extraction, or verify every UI action. The overall goal remains open;
+no main merge or live-server restart is included.

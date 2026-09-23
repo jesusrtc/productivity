@@ -24,6 +24,21 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     helpers=between('  function esc(s)', '  // ─── Explorer secondary-click menu')+between('  const TREE_EXPANDED_KEY', '  function applyIframeDarkMode')+between('  function _sidebarRecentTreeModel', '  function _sidebarConfigFolderCardHtml')
     helpers+=between('  function _sidebarHandleFileAction', '  async function openWorkspaceDoc(')
     helpers+=between('  const _GIT_ROW_CLASSES', '  function _sidebarPlaceGitBadge(')
+    helpers+=between('  const _sidebarMarkupCache =', '  // Re-renders just the workspace file sidebar')
+    workspace_tree=between('        function renderTree(node, depth, parentPath, offset)',
+                           '      sbHtml += _sidebarWorktreeScopeEndHtml(workspacePath);')
+    # The extracted block includes the enclosing if's closing brace.
+    workspace_tree=workspace_tree.rsplit('      }',1)[0]
+    helpers+='''
+    function workspaceMarkup(files,activePath=null){
+      const fileRoot='/workspace-parts',_workspaceTreeScope='workspace:parts',AUTO_OPEN_FOLDERS=new Set(['notes']);
+      const pinnedSet=new Set(),worktreeSelected=false,sidebarParts=[],tree=buildSidebarTree(files.map(f=>({...f,name:f.path})));
+      const _recentlyPending=new Map(),_PENDING_GRACE_MS=1000,_nbGetLastViewed=()=>0;
+      let sbHtml='<span>Before tree</span>';
+    '''+workspace_tree+'''
+      return {html:sbHtml,parts:sidebarParts};
+    }
+    '''
     css=(root/'core/src/core/static/css/lab-shell.css').read_text()
     checks=r'''
     const assert=(v,m)=>{if(!v)throw Error(m)};
@@ -37,7 +52,36 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
      // Keep the original icon wrapper in the reference. Its pseudo-element
      // is disabled below so geometry compares old and new history buttons.
      ref.querySelectorAll('.sidebar-git-history').forEach(button=>button.innerHTML=_SIDEBAR_GITHUB_ICON);
-     candidate.innerHTML=_sidebarRecentSectionHtml(files,null,'/candidate',{resolved:true});
+     const parts=[];
+     const markup=_sidebarRecentSectionHtml(files,null,'/candidate',{resolved:true,parts});
+     _replaceWorkspaceSidebarMarkup(candidate,markup,'large',false,parts);
+     assert(parts.length>0,'recent renderer did not provide folder ranges');
+     for(const part of parts){
+      const expected=document.createElement('template');expected.innerHTML=markup.slice(part.start,part.end);
+      assert(expected.content.children.length===1&&expected.content.firstChild.id===part.id,'recent renderer range is not the complete folder');
+      assert(expected.content.firstChild.isEqualNode(_sidebarMarkupCache.get('large').parts.get(part.id).node),'recent renderer range has the wrong descendants');
+     }
+     const changedFiles=files.map((file,index)=>index===2444?{...file,path:file.path+'-changed'}:file);
+     const nextParts=[];
+     const nextMarkup=_sidebarRecentSectionHtml(changedFiles,changedFiles[2444].path,'/candidate',{resolved:true,parts:nextParts});
+     _replaceWorkspaceSidebarMarkup(candidate,nextMarkup,'large',true,nextParts);
+     const expected=document.createElement('template');expected.innerHTML=nextMarkup;
+     assert(candidate.innerHTML===expected.innerHTML,'large changed-folder fragments differ from complete HTML');
+     _replaceWorkspaceSidebarMarkup(candidate,markup,'large',true,parts);
+     expected.innerHTML=markup;
+     assert(candidate.innerHTML===expected.innerHTML,'large restored fragments differ from complete HTML');
+     const scratch=document.createElement('aside');
+     for(const [entries,active] of [[files,null],[changedFiles,changedFiles[2444].path],[files,null]]){
+      const rendered=workspaceMarkup(entries,active);
+      _replaceWorkspaceSidebarMarkup(scratch,rendered.html,'workspace-parts',true,rendered.parts);
+      expected.innerHTML=rendered.html;
+      assert(scratch.innerHTML===expected.innerHTML,'workspace file fragments differ from complete HTML');
+      for(const part of rendered.parts){
+       const section=document.createElement('template');section.innerHTML=rendered.html.slice(part.start,part.end);
+       assert(section.content.children.length===1&&section.content.firstChild.id===part.id,'workspace renderer range is not the complete folder');
+       assert(section.content.firstChild.isEqualNode(expected.content.getElementById(part.id)),'workspace renderer range has the wrong descendants');
+      }
+     }
      const first=candidate.querySelector('.sidebar-file');
      first.classList.add('active');
      const mutations=new MutationObserver(()=>{});

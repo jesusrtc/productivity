@@ -17,5 +17,7 @@ fixture originally had 60,189 live elements, just beyond the 60,000-element cach
 limit, so incremental reuse never ran. Moving history graphics to a button
 pseudo-element removed 5,004 wrappers in that fixture and brought the retained
 template to 55,185 elements. The four-scope/60,000-element limits remain unchanged.
-Parsing a changed full template remains a typing cost; do not report this as a
-complete 50 ms solution.
+The subsequent [fragment reuse](sidebar-template-fragments-reuse-pristine-folders.md)
+change avoids reparsing unchanged folders while assembling the next template.
+HTML generation and cloning still take work; do not report this as a complete
+50 ms solution.

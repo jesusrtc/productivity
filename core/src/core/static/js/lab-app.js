@@ -3106,7 +3106,7 @@
   }
   window.openSidebarFileHistory = openSidebarFileHistory;
 
-  function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false} = {}) {
+  function _sidebarRecentSectionHtml(files, activePath, root = '', {resolved = false, parts = null, offset = 0} = {}) {
     const recent = resolved ? (files || []) : _sidebarRecentFiles(files);
     if (!recent.length) return '';
     let html = `<div class="sidebar-title sidebar-title-with-action"><span>Recently updated <span class="sidebar-title-count">${recent.length}</span></span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('recent')}</span></div>`;
@@ -3116,6 +3116,7 @@
 
     const renderNode = node => {
       let nodeHtml = '';
+      const nodeParts = [];
       let rows = node.files.length;
       node.folders.forEach(folder => {
         const fid = 'recent-folder-' + encodeURIComponent(JSON.stringify([scope, folder.path]));
@@ -3123,7 +3124,14 @@
         const children = renderNode(folder.children);
         rows += 1 + (open ? children.rows : 0);
         nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
-        nodeHtml += `<div class="sidebar-folder-children sidebar-recent-children${open ? ' open' : ''}" id="${fid}" style="contain-intrinsic-block-size:auto ${children.rows * 22}px">${children.html}</div>`;
+        const start = nodeHtml.length;
+        nodeHtml += `<div class="sidebar-folder-children sidebar-recent-children${open ? ' open' : ''}" id="${fid}" style="contain-intrinsic-block-size:auto ${children.rows * 22}px">`;
+        if (parts) {
+          const childOffset = nodeHtml.length;
+          children.parts.forEach(part => nodeParts.push({id: part.id, start: childOffset + part.start, end: childOffset + part.end}));
+        }
+        nodeHtml += children.html + '</div>';
+        if (parts) nodeParts.push({id: fid, start, end: nodeHtml.length});
       });
       // Flat folders also need bounded offscreen groups. These plain blocks
       // retain every row and add no indentation or visible hierarchy.
@@ -3138,10 +3146,15 @@
         nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${escAttr(path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} data-open-file title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
         if (groupFiles && (index % 100 === 99 || index === node.files.length - 1)) nodeHtml += '</div>';
       });
-      return {html: nodeHtml, rows};
+      return {html: nodeHtml, rows, parts: nodeParts};
     };
 
-    html += renderNode(tree).html;
+    const rendered = renderNode(tree);
+    if (parts) {
+      const childOffset = offset + html.length;
+      rendered.parts.forEach(part => parts.push({id: part.id, start: childOffset + part.start, end: childOffset + part.end}));
+    }
+    html += rendered.html;
     return html;
   }
 
@@ -8934,6 +8947,42 @@
   let _sidebarMarkupCacheElements = 0;
   const _SIDEBAR_MARKUP_CACHE_ENTRIES = 4;
   const _SIDEBAR_MARKUP_CACHE_ELEMENTS = 60000;
+  function _buildSidebarMarkupTemplate(markup, parts, previous, equalSources) {
+    // Parts are balanced folder elements with offsets supplied by the renderer.
+    // Prefer the largest equal subtree; when a folder changed, its unchanged
+    // descendants remain candidates. Compare exact source HTML, not live DOM.
+    const ordered = [...parts].sort((a, b) => a.start - b.start || b.end - a.end);
+    const reused = [], chunks = [];
+    let cursor = 0;
+    if (previous?.parts && !/data-sidebar-part/i.test(markup)) for (const part of ordered) {
+      if (part.start < cursor) continue;
+      const old = previous.parts.get(part.id);
+      if (!old || part.end - part.start !== old.end - old.start
+          || markup.slice(part.start, part.end) !== previous.markup.slice(old.start, old.end)) continue;
+      chunks.push(markup.slice(cursor, part.start), `<template data-sidebar-part="${reused.length}"></template>`);
+      reused.push(old.node);
+      cursor = part.end;
+    }
+    chunks.push(markup.slice(cursor));
+    const template = document.createElement('template');
+    template.innerHTML = chunks.join('');
+    if (reused.length) template.content.querySelectorAll('template[data-sidebar-part]').forEach(marker => {
+      const source = reused[Number(marker.dataset.sidebarPart)];
+      const clone = source.cloneNode(true);
+      equalSources.set(clone, source);
+      marker.replaceWith(clone);
+    });
+    // Retain offsets and references into this one pristine template, not a
+    // second set of subtree copies or overlapping fragment strings.
+    const indexed = new Map();
+    const nodesById = new Map(Array.from(template.content.querySelectorAll('[id]'), node => [node.id, node]));
+    for (const part of ordered) {
+      const node = nodesById.get(part.id);
+      if (node) indexed.set(part.id, {...part, node});
+    }
+    return {markup, template, parts: indexed, elements: template.content.querySelectorAll('*').length};
+  }
+
   function _sidebarMarkupNodeKey(node) {
     if (node.nodeType !== 1) return node.nodeType + ':' + node.nodeValue;
     if (node.id) return node.nodeName + ':id:' + node.id;
@@ -8949,7 +8998,7 @@
   // and reconcile known tree containers so a change in one folder does not
   // discard thousands of unchanged file rows elsewhere. No template is moved
   // into the live DOM or decorated, and explicit navigation still uses clones.
-  function _reconcileSidebarChildren(parent, previous, next) {
+  function _reconcileSidebarChildren(parent, previous, next, changes) {
     const oldNodes = [...previous.childNodes], liveNodes = [...parent.childNodes];
     if (oldNodes.length !== liveNodes.length) return false;
     const buckets = new Map();
@@ -8964,11 +9013,11 @@
       const bucket = buckets.get(_sidebarMarkupNodeKey(node));
       const match = bucket && bucket.nodes[bucket.used++];
       let desired;
-      if (match && match.source.isEqualNode(node)) desired = match.live;
+      if (match && (changes.equalSources.get(node) === match.source || match.source.isEqualNode(node))) desired = match.live;
       else if (match && node.nodeType === 1
           && node.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
           && match.source.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
-          && _reconcileSidebarChildren(match.live, match.source, node)) {
+          && _reconcileSidebarChildren(match.live, match.source, node, changes)) {
         // Counts, expanded state, and scope colors can change without making
         // the unchanged children disposable. Apply only template differences.
         for (const attr of match.source.attributes) {
@@ -8979,7 +9028,10 @@
         }
         desired = match.live;
       }
-      if (!desired) desired = node.cloneNode(true);
+      if (!desired) {
+        desired = node.cloneNode(true);
+        changes.cloned = true;
+      }
       if (desired === cursor) cursor = cursor.nextSibling;
       else if (desired.isConnected && typeof parent.moveBefore === 'function') parent.moveBefore(desired, cursor);
       else parent.insertBefore(desired, cursor);
@@ -8990,7 +9042,7 @@
     return true;
   }
 
-  function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope, preserveLive = false) {
+  function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope, preserveLive = false, parts = []) {
     // Background refreshes still build current markup (including selection,
     // folders, settings, and notebook activity). If it is unchanged, retain
     // the live rows and their focus/hover/Git state instead of cloning and
@@ -9005,15 +9057,16 @@
       scope, markup, first: sidebar.firstChild, last: sidebar.lastChild, count: sidebar.childNodes.length,
     });
     let cached = _sidebarMarkupCache.get(scope);
+    // This identity proof lives only during this synchronous replacement;
+    // retaining it in the cache would keep older template subtrees alive.
+    const changes = {cloned: false, equalSources: new Map()};
     const previous = preserveLive && mountedIsCurrent && cached?.markup === mounted.markup ? cached : null;
     if (cached) {
       _sidebarMarkupCache.delete(scope);
       _sidebarMarkupCacheElements -= cached.elements;
     }
     if (!cached || cached.markup !== markup) {
-      const template = document.createElement('template');
-      template.innerHTML = markup;
-      cached = {markup, template, elements: template.content.querySelectorAll('*').length};
+      cached = _buildSidebarMarkupTemplate(markup, parts, cached, changes.equalSources);
     }
     if (cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
       sidebar.replaceChildren(cached.template.content);
@@ -9029,14 +9082,17 @@
     _sidebarMarkupCache.set(scope, cached);
     _sidebarMarkupCacheElements += cached.elements;
     const focused = sidebar.contains(document.activeElement) ? document.activeElement : null;
-    if (!previous || !_reconcileSidebarChildren(sidebar, previous.template.content, cached.template.content)) {
+    if (!previous || !_reconcileSidebarChildren(sidebar, previous.template.content, cached.template.content, changes)) {
       sidebar.replaceChildren(cached.template.content.cloneNode(true));
+      changes.cloned = true;
     }
     // Browsers without moveBefore may blur a retained control when its folder
     // changes position. Restore only that same surviving element, never a clone.
     if (focused && focused.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
     remember();
-    return true;
+    // Pure moves/deletions retain existing Git classes and badges. Reapply
+    // cached decorations only when a pristine node was actually mounted.
+    return changes.cloned;
   }
 
   // Re-renders just the workspace file sidebar from scratch. Pulled out
@@ -9171,6 +9227,7 @@
       const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const dashActive = !activePath && (!isAssistant || (window.AssistantView && window.AssistantView.section() === 'tasks')) ? ' active' : '';
       const dashboardLabel = isAssistant ? 'Tasks' : 'Dashboard';
+      const sidebarParts = [];
       let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${dashActive}" data-dashboard="1" onclick="showWorkspaceDashboard()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">&#x1F4CB; ${dashboardLabel}</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(workspacePath);
@@ -9214,11 +9271,11 @@
       // the whole sidebar via the catch handler.
       const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
-      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
+      sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true, parts: sidebarParts, offset: sbHtml.length});
       sbHtml += _sidebarFilesTitle(fileRoot);
       if (mainFiles.length > 0 || dirEntries.length > 0) {
         const tree = buildSidebarTree([...dirEntries, ...mainFiles]);
-        function renderTree(node, depth, parentPath) {
+        function renderTree(node, depth, parentPath, offset) {
           let html = '';
           // Render folders first
           const folders = treeFolderNames(node, _sidebarCurrentSortMode('files'));
@@ -9231,9 +9288,11 @@
             const arrowCls = open ? ' open' : '';
             const childrenCls = open ? ' open' : '';
             html += `<div class="sidebar-folder${symlinkClass(d)}" data-tree-scope="${escAttr(_workspaceTreeScope)}" data-tree-path="${escAttr(fullPath)}" data-tree-target="${fid}" data-entry-kind="folder" data-entry-path="${escAttr(fullPath)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(d)} onclick="_treeToggleFolder(this,event)"><span class="folder-arrow${arrowCls}">\u25B6</span>${symlinkMarker(d)}${esc(folder)}/</div>`;
+            const start = offset + html.length;
             html += `<div class="sidebar-folder-children${childrenCls}" id="${fid}">`;
-            html += renderTree(node[folder], depth + 1, fullPath);
+            html += renderTree(node[folder], depth + 1, fullPath, offset + html.length);
             html += '</div>';
+            sidebarParts.push({id: fid, start, end: offset + html.length});
           });
           // Then files
           treeFiles(node, _sidebarCurrentSortMode('files')).forEach(f => {
@@ -9273,7 +9332,7 @@
           });
           return html;
         }
-        sbHtml += renderTree(tree, 0, '');
+        sbHtml += renderTree(tree, 0, '', sbHtml.length);
       }
       sbHtml += _sidebarWorktreeScopeEndHtml(workspacePath);
 
@@ -9299,7 +9358,7 @@
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
-      const sidebarChanged = _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath, preserveScroll);
+      const needsGitRepaint = _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath, preserveScroll, sidebarParts);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
@@ -9308,7 +9367,7 @@
       renderRepoTabs();
       // Git decorations: repaint from cache after a rebuild (unchanged rows
       // already retain their classes), then fetch in the background if stale.
-      _sidebarGitStatusRefresh({repaint: sidebarChanged});
+      _sidebarGitStatusRefresh({repaint: needsGitRepaint});
     } catch(e) {
       // Surface the underlying failure so it lands in the browser console
       // AND the server-side client-errors log (window.onerror -> /api/log).
