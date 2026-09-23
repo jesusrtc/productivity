@@ -517,6 +517,19 @@ async def interrupt(root: Path, rel_path: str, handle: RuntimeHandle) -> bool:
     return await asyncio.to_thread(session.process.interrupt)
 
 
+def resource_processes() -> dict[int, str]:
+    """Known kernel PIDs and notebook labels, without probing or starting kernels."""
+    with _sessions_guard:
+        sessions = list(_sessions.values())
+    result = {}
+    for session in sessions:
+        manager = session.process.manager
+        pid = getattr(getattr(manager, "provisioner", None), "pid", None)
+        if pid:
+            result[int(pid)] = session.rel_path
+    return result
+
+
 def live_notebook_paths(root: Path) -> list[str]:
     """Snapshot running kernels without starting or interrupting any sessions."""
     root_key = str(root.resolve())

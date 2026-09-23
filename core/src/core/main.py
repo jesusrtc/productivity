@@ -38,6 +38,7 @@ from core.routes import nb_exec as nb_exec_route
 from core.routes import nb_runtime as nb_runtime_route
 from core.routes import notebook as notebook_route
 from core.routes import power as power_route
+from core.routes import resources as resources_route
 from core.routes import workspace as workspace_route
 from core.routes import proxy as proxy_route
 from core.routes import search as search_route
@@ -479,6 +480,8 @@ def create_app() -> FastAPI:
     )
     from core.workspace_snapshot import Store
     app.state.workspace_snapshots = Store()
+    from core.resource_monitor import Monitor
+    app.state.resource_monitor = Monitor()
 
     # Allow local dev frontends (Vite, Live Server, etc.) in addition to same-origin.
     app.add_middleware(
@@ -521,6 +524,7 @@ def create_app() -> FastAPI:
     app.include_router(markdown_route.router)
     app.include_router(notebook_route.router)
     app.include_router(power_route.router)
+    app.include_router(resources_route.router)
     app.include_router(nb_exec_route.router)
     app.include_router(nb_runtime_route.router)
     app.include_router(ws_route.router)

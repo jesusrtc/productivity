@@ -3017,6 +3017,7 @@
   const _sidebarFileRequests = new Map();
   const _sidebarScanStates = new Map();
   function _sidebarScanLabel(state) {
+    if (state === 'paused') return 'File scans paused in Resources.';
     if (state === 'scanning') return 'Loading files…';
     if (state === 'queued') return 'Waiting to load files…';
     if (state === 'stalled' || state === 'error' || state === 'busy') return 'Files temporarily unavailable. Showing the last listing.';

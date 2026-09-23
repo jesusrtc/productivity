@@ -89,7 +89,7 @@ class Read:
     def status_code(self) -> int:
         if self.snapshot is not None:
             return 200
-        return 202 if self.scan["state"] in {"scanning", "queued"} else 503
+        return 202 if self.scan["state"] in {"scanning", "queued", "paused"} else 503
 
 
 class Store:
@@ -98,12 +98,13 @@ class Store:
         self._entries: OrderedDict[tuple, _Entry] = OrderedDict()
         self._threads: set[threading.Thread] = set()
         self._closed = False
+        self._paused = False
         self._hub = ChangeHub()
         self._retired = []
 
     def _start_pending_locked(self) -> None:
         """Bounded admission; first listings take priority over cached refreshes."""
-        while not self._closed and len(self._threads) < MAX_WORKERS:
+        while not self._closed and not self._paused and len(self._threads) < MAX_WORKERS:
             pending = [(key, entry) for key, entry in self._entries.items() if entry.queued]
             if not pending:
                 return
@@ -136,8 +137,13 @@ class Store:
             view = entry.index.begin(entry.progress, full=full)
             entry.progress.cache = view
             snapshot = collect(entry.progress)
+            if entry.progress.cancelled.is_set():
+                raise ScanCancelled()
+            # Watch retirement may do OS work; never hold the request lock.
             view.commit()
             with self._lock:
+                if entry.progress.cancelled.is_set():
+                    raise ScanCancelled()
                 entry.snapshot = snapshot
                 entry.error = None
                 entry.failures = 0
@@ -178,6 +184,9 @@ class Store:
             if self._closed:
                 return Read(None, {"state": "busy", "detail": "File service is stopping"})
             entry = self._entries.get(key)
+            if self._paused:
+                return Read(entry.snapshot if entry else None,
+                            {"state": "paused", "detail": "File scans paused in Resources"})
             if entry is None:
                 while len(self._entries) >= MAX_ROOTS:
                     victim = next((k for k, e in self._entries.items() if e.done.is_set()), None)
@@ -234,6 +243,33 @@ class Store:
             elif state == "stalled":
                 status["detail"] = f"File scan is waiting on {progress.operation}: {progress.path}"
             return Read(entry.snapshot, status)
+
+    def resource_status(self) -> dict:
+        """In-memory diagnostics: monitoring must never trigger a file scan."""
+        with self._lock:
+            scans = []
+            for key, entry in self._entries.items():
+                if entry.progress and not entry.done.is_set():
+                    state = "queued" if entry.queued else "scanning"
+                    if entry.progress.cancelled.is_set():
+                        state = "stopping"
+                    scans.append({"root": key[1], **entry.progress.status(state)})
+            return {"paused": self._paused, "scans": scans}
+
+    def pause(self, paused: bool) -> None:
+        """Cancel cooperatively and prevent browser polls restarting the work."""
+        with self._lock:
+            self._paused = paused
+            for entry in self._entries.values():
+                if paused:
+                    if entry.progress:
+                        entry.progress.cancelled.set()
+                    if entry.queued:
+                        entry.queued = None
+                        entry.done.set()
+                else:
+                    entry.reconciled = 0
+                    entry.index.invalidate()
 
     def invalidate_all(self) -> None:
         """Explicit reconciliation hook (also used by materialized test reads)."""

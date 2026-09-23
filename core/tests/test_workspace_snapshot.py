@@ -22,6 +22,38 @@ def snapshot(name='done.md', mtime=1):
     return ws.Snapshot([{'path': name}], mtime, name)
 
 
+def test_pause_cancels_active_and_queued_scans_preserves_cache_and_resumes(store, monkeypatch):
+    monkeypatch.setattr(ws, 'MAX_WORKERS', 1)
+    root, vault = Path('/repo'), Path('/vault')
+    first = store.read(vault, root, False, lambda _: snapshot('old'))
+    release = threading.Event()
+    def blocked(progress):
+        release.wait(2)
+        return snapshot('cancelled')
+    try:
+        store.read(vault, root, False, blocked, refresh=True)
+        store.read(vault, Path('/queued'), False, lambda _: snapshot('queued'))
+        assert len(store.resource_status()['scans']) == 2
+        store.pause(True)
+        assert store.resource_status()['paused']
+        assert len(store.resource_status()['scans']) == 1
+        cached = store.read(vault, root, False, blocked, refresh=True)
+        assert cached.snapshot is first.snapshot and cached.status_code == 200
+        assert cached.scan['state'] == 'paused'
+        assert store.read(vault, Path('/new'), False, blocked).status_code == 202
+        release.set()
+        assert store._entries[(str(vault), str(root), False)].done.wait(1)
+        assert store.read(vault, root, False, blocked).snapshot is first.snapshot
+        assert store.resource_status()['scans'] == []
+        store.pause(False)
+        updated = store.read(vault, root, False, lambda _: snapshot('new'))
+        assert store._entries[(str(vault), str(root), False)].done.wait(1)
+        updated = store.read(vault, root, False, lambda _: snapshot('new'))
+        assert updated.snapshot.files == [{'path': 'new'}]
+    finally:
+        release.set()
+
+
 def test_slow_progressing_scan_survives_deadline_and_shares_all_callers(store, monkeypatch):
     monkeypatch.setenv('LAB_FS_TIMEOUT_SECONDS', '0.06')
     release = threading.Event()
