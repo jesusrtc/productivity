@@ -246,3 +246,5 @@
 - [Terminal browser resources are bounded](terminal-browser-resources-are-bounded.md) — cap and expire hidden views, dispose active renderers and observers, and recover graphics without restarting sessions.
 
 - [Task terminals reuse existing sessions](task-terminals-use-existing-sessions.md) — explicit drag/drop links, preserved processes and drafts, no automatic task terminal creation.
+
+- [Working terminals use a steady yellow dot](terminal-working-steady-yellow-dot.md) — Codex, Claude, and Copilot; only the green ready-to-review line blinks.

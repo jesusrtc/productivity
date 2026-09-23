@@ -12178,10 +12178,15 @@
     };
   }
 
+  function _termSessionIsWorking(s) {
+    return s.agent_activity?.state === 'working' && !termDeadSessions.has(s.name);
+  }
+
   function _termSessionTooltipPayload(s) {
     const identity = _termSessionIdentity(s);
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
+      ...(_termSessionIsWorking(s) ? {working: true} : {}),
       ...(completion ? {completion: completion.label} : {}),
       ...(identity.length ? {identity} : {})});
   }
@@ -12352,6 +12357,7 @@
     const latest = _termPreviewRequests(items);
     const identityHtml = _termSessionIdentityHtml(Array.isArray(payload.identity) ? payload.identity : []);
     const completion = typeof payload.completion === 'string' ? payload.completion : '';
+    const working = payload.working === true;
     const anchorRect = anchor.getBoundingClientRect();
     const panel = anchor.closest?.('.term-panel');
     const boundary = panel ? panel.getBoundingClientRect().left : anchorRect.left;
@@ -12359,7 +12365,7 @@
     const availableWidth = boundary - gap * 2;
     // Never flip above/below or into the terminal. A full-width terminal may
     // leave no usable space on the left; its selected header still has history.
-    if ((!latest.length && !identityHtml && !completion) || availableWidth < 120) {
+    if ((!latest.length && !identityHtml && !completion && !working) || availableWidth < 120) {
       _termHideSessionTooltip();
       return;
     }
@@ -12370,6 +12376,7 @@
       tooltip._termInteractive = true;
     }
     tooltip.innerHTML = `
+      ${working ? '<div class="term-working-summary">Working</div>' : ''}
       ${completion ? `<div class="term-completion-summary">${termSessEsc(completion)}</div>` : ''}
       ${identityHtml ? `<div class="term-context-identity">${identityHtml}</div>` : ''}
       ${latest.length ? `<div class="term-session-tooltip-context">
@@ -12415,6 +12422,7 @@
     const recent = recentMeta ? ' recent' : '';
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     const ready = completion ? ' completion-ready' : '';
+    const working = _termSessionIsWorking(s);
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -12422,7 +12430,7 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${visual.badge}${completion ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${visual.badge}${working ? ' · Working' : ''}${completion ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
@@ -12432,6 +12440,7 @@
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
+      ${working ? '<span class="sess-working" aria-hidden="true"></span>' : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
   }

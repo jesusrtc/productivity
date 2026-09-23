@@ -823,6 +823,41 @@ process.stdout.write(JSON.stringify({requests, objective}));
     assert result["objective"] == {"items": ["Old request", "Newest request"]}
 
 
+def test_terminal_working_indicator_uses_current_state_and_hides_unreachable() -> None:
+    helpers = _js_between(
+        "function _termSessionDisplay(s)",
+        "function _termMarkVisibleCompletionSeen()",
+    )
+    result = _run_node("""
+const termDeadSessions = new Set();
+const termCurrentSession = null, termCurrentWorkspaceId = 'demo';
+const _termActiveWorkspaceId = () => 'demo';
+const _termSessionRecentMeta = () => null;
+const termSessEsc = value => String(value);
+""" + helpers + """
+const rows = [];
+for (const agent of ['codex', 'claude', 'copilot']) {
+  const session = {name:agent, agent, kind:'claude'};
+  // A previously working row must lose its dot on every non-working state.
+  for (const state of ['working', 'completed', 'working', 'waiting', 'error', 'interrupted', 'unknown', undefined]) {
+    session.agent_activity = state ? {state} : undefined;
+    const html = _termSessionPillHtml(session, 0);
+    rows.push({state:state || 'absent',
+      dot:html.includes('class="sess-working"'),
+      label:html.includes(' · Working'),
+      tooltip:JSON.parse(_termSessionTooltipPayload(session)).working === true});
+  }
+  session.agent_activity = {state:'working'};
+  termDeadSessions.add(agent);
+  rows.push({state:'unreachable', dot:_termSessionPillHtml(session, 0).includes('class="sess-working"'),
+    tooltip:JSON.parse(_termSessionTooltipPayload(session)).working === true, label:false});
+}
+console.log(JSON.stringify({rows}));
+""")
+    for row in result['rows']:
+        assert row['dot'] == row['label'] == row['tooltip'] == (row['state'] == 'working')
+
+
 def test_vault_view_opens_shared_home_terminal_scope() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     term_open = _js_between(

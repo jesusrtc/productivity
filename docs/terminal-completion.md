@@ -1,9 +1,15 @@
-# Terminal completion indicators
+# Terminal activity and completion indicators
+
+Codex, Claude, and Copilot terminal tabs show a **steady yellow dot** while the
+recorded agent state is working. Hover and the tab's accessible label say
+“Working.” The dot does not blink and disappears on the next refresh when work
+finishes or the recorded state becomes waiting, interrupted, errored, or unknown.
+Unreachable terminals do not show it. There is no viewing delay for this dot.
 
 Codex, Claude, and Copilot terminal tabs blink their green left-edge vertical
 line when a completed response is ready to review. A steady line means recently
 selected. The same 3px line is used for both states, including on the active tab
-while a response is unread; there is no separate dot. It follows the existing
+while a response is unread; there is no separate completion dot. It follows the existing
 recent-marker color setting and blinks on/off every 0.8 seconds with a slight
 glow. Reduced-motion preferences use a steady glowing line instead.
 Hovering shows when the response finished without acknowledging it.
@@ -37,11 +43,18 @@ do not scan transcripts.
 - **Claude:** use the launched conversation ID and workspace transcript;
   `assistant.message.stop_reason` of `end_turn` or `stop_sequence` completes a
   response. API errors, tool calls, and `turn_duration` alone do not.
+  `turn_duration` clears unfinished working state without claiming completion.
 - **Copilot:** use the conversation's `events.jsonl`. Require a completed
   `assistant.message` containing text with no `toolRequests`, followed by an
   `assistant.turn_end` for that same turn. Tool batches also emit turn-end
   events, so a turn-end alone is insufficient. Errors, interruptions, and
   shutdown events do not create signals. Child-agent events are ignored.
+  Resuming a session or changing its context does not start work; resume clears
+  unfinished state left by the previous process.
+
+Working is based on recorded request/turn activity, not output silence. Updates
+arrive with the normal scoped refresh; a provider pause or abrupt termination
+without a recorded state change cannot be distinguished from ongoing work.
 
 The provider protocols distinguish response/turn completion from successfully
 fulfilling every part of a user request. The blinking line means a response is ready to
@@ -62,7 +75,9 @@ errors, interruptions, children, malformed/partial files, cache invalidation,
 bounded reads, and exact conversation lookup. `test_frontend_terminal_completion.py`
 covers unread persistence, scope isolation, newer responses, uncertain state,
 the exact viewing threshold, switching/visibility resets, configurable delay,
-and focused/visible/connected acknowledgement. Settings browser checks verify
+and focused/visible/connected acknowledgement. `test_frontend_terminal_ui.py`
+checks that working dots and labels follow the current state for all three
+agents, including unreachable terminals. Settings browser checks verify
 the default, saving, and reopening the delay field.
 
 Browser verification uses synthetic terminal rows and a synthetic attachment

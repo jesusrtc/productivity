@@ -72,13 +72,16 @@ def test_copilot_tool_turn_is_not_a_completed_response():
     ('codex', [codex('task_complete', error={'message': 'failed'})], 'error'),
     ('codex', [codex('exec_approval_request')], 'waiting'),
     ('codex', [codex('task_started'), event('event_msg', payload={'type': 'task_complete', 'turn_id': 'other'})], 'working'),
-    ('claude', [claude('tool_use'), event('system', subtype='turn_duration')], 'working'),
+    ('claude', [claude('tool_use'), event('system', subtype='turn_duration')], 'unknown'),
     ('claude', [claude('end_turn', isApiErrorMessage=True)], 'error'),
     ('claude', [claude('max_tokens')], 'working'),
     ('copilot', [copilot('assistant.message', content='Done'), copilot('permission.requested'), copilot('assistant.turn_end')], 'waiting'),
     ('copilot', [copilot('assistant.message', content='Done'), copilot('abort'), copilot('assistant.turn_end')], 'interrupted'),
     ('copilot', [copilot('session.shutdown')], 'interrupted'),
     ('copilot', [copilot('session.error')], 'error'),
+    ('copilot', [copilot('session.resume'), copilot('session.context_changed')], 'unknown'),
+    ('copilot', [copilot('assistant.turn_start'), copilot('session.resume')], 'unknown'),
+    ('copilot', [copilot('assistant.turn_start'), copilot('session.context_changed')], 'working'),
 ])
 def test_non_completion_boundaries(agent, events, expected):
     assert activity.response_state(agent, events) == {'state': expected}
@@ -86,6 +89,15 @@ def test_non_completion_boundaries(agent, events, expected):
 
 def test_completion_requires_a_valid_timestamp():
     assert activity.response_state('claude', [{'type': 'assistant', 'message': {'stop_reason': 'end_turn'}}]) == {'state': 'unknown'}
+
+
+@pytest.mark.parametrize('agent,events', [
+    ('claude', [claude('end_turn'), event('system', subtype='turn_duration')]),
+    ('copilot', [copilot('assistant.message', content='Done'), copilot('assistant.turn_end'),
+                 copilot('session.resume'), copilot('session.context_changed')]),
+])
+def test_idle_bookkeeping_preserves_a_confirmed_completion(agent, events):
+    assert activity.response_state(agent, events)['state'] == 'completed'
 
 
 def write_events(path, events):

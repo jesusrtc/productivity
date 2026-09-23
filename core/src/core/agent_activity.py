@@ -91,10 +91,19 @@ def response_state(agent: str, events: list[dict]) -> dict:
                 else:
                     # Includes tool use, streaming fragments and token limits.
                     set_state('working')
-            # turn_duration is also emitted after interruptions. It is NOT
-            # evidence of a completed response, even if the CLI is now idle.
+            elif kind == 'system' and event.get('subtype') == 'turn_duration':
+                # Also emitted after interruptions: the CLI stopped working,
+                # but this does not prove it produced a completed response.
+                if state['state'] in {'working', 'waiting'}:
+                    set_state('unknown')
         elif agent == 'copilot':
-            if kind in {'user.message', 'session.resume', 'session.context_changed'}:
+            if kind == 'session.resume':
+                turn, final_message = None, False
+                # Opening a conversation is not a new request. Discard any
+                # in-flight state left by its previous process.
+                if state['state'] in {'working', 'waiting'}:
+                    set_state('unknown')
+            elif kind == 'user.message':
                 turn, final_message = None, False
                 set_state('working')
             elif kind == 'assistant.turn_start':
