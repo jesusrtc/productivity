@@ -1,5 +1,7 @@
 # Memory index
 
+- [Assistant navigation defers background refresh](assistant-navigation-defers-background-refresh.md) — finish the clicked view and deep link, then read fresh once; preserve newer actions, retries, normal polling and remaining latency misses.
+
 - [Assistant descendants use ordered child indexes](assistant-descendants-use-ordered-child-indexes.md) — reuse current parent groups while preserving traversal/errors; the 500-note HTTP budget passes, but native tails remain.
 - [Assistant progress recursion retains rows](assistant-progress-recursive-closure-retains-rows.md) — weak references prove an outstanding closure cycle; measure its effect separately without changing production GC.
 

@@ -2,6 +2,43 @@
 import {readFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 
+// A controlled overlap, not watcher/WebSocket delivery timing. Never delay a
+// native click, alter readiness, mock a response, or disable normal polling.
+export async function installAssistantRefreshStress(evaluate,workspaceRoot,delayMs) {
+  if(!/\/lab-navigation-[^/]+\/vault\/workspaces$/.test(workspaceRoot))throw Error('Assistant refresh stress requires the disposable fixture');
+  if(!Number.isInteger(delayMs)||delayMs<1||delayMs>1000)throw Error('Assistant refresh delay must be 1–1000 ms');
+  await evaluate(`(()=>{
+    const original=AssistantView.init,events=[];let generation=0;
+    AssistantView.init=function(...args){
+      const owner=++generation,event={started:performance.now(),delivered:false};events.push(event);
+      const result=original.apply(this,args);
+      setTimeout(()=>{
+        event.fired=performance.now();
+        if(owner!==generation||!document.body.classList.contains('assistant-active'))return;
+        event.delivered=true;
+        AssistantView.refresh({backgroundRefresh:true}).then(()=>event.completed=performance.now(),error=>event.error=String(error));
+      },${delayMs});
+      return result;
+    };
+    window.__assistantRefreshStress=()=>({delayMs:${delayMs},events});
+  })()`);
+}
+
+export function assistantRefreshCoverage(rows,events) {
+  return rows.filter(row=>row.kind==='assistant-open').map(row=>{
+    const start=row.clock.source,end=start+row.ms;
+    const deliveries=events.filter(event=>event.started>=start && event.started<=end
+      && event.delivered && event.fired>=event.started && event.fired<=end && !event.error);
+    const delivered=deliveries.length;
+    // A late timer after the initial request would not test the targeted race.
+    const initial=row.requests.find(request=>request.route==='/api/assistant');
+    const overlapping=deliveries.filter(event=>initial && start+initial.start<=event.fired
+      && start+initial.start+initial.ms>event.fired).length;
+    const completed=deliveries.filter(event=>Number.isFinite(event.completed) && event.completed>=event.fired).length;
+    return {sample:row.sample,delivered,overlapping,completed};
+  });
+}
+
 export function assistantReady(expected,view) {
   if(!document.body.classList.contains('assistant-active') || currentWorkspace?.path!==expected.root)return false;
   const content=document.getElementById('content');

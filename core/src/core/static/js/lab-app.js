@@ -10927,7 +10927,7 @@
           vaultPopulateSidebar();
         } else if (isAssistant) {
           _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
-          if (window.AssistantView) window.AssistantView.refresh();
+          if (window.AssistantView) window.AssistantView.refresh({backgroundRefresh: true});
         } else {
           showWorkspaceInfo({preserveScroll: true, backgroundRefresh: true});
         }
@@ -19049,7 +19049,7 @@
             if (_workspaceDocPath) {
               openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
             } else if (window.AssistantView) {
-              window.AssistantView.refresh();
+              window.AssistantView.refresh({backgroundRefresh: true});
             }
             if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
           } else if (currentWorkspace && currentWorkspace.is_workspace

@@ -14,7 +14,7 @@ import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 import {documentEditActions,verifyEditedDocuments,verifyDocumentHistory} from './document_edit_workload.mjs';
 import {runDocumentTyping} from './document_typing_probe.mjs';
-import {assistantActions} from './assistant_workload.mjs';
+import {assistantActions,installAssistantRefreshStress,assistantRefreshCoverage} from './assistant_workload.mjs';
 import {notebookViewActions} from './notebook_view_workload.mjs';
 import {runNotebookTyping} from './notebook_typing_probe.mjs';
 import {installNavigationRefreshProbe,installNavigationRefreshStress,navigationRefreshCoverage} from './navigation_refresh_probe.mjs';
@@ -240,6 +240,7 @@ async function main() {
     } else if(terminalCreation) {
       actions.push(...await terminalCreationActions(evaluate,workspaceRoot,samples,terminalCreation));
     } else if(assistant) {
+      if(process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY)await installAssistantRefreshStress(evaluate,workspaceRoot,Number(process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY));
       actions.push(...await assistantActions(evaluate,workspaceRoot,samples,assistant));
     } else if(notebookView) {
       actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples,{typing:process.env.LAB_PERF_NOTEBOOK_TYPING==='1'}));
@@ -563,12 +564,17 @@ async function main() {
       refreshStress.coverage=navigationRefreshCoverage(rows,refreshStress.events,workspaceRoot);
       refreshStress.misses=refreshStress.coverage.filter(row=>!row.delivered);
     }
+    const assistantRefreshStress=process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY?await evaluate('__assistantRefreshStress()'):null;
+    if(assistantRefreshStress){
+      assistantRefreshStress.coverage=assistantRefreshCoverage(rows,assistantRefreshStress.events);
+      assistantRefreshStress.misses=assistantRefreshStress.coverage.filter(row=>!row.delivered||!row.overlapping||!row.completed);
+    }
     const inputSetupMisses=inputSetups.filter(row=>!row.completed||row.ms>=200);
     const documentTypingMisses=documentTyping.filter(row=>!row.done||!row.clockCheck.valid||row.ms>=200);
     const notebookTypingMisses=notebookTyping.filter(row=>!row.done||!row.clockCheck.valid||row.ms>=200);
     const documentHistoryMisses=documentHistory.filter(row=>!row.verified||row.ms>=200);
-    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,documentTyping,documentTypingMisses,notebookTyping,notebookTypingMisses,documentHistory,documentHistoryMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
-    if(misses.length || inputSetupMisses.length || documentTypingMisses.length || notebookTypingMisses.length || documentHistoryMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length)process.exitCode=1;
+    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,assistantRefreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,documentTyping,documentTypingMisses,notebookTyping,notebookTypingMisses,documentHistory,documentHistoryMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    if(misses.length || inputSetupMisses.length || documentTypingMisses.length || notebookTypingMisses.length || documentHistoryMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length || assistantRefreshStress?.misses.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
     const diagnosticsErrors=await finishDiagnostics();

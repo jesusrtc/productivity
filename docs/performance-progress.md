@@ -6297,3 +6297,152 @@ The overall goal remains open for the retained native/API misses and earlier
 search, cold workspace/terminal creation, loaded terminal typing and physical
 parity gaps. Main merge remains pending after the earlier automatic approval
 rejection; no merge, push or live-server restart was attempted.
+
+
+## Finish Assistant navigation before background reconciliation (2026-09-23)
+
+The preceding checkpoint retained an Assistant open at 362.2 ms with two
+individually sub-200 ms requests. Inspection found that the mtime callback,
+WebSocket index-update callback and five-second Assistant poll all called the
+same `refresh` function as navigation. Each call advanced the request generation,
+so an overlapping background read could invalidate the result opening the view
+and its requested document.
+
+Those three callers now explicitly request background refresh. While the current
+`open` refresh is pending, background events share one follow-up promise. The
+initial read renders its list, loads legacy note files when needed and finishes
+opening the requested document; then the follow-up reads fresh data. It does
+not reuse the first response as the new result. Request generation, section and
+active-view checks discard queued work after newer actions or departure. An old
+completion cannot clear a newer navigation owner. Initial errors release the
+queued retry. Explicit user refreshes, mutations and later navigation remain
+immediate. Poll frequencies, endpoint responses, editor/draft guards and ordinary
+background behavior outside initial navigation remain unchanged.
+
+### Controlled overlap and ordinary native controls
+
+The optional fixture-only `--assistant-refresh-delay 20` calls the normal
+background entry point 20 ms after each native Assistant entry. It neither waits
+before clicks nor changes readiness, responses or polling. Coverage requires
+each injected event to arrive during that click's **first** Assistant request;
+late delivery, missed delivery, an incomplete returned promise or overlap with
+only a later request fails coverage. This measures controlled overlap, not watcher/WebSocket delivery
+latency. Both runs delivered all 20 events during the initial request and all
+20 returned promises completed.
+
+Every run retains 500 notes, 100 embedded subtabs, 5,000 mixed files and 2,500 Git
+changes per workspace. Each performs 80 clicks: 20 Assistant entries, 40
+All/Starred switches and 20 alternating workspace returns. Original controls
+restore only the two production JavaScript files to `1b09359`. The candidate
+files were restored byte for byte afterward. No tests or heavy diagnostics ran
+concurrently with the timing runs.
+
+| Controlled 20 ms overlap | Assistant first | Assistant p50 | Assistant p95 | Assistant maximum | Assistant misses / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original | 238.0 ms | 264.9 ms | 345.0 ms | 364.1 ms | 20 |
+| Candidate | 164.3 ms | 184.1 ms | 284.4 ms | 285.4 ms | 4 |
+
+All 60 other actions passed in each controlled run. The four candidate entry
+failures were 281.2, 251.1, 285.4 and 284.4 ms. In each, the initial API request
+itself took 225–260 ms; the follow-up handler began only after that read finished.
+Browser-request misses fell from 16/527 to 4/522. ASGI misses were 1/553 in the
+original and 4/548 in the candidate; this frontend change does not establish a
+server-side latency improvement. API maxima were 274.50 and 259.60 ms at the
+browser, and 232.72 and 258.18 ms inside ASGI.
+
+The ordinary, unprofiled sequence was candidate, restored original, then restored
+candidate repeat. It had no injected refreshes:
+
+| Ordinary native run | Assistant first | Assistant p50 | Assistant maximum | Assistant misses / 20 | Workspace maximum / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Candidate | 166.2 ms | 194.9 ms | 271.2 ms | 6 | 171.0 ms |
+| Restored original | 164.6 ms | 202.3 ms | 281.5 ms | 11 | 166.1 ms |
+| Candidate repeat | 180.4 ms | 180.1 ms | 264.4 ms | 3 | 238.0 ms |
+
+The two ordinary candidates passed **150/160 actions**: 31/40 Assistant entries,
+80/80 view switches and 39/40 workspace returns. Preserve all ten misses:
+Assistant 228.1, 214.1, 209.3, 271.2, 200.5, 264.3, 214.8, 264.4 and 201.1 ms,
+and the repeat's first workspace return at 238.0 ms. View maxima were 39.3 and
+39.6 ms. These failures keep the overall objective open.
+
+The natural control included a 279.1 ms entry with reads starting at 2.1 and
+18.8 ms and lasting 165.4 and 227.5 ms, respectively. This reproduces the targeted
+overlap under normal polling. The candidate's remaining slow entries typically
+have a single slow first read or additional render work, rather than waiting
+for an overlapping replacement read.
+
+Ordinary browser-request misses were 3/500, 4/513 and 1/443; ASGI misses were
+3/526, 3/539 and 1/469, respectively. Candidate browser maxima were 233.30 and
+235.50 ms, versus 250.40 ms in the control. ASGI maxima were 231.85, 249.16 and
+233.57 ms. Counts vary with normal polling and elapsed runtime. All five runs
+had no browser/HTTP errors or failed requests, valid input clocks, complete
+rendered-card/section checks, exact Markdown verification after every cycle,
+and the expected 2,500 changed Git paths, 5,000 modified rows and 5,000 clean rows.
+These are browser-input through render-opportunity timings, not physical display
+or iTerm parity measurements.
+
+### Separate passive GC diagnostic
+
+A sixth full native candidate run enabled existing passive GC callbacks without
+changing runtime policy or forcing collection. It is reported separately from
+the ordinary samples. Assistant first/p50/maximum were 185.2/151.8/249.7 ms;
+two entries and the first workspace return (237.6 ms) missed the budget. All
+40 view switches passed. Browser requests had 2/443 misses (maximum 216.40 ms),
+and ASGI had 2/469 (maximum 214.78 ms). Content, Git, clocks and errors checks
+passed unchanged.
+
+The trace recorded 597 collections, 210.99 ms total and 19.39 ms maximum, with
+no dropped events. GC remained enabled at thresholds `[2000, 10, 0]`. A 231.8 ms
+Assistant open overlapped 14.41 ms of collection, including 46,952 collected
+objects. Another 249.7 ms open overlapped only 0.04 ms, with none collected;
+its handler took 207.71 ms elapsed but 119.18 ms of thread CPU. The 237.6 ms
+workspace return overlapped only 0.01 ms of GC. The earlier recursive-closure
+retention finding remains valid, but collection alone cannot explain the
+remaining delays. Further server computation and waiting diagnostics are needed;
+this checkpoint changes neither backend code nor GC policy.
+
+### Verification and cleanup
+
+The combined Assistant API/browser, dashboard lifecycle and timing-guard suite
+recorded **276 passes and one known baseline failure** in 87.72 seconds.
+`test_custom_attributes_browser` still timed out at
+`mutations===count&&!editor()`, matching the failure already reproduced against
+the original endpoint. The earlier 20-test focused smoke run passed; it overlaps
+the broad suite and is not added to the total. No CLI implementation changed. A final
+completion guard in the driver passed all 13 timing-guard tests; replaying it
+against all 40 saved injected events confirmed delivery, initial-read overlap
+and completion. This final change only checks results and does not alter clicks
+or production code.
+
+Twelve new lifecycle cases cover rendering before fresh reconciliation, merging
+multiple background events, deep links, legacy note files, delayed modal opening,
+explicit refreshes, reentry, section changes, departure, a saved generation,
+older completion ownership, HTTP/network/JSON failures and visibility guards.
+Five added timing-driver cases preserve receiver/arguments, reject stale or late
+injections, require overlap with the first request and reject invalid workflows
+before fixture creation. Existing browser cases retain drafts, focus/selection,
+metadata, task progress, dashboard edits, series navigation and file contents.
+
+Three changed Python files parse; four JavaScript files pass `node --check`;
+`git diff --check` passes. Both production files match the saved tested candidate.
+All six benchmark servers stopped, and the final owned process/directory
+inventory found no benchmark processes, Chrome profiles or fixture roots.
+No main-checkout files, user Assistant data, live server or user tmux sessions
+were changed.
+
+Artifacts: `/tmp/lab-assistant-refresh-{stress-before,stress-after,native-after,native-control,native-repeat,native-gc}-{browser,server}.json`
+and logs; `/tmp/lab-assistant-refresh-{summary,gc-summary,cleanup}.json`;
+`/tmp/lab-assistant-refresh-{focused,tests,driver-final}.log`,
+`/tmp/lab-assistant-refresh-final-coverage.json` and saved candidate JavaScript.
+Reproduce the normal run with the checkout's Python environment:
+
+```sh
+python scripts/perf/lab_navigation_latency.py --assistant --assistant-notes 500 --samples 20 --extra-files 5000 --extra-file-types md,py,json,sql --git-changes 2500 --server-timings /tmp/assistant-refresh-new-server.json > /tmp/assistant-refresh-new-browser.json
+```
+
+Add `--assistant-refresh-delay 20` for the separately labeled controlled overlap,
+or `--trace-gc` for the separately labeled passive diagnostic. Keep all first
+samples and failures. The global goal also retains earlier search, cold UI,
+terminal creation/loaded typing and physical parity gaps. Main merge remains
+pending after the earlier automatic approval rejection; no merge, push or live
+server restart was attempted.

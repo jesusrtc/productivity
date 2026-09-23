@@ -22,6 +22,7 @@
     modalCurrent: null,
     modalKind: '',
     request: 0,
+    navigation: null,
     modalRequest: 0,
     poll: null,
     searchTimer: null,
@@ -2274,6 +2275,29 @@
   }
 
   async function refresh(options = {}) {
+    const navigation = state.navigation;
+    if (options.backgroundRefresh && navigation?.request === state.request
+        && navigation.section === state.section) {
+      // A file event must not replace the read opening this view/document.
+      // Read again afterward so changes during that read still arrive.
+      if (!navigation.refresh) navigation.refresh = navigation.done.then(() => {
+        if (navigation.request !== state.request || navigation.section !== state.section
+            || !document.body.classList.contains('assistant-active')) return;
+        return refresh({backgroundRefresh: true});
+      });
+      return navigation.refresh;
+    }
+    const pending = load(options);
+    if (!options.open) return pending;
+    const owner = {request: state.request, section: state.section};
+    state.navigation = owner;
+    owner.done = pending.finally(() => {
+      if (state.navigation === owner) state.navigation = null;
+    });
+    return owner.done;
+  }
+
+  async function load(options) {
     const section = state.section;
     const request = ++state.request;
     try {
@@ -2339,7 +2363,7 @@
     refresh({task: state.selectedTaskPath, meeting: state.selectedMeetingPath, series: state.selectedSeriesPath, workspace: state.workspace, open: true});
     if (!state.poll) {
       state.poll = setInterval(() => {
-        if (document.body.classList.contains('assistant-active') && !document.hidden) refresh();
+        if (document.body.classList.contains('assistant-active') && !document.hidden) refresh({backgroundRefresh: true});
       }, 5000);
     }
   }

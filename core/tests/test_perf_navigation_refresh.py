@@ -139,6 +139,9 @@ def test_refresh_stress_coverage_keeps_missed_and_late_deliveries():
     (['--navigation-refresh-delay', '1001'], 'between 1 and 1000'),
     (['--navigation-refresh-delay', '20', '--document-edit'], 'standalone navigation'),
     (['--navigation-refresh-delay', '20', '--typing'], 'standalone navigation'),
+    (['--assistant-refresh-delay', '20'], 'requires --assistant'),
+    (['--assistant', '--assistant-refresh-delay', '0'], 'delay of 1'),
+    (['--assistant', '--assistant-refresh-delay', '1001'], 'delay of 1'),
 ])
 def test_refresh_stress_rejects_invalid_workflows_before_fixture_creation(arguments, message):
     root = Path(__file__).resolve().parents[2]
@@ -146,3 +149,60 @@ def test_refresh_stress_rejects_invalid_workflows_before_fixture_creation(argume
                             capture_output=True, text=True)
     assert result.returncode == 2
     assert message in result.stderr
+
+
+def test_assistant_refresh_stress_retains_receiver_and_rejects_stale_delivery():
+    result = _run_node(r'''
+(async()=>{
+  const {installAssistantRefreshStress}=await import('./scripts/perf/assistant_workload.mjs');
+  const vm=require('vm'),assert=require('assert/strict'),timers=[],calls=[];
+  let evaluations=0,active=true;
+  const root='/tmp/lab-navigation-owned/vault/workspaces';
+  await assert.rejects(()=>installAssistantRefreshStress(()=>evaluations++,'/user/workspaces',20),/disposable fixture/);
+  for(const delay of [0,1.5,1001,NaN])await assert.rejects(()=>installAssistantRefreshStress(()=>evaluations++,root,delay),/delay must/);
+  assert.equal(evaluations,0);
+  const result={},context={calls,result,performance:{now:()=>10},document:{body:{classList:{contains:()=>active}}},setTimeout:(fn,delay)=>{assert.equal(delay,20);timers.push(fn)}};
+  context.window=context;vm.createContext(context);
+  vm.runInContext('const AssistantView={init(...args){calls.push({receiver:this===AssistantView,args});return result},refresh(options){calls.push(options);return Promise.resolve()}}',context);
+  await installAssistantRefreshStress(code=>vm.runInContext(code,context),root,20);
+  assert.equal(vm.runInContext('AssistantView.init({task:"first"})',context),result);
+  timers.shift()();await Promise.resolve();
+  assert.equal(calls[0].receiver,true);assert.equal(calls[0].args[0].task,'first');assert.equal(calls[1].backgroundRefresh,true);
+  vm.runInContext('AssistantView.init({});AssistantView.init({});',context);
+  const count=calls.length;timers.shift()();assert.equal(calls.length,count,'old entry no longer receives injection');
+  active=false;timers.shift()();assert.equal(calls.length,count,'departed view receives no injection');
+  const trace=context.__assistantRefreshStress();
+  process.stdout.write(JSON.stringify({events:trace.events.length,delivered:trace.events.filter(x=>x.delivered).length,completed:trace.events.filter(x=>x.completed).length}));
+})().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+    assert result == {'events': 3, 'delivered': 1, 'completed': 1}
+
+
+def test_assistant_refresh_coverage_rejects_late_timers_and_overlap_with_only_second_read():
+    result = _run_node(r'''
+(async()=>{
+  const {assistantRefreshCoverage}=await import('./scripts/perf/assistant_workload.mjs');
+  const rows=Array.from({length:7},(_,i)=>({sample:i+1,kind:'assistant-open',clock:{source:i*100},ms:80,
+    requests:[{route:'/api/assistant',start:2,ms:25},{route:'/api/assistant',start:40,ms:30}]}));
+  rows.push({kind:'assistant-view'});
+  const events=[
+    {started:1,fired:20,delivered:true,completed:90},
+    {started:101,fired:120,delivered:false},
+    {started:201,fired:281,delivered:true},
+    {started:301,fired:345,delivered:true},
+    {started:401,fired:420,delivered:true,error:'failed'},
+    {started:501,fired:501,delivered:true},
+    {started:601,fired:620,delivered:true},
+  ];
+  process.stdout.write(JSON.stringify(assistantRefreshCoverage(rows,events)));
+})().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+    assert result == [
+        {'sample': 1, 'delivered': 1, 'overlapping': 1, 'completed': 1},
+        {'sample': 2, 'delivered': 0, 'overlapping': 0, 'completed': 0},
+        {'sample': 3, 'delivered': 0, 'overlapping': 0, 'completed': 0},
+        {'sample': 4, 'delivered': 1, 'overlapping': 0, 'completed': 0},
+        {'sample': 5, 'delivered': 0, 'overlapping': 0, 'completed': 0},
+        {'sample': 6, 'delivered': 1, 'overlapping': 0, 'completed': 0},
+        {'sample': 7, 'delivered': 1, 'overlapping': 1, 'completed': 0},
+    ]

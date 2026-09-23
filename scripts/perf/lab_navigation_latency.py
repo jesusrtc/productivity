@@ -50,6 +50,7 @@ parser.add_argument('--document-typing', action='store_true', help='Also measure
 parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
 parser.add_argument('--assistant', action='store_true', help='Measure Assistant entry, All and Starred views through full native rendering')
 parser.add_argument('--assistant-notes', type=int, default=100, help='Notes in the owned Assistant fixture (at least 2)')
+parser.add_argument('--assistant-refresh-delay', type=int, help='Controlled overlap: invoke an Assistant background refresh 1–1000 ms after each entry; normal polling remains enabled')
 parser.add_argument('--notebook-view', action='store_true', help='Measure notebook opening, code visibility and output folding with native clicks (does not execute cells)')
 parser.add_argument('--notebook-cells', type=int, default=200, help='Cells per notebook-view fixture (default: 200)')
 parser.add_argument('--notebook-typing', action='store_true', help='Measure native notebook keys, visible highlighting and draft restoration (requires --notebook-view; does not execute cells)')
@@ -69,6 +70,8 @@ if args.assistant and any((args.typing,args.resize,args.create,args.settings,arg
     parser.error('--assistant measures a separate workflow and cannot be combined with other workflows')
 if args.assistant_notes < 2:
     parser.error('--assistant-notes must be at least 2')
+if args.assistant_refresh_delay is not None and (not args.assistant or not 1 <= args.assistant_refresh_delay <= 1000):
+    parser.error('--assistant-refresh-delay requires --assistant and a delay of 1–1000 ms')
 if args.samples < 2:
     parser.error('--samples must be at least 2')
 if args.terminal_create and any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit,args.notebook_view)):
@@ -393,6 +396,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_DOCUMENT_TYPING': str(int(args.document_typing)),
                      'LAB_PERF_DOCUMENT_HISTORY': str(int(args.document_history)),
                      'LAB_PERF_ASSISTANT_FILE': str(base / 'assistant-expected.json') if assistant_fixture else '',
+                     'LAB_PERF_ASSISTANT_REFRESH_DELAY': str(args.assistant_refresh_delay or ''),
                      'LAB_PERF_NOTEBOOK_VIEW': str(int(args.notebook_view)),
                      'LAB_PERF_NOTEBOOK_TYPING': str(int(args.notebook_typing)),
                      'LAB_PERF_NOTEBOOK_CODE_LINES': str(args.notebook_code_lines),
