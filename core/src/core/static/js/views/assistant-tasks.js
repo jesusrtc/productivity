@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const state = {doc:null,options:null,host:null,scope:null,tab:'dashboard',busy:false,showAll:false,wipOnly:false,form:null};
+  const state = {doc:null,options:null,host:null,scope:null,tab:'dashboard',busy:false,showAll:false,wipOnly:false,form:null,highlightId:null};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const key = name => 'lab.assistant.tasks.v1:' + state.options.database + ':' + name;
   const get = (name, fallback) => { try { return JSON.parse(localStorage.getItem(key(name))) ?? fallback; } catch (_) { return fallback; } };
@@ -27,15 +27,25 @@
   const priorityOptions = selected => ['P0','P1','P2','P3'].map(value => `<option value="${value}"${selected === value ? ' selected' : ''}>${value} · ${{P0:'Urgent',P1:'Important',P2:'Normal',P3:'Someday'}[value]}</option>`).join('');
   const tabOptions = (doc, selected, inherited = false) => `<option value="">${inherited ? 'Follow parent tab' : 'No linked tab'}</option>` + doc.tabs.map(tab => `<option value="${esc(tab.id)}"${selected === tab.id ? ' selected' : ''}>${esc(tab.title)}</option>`).join('');
 
+  function highlightedBranch(doc, task) {
+    let row = doc.tasks.find(item => item.id === state.highlightId);
+    const seen = new Set();
+    while (row && !seen.has(row.id)) {
+      if (row.id === task.id) return true;
+      seen.add(row.id); row = doc.tasks.find(item => item.id === row.parent_id);
+    }
+    return false;
+  }
+
   function taskRow(doc, task, scope, depth = 0) {
     const nested = children(doc, task.id).filter(child => scope.has(child.id));
     const completed = done(doc, task), tab = doc.tabs.find(tab => tab.id === linkedTab(doc, task));
-    const collapsed = get(doc.id + ':collapsed', []), expanded = state.showAll && !collapsed.includes(task.id);
+    const collapsed = get(doc.id + ':collapsed', []), expanded = highlightedBranch(doc,task) || state.showAll && !collapsed.includes(task.id);
     const allChildren = children(doc, task.id);
     const label = task.title;
-    return `<li class="assistant-tasks-task${completed ? ' is-done' : ''}" data-task="${esc(task.id)}" data-terminal-document="${esc(doc.id)}" data-terminal-task="${esc(task.id)}">
+    return `<li class="assistant-tasks-task${completed ? ' is-done' : ''}${state.highlightId === task.id ? ' is-terminal-target' : ''}" tabindex="-1" data-task="${esc(task.id)}" data-terminal-document="${esc(doc.id)}" data-terminal-task="${esc(task.id)}">
       <div class="assistant-tasks-task-row">
-        ${nested.length && state.showAll ? `<button type="button" class="assistant-tasks-disclosure" data-collapse="${esc(task.id)}" aria-label="${expanded ? 'Hide' : 'Show'} subtasks for ${esc(label)}" aria-expanded="${expanded}">${expanded ? '▾' : '▸'}</button>` : '<span class="assistant-tasks-disclosure"></span>'}
+        ${nested.length && (state.showAll || highlightedBranch(doc,task)) ? `<button type="button" class="assistant-tasks-disclosure" data-collapse="${esc(task.id)}" aria-label="${expanded ? 'Hide' : 'Show'} subtasks for ${esc(label)}" aria-expanded="${expanded}">${expanded ? '▾' : '▸'}</button>` : '<span class="assistant-tasks-disclosure"></span>'}
         <input type="checkbox" data-check="${esc(task.id)}" aria-label="Complete ${esc(label)}"${completed ? ' checked' : ''}${state.busy ? ' disabled' : ''}>
         ${tab ? `<a class="assistant-tasks-task-label" href="#assistant-tasks-tab=${encodeURIComponent(tab.id)}" data-open-tab="${esc(tab.id)}" title="Open ${esc(tab.title)}">` : '<div class="assistant-tasks-task-label">'}<span>${esc(label)}</span>${allChildren.length ? `<small>${allChildren.filter(child => done(doc, child)).length}/${allChildren.length} subtasks</small>` : ''}${tab ? '</a>' : '</div>'}
         <span data-linked-terminal></span>
@@ -80,7 +90,7 @@
     const all = doc.tasks.filter(task => linkedTab(doc, task) === tab.id), p = progress(doc, all);
     const scope = new Set(tasks.map(task => task.id)), roots = tasks.filter(task => !scope.has(task.parent_id));
     const collapsed = get(doc.id + ':collapsed-groups', []);
-    const expanded = !collapsed.includes(tab.id);
+    const expanded = tasks.some(task => highlightedBranch(doc,task)) || !collapsed.includes(tab.id);
     const parent = doc.tabs.find(item => item.id === tab.parent_id);
     return `<li class="assistant-tasks-task-group" data-task-group="${esc(tab.id)}"><div class="assistant-tasks-task-row assistant-tasks-group-row">
       <button type="button" class="assistant-tasks-disclosure" data-collapse-group="${esc(tab.id)}" aria-label="${expanded ? 'Hide' : 'Show'} tasks in ${esc(tab.title)}" aria-expanded="${expanded}">${expanded ? '▾' : '▸'}</button><span class="assistant-tasks-group-icon" aria-hidden="true">▤</span>
@@ -93,7 +103,7 @@
     const tabs = orderedTabs(doc).filter(tab => dashboard || state.showAll && isDescendant(doc, tab, state.tab));
     const includedTabs = new Set([state.tab, ...tabs.map(tab => tab.id)]);
     const associated = dashboard ? doc.tasks : doc.tasks.filter(task => includedTabs.has(linkedTab(doc, task)));
-    let visible = associated.filter(task => get(doc.id + ':completed', true) || !['done','skipped','cancelled'].includes(taskStatus(task)));
+    let visible = associated.filter(task => highlightedBranch(doc,task) || get(doc.id + ':completed', true) || !['done','skipped','cancelled'].includes(taskStatus(task)));
     if (state.wipOnly) {
       const keep = new Set(visible.filter(task => taskStatus(task) === 'in_progress').map(task => task.id));
       for (const task of visible) {
@@ -142,17 +152,19 @@
     host.querySelectorAll('[data-priority]').forEach(input => input.onchange = () => save({task_id:input.dataset.priority, priority:input.value}));
     host.querySelectorAll('[data-link]').forEach(input => input.onchange = () => save({task_id:input.dataset.link, tab_id:input.value || null}));
     host.querySelectorAll('[data-collapse]').forEach(button => button.onclick = () => {
+      state.highlightId=null;
       const collapsed = new Set(get(doc.id + ':collapsed', [])), id = button.dataset.collapse;
       if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
       put(doc.id + ':collapsed', [...collapsed]); render();
     });
     host.querySelectorAll('[data-collapse-group]').forEach(button => button.onclick = () => {
+      state.highlightId=null;
       const collapsed = new Set(get(doc.id + ':collapsed-groups', [])), id = button.dataset.collapseGroup;
       if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
       put(doc.id + ':collapsed-groups', [...collapsed]); render();
     });
     host.querySelector('[data-show-all]').onclick = () => {
-      state.showAll = !state.showAll;
+      state.highlightId=null; state.showAll = !state.showAll;
       if (state.showAll) { put(doc.id + ':collapsed', []); put(doc.id + ':collapsed-groups', []); }
       render();
     };
@@ -223,7 +235,7 @@
       const link=document.createElement('link');link.id='assistantTasksStyle';link.rel='stylesheet';link.href='/static/css/assistant-tasks.css';document.head.appendChild(link);
     }
     const scope = options.database + ':' + options.root.path + ':' + options.tab;
-    if (scope !== state.scope) { state.form=null;state.showAll=false;state.wipOnly=false;state.scope=scope; }
+    if (scope !== state.scope) { state.form=null;state.showAll=false;state.wipOnly=false;state.highlightId=null;state.scope=scope; }
     const tabs=[];
     const visit=row=>{tabs.push({id:row.id,title:row.title,parent_id:row.parent?.id,position:row.position});(row.children || []).forEach(visit)};
     visit(options.root.tree);
@@ -232,5 +244,11 @@
     state.host=host;state.options=options;state.tab=options.tab;
     render();
   }
-  window.AssistantTasks={mount,busy:()=>state.busy,editing:()=>Boolean(state.form || state.host?.contains(document.activeElement) && document.activeElement.matches('input,textarea,select')),reset:()=>{state.scope=null},add:()=>{state.form={parent:null};render();document.getElementById('assistantTaskTitle')?.focus()}};
+  function reveal(taskId) {
+    if (!state.doc?.tasks.some(task => task.id === taskId)) return;
+    state.highlightId=taskId; state.wipOnly=false; render();
+    const row=[...state.host.querySelectorAll('[data-task]')].find(row=>row.dataset.task===taskId);
+    if (row) { row.scrollIntoView({block:'center'}); row.focus({preventScroll:true}); }
+  }
+  window.AssistantTasks={mount,reveal,busy:()=>state.busy,editing:()=>Boolean(state.form || state.host?.contains(document.activeElement) && document.activeElement.matches('input,textarea,select')),reset:()=>{state.scope=null},add:()=>{state.form={parent:null};render();document.getElementById('assistantTaskTitle')?.focus()}};
 })();

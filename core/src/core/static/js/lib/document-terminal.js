@@ -348,5 +348,5 @@
     if (document.hidden) releaseView(current); else void refresh(current);
   });
   window.addEventListener('pagehide',close);
-  window.LabDocumentTerminal = {open,close,settings:openSettings,dropContext,link,choose,decorate,updateRoot,refresh:() => current && refresh(current)};
+  window.LabDocumentTerminal = {open,close,settings:openSettings,dropContext,link,choose,decorate,updateRoot,focusTask:selectTask,refresh:() => current && refresh(current)};
 })();

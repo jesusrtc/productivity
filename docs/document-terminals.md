@@ -16,6 +16,13 @@ terminals you want with **+ New** in the terminal bar, then link them:
   transfers the link. Each terminal has one task/document association,
   independent of its file and folder/worktree associations.
 
+Linked terminals show an accented task/document label in the terminal tab and
+context header. Click the label to open the document modal over the current
+workspace. Task links select the associated content tab, reveal and highlight
+the exact task (including hidden or completed subtasks), and display its linked
+terminal. Saved subtask and completed-task visibility preferences are preserved.
+The underlying workspace and terminal selection stay in place.
+
 The original process, conversation and unsent input stay in that session.
 Linking does not send a prompt or replace the agent's startup instructions.
 **Copy context** copies the document path and selected task identity for the

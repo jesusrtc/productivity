@@ -1114,7 +1114,7 @@
     host.prepend(notice);
   }
 
-  async function openDocumentModal(kind, path, focusHeading = '') {
+  async function openDocumentModal(kind, path, focusHeading = '', options = {}) {
     closeHeadingMenu();
     closeSeriesMenu();
     window.AssistantTasks?.reset();
@@ -1137,8 +1137,23 @@
       }
       if (request !== state.modalRequest) return;
       let showIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length || root.document_tasks);
+      let terminalTask = null;
+      if (options.linkedTask?.task_id) {
+        terminalTask = root.document_tasks?.tasks?.find(task => task.id === options.linkedTask.task_id);
+        if (!terminalTask) throw new Error('The linked task no longer exists in this document.');
+        const tasksById = new Map(root.document_tasks.tasks.map(task => [task.id,task]));
+        let owner = terminalTask;
+        const seen = new Set();
+        while (owner && !owner.tab_id && !seen.has(owner.id)) {
+          seen.add(owner.id); owner = tasksById.get(owner.parent_id);
+        }
+        const find = node => node.id === owner?.tab_id ? node : (node.children || []).map(find).find(Boolean);
+        const tab = root.tree && find(root.tree);
+        detail = tab && tab.path !== root.path ? await fetchDocument(tab.kind,tab.path) : root;
+        showIndex = !tab;
+      }
       // Explicit subtab links and heading targets always win over remembered navigation.
-      if (!focusHeading && !path.includes('#tab=') && detail.path === root.path && root.tree) {
+      if (!terminalTask && !focusHeading && !path.includes('#tab=') && detail.path === root.path && root.tree) {
         const remembered = rememberedDocumentTab(root);
         if (remembered === 'index' && (root.tree.children?.length || root.document_tasks)) showIndex = true;
         else if (remembered) {
@@ -1158,6 +1173,11 @@
       if (request === state.modalRequest) {
         overlay.classList.add('active');
         window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root);
+        if (terminalTask) {
+          window.AssistantTasks?.reveal(terminalTask.id);
+          window.LabDocumentTerminal?.focusTask(terminalTask.id);
+        } else if (options.linkedTask) window.LabDocumentTerminal?.focusTask(null);
+        return true;
       }
     } catch (error) {
       if (request !== state.modalRequest) return;
@@ -1171,6 +1191,21 @@
     } finally {
       if (request === state.modalRequest) overlay.removeAttribute('aria-busy');
     }
+  }
+
+  async function openLinkedTask(link) {
+    if (!link?.document_id || !link?.assistant_root) throw new Error('This terminal has no linked task.');
+    const request = ++state.modalRequest;
+    const response = await fetch('/api/assistant');
+    const data = await response.json();
+    if (request !== state.modalRequest) return;
+    if (!response.ok) throw new Error(data.detail || 'Could not load the linked document.');
+    if (data.root !== link.assistant_root) throw new Error('This terminal links to a different Assistant database.');
+    const row = (data.documents || []).find(row => row.id === link.document_id);
+    if (!row) throw new Error('The linked document is no longer available.');
+    state.data = data;
+    // Render over the current workspace without navigating its page or terminal.
+    return openDocumentModal(documentKind(row),row.path,'',{linkedTask:link});
   }
 
   function localImageUrl(documentPath, src) {
@@ -2386,6 +2421,7 @@
     section: () => state.section,
     selectTask: path => selectEntry('task', path, true),
     openDocument: openDocumentModal,
+    openLinkedTask,
     closeDocument: closeDocumentModal,
   };
 })();

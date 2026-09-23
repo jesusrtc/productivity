@@ -250,3 +250,5 @@
 - [Working terminals use a steady yellow dot](terminal-working-steady-yellow-dot.md) — Codex, Claude, and Copilot; only the green ready-to-review dot blinks.
 
 - [Completion second-click dismissal](terminal-completion-second-click.md) — two separate clicks on the same selected tab dismiss early; double-click remains Rename.
+
+- [Terminal task links open the highlighted task](terminal-task-links-open-highlighted-task.md) — clickable tab/header labels open the modal at the exact task without changing workspace or starting terminals.

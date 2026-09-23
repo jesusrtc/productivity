@@ -12136,13 +12136,40 @@
       text: scope.worktree ? String(scope.label || '').split(' · ').slice(1).join(' · ') || basename(scope.worktree) : 'main',
       title: `Worktree: ${scope.worktree || scope.root || 'main'}`, color: _termScopeColor(scope)});
     const linked = String(s?.linked_file?.path || '').trim();
-    if (s?.linked_task) identity.push({kind:'task', text:s.linked_task.title, title:'Linked task/document: ' + s.linked_task.title, color:'var(--accent)'});
+    if (s?.linked_task) identity.push({kind:'task', link:s.linked_task, text:s.linked_task.title, title:'Linked task/document: ' + s.linked_task.title, color:'var(--accent)'});
     if (linked) identity.push({kind: 'file', text: linked, title: `Linked file: ${linked}`, color: 'var(--accent)'});
     return identity;
   }
 
+  function _termTaskLinkHtml(link, compact = false) {
+    if (!link?.document_id || !link?.assistant_root) return '';
+    const title = String(link.title || (link.task_id ? 'Linked task' : 'Linked document'));
+    const label = `Open ${link.task_id ? 'task' : 'document'}: ${title}`;
+    return `<button type="button" class="term-task-link${compact ? ' term-task-link-pill' : ''}" draggable="false" data-terminal-task-open="${termSessEsc(JSON.stringify(link))}" aria-label="${termSessEsc(label)}" title="${termSessEsc(label)}"><span aria-hidden="true">↗</span><span class="term-task-link-label">${termSessEsc(title)}</span></button>`;
+  }
+
+  function _termInstallTaskLinkActions() {
+    // Capture before terminal selection/rename handlers. Opening a task must
+    // not switch the underlying workspace, choose another session, or send input.
+    for (const type of ['click','dblclick','keydown','pointerdown','dragstart']) {
+      document.addEventListener(type, event => {
+        const button = event.target.closest?.('[data-terminal-task-open]');
+        if (!button) return;
+        if (type === 'keydown' && !['Enter',' '].includes(event.key)) return;
+        event.stopPropagation();
+        if (type === 'pointerdown') return; // Keep native button focus.
+        event.preventDefault();
+        if (type !== 'click' && type !== 'keydown') return;
+        _termHideSessionTooltip();
+        let link;
+        try { link = JSON.parse(button.dataset.terminalTaskOpen); } catch (_) { return; }
+        void window.AssistantView.openLinkedTask(link).catch(error => explorerToast(error.message,true));
+      }, true);
+    }
+  }
   function _termSessionIdentityHtml(identity) {
     return identity.map(part => {
+      if (part.kind === 'task' && part.link) return _termTaskLinkHtml(part.link);
       const color = /^#[0-9a-f]{6}$/i.test(part.color) ? part.color : 'var(--accent)';
       return `<span class="term-context-identity-part" style="color:${color}" title="${termSessEsc(part.title)}">${termSessEsc(part.text)}</span>`;
     }).join('<span class="term-context-identity-arrow" aria-hidden="true">→</span>');
@@ -12447,6 +12474,7 @@
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
+      ${s.linked_task ? _termTaskLinkHtml(s.linked_task, true) : ''}
       ${working || ready ? `<span class="sess-activity ${working ? 'sess-working' : 'sess-completion'}" aria-hidden="true"></span>` : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
@@ -18681,3 +18709,5 @@
     // No explicit target means the framework-owned Productivity home.
     initSelf();
   }
+
+  _termInstallTaskLinkActions();
