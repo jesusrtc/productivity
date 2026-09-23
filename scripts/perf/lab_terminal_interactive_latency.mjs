@@ -213,7 +213,9 @@ async function main() {
       probe.refresh=()=>{
         if(probe.inflight)return;
         const at=performance.now();
-        probe.inflight=_refreshWorkspaceSidebar({preserveScroll:true}).then(()=>probe.refreshes.push({at,ms:performance.now()-at}),e=>probe.errors.push(String(e))).finally(()=>{probe.inflight=null;});
+        // This promise covers dispatch, not the detached fresh-data reconcile.
+        // File cache mtimes and rendered recent order are verified after writes.
+        probe.inflight=_refreshWorkspaceSidebar({preserveScroll:true,backgroundRefresh:true}).then(()=>probe.refreshes.push({at,dispatchMs:performance.now()-at}),e=>probe.errors.push(String(e))).finally(()=>{probe.inflight=null;});
       };
       probe.start=loaded=>{
         probe.phase=loaded?'sidebar-refresh':'normal';input.focus();

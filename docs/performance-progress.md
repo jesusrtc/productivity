@@ -1212,3 +1212,87 @@ Remaining work includes changing-file typing, the pre-readiness task, earlier
 request outliers, larger/unusual tree shapes and UI actions not yet measured.
 The overall goal remains active. No main merge, push or live-server restart is
 included.
+
+
+## Checkpoint: render background sidebar data once
+
+The 5,000-file loaded typing profile still spent **344.02 ms** in sidebar refresh
+stacks during 5.09 seconds of sampling. Cached background refreshes generated the
+old tree immediately and generated another tree when fresh data differed. This
+could place two 15–35 ms render tasks near the same input/render frame.
+
+Mtime polling and live index updates now explicitly request `backgroundRefresh`.
+For a cached workspace, they retain the mounted rows during the fresh read and
+render once afterward. User navigation/settings retain immediate cached paint.
+Equal fresh data still renders once: notebook grace expiry, viewed markers,
+selection and folder state can change without different file metadata. Failed
+file reads render the cached payload only if the same generation, workspace and
+selected worktree still own the sidebar. Dashboard reads retain their shared
+batch and stale-response guards. No file data or browser functionality is hidden,
+and template/cache bounds are unchanged.
+
+The controlled typing probe requests the same production background mode. Exact
+`4d10266` ignores that additional option and therefore remains a valid prior-code
+comparison. The refresh promise has always returned before detached fresh-data
+reconciliation; its diagnostic is now named `dispatchMs` to avoid calling that
+full refresh latency. Cache mtimes and visible recent ordering are independently
+verified after fixture writes.
+
+**148 regression tests passed**, including 28 additional background/cached-read
+and dashboard cases. They cover changed/equal data, failed reads, immediate user
+navigation, old responses/fallbacks after workspace/worktree/newer-refresh changes,
+and one dashboard request batch. Existing real-Chrome checks cover full large
+nested/flat trees, native find, focus, file/history actions, icons, Git decorations,
+folder state and resize invalidation. Log and artifacts:
+`/tmp/lab-background-refresh-tests.log`, `/tmp/lab-background-refresh-qa/`.
+
+Untraced fresh-browser runs retained every one of 100 keys per phase, normal
+polling, 5,000 `ipynb,pdf,svg,js` files and five verified changes during loaded input:
+
+| Version / layout / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Prior, nested, normal | 6.30 ms | 25.40 ms | 28.70 ms | 0 |
+| Candidate, nested, normal | 4.90 ms | 26.80 ms | 37.90 ms | 0 |
+| Candidate, flat, normal | 10.30 ms | 30.70 ms | 38.00 ms | 0 |
+| Prior, nested, changing files | 9.30 ms | 32.00 ms | 52.20 ms | 1 |
+| Candidate, nested, changing files | 5.50 ms | 26.60 ms | 46.50 ms | 0 |
+| Candidate, flat, changing files | 3.50 ms | 23.80 ms | 40.50 ms | 0 |
+
+API maxima were **58.70 / 107.80 / 94.80 ms** across 99/99/91 requests. All were
+correlated with the isolated server; there were no input, timestamp, HTTP,
+network or browser errors. The startup long task remains: 59/58/53 ms, all before
+terminal readiness and retained in output. Artifact prefix:
+`/tmp/lab-background-refresh-{before,after,flat}-{browser,server}.json`.
+
+A matched CPU/timeline profiling run reduced inclusive sampled sidebar refresh
+work from **344.02 to 190.31 ms** over 5.09/5.05-second windows (about 45%). Recent
+section rendering fell 79.04→32.89 ms; normal file-tree rendering 60.87→24.97 ms.
+Idle layout work did not disappear (141.17→155.22 ms). Profiling-run typing maxima
+were 37.70 ms normal / 46.40 ms changing files, with all 102 APIs below 107.30 ms.
+The separate untraced results above are the responsiveness evidence. Profiles:
+`/tmp/lab-refresh-4d-profile.json`, `/tmp/lab-background-refresh-profile.json`;
+trace/browser/server sidecars use `/tmp/lab-background-refresh-{trace,profile-*}`.
+
+Native navigation/resize checked **40 workspace clicks, 40 document clicks and
+40 sidebar drags**. Maxima were **166.20 / 71.40 / 27.50 ms**, respectively; all
+672 APIs were below **62.30 ms**, without errors or budget misses. Artifact:
+`/tmp/lab-background-refresh-navigation-{browser,server}.json`.
+
+A longer untraced run retained **600 keys** (300 per phase), **15 verified file
+updates** and further normal polling cycles. Normal typing had median/p95/max
+**3.40/23.80/47.10 ms**. Loaded typing was **3.40/26.90/52.60 ms**, with **two
+misses**: 52.60 ms (1.10 ms input queue, 51.50 ms handler-to-render) and 50.50 ms
+(22.70 ms queue, 27.80 ms handler-to-render). The first missed key parsed 41.90 ms after
+its handler, with another 9.60 ms until render; this run has no timeline trace to
+assign that delay to a specific task. All 231 APIs were below **84.60 ms**; there
+were no correctness, browser, network, HTTP or timestamp errors. Its 57 ms startup
+long task remained in the record before readiness. Artifacts:
+`/tmp/lab-background-refresh-sustained-{browser,server}.json`.
+
+All six fixture servers stopped and their owned terminals (typing runs) were
+removed. Every recorded API correlated to a matching server ID and route. The
+short passing runs do **not** establish sustained compliance: changing-file
+input still occasionally exceeds 50 ms. Remaining work also includes the startup
+task, prior request outliers, larger/unusual trees, and unmeasured UI actions.
+The overall goal remains active. This checkpoint includes no main merge, push
+or live-server restart; the earlier merge approval remains pending.

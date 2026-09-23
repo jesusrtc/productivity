@@ -9145,7 +9145,7 @@
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
   let _workspaceSidebarRefreshSequence = 0;
-  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null, _sequence = null, _beforeRender = null} = {}) {
+  async function _refreshWorkspaceSidebar({preserveScroll = false, backgroundRefresh = false, _data = null, _sequence = null, _beforeRender = null} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
@@ -9161,18 +9161,23 @@
     const ownsSidebar = () => current() && _sidebarScopedRoot(workspacePath) === fileRoot;
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
-    // Warm switch: when no `_data` override is passed but the cache has
-    // a payload for this workspace, paint instantly from the cache and
-    // then reconcile against the server in the background. The
-    // recursive call with `_data` set skips the fetches entirely so
-    // the second paint only re-runs the render body (no network).
+    // Warm navigation paints cached data immediately, then reconciles fresh
+    // data. Background updates keep the mounted sidebar until the fresh read.
+    // Recursive calls with `_data` only render the supplied payload.
     if (!_data) {
       const cachedPayload = _workspaceSidebarCache.get(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot !== fileRoot) _workspaceSidebarCache.delete(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot === fileRoot) {
         // Cached paint and its reconcile belong to the same refresh. A later
         // navigation or refresh invalidates both, including an A → B → A switch.
-        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence, _beforeRender});
+        // Polls already have a visible sidebar. Wait for fresh data and render
+        // once, rather than rebuilding the cached tree before the fresh tree.
+        // User navigation still gets the immediate cached paint.
+        if (backgroundRefresh) {
+          if (_beforeRender) _beforeRender();
+        } else {
+          _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence, _beforeRender});
+        }
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
@@ -9195,11 +9200,14 @@
             if (!ownsSidebar()) return;
             const prev = _workspaceSidebarCache.get(workspacePath);
             _workspaceSidebarCache.set(workspacePath, fresh);
-            // Re-render only if (a) the data actually changed and (b)
-            // the user is still on this workspace.
-            if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
+            // A background refresh has not rendered yet. Even equal file data
+            // must update live selection and time-dependent notebook markers.
+            if (!backgroundRefresh && prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
             _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh, _sequence: sequence});
           } catch (e) {
+            if (backgroundRefresh && ownsSidebar()) {
+              _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence});
+            }
             console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
           }
         });
@@ -9572,7 +9580,7 @@
   window.workspaceSaveDisplayName = workspaceSaveDisplayName;
 
   let _workspaceInfoSequence = 0;
-  async function showWorkspaceInfo({preserveScroll = false, keepShell = false} = {}) {
+  async function showWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const workspacePath = currentWorkspace.path;
     const sequence = ++_workspaceInfoSequence;
@@ -9597,7 +9605,7 @@
     };
     // Start dashboard I/O once the file list is ready, overlapping parsing and
     // layout without queueing dashboard requests ahead of the cold file scan.
-    await _refreshWorkspaceSidebar({preserveScroll, _beforeRender: startDashboardReads});
+    await _refreshWorkspaceSidebar({preserveScroll, backgroundRefresh, _beforeRender: startDashboardReads});
     if (!current()) return;
 
     try {
@@ -10744,7 +10752,7 @@
           openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
           if (isSelf) selfPopulateSidebar();
           else if (isVaultView) vaultPopulateSidebar();
-          else _refreshWorkspaceSidebar({preserveScroll: true});
+          else _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
         } else if (isSelf) {
           // Self view, no doc open → just refresh the sidebar so new
           // files appear without a full page reload.
@@ -10752,10 +10760,10 @@
         } else if (isVaultView) {
           vaultPopulateSidebar();
         } else if (isAssistant) {
-          _refreshWorkspaceSidebar({preserveScroll: true});
+          _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
           if (window.AssistantView) window.AssistantView.refresh();
         } else {
-          showWorkspaceInfo({preserveScroll: true});
+          showWorkspaceInfo({preserveScroll: true, backgroundRefresh: true});
         }
       }
       _lastWorkspaceMtime = mtime;
@@ -18838,7 +18846,7 @@
             } else if (window.AssistantView) {
               window.AssistantView.refresh();
             }
-            if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true});
+            if (ASSISTANT_ROOT) _refreshWorkspaceSidebar({preserveScroll: true, backgroundRefresh: true});
           } else if (currentWorkspace && currentWorkspace.is_workspace
                      && !currentRepo && !_workspaceDocEditing) {
             const liveNotebook = _currentOpenNotebookRelPath();
@@ -18848,7 +18856,7 @@
                 openWorkspaceDoc(_workspaceDocPath, {preserveScroll: true});
               }
             } else if (!document.body.classList.contains('self-active')) {
-              showWorkspaceInfo({preserveScroll: true});
+              showWorkspaceInfo({preserveScroll: true, backgroundRefresh: true});
             }
           }
         } catch {}
