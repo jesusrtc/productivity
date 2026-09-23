@@ -1,5 +1,7 @@
 # Memory index
 
+- [Literal search workers need concurrent evidence](literal-search-workers-need-concurrent-evidence.md) — smaller macOS literal-query pools reduce latency, while regex/config guards and overlapping-client failures constrain the retained policy.
+
 - [Capped search keeps complete process output](capped-search-keeps-complete-process-output.md) — parse only consumed lines while preserving pipe EOF, strict decoding and timeout behavior; file-backed capture lost descendant output.
 
 - [Apple Git resolution keeps its launcher environment](apple-git-resolution-retains-launcher-environment.md) — resolve once per catalog request, preserve SDK/toolchain environment and custom Git selection, retain concurrent HTTP failures

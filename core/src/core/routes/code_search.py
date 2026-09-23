@@ -52,6 +52,7 @@ _SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 # Match the nonempty pieces from str.splitlines() lazily. A capped code search
 # only consumes its first result lines, even when rg returned megabytes more.
 _SEARCH_LINE_RE = re.compile(r"[^\n\r\v\f\x1c-\x1e\x85\u2028\u2029]+")
+_REGEX_META_RE = re.compile(r"[\\.^$*+?{}\[\]|()#&~\-]")
 
 # Share the bound across requests: a catalog should not spawn one Git process
 # per repository (or create a separate pool for every connected browser).
@@ -298,6 +299,17 @@ def _search_filenames(repo_dir: Path, q: str, limit: int) -> dict:
     return {"mode": "filenames", "results": results, "truncated": False}
 
 
+def _rg_thread_options(q: str) -> list[str]:
+    # On macOS, excess search workers contend heavily when many small files
+    # match a literal. Two workers also reduce contention between HTTP clients.
+    # Keep full parallelism for potentially expensive regexes and preserve
+    # configured ripgrep behavior and other platforms unchanged.
+    if (sys.platform == "darwin" and not os.environ.get("RIPGREP_CONFIG_PATH")
+            and not _REGEX_META_RE.search(q) and (os.cpu_count() or 1) > 4):
+        return ["--threads", "2"]
+    return []
+
+
 def _search_code(repo_dir: Path, q: str, limit: int) -> dict:
     # Prefer ripgrep — faster, better defaults (respects .gitignore,
     # skips binary files). Fall back to `git grep` so a system without
@@ -306,6 +318,7 @@ def _search_code(repo_dir: Path, q: str, limit: int) -> dict:
     if rg_path:
         cmd = [
             rg_path,
+            *_rg_thread_options(q),
             "--max-count", "20",
             "--max-columns", "300",
             "-n",

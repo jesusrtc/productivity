@@ -8,7 +8,8 @@ On the 5,000-file/100,000-match fixture this removed about 14.7 ms of parsing an
 never equate parser timing with endpoint or browser timing.
 
 Keep the original stdout/stderr pipes, full process completion, strict text
-decoding, timeout behavior, command arguments and ripgrep thread selection.
+decoding and timeout behavior. Worker tuning requires separate dense, sparse,
+regex and concurrent-client evidence; see the literal-search worker-policy note.
 Redirecting stdout to a temporary regular file looked faster, but lost output
 when a PATH-selected wrapper exited before a descendant that closed stderr and
 wrote stdout later. Waiting for the parent and stderr EOF is insufficient.

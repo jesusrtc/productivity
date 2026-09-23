@@ -5703,3 +5703,124 @@ navigation/terminal-creation misses, terminal output typing tails, broader
 UI/API coverage and physical/iTerm parity. Main merge remains pending after
 the earlier automatic approval rejection; no merge, push or live user-server
 restart was attempted.
+
+## Bound workers for eligible literal searches on larger Macs
+
+The retained change requests **two ripgrep workers** for queries containing no
+regex metacharacters, only on macOS machines reporting more than four CPUs and
+without a nonempty `RIPGREP_CONFIG_PATH`. Queries remain unchanged; no fixed-string
+flag is added. The classifier conservatively includes the contextual characters
+`#`, `&`, `-` and `~` as well as the ordinary regex operators. See the regex
+library's [metacharacter contract](https://docs.rs/regex-syntax/latest/regex_syntax/fn.is_meta_character.html).
+Regex queries, configured tools, small/unknown CPU counts, other platforms and
+the Git fallback retain their original worker policy. Environment and CPU
+information are read afresh per request. There is no result cache or extra
+filesystem scan.
+
+The configuration guard matters because explicit command-line options can
+override config-file flags; the [ripgrep configuration guide](https://github.com/BurntSushi/ripgrep/blob/15.2.0/GUIDE.md#configuration-file)
+describes this precedence. Native tests preserve configured sorting and case
+folding. Output remains fully captured through the original pipes and strictly
+decoded before parsing, with unchanged process completion and timeout behavior.
+The delayed-descendant and invalid-late-byte regressions continue to pass.
+
+### Why two workers, and why only eligible literal queries
+
+A new reusable `scripts/perf/lab_code_search_workers.py` compares complete native
+subprocess runs. Defaults create 5,000 small files plus 64 separate 4 MiB files,
+rotate the order of five worker variants across five rounds, retain all first
+samples, and compare hashes of the entire sorted output, status and stderr.
+The corpus and all command arguments other than worker count remain identical.
+The final reusable run verified all **100 samples** and removed its fixture.
+These are subprocess measurements, not HTTP or UI latency.
+
+| Workload | Default median | 1 worker | 2 workers | 4 workers | 8 workers |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 100,000 matches in 5,000 small files | 216.54 ms | 162.47 ms | 122.20 ms | 93.90 ms | 184.88 ms |
+| One match among 5,000 small files | 121.64 ms | 62.10 ms | 42.15 ms | 36.10 ms | 104.65 ms |
+| One match across 256 MiB of larger files | 17.07 ms | 33.79 ms | 23.72 ms | 18.34 ms | 16.23 ms |
+| Regex across the same 256 MiB | 62.10 ms | 337.83 ms | 174.61 ms | 104.18 ms | 68.96 ms |
+
+An earlier independent 100-sample diagnostic showed the same tradeoff. A universal
+small pool would substantially regress the CPU-heavy regex workload. Even for
+literal queries, the sparse large-file case is slower with two workers; its
+measured roughly 7 ms cost is retained here rather than hidden. Four workers
+looked best for a single small-file search, but the HTTP concurrency check below
+favored two. No claim is made that this synthetic corpus covers every repository.
+
+Larger stdout reads were also rejected without a production change. A
+request-local diagnostic copy of the standard collector used 32 KiB versus
+1 MiB reads while keeping full pipe completion. HTTP medians were 219.26 versus
+222.26 ms; parent-thread CPU medians were 58.43 versus 62.75 ms. Fewer reads did
+not establish a latency improvement. The earlier file-backed collector remains
+rejected for losing delayed descendant output.
+
+### Complete HTTP comparisons
+
+Every run uses the same 5,000-file/100,000-match workload, authenticated server,
+normal polling, limit of 100, and exact row/snippet/uniqueness checks. Each run
+includes a fresh committed Unicode result. Single-client runs contain 20 timed
+requests; two-client runs contain 20 overlapping pairs. Original controls use
+`8487679`'s worker policy. Diagnostic overrides below alter only the requested
+worker count inside the owned fixture. No waits, budgets, first samples or
+response predicates were changed.
+
+| Single-client run | First / maximum | Median | Misses >=200 ms | Fresh query |
+| --- | ---: | ---: | ---: | ---: |
+| Original control | 256.99 / 256.99 ms | 219.55 ms | 18 / 20 | 108.17 ms |
+| Four-worker candidate | 171.92 / 171.92 ms | 103.20 ms | 0 / 20 | 38.55 ms |
+| Four-worker repeat | 138.53 / 138.53 ms | 97.79 ms | 0 / 20 | 38.76 ms |
+| Two-worker diagnostic | 198.50 / 198.50 ms | 137.53 ms | 0 / 20 | 54.74 ms |
+| Final two-worker production source | 199.93 / 199.93 ms | 142.20 ms | 0 / 20 | 50.98 ms |
+
+| Two-client run | Maximum | Median | Misses >=200 ms | Fresh query |
+| --- | ---: | ---: | ---: | ---: |
+| Original policy | 428.56 ms | 382.46 ms | 40 / 40 | 130.10 ms |
+| Four workers | 364.06 ms | 322.96 ms | 40 / 40 | 40.06 ms |
+| One worker | 327.57 ms | 269.45 ms | 40 / 40 | 75.62 ms |
+| Two-worker diagnostic | 266.08 ms | 207.56 ms | 38 / 40 | 52.55 ms |
+| Final two-worker production source | 272.64 ms | 201.75 ms | 26 / 40 | 53.91 ms |
+
+The final policy improves both single and overlapping-client latency. Its
+single-client cold sample has only **0.074 ms** of margin: the passing run is
+not evidence of a reliable cold-start guarantee. **Concurrent searches still
+fail the budget**. The four-worker candidate is not the retained implementation,
+and its faster single-client numbers must not be presented as the final result.
+All 300 timed responses in these completed comparisons verified their content;
+all ten fresh queries passed, servers stopped, and fixture roots were removed.
+
+Two earlier diagnostic attempts failed with HTTP 500 before producing latency
+comparisons: a diagnostic variable named `workers` was later reused for the
+client executor and leaked that object into the command argument list. The
+fixture override now captures its own named selection. Both failure reports
+are retained, both servers stopped, and a final filesystem inventory found no
+remaining owned HTTP fixture roots. These were diagnostic harness failures,
+not failures of the production helper; they are not included as passing samples.
+
+### Verification and remaining work
+
+**202 focused checks passed** with the final two-worker source. Coverage includes
+all regex metacharacters, Unicode/plain queries, invalid regexes, config changes,
+other platforms, small/unknown CPU counts, exact remaining command/capture
+options, both search backends, and the existing repository/Git/search routes.
+Native ripgrep checks compare complete uncapped results across worker policies,
+verify ignored and hidden files, validate line/snippet identity, and retain exact
+configured sorted/case-folded results across the cap. The capture regressions
+retain timeout child cleanup, strict late decoding and descendant stdout EOF.
+The new benchmark's default 100 samples passed full-output equality checks;
+Python compilation, CLI rejection checks and `git diff --check` also passed.
+The older broad-suite baseline failures remain separate.
+
+Artifacts: `/tmp/lab-code-search-workers-{after,control,repeat,concurrent,two-single,retained,retained-concurrent}-{http,server}.json`;
+`/tmp/lab-code-search-workers-concurrent-{control-fixed,two-fixed,one}-{http,server}.json`;
+retained failed `workers-concurrent-{control,two}` reports/logs;
+`/tmp/lab-code-search-workers-{comparison,reusable,summary}.json` and logs;
+`/tmp/lab-code-search-{read32,read1m}-{http,server}.json`;
+`/tmp/lab-code-search-workers-retained-tests.log`.
+
+The Code Search UI remains a placeholder; this checkpoint is backend work.
+The goal remains open for simultaneous searches, other expensive regex/corpus
+combinations, cold UI/terminal creation, terminal output typing tails, broader
+UI/API coverage and physical/iTerm parity. Main merge remains pending after
+the earlier automatic approval rejection; no merge, push or live-server restart
+was attempted.

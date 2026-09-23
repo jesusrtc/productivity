@@ -16,8 +16,7 @@ def owned_search(monkeypatch, tmp_path):
 
     def search(code, *args, limit=100, timeout=20.0):
         def run(command, **kwargs):
-            assert command == ['/owned/rg', '--max-count', '20', '--max-columns', '300',
-                               '-n', '--no-heading', '--color', 'never', '--', 'needle', '.']
+            assert command[0] == '/owned/rg' and command[-3:] == ['--', 'needle', '.']
             assert kwargs['cwd'] == str(tmp_path) and kwargs['timeout'] == 20.0
             return native_run([sys.executable, '-c', code, *args], **{**kwargs, 'timeout': timeout})
 
