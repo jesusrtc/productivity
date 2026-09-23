@@ -318,9 +318,10 @@ def progress_map(rows):
     return result
 
 
-def task_rows(root, children_only=False):
+def task_rows(root, children_only=False, *, record_rows=None):
+    """Project tasks from a fresh read or a caller's materialized record list."""
     from lab import assistant as db
-    rows = list(records(root))
+    rows = list(records(root)) if record_rows is None else record_rows
     from lab import assistant_documents as documents
     embedded = documents.enabled(root)
     progress = progress_map(rows)
@@ -365,10 +366,12 @@ def task_rows(root, children_only=False):
                'subtasks_total': len(all_children), 'done': progress[key(row)]['status'] in {'done','skipped'}}
 
 
-def note_rows(root, note_type):
+def note_rows(root, note_type, *, record_rows=None):
+    """Project meetings/series without changing a supplied record list."""
     from lab import assistant_meetings as meetings, assistant_documents as documents
     embedded = documents.enabled(root)
-    notes = [row for row in records(root) if row['type'] in {'task','note'}]
+    rows = records(root) if record_rows is None else record_rows
+    notes = [row for row in rows if row['type'] in {'task','note'}]
     for row in notes:
         if row.get('note_type') != note_type:
             continue

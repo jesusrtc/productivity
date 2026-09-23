@@ -34,7 +34,7 @@ def notes_library(request, tmp_path, monkeypatch):
     return root, owner, child
 
 
-def original_notes(root):
+def original_notes(root, **_):
     # Differential oracle: the previously shipped notes expression, including
     # split-file children and its traversal/order/field conversion semantics.
     return [{**row, 'search_text': ' '.join(

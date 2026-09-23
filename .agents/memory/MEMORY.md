@@ -1,5 +1,8 @@
 # Memory index
 
+- [Assistant index shares current records](assistant-index-shares-current-records.md) — one fresh record list serves every index projection; retain the empty-list/migration fallbacks and the larger-library latency failures.
+- [Core and CLI tests have separate namespaces](core-and-cli-tests-have-separate-namespaces.md) — run their pytest suites separately to avoid a duplicate `tests.conftest` collection failure.
+
 - [Assistant notes share a listing snapshot](assistant-notes-share-a-listing-snapshot.md) — avoid per-note filesystem scans while retaining fresh requests, complete descendant text and native Assistant latency tails.
 
 - [Search decodes after complete pipe capture](search-decodes-after-complete-pipe-capture.md) — reduce transient allocation and unnecessary newline scans while preserving encoding, both EOFs, strict errors and timeout behavior.

@@ -10,8 +10,10 @@ requests or weaken filesystem validation.
 
 The owned 100-note/20-subtab fixture reduced complete `/api/assistant` snapshot
 reads from 108 to eight and single-client HTTP median from 615 to 56 ms. Every
-first request and external-file freshness check is retained. The whole endpoint
-still has other snapshot consumers, so this is not a request-wide snapshot.
+first request and external-file freshness check is retained. That checkpoint
+still had other snapshot consumers. The subsequent
+[shared index read](assistant-index-shares-current-records.md) reuses one list
+throughout each response.
 
 Native Assistant Dashboard/All/Starred/workspace clicks run through
 `lab_navigation_latency.py --assistant`. Readiness checks every displayed card,

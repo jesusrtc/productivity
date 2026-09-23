@@ -17,12 +17,12 @@ def kind(row):
     return {'meeting':'meeting','series':'series','question':'note','document':'note'}.get(row.get('note_type'), 'note')
 
 
-def document_rows(root):
+def document_rows(root, *, record_rows=None):
     """A single library over existing stable files, independent of storage type."""
-    rows = list(records.records(root))
+    rows = list(records.records(root)) if record_rows is None else record_rows
     progress = records.progress_map(rows)
-    tasks = {row['path']:row for row in records.task_rows(root)}
-    meetings = {row['path']:row for row in records.note_rows(root, 'meeting')}
+    tasks = {row['path']:row for row in records.task_rows(root, record_rows=rows)}
+    meetings = {row['path']:row for row in records.note_rows(root, 'meeting', record_rows=rows)}
     for row in rows:
         if row['type'] not in {'task','note'} or row.get('parent'):
             continue
@@ -45,11 +45,11 @@ def document_rows(root):
                'latest_date':max((item.get('date') or '' for item in related),default='')}
 
 
-def plain_note_rows(root):
+def plain_note_rows(root, *, record_rows=None):
     # Reuse this listing's snapshot for descendant search text. A snapshot
     # fingerprints every document even on a cache hit; rereading it per note
     # makes the filesystem work quadratic. The next listing still reads fresh.
-    rows = list(records.records(root))
+    rows = list(records.records(root)) if record_rows is None else record_rows
     for row in rows:
         if row['type'] != 'note' or row.get('embedded') or row.get('note_type') not in {'plain','thread','subtab'}:
             continue

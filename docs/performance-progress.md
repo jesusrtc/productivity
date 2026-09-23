@@ -6059,3 +6059,108 @@ misses, the endpoint has eight snapshot consumers, and prior search, cold UI,
 terminal creation/typing tails and physical/iTerm parity gaps remain. Main merge
 remains pending after the earlier automatic approval rejection; no merge, push
 or live-server restart was attempted.
+
+## Share current records across the whole Assistant index (2026-09-23)
+
+The preceding note-list fix left eight snapshots in each `/api/assistant`
+response. Its coarse diagnostic measured 200.30 ms inside those calls across
+four responses, within 239.92 ms of combined handler time. Each snapshot still
+fingerprints files and deep-copies the cached rows. Reusing the current record
+list across the endpoint removes the seven remaining repeated snapshots.
+
+The handler now captures one validated schema-2 record list and passes it
+explicitly through the task, meeting, series, document and plain-note collectors.
+Projects filter the same list. The optional `record_rows` argument defaults to
+a fresh read, so standalone callers keep working; a supplied empty list never
+falls through to another read. No global/request-context cache, response cache,
+polling adjustment, file-validation shortcut or response-field removal was added.
+Each new request still checks the current files. Schema-1 collectors keep their
+existing behavior. A project-read fallback preserves the case where migration
+finishes after the handler initially saw legacy storage.
+
+### Complete HTTP and native controls
+
+The unchanged 100-note/20-subtab HTTP fixture retains first use, all 20 complete
+responses, full content checks, repeated-response hashes and a fresh external
+Markdown edit. Its normal server/watcher lifecycle remains enabled.
+
+| HTTP run | First | Median of 20 unchanged reads | Maximum including edit | Fresh edit | Misses >=200 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous checkpoint, retained baseline | 77.29 ms | 55.66 ms | 77.29 ms | 72.38 ms | 0 / 21 |
+| Shared record list | 34.66 ms | 17.15 ms | 34.66 ms | 25.68 ms | 0 / 21 |
+
+The new three-read-plus-edit diagnostic confirmed **one snapshot per response**,
+with first/maximum 40.76 ms, median 25.48 ms and fresh edit 28.60 ms. Its extra
+coarse instrumentation is not used as the unprofiled timing comparison.
+
+Two candidate native runs bracketed a control with only the five production
+files restored to `d2da7e8`; the exact tested candidate was restored afterward.
+Each fresh browser/vault ran the same 80 native clicks: 20 Assistant entries,
+40 All/Starred switches and 20 alternating workspace returns. Each workspace
+still had 5,000 mixed files and 2,500 Git changes. Every rendered card, section
+limit, overflow count, metadata badge, file byte sequence and Git decoration
+was checked. Normal polling, input-clock validation, first samples and render
+opportunities were retained.
+
+| Native run | Assistant first | Assistant browser p50 | Assistant maximum | Assistant misses / 20 | View maximum / 40 | Workspace maximum / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Candidate | 80.2 ms | 87.5 ms | 104.2 ms | 0 | 38.6 ms | 162.8 ms |
+| Restored previous checkpoint | 216.1 ms | 162.6 ms | 216.1 ms | 2 | 39.3 ms | 176.9 ms |
+| Restored candidate repeat | 111.9 ms | 88.7 ms | 111.9 ms | 0 | 39.0 ms | 164.8 ms |
+
+Both candidate runs passed **160/160 clicks**, **1,002/1,002 browser API requests**
+and **1,054/1,054 ASGI requests** below 200 ms. Browser-request maxima were 76.3
+and 77.2 ms; ASGI maxima were 74.50 and 76.59 ms. The restored control retained
+two slow entries (216.1 and 211.1 ms), although its 515 browser and 540 ASGI
+requests passed the endpoint budget. There were no browser errors, HTTP errors
+or failed requests in any of the three runs. Request counts reflect normal
+polling over different elapsed runtimes. These are native browser-input through
+render-opportunity measurements, not physical display or iTerm parity evidence.
+
+### Larger library remains above budget
+
+The same complete HTTP driver was also run with **500 notes and 100 embedded
+subtabs**, without tracing or discarding cold reads. All 20 responses and the
+external-edit check passed content verification, but **16/21 exceeded 200 ms**.
+Median was **203.46 ms**, first/maximum **296.19 ms**, and fresh edit **283.17 ms**.
+This is a candidate-only scale probe, not a before/after comparison. Its failures
+remain part of the result. Sharing one snapshot fixes repeated filesystem work;
+larger-library projection and traversal costs still need investigation.
+
+### Verification and cleanup
+
+The expanded core/Assistant browser suite passed **201 checks**, with the same
+pre-existing custom-attributes editor save timeout recorded in the preceding
+checkpoint. The separate Assistant CLI suite passed **67 checks**. Twelve new
+regression cases cover schema 1, split-file schema 2, embedded subtabs, unified
+storage and document tasks; complete-response equivalence with independently
+read projections; input-list immutability; exact meeting order/latest dates;
+raw-note presence, content counts and workspace/project references; fresh edits
+and changes of Assistant root; empty-list handling; and migration finishing
+during a request. Existing descendant, path/symlink and metadata/task checks
+remain included. This is **268 passes and one known baseline failure**, not a
+fully green broad repository suite.
+
+An initial combined core/CLI invocation failed collection because both packages
+are named `tests` and their `tests.conftest` paths conflict. It executed no tests;
+the suites were then run in separate processes. That diagnostic log is retained.
+`git diff --check` and parsing of the changed Python files passed. No source
+change was made after the tested candidate was restored.
+
+All three native servers and all three HTTP servers stopped. The final owned
+process/directory inventory found no remaining benchmark processes, Chrome
+profiles or fixture roots. No user Assistant data, tmux sessions, live server,
+or main-checkout files were changed.
+
+Artifacts: `/tmp/lab-assistant-shared-{after-trace,after,large}-{http,server}.json`
+and logs; `/tmp/lab-assistant-shared-native-{after,control,repeat}-{browser,server}.json`
+and logs; `/tmp/lab-assistant-shared-{summary,cleanup}.json`;
+`/tmp/lab-assistant-shared-{full,core,cli}-tests.log`;
+`/tmp/lab-assistant-shared-regression.log` and the saved candidate source copies.
+The larger probe is reproducible with
+`python scripts/perf/lab_assistant_latency.py --notes 500 --samples 20 --output /tmp/assistant-large-new`.
+
+The overall objective remains open for the larger-library misses and the prior
+search, cold workspace/terminal creation, loaded terminal typing and physical
+input/parity gaps. Main merge remains pending after the earlier automatic
+approval rejection; no merge, push or live-server restart was attempted.

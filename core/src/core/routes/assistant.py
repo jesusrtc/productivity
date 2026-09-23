@@ -164,8 +164,11 @@ def get_assistant(request: Request) -> dict:
     if records.manifest(root).get('state') == 'migrating':
         raise HTTPException(status_code=503, detail='Assistant migration in progress')
     workspaces = list(assistant_db.iter_workspaces(root))
+    # All schema-2 projections share this response's validated file snapshot.
+    # Keep it local: the next request must fingerprint the current documents.
+    record_rows = list(records.records(root)) if records.enabled(root) else None
     tasks = []
-    for task in assistant_db.iter_tasks(root, workspaces):
+    for task in assistant_db.iter_tasks(root, workspaces, record_rows=record_rows):
         row = dict(task)
         body = str(row.pop("body", ""))
         for key in ("subtasks", "first_class_subtasks"):
@@ -185,9 +188,9 @@ def get_assistant(request: Request) -> dict:
         row["has_generated_content"] = bool(_GENERATE_CONTENT_RE.search(body))
         tasks.append(row)
     tasks.sort(key=_task_sort_key)
-    meetings = meeting_db.list_rows(root, workspaces)
+    meetings = meeting_db.list_rows(root, workspaces, record_rows=record_rows)
     series_rows = []
-    for series in meeting_db.iter_series(root, workspaces):
+    for series in meeting_db.iter_series(root, workspaces, record_rows=record_rows):
         history = [row for row in meetings if row.get("series") == series["id"] and (records.enabled(root) or row["workspace"] == series["workspace"])]
         latest = None
         for row in history:
@@ -207,11 +210,12 @@ def get_assistant(request: Request) -> dict:
         "tasks": tasks,
         "meetings": meetings,
         "meeting_series": series_rows,
-        "documents": list(assistant_v2.document_rows(root)) if records.enabled(root) else None,
+        "documents": list(assistant_v2.document_rows(root, record_rows=record_rows)) if records.enabled(root) else None,
         "dashboard": dashboard.read(root) if records.enabled(root) else None,
         "schema": 2 if records.enabled(root) else 1,
-        "projects": list(records.records(root, "projects")) if records.enabled(root) else [],
-        "notes": list(assistant_v2.plain_note_rows(root)) if records.enabled(root) else [],
+        "projects": (list(records.records(root, "projects")) if record_rows is None else
+                     [row for row in record_rows if row['type'] == 'project']) if records.enabled(root) else [],
+        "notes": list(assistant_v2.plain_note_rows(root, record_rows=record_rows)) if records.enabled(root) else [],
         "statuses": ["not_started","in_progress","blocked","done","skipped","cancelled"] if document_tasks.enabled(root) else ["not_started","in_progress","done","cancelled"] if documents.enabled(root) else list(assistant_db.STATUSES),
         "priorities": list(assistant_db.PRIORITIES),
     }
