@@ -171,6 +171,7 @@
   .sidebar-fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-actions { display: none; gap: 2px; flex-shrink: 0; }
   .sidebar-file:hover .sidebar-actions { display: flex; }
+  .sidebar-file:hover > button.sidebar-actions { display: block; }
   .sidebar-actions button, button.sidebar-actions { background: none; border: none; color: #8b949e; cursor: pointer; padding: 1px 4px; font-size: 12px; border-radius: 3px; }
   .sidebar-actions button:hover, button.sidebar-actions:hover { background: #21262d; color: #e6edf3; }
   .sidebar-actions .sa-del:hover { color: #f85149; }

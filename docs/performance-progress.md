@@ -1920,3 +1920,98 @@ the new 53.3 ms typing and 253.3 ms cold-open misses, older outliers, unmeasured
 UI flows and the matched iTerm comparison remain open. The worktree is isolated;
 there is no main merge, push or live-server restart. The earlier explicit merge
 approval remains pending after automatic approval review rejected the merge.
+
+## Single-element workspace Pin controls (2026-09-22)
+
+The next production change removes one wrapper and inline click handler from
+each ordinary workspace file's Pin button. The existing shared sidebar handler
+reads the button's escaped `data-pin-name`; it must not substitute the row's
+file path because the old action used `f.name`. Worktree views still omit Pin
+controls. Click and keyboard activation retain the original action, and the
+existing row double-click behavior is unchanged. The hover rule preserves the
+button's former block geometry and text baseline. Pinned shortcuts and recent
+Git-history controls keep their existing behavior.
+
+The navigation diagnostic now reports live sidebar element count and retained
+pristine template size after measurement. Cache bounds remain four scopes and
+60,000 elements. Neither version fits both large workspace templates at once.
+
+The matched CPU-profiled comparison used **5,000 extra mixed files** per
+workspace (`ipynb,pdf,svg,js`), flat layout, **2,500 actual modified Git paths**,
+20 workspace clicks, 20 document clicks and 20 native sidebar resizes. Baseline
+JavaScript and CSS came from checkpoint `31788d7`.
+
+| Measurement | Baseline | Single-element Pin |
+| --- | ---: | ---: |
+| Live sidebar elements | 50,176 | 45,172 |
+| Retained pristine elements | 45,173 | 40,169 |
+| Retained markup characters | 5,932,275 | 5,842,203 |
+| Workspace switch p50 | 114.6 ms | 102.2 ms |
+| Workspace switch p95 | 142.6 ms | 132.3 ms |
+| First / maximum workspace open | 149.1 ms | 150.6 ms |
+| Maximum document open | 62.1 ms | 50.7 ms |
+| Maximum sidebar resize | 22.1 ms | 22.6 ms |
+| API requests / maximum | 341 / 72.5 ms | 343 / 103.2 ms |
+
+The candidate removes **5,004 elements** (5,000 extra files plus four fixture
+documents), about **11.1%** of pristine elements, and 90,072 markup characters.
+Across the whole matched profile, inclusive sidebar-refresh samples decreased
+from **1,387.0 to 1,222.3 ms**, template construction/mounting from **918.1 to
+768.6 ms**, and template building from **609.6 to 524.4 ms**. These aggregate
+sampled costs are not individual click durations. Git decoration costs were
+roughly unchanged (262.6 to 259.6 ms).
+
+All **60 actions** and all API requests passed in each run. Both verified
+2,500 Git paths, 5,000 modified row copies and 5,000 clean row copies. Input
+clocks and browser/server correlations passed, no HTTP/network/browser errors
+occurred, and both owned servers stopped. Artifacts:
+`/tmp/lab-pins-before-{browser,server,profile}.json` and
+`/tmp/lab-pins-after-{browser,server,profile}.json`, plus corresponding logs.
+The first-open time did **not** improve in this pair; the earlier unprofiled
+253.3 ms miss remains unresolved.
+
+**164 focused regressions passed:** 29 Pin/Git/file-configuration/context checks
+plus 135 sidebar cache/rendering/navigation, terminal, dashboard and latency
+checks. The new native Chrome test makes **96 geometry/theme comparisons**
+across hover states, two widths, two zoom levels, both themes, pin state and
+Git-badge presence. It also verifies mouse and Enter activation, fresh template
+clones, differing pin name/file path, quoted and Unicode names, ordinary file
+opening and the prior double-click behavior. The rendered screenshot was
+inspected. Logs: `/tmp/lab-sidebar-pin-tests.log` and
+`/tmp/lab-pins-regressions.log`; comparison JSON and screenshot under
+`/tmp/lab-sidebar-pin-tests/test_sidebar_pin_controls_in_c0/`.
+
+The final unprofiled typing check used the same Git-heavy fixture, real
+background document changes and **2,400 timestamped native keys**:
+
+| Typing phase | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Quiet, 1,200 keys | 3.4 ms | 20.2 ms | 43.7 ms |
+| Background updates, 1,200 keys | 5.4 ms | 26.4 ms | 45.2 ms |
+
+All keys passed 50 ms; exact text, focus, transport and updated-file checks
+passed. Independent readers verified all 2,400 characters, with 89 parsed and
+87 rendered reads after the ready marker scrolled away. All input clocks
+passed: sample brackets at most 0.1 ms, mapped dispatch differences -1.1 to
++0.1 ms and raw differences -0.5 to -0.1 ms. All **783 browser API requests**
+passed (maximum **132.3 ms**); the server recorded **814 total requests**, maximum
+**96.3 ms** through the response body. All browser IDs/routes/statuses matched
+server records. Git decorations passed, no HTTP/network/browser errors occurred,
+WebSocket compression remained off, and the owned server stopped. Artifacts:
+`/tmp/lab-pins-typing-{browser,server}.json` and `.log`.
+
+The final unprofiled navigation run retained all **60 actions**, all under
+200 ms: workspace first **151.7 ms**, p50 **99.3 ms**, maximum **151.9 ms**;
+document maximum **67.3 ms**; resize maximum **26.3 ms**. All **344 browser API
+requests** passed, maximum **107.9 ms**; all **372 server requests** passed,
+maximum **107.5 ms** through the response body. Input clocks, Git decorations
+and request correlations passed; no HTTP/network/browser errors occurred; the
+owned server stopped. Artifacts: `/tmp/lab-pins-final-{browser,server}.json`
+and `.log`.
+
+These successful checks do not erase the earlier **53.3 ms typing** and
+**253.3 ms cold-open** misses or establish parity with iTerm. Broader unmeasured
+UI flows and prior outliers remain open; the overall goal stays active. This
+checkpoint remains in the isolated worktree, without a main merge, push or
+live-server restart. Explicit merge approval remains pending after automatic
+approval review rejected that action.

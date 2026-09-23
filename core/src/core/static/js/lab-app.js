@@ -3080,6 +3080,10 @@
     return `<button class="sidebar-actions sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}"></button>`;
   }
 
+  function _sidebarPinButtonHtml(name, pinned) {
+    return `<button class="sidebar-actions sidebar-pin" type="button" data-pin-name="${escAttr(name)}" title="${pinned ? 'Unpin' : 'Pin to top'}">${pinned ? '&#x2716;' : '&#x1F4CC;'}</button>`;
+  }
+
   function openSidebarFileHistory(path, root = '') {
     if (!path || !currentWorkspace || !currentWorkspace.path) return;
     return openExplorerHistory({
@@ -7754,6 +7758,12 @@
     const path = row.getAttribute('data-filepath');
     const root = row.getAttribute('data-entry-root');
     if (!path) return;
+    const pin = event.target.closest('.sidebar-pin');
+    if (pin && event.type === 'click') {
+      event.stopPropagation();
+      togglePin(pin.getAttribute('data-pin-name'));
+      return;
+    }
     if (event.target.closest('.sidebar-git-history')) {
       event.preventDefault();
       event.stopPropagation();
@@ -9444,7 +9454,7 @@
             }
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
-            const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
+            const pinHtml = worktreeSelected ? '' : _sidebarPinButtonHtml(f.name, isPinned);
             html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Sidebar Pin controls keep their own name](sidebar-pin-controls-keep-name-separate.md) — delegate clicks without confusing pin names and file paths; preserve native geometry and existing double-click behavior
+
 - [Terminal probes verify text after scrolling](terminal-echo-probe-verifies-scrolled-text.md) — exact varied input, independent parse/render continuity, and explicit coverage beyond the ready marker
 
 - [Input validation samples the current clock offset](input-validation-samples-current-clock-offset.md) — wall and monotonic clocks may drift; preserve raw measurements, queued input and strict validation limits

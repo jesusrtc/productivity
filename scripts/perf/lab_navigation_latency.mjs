@@ -395,7 +395,8 @@ async function main() {
     const requestErrors=requests.filter(r=>r.status>=400);
     const fixture={workflow:settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
-    console.log(JSON.stringify({fixture,git,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
+    console.log(JSON.stringify({fixture,git,sidebar,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
     if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
