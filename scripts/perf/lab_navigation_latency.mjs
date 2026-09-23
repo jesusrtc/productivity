@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -385,9 +386,10 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders'};
-    console.log(JSON.stringify({fixture,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
-    if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length)process.exitCode=1;
+    const fixture={workflow:settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
+    console.log(JSON.stringify({fixture,git,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
     console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,rows},null,2));

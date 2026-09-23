@@ -27,6 +27,7 @@ parser.add_argument('--samples', type=int, default=20, help='Samples per action 
 parser.add_argument('--extra-files', type=int, default=0, help='Additional files in each workspace')
 parser.add_argument('--extra-file-types', default='md', help='Comma-separated extensions for extra files, e.g. md,py,json,sql')
 parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default='folders')
+parser.add_argument('--git-changes', type=int, default=0, help='Commit fixture workspaces, then modify this many extra files in each (no user repositories)')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
@@ -60,6 +61,8 @@ if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
+if args.git_changes < 0 or args.git_changes > args.extra_files:
+    parser.error('--git-changes must be between zero and --extra-files')
 extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
 if not all(re.fullmatch(r'[a-z0-9]{1,16}', extension) for extension in extra_file_types):
     parser.error('--extra-file-types must contain simple filename extensions')
@@ -104,6 +107,23 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
             folder.mkdir(exist_ok=True)
             extension = extra_file_types[number % len(extra_file_types)]
             (folder / f'entry-{number:05}.{extension}').write_text(f'# Fixture note {number}\n\nSmall document.\n')
+        if args.git_changes:
+            workspace = root / 'workspaces' / name
+            def git(*arguments):
+                subprocess.run(['git', '-C', str(workspace), '-c', 'core.hooksPath=/dev/null',
+                                '-c', 'commit.gpgsign=false', '-c', 'core.fsmonitor=false',
+                                '-c', 'user.name=Lab latency fixture',
+                                '-c', 'user.email=lab-latency@example.invalid', *arguments],
+                               check=True, capture_output=True)
+            git('init', '--quiet')
+            git('add', '--force', '--all')
+            git('commit', '--quiet', '-m', 'Owned latency fixture')
+            for number in range(args.git_changes):
+                folder = workspace / 'notes'
+                if args.extra_file_layout == 'folders':
+                    folder /= f'batch-{number // 100:03}'
+                extension = extra_file_types[number % len(extra_file_types)]
+                (folder / f'entry-{number:05}.{extension}').write_text(f'# Changed fixture note {number}\n\nUpdated document.\n')
     import uvicorn
     from core import auth
     from core.main import create_app
@@ -203,6 +223,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
                                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
                                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
+                                     'LAB_PERF_GIT_CHANGES': str(args.git_changes),
                                      'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
                                      'LAB_PERF_WS_DEFLATE': str(int(args.websocket_deflate)),
                                      'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal else '',

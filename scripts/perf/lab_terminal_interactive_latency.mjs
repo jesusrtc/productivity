@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 const [baseUrl,name,marker,sampleArg,workspace,intervalArg] = process.argv.slice(2);
 const samples=Number(sampleArg), interval=Number(intervalArg)*1000;
 const changeFiles=process.env.LAB_PERF_TYPING_UPDATES==='1';
@@ -312,7 +313,9 @@ async function main() {
     const expectedDeflate=process.env.LAB_PERF_WS_DEFLATE==='1';
     if(!result.terminalSockets.length || result.terminalSockets.some(socket=>socket.status!==101 || socket.deflate!==expectedDeflate))result.transportErrors.push('Terminal WebSocket negotiation differs from fixture configuration');
     if(inputs.length!==sent.length || inputs.some(frame=>frame.length!==1 || !Number.isFinite(frame.epoch)))result.transportErrors.push('Owned terminal input frames do not match native key count');
-    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,changeFiles,websocketDeflate:expectedDeflate};
+    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,websocketDeflate:expectedDeflate};
+    result.git=await checkSidebarGitFixture(evaluate);
+    if(result.git)result.errors.push(...result.git.errors);
     result.updates=updates;
     await client.send('Page.navigate',{url:baseUrl+'/api/ping'});
     await wait(`location.pathname==='/api/ping' && !document.getElementById('termPanel') && document.body.textContent.includes('status')`,'Frame control failed to load');

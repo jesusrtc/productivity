@@ -1,5 +1,7 @@
 # Memory index
 
+- [Git decorations use path indexes](sidebar-git-decorations-use-path-indexes.md) — preserve prefix and scope semantics, avoid unchanged badge mutations, and verify real Git state in latency fixtures
+
 - [Settings latency includes the actual sidebar redraw](settings-latency-waits-for-sidebar-redraw.md) — verify inactive-workspace saves, stored preferences and restored rows; separate form setup from measured native clicks
 
 - [Creation publishes its workspace tab immediately](workspace-creation-publishes-tab-immediately.md) — remember the confirmed row before navigation without replacing existing tab state or waiting for polling

@@ -8811,8 +8811,62 @@
     // the variable-width Git status immediately before it so every GitHub
     // icon lands in the same final column.
     const actions = row.querySelector('.sidebar-actions');
-    if (actions) row.insertBefore(badge, actions);
-    else row.appendChild(badge);
+    if (actions) {
+      if (badge.parentNode !== row || badge.nextSibling !== actions) row.insertBefore(badge, actions);
+    } else if (badge.parentNode !== row || badge !== row.lastChild) row.appendChild(badge);
+  }
+
+  function _sidebarGitStatusIndex(files, ignored) {
+    // Git can report an added/untracked directory as one entry. Index its
+    // inheritance and folder rollups once instead of scanning every Git key
+    // for each file and its Recently updated shortcut.
+    const keys = Object.keys(files), inherited = new Map(), folders = new Map();
+    keys.forEach((path, order) => {
+      const status = files[path];
+      if (status === 'U' || status === 'A') inherited.set(path, {status, order});
+      const folderStatus = status === 'M' || status === 'D' || status === 'R' ? 'M' : 'U';
+      for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+        const parent = path.slice(0, slash);
+        if (folders.get(parent) !== 'M') folders.set(parent, folderStatus);
+      }
+    });
+    const ignoredPaths = new Set(ignored.map(path => path.replace(/\/+$/, '')).filter(Boolean));
+    return {
+      empty: !keys.length && !ignoredPaths.size,
+      statusFor(path) {
+        if (files[path]) return files[path];
+        let match = null;
+        for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+          const ancestor = inherited.get(path.slice(0, slash));
+          // Preserve the original key-order precedence for overlapping added
+          // or untracked directories; an exact file status still wins above.
+          if (ancestor && (!match || ancestor.order < match.order)) match = ancestor;
+        }
+        return match ? match.status : '';
+      },
+      isIgnored(path) {
+        if (ignoredPaths.has(path)) return true;
+        for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+          if (ignoredPaths.has(path.slice(0, slash))) return true;
+        }
+        return false;
+      },
+      folderStatus: path => folders.get(path) || '',
+    };
+  }
+
+  function _sidebarGitRows(sidebar, selector, badgeClass, onlyDecorated) {
+    if (!onlyDecorated) return sidebar.querySelectorAll(selector);
+    // A clean result only needs to clear old decorations. Avoid JS work for
+    // every pristine row, including the duplicate Recently updated shortcuts.
+    const selectors = _GIT_ROW_CLASSES.map(cls => selector + '.' + cls);
+    selectors.push(selector + ' ' + badgeClass);
+    const rows = new Set();
+    sidebar.querySelectorAll(selectors.join(',')).forEach(node => {
+      const row = node.closest(selector);
+      if (row) rows.add(row);
+    });
+    return rows;
   }
 
   function _sidebarApplyGitStatus(entry) {
@@ -8820,29 +8874,16 @@
     if (!sidebar) return;
     const files = (entry && entry.files) || {};
     const ignored = (entry && entry.ignored) || [];
-    const keys = Object.keys(files);
+    const index = _sidebarGitStatusIndex(files, ignored);
     const fileRoot = _sidebarScopedRoot(currentWorkspace.path);
-    const isIgnored = p => ignored.some(pre => {
-      const base = pre.replace(/\/+$/, '');
-      return base && (p === base || p.startsWith(base + '/'));
-    });
-    // Untracked directories come back as ONE entry ("newdir": "U") with no
-    // per-file children — decorations inherit down to everything under it.
-    const statusFor = p => {
-      if (files[p]) return files[p];
-      for (const k of keys) {
-        if ((files[k] === 'U' || files[k] === 'A') && p.startsWith(k + '/')) return files[k];
-      }
-      return '';
-    };
 
-    sidebar.querySelectorAll('.sidebar-file[data-filepath]').forEach(row => {
+    _sidebarGitRows(sidebar, '.sidebar-file[data-filepath]', '.git-badge', index.empty).forEach(row => {
       // Workspace instructions can remain visible beside another checkout.
       if (row.dataset.entryRoot && row.dataset.entryRoot !== fileRoot) return;
       const p = row.getAttribute('data-filepath');
       if (!p || p.startsWith('__proxy__/')) return;
-      const st = statusFor(p);
-      const cls = st ? _gitRowClass(st) : (isIgnored(p) ? 'git-ignored' : '');
+      const st = index.statusFor(p);
+      const cls = st ? _gitRowClass(st) : (index.isIgnored(p) ? 'git-ignored' : '');
       _gitSetRowClass(row, cls);
       const want = st && cls && cls !== 'git-ignored' ? st : '';
       let badge = row.querySelector('.git-badge');
@@ -8853,7 +8894,8 @@
         }
         _sidebarPlaceGitBadge(row, badge);
         if (badge.textContent !== want) badge.textContent = want;
-        badge.title = _GIT_BADGE_TITLES[want] || want;
+        const title = _GIT_BADGE_TITLES[want] || want;
+        if (badge.title !== title) badge.title = title;
       } else if (badge) {
         badge.remove();
       }
@@ -8864,23 +8906,16 @@
     // gitignored — plus a right-edge dot badge. Workspace-scoped folders only
     // (the shared `.claude/`, `.agents/`, `code/` meta trees live outside
     // the workspace and keep their plain styling).
-    sidebar.querySelectorAll('.sidebar-folder[data-tree-scope^="workspace:"]').forEach(row => {
+    _sidebarGitRows(sidebar, '.sidebar-folder[data-tree-scope^="workspace:"]', '.git-dot', index.empty).forEach(row => {
       const p = row.getAttribute('data-tree-path') || '';
       let cls = '';
-      if (p && statusFor(p)) {
-        cls = _gitRowClass(statusFor(p));
-      } else if (p && isIgnored(p)) {
+      const status = p && index.statusFor(p);
+      if (status) {
+        cls = _gitRowClass(status);
+      } else if (p && index.isIgnored(p)) {
         cls = 'git-ignored';
       } else if (p) {
-        let worst = '';
-        for (const k of keys) {
-          if (k.startsWith(p + '/')) {
-            const s = files[k];
-            if (s === 'M' || s === 'D' || s === 'R') { worst = 'M'; break; }
-            worst = 'U';
-          }
-        }
-        cls = worst === 'M' ? 'git-m' : worst === 'U' ? 'git-u' : '';
+        cls = _gitRowClass(index.folderStatus(p));
       }
       _gitSetRowClass(row, cls);
       const wantDot = !!cls && cls !== 'git-ignored';

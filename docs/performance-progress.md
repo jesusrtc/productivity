@@ -1712,3 +1712,98 @@ traced removal overruns, prior PTY stalls and other UI/API gaps remain in the
 evidence. Nothing in this checkpoint establishes a universal latency guarantee
 or physical iTerm parity. No main merge, push or live-server restart is included;
 the earlier merge-approval question remains pending after automatic review rejection.
+
+## Checkpoint: index Git decorations and avoid unchanged badge mutations
+
+The new `--git-changes N` navigation/typing fixture commits each of its disposable
+workspaces and then changes N of the extra files. It disables hooks, signing and
+filesystem monitors for its Git commands, uses fixture-only author details, and
+never touches user repositories. The browser report records this dimension and
+validates the real Git response plus both ordinary and recent-file decorations.
+
+With 5,000 flat mixed files (`ipynb,pdf,svg,js`) and 2,500 changed files per
+workspace, the existing code reproduced **17 of 600 keystrokes over 50 ms**.
+The worst quiet/refreshing responses were **144.9 / 136.8 ms**, with queueing up
+to 120.4 ms. All 220 API requests passed, maximum **95.6 ms**. CPU sampling
+attributed **436.3 ms** across the run to `_sidebarApplyGitStatus`, including
+122.2 ms in the per-row status lookup. The original algorithm scanned all Git
+keys for every clean row and folder, then moved and retitled existing badges on
+each application. Artifacts: `/tmp/lab-git-before-{browser,server,profile}.json`.
+
+The production change builds per-application path indexes for added/untracked
+directory inheritance, folder rollups and ignored prefixes. Lookups walk only
+the row's ancestors. Exact statuses, original key-order precedence for overlapping
+added/untracked directories, modified/deleted/renamed folder precedence, and all
+scope guards are preserved. Existing badges only move if misplaced and only change
+title when needed. Clean status results visit decorated rows, including orphan
+badges/dots, so they still remove stale state without walking every pristine row
+in JavaScript. No status cache duration, request schedule, template bound or
+visible functionality changed.
+
+The matched CPU-profiled run retained all 600 keys and passed every latency and
+correctness check:
+
+| Measure | Before | After |
+| --- | ---: | ---: |
+| Quiet typing maximum | 144.9 ms | 38.6 ms |
+| Background-update typing maximum | 136.8 ms | 41.7 ms |
+| Keys at or above 50 ms | 17 / 600 | 0 / 600 |
+| Sampled Git decoration time, whole run | 436.3 ms | 29.7 ms |
+| Sampled status lookup time, whole run | 122.2 ms | 3.0 ms |
+
+All 233 API requests passed, maximum **94.1 ms**. The added Git assertions verified
+exactly 2,500 modified paths, 5,000 correctly decorated ordinary/recent rows and
+5,000 undecorated clean rows. Artifacts:
+`/tmp/lab-git-after-{browser,server,profile}.json`.
+
+A longer **unprofiled 1,200-key** check passed, including every first sample:
+quiet p50/p95/max **3.3 / 23.6 / 43.2 ms**, background updates **4.0 / 25.1 /
+47.9 ms**. All **411 API requests** passed, maximum **141.1 ms**. Exact echo,
+focus, transport, refreshed file ordering and Git decoration checks all passed.
+Artifacts: `/tmp/lab-git-long-{browser,server}.json` and corresponding `.log`.
+
+All three runs above had no HTTP/network/browser errors, matched every browser
+API ID and route to server records, and stopped their fixture servers normally.
+
+**31 focused regression tests passed**, including a differential comparison with
+the original path scans across over 28,000 adversarial/generated paths. A real
+Chrome test checks every status and title, history-column placement, ignored
+paths, changed/cleared state, instruction/worktree/proxy exclusions, pristine
+clones, focus preservation and zero DOM mutations for repeated identical state.
+It also exercises 10,000 real rows with 5,000 badges and complete clearing.
+Existing sidebar rendering, cache and configuration regressions also passed.
+Test log: `/tmp/lab-git-tests.log`.
+
+The same Git-heavy fixture also passed **60 native navigation actions**: 20
+workspace opens (maximum **168.3 ms**, including cold first open), 20 document
+opens (**60.6 ms**) and 20 sidebar resizes (**25.0 ms**). All **344 API requests**
+passed, maximum **81.1 ms**; Git status and all 10,000 fixture-row decorations
+matched expectations. No HTTP/network/browser failures or correlation mismatches
+occurred and the server stopped normally. Artifacts:
+`/tmp/lab-git-navigation-{browser,server}.json` and corresponding `.log`.
+
+The first 1,200-key clean-status control **failed** and is retained separately.
+Quiet typing peaked at **46.1 ms**; one loaded key reached **50.4 ms** (22.7 ms
+queueing, 27.7 ms handler-to-render). Its native-event timestamp validation also
+failed on **654 keys**: the event epoch minus the dispatched epoch changed from
+about **-0.4 to -2.9 ms** over the run. This observed mismatch needs investigation;
+the run is not reclassified as passing or corrected after the fact. Exact echo,
+focus, transport and updated-file checks passed. All **425 API requests** passed,
+maximum **176.0 ms**, with valid server correlation and normal shutdown.
+Artifacts: `/tmp/lab-git-clean-{browser,server}.json` and corresponding `.log`.
+
+An identical unprofiled repeat passed all **1,200 keys**, with quiet/loaded maxima
+**32.5 / 41.9 ms**, no correctness or timestamp errors, and a dispatched/event
+epoch difference between -0.2 and 0 ms. All **420 API requests** passed, maximum
+**88.3 ms**, with valid correlation and normal shutdown. This repeat does not
+erase the earlier borderline miss or explain its clock mismatch. Artifacts:
+`/tmp/lab-git-clean-repeat-{browser,server}.json` and corresponding `.log`.
+All changed JavaScript and Python files pass syntax checks; the diff passes
+whitespace checks.
+
+The overall goal remains active. This checkpoint removes a reproduced large-Git
+decoration bottleneck, but the earlier clean-control miss, timestamp drift,
+PTY stalls, cold-open/API outliers and unmeasured UI flows remain open. Physical
+iTerm parity is still unmeasured. No main merge, push or live-server restart is
+included; the earlier merge-approval question remains pending after automatic
+review rejection.
