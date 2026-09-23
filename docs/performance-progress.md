@@ -4624,3 +4624,117 @@ typing improvement. Cold creation, remaining creation misses, previously retaine
 output-typing/IME/navigation failures, complete action/endpoint coverage and
 physical/iTerm parity still require work. Main merge remains pending after the
 prior automatic approval rejection; no merge, push or live restart was attempted.
+
+
+## Keep final renderer geometry before connecting — 2026-09-23
+
+Investigated the remaining first-creation delay after `4c416e3`. Two frontend
+candidates were tested and **fully removed**. Production lab-app.js was restored
+byte-for-byte to that checkpoint. The retained change strengthens the native
+geometry regression check to exercise both real WebGL and DOM rendering.
+
+### Asset intent and parallel loading did not establish an end-to-end gain
+
+An earlier diagnostic placed the normal sequential terminal asset requests
+between approximately +118.5 and +148.3 ms after the first Terminal click.
+A candidate combined parallel ordered script loading with download hints when
+New opens. Attachment still waited for all scripts, and the menu still waited
+for its captured agent policy and rejected stale scope changes.
+
+The first hint implementation used `rel=preload`. A private real-Chrome HTTP
+fixture returned a non-cacheable 503 to the hint, then would serve the normal
+script successfully. Chrome reused the failed preload response, so attachment
+still failed. **Two checks passed and the failed-hint check failed**; this
+implementation was rejected. An alternative `rel=prefetch` passed that recovery
+case, kept hints out of the load-promise cache, did not execute scripts early,
+and reused successful downloads. Tests also forced addon responses to finish
+before the core script, confirmed ordered execution and no duplicate requests,
+and exercised direct loading without hints. That candidate passed **104 focused
+checks**, including Home, document-terminal and lifecycle behavior.
+
+It nevertheless did not establish a latency benefit in the 5,000-file/2,500-Git-
+change fixture. All first samples remained in the comparison:
+
+| Untraced 20-creation run | First / maximum | Median | p95 | Misses >200 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Prefetch plus parallel scripts | 351.1 ms | 189.3 ms | 230.0 ms | 7/20 |
+| Fresh unchanged frontend control | 274.1 ms | 186.0 ms | 229.4 ms | 3/20 |
+
+Picker maxima were 52.4 and 47.7 ms. The first creation's preceding API work was
+also slower in the candidate run, so these runs do not establish that hints
+caused all of the difference. They provide no end-to-end improvement to retain.
+
+A separate six-creation trace confirmed the hints downloaded roughly 197 ms
+before the first Terminal click and that subsequent script loads used cached
+responses (`fromCache: true`, zero transferred body bytes for xterm). Those
+later resource events still span about +83.5 to +93.0 ms after the click. The
+trace covers the first measured click through the last verified native-key
+render, with about 101 ms remaining afterward and no reported data loss.
+Diagnostic creation median/max was 214.4/250.9 ms, with five misses; it is not
+an untraced performance comparison. Both the hints and parallel-loader change
+were removed together; this does not separately establish the effect of either
+component on every entry path.
+
+Artifacts: `/tmp/lab-terminal-{preload,prefetch}-rejected.patch`, their paired
+`-rejected-test.py` archives, `/tmp/lab-terminal-assets-tests.log`,
+`/tmp/lab-terminal-assets-prefetch-tests.log`, `/tmp/lab-terminal-assets-final-tests.log`,
+`/tmp/lab-terminal-create-prefetch-{first,control,diagnostic}-{browser,server}.json`,
+associated logs, and `/tmp/lab-terminal-create-prefetch-{trace,cpu}.json` plus
+trace metadata.
+
+### Earlier connection fails the final-grid invariant
+
+A second candidate started `_openWS(true)` after the initial fit but before
+`_termEnableWebgl()`, aiming to overlap the independent socket/PTY handshake
+with synchronous GPU setup. Its 20-creation median was **185.8 ms**, p95
+221.6 ms, first/max 289.6 ms, with **5/20 misses**. Against the unchanged control's
+186.0 ms median, this provided no meaningful gain. The original 106 focused
+checks passed, but did not compare the initial connection against real GPU
+geometry.
+
+Inspection of the vendored renderers revealed an important difference: the
+DOM renderer derives cell width from the fractional measured character width,
+whereas the WebGL renderer floors the device character width. The final fitted
+column count can therefore change when enabling WebGL. The expanded native
+check executes the actual fresh-pane block with real xterm, FitAddon and the
+WebGL addon, records the grid at the connection boundary, and compares it with
+the active renderer's proposed grid. **The early-connection candidate failed
+this check with real WebGL** while the DOM variant and prior lifecycle checks
+passed. Connecting early would reintroduce the wrong-grid/reflow behavior that
+fit-before-WebSocket was meant to avoid.
+
+After restoring the existing order—visible open, initial fit, WebGL enable,
+clear, and final fit inside `_openWS`—**107 focused tests passed**. The geometry
+check covers both renderers at three pane sizes, correct Unicode buffer content,
+focus and safe disposal. The existing valid-size retry remains. The GPU test
+uses an owned Chrome profile with GPU enabled and requires a real loaded addon;
+the DOM case remains explicitly separate. No vendor asset or production startup
+order changed in this checkpoint.
+
+Artifacts: `/tmp/lab-terminal-connect-before-gpu-rejected.patch`,
+`/tmp/lab-terminal-create-connect-first-{browser,server}.json`, its log,
+`/tmp/lab-terminal-connect-before-gpu-tests.log`,
+`/tmp/lab-terminal-connect-gpu-geometry-rejected-tests.log`, and
+`/tmp/lab-terminal-gpu-geometry-final-tests.log`.
+
+### Coverage and remaining work
+
+Across these four native runs, all **969 browser and 1,158 server API records**
+stayed under 200 ms (maxima 148.0/121.91 ms). There were no browser or request
+errors. All 66 created terminals passed the existing rendered-marker/native-key,
+unique live/saved identity, workspace, focus, input-clock and pane-bound checks.
+All fixtures reported successful cleanup and stopped servers; all 66 recorded
+producer PIDs were independently checked absent. A final read-only tmux listing
+also confirmed none of the 66 exact owned names remained. The API timing success and
+short echo checks did not prove initial renderer geometry, which is why the
+new native guard was necessary. Summary:
+`/tmp/lab-terminal-startup-candidates-comparison.json`.
+
+This is a correctness/diagnostic checkpoint, not a new speed improvement.
+Cold creation and remaining creation misses still need work, alongside the
+previously retained output-typing, IME and navigation failures, remaining UI/API
+coverage, and physical/iTerm parity. The next optimization must preserve final
+renderer geometry; it can instead examine work awaited before attachment, such
+as the confirmed-created row followed by autospawn persistence and a fresh
+session-list request. Main merge remains pending after the prior automatic
+approval rejection. No merge, push or live restart was attempted.

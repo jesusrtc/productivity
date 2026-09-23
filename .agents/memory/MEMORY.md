@@ -1,5 +1,8 @@
 # Memory index
 
+- [Connect with the final renderer grid](terminal-connection-uses-final-renderer-geometry.md) — real WebGL and DOM can fit different columns; initial connections must follow final renderer setup
+- [Terminal asset hints need failure and latency checks](terminal-asset-hints-need-failure-and-latency-checks.md) — failed preloads can poison later loads; the tested prefetch/parallel candidate showed no end-to-end gain
+
 - [Batch terminal setup with failure recovery](terminal-wheel-setup-batches-idempotent-commands.md) — one tmux client on successful creation, individual retries retain later settings after an error
 
 - [Open terminals with visible font metrics](terminal-open-needs-visible-font-metrics.md) — avoid the initial 50 ms geometry retry while retaining fitted connections and fallback

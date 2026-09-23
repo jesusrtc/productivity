@@ -81,7 +81,7 @@ window.addEventListener('error', e => errors.push(e.message));
     _check_terminal_page(tmp_path, scripts, helper + checks)
 
 
-def _check_terminal_page(tmp_path, scripts, checks):
+def _check_terminal_page(tmp_path, scripts, checks, *, gpu=False):
     chrome = (os.environ.get('CHROME_BIN') or shutil.which('chromium')
               or shutil.which('google-chrome')
               or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
@@ -95,7 +95,7 @@ def _check_terminal_page(tmp_path, scripts, checks):
                     + '<script>' + checks + '</script>')
     profile = tmp_path / 'chrome-profile'
     process = subprocess.Popen([
-        chrome, '--headless', '--disable-gpu', '--no-sandbox', '--no-first-run',
+        chrome, '--headless', *([] if gpu else ['--disable-gpu']), '--no-sandbox', '--no-first-run',
         '--no-default-browser-check', '--allow-file-access-from-files',
         '--user-data-dir=' + str(profile), '--remote-debugging-port=0', 'about:blank',
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -121,7 +121,8 @@ def _check_terminal_page(tmp_path, scripts, checks):
     assert result and result[1] == 'PASS', result[1] if result else rendered[-1000:]
 
 
-def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path):
+@pytest.mark.parametrize('gpu', [False, True])
+def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, gpu):
     source = APP.read_text()
 
     def section(start, end):
@@ -131,12 +132,18 @@ def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path):
     helpers = section('  function _termMakeContainer()', '  function _termClipboardImageFile')
     helpers += section('  function _termSetPaneActive(', '  // ─── Workspace tabs')
     helpers += section('  function _termGuardViewportDisposal(', '  function termEnsureXterm()')
+    if gpu:
+        helpers += section('  let _termWebglFailed =', '  function termShowEmpty()')
+    else:
+        helpers += 'function _termEnableWebgl() {}\nfunction _termDisableWebgl() {}\n'
+    helpers += 'const USE_GPU=' + str(gpu).lower() + ';\n'
     fresh = section('    const myContainer = _termMakeContainer();', '\n  function termSetStatus')
     # The extracted block ends with termAttach's closing brace.
     fresh = fresh.rsplit('  }', 1)[0]
     scripts = ''.join('<script>' + (STATIC / path).read_text() + '</script>' for path in (
         'vendor/xterm@5.3.0/xterm.min.js',
         'vendor/xterm-addon-fit@0.8.0/xterm-addon-fit.min.js',
+        'vendor/xterm-addon-webgl@0.16.0/xterm-addon-webgl.min.js',
     ))
     checks = r'''
 const errors=[];window.addEventListener('error',e=>errors.push(e.message));
@@ -144,13 +151,14 @@ const assert=(ok,label)=>{if(!ok)throw Error(label);};
 const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
 let termXterm,termFitAddon,termContainer,termWS=null;
 const termCurrentSession='owned',termCurrentWorkspaceId='alpha';
-let connections=0;
-function _termEnableWebgl() {}
+let connections=0,connectionGrid;
 function termSendResize() {}
 function _openWS() {
   const dims=termFitAddon.proposeDimensions();
   assert(dims&&dims.cols>2&&dims.rows>2,'connection must not wait for a font measurement frame');
+  termFitAddon.fit();
   assert(termXterm.cols===dims.cols&&termXterm.rows===dims.rows,'initial grid must match fitted geometry');
+  connectionGrid={cols:termXterm.cols,rows:termXterm.rows};
   connections++;
 }
 function freshPane(name,workspaceId) {
@@ -164,15 +172,18 @@ function freshPane(name,workspaceId) {
     _termGuardViewportDisposal(termXterm);
     termFitAddon=new FitAddon.FitAddon();termXterm.loadAddon(termFitAddon);
     freshPane('owned','alpha');
+    assert(!USE_GPU||termXterm._webglAddon,'real WebGL renderer is required');
+    const renderedGrid=termFitAddon.proposeDimensions();
+    assert(connectionGrid.cols===renderedGrid.cols&&connectionGrid.rows===renderedGrid.rows,'connection geometry must match active renderer: '+JSON.stringify({connectionGrid,renderedGrid}));
     await new Promise(resolve=>termXterm.write('ready 中 e\u0301',resolve));
     await frame();await frame();
     assert(termXterm.buffer.active.getLine(0).translateToString(true)==='ready 中 e\u0301','first output changed');
     assert(document.activeElement===termXterm.textarea,'active terminal did not receive focus');
-    termXterm.dispose();termContainer.remove();
+    _termDisableWebgl(termXterm);termXterm.dispose();termContainer.remove();
     await frame();await frame();
   }
   assert(connections===3,'initial connection count changed');assert(!errors.length,errors.join('; '));
   document.getElementById('result').textContent='PASS';
 })().catch(e=>document.getElementById('result').textContent='FAIL: '+e.stack);
 '''
-    _check_terminal_page(tmp_path, scripts, helpers + checks)
+    _check_terminal_page(tmp_path, scripts, helpers + checks, gpu=gpu)
