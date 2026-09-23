@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal indicators persist until finish or review](terminal-indicators-persist-until-finish-or-review.md) — yellow survives uncertain status; unread green clears only after the viewing delay or a real double-click, including across new work.
+
 - [Terminal cleanup reviews inactivity](terminal-cleanup-reviewed-inactivity.md) — seven-day candidates across all scopes; exact reviewed identities, atomic tmux rechecks, and preserved conversations
 
 - [Codex launch options](codex-launch-explicit-autopilot-options.md) — use explicit workspace sandbox and on-request approvals; removed `--full-auto` made terminal tabs exit immediately

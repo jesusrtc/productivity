@@ -9973,7 +9973,7 @@
 
   let _termTabActivationSeq = 0;
 
-  async function _termActivateTab(name, completionClickDetail = null) {
+  async function _termActivateTab(name) {
     const request = ++_termTabActivationSeq;
     const workspaceId = _termActiveWorkspaceId();
     const session = (termSessions || []).find(row => row.name === name);
@@ -10011,12 +10011,6 @@
     }
     // The mounted-session fast path also cancels an older pending attach.
     await termAttach(name, workspaceId);
-    if (completionClickDetail !== null && request === _termTabActivationSeq
-        && name === termCurrentSession && workspaceId === termCurrentWorkspaceId
-        && _termIsScopeActive(workspaceId)) {
-      const current = termSessions.find(row => row.name === name);
-      if (current) window.LabTerminalCompletion?.click(_termRecentScopeKey(), current, completionClickDetail);
-    }
   }
 
   function _termHomeAssociationHtml(session) {
@@ -12238,7 +12232,8 @@
   }
 
   function _termSessionIsWorking(s) {
-    return s.agent_activity?.state === 'working' && !termDeadSessions.has(s.name);
+    return window.LabTerminalCompletion?.isWorking(s)
+      ?? ['working', 'waiting'].includes(s.agent_activity?.state);
   }
 
   function _termSessionTooltipPayload(s) {
@@ -12247,7 +12242,7 @@
     const working = _termSessionIsWorking(s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
       ...(working ? {working: true} : {}),
-      ...(completion && !working ? {completion: completion.label} : {}),
+      ...(completion ? {completion: completion.label} : {}),
       ...(identity.length ? {identity} : {})});
   }
 
@@ -12488,7 +12483,7 @@
     const recent = recentMeta ? ' recent' : '';
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
     const working = _termSessionIsWorking(s);
-    const ready = completion && !working;
+    const ready = completion;
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -12506,7 +12501,8 @@
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
-      ${working || ready ? `<span class="sess-activity ${working ? 'sess-working' : 'sess-completion'}" aria-hidden="true"></span>` : ''}
+      ${working ? '<span class="sess-activity sess-working" aria-hidden="true"></span>' : ''}
+      ${ready ? '<span class="sess-activity sess-completion" aria-hidden="true"></span>' : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
   }
@@ -12644,9 +12640,11 @@
       node.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        window.LabTerminalCompletion?.cancelClick();
         if (e.metaKey || e.ctrlKey || _termTabSelection().size > 1) return;
-        termRenameSession(node.getAttribute('data-name'));
+        const name = node.getAttribute('data-name');
+        const session = termSessions.find(row => row.name === name);
+        if (session && window.LabTerminalCompletion?.doubleClick(_termRecentScopeKey(), session)) return;
+        termRenameSession(name);
       });
       node.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -12664,12 +12662,11 @@
         termCloseGroupMenu();
         if (event.metaKey || event.ctrlKey) {
           event.preventDefault();
-          window.LabTerminalCompletion?.cancelClick();
           _termSelectTab(name, true);
           return;
         }
         _termSelectTab(null);
-        void _termActivateTab(name, event.detail);
+        void _termActivateTab(name);
       });
     });
     el.querySelectorAll('[data-divider-options]').forEach(divider => {

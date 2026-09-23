@@ -29,21 +29,23 @@ def _stamp(event: dict) -> float:
         return 0
 
 
-def response_state(agent: str, events: list[dict]) -> dict:
+def response_state(agent: str, events: list[dict], *, include_timestamp: bool = False) -> dict:
     state = {'state': 'unknown'}
     turn = None
     final_message = False
 
-    def set_state(value, event=None):
+    def set_state(value, completed_event=None):
         nonlocal state
         state = {'state': value}
-        if value == 'completed' and event:
-            stamp = _stamp(event)
+        if include_timestamp and (stamp := _stamp(event)) > 0:
+            state['updated_at'] = stamp
+        if value == 'completed' and completed_event:
+            stamp = _stamp(completed_event)
             if stamp <= 0:
                 state = {'state': 'unknown'}
                 return
-            token = event.get('uuid') or event.get('id') or hashlib.sha256(
-                json.dumps(event, sort_keys=True).encode()).hexdigest()[:24]
+            token = completed_event.get('uuid') or completed_event.get('id') or hashlib.sha256(
+                json.dumps(completed_event, sort_keys=True).encode()).hexdigest()[:24]
             state.update(completed_at=stamp, completion_id=str(token))
 
     for event in events:
@@ -55,7 +57,17 @@ def response_state(agent: str, events: list[dict]) -> dict:
                 or event.get('agentId') or data.get('parentToolCallId')):
             continue
         kind = event.get('type')
-        if agent == 'codex' and kind == 'event_msg':
+        if agent == 'codex' and kind == 'response_item':
+            payload = event.get('payload') or {}
+            if not isinstance(payload, dict):
+                continue
+            # A long-running turn can push task_started outside the bounded
+            # tail. Main-agent reasoning and tool calls still prove that work
+            # is in flight; only task_complete proves it has finished.
+            if (payload.get('type') in {'reasoning', 'function_call', 'custom_tool_call', 'web_search_call'}
+                    or payload.get('type') == 'message' and payload.get('role') == 'assistant'):
+                set_state('working')
+        elif agent == 'codex' and kind == 'event_msg':
             payload = event.get('payload') or {}
             if not isinstance(payload, dict):
                 set_state('unknown')
@@ -75,6 +87,8 @@ def response_state(agent: str, events: list[dict]) -> dict:
             elif kind in {'exec_approval_request', 'apply_patch_approval_request',
                           'request_user_input'}:
                 set_state('waiting')
+            elif kind in {'agent_message', 'agent_reasoning', 'exec_command_begin', 'mcp_tool_call_begin'}:
+                set_state('working')
         elif agent == 'claude':
             message = event.get('message') or {}
             if not isinstance(message, dict):
@@ -180,7 +194,7 @@ def read_activity(agent: str, path: Path) -> dict:
         events = [json.loads(line) for line in lines if line.strip()]
         if not all(isinstance(event, dict) for event in events):
             return {'state': 'unknown'}
-        result = response_state(agent, events)
+        result = response_state(agent, events, include_timestamp=True)
         with _LOCK:
             _CACHE[key] = (fingerprint, result)
             _CACHE.move_to_end(key)

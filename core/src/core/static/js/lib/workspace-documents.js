@@ -140,7 +140,7 @@
     if (!completion) return;
     document.querySelectorAll('.workspace-tab[data-kind="workspace"]').forEach(tab => {
       const scope = scopeKey({workspace_id:tab.dataset.workspaceId, vault:tab.dataset.vault});
-      const ready = (attention[scope] || []).some(session => session.agent_activity?.state !== 'working' && completion.meta(scope, session));
+      const ready = (attention[scope] || []).some(session => completion.meta(scope, session));
       let dot = tab.querySelector('.workspace-attention-dot');
       if (ready && !dot) {
         dot = document.createElement('span'); dot.className = 'workspace-attention-dot'; dot.setAttribute('role','img');

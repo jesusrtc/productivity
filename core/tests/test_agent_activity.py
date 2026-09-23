@@ -133,7 +133,7 @@ def test_reader_handles_partial_append_rotation_and_missing_files(tmp_path, monk
         stream.write(b'{"type":')
     assert activity.read_activity('codex', path) == {'state': 'unknown'}
     write_events(path, [codex('task_started')])
-    assert activity.read_activity('codex', path) == {'state': 'working'}
+    assert activity.read_activity('codex', path)['state'] == 'working'
     path.unlink()
     write_events(path, [codex('task_complete')])
     assert activity.read_activity('codex', path)['state'] == 'completed'
@@ -150,6 +150,33 @@ def test_reader_is_bounded_and_does_not_promote_a_tool_result(tmp_path, monkeypa
     with path.open('a') as stream:
         stream.write(json.dumps(codex('task_complete')) + '\n')
     assert activity.read_activity('codex', path)['state'] == 'completed'
+
+
+@pytest.mark.parametrize('kind', ['reasoning', 'function_call', 'custom_tool_call', 'message'])
+def test_long_codex_run_stays_working_after_start_leaves_the_tail(tmp_path, monkeypatch, kind):
+    path = tmp_path / 'events.jsonl'
+    monkeypatch.setattr(activity, 'TAIL_BYTES', 400)
+    ongoing = event('response_item', payload={'type': kind, 'role': 'assistant'})
+    write_events(path, [codex('task_started'), event('padding', content='x' * 1000), ongoing])
+    assert activity.read_activity('codex', path)['state'] == 'working'
+    with path.open('a') as stream:
+        stream.write(json.dumps(codex('task_complete')) + '\n')
+    assert activity.read_activity('codex', path)['state'] == 'completed'
+
+
+def test_codex_activity_does_not_promote_user_or_tool_output_to_completion():
+    for kind in ['function_call_output', 'custom_tool_call_output', 'message']:
+        output = event('response_item', payload={'type': kind, 'role': 'user'})
+        assert activity.response_state('codex', [output]) == {'state': 'unknown'}
+        assert activity.response_state('codex', [codex('task_complete'), output])['state'] == 'completed'
+
+
+def test_activity_timestamp_tracks_the_state_event_not_later_bookkeeping(tmp_path):
+    path = tmp_path / 'events.jsonl'
+    write_events(path, [codex('task_complete'), {
+        **codex('token_count'), 'timestamp': '2026-09-22T12:01:00Z'}])
+    result = activity.read_activity('codex', path)
+    assert result['updated_at'] == result['completed_at']
 
 
 def test_enrichment_uses_exact_session_ids_for_all_providers(tmp_path, monkeypatch):

@@ -82,77 +82,107 @@ console.log(JSON.stringify({passed:true}));
 
 
 @pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
-def test_two_separate_clicks_acknowledge_same_response_before_viewing_delay(agent):
+def test_double_click_acknowledges_without_a_viewing_delay(agent):
     result = _run_node(CLOCK + MODULE + """
 const C = window.LabTerminalCompletion, s = session(AGENT);
-C.click('vault', s); // The opening click can precede the socket connection.
-advance(100); show('vault', s);
-advance(1899); C.click('vault', s);
-assert(C.meta('vault', s), 'two clicks less than two seconds apart do not acknowledge');
-advance(1); C.click('vault', s);
-advance(999); assert(C.meta('vault', s), 'allow a following double-click to cancel');
-advance(1); assert(C.meta('vault', s) === null, 'second separate click clears early');
-assert(clock < 20000, 'manual shortcut is independent of automatic delay');
+show('vault', s);
+advance(100);
+assert(C.doubleClick('vault', s), 'double-click clears the exact unread response');
+assert(C.meta('vault', s) === null, 'double-click clears immediately');
+assert(!C.doubleClick('vault', s), 'no pending response leaves Rename available');
+const running = {...s, name:'running', agent_session_id:'running', agent_activity:{state:'working'}};
+assert(!C.doubleClick('vault', running), 'clicking during work cannot acknowledge a future response');
+running.agent_activity = session(AGENT, 200).agent_activity;
+assert(C.meta('vault', running), 'new completion still unread');
 console.log(JSON.stringify({passed:true}));
 """.replace('AGENT', repr(agent)))
     assert result['passed']
 
 
-@pytest.mark.parametrize('late', [False, True])
-def test_double_click_only_renames_even_after_an_earlier_selection(late):
-    result = _run_node(CLOCK + MODULE + """
-const C = window.LabTerminalCompletion, s = session();
-show('vault', s); C.click('vault', s, 1);
-if (LATE) {advance(3000); C.click('vault', s, 1);}
-advance(100); C.click('vault', s, 2); C.cancelClick();
-advance(1000); assert(C.meta('vault', s), 'rename never acknowledges');
-advance(2000); C.click('vault', s, 1); advance(1000);
-assert(C.meta('vault', s), 'rename also resets the first click');
-C.click('vault', s, 1); advance(2000); C.click('vault', s, 1); advance(1000);
-assert(C.meta('vault', s) === null, 'later deliberate clicks still work');
-console.log(JSON.stringify({passed:true}));
-""".replace('LATE', str(late).lower()))
-    assert result['passed']
-
-
-@pytest.mark.parametrize('reset', ['switch', 'blur', 'new_response', 'working', 'disconnect'])
-def test_click_shortcut_cannot_carry_across_a_view_or_response_change(reset):
-    result = _run_node(CLOCK + MODULE + """
-const C = window.LabTerminalCompletion, s = session();
-show('vault', s); C.click('vault', s); advance(2000); C.click('vault', s);
-const reset = RESET;
-if (reset === 'switch') show('vault', session('claude', 100, 'other'));
-if (reset === 'blur') {focused = false; windowEvents.blur();}
-if (reset === 'disconnect') leave();
-if (reset === 'new_response') {s.agent_activity = session('codex', 200).agent_activity; termRenderSessionList();}
-if (reset === 'working') {s.agent_activity = {state:'working'}; termRenderSessionList();}
-advance(1000);
-assert(C.meta('vault', s), 'pending click cannot acknowledge after reset');
-focused = true; s.agent_activity = session('codex', reset === 'new_response' ? 200 : 100).agent_activity;
-show('vault', s); C.click('vault', s); advance(1000);
-assert(C.meta('vault', s), 'returning starts a fresh first click');
-advance(1000); C.click('vault', s); advance(1000);
-assert(C.meta('vault', s) === null, 'fresh separate clicks acknowledge');
-console.log(JSON.stringify({passed:true}));
-""".replace('RESET', repr(reset)))
-    assert result['passed']
-
-
-def test_second_click_does_not_acknowledge_a_newer_completion_from_another_window():
+def test_double_click_cannot_acknowledge_an_unseen_newer_response_from_another_window():
     result = _run_node(CLOCK + MODULE + r"""
 const C = window.LabTerminalCompletion, s = session();
-show('vault', s); C.click('vault', s); advance(2000); C.click('vault', s);
+show('vault', s);
 const stored = JSON.parse(values['labTerminalCompletionsSeen-v1']);
 Object.values(stored)[0].completed.at = 200;
 values['labTerminalCompletionsSeen-v1'] = JSON.stringify(stored);
-advance(1000);
-assert(C.meta('vault', s), 'click only acknowledges the response actually viewed');
+assert(!C.doubleClick('vault', s), 'only the displayed response can be dismissed');
+assert(C.meta('vault', s), 'newer response stays unread');
 console.log(JSON.stringify({passed:true}));
 """)
     assert result['passed']
 
 
-def test_working_and_completed_share_one_dot_and_leave_recency_independent():
+def test_new_work_cannot_hide_or_acknowledge_an_unread_response():
+    result = _run_node(CLOCK + MODULE + r"""
+const C = window.LabTerminalCompletion, s = session();
+show('vault', s); advance(19000);
+s.agent_activity = {state:'working'}; termRenderSessionList();
+advance(60000);
+assert(C.meta('vault', s), 'working time never consumes the older green dot');
+assert(C.isWorking({...s, agent_activity:session().agent_activity}), 'a stale completed row cannot clear newer work');
+s.agent_activity = {state:'unknown'}; termRenderSessionList(); advance(60000);
+assert(C.isWorking(s) && C.meta('vault', s), 'missing state preserves both signals');
+s.agent_activity = session('codex', 200).agent_activity;
+termRenderSessionList(); advance(19999);
+assert(C.meta('vault', s), 'new response receives its whole viewing interval');
+advance(1); assert(C.meta('vault', s) === null, 'only full viewing clears');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
+def test_out_of_order_shared_views_cannot_replay_old_work_or_completion():
+    result = _run_node(CLOCK + MODULE + r"""
+const C = window.LabTerminalCompletion, s = session();
+const done = {...s, agent_activity:{...s.agent_activity, updated_at:100}};
+const running = {...s, agent_activity:{state:'working', updated_at:200}};
+const next = {...s, agent_activity:{...s.agent_activity, completed_at:300, updated_at:300}};
+assert(!C.isWorking(done), 'first response finished');
+assert(C.isWorking(running), 'new work starts');
+assert(C.isWorking(done), 'stale completed poll cannot stop new work');
+assert(!C.isWorking(next), 'new response stops working');
+assert(!C.isWorking(running), 'stale working poll cannot revive completed work');
+assert(!C.isWorking(next), 'latest response remains stopped');
+const tied = {...s, name:'tied', agent_activity:{state:'working', updated_at:300}};
+assert(C.isWorking(tied), 'start tie fixture');
+tied.agent_activity = next.agent_activity;
+assert(!C.isWorking(tied), 'completion at the same recorded millisecond still finishes');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
+@pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
+def test_working_survives_uncertain_reads_missing_identity_and_reload(agent):
+    result = _run_node(CLOCK + MODULE + """
+let C = window.LabTerminalCompletion;
+const s = session(AGENT); s.agent_activity = {state:'working'};
+assert(C.isWorking(s), 'verified working state');
+for (const state of ['waiting', 'unknown', undefined]) {
+  s.agent_activity = state ? {state} : undefined;
+  assert(C.isWorking(s), 'waiting and uncertain state cannot erase working');
+}
+delete s.agent_session_id;
+assert(C.isWorking(s), 'temporary missing live identity cannot erase working');
+""".replace('AGENT', repr(agent)) + MODULE + r"""
+C = window.LabTerminalCompletion;
+assert(C.isWorking(s), 'working persists across reload');
+assert(!C.isWorking({...s, created_at:2}), 'a different terminal incarnation does not inherit working');
+assert(!C.isWorking({...s, name:'unseen'}), 'unknown alone never creates working');
+s.agent_session_id='thread-one'; s.agent_activity=session(s.agent).agent_activity;
+assert(!C.isWorking(s) && C.meta('vault', s), 'verified finish replaces yellow with green');
+delete s.agent_session_id; s.agent_activity={state:'unknown'};
+assert(C.meta('vault', s), 'identity gaps also preserve unread green');
+assert(C.doubleClick('vault', s), 'known completion can still be acknowledged during identity gap');
+s.agent_session_id='different-conversation';
+assert(!C.isWorking(s) && !C.meta('vault', s), 'new verified conversation starts independently');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
+def test_working_and_unread_completion_remain_visible_independently():
     helpers = _js_between('  function _termSessionDisplay(s)', '  function _termMarkVisibleCompletionSeen()')
     result = _run_node(CLOCK + MODULE + r"""
 const termDeadSessions = new Set();
@@ -170,9 +200,12 @@ s.agent_activity = done;
 assert(render().includes('sess-completion') && !render().includes('sess-working'), 'one green completed dot');
 assert(!render().includes('completion-ready'), 'completion never decorates the vertical line');
 s.agent_activity = {state:'working'};
-assert(render().includes('sess-working') && !render().includes('sess-completion'), 'new work takes priority over a previous unread completion');
-assert(!JSON.parse(_termSessionTooltipPayload(s)).completion, 'hover matches current working state');
-s.agent_activity = done;
+assert(render().includes('sess-working') && render().includes('sess-completion'), 'new work cannot hide an unread green dot');
+assert(JSON.parse(_termSessionTooltipPayload(s)).completion, 'hover still describes the unread response');
+termDeadSessions.add(s.name);
+assert(render().includes('sess-working') && render().includes('sess-completion'), 'connection loss cannot erase either signal');
+termDeadSessions.clear();
+s.agent_activity = session('codex', 200).agent_activity;
 show('vault', s); advance(19999);
 assert(render().includes('sess-completion'), 'green remains during viewing delay');
 advance(1);
