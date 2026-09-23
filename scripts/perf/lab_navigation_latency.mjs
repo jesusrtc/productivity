@@ -12,7 +12,7 @@ import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
 import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 import {documentEditActions,verifyEditedDocuments} from './document_edit_workload.mjs';
-import {installNavigationRefreshProbe} from './navigation_refresh_probe.mjs';
+import {installNavigationRefreshProbe,installNavigationRefreshStress,navigationRefreshCoverage} from './navigation_refresh_probe.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -196,6 +196,7 @@ async function main() {
     await evaluate('performance.setResourceTimingBufferSize(10000)');
     const timeOrigin=await evaluate('performance.timeOrigin');
     if(process.env.LAB_PERF_REFRESH_TRACE)await installNavigationRefreshProbe(evaluate,workspaceRoot);
+    if(process.env.LAB_PERF_NAVIGATION_REFRESH_DELAY)await installNavigationRefreshStress(evaluate,workspaceRoot,Number(process.env.LAB_PERF_NAVIGATION_REFRESH_DELAY));
     if(process.env.LAB_PERF_CPU_PROFILE) {
       await client.send('Profiler.enable');
       await client.send('Profiler.start');
@@ -510,9 +511,14 @@ async function main() {
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
     const terminals=terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;
+    const refreshStress=process.env.LAB_PERF_NAVIGATION_REFRESH_DELAY?await evaluate('__navigationRefreshStress()'):null;
+    if(refreshStress){
+      refreshStress.coverage=navigationRefreshCoverage(rows,refreshStress.events,workspaceRoot);
+      refreshStress.misses=refreshStress.coverage.filter(row=>!row.delivered);
+    }
     const inputSetupMisses=inputSetups.filter(row=>!row.completed||row.ms>=200);
-    console.log(JSON.stringify({fixture,git,sidebar,terminals,timeOrigin,stats,misses,inputSetups,inputSetupMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
-    if(misses.length || inputSetupMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length)process.exitCode=1;
+    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    if(misses.length || inputSetupMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
     const diagnosticsErrors=await finishDiagnostics();

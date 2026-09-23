@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace navigation defers overlapping refreshes](workspace-navigation-defers-background-refresh.md) — finish the clicked workspace first, then read fresh data once; keep scope/generation ownership and immediate later clicks
+
 - [Background refresh respects the editor](document-refresh-respects-active-editor.md) — recheck editing after asynchronous mtime/document reads; retain the baseline so changes catch up after editing
 
 - [Markdown skips unused disclosure searches](markdown-skips-unused-disclosure-extension.md) — bypass repeated suffix scans only when no disclosure can be consumed; preserve custom parsing and the shared safety/copy pipeline

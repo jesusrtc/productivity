@@ -24,3 +24,39 @@ export async function installNavigationRefreshProbe(evaluate,workspaceRoot) {
     window.__navigationRefreshProbe=()=>({events,limitReached:events.length===limit});
   })()`);
 }
+
+// Controlled overlap experiment: invoke the normal background-refresh entry
+// point during each explicit navigation. Normal polling remains enabled.
+// This is not a measurement of watcher/WebSocket event delivery latency.
+export async function installNavigationRefreshStress(evaluate,workspaceRoot,delayMs) {
+  if(!/\/lab-navigation-[^/]+\/vault\/workspaces$/.test(workspaceRoot))throw Error('Refresh stress requires the disposable fixture');
+  if(!Number.isInteger(delayMs)||delayMs<1||delayMs>1000)throw Error('Refresh stress delay must be 1–1000 ms');
+  await evaluate(`(()=>{
+    const original=showWorkspaceInfo,events=[];
+    showWorkspaceInfo=function(options={}){
+      const result=original.apply(this,arguments);
+      if(!options.backgroundRefresh && currentWorkspace?.path?.startsWith(${JSON.stringify(workspaceRoot+'/')})){
+        const path=currentWorkspace?.path,root=_sidebarScopedRoot(path),sequence=_workspaceInfoSequence;
+        const event={path,sequence,started:performance.now(),delivered:false};events.push(event);
+        setTimeout(()=>{
+          event.finished=performance.now();
+          if(currentWorkspace?.path!==path||_workspaceInfoSequence!==sequence||_sidebarScopedRoot(path)!==root)return;
+          event.delivered=true;
+          showWorkspaceInfo({preserveScroll:true,backgroundRefresh:true});
+        },${delayMs});
+      }
+      return result;
+    };
+    window.__navigationRefreshStress=()=>({delayMs:${delayMs},events});
+  })()`);
+}
+
+export function navigationRefreshCoverage(rows,events,workspaceRoot) {
+  return rows.filter(row=>row.kind==='workspace').map(row=>{
+    const start=row.clock.source,end=start+row.ms;
+    const delivered=events.filter(event=>event.path===workspaceRoot+'/'+row.target
+      && event.started>=start && event.started<=end && event.delivered
+      && event.finished>=event.started && event.finished<=end).length;
+    return {sample:row.sample,delivered};
+  });
+}

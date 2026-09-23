@@ -31,6 +31,7 @@ parser.add_argument('--git-changes', type=int, default=0, help='Commit fixture w
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
 parser.add_argument('--markdown-revision', help='Compare markdown-content.js from a local git revision')
+parser.add_argument('--navigation-refresh-delay', type=int, help='Controlled overlap experiment: trigger a background refresh 1–1000 ms after each explicit workspace navigation (normal polling retained)')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
 parser.add_argument('--typing-detaches', action='store_true', help='Also attach/detach another owned terminal during loaded typing')
@@ -75,6 +76,11 @@ if args.document_sections < 1:
     parser.error('--document-sections must be positive')
 if args.document_edit_input != 'replace' and not args.document_edit:
     parser.error('--document-edit-input requires --document-edit')
+if args.navigation_refresh_delay is not None:
+    if not 1 <= args.navigation_refresh_delay <= 1000:
+        parser.error('--navigation-refresh-delay must be between 1 and 1000 ms')
+    if any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit)):
+        parser.error('--navigation-refresh-delay requires the standalone navigation workflow')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
 if args.trace_terminal and (not (args.typing or args.terminal_tabs) or not args.server_timings):
@@ -266,6 +272,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_TERMINAL_TABS': json.dumps(terminal_tabs),
                      'LAB_PERF_TYPING_DETACH': json.dumps(terminal_tabs[0] if args.typing_detaches else None),
                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
+                     'LAB_PERF_NAVIGATION_REFRESH_DELAY': str(args.navigation_refresh_delay or ''),
                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
                      'LAB_PERF_GIT_CHANGES': str(args.git_changes),
                      'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),

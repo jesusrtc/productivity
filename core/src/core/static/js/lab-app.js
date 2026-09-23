@@ -9687,7 +9687,37 @@
   window.workspaceSaveDisplayName = workspaceSaveDisplayName;
 
   let _workspaceInfoSequence = 0;
-  async function showWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
+  let _workspaceInfoNavigation = null;
+  function showWorkspaceInfo(options = {}) {
+    if (!currentWorkspace || !currentWorkspace.is_workspace) return Promise.resolve();
+    const workspacePath = currentWorkspace.path;
+    const fileRoot = _sidebarScopedRoot(workspacePath);
+    const navigation = _workspaceInfoNavigation;
+    if (options.backgroundRefresh && navigation?.workspacePath === workspacePath
+        && navigation.fileRoot === fileRoot && navigation.sequence === _workspaceInfoSequence) {
+      // File/index events must not invalidate a click still loading its first
+      // sidebar/dashboard. Read again after it completes, coalescing intervening
+      // events without reusing the older response as the fresh result.
+      navigation.refreshOptions = {...options};
+      if (!navigation.refresh) navigation.refresh = navigation.done.catch(() => {}).then(() => {
+        if (navigation.sequence !== _workspaceInfoSequence
+            || currentWorkspace?.path !== workspacePath
+            || _sidebarScopedRoot(workspacePath) !== fileRoot) return;
+        return showWorkspaceInfo(navigation.refreshOptions);
+      });
+      return navigation.refresh;
+    }
+    const pending = _loadWorkspaceInfo(options);
+    if (options.backgroundRefresh) return pending;
+    const owner = {workspacePath, fileRoot, sequence: _workspaceInfoSequence};
+    _workspaceInfoNavigation = owner;
+    owner.done = pending.finally(() => {
+      if (_workspaceInfoNavigation === owner) _workspaceInfoNavigation = null;
+    });
+    return owner.done;
+  }
+
+  async function _loadWorkspaceInfo({preserveScroll = false, keepShell = false, backgroundRefresh = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const workspacePath = currentWorkspace.path;
     const sequence = ++_workspaceInfoSequence;

@@ -2978,3 +2978,157 @@ The goal remains active. Cold navigation variability, editor text input,
 other historical misses and iTerm parity still need work. No main merge, push
 or live-server restart occurred. Main merge remains pending after the earlier
 automatic approval rejection.
+
+## Finish explicit navigation before overlapping background refreshes (2026-09-23)
+
+**Checkpoint:** keep an index/mtime event from discarding the dashboard load
+started by a workspace click. Earlier 251 ms workspace traces contained a second
+background dashboard/file request batch before the first navigation finished.
+A fresh, unmodified normal-navigation control passed all 40 clicks (first cold
+switches 153.5 and 150.5 ms); this confirmed the overrun is intermittent, not an
+invariable cost of switching these workspaces.
+
+`showWorkspaceInfo` now tracks one explicit navigation by workspace, selected
+file root and dashboard generation. Background refreshes arriving for that
+same current owner share one queued completion and retain a copy of the latest
+options. The original click finishes normally; the queued refresh then makes
+fresh requests. A new user navigation remains immediate. Scope changes,
+revisits and a newer dashboard generation invalidate the queued work, and an
+older completion cannot clear a newer owner. The generation is checked both
+when accepting the event and when starting its follow-up, including switching
+to another worktree and back while an obsolete same-path load is pending.
+
+The existing load body and its sidebar/dashboard guards are retained in
+`_loadWorkspaceInfo`. No cache limit, filesystem behavior, polling interval,
+terminal transport or readiness condition changed. Ordinary background calls
+outside explicit navigation keep their prior behavior. Background sidebar
+reconciliation still has its existing detached-completion semantics; the new
+promise does not claim to await every subsequent sidebar paint.
+
+### Controlled overlap measurement
+
+The fixture's new optional `--navigation-refresh-delay 20` calls the normal
+background-refresh entry point during each native workspace click. Polling
+remains enabled. This deliberately controls request overlap; it is **not a
+measurement of watcher or WebSocket event delivery**. Injection requires the
+owned fixture and same workspace/root/generation. The report records all
+requested/delivered/skipped events and checks that each workspace click received
+an event before its measured completion. Missing or late delivery fails the
+controlled run instead of being counted as exercised overlap. Invalid delays
+or mixed workflows fail before fixture creation.
+
+Four baseline/candidate/candidate/baseline runs each used ten workspace clicks
+and ten document clicks, 5,000 mixed flat files per workspace and 2,500 actual
+Git changes. Baseline source was `91c5c33`. Call/file timings were enabled equally
+on both revisions, without CPU profiling. All 80 clicks and all measured APIs
+passed. Every controlled event arrived within its intended measured click.
+
+| Run order | Workspace-click median | First cold Alpha / Beta | Browser / server API maximum |
+| --- | ---: | ---: | ---: |
+| Baseline | 113.0 ms | 169.7 / 184.5 ms | 74.2 / 53.95 ms |
+| Candidate | 100.0 ms | 137.2 / 122.6 ms | 74.8 / 62.18 ms |
+| Candidate repeat | 98.7 ms | 152.8 / 114.4 ms | 96.3 / 84.54 ms |
+| Reverse baseline | 102.6 ms | 187.5 / 150.1 ms | 68.5 / 51.30 ms |
+
+Combined workspace-click medians were **111.05 → 99.0 ms** (20 samples per
+revision, about 11% lower). Cold-switch medians were **177.1 → 129.9 ms** (only
+four samples per revision, about 27% lower). These small controlled samples
+support avoiding the interrupted first load; they do not prove every cold
+switch is now below 200 ms.
+
+With a single overlapping event, finishing the original dashboard and then
+reading fresh data can perform more total requests than abandoning the first
+load. These candidate runs recorded 249/252 browser requests versus 235/234 for
+the baseline. The new coalescing reduces multiple events during the same
+navigation to one follow-up, while preserving that follow-up's fresh reads.
+Every request/route correlation and native clock passed; all owned servers
+stopped, all Git/browser/network checks passed, and no call trace reached its
+bound.
+
+### Ordinary navigation and large-document editing
+
+Without injected refreshes or call tracing, 40 workspace and 40 document clicks
+all passed: **135.5 ms maximum workspace switch**, **69.4 ms maximum document
+open**. All 658 browser API requests passed (maximum **84.5 ms**), as did all
+687 server requests (maximum **83.45 ms**). This run preceded the final additional
+generation check at queue entry; the guard was then covered by the scope-race
+test and the larger editing/typing verification below.
+
+The final guarded version completed the 20-repetition, 1,500-section editor
+workflow: **139 of 140 clicks passed**. Its first cold workspace switch still
+took **205.4 ms**, including 2.1 ms input queueing. All 20 saves (maximum
+116.9 ms), all 20 editor reopens (72.0 ms) and all 18 warm restores (164.9 ms)
+passed. All 40 native append setups passed, maximum **172.7 ms**. This remains
+an overall failing click run; the first cold sample is retained.
+
+All **792 browser API requests** passed (maximum **107.4 ms**), as did all
+**821 server requests** (maximum **106.22 ms**). All clock/request correlations
+passed. Sixty persistence checkpoints checked 240 files byte-for-byte, ending
+at 404,853 bytes across the four documents. There were no Git/browser/network
+errors and the owned server stopped. The earlier full multiline text-insertion
+failure remains unresolved; a passing small-append setup does not establish
+physical typing or clipboard-paste latency.
+
+### Regression coverage and artifacts
+
+The seven new full-load overlap scenarios all fail against `91c5c33` because
+background calls immediately restart pending navigation. They now verify one
+fresh follow-up after initial success/error, unchanged document ownership,
+workspace/worktree changes, newer explicit navigation and A → B → A revisits.
+Additional tests cover an older completion during a newer pending navigation,
+and rejection of an already-obsolete same-path owner. The diagnostic checks
+cover fixture scope, preserved results, delivery ownership, late/skipped events,
+and CLI validation. The focused bundle also exercises sidebar rendering
+ownership/configuration, editor refresh/save, notebooks, workspace navigation,
+quick files and real Chrome document-terminal behavior.
+
+Artifacts:
+
+- `/tmp/lab-cold-refresh-before-{browser,server,calls}.json` is the fresh normal
+  navigation control on `91c5c33`.
+- `/tmp/lab-dashboard-overlap-{before,after,after-2,before-2}-{browser,server,calls}.json`
+  and matching `.log` files retain the controlled comparisons.
+- `/tmp/lab-dashboard-overlap-summary.json` and its generator
+  `/tmp/lab-dashboard-overlap-summary.py` summarize all four comparisons,
+  including recomputed delivery coverage for the first three runs.
+- `/tmp/lab-dashboard-queue-final-{browser,server,summary}.json` and `.log`
+  contain the ordinary navigation run before the final entry guard.
+- `/tmp/lab-dashboard-queue-docs-{browser,server,summary}.json` and `.log`
+  contain the final guarded editor workflow, including the 205.4 ms miss.
+- `/tmp/lab-dashboard-queue-baseline-tests.log` retains the seven baseline
+  failures; `/tmp/lab-dashboard-queue-regressions-final.log` contains the final
+  focused bundle.
+
+### Final typing check and remaining failures
+
+Before the additional entry-generation guard, a 2,400-key native-input run at
+25 ms cadence passed every 50 ms check: maximum **42.3 ms** normally and
+**44.6 ms** during sidebar refreshes, with 60 file updates and 61 loaded
+refreshes. Its 840 browser API requests topped out at 143.1 ms and 871 server
+requests at 134.19 ms. The owned terminal and server were cleaned up.
+
+The final guarded version was checked again with the same cadence and workload.
+**2,399 of 2,400 keys passed**; one loaded-phase key (index 1422) took **50.7 ms**,
+including **18.2 ms browser queueing** and **32.5 ms handler-to-render**. The
+normal-phase maximum was **44.6 ms**. This remains a failing typing run, not a
+rounded-down pass, and its cause has not been established. All 2,400 characters
+were independently verified at parse and render, including after the ready
+marker scrolled out of view. There were 60 file updates and 61 loaded refreshes.
+All timestamp/transport checks passed; no browser/network/Git errors occurred.
+
+All **789 browser API requests** remained below 200 ms (maximum **134.8 ms**),
+as did all **820 server requests** (maximum **83.45 ms**). Every request ID/route
+matched. The owned terminal was removed and server stopped. These are
+browser-input-to-render measurements, not physical keyboard/display latency or
+proof of iTerm parity.
+
+**134 focused regression checks passed** on the final guarded version, along
+with JavaScript/Python syntax and `git diff --check`. Typing artifacts are
+`/tmp/lab-dashboard-queue-typing-{browser,server}.json` for the earlier passing
+candidate, and `/tmp/lab-dashboard-queue-typing-final-{browser,server,summary}.json`
+plus matching `.log` files for the final failing run. The 205.4 ms cold switch,
+50.7 ms typing sample, prior text-insertion failures and earlier historical
+misses remain in the record.
+
+The goal remains active. No main merge, push or live-server restart occurred;
+the earlier automatic approval rejection still leaves main merge pending.
