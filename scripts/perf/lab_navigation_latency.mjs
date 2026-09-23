@@ -212,9 +212,13 @@ async function main() {
         },{once:true,capture:true});
         return {x,y};
       })()`).then(async({x,y})=>{
-        await client.send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
         sentEpoch=Date.now();
-        await client.send('Input.dispatchMouseEvent',{type:'mouseReleased',timestamp:sentEpoch/1000,x,y,button:'left',clickCount:1});
+        // A fast real click does not wait for the renderer to acknowledge
+        // mouse-down before mouse-up arrives. Keep queued input measurable.
+        await Promise.all([
+          client.send('Input.dispatchMouseEvent',{type:'mousePressed',timestamp:sentEpoch/1000,x,y,button:'left',clickCount:1}),
+          client.send('Input.dispatchMouseEvent',{type:'mouseReleased',timestamp:sentEpoch/1000,x,y,button:'left',clickCount:1}),
+        ]);
       });
       const clickDeadline=Date.now()+12000;
       while(!await evaluate('__probe.done')) {

@@ -29,11 +29,14 @@ parser.add_argument('--extra-file-types', default='md', help='Comma-separated ex
 parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default='folders')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
+parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
 if args.typing and args.samples < 20:
     parser.error('--typing requires at least 20 samples per phase')
+if args.typing_updates and not args.typing:
+    parser.error('--typing-updates requires --typing')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
 extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
@@ -139,6 +142,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
                                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
                                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
+                                     'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
                                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                                 timeout=max(120, args.samples * 26))
     finally:

@@ -605,3 +605,68 @@ Optional `LAB_PERF_CPU_PROFILE=/tmp/input.cpuprofile` or
 goal remains active, including real-vault metadata outliers, cold startup, other
 UI actions, and typing under active workloads. No main-branch merge or live-server
 restart is included.
+
+## Follow-on: remove redundant refresh passes and test changing files
+
+Recent-folder compaction no longer sorts every leaf just to check whether it is
+empty. Sorting by update time derives names only for timestamp ties, and basename
+extraction avoids creating a split array. Attribute escaping returns unchanged
+strings immediately when they contain no escapable characters. Quoted and Unicode
+paths retain the same escaping. Unchanged sidebar rows skip another full scan to
+reapply fresh cached Git styling; rebuilt rows still receive it, and stale or
+missing status still fetches and applies with the existing scope guards. A Git
+repaint resolves the selected root once instead of once per row.
+
+The final unprofiled unchanged-refresh fixture, 5,000 mixed files and 100 keys per
+phase, measured:
+
+| Phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Normal polling | 3.30 ms | 31.40 ms | 117.30 ms | 3 |
+| Controlled unchanged sidebar refreshes | 3.30 ms | 23.50 ms | 41.80 ms | 0 |
+
+All 200 characters arrived, and all 57 API requests stayed below 53.60 ms without
+HTTP, network, browser, or timestamp errors (`/tmp/lab-typing-fast-paths.json`).
+The intermediate candidate before the string/sort changes still had a 55.70 ms
+loaded maximum. This is one passing loaded phase, not proof of the entire typing
+target: the startup miss remains and changing data requires separate coverage.
+
+The trace now includes blink/display-lock events and records the browser version.
+It identified **`AIPageContentAgent::ContentBuilder::Build` in Chrome
+153.0.8010.53** enclosing a **138.78 ms** layout, with total extraction lasting
+147.72 ms. This matches Chromium's implementation, which forces activatable
+display locks before collecting page content.
+[Chromium page-content extraction source](https://chromium.googlesource.com/chromium/src.git/+/e68d8f976b1e536fe6d7716affec062208e26112/third_party/blink/renderer/modules/content_extraction/ai_page_content_agent.cc)
+The trace is `/tmp/lab-typing-blink-trace.json`. Browser features remain enabled.
+A fixed-height row-containment experiment still produced a 93.80 ms startup key
+and a 109 ms long task; it was removed rather than changing dynamic sizing for
+an unproven improvement.
+
+New `--typing-updates` coverage alternates writes to the disposable fixture's two
+Markdown documents during the loaded phase. It verifies their actual mtimes in
+the sidebar cache and their final rendered recent-file order. It does not write
+to user documents. Five writes in a 200-key run exposed **7 loaded keys at or
+above 50 ms**, with loaded median **7.70 ms**, p95 **61.90 ms**, maximum **87.30
+ms**. Normal-polling maximum was 101.10 ms (2 misses). All characters, metadata,
+and final ordering passed; all 96 APIs stayed below 50.90 ms with no errors
+(`/tmp/lab-typing-changing-files.json`). Incremental updates for changed sidebar
+sections remain necessary; unchanged-tree reuse alone is insufficient.
+
+Final navigation kept 39 of 40 actions below 200 ms, but the **first workspace
+open reached 204.40 ms**. Workspace median was 111.40 ms and p95 148.90 ms;
+document maximum 69.70 ms. All 333 APIs stayed below 79.40 ms, with no browser,
+HTTP, network, or timestamp errors (`/tmp/lab-navigation-redundant-passes.json`).
+The mouse probe now posts press/release together without waiting for a renderer
+acknowledgment between them, preserving queued input in the measurement.
+
+Validation: **41 sidebar, configuration, dashboard, navigation-race, and real
+Chrome rendering tests passed**, including new cases for retained/rebuilt rows,
+fresh/stale/missing Git status, and an in-flight worktree switch. JS syntax and
+whitespace checks passed. No backend behavior, browser setting, or live-server
+configuration was changed. The goal remains active.
+
+```sh
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py --typing \
+  --typing-updates --samples 100 --extra-files 5000 \
+  --extra-file-types md,py,json,sql --extra-file-layout flat
+```

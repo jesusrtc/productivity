@@ -1009,7 +1009,9 @@
   // Escape for use inside an HTML attribute value (double-quoted). Used by
   // sidebar trees that put folder paths into data-* attributes.
   function escAttr(s) {
-    return String(s == null ? '' : s)
+    const value = String(s == null ? '' : s);
+    if (!/[&<>"']/.test(value)) return value;
+    return value
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -1116,7 +1118,8 @@
   }
 
   function _sidebarEntryName(entry) {
-    return String(entry && (entry.path || entry.name) || '').split('/').pop();
+    const path = String(entry && (entry.path || entry.name) || '');
+    return path.slice(path.lastIndexOf('/') + 1);
   }
 
   const _sidebarNameCollator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
@@ -1125,12 +1128,13 @@
   }
 
   function _sidebarCompareFiles(a, b, mode = 'name') {
-    const nameA = _sidebarEntryName(a);
-    const nameB = _sidebarEntryName(b);
     if (mode === 'updated') {
       const updated = Number(b && b.mtime || 0) - Number(a && a.mtime || 0);
       if (updated) return updated;
-    } else if (mode === 'type') {
+    }
+    const nameA = _sidebarEntryName(a);
+    const nameB = _sidebarEntryName(b);
+    if (mode === 'type') {
       const type = _sidebarCompareNames(_sidebarFileExtension(nameA), _sidebarFileExtension(nameB));
       if (type) return type;
     }
@@ -3048,7 +3052,9 @@
         // folders with no files and exactly one child is one visual row.
         // Stop at a real branch so siblings such as core/src and core/tests
         // remain immediately recognizable.
-        while (treeFiles(child).length === 0) {
+        // Compaction only needs emptiness; sorting a large leaf here repeats
+        // the full sort that compactNode performs immediately afterward.
+        while (!(child.__files__ && child.__files__.length)) {
           const childFolders = treeFolderNames(child, sortMode);
           if (childFolders.length !== 1) break;
           const next = childFolders[0];
@@ -8816,6 +8822,7 @@
     const files = (entry && entry.files) || {};
     const ignored = (entry && entry.ignored) || [];
     const keys = Object.keys(files);
+    const fileRoot = _sidebarScopedRoot(currentWorkspace.path);
     const isIgnored = p => ignored.some(pre => {
       const base = pre.replace(/\/+$/, '');
       return base && (p === base || p.startsWith(base + '/'));
@@ -8832,7 +8839,7 @@
 
     sidebar.querySelectorAll('.sidebar-file[data-filepath]').forEach(row => {
       // Workspace instructions can remain visible beside another checkout.
-      if (row.dataset.entryRoot && row.dataset.entryRoot !== _sidebarScopedRoot(currentWorkspace.path)) return;
+      if (row.dataset.entryRoot && row.dataset.entryRoot !== fileRoot) return;
       const p = row.getAttribute('data-filepath');
       if (!p || p.startsWith('__proxy__/')) return;
       const st = statusFor(p);
@@ -8890,14 +8897,14 @@
     });
   }
 
-  // Repaints synchronously from cache (a sidebar rebuild wipes the DOM
-  // classes), then refreshes from the server unless the cache is fresh.
-  async function _sidebarGitStatusRefresh() {
+  // Rebuilt rows need cached decorations; retained rows already have them.
+  // Both paths still fetch and apply current status once the cache is stale.
+  async function _sidebarGitStatusRefresh({repaint = true} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace || !currentWorkspace.path) return;
     const basePath = currentWorkspace.path;
     const path = _sidebarScopedRoot(basePath);
     const cached = _gitStatusByPath.get(path);
-    if (cached) _sidebarApplyGitStatus(cached);
+    if (cached && repaint) _sidebarApplyGitStatus(cached);
     if (cached && (Date.now() - cached.ts) < _GIT_STATUS_MIN_MS) return;
     if (_gitStatusInFlight) return;
     _gitStatusInFlight = true;
@@ -9228,7 +9235,7 @@
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
-      _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath, preserveScroll);
+      const sidebarChanged = _replaceWorkspaceSidebarMarkup(sidebar, sbHtml, workspacePath, preserveScroll);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
@@ -9237,7 +9244,7 @@
       renderRepoTabs();
       // Git decorations: repaint from cache after a rebuild (unchanged rows
       // already retain their classes), then fetch in the background if stale.
-      _sidebarGitStatusRefresh();
+      _sidebarGitStatusRefresh({repaint: sidebarChanged});
     } catch(e) {
       // Surface the underlying failure so it lands in the browser console
       // AND the server-side client-errors log (window.onerror -> /api/log).

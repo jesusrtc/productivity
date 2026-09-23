@@ -8,8 +8,46 @@ import subprocess
 import time
 
 import pytest
+from .test_frontend_terminal_ui import _js_between, _run_node
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize('repaint', [False, True])
+@pytest.mark.parametrize('state', ['fresh', 'stale', 'missing', 'changed-scope'])
+def test_retained_rows_refresh_git_without_repainting_fresh_cache(repaint, state):
+    helper = _js_between('  async function _sidebarGitStatusRefresh(',
+                         '  // Parsing thousands of file rows')
+    result = _run_node('''
+const repaint = REPAINT, state = STATE;
+let currentWorkspace = {path:'/alpha', is_workspace:true};
+let root = '/alpha', _gitStatusInFlight = false;
+const _GIT_STATUS_MIN_MS = 5000, _gitStatusByPath = new Map();
+const _sidebarScopedRoot = () => root;
+const painted = [], requests = [];
+const _sidebarApplyGitStatus = entry => painted.push(entry.files);
+if(state !== 'missing') _gitStatusByPath.set(root, {
+  files:{'a.md':'M'}, ignored:[], ts:state==='fresh' ? Date.now() : 0,
+});
+const fetch = async url => {
+  requests.push(url);
+  if(state==='changed-scope') root='/worktree';
+  return {ok:true,json:async()=>({files:{'a.md':'A'},ignored:['tmp/']})};
+};
+'''.replace('REPAINT', str(repaint).lower()).replace('STATE', repr(state)) + helper + '''
+(async()=>{
+  await _sidebarGitStatusRefresh({repaint});
+  console.log(JSON.stringify({painted,requests,inFlight:_gitStatusInFlight,
+    cached:_gitStatusByPath.get('/alpha')}));
+})();
+''')
+    expected = [{'a.md': 'M'}] if repaint and state != 'missing' else []
+    if state not in ('fresh', 'changed-scope'):
+        expected.append({'a.md': 'A'})
+    assert result['painted'] == expected
+    assert len(result['requests']) == (state != 'fresh')
+    assert result['inFlight'] is False
+    assert result['cached']['files'] == {'a.md': 'M' if state == 'fresh' else 'A'}
 
 
 def test_sidebar_template_cache_in_chrome(tmp_path):

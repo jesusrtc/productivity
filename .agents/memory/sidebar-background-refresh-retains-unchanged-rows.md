@@ -7,7 +7,9 @@ rows. Replacing thousands of unchanged rows delays terminal input and loses focu
 
 Explicit navigation still clones pristine templates. Changed markup or another
 view replacing the sidebar invalidates the live reuse. Git and instruction-file
-refreshes continue even when the file tree is unchanged. Do not cache live nodes
+refreshes continue even when the file tree is unchanged. Retained rows can skip
+reapplying fresh cached Git styling; stale/missing status must still fetch and
+apply, with the existing workspace/worktree response guard. Do not cache live nodes
 across workspace switches or increase the existing template memory bounds.
 
 The 5,000-file typing fixture still exposes startup layout and large render-task

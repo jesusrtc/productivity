@@ -3,13 +3,15 @@
 // an owned raw-echo terminal, CDP timestamps before dispatch, and exact rendered
 // character matching. xterm onRender is not physical display scanout.
 import {spawn} from 'node:child_process';
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const [baseUrl,name,marker,sampleArg,workspace,intervalArg] = process.argv.slice(2);
 const samples=Number(sampleArg), interval=Number(intervalArg)*1000;
+const changeFiles=process.env.LAB_PERF_TYPING_UPDATES==='1';
 if(!baseUrl || new URL(baseUrl).hostname!=='127.0.0.1' || !name || !marker || !workspace || !process.env.LAB_PROBE_COOKIE) throw new Error('Run through lab_navigation_latency.py --typing');
 if(!Number.isInteger(samples) || samples<20 || !Number.isFinite(interval) || interval<0) throw new Error('Invalid samples/interval');
+if(changeFiles && (!workspace.includes('/lab-navigation-') || !workspace.endsWith('/vault/workspaces/alpha')))throw new Error('File updates require the disposable navigation fixture');
 const chromePath=process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
@@ -114,7 +116,7 @@ async function main() {
   const profile=await mkdtemp(join(tmpdir(),'lab-interactive-input-'));
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client,evaluate;
-  const sent=[], phases=[], browserErrors=[],requestFailures=[],pendingRequests=new Map();
+  const sent=[], phases=[], updates=[], browserErrors=[],requestFailures=[],pendingRequests=new Map();
   try {
     let port;
     const startupDeadline=Date.now()+10000;
@@ -127,7 +129,7 @@ async function main() {
         await sleep(50);
       }
     }
-    await waitForChrome(port); ({client}=await newPage(port));
+    const browserVersion=await waitForChrome(port); ({client}=await newPage(port));
     await client.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await client.send('Network.setCookie',{name:'lab_session',value:process.env.LAB_PROBE_COOKIE,url:baseUrl,httpOnly:true,sameSite:'Strict'});
     client.ws.addEventListener('message',event=>{
@@ -161,6 +163,10 @@ async function main() {
     })()`);
     await wait(`termCurrentSession===${JSON.stringify(name)} && termWS?.readyState===1 && termXterm && Array.from({length:termXterm.buffer.active.length},(_,i)=>termXterm.buffer.active.getLine(i)?.translateToString(true)||'').join('').includes(${JSON.stringify(marker)})`,'Owned echo app did not become ready');
     const expected=Array.from({length:samples*2},(_,i)=>String.fromCharCode(97+i%26)).join('');
+    const fixtureDocuments=changeFiles?await Promise.all([1,2].map(async number=>{
+      const path=join(workspace,'docs',`review-${number}.md`);
+      return {path,content:await readFile(path,'utf8')};
+    })):[];
     await evaluate(`(()=>{
       const expected=${JSON.stringify(expected)}, marker=${JSON.stringify(marker)};
       const input=termXterm.element.querySelector('textarea');
@@ -215,11 +221,17 @@ async function main() {
       probe.snapshot=()=>({rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,webgl:!!termXterm?._webglAddon});
     })()`);
     if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');}
-    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
+    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
     for(const loaded of [false,true]) {
       await evaluate(`__typing.start(${loaded})`);
       const phase=loaded?'sidebar-refresh':'normal', phaseStart=performance.now(), commands=[];
+      const writes=[];let nextWrite=phaseStart;
       for(let i=0;i<samples;i++) {
+        if(loaded && changeFiles && performance.now()>=nextWrite) {
+          const index=writes.length, doc=fixtureDocuments[index%2];
+          const write=writeFile(doc.path,doc.content+`\n<!-- typing fixture update ${index} -->\n`).then(async()=>updates.push({path:doc.path,epoch:Date.now(),mtime:(await stat(doc.path)).mtimeMs/1000}));
+          write.catch(()=>{});writes.push(write);nextWrite+=500;
+        }
         const char=expected[sent.length], timestamp=Date.now()/1000;
         sent.push({index:sent.length,char,phase,epoch:timestamp*1000,postingSlip:performance.now()-phaseStart-i*interval});
         // Do not wait for renderer acknowledgments between keys: that would
@@ -231,8 +243,23 @@ async function main() {
         await sleep(Math.max(0,phaseStart+(i+1)*interval-performance.now()));
       }
       await Promise.all(commands);
+      await Promise.all(writes);
       await evaluate('__typing.stop()');
       await wait(`__typing.rows.length===${sent.length}`,'Keys failed to echo/render');
+      if(loaded && changeFiles) {
+        const latest=[...new Map(updates.map(u=>[u.path,u])).values()].map(u=>({path:u.path.slice(workspace.length+1),mtime:u.mtime}));
+        await wait(`${JSON.stringify(latest)}.every(expected=>{
+          const file=_workspaceSidebarCache.get(${JSON.stringify(workspace)})?.files.find(f=>f.path===expected.path);
+          return file && Math.abs(file.mtime-expected.mtime)<0.01;
+        })`,'Changed fixture files did not reach the sidebar cache');
+        if(latest.length===2) {
+          const newest=latest.sort((a,b)=>b.mtime-a.mtime).map(u=>u.path);
+          await wait(`(()=>{
+            const rows=Array.from(document.querySelectorAll('#sidebar .sidebar-file-recent')).map(el=>el.dataset.filepath);
+            return rows.indexOf(${JSON.stringify(newest[0])})>=0 && rows.indexOf(${JSON.stringify(newest[0])})<rows.indexOf(${JSON.stringify(newest[1])});
+          })()`,'Updated recent-file ordering did not render');
+        }
+      }
       const snapshot=await evaluate('__typing.snapshot()');
       const rows=snapshot.rows.filter(r=>r.phase===phase);
       phases.push({phase,total:stats(rows.map(r=>r.total)),queue:stats(rows.map(r=>r.queue)),handlerToRender:stats(rows.map(r=>r.handlerToRender))});
@@ -245,6 +272,7 @@ async function main() {
       await client.send('IO.close',{handle:stream});await writeFile(process.env.LAB_PERF_TRACE,trace);
     }
     const result=await evaluate('__typing.observer.disconnect(); __typing.listener.dispose(); __typing.parseListener.dispose(); __typing.snapshot()');
+    result.browserVersion=browserVersion.Browser;
     result.timestampErrors=result.events.flatMap((e,i)=>Math.abs(e.sourceEpoch-sent[i]?.epoch)>2?[{index:i,sourceEpoch:e.sourceEpoch,sentEpoch:sent[i]?.epoch}]:[]);
     const deadline=Date.now()+5000;
     while(pendingRequests.size){if(Date.now()>deadline)throw new Error('API requests still pending: '+[...pendingRequests.values()].join(', '));await sleep(10);}
@@ -253,7 +281,8 @@ async function main() {
     result.requestErrors=result.requests.filter(r=>r.status>=400);
     result.misses=result.rows.filter(r=>r.total>=50);
     result.phases=phases;result.sent=sent;result.browserErrors=browserErrors;result.requestFailures=requestFailures;
-    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT};
+    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,changeFiles};
+    result.updates=updates;
     await client.send('Page.navigate',{url:baseUrl+'/api/ping'});
     await wait(`location.pathname==='/api/ping' && !document.getElementById('termPanel') && document.body.textContent.includes('status')`,'Frame control failed to load');
     result.emptyPageFrames=stats(await evaluate(`(async()=>{const frames=[];let last=await new Promise(requestAnimationFrame);for(let i=0;i<100;i++){const next=await new Promise(requestAnimationFrame);frames.push(next-last);last=next;}return frames;})()`));
@@ -261,7 +290,7 @@ async function main() {
     if(result.errors.length || result.timestampErrors.length || result.misses.length || result.requestMisses.length || result.requestErrors.length || browserErrors.length || requestFailures.length)process.exitCode=1;
   } catch(error) {
     const partial=evaluate?await evaluate('window.__typing?.snapshot()').catch(()=>null):null;
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,browserErrors,requestFailures},null,2));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,updates,browserErrors,requestFailures},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}
