@@ -33,6 +33,7 @@ parser.add_argument('--typing', action='store_true', help='Measure real CDP inpu
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
 parser.add_argument('--resize', action='store_true', help='Also measure native sidebar drags after navigation (not with --typing)')
 parser.add_argument('--create', action='store_true', help='Measure native workspace creation through the + picker, using disposable fixture workspaces')
+parser.add_argument('--settings', action='store_true', help='Measure settings open, scoped model/sidebar saves and close with native clicks')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
@@ -49,6 +50,8 @@ if args.resize and args.typing:
     parser.error('--resize measures navigation gestures and cannot be combined with --typing')
 if args.create and (args.typing or args.resize):
     parser.error('--create measures a separate workflow and cannot be combined with --typing or --resize')
+if args.settings and (args.typing or args.resize or args.create):
+    parser.error('--settings measures a separate workflow and cannot be combined with --typing, --resize or --create')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
 if args.trace_terminal and (not args.typing or not args.server_timings):
@@ -205,6 +208,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                                      'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal else '',
                                      'LAB_PERF_SIDEBAR_RESIZE': str(int(args.resize)),
                                      'LAB_PERF_CREATE_WORKSPACES': str(int(args.create)),
+                                     'LAB_PERF_SETTINGS': str(int(args.settings)),
                                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                                 timeout=max(120, args.samples * 26))
     finally:

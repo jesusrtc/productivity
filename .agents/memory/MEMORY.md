@@ -1,5 +1,7 @@
 # Memory index
 
+- [Settings latency includes the actual sidebar redraw](settings-latency-waits-for-sidebar-redraw.md) — verify inactive-workspace saves, stored preferences and restored rows; separate form setup from measured native clicks
+
 - [Creation publishes its workspace tab immediately](workspace-creation-publishes-tab-immediately.md) — remember the confirmed row before navigation without replacing existing tab state or waiting for polling
 
 - [Prepared sidebar groups retain containment](sidebar-preparation-retains-containment.md) — preserve auto's layout/style/paint boundaries after idle preparation, and check focused group-boundary pixels

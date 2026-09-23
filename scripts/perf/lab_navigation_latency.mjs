@@ -147,6 +147,7 @@ async function main() {
       if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);
       return r.result.value;
     };
+    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
     await client.send('Page.navigate',{url:baseUrl+'/?view=productivity'});
     const until=Date.now()+15000;
     while(!await evaluate('document.querySelectorAll(".workspace-tab[data-kind=workspace]").length === 2 && document.readyState === "complete"')) {
@@ -156,12 +157,14 @@ async function main() {
     // Start immediately: early user navigation must not inherit boot delays.
     // No ui_check, mocked fetch, disabled polling, or cache flush.
     await evaluate('performance.setResourceTimingBufferSize(10000)');
+    const timeOrigin=await evaluate('performance.timeOrigin');
     if(process.env.LAB_PERF_CPU_PROFILE) {
       await client.send('Profiler.enable');
       await client.send('Profiler.start');
     }
     const actions=[];
     const createWorkspaces=process.env.LAB_PERF_CREATE_WORKSPACES==='1';
+    const settings=process.env.LAB_PERF_SETTINGS==='1';
     const initialWorkspaceTabs=createWorkspaces
       ? await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`)
       : [];
@@ -175,6 +178,26 @@ async function main() {
           {kind:'create-form',target:id,selector:'#workspaceTabsPicker [data-create-vault]',ready:`document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && document.activeElement?.id==='vaultWorkspaceName'`},
           {kind:'create-workspace',target:id,selector:'#vaultWorkspaceSubmit',input:name,
             ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
+        );
+      }
+    } else if(settings) {
+      actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
+        ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
+      for(let i=0;i<samples;i++) {
+        const model='latency-model-'+String(i+1).padStart(3,'0');
+        const recentMode=i%2?'mtime':'none';
+        actions.push(
+          {kind:'settings-open',target:'global',selector:'#settingsBtn',ready:`!!document.querySelector('#labSettingsCenter form [name="defaultAgent"]')`},
+          {kind:'settings-scope',target:'beta',selector:'#labSettingsCenter [data-scope='+JSON.stringify(workspaceRoot+'/beta')+']',
+            ready:`document.querySelector('#labSettingsCenter [data-scope-caption]')?.textContent===${JSON.stringify(workspaceRoot+'/beta')} && !!document.querySelector('#labSettingsCenter form [name="agent"]')`},
+          {kind:'settings-save',target:'beta',selector:'#labSettingsCenter .settings-save',input:model,inputSelector:'#labSettingsCenter form [name="model"]',
+            ready:`document.querySelector('#labSettingsCenter [data-message]')?.textContent==='Saved' && document.querySelector('#labSettingsCenter form [name="model"]')?.value===${JSON.stringify(model)}`},
+          {kind:'settings-active-scope',target:'alpha',selector:'#labSettingsCenter [data-scope='+JSON.stringify(workspaceRoot+'/alpha')+']',
+            ready:`document.querySelector('#labSettingsCenter [data-scope-caption]')?.textContent===${JSON.stringify(workspaceRoot+'/alpha')} && !!document.querySelector('#labSettingsCenter form [name="agent"]')`},
+          {kind:'settings-files',target:'alpha',selector:'#labSettingsCenter [data-section="files"]',ready:`!!document.querySelector('#labSettingsCenter form [name="recentMode"]')`},
+          {kind:'settings-files-save',target:recentMode,selector:'#labSettingsCenter .settings-save',choice:{selector:'#labSettingsCenter form [name="recentMode"]',value:recentMode},
+            ready:`document.querySelector('#labSettingsCenter [data-message]')?.textContent==='Saved' && _sidebarFileConfig.recentMode===${JSON.stringify(recentMode)} && document.querySelectorAll('#sidebar .sidebar-file-recent').length===${recentMode==='none'?'0':'window.__settingsExpectedRecentRows'}`},
+          {kind:'settings-close',target:'dialog',selector:'#labSettingsCenter [data-done]',ready:`!document.getElementById('labSettingsCenter')`},
         );
       }
     } else {
@@ -200,8 +223,21 @@ async function main() {
         await sleep(10);
       }
       if(action.input) {
-        if(!await evaluate(`document.activeElement?.id==='vaultWorkspaceName' && !document.getElementById('vaultWorkspaceName').value`))throw new Error('New workspace name field is not ready');
+        if(action.inputSelector) {
+          await evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(action.inputSelector)});if(!input)throw Error('Settings input is not ready');input.focus();input.select();})()`);
+        } else if(!await evaluate(`document.activeElement?.id==='vaultWorkspaceName' && !document.getElementById('vaultWorkspaceName').value`))throw new Error('New workspace name field is not ready');
         await client.send('Input.insertText',{text:action.input});
+      }
+      if(action.choice) {
+        // Prepare the form before measuring its native Save click. Native
+        // macOS select popups do not accept the page's CDP keyboard events;
+        // this setup is deliberately not reported as dropdown input latency.
+        await evaluate(`(()=>{
+          const input=document.querySelector(${JSON.stringify(action.choice.selector)});
+          input.value=${JSON.stringify(action.choice.value)};
+          if(input.value!==${JSON.stringify(action.choice.value)})throw Error('Settings option is missing');
+          input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+        })()`);
       }
       let sentEpoch;
       await evaluate(`(async()=>{
@@ -251,7 +287,19 @@ async function main() {
       if(row.error)throw new Error(row.error);
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,requests:row.requests});
       if(Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Mouse event timestamp did not match dispatched source time');
+      if(settings&&action.kind==='workspace') {
+        const count=await evaluate(`window.__settingsExpectedRecentRows=document.querySelectorAll('#sidebar .sidebar-file-recent').length`);
+        if(!count)throw new Error('Settings fixture has no recent-file rows');
+      }
+      if(settings&&action.kind!=='workspace'&&!await evaluate(`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/alpha')}`))throw new Error('Settings navigated away from the active workspace');
       await sleep(100);
+    }
+    if(settings) {
+      const active=JSON.parse(await readFile(join(workspaceRoot,'alpha','workspace.json'),'utf8'));
+      const edited=JSON.parse(await readFile(join(workspaceRoot,'beta','workspace.json'),'utf8'));
+      if(active.model||edited.model!=='latency-model-'+String(samples).padStart(3,'0')||active.agent||edited.agent)throw new Error('Settings wrote to the wrong workspace or changed the agent');
+      const saved=await evaluate(`JSON.parse(localStorage.getItem('labSidebarFileConfig-v2:'+encodeURIComponent(${JSON.stringify(workspaceRoot+'/alpha')})))`);
+      if(saved?.recentMode!==(samples%2?'none':'mtime'))throw new Error('Sidebar preference was not persisted');
     }
     if(createWorkspaces) {
       const tabs=await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`);
@@ -316,6 +364,12 @@ async function main() {
       const {profile}=await client.send('Profiler.stop');
       await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));
     }
+    if(process.env.LAB_PERF_TRACE) {
+      const complete=client.once('Tracing.tracingComplete');await client.send('Tracing.end');
+      const {stream}=await complete;let trace='';
+      while(true){const chunk=await client.send('IO.read',{handle:stream});trace+=chunk.data;if(chunk.eof)break;}
+      await client.send('IO.close',{handle:stream});await writeFile(process.env.LAB_PERF_TRACE,trace);
+    }
     const stats={};
     for(const kind of new Set(rows.map(row=>row.kind))) {
       const group=rows.filter(r=>r.kind===kind), times=group.map(r=>r.ms).sort((a,b)=>a-b);
@@ -331,8 +385,8 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders'};
-    console.log(JSON.stringify({fixture,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    const fixture={workflow:settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders'};
+    console.log(JSON.stringify({fixture,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
     if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.

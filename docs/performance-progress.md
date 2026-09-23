@@ -1630,3 +1630,85 @@ not establish agent-launch, notebook/server-control, all-vault-scale or physical
 terminal latency. Previous PTY stalls, startup tasks, API outliers and other UI
 actions still require work. No main merge, push or live-server restart is included;
 the earlier merge-approval question remains pending after automatic review rejection.
+
+## Checkpoint: measure scoped settings saves and complete sidebar updates
+
+Added `lab_navigation_latency.py --settings`, using the same disposable CLI-created
+vault, normal server lifecycle and UI polling. It opens Alpha, then repeatedly
+opens the settings center, edits Beta's model without switching the active
+workspace, selects Alpha's file preferences, toggles Recently updated visibility,
+saves and closes. Every measured click retains its externally supplied native
+timestamp and waits through the relevant rendered result. Sidebar saves wait for
+the complete recent-row count to disappear or return, not just the Saved toast.
+The final checks read both workspace metadata files and browser preference storage.
+
+Form text uses CDP input. Select-option values are prepared before the native Save
+click; this setup is not measured or claimed as native dropdown latency. Two early
+attempts using page-CDP arrow/Space/Enter events did not commit the native macOS
+select popup and stopped with an explicit error. Their earlier click samples remain
+in `/tmp/lab-settings-large-before-browser.json` and
+`/tmp/lab-settings-choice-browser.json`; neither is counted as a complete benchmark.
+No production behavior changed in this checkpoint.
+
+The initial small-fixture run covered 41 clicks, including 10 cycles of opening,
+inactive-scope selection, model save and close. Maxima were **53.4 / 54.5 / 53.4 /
+37.4 ms** respectively; the first workspace open took **64.2 ms**. All 197 API
+requests passed 200 ms, maximum **43.6 ms**. Scope, persisted model and unchanged
+agent checks passed. Artifacts: `/tmp/lab-settings-before-{browser,server}.json`.
+
+The expanded CPU-profiled flat 5,000-file run retained all 71 actions. Its 10 full
+sidebar preference saves peaked at **107.5 ms**, but the cold workspace open missed
+at **214.7 ms**. All 300 API requests passed (maximum **99.8 ms**). The first file-list
+request took 97.5 ms server-side, followed by roughly 58.4 ms of sampled sidebar
+rendering (46.3 ms in template assembly/mounting). Clean Git decoration application
+also sampled at 8.3 ms early in that interaction. These are separate contributors;
+the miss is retained, not explained away by the passing settings operations.
+Artifacts: `/tmp/lab-settings-redraw-{browser,server,profile}.json`.
+
+Optional `LAB_PERF_TRACE` now captures navigation from before Page.navigate, using
+the same Blink/display-lock categories as the terminal probe. Reports also include
+`timeOrigin`, so native sourceEpoch and trace navigation-relative times can be
+aligned directly. A follow-up with full tracing plus file-function timings recorded
+173.0 ms for the cold open (35.7 ms file request; 28.2 ms guarded scan; 2.0 ms response
+serialization), but two Hide recent saves took **354.8 / 372.8 ms**. Its CPU profile
+sampled 603.8 ms in reconciliation, including 330.9 ms removing DOM, across the run.
+The trace also retained a 73.8 ms Chrome AI-content extraction with 65.9 ms layout.
+These heavily instrumented results are labeled separately; untraced verification
+is required before attributing that removal cost to normal use. Artifacts:
+`/tmp/lab-settings-cold-{browser,server,profile,trace}.json`.
+
+All three complete runs above matched browser API IDs/routes to server records,
+had no HTTP/network/browser errors, and stopped their fixture servers normally.
+
+The final untraced check retained **141 actions**, including the first cold open
+and 20 complete settings cycles with 5,000 flat mixed files:
+
+| Action | Maximum |
+| --- | ---: |
+| Cold workspace open (one sample) | 182.7 ms |
+| Open settings | 82.2 ms |
+| Select inactive Beta | 75.3 ms |
+| Save Beta's model and show refreshed form | 66.8 ms |
+| Select active Alpha | 55.5 ms |
+| Open File sidebar preferences | 41.8 ms |
+| Save preference and finish sidebar row update | 124.1 ms |
+| Close settings | 41.4 ms |
+
+All actions passed 200 ms. All **589 API requests** passed, maximum **67.5 ms**,
+with matching server IDs/routes. Scope, persisted values and complete row counts
+passed; no HTTP/network/browser failures occurred; the fixture server stopped.
+Artifacts: `/tmp/lab-settings-final-{browser,server}.json` and corresponding `.log`.
+The final report records the settings workflow and page time origin explicitly.
+
+**29 existing settings/browser regression tests passed**, covering explicit scopes,
+global/workspace persistence and file-sidebar configuration. The Node probe passes
+syntax checking; all three incompatible settings-mode combinations are rejected
+before fixture startup. Test log: `/tmp/lab-settings-tests.log`.
+
+The overall goal remains active. Settings coverage now includes these concrete
+flows, but global settings writes, other sections, keyboard/dropdown timing and
+larger catalogs remain unmeasured. The earlier 214.7 ms cold-open miss, heavily
+traced removal overruns, prior PTY stalls and other UI/API gaps remain in the
+evidence. Nothing in this checkpoint establishes a universal latency guarantee
+or physical iTerm parity. No main merge, push or live-server restart is included;
+the earlier merge-approval question remains pending after automatic review rejection.
