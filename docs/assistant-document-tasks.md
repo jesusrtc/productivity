@@ -8,8 +8,15 @@ sections, filter JSON, independent document/series/note stars, series history,
 external links, content editor, heading copy, tab creation and nested subtabs
 remain in place. There is no separate prototype view.
 
-Drag the divider beside the document tabs to resize their column. The browser
-remembers the width across documents and inline/modal views. The range is
+On desktop, document tabs hide behind the slim **Tabs** strip on the left.
+Hover over the strip to reveal the drawer; select a tab and move back into
+the content to hide it. The drawer overlays the document without shifting it.
+The visible reference line shows the document, nested tab path and current
+heading as you scroll. Keyboard users can focus the strip to reveal tabs and
+press Escape to dismiss them.
+
+Drag the revealed drawer's divider to resize it. The browser remembers the
+width across documents and inline/modal views. The range is
 160–600 pixels, limited by the space available for the document. Double-click
 the divider to reset, or focus it and use the arrow keys to resize.
 

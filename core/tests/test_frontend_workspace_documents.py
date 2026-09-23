@@ -241,12 +241,19 @@ async function evaluate(expression) {
  return result.result?.value;
 }
 if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
+ await evaluate(`assert(!document.querySelector('.tabs-open')&&document.getElementById('assistantTabsDrawer').inert,'tabs start hidden with no invisible focus targets')`);
+ async function revealTabs() {
+  const point=await evaluate(`(() => {const r=document.querySelector('.assistant-tabs-edge').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+30}})()`);
+  await send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});
+  await evaluate(`assert(document.querySelector('.tabs-open')&&!document.getElementById('assistantTabsDrawer').inert,'left edge hover reveals tabs')`);
+ }
  const geometry = () => evaluate(`(() => {
   const nav=document.getElementById('assistantDocumentNav').getBoundingClientRect();
   const handle=document.querySelector('.assistant-tabs-resizer').getBoundingClientRect();
   return {width:nav.width,x:handle.x+handle.width/2,y:handle.y+60};
  })()`);
  async function dragBy(delta) {
+  await revealTabs();
   const {x,y}=await geometry();
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
   await send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
@@ -281,7 +288,32 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
  await send('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-resizer')).display==='none','mobile keeps horizontal tabs')`);
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
  await dragBy(110);
+ const contentPoint=await evaluate(`(() => {const r=document.getElementById('assistantModalDocument').getBoundingClientRect();return {x:r.right-30,y:r.y+80}})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...contentPoint});
+ await evaluate(`assert(!document.querySelector('.tabs-open'),'moving back into content hides tabs')`);
+ const before=await evaluate(`document.getElementById('assistantModalDocument').getBoundingClientRect().width`);
+ await revealTabs();
+ await evaluate(`assert(document.getElementById('assistantModalDocument').getBoundingClientRect().width===${before},'drawer overlays without shifting the document')`);
+ const target=await evaluate(`(() => {const tab=[...document.querySelectorAll('[data-record-path]')].at(-1);const r=tab.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,path:tab.dataset.recordPath}})()`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:target.x,y:target.y});
+ await send('Input.dispatchMouseEvent',{type:'mousePressed',x:target.x,y:target.y,button:'left',clickCount:1});
+ await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:target.x,y:target.y,button:'left',clickCount:1});
+ await evaluate(`until(()=>document.querySelector('[data-record-path="${target.path}"][aria-current="page"]'))`);
+ await evaluate(`until(()=>document.getElementById('assistantDocumentLocation').textContent.includes('Research'))`);
+ await evaluate(`assert(document.getElementById('assistantDocumentLocation').textContent.includes('Context'),'breadcrumb includes parent tab')`);
+ await send('Input.dispatchMouseEvent',{type:'mouseMoved',...contentPoint});
+ await evaluate(`assert(!document.querySelector('.tabs-open'),'selection followed by moving out dismisses drawer')`);
+ await evaluate(`(() => {
+  const host=document.getElementById('assistantModalDocument');
+  host.innerHTML='<div class="assistant-markdown"><h2>Opening section</h2><div style="height:1400px"></div><h2>Later section</h2><div style="height:1400px"></div></div>';
+  host.scrollTop=1450;
+ })()`);
+ await evaluate(`until(()=>document.getElementById('assistantDocumentLocation').textContent.includes('Later section'))`);
+ await revealTabs();
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+ await evaluate(`assert(!document.querySelector('.tabs-open')&&AssistantView.isInlineDocument(),'Escape dismisses tabs without closing document')`);
 }
 '''
         driver.write_text((ROOT/'scripts/chrome-dump-auth.mjs').read_text().replace(

@@ -1086,7 +1086,11 @@
         <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><details class="assistant-copy-menu"><summary>Copy <span aria-hidden="true">⌄</span></summary><div><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button></div></details><button type="button" id="assistantExpandDocument" hidden>Expand</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
-      <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><div class="assistant-tabs-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize document tabs" aria-controls="assistantDocumentNav" title="Drag to resize tabs · Double-click to reset"></div><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
+      <div class="assistant-modal-body" id="assistantModalBody">
+        <button type="button" class="assistant-tabs-edge" aria-label="Show document tabs" aria-expanded="false" aria-controls="assistantTabsDrawer" title="Show document tabs"><span>Tabs</span></button>
+        <div class="assistant-tabs-drawer" id="assistantTabsDrawer"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><div class="assistant-tabs-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize document tabs" aria-controls="assistantDocumentNav" title="Drag to resize tabs · Double-click to reset"></div></div>
+        <div class="assistant-reading-area"><nav class="assistant-document-location" id="assistantDocumentLocation" aria-label="Current document location"></nav><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
+      </div>
       <section id="assistantDocumentTerminal" class="assistant-document-terminal" hidden aria-label="Document terminal"></section>
     </section>`;
     overlay.addEventListener('click', event => {
@@ -1105,7 +1109,83 @@
     };
     document.body.appendChild(overlay);
     bindTabsResizer(overlay);
+    bindTabsDrawer(overlay);
     return overlay;
+  }
+
+  function setDocumentTabsOpen(open) {
+    const body = document.getElementById('assistantModalBody');
+    if (!body || !open && document.body.classList.contains('assistant-tabs-resizing')) return;
+    const desktop = window.matchMedia('(min-width:761px)').matches;
+    body.classList.toggle('tabs-open', desktop && open);
+    body.querySelector('.assistant-tabs-drawer').inert = desktop && !open;
+    body.querySelector('.assistant-tabs-edge').setAttribute('aria-expanded', String(desktop && open));
+    if (desktop && !open) {
+      closeSeriesMenu();
+      body.querySelectorAll('.assistant-tabs-drawer details[open]').forEach(menu => { menu.open = false; });
+    }
+  }
+
+  function bindTabsDrawer(overlay) {
+    const body = overlay.querySelector('#assistantModalBody');
+    const drawer = body.querySelector('.assistant-tabs-drawer');
+    const edge = body.querySelector('.assistant-tabs-edge');
+    const reading = body.querySelector('.assistant-reading-area');
+    const host = body.querySelector('#assistantModalDocument');
+    edge.addEventListener('pointerenter', () => setDocumentTabsOpen(true));
+    edge.addEventListener('pointermove', () => setDocumentTabsOpen(true), {passive:true});
+    edge.addEventListener('focus', () => setDocumentTabsOpen(true));
+    edge.addEventListener('click', () => setDocumentTabsOpen(true));
+    drawer.addEventListener('focusin', () => setDocumentTabsOpen(true));
+    drawer.addEventListener('click', () => setDocumentTabsOpen(true), true);
+    const close = () => {
+      if (document.body.classList.contains('assistant-tabs-resizing')) return;
+      if (drawer.contains(document.activeElement)) document.activeElement.blur();
+      setDocumentTabsOpen(false);
+    };
+    reading.addEventListener('pointerenter', close);
+    reading.addEventListener('pointermove', () => { if (body.classList.contains('tabs-open')) close(); }, {passive:true});
+    body.addEventListener('pointerleave', close);
+    body.addEventListener('focusout', () => queueMicrotask(() => {
+      if (!drawer.contains(document.activeElement) && document.activeElement !== edge) setDocumentTabsOpen(false);
+    }));
+    body.addEventListener('tabsresizeend', () => {
+      if (!drawer.matches(':hover') && !edge.matches(':hover')) close();
+    });
+    window.matchMedia('(min-width:761px)').addEventListener('change', () => setDocumentTabsOpen(false));
+    let frame;
+    const location = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(updateDocumentLocation);
+    };
+    host.addEventListener('scroll', location, {passive:true});
+    new MutationObserver(location).observe(host, {childList:true, subtree:true, characterData:true});
+    new ResizeObserver(location).observe(host);
+    setDocumentTabsOpen(false);
+  }
+
+  function updateDocumentLocation() {
+    const location = document.getElementById('assistantDocumentLocation');
+    const root = state.modalRoot, current = state.modalCurrent;
+    if (!location || !root || !current) return;
+    const find = row => {
+      if (row.path === current.path) return [row.title];
+      for (const child of row.children || []) {
+        const path = find(child);
+        if (path) return [row.title, ...path];
+      }
+    };
+    const parts = state.modalIndex ? [root.metadata.title, root.document_tasks ? 'Dashboard' : 'Index']
+      : root.tree && find(root.tree) || [root.metadata.title, ...(current.path !== root.path ? [current.metadata?.title] : [])];
+    const host = document.getElementById('assistantModalDocument');
+    const top = host.getBoundingClientRect().top + 30;
+    const headings = [...host.querySelectorAll('.assistant-markdown :is(h1,h2,h3,h4,h5,h6)')].filter(heading => heading.getClientRects().length);
+    const active = headings.filter(heading => heading.getBoundingClientRect().top <= top).at(-1) || headings[0];
+    if (!state.modalIndex && active?.textContent.trim() && active.textContent.trim() !== parts.at(-1)) parts.push(active.textContent.trim());
+    const labels = parts.filter(Boolean);
+    const html = labels.map((title, index) => `${index ? '<span class="assistant-location-separator" aria-hidden="true">›</span>' : ''}<span${index === labels.length - 1 ? ' aria-current="location"' : ''}>${e(title)}</span>`).join('');
+    if (location.innerHTML !== html) location.innerHTML = html;
+    location.title = labels.join(' › ');
   }
 
   function bindTabsResizer(overlay) {
@@ -1114,7 +1194,7 @@
     const handle = overlay.querySelector('.assistant-tabs-resizer');
     const key = 'lab.assistant.tabs-width.v1';
     const min = 160;
-    const max = () => Math.max(min, Math.min(600, body.clientWidth - 288));
+    const max = () => Math.max(min, Math.min(600, body.clientWidth - 306));
     const width = () => Math.round(nav.getBoundingClientRect().width);
     let drag = null;
     try {
@@ -1133,6 +1213,7 @@
       document.body.classList.remove('assistant-tabs-resizing');
       if (handle.hasPointerCapture(id)) handle.releasePointerCapture(id);
       save();
+      body.dispatchEvent(new Event('tabsresizeend'));
     };
     handle.addEventListener('pointerdown', event => {
       if (event.button !== 0 || drag) return;
@@ -1190,6 +1271,7 @@
     section.setAttribute('role', inline ? 'region' : 'dialog');
     if (inline) section.removeAttribute('aria-modal'); else section.setAttribute('aria-modal', 'true');
     overlay.querySelector('#assistantExpandDocument').hidden = !inline;
+    setDocumentTabsOpen(false);
   }
 
   function openDocumentTerminal(detail) {
@@ -1447,6 +1529,7 @@
       ? `${metadata.title || 'Meeting'} · ${detail.format === 'text' ? 'Raw notes' : detail.metadata?.title || 'Document'}`
       : metadata.title || metadata.id || 'Document';
     heading.title = heading.textContent;
+    updateDocumentLocation();
     document.getElementById('assistantModalKind').textContent = subtab ? 'Tab' : metadata.note_type === 'series' ? 'Meeting series' : metadata.note_type === 'meeting' ? 'Meeting' : 'Document';
     const workflow = tracked ? [
       metadataSelect('status', progress?.derived ? 'Overall' : 'Status', status, metadata.schema === 2 ? lifecycle : state.data?.statuses || lifecycle),
@@ -2086,8 +2169,11 @@
         createRecord('subtab', rows.get(button.dataset.recordSubtab));
       }));
     }
-    nav.querySelectorAll('[data-record-path]').forEach(button => button.classList.toggle('active', !state.modalIndex && button.dataset.recordPath === detail.path));
-    nav.querySelector('[data-record-index]')?.classList.toggle('active', state.modalIndex);
+    nav.querySelectorAll('[data-record-path], [data-record-index]').forEach(button => {
+      const active = button.hasAttribute('data-record-index') ? state.modalIndex : !state.modalIndex && button.dataset.recordPath === detail.path;
+      button.classList.toggle('active', active);
+      if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+    });
     markDraftTabs();
     markRecentTabs();
     const rawButton = nav.querySelector('[data-record-raw]');
@@ -2550,6 +2636,10 @@
       if (copyMenu) { copyMenu.open = false; copyMenu.querySelector('summary').focus(); return; }
       const more = document.querySelector('#assistantModalMetadata details[open]');
       if (more) { more.open = false; more.querySelector('summary').focus(); }
+      else if (overlay.querySelector('.tabs-open')) {
+        overlay.querySelector('.assistant-tabs-edge').focus({preventScroll:true});
+        setDocumentTabsOpen(false);
+      }
       else closeDocumentModal();
     }
   });
