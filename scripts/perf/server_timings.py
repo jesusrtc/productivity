@@ -153,20 +153,27 @@ class ServerTimings:
                 return self._io('write', fd, data)
 
             def close(self, fd):
+                # Closing can run on a worker while the loop creates a new
+                # PTY. Remove ownership before close makes this fd reusable.
+                connection = descriptors.pop(fd, None)
+                start = time.perf_counter()
                 try:
                     return original_os.close(fd)
                 finally:
-                    descriptors.pop(fd, None)
+                    if connection is not None:
+                        record(connection, 'pty.close', start)
 
         class PtyProxy:
             def __getattr__(self, name):
                 return getattr(original_pty, name)
 
             def fork(self):
+                start = time.perf_counter()
                 pid, fd = original_pty.fork()
                 connection = owner._terminal_id.get()
                 if pid > 0 and connection is not None:
                     descriptors[fd] = connection
+                    record(connection, 'pty.fork', start)
                 return pid, fd
 
         module.os, module.pty = OsProxy(), PtyProxy()

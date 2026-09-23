@@ -2105,3 +2105,147 @@ resolve earlier cold-open/typing outliers, unmeasured interactions or the
 matched iTerm comparison. The goal remains active. Work stays in the isolated
 branch; no main merge, push or live-server restart occurred. The earlier main
 merge approval remains pending after automatic approval review rejected it.
+
+## Drain detached terminal output before PTY close (2026-09-23)
+
+The previous turn was progress: `fad1247` fixed measured Pin/Unpin delays. This
+turn expands coverage to terminal-tab switching, including retained views and
+real eviction from the unchanged three-pane parked cache.
+
+The new `--terminal-tabs` workload creates six uniquely named owned echo
+sessions through the API and cleans up only those sessions, including partial
+setup failure. Native timestamped clicks wait for the selected tab, open
+connection, visible pane, focused input and exact text verified by xterm's
+render callback. One real character is typed into each terminal after its first
+measured visit; subsequent visits must preserve it through both cache reuse
+and tmux replay. Those six setup characters are not claimed as measured typing
+latency. The sequence includes first visits, the mounted tab, repeated warm
+switches and cycling beyond the cache capacity. No user terminal receives input.
+
+The initial 50-file fixture exposed a repeatable **~680 ms eviction delay**:
+first-visit maximum **686.1 ms**, eviction-cycle maximum **696.6 ms**, while warm
+switches stayed at **53.7 ms** maximum. All rendered text, focus and retained
+characters were correct. Its sidecar also retained a **305.0 ms terminal-delete
+request during cleanup**; this is a backend budget miss even though it falls
+outside browser clicks. Artifacts: `/tmp/lab-terminal-tabs-smoke-{browser,server}.json`
+and `.log`.
+
+Diagnosis kept each failed budget run:
+
+- CPU/PTY tracing (`/tmp/lab-terminal-tabs-trace-{browser,server,profile}.json`)
+  showed mostly idle browser time. A representative new socket was accepted
+  about 74 ms after input but produced its first terminal bytes around 644 ms.
+- PTY close timing (`/tmp/lab-terminal-tabs-close-{browser,server}.json`) ruled
+  out Lab's own `os.close`, which completed near zero milliseconds.
+- Fork/discovery timing (`/tmp/lab-terminal-tabs-fork-{browser,server}.json`)
+  found PTY creation at **0.9–5.2 ms** and session discovery at **533–541 ms**.
+- Deeper discovery timing (`/tmp/lab-terminal-tabs-discovery-{browser,server}.json`)
+  showed socket-routing and executable checks under 1 ms; the `has-session`
+  subprocess accounted for the delay. Python stack sampling confirmed waiting
+  for its output (`/tmp/lab-terminal-tabs-python-stacks.log`, plus
+  `/tmp/lab-terminal-tabs-stacks-{browser,server}.json`).
+- Simple immediate/drained detach controls were fast on both a separate tmux
+  server and a uniquely named session in the existing server; they did not
+  reproduce the browser workload (`/tmp/lab-terminal-detach-{control,default}.json`).
+  A read-only check found no global client-detached hook.
+- Sampling tmux during the real workload found **242 of 511 samples** in
+  `server_client_lost → close` (`/tmp/lab-terminal-tabs-tmux-stack.txt`, with
+  `/tmp/lab-terminal-tabs-native-stack-{browser,server}.json`). The installed
+  version is 3.6a. Its source closes client descriptors in this function;
+  this supports the stack interpretation but does not by itself establish
+  a kernel-level cause. [tmux 3.6a client cleanup source](https://github.com/tmux/tmux/blob/3.6a/server-client.c#L398).
+
+The production fix runs `_term_stop_pty` on a worker after both existing pumps
+stop. It signals only the owned attach child, drains final output without
+blocking reads until a **100 ms deadline**, then closes the master and performs
+the existing nonblocking reap. The deadline bounds the drain loop, not every
+possible operating-system syscall delay. It sends no input and leaves the tmux
+session alive. The worker keeps cleanup off the shared event loop. Cache limits,
+authorization, socket affinity and active terminal byte handling are unchanged.
+
+The matched 50-file follow-up removed the repeatable stall:
+
+| Maximum action duration | Original cleanup | Drained cleanup |
+| --- | ---: | ---: |
+| First terminal visits | 686.1 ms | 154.5 ms |
+| Mounted tab | 50.8 ms | 52.3 ms |
+| Warm switches | 53.7 ms | 55.1 ms |
+| Eviction cycle | 696.6 ms | 151.5 ms |
+
+All 20 follow-up actions passed. Session-discovery maximum fell to **10.5 ms**;
+all server requests passed, maximum **59.6 ms**. Artifacts:
+`/tmp/lab-terminal-tabs-drain-{browser,server}.json` and `.log`.
+
+The final unprofiled large workload used **5,000 mixed files**, flat layout,
+**2,500 actual modified Git paths**, and **128 native actions**:
+
+| Action | Samples | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| First terminal visits | 6 | 150.4 ms | 155.9 ms | 155.9 ms |
+| Mounted tab | 1 | 54.4 ms | 54.4 ms | 54.4 ms |
+| Warm switches | 60 | 82.9 ms | 89.3 ms | 96.6 ms |
+| Eviction cycle | 60 | 147.4 ms | 156.9 ms | 166.7 ms |
+
+The initial workspace open took **156.2 ms**. Every action passed 200 ms. All
+**109 browser API requests** passed, maximum **102.1 ms**; all **148 server
+requests** passed, maximum **101.5 ms** through the response body, including
+fixture setup and cleanup. Artifacts:
+`/tmp/lab-terminal-tabs-large-{browser,server}.json` and `.log`.
+
+Actual pre-click cache states were **65 cold, 60 warm and 2 mounted** (plus the
+workspace click). All 128 input clocks passed the existing strict validation,
+and every browser API request matched its sidecar request ID and route. Git
+verification found exactly 2,500 modified paths. There were no browser, API or
+transport failures; the owned server stopped. The final state retained exactly
+three parked panes plus the active pane with the expected rendered text.
+
+The added `--typing-detaches` workload passively attaches another owned echo
+terminal and detaches after receiving its marker, once per loaded refresh
+interval. It sends no terminal input. The first attempt failed during setup:
+automatic initial restore selected the second terminal before the explicit
+typing selection. No measured key or foreground WebSocket frame was sent.
+The fixture now waits for that initial restore before selecting the target.
+Both owned sessions and the server were cleaned up; the failed artifact remains
+`/tmp/lab-terminal-tabs-typing-{browser,server}.json` and `.log`.
+
+The corrected run measured **2,400 keys** at the unchanged 25 ms input cadence,
+with the same 5,000-file/2,500-Git-change fixture:
+
+| Phase | Keys | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Normal polling | 1,200 | 3.4 ms | 21.3 ms | 48.8 ms |
+| File updates, refreshes and detach cycles | 1,200 | 5.6 ms | 26.8 ms | 41.5 ms |
+
+Every key passed 50 ms, including the first key in each phase. The loaded phase
+completed **60 detach cycles, 60 refreshes and 60 real file updates**. Independent
+parse/render readers verified all 2,400 characters, including text after the
+initial marker scrolled away; the echo sidecar recorded 2,400 bytes read and
+written. All input clocks passed, foreground WebSocket compression stayed off,
+and no typing/transport/browser/API errors were reported. Every one of the
+**849 browser API requests** matched a sidecar ID and route, maximum **92.3 ms**;
+all **882 server requests** stayed below 200 ms, maximum **90.5 ms**. The sidecar
+also records the browser's unrelated `/favicon.ico` 404. Both fixture terminals
+were deleted and the owned server stopped. Artifacts:
+`/tmp/lab-terminal-tabs-typing-ready-{browser,server}.json` and `.log`.
+
+These are external CDP input-to-xterm-render measurements with PTY metadata
+tracing enabled, not physical keyboard-to-display or matched iTerm results.
+The final tab-switch run had no CPU or PTY profiling enabled.
+
+Validation covered **287 affected terminal and diagnostic regressions**. The
+first invocation passed 286 and failed one native Chrome lifecycle test because
+the sandbox prevented Chrome from starting; that test passed when rerun with
+the required access. Logs: `/tmp/lab-terminal-tabs-regressions.log` and
+`/tmp/lab-terminal-tabs-chrome-regression.log`. New tests cover bounded drain
+completion on EOF, EIO, silence, continuous output, missing children and invalid
+descriptors; event-loop responsiveness during worker cleanup; fd reuse during
+timing; exact rendered tab contents; and fixture ownership/partial-failure
+cleanup. Nine incompatible or incomplete CLI combinations were rejected before
+startup. JavaScript syntax, Python compilation and whitespace checks passed.
+
+This fixes the repeatable terminal eviction stall in the measured fixture.
+Earlier cold-open and typing outliers, unmeasured UI/backend paths and the
+matched iTerm comparison remain open; later passing runs do not erase them.
+The goal remains active. Work stays in the isolated branch; no main merge,
+push or live-server restart occurred. The earlier main merge approval remains
+pending after automatic approval review rejected it.

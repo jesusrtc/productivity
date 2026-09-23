@@ -271,7 +271,8 @@ def test_terminal_pty_timing_keeps_short_writes_errors_and_descriptor_scope():
         assert module.os.read(8, 102) == b'private bytes'  # Reused/closed fd is untracked.
     assert module.os is original_os and module.pty is original_pty
     assert [(r['stage'], r.get('bytes'), r.get('error')) for r in timings.terminal] == [
-        ('pty.read', len(b'private bytes'), None), ('pty.write', 2, None), ('pty.read', None, 'BlockingIOError')]
+        ('pty.fork', None, None), ('pty.read', len(b'private bytes'), None),
+        ('pty.write', 2, None), ('pty.read', None, 'BlockingIOError'), ('pty.close', None, None)]
     assert all(r['connection'] == 7 and r['ms'] >= 0 for r in timings.terminal)
     assert 'private' not in str(timings.report())
     assert calls[-1] == ('read', 8, 102)
@@ -289,6 +290,31 @@ def test_terminal_tracing_keeps_unrelated_websockets_untouched():
     assert asyncio.run(timings(scope, 'receive', 'send')) == 3
     assert original == [(scope, 'receive', 'send')]
     assert timings.terminal == []
+
+
+def test_terminal_close_trace_keeps_a_concurrently_reused_descriptor():
+    timings = ServerTimings(None, trace_terminal=True)
+    module = SimpleNamespace(pty=SimpleNamespace(fork=lambda:(42, 8)))
+
+    def close(fd):
+        # Model the event loop opening another PTY as a worker finishes close.
+        token = timings._terminal_id.set(8)
+        try:
+            module.pty.fork()
+        finally:
+            timings._terminal_id.reset(token)
+
+    module.os = SimpleNamespace(close=close, read=lambda fd, size:b'new data')
+    with timings.trace_terminal_io(module):
+        token = timings._terminal_id.set(7)
+        try:
+            module.pty.fork()
+        finally:
+            timings._terminal_id.reset(token)
+        module.os.close(8)
+        module.os.read(8, 100)
+    assert [(r['stage'], r['connection']) for r in timings.terminal] == [
+        ('pty.fork', 7), ('pty.fork', 8), ('pty.close', 7), ('pty.read', 8)]
 
 
 def _terminal_probe_module():

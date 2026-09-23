@@ -12,9 +12,11 @@ import {echoInput,createEchoReader} from './terminal_echo_reader.mjs';
 const [baseUrl,name,marker,sampleArg,workspace,intervalArg] = process.argv.slice(2);
 const samples=Number(sampleArg), interval=Number(intervalArg)*1000;
 const changeFiles=process.env.LAB_PERF_TYPING_UPDATES==='1';
+const detachTerminal=JSON.parse(process.env.LAB_PERF_TYPING_DETACH||'null');
 if(!baseUrl || new URL(baseUrl).hostname!=='127.0.0.1' || !name || !marker || !workspace || !process.env.LAB_PROBE_COOKIE) throw new Error('Run through lab_navigation_latency.py --typing');
 if(!Number.isInteger(samples) || samples<20 || !Number.isFinite(interval) || interval<0) throw new Error('Invalid samples/interval');
 if(changeFiles && (!workspace.includes('/lab-navigation-') || !workspace.endsWith('/vault/workspaces/alpha')))throw new Error('File updates require the disposable navigation fixture');
+if(detachTerminal && (!workspace.includes('/lab-navigation-') || !workspace.endsWith('/vault/workspaces/alpha') || !detachTerminal.name || !detachTerminal.marker || detachTerminal.name===name))throw new Error('Detach load requires a separate owned fixture terminal');
 const chromePath=process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
@@ -170,7 +172,7 @@ async function main() {
     const wait=async(expression,description)=>{
       const deadline=Date.now()+15000;
       while(!await evaluate(expression)) {
-        if(Date.now()>deadline)throw new Error(description);
+        if(Date.now()>deadline)throw new Error(description+' '+JSON.stringify(await evaluate(`({current:typeof termCurrentSession==='undefined'?null:termCurrentSession,workspace:typeof termCurrentWorkspaceId==='undefined'?null:termCurrentWorkspaceId,ws:typeof termWS==='undefined'?null:termWS?.readyState,body:document.body.className})`)));
         await sleep(20);
       }
     };
@@ -179,6 +181,11 @@ async function main() {
     if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
     await client.send('Page.navigate',{url:baseUrl+'/?workspace='+encodeURIComponent(workspace)});
     await wait(`typeof termAttach==='function' && currentWorkspace?.path===${JSON.stringify(workspace)} && termSessions.some(s=>s.name===${JSON.stringify(name)})`,'Owned terminal did not appear in fixture UI');
+    if(detachTerminal) {
+      // With two fixture sessions, finish the initial automatic restore before
+      // selecting the typing target. This setup is outside key measurements.
+      await wait(`termCurrentWorkspaceId===${JSON.stringify(workspace.split('/').at(-1))} && termWS?.readyState===1 && !!termXterm`,'Initial terminal restore did not finish');
+    }
     await evaluate(`(async()=>{
       performance.setResourceTimingBufferSize(10000);
       document.body.classList.add('term-open');
@@ -197,7 +204,31 @@ async function main() {
       const createEchoReader=${createEchoReader.toString()};
       const parsedEcho=createEchoReader(expected,marker),renderedEcho=createEchoReader(expected,marker);
       const input=termXterm.element.querySelector('textarea');
-      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],phase:null,loadTimer:null,inflight:null};
+      const detachTerminal=${JSON.stringify(detachTerminal)};
+      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],detachments:[],detaching:null,phase:null,loadTimer:null,inflight:null};
+      probe.detach=()=>{
+        if(!detachTerminal||probe.detaching)return;
+        const record={start:performance.now(),phase:probe.phase};probe.detachments.push(record);
+        probe.detaching=new Promise(resolve=>{
+          const ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/ws/term/'+encodeURIComponent(detachTerminal.name)+'?cols='+termXterm.cols+'&rows='+termXterm.rows);
+          let buffer='';
+          const timeout=setTimeout(()=>{probe.errors.push('Fixture detach connection timed out');ws.close();},5000);
+          ws.onmessage=event=>{
+            const message=JSON.parse(event.data);
+            if(message.type!=='data'||record.readyAt)return;
+            buffer=(buffer+message.data).slice(-16384);
+            if(buffer.includes(detachTerminal.marker)){
+              record.readyAt=performance.now();ws.send(JSON.stringify({type:'detach'}));ws.close();
+            }
+          };
+          ws.onerror=()=>probe.errors.push('Fixture detach WebSocket failed');
+          ws.onclose=()=>{
+            clearTimeout(timeout);record.closedAt=performance.now();
+            if(!record.readyAt)probe.errors.push('Fixture detach closed before its owned marker');
+            resolve();
+          };
+        }).finally(()=>{probe.detaching=null;});
+      };
       probe.observer=new PerformanceObserver(list=>{for(const e of list.getEntries())probe.longtasks.push({at:e.startTime,ms:e.duration});});
       probe.observer.observe({type:'longtask',buffered:true});
       document.addEventListener('keydown',e=>{
@@ -232,6 +263,7 @@ async function main() {
         }
       });
       probe.refresh=()=>{
+        probe.detach();
         if(probe.inflight)return;
         const at=performance.now();
         // This promise covers dispatch, not the detached fresh-data reconcile.
@@ -243,8 +275,8 @@ async function main() {
         if(document.activeElement!==input)throw new Error('Cannot focus echo terminal');
         if(loaded){probe.refresh();probe.loadTimer=setInterval(probe.refresh,500);}
       };
-      probe.stop=async()=>{clearInterval(probe.loadTimer);await probe.inflight;};
-      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
+      probe.stop=async()=>{clearInterval(probe.loadTimer);await probe.inflight;await probe.detaching;};
+      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,detachments:probe.detachments,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
     })()`);
     if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');}
     for(const loaded of [false,true]) {
@@ -316,7 +348,8 @@ async function main() {
     const expectedDeflate=process.env.LAB_PERF_WS_DEFLATE==='1';
     if(!result.terminalSockets.length || result.terminalSockets.some(socket=>socket.status!==101 || socket.deflate!==expectedDeflate))result.transportErrors.push('Terminal WebSocket negotiation differs from fixture configuration');
     if(inputs.length!==sent.length || inputs.some(frame=>frame.length!==1 || !Number.isFinite(frame.epoch)))result.transportErrors.push('Owned terminal input frames do not match native key count');
-    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,websocketDeflate:expectedDeflate,inputPattern:'lcg-817'};
+    if(detachTerminal && (!result.detachments.length || result.detachments.some(row=>row.phase!=='sidebar-refresh'||!row.readyAt||!row.closedAt)))result.errors.push('Background terminal detach workload was not completed');
+    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,detachTerminal:!!detachTerminal,websocketDeflate:expectedDeflate,inputPattern:'lcg-817'};
     result.git=await checkSidebarGitFixture(evaluate);
     if(result.git)result.errors.push(...result.git.errors);
     result.updates=updates;

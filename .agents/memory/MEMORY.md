@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal detach drains tty output](terminal-detach-drains-tty-output.md) — bounded worker cleanup avoids the measured tmux close stall while retaining sessions, input and pane-cache limits
+
 - [Pin writes publish confirmed cache state](pin-writes-publish-confirmed-cache-state.md) — show saved Pin/Unpin state on warm paint, retain fresh reconciliation, and keep delayed writes in their original workspace
 
 - [Sidebar Pin controls keep their own name](sidebar-pin-controls-keep-name-separate.md) — delegate clicks without confusing pin names and file paths; preserve native geometry and existing double-click behavior

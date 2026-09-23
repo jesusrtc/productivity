@@ -32,14 +32,16 @@ parser.add_argument('--app-revision', help='Compare lab-app.js from a local git 
 parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
+parser.add_argument('--typing-detaches', action='store_true', help='Also attach/detach another owned terminal during loaded typing')
 parser.add_argument('--resize', action='store_true', help='Also measure native sidebar drags after navigation (not with --typing)')
 parser.add_argument('--create', action='store_true', help='Measure native workspace creation through the + picker, using disposable fixture workspaces')
 parser.add_argument('--settings', action='store_true', help='Measure settings open, scoped model/sidebar saves and close with native clicks')
 parser.add_argument('--pins', action='store_true', help='Measure native Pin and Unpin clicks through persisted metadata and sidebar redraw')
+parser.add_argument('--terminal-tabs', action='store_true', help='Measure native terminal tab clicks across retained panes and cache eviction')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
-parser.add_argument('--trace-terminal', action='store_true', help='Time owned terminal WebSocket and PTY bytes without payloads (requires --typing and --server-timings)')
+parser.add_argument('--trace-terminal', action='store_true', help='Time owned terminal WebSocket/PTY operations without payloads (requires --typing or --terminal-tabs, and --server-timings)')
 parser.add_argument('--websocket-deflate', action='store_true', help='Diagnostic comparison only: enable WebSocket compression (production disables it)')
 args = parser.parse_args()
 if args.samples < 2:
@@ -48,6 +50,8 @@ if args.typing and args.samples < 20:
     parser.error('--typing requires at least 20 samples per phase')
 if args.typing_updates and not args.typing:
     parser.error('--typing-updates requires --typing')
+if args.typing_detaches and not args.typing:
+    parser.error('--typing-detaches requires --typing')
 if args.resize and args.typing:
     parser.error('--resize measures navigation gestures and cannot be combined with --typing')
 if args.create and (args.typing or args.resize):
@@ -56,10 +60,12 @@ if args.settings and (args.typing or args.resize or args.create):
     parser.error('--settings measures a separate workflow and cannot be combined with --typing, --resize or --create')
 if args.pins and (args.typing or args.resize or args.create or args.settings):
     parser.error('--pins measures a separate workflow and cannot be combined with --typing, --resize, --create or --settings')
+if args.terminal_tabs and (args.typing or args.resize or args.create or args.settings or args.pins):
+    parser.error('--terminal-tabs measures a separate workflow and cannot be combined with --typing, --resize, --create, --settings or --pins')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
-if args.trace_terminal and (not args.typing or not args.server_timings):
-    parser.error('--trace-terminal requires --typing and --server-timings')
+if args.trace_terminal and (not (args.typing or args.terminal_tabs) or not args.server_timings):
+    parser.error('--trace-terminal requires --typing or --terminal-tabs, and --server-timings')
 if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
 if args.extra_files < 0:
@@ -167,6 +173,12 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         if args.trace_terminal:
             from core.routes import term
             instrumentation.enter_context(timings.trace_terminal_io(term))
+            if args.terminal_tabs:
+                timings.trace_function(term, '_tmux_find_session_socket')
+                timings.trace_function(term, '_term_ws_context')
+                timings.trace_function(term, '_tmux_has_session')
+                timings.trace_function(term, '_tmux_available')
+                timings.trace_function(term.tmux_sockets, 'socket_names')
         if args.trace_files:
             from core import fsguard
             from core.routes import nb_exec
@@ -222,20 +234,28 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                     '--samples', str(args.samples)] if args.typing else
                    ['node', str(checkout / 'scripts/perf/lab_navigation_latency.mjs'), url,
                     str(root / 'workspaces'), str(args.samples)])
-        result = subprocess.run(command,
-                                env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
-                                     'LAB_PERF_EXTRA_FILES': str(args.extra_files),
-                                     'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
-                                     'LAB_PERF_GIT_CHANGES': str(args.git_changes),
-                                     'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
-                                     'LAB_PERF_WS_DEFLATE': str(int(args.websocket_deflate)),
-                                     'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal else '',
-                                     'LAB_PERF_SIDEBAR_RESIZE': str(int(args.resize)),
-                                     'LAB_PERF_CREATE_WORKSPACES': str(int(args.create)),
-                                     'LAB_PERF_SETTINGS': str(int(args.settings)),
-                                     'LAB_PERF_PINS': str(int(args.pins)),
-                                     'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
-                                timeout=max(120, args.samples * 26))
+        terminal_context = contextlib.nullcontext([])
+        if args.terminal_tabs or args.typing_detaches:
+            from terminal_tab_fixture import terminal_tab_fixture
+            terminal_context = terminal_tab_fixture(url, cookie, root / 'workspaces/alpha', count=6 if args.terminal_tabs else 1)
+        with terminal_context as terminal_tabs:
+            result = subprocess.run(
+                command,
+                env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
+                     'LAB_PERF_TERMINAL_TABS': json.dumps(terminal_tabs),
+                     'LAB_PERF_TYPING_DETACH': json.dumps(terminal_tabs[0] if args.typing_detaches else None),
+                     'LAB_PERF_EXTRA_FILES': str(args.extra_files),
+                     'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
+                     'LAB_PERF_GIT_CHANGES': str(args.git_changes),
+                     'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
+                     'LAB_PERF_WS_DEFLATE': str(int(args.websocket_deflate)),
+                     'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal and args.typing else '',
+                     'LAB_PERF_SIDEBAR_RESIZE': str(int(args.resize)),
+                     'LAB_PERF_CREATE_WORKSPACES': str(int(args.create)),
+                     'LAB_PERF_SETTINGS': str(int(args.settings)),
+                     'LAB_PERF_PINS': str(int(args.pins)),
+                     'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
+                timeout=max(120, args.samples * 26))
     finally:
         server.should_exit = True
         thread.join(15)

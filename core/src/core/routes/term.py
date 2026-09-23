@@ -49,6 +49,7 @@ import os
 import threading
 import pty
 import re
+import select
 import shutil
 import signal
 import sqlite3
@@ -3554,6 +3555,44 @@ def _clamp_dim(raw: str | None, default: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
 
+def _term_stop_pty(pid: int, fd: int) -> None:
+    """Release one attach client, draining its final tty output before close.
+
+    Closing the master immediately can leave tmux's tty close waiting on
+    output, pausing other clients on that server. Run this bounded cleanup on
+    a worker after both pumps stop; it never sends input or ends the session.
+    """
+    try:
+        try:
+            os.kill(pid, signal.SIGHUP)
+        except ProcessLookupError:
+            pass
+        try:
+            os.set_blocking(fd, False)
+            deadline = time.monotonic() + 0.1
+            while time.monotonic() < deadline:
+                try:
+                    if not os.read(fd, 65536):
+                        break
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+                        break
+                except OSError:
+                    break
+        except (OSError, ValueError):
+            pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except (ChildProcessError, OSError):
+            pass
+
+
 def _term_ws_context(websocket: WebSocket, name: str) -> tuple[list[str], str | None] | None:
     """Resolve and authorize a connection off the shared event loop."""
     if auth.user_from_connection(websocket) is None:
@@ -3850,18 +3889,7 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
-        try:
-            os.kill(pid, signal.SIGHUP)
-        except ProcessLookupError:
-            pass
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.waitpid(pid, os.WNOHANG)
-        except (ChildProcessError, OSError):
-            pass
+        await asyncio.to_thread(_term_stop_pty, pid, fd)
         await _ws_send_text_safe(websocket, json.dumps({"type": "exit"}))
         await _ws_close_safe(websocket)
         log.info(
