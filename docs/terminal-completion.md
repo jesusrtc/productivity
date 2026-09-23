@@ -54,11 +54,14 @@ do not scan transcripts.
   `assistant.message.stop_reason` of `end_turn` or `stop_sequence` completes a
   response. API errors, tool calls, and `turn_duration` alone do not.
   `turn_duration` clears unfinished working state without claiming completion.
+  Local CLI commands such as `/usage`, metadata, and compaction summaries do not
+  start work. Recorded user interruptions clear working state.
 - **Copilot:** use the conversation's `events.jsonl`. Require a completed
   `assistant.message` containing text with no `toolRequests`, followed by an
   `assistant.turn_end` for that same turn. Tool batches also emit turn-end
   events, so a turn-end alone is insufficient. Errors, interruptions, and
-  shutdown events do not create signals. Child-agent events are ignored.
+  shutdown events do not create signals. A shutdown after a verified final
+  response preserves that completion. Child-agent events are ignored.
   Resuming a session or changing its context does not start work; resume clears
   unfinished state left by the previous process.
 

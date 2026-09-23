@@ -252,3 +252,5 @@
 - [Completion second-click dismissal](terminal-completion-second-click.md) — two separate clicks on the same selected tab dismiss early; double-click remains Rename.
 
 - [Terminal task links open the highlighted task](terminal-task-links-open-highlighted-task.md) — clickable tab/header labels open the modal at the exact task without changing workspace or starting terminals.
+
+- [Provider idle-event boundaries](terminal-provider-idle-events.md) — Claude local commands do not start work; Copilot shutdown preserves a verified final response.

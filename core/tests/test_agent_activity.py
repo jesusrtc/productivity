@@ -75,9 +75,17 @@ def test_copilot_tool_turn_is_not_a_completed_response():
     ('claude', [claude('tool_use'), event('system', subtype='turn_duration')], 'unknown'),
     ('claude', [claude('end_turn', isApiErrorMessage=True)], 'error'),
     ('claude', [claude('max_tokens')], 'working'),
+    ('claude', [event('user', isMeta=True, message={'content': '<local-command-caveat>Local CLI command</local-command-caveat>'}),
+                event('user', message={'content': '<command-name>/usage</command-name>'}),
+                event('system', subtype='local_command')], 'unknown'),
+    ('claude', [event('user', isCompactSummary=True, message={'content': 'Previous context'})], 'unknown'),
+    ('claude', [claude('tool_use'), event('user', message={'content': '[Request interrupted by user]'})], 'interrupted'),
+    ('claude', [claude('tool_use'), event('user', message={'content': [{'type': 'text', 'text': '[Request interrupted by user for tool use]'}]})], 'interrupted'),
+    ('claude', [event('user', message={'content': '<command-name>/custom-skill</command-name>'}), claude('tool_use')], 'working'),
     ('copilot', [copilot('assistant.message', content='Done'), copilot('permission.requested'), copilot('assistant.turn_end')], 'waiting'),
     ('copilot', [copilot('assistant.message', content='Done'), copilot('abort'), copilot('assistant.turn_end')], 'interrupted'),
     ('copilot', [copilot('session.shutdown')], 'interrupted'),
+    ('copilot', [copilot('assistant.turn_start'), copilot('session.shutdown')], 'interrupted'),
     ('copilot', [copilot('session.error')], 'error'),
     ('copilot', [copilot('session.resume'), copilot('session.context_changed')], 'unknown'),
     ('copilot', [copilot('assistant.turn_start'), copilot('session.resume')], 'unknown'),
@@ -93,8 +101,12 @@ def test_completion_requires_a_valid_timestamp():
 
 @pytest.mark.parametrize('agent,events', [
     ('claude', [claude('end_turn'), event('system', subtype='turn_duration')]),
+    ('claude', [claude('end_turn'), event('user', isMeta=True),
+                event('user', message={'content': [{'type': 'text', 'text': '<command-name>/usage</command-name>'}]}),
+                event('system', subtype='local_command')]),
     ('copilot', [copilot('assistant.message', content='Done'), copilot('assistant.turn_end'),
                  copilot('session.resume'), copilot('session.context_changed')]),
+    ('copilot', [copilot('assistant.message', content='Done'), copilot('assistant.turn_end'), copilot('session.shutdown')]),
 ])
 def test_idle_bookkeeping_preserves_a_confirmed_completion(agent, events):
     assert activity.response_state(agent, events)['state'] == 'completed'

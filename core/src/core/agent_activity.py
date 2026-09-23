@@ -81,7 +81,21 @@ def response_state(agent: str, events: list[dict]) -> dict:
                 set_state('unknown')
                 continue
             if kind == 'user':
-                set_state('working')
+                content = message.get('content') or ''
+                if isinstance(content, list):
+                    content = '\n'.join(block.get('text', '') for block in content
+                                        if isinstance(block, dict) and isinstance(block.get('text'), str))
+                text = content.strip() if isinstance(content, str) else ''
+                # Local CLI commands and their caveats are stored as user
+                # messages, but do not start a model turn. A custom command
+                # that actually runs will emit assistant activity afterwards.
+                if (event.get('isMeta') or event.get('isCompactSummary')
+                        or text.startswith(('<command-name>', '<local-command-'))):
+                    continue
+                if text in {'[Request interrupted by user]', '[Request interrupted by user for tool use]'}:
+                    set_state('interrupted')
+                else:
+                    set_state('working')
             elif kind == 'assistant':
                 reason = message.get('stop_reason')
                 if event.get('isApiErrorMessage') or event.get('error'):
@@ -128,9 +142,15 @@ def response_state(agent: str, events: list[dict]) -> dict:
             elif kind == 'session.error':
                 final_message = False
                 set_state('error')
-            elif kind in {'abort', 'session.shutdown'}:
+            elif kind == 'abort':
                 final_message = False
                 set_state('interrupted')
+            elif kind == 'session.shutdown':
+                final_message = False
+                # Exiting after a verified final response must not erase that
+                # response before the next terminal-list refresh observes it.
+                if state['state'] != 'completed':
+                    set_state('interrupted')
     return state
 
 
