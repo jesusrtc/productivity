@@ -7785,6 +7785,9 @@
 
   async function openWorkspaceDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentWorkspace) return;
+    // A poll or index event may arrive after the editor opens. Refreshes must
+    // not reset its state or replace the draft; explicit navigation still can.
+    if (preserveScroll && _workspaceDocEditing) return;
     _clearNbNavigation();
     // Pseudo-paths starting with `__proxy__/` are not real files — they
     // refer to a declared local-dev-server proxy. Route to the iframe
@@ -7840,7 +7843,8 @@
       // of stomping the new view.
       const _navWorkspacePath = currentWorkspace.path;
       const _stillActiveNav = () => (
-        _workspaceDocPath === filepath && currentWorkspace && currentWorkspace.path === _navWorkspacePath
+        !_workspaceDocEditing
+        && _workspaceDocPath === filepath && currentWorkspace && currentWorkspace.path === _navWorkspacePath
         && _workspaceDocRoot === docRoot
       );
       // Notebooks, images, video, and HTML iframes have no meaningful _workspaceDocContent
@@ -10836,6 +10840,9 @@
       // the new workspace's baseline or retry state.
       if (!currentWorkspace || currentWorkspace.path !== workspacePath
           || (typeof _sidebarScopedRoot === 'function' && _sidebarScopedRoot(workspacePath) !== fileRoot)) return;
+      // The editor may have opened while the scan was pending. Keep the old
+      // mtime so the next poll after editing still observes this change.
+      if (_workspaceDocEditing) return;
       _workspaceMtimeFailures = 0;
       _workspaceMtimeRetryAt = 0;
       if (mtime == null) { _workspaceMtimeMisses += 1; return; }

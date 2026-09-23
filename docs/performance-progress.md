@@ -2898,3 +2898,83 @@ The goal remains active: cold workspace latency, editor input, the baseline
 reopen failure, earlier misses and iTerm parity remain unresolved. No main
 merge, push or live-server restart occurred. Local merge still awaits the
 earlier approval after automatic review rejected it.
+
+## Keep pending file refreshes from invalidating Edit (2026-09-23)
+
+**Checkpoint:** fix the editor-reopen timeout discovered in the reverse
+Markdown baseline. The trace at
+`/tmp/lab-markdown-1500-before-2-calls.json` identifies the first interfering
+`openWorkspaceDoc(...preserveScroll:true)` as the mtime interval callback. Its
+filesystem request started before Edit, but returned after the editor rendered.
+The callback had checked editing only before the request. `openWorkspaceDoc`
+then reset `_workspaceDocEditing` to false, and a later WebSocket index update
+was consequently also allowed to refresh the document. The readiness check
+never passed even though the modal had rendered a textarea.
+
+The mtime poll now checks editing again after the response and workspace/root
+validation. It leaves the previous mtime baseline in place, so the same change
+is still detected by the next poll after editing ends. `openWorkspaceDoc` also
+rejects a preserve-scroll refresh before it changes editor/navigation state
+when editing is active, covering callers such as Assistant's index handler.
+If a text refresh started before editing, its delayed success or error cannot
+replace the current source/view while the editor is active. Its fresh cache
+entry remains available for subsequent navigation. Explicit user navigation
+retains its existing behavior.
+
+### Verification
+
+The new deferred-response regression initially produced **five failures and
+one passing read-only control** against `baec61a`: refresh entering an active
+editor, editing beginning during a content read, a read error arriving during
+editing, and pending mtime responses for the workspace and selected worktree.
+The fix makes all these cases pass. An additional explicit-navigation control
+confirms that ordinary file opening still resets editing and renders normally.
+The mtime cases also verify no extra requests while editing, a retained mtime
+baseline, released single-flight state, and one document/sidebar refresh after
+editing ends.
+
+**119 focused checks passed** across document refresh/save, the native editor
+workload, sidebar file configuration/navigation, dashboard scheduling, notebook
+paths, workspace navigation, quick files, document terminals and Markdown
+routes. The initial restricted invocation passed 117 checks; two real Chrome
+tests aborted before browser startup. They were rerun with the required Chrome
+launch permission. JavaScript/Python syntax and `git diff --check` passed.
+
+The isolated large-document run used 20 edit repetitions, 1,500 sections per
+document, 5,000 mixed flat files and 2,500 Git changes per workspace. Normal
+polling and optional refresh/file timing diagnostics stayed enabled. **All 140
+clicks passed**, maximum **174.0 ms**. All 20 editor reopens completed, with
+median **66.2 ms**, p95 **70.5 ms** and maximum **71.4 ms**. Both cold workspace
+switches passed (152.6 and 171.8 ms), as did all 18 warm restores (maximum
+172.2 ms). The observed editor timeout did not recur; the deterministic tests
+provide the direct evidence for the specific race fix. This is not proof that
+all possible editor races or previously slow cold switches are resolved.
+
+The run still **failed the overall target** because two of 40 text-insertion
+acknowledgements took **215.6 and 211.6 ms** for 58/59-character appends. These
+remain separate from click timing and physical typing/display latency. The
+previous full multiline insertion failure also remains open.
+
+All **786 browser API requests** were under 200 ms (maximum **84.1 ms**), as
+were all **815 server requests** (maximum **77.88 ms**). Request IDs/routes and
+all native clocks matched. Sixty persistence checkpoints checked 240 files
+byte-for-byte, ending with 404,853 bytes across the four documents. There were
+no network/browser/Git errors, the trace did not reach its event bound, and the
+owned server stopped. No terminal transport or typing behavior changed.
+
+Artifacts:
+
+- `/tmp/lab-editor-refresh-baseline-tests.log` retains the five reproduced
+  failures before the production edit.
+- `/tmp/lab-editor-refresh-tests.log`,
+  `/tmp/lab-editor-refresh-regressions.log`, and
+  `/tmp/lab-editor-refresh-browser-regressions.log` retain the focused checks
+  and the initial Chrome launch failures.
+- `/tmp/lab-editor-refresh-after-{browser,server,calls}.json` and `.log` retain
+  the full isolated workload; `/tmp/lab-editor-refresh-summary.json` summarizes
+  clicks, requests, input setup, clocks, persistence and cleanup.
+
+The goal remains active. Cold navigation variability, editor text input,
+other historical misses and iTerm parity still need work. No main merge, push
+or live-server restart occurred. Main merge remains pending after the earlier
+automatic approval rejection.
