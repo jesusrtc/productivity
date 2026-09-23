@@ -1477,3 +1477,86 @@ prefixes (each with `-browser.json`, `-server.json`, `.log`):
 The overall goal remains active. Both PTY stalls and browser render misses need
 further work; broader UI actions and prior API outliers are still unproven. This
 checkpoint includes no main merge, push, production change or live-server restart.
+
+## Checkpoint: retain containment after sidebar layout preparation
+
+The production-matching 1,200-key trace at `179e056` passed the typing budget,
+but one 49.6 ms key waited behind Chrome's own hit testing. Its overlay and sticky
+ad detectors spent 17.94 + 7.60 ms checking the page. These are browser tasks,
+not Lab timers; the benchmark keeps them enabled.
+
+Idle preparation previously changed recent-file groups from
+`content-visibility:auto` to `visible`, also removing auto's implicit layout,
+style and paint containment. Prepared groups now explicitly retain those three
+boundaries. Their content remains fully laid out and searchable. No size
+containment, virtualization, fixed row height, input delay or scheduling change
+was introduced. The CSS containment specification defines auto's implicit
+boundaries and their persistence when its content is visible:
+[CSS Containment Level 2](https://www.w3.org/TR/css-contain-2/#content-visibility).
+
+Matched traces used 5,000 flat mixed notebook/PDF/SVG/JavaScript files, 600 keys
+per phase, 30 real document writes during loaded typing, normal polling, and
+production's uncompressed WebSockets. Both enabled browser/CPU/bridge/echo tracing.
+Trace totals below include events after terminal readiness, not startup:
+
+| Measured work | Before | Containment retained |
+| --- | ---: | ---: |
+| Paint total / largest event | 501.90 / 5.05 ms | 266.44 / 0.85 ms |
+| PrePaint total / largest event | 350.36 / 9.93 ms | 229.23 / 6.02 ms |
+| HitTest total / largest event (58 each) | 324.61 / 17.93 ms | 278.94 / 15.30 ms |
+| Idle preparation total / largest callback | 194.54 / 4.72 ms | 144.72 / 3.56 ms |
+| Quiet typing median / maximum | 4.50 / 49.60 ms | 4.20 / 33.80 ms |
+| Loaded typing median / maximum | 5.30 / 45.90 ms | 4.50 / 47.80 ms |
+| API maximum (454 each) | 73.50 ms | 91.90 ms |
+
+Paint time fell about 47%, but the loaded maximum did not improve in this pair.
+There were no missed keys, content/order/focus errors, dropped inputs, timestamp
+errors, network/browser/HTTP failures or handshake mismatches. All 1,200 input
+bytes reached each echo process; every API record matched a server ID and route.
+Both fixture servers stopped and owned terminals were removed. Startup long tasks
+of 63 and 58 ms remain in the reports. Artifacts:
+`/tmp/lab-current-179-{browser,server,profile,trace}.json` and
+`/tmp/lab-contained-{browser,server,profile,trace}.json`.
+
+**160 targeted regression tests passed**, covering sidebar caches, stale navigation,
+file configuration, dashboard refreshes, terminal links/UI/lifecycle/resources and
+the native Chrome rendering checks. The latter retain complete 5,000-row nested
+and flat trees, file/history/modal actions, keyboard Enter, focus through refresh,
+native find, symlink/icon geometry, Git state, folder expansion, themes and zoom.
+New comparisons cover first/last rows and both sides of 100-row group boundaries
+with a focused history button and terminal-drop highlight, at two widths, two
+zooms and both themes (64 total cases). They compare auto and prepared geometry,
+hit targets and painted pixels. Initial exact-PNG checks found only antialiasing
+differences (one failure was six corner pixels with a maximum channel difference
+of four); the final check uses the existing small icon-edge tolerance. Maximum
+mean channel difference was 0.009, maximum individual channel difference 15/255,
+and at most 26 pixels differed in a case. Screenshots were also visually checked.
+Artifacts: `/tmp/lab-contained-checks.log` and `/tmp/lab-contained-checks/`.
+
+Untraced sustained checks (no browser/CPU/byte tracing) also used 600 keys per
+phase and 30 real document writes each:
+
+| Fixture | Quiet median / maximum | Loaded median / maximum | API count / maximum |
+| --- | ---: | ---: | ---: |
+| 5,000 mixed flat files | 2.90 / 35.60 ms | 7.10 / 33.30 ms | 436 / 61.60 ms |
+| 5,000 mixed nested files | 3.60 / 34.40 ms | 5.00 / 43.30 ms | 416 / 95.90 ms |
+
+All 2,400 keys passed 50 ms, and all 852 measured API requests passed 200 ms.
+All content, order, focus, native-input timestamps, socket frames, server-ID/route
+correlation and cleanup checks passed. No network, HTTP or browser errors occurred.
+Artifacts: `/tmp/lab-contained-flat-{browser,server}.json` and
+`/tmp/lab-contained-folders-{browser,server}.json`, with corresponding `.log` files.
+
+Native navigation/resize verification retained all 60 actions, including cold
+first clicks: workspace maximum **149.50 ms** (20 samples), document maximum
+**67.60 ms** (20), and sidebar-drag maximum **30.40 ms** (20). All 344 API requests
+passed 200 ms, maximum **70.40 ms**, with matching server IDs/routes and no browser,
+HTTP or network errors. The fixture server stopped. Artifacts:
+`/tmp/lab-contained-navigation-{browser,server}.json` and corresponding `.log`.
+
+The full goal remains active. The untraced typing reports still contain startup
+tasks of 54–65 ms. Previous intermittent PTY stalls, earlier API outliers, broader
+UI actions, and physical comparison with iTerm remain unresolved or unmeasured.
+Passing these finite samples does not establish a universal latency guarantee.
+This checkpoint includes no main merge, push or live-server restart; the earlier
+explicit merge-approval question remains pending after automatic review rejection.

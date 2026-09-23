@@ -207,7 +207,9 @@
   /* Keep offscreen files searchable while skipping their layout and paint.
      Rendered row counts provide the same 22px extent before a group is seen. */
   .sidebar-recent-children { content-visibility: auto; }
-  .sidebar-recent-children[data-sidebar-layout-ready] { content-visibility: visible; }
+  /* Preparing a group removes auto's skipped-content behavior, but keep its
+     layout/style/paint boundaries so hit testing can skip offscreen rows. */
+  .sidebar-recent-children[data-sidebar-layout-ready] { content-visibility: visible; contain: layout style paint; }
   /* Indent guides — one vertical hairline per nesting level, VS Code-style. */
   .sidebar-folder-children.open::before { content: ""; position: absolute; left: 22px; top: 0; bottom: 0; width: 1px; background: var(--tree-indent-guide); pointer-events: none; }
 

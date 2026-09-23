@@ -265,6 +265,53 @@ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',win
 await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
 const after=await evaluate("({count:calls.filter(c=>c.kind==='history').length,focused:document.activeElement.outerHTML,last:calls.at(-1)})");
 if(after.count!==before+1)throw Error('Keyboard history action failed '+JSON.stringify({before,after}));
+// Preparing a group must keep the same visible paint as content-visibility:auto.
+// Exercise both sides of the 100-row boundaries, including focus and drop ink.
+await evaluate("_cancelSidebarLayout(document.getElementById('sidebar'))");
+const boundaryPixels=[];
+for(const light of [false,true])for(const zoom of [1,1.25])for(const width of [220,340])for(const index of [0,99,100,4999]){
+ await evaluate(`(()=>{
+  document.body.classList.toggle('light-mode',${light});document.body.style.zoom=${zoom};
+  const sidebar=document.getElementById('sidebar');sidebar.style.width='${width}px';
+  const row=sidebar.querySelectorAll('.sidebar-file')[${index}];
+  row.classList.add('term-link-drop-target');row.querySelector('button').focus();row.scrollIntoView({block:'center'});
+ })()`);await frame();
+ const shots=[],clips=[];
+ for(const prepared of [false,true]){
+  await evaluate(`document.querySelectorAll('#sidebar .sidebar-file')[${index}].closest('.sidebar-recent-children').toggleAttribute('data-sidebar-layout-ready',${prepared})`);
+  await frame();
+  const clip=await evaluate(`(()=>{
+   const row=document.querySelectorAll('#sidebar .sidebar-file')[${index}],r=row.getBoundingClientRect();
+   const button=row.querySelector('button'),b=button.getBoundingClientRect();
+   const hit=document.elementFromPoint(b.x+b.width/2,b.y+b.height/2);
+   if(!hit||!button.contains(hit)||document.activeElement!==button)throw Error('Boundary action is obscured');
+   return {x:r.x,y:r.y-3,width:r.width,height:r.height+6,scale:1};
+  })()`);
+  clips.push(clip);shots.push((await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false,clip})).data);
+ }
+ if(JSON.stringify(clips[0])!==JSON.stringify(clips[1]))throw Error('Preparation moved boundary geometry');
+ const pixels=await evaluate(`(async()=>{
+  const crops=[];
+  for(const data of ${JSON.stringify(shots)}){
+   const img=new Image();img.src='data:image/png;base64,'+data;await img.decode();
+   const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+   const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0);
+   crops.push(ctx.getImageData(0,0,img.width,img.height).data);
+  }
+  let sum=0,max=0,changed=0;
+  for(let i=0;i<crops[0].length;i+=4){let pixel=0;for(let c=0;c<3;c++){const d=Math.abs(crops[0][i+c]-crops[1][i+c]);sum+=d;pixel=Math.max(pixel,d);}max=Math.max(max,pixel);if(pixel)changed++;}
+  return {mean:sum/(crops[0].length/4*3),max,changed};
+ })()`);
+ boundaryPixels.push({light,zoom,width,index,...pixels});
+ // Separate paint layers can round antialiased corners differently. This is
+ // the same small edge-compositing allowance as the native-scale icon check.
+ if(pixels.mean>.1||pixels.max>20){
+  for(let i=0;i<shots.length;i++)await writeFile(screenshotPath.replace('.png',`-boundary-${i}.png`),Buffer.from(shots[i],'base64'));
+  throw Error('Preparation changed boundary pixels '+JSON.stringify(boundaryPixels.at(-1)));
+ }
+ await evaluate(`document.querySelectorAll('#sidebar .sidebar-file')[${index}].classList.remove('term-link-drop-target')`);
+}
+await writeFile(screenshotPath.replace('.png','-boundaries.json'),JSON.stringify(boundaryPixels,null,2));
 await evaluate("document.activeElement.blur();document.body.classList.remove('light-mode');document.body.style.zoom=1;for(const id of ['reference','sidebar']){const el=document.getElementById(id);el.style.width='340px';el.scrollTop=0;const row=el.querySelectorAll('.sidebar-file')[2];_gitSetRowClass(row,'');row.querySelector('.git-badge')?.remove();}");
 await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:0,y:0});await frame();
 // Compare actual painted pixels, including inherited colors and symlink overlays.

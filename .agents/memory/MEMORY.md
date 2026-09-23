@@ -1,5 +1,7 @@
 # Memory index
 
+- [Prepared sidebar groups retain containment](sidebar-preparation-retains-containment.md) — preserve auto's layout/style/paint boundaries after idle preparation, and check focused group-boundary pixels
+
 - [Prepare sidebar layout in idle callbacks](sidebar-idle-layout-prepares-live-groups.md) — keep live preparation out of template keys, cancel stale jobs, and invalidate it before width changes
 
 - [Empty pending state skips path resolution](notebook-empty-pending-tracker-skips-resolution.md) — avoid filesystem work when no notebook is running; preserve live identity checks when the registry is nonempty
