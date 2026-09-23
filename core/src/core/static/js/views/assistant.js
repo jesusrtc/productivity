@@ -1086,7 +1086,7 @@
         <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><details class="assistant-copy-menu"><summary>Copy <span aria-hidden="true">⌄</span></summary><div><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button></div></details><button type="button" id="assistantExpandDocument" hidden>Expand</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
-      <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
+      <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><div class="assistant-tabs-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize document tabs" aria-controls="assistantDocumentNav" title="Drag to resize tabs · Double-click to reset"></div><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
       <section id="assistantDocumentTerminal" class="assistant-document-terminal" hidden aria-label="Document terminal"></section>
     </section>`;
     overlay.addEventListener('click', event => {
@@ -1104,7 +1104,68 @@
       window.LabDocumentTerminal?.open(state.modalCurrent, state.modalRoot, state.data.root);
     };
     document.body.appendChild(overlay);
+    bindTabsResizer(overlay);
     return overlay;
+  }
+
+  function bindTabsResizer(overlay) {
+    const body = overlay.querySelector('#assistantModalBody');
+    const nav = overlay.querySelector('#assistantDocumentNav');
+    const handle = overlay.querySelector('.assistant-tabs-resizer');
+    const key = 'lab.assistant.tabs-width.v1';
+    const min = 160;
+    const max = () => Math.max(min, Math.min(600, body.clientWidth - 288));
+    const width = () => Math.round(nav.getBoundingClientRect().width);
+    let drag = null;
+    try {
+      const saved = Number(localStorage.getItem(key));
+      if (saved >= min && saved <= 600) body.style.setProperty('--assistant-tabs-width', saved + 'px');
+    } catch (_) { /* Resizing remains available without browser storage. */ }
+    const update = value => body.style.setProperty('--assistant-tabs-width', Math.round(Math.max(min, Math.min(max(), value))) + 'px');
+    const save = () => {
+      if (!handle.getClientRects().length || !body.clientWidth) return;
+      try { localStorage.setItem(key, String(width())); } catch (_) {}
+    };
+    const finish = event => {
+      if (!drag || event && event.pointerId !== drag.id) return;
+      const id = drag.id;
+      drag = null;
+      document.body.classList.remove('assistant-tabs-resizing');
+      if (handle.hasPointerCapture(id)) handle.releasePointerCapture(id);
+      save();
+    };
+    handle.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || drag) return;
+      event.preventDefault();
+      handle.focus({preventScroll:true});
+      drag = {id:event.pointerId, x:event.clientX, width:width()};
+      handle.setPointerCapture(event.pointerId);
+      document.body.classList.add('assistant-tabs-resizing');
+    });
+    handle.addEventListener('pointermove', event => {
+      if (drag && drag.id === event.pointerId) update(drag.width + event.clientX - drag.x);
+    });
+    for (const type of ['pointerup','pointercancel','lostpointercapture']) handle.addEventListener(type, finish);
+    handle.addEventListener('keydown', event => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const step = event.shiftKey ? 48 : 16;
+      update(event.key === 'Home' ? min : event.key === 'End' ? max() : width() + (event.key === 'ArrowLeft' ? -step : step));
+      save();
+    });
+    handle.addEventListener('dblclick', () => {
+      body.style.removeProperty('--assistant-tabs-width');
+      try { localStorage.removeItem(key); } catch (_) {}
+    });
+    const observer = new ResizeObserver(() => {
+      handle.setAttribute('aria-valuemin', String(min));
+      handle.setAttribute('aria-valuemax', String(max()));
+      handle.setAttribute('aria-valuenow', String(width()));
+      handle.setAttribute('aria-valuetext', width() + ' pixels');
+      if (!body.clientWidth) finish();
+    });
+    observer.observe(nav);
+    observer.observe(body);
   }
 
   function presentDocument(overlay, inline) {

@@ -270,3 +270,4 @@
 - [Assistant documents open inline](assistant-documents-open-inline.md) — single-click and keyboard open inline; double-click opens the modal, with drafts and navigation preserved.
 - [Recent tab activity uses dots](assistant-tab-activity-dots.md) — blue updates and green new tabs replace labels and rails, preserving dismissal and expiry.
 - [Document controls are grouped](assistant-document-header-groups.md) — readable titles, responsive actions, Copy menu and organized Properties in inline and modal views.
+- [Document tabs column resizes](document-tabs-column-resizes.md) — draggable divider, remembered width, keyboard adjustment and double-click reset in inline and modal views.

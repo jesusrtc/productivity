@@ -8,6 +8,11 @@ sections, filter JSON, independent document/series/note stars, series history,
 external links, content editor, heading copy, tab creation and nested subtabs
 remain in place. There is no separate prototype view.
 
+Drag the divider beside the document tabs to resize their column. The browser
+remembers the width across documents and inline/modal views. The range is
+160–600 pixels, limited by the space available for the document. Double-click
+the divider to reset, or focus it and use the arrow keys to resize.
+
 The header groups actions separately from key task and meeting properties.
 **Copy** offers Google Docs and plain-text formats. **Properties** contains
 document details, organization, tracking, external URL and custom attributes.

@@ -2625,8 +2625,16 @@
 .assistant-task-branch { height:25px; }
 .assistant-task-row .assistant-status, .assistant-progress-label { font-size:11px; }
 .assistant-document-modal { width:min(1380px,96vw); height:min(860px,92vh); }
-.assistant-modal-body { grid-template-columns:270px minmax(0,1fr); }
+.assistant-modal-body { --assistant-tabs-default-width:270px; grid-template-columns:clamp(160px,var(--assistant-tabs-width,var(--assistant-tabs-default-width)),max(160px,calc(100% - 288px))) 8px minmax(0,1fr); }
 .assistant-document-nav { padding:10px 9px 20px; }
+.assistant-tabs-resizer { position:relative; cursor:col-resize; touch-action:none; background:var(--bg-primary); }
+.assistant-tabs-resizer::before { content:''; position:absolute; inset:0 3px; background:var(--border); }
+.assistant-tabs-resizer::after { content:''; position:absolute; top:calc(50% - 16px); left:2px; width:4px; height:32px; border-radius:3px; background:var(--text-dim); }
+.assistant-tabs-resizer:hover::before, .assistant-tabs-resizer:focus-visible::before, .assistant-tabs-resizing .assistant-tabs-resizer::before { background:var(--accent); }
+.assistant-tabs-resizer:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
+.assistant-tabs-resizing, .assistant-tabs-resizing * { cursor:col-resize!important; user-select:none!important; }
+@media(min-width:761px) { .assistant-document-nav { border-right:0; } }
+@media(max-width:760px) { .assistant-tabs-resizer { display:none; } }
 .assistant-document-nav-item { min-height:0; grid-template-columns:22px minmax(0,1fr); gap:5px 8px; padding:5px; margin-bottom:3px; }
 .assistant-document-type { width:22px; height:22px; font-size:10px; }
 .assistant-document-nav-item > span:nth-child(2) { gap:2px; }

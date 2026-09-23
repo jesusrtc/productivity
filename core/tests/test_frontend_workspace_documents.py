@@ -234,12 +234,68 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
             assert browser.poll() is None and time.monotonic() < deadline
             time.sleep(.05)
         driver = tmp_path / 'focused-browser.mjs'
+        resize_checks = r'''
+async function evaluate(expression) {
+ const result = await send('Runtime.evaluate', {expression,returnByValue:true,awaitPromise:true});
+ if(result.exceptionDetails)throw new Error(result.exceptionDetails.exception?.description || 'Browser evaluation failed');
+ return result.result?.value;
+}
+if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
+ const geometry = () => evaluate(`(() => {
+  const nav=document.getElementById('assistantDocumentNav').getBoundingClientRect();
+  const handle=document.querySelector('.assistant-tabs-resizer').getBoundingClientRect();
+  return {width:nav.width,x:handle.x+handle.width/2,y:handle.y+60};
+ })()`);
+ async function dragBy(delta) {
+  const {x,y}=await geometry();
+  await send('Input.dispatchMouseEvent',{type:'mouseMoved',x,y});
+  await send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
+  await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:x+delta,y,button:'left',buttons:1});
+  await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:x+delta,y,button:'left',clickCount:1});
+ }
+ await dragBy(140);
+ if((await geometry()).width!==350)throw new Error('Dragging must widen tabs from 210 to 350 pixels');
+ await dragBy(-170);
+ if((await geometry()).width!==180)throw new Error('Dragging must narrow tabs to 180 pixels');
+ await dragBy(2000);
+ await evaluate(`assert(document.getElementById('assistantModalDocument').getBoundingClientRect().width>=280,'drag leaves reading space')`);
+ await dragBy(-2000);
+ if((await geometry()).width!==160)throw new Error('Minimum keeps tab controls usable');
+ await dragBy(160);
+ await evaluate(`(async()=>{
+  assert(!document.body.classList.contains('assistant-tabs-resizing'),'pointer release cleans up drag state');
+  const draft=document.querySelector('.assistant-note-editor textarea');
+  document.getElementById('assistantExpandDocument').click();
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===320,'Expand preserves width');
+  assert(document.querySelector('.assistant-note-editor textarea')===draft,'resizing preserves editor');
+  AssistantView.closeDocument();
+  document.getElementById('assistantDocumentModal').remove();
+  await AssistantView.openDocument('note',FIX.path);
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===320,'new document view restores stored width');
+  const handle=document.querySelector('.assistant-tabs-resizer');
+  handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===304,'keyboard narrows tabs');
+  handle.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===210,'double-click restores inline default');
+ })()`);
+ await send('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
+ await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-resizer')).display==='none','mobile keeps horizontal tabs')`);
+ await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await dragBy(110);
+}
+'''
         driver.write_text((ROOT/'scripts/chrome-dump-auth.mjs').read_text().replace(
-            "await send('Page.enable');", "await send('Page.enable');\nawait send('Emulation.setFocusEmulationEnabled', {enabled:true});"))
+            "await send('Page.enable');", "await send('Page.enable');\nawait send('Emulation.setFocusEmulationEnabled', {enabled:true});").replace(
+            "const evaluated = await send('Runtime.evaluate', {", resize_checks + "\nconst evaluated = await send('Runtime.evaluate', {"))
         subprocess.run(['node',str(driver),str(profile),page.as_uri(),str(tmp_path/'dom.html'),str(tmp_path/'workspace-documents.png')],check=True,timeout=25,env={**os.environ,'LAB_UI_AUTH_COOKIE':''})
         html = (tmp_path/'dom.html').read_text()
         result = re.search(r'<pre id="result">(.*?)</pre>',html,re.S)
         assert result and result[1] == 'PASS', result[1] if result else html[-2000:]
     finally:
         browser.terminate()
-        browser.wait(timeout=10)
+        try:
+            browser.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            # Real pointer input enables the unsaved-draft beforeunload prompt.
+            browser.kill()
+            browser.wait(timeout=5)
