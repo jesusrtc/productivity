@@ -66,14 +66,19 @@ def test_creation_cleanup_preserves_foreign_sessions_and_restores_shell(monkeypa
                 pid = 2**30 + index
                 live[name] = {'name': name, 'logical_name': f'bash-{index}', 'kind': 'terminal',
                               'cwd': str(workspace), 'cmd': report['shell'] + ' -l', 'pid': pid}
-                (workspace.parents[2] / 'terminal-create-processes' / f'{pid}.json').write_text(
-                    json.dumps({'pid': pid, 'cwd': str(workspace)}))
+                process_record = workspace.parents[2] / 'terminal-create-processes' / f'{pid}.json'
+                process_record.write_text(json.dumps({'pid': pid, 'cwd': str(workspace)}))
+                epoch_ns = 1_700_000_000_000_000_000 + index * 1_000_000
+                module.os.utime(process_record, ns=(epoch_ns, epoch_ns))
             if foreign:
                 live['user-session'] = {'name': 'user-session', 'logical_name': 'user',
                                         'kind': 'terminal', 'cwd': str(workspace), 'cmd': '/user/shell'}
             if fail_workload:
                 raise RuntimeError('Owned workload failed')
         assert report['cleaned'] and len(report['processes']) == 2 and len(report['sessions']) == 2
+        assert [row['processRecordEpoch'] for row in report['processes']] == [
+            1_700_000_000_002, 1_700_000_000_020]
+        assert [row['name'] for row in report['processes']] == deleted
 
     if foreign or fail_workload:
         with pytest.raises(RuntimeError, match='Unexpected session preserved' if foreign else 'Owned workload failed'):

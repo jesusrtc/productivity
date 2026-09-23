@@ -70,7 +70,11 @@ def terminal_creation_fixture(base_url, cookie, workspace):
                         info = json.loads(source.read_text())
                         if info != {'pid': pid, 'cwd': str(workspace)}:
                             errors.append('Owned shell identity mismatch: ' + name)
-                        report['processes'].append(info)
+                        # This file is written by the unchanged owned shell
+                        # before tty setup/its first output. Read its existing
+                        # timestamp during cleanup, not on the measured path.
+                        report['processes'].append({**info, 'name': name,
+                            'processRecordEpoch': source.stat().st_mtime_ns / 1_000_000})
                 request('/api/term/sessions/' + quote(name, safe='') + '?purge=true', 'DELETE')
                 # has-session accepts prefixes: removed bash-2 may match bash-20.
                 # The normal list helper checks the full session name.

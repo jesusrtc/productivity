@@ -4853,3 +4853,130 @@ Cold creation remains over budget, as do previously retained output-typing,
 IME and navigation failures. Remaining UI/API coverage and physical/iTerm
 parity are still unresolved. Main merge remains pending after the prior
 automatic approval rejection. No merge, push or live server restart was attempted.
+
+
+## Separate cold process startup from terminal rendering — 2026-09-23
+
+The previous turn made production progress in `b3836b7`; this turn started
+from that clean checkpoint. The remaining cold-creation miss was profiled,
+a small renderer candidate was tested and fully removed, and diagnostic plus
+fallback coverage was retained. Production lab-app.js is byte-for-byte equal
+to `b3836b7`. No backend, vendor asset, startup workload or readiness budget
+changed in this checkpoint.
+
+### Rejected temporary-renderer shortcut
+
+The six-creation CPU profile contained substantial aggregate font-width
+measurement work, but the first creation window accounted for only about 6 ms
+of the width cache's own sampled CPU. Its attachment preamble accounted for
+about 55 ms inclusive, including roughly 22.5 ms in WebGL activation. Batch
+profile totals therefore did not explain the entire cold sample.
+
+The vendored core exposes an internal onWillOpen hook before choosing its
+renderer. A candidate installed guarded WebGL activation there, then disposed
+the listener in finally; the ordinary post-open path remained for cores without
+that hook. This skipped initial DOM renderer construction while preserving
+final fit before WebSocket connection. Real native checks covered DOM, WebGL,
+forced context failure and an absent hook at three pane sizes, with Unicode,
+focus and disposal. Initial test instrumentation failed because onWillOpen is
+a getter and simple assignment did not replace it. After correcting the spy
+with a property override, all four native cases passed; the other 148 focused
+checks had already passed.
+
+The native comparison did not establish an end-to-end improvement:
+
+| Untraced 20-creation run | First / maximum | Median | p95 | Misses >200 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Unchanged `b3836b7` frontend | 287.9 ms | 168.6 ms | 179.9 ms | 1 |
+| Opening-renderer candidate | 319.4 ms | 165.2 ms | 183.5 ms | 1 |
+
+The first POST was also slower in the candidate (55.21 vs 44.00 ms), so the
+entire cold difference cannot be assigned to renderer ordering. POST medians
+were similar (53.19 vs 52.35 ms). The small median difference, worse tail and
+unchanged miss count did not justify retaining the private-hook optimization.
+The source and candidate-specific assertions were removed together. The new
+real-browser forced-GPU-failure case remains: DOM fallback must be fitted,
+focused, preserve Unicode and latch the failed-GPU state across later panes.
+
+Archive: `/tmp/lab-terminal-open-renderer-rejected.patch`; paired native runs
+`/tmp/lab-terminal-open-renderer-{before,after}-{browser,server}.json` and logs;
+`/tmp/lab-terminal-open-renderer-tests.log` (initial spy failures) and
+`/tmp/lab-terminal-open-renderer-native-tests.log` (four corrected cases pass).
+
+### Retained stage diagnostics
+
+When LAB_PERF_TRACE is present, the existing terminal probe optionally records
+write-parsed events, actual render events and changes to the already-computed
+readiness predicates. It records timing/booleans, not buffer contents. A parsed
+marker still cannot satisfy rendered readiness; cursor-row coverage, selected
+workspace/session, focus, open socket, visible pane and exact text checks are
+unchanged. Normal runs install no extra parse listener or diagnostic timeline.
+Each pane's detail log is bounded to 1,000 entries with an explicit dropped
+counter. The diagnostic runs below had zero dropped stage entries.
+
+The creation fixture now reads the existing owned PID/cwd file's modification
+time during cleanup and associates it with the exact session name. The shell
+source is unchanged. This file is written before tty setup and initial marker
+output; its mtime is a pre-output milestone, not an exact ready/write timestamp
+or CPU measurement. The fixture continues validating PID/cwd, owned command,
+exact session identity, purge and saved-state cleanup.
+
+In the first stage-traced creation, the pane was focused at +154.3 ms and
+selected/connected at +164.6 ms, but the exact marker was not parsed until
++237.8 ms. It rendered at +251.0 ms; the click/paint opportunity measurement
+finished at 282.2 ms. Late focus was not the final missing condition in this run.
+
+A second diagnostic correlated the process record: the first shell reached
+that write at **+235.1 ms**, versus +47.1–56.0 ms for the next five. The first
+exact marker parsed at +277.3 ms and rendered at +289.5 ms; creation completed
+at 317.6 ms. Connection/focus were also later in that run, so this does not
+attribute every remaining millisecond to the shell or identify whether its
+startup interval was CPU work, scheduling or I/O waiting.
+
+An **untraced** 20-creation recheck retained the same shell and workload. The
+first process record appeared at **+219.7 ms**, before initial output, and the
+first/full creation completed at **269.0 ms**. Later process records appeared
+at +52.5–84.7 ms. Creation median/p95 was 167.4/190.2 ms, with 19/20 under 200 ms;
+workspace opening was 138.1 ms and picker maximum 52.2 ms. No diagnostic timeline
+was present. This demonstrates a cold cost before the fixture's first output;
+it does not establish that production cold creation meets the target. Do not
+replace the fixture shell, exclude the first sample, or shorten readiness to
+turn that retained failure into a pass.
+
+### Validation, failures and cleanup
+
+**178 focused tests passed** with the restored production app, optional
+stage diagnostics and real forced-GPU-failure coverage. The 27 fixture/probe
+checks were rerun after adding process-file timestamps and passed; they verify
+the actual saved mtime, unchanged ownership/foreign-session protection, parser
+versus render readiness, default absence of diagnostics and explicit overflow.
+JavaScript syntax checks and git diff --check passed.
+
+All three diagnostic traces and CPU profiles cover the first measured action
+through the last verified native-key render. Trace tails were 100.1–101.0 ms
+past that final render; no trace data loss was reported. The two stage-enabled
+runs had zero stage overflow. Traced creation results remain separate from
+untraced comparisons: initial profile first/median 288.1/185.9 ms with two
+misses; stage profile 282.2/188.2 ms with two misses; process profile
+317.6/183.0 ms with two creation misses plus a **278.9 ms workspace miss**.
+No failed sample was dropped.
+
+Across the six runs, all **1,161 browser and 1,423 server API records** stayed
+under 200 ms (maxima 108.8/99.77 ms), with no browser/request errors. All 78
+creations passed rendered-marker/native-key, saved identity, workspace, focus,
+clock and pane-bound checks. All fixtures completed cleanup and stopped their
+servers. Every recorded producer PID was independently absent, and a final
+read-only tmux listing with pruning disabled found none of the 78 exact names.
+
+Artifacts: `/tmp/lab-terminal-{cold-current,cold-stages,cold-process,cold-process-untraced}-{browser,server}.json`
+and associated logs; the three traced prefixes also have `-trace.json`, trace
+metadata and `-cpu.json`. Summary and coverage evidence:
+`/tmp/lab-terminal-cold-summary.json`, its `.py` helper,
+`/tmp/lab-terminal-cold-cleanup.json`, `/tmp/lab-terminal-cold-stage-tests.log`
+and `/tmp/lab-terminal-cold-process-record-tests.log`.
+
+This is a diagnostic/correctness checkpoint, not a new production speed gain.
+Cold creation, earlier output-typing/IME/navigation failures, unmeasured actions
+and endpoints, and physical/iTerm parity remain unfinished. Main merge is still
+pending after the earlier automatic approval rejection. No merge, push or live
+server restart was attempted.

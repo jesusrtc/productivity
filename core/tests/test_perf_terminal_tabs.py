@@ -10,7 +10,7 @@ from .test_frontend_terminal_ui import ROOT, _run_node
 
 def test_terminal_tab_probe_requires_render_focus_scope_and_exact_input():
     source = (ROOT / 'scripts/perf/terminal_tab_probe.mjs').read_text()
-    install = source[source.index('function install(fixtures)'):]
+    install = source[source.index('function install(fixtures,'):]
     result = _run_node(r'''
 const window={};
 let termCurrentSession='one',termCurrentWorkspaceId='alpha',termXterm=null;
@@ -46,6 +46,51 @@ console.log(JSON.stringify({checks,states,records:probe.snapshot().records.lengt
     assert len(result['checks']) == 12 and all(result['checks'])
     assert result['states'] == ['mounted', 'cold', 'warm', 'stale']
     assert result['records'] == 2
+
+
+@pytest.mark.parametrize('diagnostics', [False, True])
+def test_terminal_stage_diagnostics_keep_render_readiness_and_report_overflow(diagnostics):
+    source = (ROOT / 'scripts/perf/terminal_tab_probe.mjs').read_text()
+    install = source[source.index('function install(fixtures,'):]
+    result = _run_node(r'''
+const window={};
+let termCurrentSession='one',termCurrentWorkspaceId='alpha',termXterm=null;
+const pane={getBoundingClientRect:()=>({width:100})},termContainer=pane;
+const termWS={readyState:1},_termCache=new Map(),_termCacheKey=(s,n)=>s+'::'+n;
+const input={},document={activeElement:input,querySelector:()=>({}),querySelectorAll:()=>[pane]};
+let value='private unrelated output',render,parsed;
+function termEnsureXterm(){termXterm={
+ element:{querySelector:()=>input},onRender:fn=>render=fn,onWriteParsed:fn=>parsed=fn,
+ buffer:{active:{viewportY:0,baseY:0,cursorY:0,cursorX:20,getLine:()=>({translateToString:()=>value})}},
+};}
+''' + install + '\ninstall([{name:"one",marker:"ready"}], ' + json.dumps(diagnostics) + r''');
+termEnsureXterm();const probe=window.__terminalTabs;
+probe.state('one');probe.state('one');
+parsed?.();value='ready';parsed?.();
+const beforeRender=probe.ready('one');
+render({start:1,end:2});const outsideCursor=probe.ready('one');
+render({start:0,end:0});const afterRender=probe.ready('one');
+const first=JSON.parse(JSON.stringify(probe.snapshot().records[0]));
+if(parsed)for(let i=0;i<1010;i++)parsed();
+console.log(JSON.stringify({beforeRender,outsideCursor,afterRender,hasParser:!!parsed,first,
+ final:probe.snapshot().records[0]}));
+''')
+    assert result['beforeRender'] is False
+    assert result['outsideCursor'] is False
+    assert result['afterRender'] is True
+    assert result['hasParser'] is diagnostics
+    if not diagnostics:
+        assert 'timeline' not in result['first']
+        assert 'timelineDropped' not in result['final']
+        return
+    events = result['first']['timeline']
+    assert [e['correctText'] for e in events if e['kind'] == 'parse'] == [False, True]
+    assert [e['verified'] for e in events if e['kind'] == 'render'] == [False, True]
+    assert len([e for e in events if e['kind'] == 'state']) == 3
+    assert all(a['at'] <= b['at'] for a, b in zip(events, events[1:]))
+    assert 'private unrelated output' not in json.dumps(events)
+    assert len(result['final']['timeline']) == 1000
+    assert result['final']['timelineDropped'] > 0
 
 
 def fixture_module():

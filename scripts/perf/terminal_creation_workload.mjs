@@ -9,7 +9,7 @@ export async function terminalCreationActions(evaluate,workspaceRoot,samples,fix
     throw Error('Terminal creation requires the disposable fixture');
   }
   if(!Number.isInteger(samples)||samples<2)throw Error('Terminal creation requires at least two samples');
-  await installTerminalTabProbe(evaluate,[]);
+  await installTerminalTabProbe(evaluate,[],{diagnostics:!!process.env.LAB_PERF_TRACE});
   await evaluate(`(${installCreation.toString()})(${JSON.stringify(fixture.marker)},${JSON.stringify(workspaceRoot+'/alpha')},${JSON.stringify(workspaceRoot.split('/').at(-3)+'-')})`);
   const actions=[{kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
     ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/alpha')} && document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`}];

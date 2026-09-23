@@ -218,7 +218,7 @@ async function main() {
     const notebookView=process.env.LAB_PERF_NOTEBOOK_VIEW==='1';
     const terminalTabs=JSON.parse(process.env.LAB_PERF_TERMINAL_TABS||'[]');
     const terminalCreation=JSON.parse(process.env.LAB_PERF_TERMINAL_CREATE||'null');
-    if(terminalTabs.length)await installTerminalTabProbe(evaluate,terminalTabs);
+    if(terminalTabs.length)await installTerminalTabProbe(evaluate,terminalTabs,{diagnostics:!!process.env.LAB_PERF_TRACE});
     const initialWorkspaceTabs=createWorkspaces
       ? await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`)
       : [];

@@ -1,11 +1,16 @@
 // Observe real xterm renders without changing attach, input, or cache policy.
-export async function installTerminalTabProbe(evaluate, fixtures) {
-  await evaluate(`(${install.toString()})(${JSON.stringify(fixtures)})`);
+export async function installTerminalTabProbe(evaluate, fixtures, {diagnostics=false}={}) {
+  await evaluate(`(${install.toString()})(${JSON.stringify(fixtures)},${JSON.stringify(diagnostics)})`);
 }
 
-function install(fixtures) {
+function install(fixtures, diagnostics=false) {
   const expected=new Map(fixtures.map(row=>[row.name,row.marker]));
   const records=[],tracked=new WeakMap();
+  const previousStates=new WeakMap();
+  const recordStage=(record,stage)=>{
+    if(record.timeline.length<1000)record.timeline.push({at:performance.now(),...stage});
+    else record.timelineDropped++;
+  };
   const text=xt=>{
     const b=xt.buffer.active;
     let value='';
@@ -16,12 +21,18 @@ function install(fixtures) {
     if(!xt || tracked.has(xt) || !expected.has(termCurrentSession))return;
     const record={name:termCurrentSession,createdAt:performance.now(),renders:0,verified:null,renderAt:null};
     records.push(record);tracked.set(xt,record);
+    if(diagnostics) {
+      record.timeline=[];record.timelineDropped=0;
+      xt.onWriteParsed(()=>recordStage(record,{kind:'parse',correctText:text(xt).endsWith(expected.get(record.name))}));
+    }
     xt.onRender(range=>{
       record.renders++;
       const b=xt.buffer.active,cursorRow=b.baseY+b.cursorY-b.viewportY;
       if(range.start<=cursorRow && range.end>=cursorRow && text(xt).endsWith(expected.get(record.name))) {
         record.verified=expected.get(record.name);record.renderAt=performance.now();
       }
+      if(diagnostics)recordStage(record,{kind:'render',start:range.start,end:range.end,cursorRow,
+        correctText:text(xt).endsWith(expected.get(record.name)),verified:record.verified===expected.get(record.name)});
     });
   };
   const original=termEnsureXterm;
@@ -30,13 +41,21 @@ function install(fixtures) {
   const state=name=>{
     const record=tracked.get(termXterm),value=expected.get(name);
     const visible=Array.from(document.querySelectorAll('#termBody .term-pane')).filter(el=>el.getBoundingClientRect().width>0);
-    return {name,current:termCurrentSession,workspace:termCurrentWorkspaceId,
+    const result={name,current:termCurrentSession,workspace:termCurrentWorkspaceId,
       selected:!!document.querySelector('.sess[data-name='+JSON.stringify(name)+'][aria-selected="true"]'),
       visible:visible.length,ownsVisible:visible[0]===termContainer,open:termWS?.readyState===1,
       focused:!!termXterm && document.activeElement===termXterm.element?.querySelector('textarea'),
       correctText:!!termXterm && text(termXterm).endsWith(value),
       rendered:record?.name===name&&record?.verified===value,renderAt:record?.renderAt,
       cacheSize:_termCache.size,panes:document.querySelectorAll('#termBody .term-pane').length};
+    if(diagnostics&&record) {
+      const key=JSON.stringify({...result,renderAt:undefined});
+      if(previousStates.get(record)!==key) {
+        previousStates.set(record,key);
+        recordStage(record,{kind:'state',...result});
+      }
+    }
+    return result;
   };
   window.__terminalTabs={
     state,

@@ -1,5 +1,8 @@
 # Memory index
 
+- [Cold creation separates process and render milestones](terminal-cold-start-needs-process-and-render-milestones.md) — trace-only parse/render/readiness stages and cleanup-time process timestamps retain first-use startup costs
+- [Opening renderer hooks need a measured gain](terminal-opening-renderer-hook-needs-latency-gain.md) — skipping temporary DOM construction passed correctness but did not improve end-to-end latency; keep forced-GPU-failure coverage
+
 - [Confirmed terminals attach before refresh](terminal-creation-publishes-before-refresh.md) — retain fresh metadata with atomic fallback and creation/close read ownership; avoid duplicate repaint and selection theft
 
 - [Connect with the final renderer grid](terminal-connection-uses-final-renderer-geometry.md) — real WebGL and DOM can fit different columns; initial connections must follow final renderer setup

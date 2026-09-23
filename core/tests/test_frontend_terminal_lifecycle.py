@@ -121,8 +121,9 @@ def _check_terminal_page(tmp_path, scripts, checks, *, gpu=False):
     assert result and result[1] == 'PASS', result[1] if result else rendered[-1000:]
 
 
-@pytest.mark.parametrize('gpu', [False, True])
-def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, gpu):
+@pytest.mark.parametrize('renderer', ['dom', 'webgl', 'webgl-failure'])
+def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, renderer):
+    gpu = renderer != 'dom'
     source = APP.read_text()
 
     def section(start, end):
@@ -137,6 +138,7 @@ def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, gpu):
     else:
         helpers += 'function _termEnableWebgl() {}\nfunction _termDisableWebgl() {}\n'
     helpers += 'const USE_GPU=' + str(gpu).lower() + ';\n'
+    helpers += 'const RENDERER_MODE=' + repr(renderer) + ';\n'
     fresh = section('    const myContainer = _termMakeContainer();', '\n  function termSetStatus')
     # The extracted block ends with termAttach's closing brace.
     fresh = fresh.rsplit('  }', 1)[0]
@@ -149,6 +151,12 @@ def test_fresh_terminal_has_fitted_geometry_before_connection(tmp_path, gpu):
 const errors=[];window.addEventListener('error',e=>errors.push(e.message));
 const assert=(ok,label)=>{if(!ok)throw Error(label);};
 const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+if(RENDERER_MODE==='webgl-failure') {
+  const getContext=HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext=function(kind,...args) {
+    return kind.includes('webgl')?null:getContext.call(this,kind,...args);
+  };
+}
 let termXterm,termFitAddon,termContainer,termWS=null;
 const termCurrentSession='owned',termCurrentWorkspaceId='alpha';
 let connections=0,connectionGrid;
@@ -172,7 +180,9 @@ function freshPane(name,workspaceId) {
     _termGuardViewportDisposal(termXterm);
     termFitAddon=new FitAddon.FitAddon();termXterm.loadAddon(termFitAddon);
     freshPane('owned','alpha');
-    assert(!USE_GPU||termXterm._webglAddon,'real WebGL renderer is required');
+    const gpuExpected=USE_GPU&&RENDERER_MODE!=='webgl-failure';
+    assert(!!termXterm._webglAddon===gpuExpected,'active renderer must match requested/fallback mode');
+    if(RENDERER_MODE==='webgl-failure')assert(_termWebglFailed,'GPU failure must latch the DOM fallback');
     const renderedGrid=termFitAddon.proposeDimensions();
     assert(connectionGrid.cols===renderedGrid.cols&&connectionGrid.rows===renderedGrid.rows,'connection geometry must match active renderer: '+JSON.stringify({connectionGrid,renderedGrid}));
     await new Promise(resolve=>termXterm.write('ready 中 e\u0301',resolve));
