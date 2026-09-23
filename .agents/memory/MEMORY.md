@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal cleanup reviews inactivity](terminal-cleanup-reviewed-inactivity.md) — seven-day candidates across all scopes; exact reviewed identities, atomic tmux rechecks, and preserved conversations
+
 - [Codex launch options](codex-launch-explicit-autopilot-options.md) — use explicit workspace sandbox and on-request approvals; removed `--full-auto` made terminal tabs exit immediately
 
 - [External links use the default browser](external-links-use-default-browser.md) — local links leave the Lab PWA through the OS browser; shared handling across document views and terminal hyperlinks.

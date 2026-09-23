@@ -1,0 +1,40 @@
+.terminal-cleanup {
+  width: min(780px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 24px 80px #0008;
+}
+.terminal-cleanup::backdrop { background: #0009; }
+.terminal-cleanup[open] { display: flex; flex-direction: column; gap: 16px; }
+.terminal-cleanup header, .terminal-cleanup footer, .terminal-cleanup-group-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.terminal-cleanup h2 { margin: 0; font-size: 18px; }
+.terminal-cleanup h3 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.terminal-cleanup p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+.terminal-cleanup button {
+  flex-shrink: 0; padding: 7px 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg-tertiary);
+  color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer;
+}
+.terminal-cleanup button:hover:not(:disabled) { filter: brightness(1.2); }
+.terminal-cleanup button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.terminal-cleanup button:disabled { opacity: .45; cursor: default; }
+.terminal-cleanup button.terminal-cleanup-danger { color: var(--red); border-color: var(--red); }
+.terminal-cleanup-notice { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+.terminal-cleanup-notice:empty { display: none; }
+.terminal-cleanup-list { overflow-y: auto; min-height: 70px; }
+.terminal-cleanup-list section { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; padding: 14px; }
+.terminal-cleanup-list section:last-child { margin-bottom: 0; }
+.terminal-cleanup-list ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.terminal-cleanup-list li { display: flex; flex-direction: column; gap: 5px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.terminal-cleanup-list code { font-size: 12px; overflow-wrap: anywhere; color: var(--text-secondary); user-select: text; }
+.terminal-cleanup-date { font-size: 11px; color: var(--text-secondary); }
+@media (max-width: 540px) {
+  .terminal-cleanup { padding: 14px; }
+  .terminal-cleanup-group-header { align-items: flex-start; flex-direction: column; }
+}

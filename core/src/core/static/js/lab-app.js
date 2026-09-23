@@ -6679,6 +6679,7 @@
         html += `<button class="repo-tab vault-context-tab${active ? ' active' : ''}" style="--vault-color:${escAttr(vault.color || '#8b949e')}" onclick="${escAttr(action)}"><span class="vault-mark"></span>${esc(vault.name || vault.id)}</button>`;
       }
       if (LAB_IS_ADMIN) html += `<button class="repo-tab home-logs-tab${isSelf && _contextSubView === 'logs' ? ' active' : ''}" onclick="goToLogs()">&#x2637; Logs</button>`;
+      if (LAB_IS_ADMIN) html += `<button class="repo-tab terminal-cleanup-tab" onclick="LabTerminalCleanup.open()" title="Review terminal sessions inactive for more than 7 days">&#x232B; Cleanup</button>`;
       if (LAB_IS_ADMIN) html += `<button class="repo-tab${isSelf && _contextSubView === 'admin' ? ' active' : ''}" onclick="${isSelf ? 'selfShowAdmin()' : "goToProductivity({subview:'admin'})"}">&#x2699; Admin</button>`;
     } else if (currentWorkspace.is_workspace) {
       html += `<button class="repo-tab${overviewActive ? ' active' : ''}" onclick="showWorkspaceDashboard()" style="font-weight:600">&#x1F4CB; Overview</button>`;
@@ -6703,6 +6704,10 @@
       });
     }
 
+    if (LAB_IS_ADMIN && !isSelf && !isVault) {
+      html += `<button class="repo-tab home-logs-tab" onclick="goToLogs()">&#x2637; Logs</button>`;
+      html += `<button class="repo-tab terminal-cleanup-tab" onclick="LabTerminalCleanup.open()" title="Review terminal sessions inactive for more than 7 days">&#x232B; Cleanup</button>`;
+    }
     const keepAliveOn = document.body.classList.contains('keep-alive');
     const keepAliveTitle = keepAliveOn
       ? 'Keep Alive is on — turn it off'
@@ -13898,6 +13903,30 @@
   }
 
   const _termKillAllPending = new Set();
+  window.LabTerminalCleanupBridge = {
+    scope: () => ({workspace_id: _termActiveWorkspaceId(), vault: _termVaultId()}),
+    async stopped(rows) {
+      const activeWorkspace = _termActiveWorkspaceId();
+      const activeVault = _termVaultId();
+      let refreshActive = false;
+      for (const row of rows) {
+        const vault = row.workspace_id === SELF_WORKSPACE_ID ? null : row.vault;
+        _termSessionsCache.delete(_termSessionsKey(row.workspace_id, vault));
+        _termEvictCache(row.name, row.workspace_id);
+        if (row.workspace_id === activeWorkspace && vault === activeVault) {
+          refreshActive = true;
+          if (termCurrentSession === row.name) termDetach();
+          termSessions = termSessions.filter(s => s.name !== row.name);
+        }
+      }
+      if (refreshActive) {
+        termRenderSessionList();
+        if (!termCurrentSession) termShowEmpty();
+        await _termRefreshSessionsForWorkspaceId(activeWorkspace);
+      }
+      if (typeof workspaceTabsRefresh === 'function') void workspaceTabsRefresh();
+    },
+  };
   async function termKillAll() {
     const workspaceId = _termActiveWorkspaceId();
     const vaultId = _termVaultId();

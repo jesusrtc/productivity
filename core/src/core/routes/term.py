@@ -1687,7 +1687,7 @@ def _is_lab_tmux_name(name: str) -> bool:
 
 
 def _tmux_list(
-    prefixes: str | list[str], *, prune_draining: bool = True,
+    prefixes: str | list[str], *, prune_draining: bool = True, activity: bool = False,
 ) -> list[dict] | None:
     """Return live tmux sessions whose names start with any of ``prefixes``.
 
@@ -1719,6 +1719,7 @@ def _tmux_list(
                 (
                     "#{session_name}|#{session_created}|#{session_attached}|"
                     "#{session_windows}|#{pane_tty}|#{pane_pid}"
+                    + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
                 ),
             ),
             capture_output=True,
@@ -1759,6 +1760,13 @@ def _tmux_list(
                 "pane_tty": parts[4] if len(parts) > 4 else "",
                 "pane_pid": int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0,
                 "tmux_socket": socket_name,
+                **({
+                    "activity_known": len(parts) >= 10 and parts[6].isdigit(),
+                    "activity": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0,
+                    "last_attached": int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0,
+                    "last_access": int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0,
+                    "tmux_id": parts[9] if len(parts) > 9 else "",
+                } if activity else {}),
             })
         lab_rows_by_socket[socket_name] = lab_count
 
@@ -3858,6 +3866,10 @@ async def term_ws(websocket: WebSocket, name: str) -> None:
             pass
         await _ws_send_text_safe(websocket, json.dumps({"type": "exit"}))
         await _ws_close_safe(websocket)
+        # One timestamp on leaving the view, never subprocess I/O per key.
+        # A long-lived read-only attachment counts as recently accessed too.
+        from core.routes.terminal_cleanup import mark_access
+        await asyncio.to_thread(mark_access, name, tmux_socket)
         log.info(
             "WS terminal %s disconnected",
             name,
