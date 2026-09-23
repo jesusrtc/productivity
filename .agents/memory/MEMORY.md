@@ -1,5 +1,7 @@
 # Memory index
 
+- [Sidebar parent lookups belong to one build](sidebar-tree-lookups-belong-to-one-build.md) — reduce repeated path work while preserving fresh trees, file identity, metadata and path normalization
+
 - [Workspace navigation defers overlapping refreshes](workspace-navigation-defers-background-refresh.md) — finish the clicked workspace first, then read fresh data once; keep scope/generation ownership and immediate later clicks
 
 - [Background refresh respects the editor](document-refresh-respects-active-editor.md) — recheck editing after asynchronous mtime/document reads; retain the baseline so changes catch up after editing

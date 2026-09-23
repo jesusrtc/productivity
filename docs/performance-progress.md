@@ -3132,3 +3132,94 @@ misses remain in the record.
 
 The goal remains active. No main merge, push or live-server restart occurred;
 the earlier automatic approval rejection still leaves main merge pending.
+
+## 2026-09-23 — Reuse parent-folder lookups within each sidebar tree build
+
+The previous 50.7 ms typing miss had 18.2 ms of input-handler queueing just
+as sidebar data finished arriving. A fresh profile of `eb26bb9` found
+`buildSidebarTree` using 277.17 ms of sampled CPU across the run, about 17%
+of the 1,635.12 ms attributed to sidebar refreshes. Both Files and Recent
+construct trees, repeatedly splitting and walking shared parent paths.
+This identifies avoidable work; it does not prove the cause of that earlier miss.
+
+`buildSidebarTree` now reuses parent nodes in a Map local to one call and
+finds each file's parent without allocating split/filter/slice/join arrays.
+Directory metadata is applied before populating file-parent lookups. The Map
+is discarded when the build returns. Original file objects/order, empty
+folders, name fallbacks, symlink metadata and path normalization are preserved.
+The change affects the shared workspace/Recent/vault/framework builder. No
+DOM, rendering readiness condition, polling interval, network freshness rule
+or retained-cache limit changed.
+
+The final component comparison alternated baseline `eb26bb9` and candidate
+200 times per layout after 25 warm-up pairs. Each fixture has 5,000 files
+plus directory metadata; complete returned trees matched before timing.
+These are warm Node component timings, not UI latency or cold-start results:
+
+| Layout | Baseline median | Candidate median |
+| --- | ---: | ---: |
+| Flat folder | 1.030 ms | 0.448 ms |
+| 50 folders | 1.553 ms | 0.599 ms |
+| Deeper folders | 2.147 ms | 0.639 ms |
+
+The comparator is `/tmp/lab-sidebar-tree-bench.mjs`; final output is
+`/tmp/lab-sidebar-tree-bench-final.json`. Initial output before the final
+metadata-pass guard is `/tmp/lab-sidebar-tree-bench.json`.
+
+A single before/after browser profile used 5,000 mixed files, 2,500 real Git
+changes, 2,400 keys at 25 ms cadence, 60 file updates and 61 loaded refreshes.
+Sampled tree-building CPU fell from 277.17 to 108.69 ms; total sampled sidebar
+refresh CPU fell from 1,635.12 to 1,298.41 ms. Both runs passed all 50 ms key
+checks, but loaded-phase p95 rose from 23.7 to 27.1 ms and maximum rose from
+38.6 to 47.4 ms. Thus the profile demonstrates a component improvement, not
+an established end-to-end typing improvement. The profiled candidate preceded
+the final guard that only populates parent lookups during the file pass.
+
+Profile artifacts are `/tmp/lab-sidebar-profile-{before,after}-{browser,server}.json`,
+matching logs, `/tmp/lab-sidebar-{cpu,trace}-{before,after}.json`, and
+`/tmp/lab-sidebar-profile-comparison.json`. Both profiles validated clocks,
+Git state, echoed text and transport, and stopped their owned servers.
+All API requests passed: browser/server maxima were 89.5/88.64 ms before
+and 90.7/88.08 ms after. Profiling overhead is included in those runs.
+
+### Final verification without browser profiling
+
+**117 focused regression checks passed**, including real-Chrome geometry,
+fragment reuse, native drag/context actions, Pin controls, Git decorations,
+cache bounds, navigation ownership and notebook paths. The new tree checks
+cover normalized paths, metadata replacement, original file identity, empty
+folders, removed entries and independent fresh builds. JavaScript syntax and
+`git diff --check` passed. Test log: `/tmp/lab-sidebar-tree-regressions.log`.
+
+Normal navigation passed **80/80 clicks**. Forty workspace switches had a
+98.9 ms median and **154.6 ms maximum**; the two cold switches took 154.6 and
+144.3 ms. Forty document opens had a 32.8 ms median and **50.5 ms maximum**.
+All 654 browser API requests passed (maximum **66.3 ms**) and all 683 server
+requests passed (maximum **64.94 ms**). Clock, route/request-ID, Git and browser
+checks passed; the server stopped. Artifacts:
+`/tmp/lab-sidebar-tree-nav-{browser,server,summary}.json` and matching log.
+
+The final typing run **failed one of 2,400 keys**: index 2242 took
+**52.9 ms**, with **1.1 ms input-handler queueing**, **31.6 ms between its
+sent WebSocket frame and the next received echo frame**, and **20.2 ms from
+parse to render**. The received frame contained two bytes; exact input/echo
+validation independently verified both keys. A workspace-files request was
+in progress, but these observations do not locate the delay within the
+server, PTY or browser pipeline. Further terminal tracing is needed.
+Normal-phase maximum was 37.5 ms; loaded-phase maximum was 52.9 ms. Keep this
+failure: no rerun was used to replace it with a passing result.
+
+All 2,400 characters were independently verified at parse and render,
+including after scrolling. There were 60 file updates and 61 loaded refreshes.
+All 826 browser API requests passed (maximum **143.7 ms**) and all 857 server
+requests passed (maximum **132.77 ms**). Clock, transport, route/request-ID,
+Git and browser checks passed; no long task was recorded. The owned terminal
+was removed and the server stopped. Artifacts:
+`/tmp/lab-sidebar-tree-typing-{browser,server,summary}.json` and matching log.
+
+The goal remains active. This checkpoint reduces tree-building work but does
+not establish a universal 200 ms UI / 50 ms terminal bound or iTerm parity.
+The previous 205.4 ms cold switch, 50.7 ms typing miss, editor-input failures
+and earlier historical misses remain unresolved. Main merge remains pending
+after the earlier automatic approval rejection; no merge, push or live-server
+restart occurred.

@@ -1075,8 +1075,13 @@
 
   function buildSidebarTree(entries) {
     const tree = {};
+    // A fresh lookup belongs to this build only. Files in the same folder
+    // can share its node without splitting and walking the parent again.
+    const directories = new Map([['', tree]]);
     const ensureDir = (path, meta = null) => {
-      const parts = String(path || '').split('/').filter(Boolean);
+      path = String(path || '');
+      if (!meta && directories.has(path)) return directories.get(path);
+      const parts = path.split('/').filter(Boolean);
       let node = tree;
       let fullPath = '';
       parts.forEach((part, idx) => {
@@ -1087,14 +1092,16 @@
         }
         node = node[part];
       });
+      // Complete all directory metadata before retaining file-parent lookups.
+      if (!meta) directories.set(path, node);
       return node;
     };
     (entries || []).filter(e => e && e.type === 'dir').forEach(d => ensureDir(d.path || d.name, d));
     (entries || []).filter(e => e && e.type !== 'dir').forEach(f => {
-      const path = String(f.path || f.name || '');
-      const parts = path.split('/').filter(Boolean);
-      if (!parts.length) return;
-      const parent = ensureDir(parts.slice(0, -1).join('/'));
+      const path = String(f.path || f.name || '').replace(/\/+$/, '');
+      if (!path) return;
+      const slash = path.lastIndexOf('/');
+      const parent = ensureDir(slash < 0 ? '' : path.slice(0, slash));
       parent.__files__ = parent.__files__ || [];
       parent.__files__.push(f);
     });
