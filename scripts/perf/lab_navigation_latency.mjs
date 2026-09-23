@@ -13,6 +13,7 @@ import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 import {documentEditActions,verifyEditedDocuments,verifyDocumentHistory} from './document_edit_workload.mjs';
 import {runDocumentTyping} from './document_typing_probe.mjs';
+import {notebookViewActions} from './notebook_view_workload.mjs';
 import {installNavigationRefreshProbe,installNavigationRefreshStress,navigationRefreshCoverage} from './navigation_refresh_probe.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
@@ -213,6 +214,7 @@ async function main() {
     const pins=process.env.LAB_PERF_PINS==='1';
     const quickFiles=process.env.LAB_PERF_QUICK_FILES==='1';
     const documentEdit=process.env.LAB_PERF_DOCUMENT_EDIT==='1';
+    const notebookView=process.env.LAB_PERF_NOTEBOOK_VIEW==='1';
     const terminalTabs=JSON.parse(process.env.LAB_PERF_TERMINAL_TABS||'[]');
     if(terminalTabs.length)await installTerminalTabProbe(evaluate,terminalTabs);
     const initialWorkspaceTabs=createWorkspaces
@@ -230,6 +232,8 @@ async function main() {
             ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
         );
       }
+    } else if(notebookView) {
+      actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples));
     } else if(documentEdit) {
       actions.push(...await documentEditActions(workspaceRoot,samples,{inputMode:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',typing:process.env.LAB_PERF_DOCUMENT_TYPING==='1'}));
     } else if(quickFiles) {
@@ -514,8 +518,9 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const fixture={workflow:notebookView?'notebook-view':documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
+    if(notebookView)fixture.notebookCells=await evaluate('__notebookViewExpected.alpha.cells.length');
     fixture.documentTyping=process.env.LAB_PERF_DOCUMENT_TYPING==='1';
     fixture.documentHistory=process.env.LAB_PERF_DOCUMENT_HISTORY==='1';
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);

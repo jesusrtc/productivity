@@ -723,7 +723,7 @@ def session_for(path: str, request: Request) -> dict:
     """Return the provider/session pinned to this notebook path."""
     root = auth.request_root(request)
     _safe_resolve(root, path)  # validate only
-    from core.notebook_kernel import session_name
+    from core.notebook_identity import session_name
 
     return {
         "path": path,

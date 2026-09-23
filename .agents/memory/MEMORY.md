@@ -1,5 +1,7 @@
 # Memory index
 
+- [Notebook session metadata is lightweight](notebook-session-metadata-is-lightweight.md) — share stable session identity without importing Jupyter for metadata; retain real-kernel behavior and measure complete notebook controls
+
 - [Cold dashboard reads follow file dispatch](cold-dashboard-reads-follow-file-dispatch.md) — overlap independent I/O after dispatching files first; retain one batch, complete sidebar data, errors and navigation ownership
 - [Synchronous diagnostics separate thread CPU](synchronous-diagnostics-separate-thread-cpu.md) — distinguish waiting from computation on sync workers; omit misleading async thread totals and retain the unresolved cold scan spike
 

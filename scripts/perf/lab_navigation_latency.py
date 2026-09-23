@@ -44,6 +44,8 @@ parser.add_argument('--quick-files', action='store_true', help='Measure Command+
 parser.add_argument('--document-edit', action='store_true', help='Measure document editor open, save, cancel and close in alternating fixture workspaces')
 parser.add_argument('--document-typing', action='store_true', help='Also measure native editor keys, Enter and Tab before Save/Cancel (requires --document-edit; IME setup remains separate)')
 parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
+parser.add_argument('--notebook-view', action='store_true', help='Measure notebook opening, code visibility and output folding with native clicks (does not execute cells)')
+parser.add_argument('--notebook-cells', type=int, default=200, help='Cells per notebook-view fixture (default: 200)')
 parser.add_argument('--document-sections', type=int, default=30, help='Markdown sections per fixture document (default: 30)')
 parser.add_argument('--document-edit-input', choices=['replace', 'append'], default='replace', help='Replace the whole editor value or append only each revision (both use CDP insertText; default: replace)')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
@@ -83,10 +85,14 @@ if args.document_typing and not args.document_edit:
     parser.error('--document-typing requires --document-edit')
 if args.document_history and not args.document_edit:
     parser.error('--document-history requires --document-edit')
+if args.notebook_view and any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit)):
+    parser.error('--notebook-view measures a separate workflow and cannot be combined with other workflows')
+if args.notebook_cells < 2 or args.notebook_cells > 2000:
+    parser.error('--notebook-cells must be between 2 and 2000')
 if args.navigation_refresh_delay is not None:
     if not 1 <= args.navigation_refresh_delay <= 1000:
         parser.error('--navigation-refresh-delay must be between 1 and 1000 ms')
-    if any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit)):
+    if any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit,args.notebook_view)):
         parser.error('--navigation-refresh-delay requires the standalone navigation workflow')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
@@ -137,6 +143,21 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 f'# {name.title()} review {number}\n\n' + '\n\n'.join(
                     f'## Section {i}\n\nFixture paragraph with **formatting** and `code`.'
                     for i in range(args.document_sections)))
+        if args.notebook_view:
+            notebook = root / 'workspaces' / name / 'notebooks' / 'review.ipynb'
+            notebook.parent.mkdir(exist_ok=True)
+            cells = []
+            for number in range(args.notebook_cells):
+                cell = {'id': f'{name}-cell-{number}', 'metadata': {}}
+                if number % 2 == 0:
+                    cell.update(cell_type='markdown', source=f'## {name.title()} cell {number}\n\nFixture **formatted** paragraph {number}.')
+                else:
+                    output = ''.join(f'{name} output {number} line {line}\n' for line in range(20))
+                    cell.update(cell_type='code', source=f'print({output!r}, end="")', execution_count=number,
+                                outputs=[{'output_type': 'stream', 'name': 'stdout', 'text': output}])
+                cells.append(cell)
+            notebook.write_text(json.dumps({'nbformat': 4, 'nbformat_minor': 5, 'metadata': {
+                'kernelspec': {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}}, 'cells': cells}))
         for number in range(args.extra_files):
             folder = root / 'workspaces' / name / 'notes'
             if args.extra_file_layout == 'folders':
@@ -297,6 +318,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_DOCUMENT_EDIT': str(int(args.document_edit)),
                      'LAB_PERF_DOCUMENT_TYPING': str(int(args.document_typing)),
                      'LAB_PERF_DOCUMENT_HISTORY': str(int(args.document_history)),
+                     'LAB_PERF_NOTEBOOK_VIEW': str(int(args.notebook_view)),
                      'LAB_PERF_DOCUMENT_SECTIONS': str(args.document_sections),
                      'LAB_PERF_DOCUMENT_EDIT_INPUT': args.document_edit_input,
                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},

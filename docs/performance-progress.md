@@ -3698,3 +3698,102 @@ active: occasional IME insertion misses, variable scan delays, broader UI/API
 coverage and physical/iTerm parity are unresolved. No main merge, push or live
 server restart occurred. Main merge remains pending after the earlier
 automatic approval rejection.
+
+## Keep notebook session metadata independent of Jupyter imports (2026-09-23)
+
+### Remaining IME cost and expanded coverage
+
+A four-insertion plain-textarea diagnostic again reproduced **147.8–175.4 ms**
+acknowledgments without Lab. It kept the same 1,500-section source and short
+multiline revisions; every resulting value matched and each insertion emitted
+three or four trusted input events. The trace's `TypingCommand::InsertText`
+spans were only **6.42–15.78 ms**, so they do not explain the entire delay.
+The trace reported no data loss and retained all four insertions. No editor
+behavior was changed on this evidence and the earlier 202.11 ms miss remains.
+Artifacts: `/tmp/lab-ime-native-trace.mjs`,
+`/tmp/lab-ime-native-trace.json`, and
+`/tmp/lab-ime-native-trace-control.json`. Chromium's
+[InputHandler source](https://chromium.googlesource.com/chromium/src/%2B/master/content/browser/devtools/protocol/input_handler.cc)
+confirms the CDP operation routes through IME commit; it is not a clipboard
+paste measurement.
+
+The new `--notebook-view` workflow extends coverage to actual notebook opens,
+remembered-workspace restores, code hiding/showing, and output folding/unfolding.
+It uses timestamped native clicks and the unchanged 200 ms budget, full cells
+and normal polling. Each workspace owns a 200-cell notebook (alternating
+formatted Markdown and Python source with 20-line stream outputs). Readiness
+checks every cell's ID/index/type, complete source and highlighted text,
+complete output, and enabled controls. Toggle state must match the requested
+action. Both notebooks must remain byte-identical after each six-action visit.
+
+The fixture is created only under the existing CLI-created disposable vault,
+refuses mixed workflows and foreign scopes, and never clicks execution or
+mutation controls. The final request log separately confirms no notebook
+mutation requests. This does not yet cover rich-output rendering, notebook
+editor typing, execution/interrupt latency or all notebook controls.
+
+### Identified cold dependency and production change
+
+The first diagnostic `/api/nb/session` response took **63.21 ms**. Its handler
+imported `core.notebook_kernel` solely to obtain a deterministic session name,
+loading the Jupyter execution stack before returning metadata. Session metadata
+now imports a lightweight shared `core.notebook_identity` module. The kernel
+uses that same identity calculation, so there is no duplicated implementation.
+
+The resolved vault path, live workspace metadata ID, legacy directory handling,
+relative notebook path, hash and `local-` prefix are unchanged. The endpoint
+retains path validation, provider and all capability fields. Kernel startup,
+thread ownership, session reuse, execution, cancellation and shutdown code did
+not change. No identity cache, extra background task or eager import was added.
+
+A cold-process regression prevents importing either the execution module or
+Jupyter while requesting metadata. It fails on the original production route
+for the expected import, then passes after the change. Separate identity checks
+cover renamed folders, fresh metadata IDs, separate vaults/notebooks, legacy
+`projects` directories and vault symlink aliases. **107 checks passed**,
+including real Jupyter execution, CLI/human shared state, streaming, restart,
+interrupt, cancellation and a workspace rename that preserves kernel variables.
+Logs: `/tmp/lab-notebook-identity-baseline-regression.log`,
+`/tmp/lab-notebook-identity-tests.log`, and
+`/tmp/lab-notebook-identity-regressions.log`. Syntax/whitespace checks passed.
+
+### Native notebook measurements
+
+Both ordinary runs used 20 alternating visits, 5,000 mixed flat files per
+workspace and 2,500 real Git changes. CPU/layout/function/GC diagnostics were
+disabled. Every one of the **120 clicks passed** in each run.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| First session metadata response, ASGI | 62.66 ms | 8.55 ms |
+| First notebook open | 156.3 ms | 148.3 ms |
+| Longest notebook open | 156.3 ms | 148.3 ms |
+| Longest remembered-workspace restore | 157.5 ms | 170.2 ms |
+| Longest show/hide code action | 48.1 ms | 49.5 ms |
+| Longest output fold/unfold action | 43.8 ms | 43.8 ms |
+
+This is one before/after pair. The first metadata response improved markedly,
+but other work and scheduling varied; it does not establish a universal UI
+speedup. The final run passed **470 browser API requests** (maximum **102.6 ms**)
+and **498 server requests** (maximum **100.40 ms**). All native clocks, request
+IDs/routes, Git checks and browser/transport checks passed. Twenty persistence
+checks read 40 files; both notebooks remained unchanged, totalling 264,642
+bytes. Artifacts: `/tmp/lab-notebook-view-{baseline,final}-{browser,server,summary}.json`,
+matching logs, and `/tmp/lab-notebook-view-comparison.json`.
+
+A matching six-visit trace pair retained the cold metadata improvement
+**63.21 → 18.21 ms**, with first opens **179.5 → 121.2 ms**. Notebook rendering
+dependencies began 69.6 ms after the notebook request before, and 27.9 ms after
+it afterward. Remaining work includes sequential dependency loading and full
+cell rendering; neither was changed in this checkpoint. Both traces reported
+no data loss and their event ranges cover the final clicks. The before trace
+also retained a **215.4 ms cold workspace miss**, with a **104.95 ms ASGI file
+response**. That separate scan variability remains unresolved. Artifacts:
+`/tmp/lab-notebook-view-{before,after}-{browser,server,cpu,trace}.json`, trace
+metadata sidecars, logs, and `/tmp/lab-notebook-view-trace-comparison.json`.
+
+The initial 12-click smoke and all four subsequent notebook runs stopped their
+owned browsers/servers. The goal remains active, including IME/cold-navigation
+outliers, broader UI/API/typing coverage and physical/iTerm parity. No main
+merge, push or live-server restart occurred; main merge remains pending after
+the earlier automatic approval rejection.
