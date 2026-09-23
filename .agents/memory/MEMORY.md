@@ -1,5 +1,8 @@
 # Memory index
 
+- [Repository summaries share bounded Git workers](repository-summaries-share-bounded-git-workers.md) — overlap independent fresh reads, retain order and fallbacks, and share the eight-worker bound across requests
+- [Reader controls preserve actual input cadence](terminal-reader-controls-need-matched-input-cadence.md) — sleep lateness confounded the first thread comparison; corrected controls did not establish a transport fix
+
 - [Normalize workspace history before teardown](workspace-history-normalization-precedes-teardown.md) — preserve history and notebook position without a second intermediate layout; repeated restoration falls below 200 ms
 - [Notebook typing checks its visible text and draft](notebook-typing-checks-visible-highlight-and-draft.md) — native keys verify the syntax overlay, cursor, localStorage and both restored drafts while preserving notebook files
 - [Direct shell launch needs a measured gain](direct-shell-launch-needs-measured-gain.md) — a terminal-only direct argv candidate did not establish a cold-start improvement and was removed

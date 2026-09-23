@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -45,6 +46,12 @@ def _repos_root(request: Request) -> Path:
 
 _REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
+
+# Share the bound across requests: a catalog should not spawn one Git process
+# per repository (or create a separate pool for every connected browser).
+_REPO_SUMMARY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="code-search-repo",
+)
 
 
 def _validate_repo(root: Path, repo: str) -> Path:
@@ -115,6 +122,27 @@ def _is_git_repo(path: Path) -> bool:
 # ─── endpoints ──────────────────────────────────────────────────────────
 
 
+def _repo_summary(entry: Path) -> dict:
+    branch = _git_out(entry, ["rev-parse", "--abbrev-ref", "HEAD"]) or "HEAD"
+    last_line = _git_out(
+        entry,
+        ["log", "-1", "--format=%h%x09%an%x09%ae%x09%ar%x09%aI%x09%s"],
+    )
+    last: dict = {}
+    if last_line:
+        parts = last_line.split("\t", 5)
+        if len(parts) == 6:
+            last = {
+                "sha": parts[0],
+                "who": parts[1],
+                "email": parts[2],
+                "when": parts[3],
+                "when_iso": parts[4],
+                "subj": parts[5],
+            }
+    return {"name": entry.name, "branch": branch, "last": last}
+
+
 @router.get("/api/code-search/repos")
 def list_repos(request: Request) -> list[dict]:
     """List git repos under `repositories/` with a cheap per-repo summary.
@@ -126,35 +154,16 @@ def list_repos(request: Request) -> list[dict]:
     root = _repos_root(request)
     if not root.is_dir():
         return []
-    out: list[dict] = []
+    entries: list[Path] = []
     for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if not entry.is_dir() or entry.name.startswith("."):
             continue
         if not _is_git_repo(entry):
             continue
-        branch = _git_out(entry, ["rev-parse", "--abbrev-ref", "HEAD"]) or "HEAD"
-        last_line = _git_out(
-            entry,
-            ["log", "-1", "--format=%h%x09%an%x09%ae%x09%ar%x09%aI%x09%s"],
-        )
-        last: dict = {}
-        if last_line:
-            parts = last_line.split("\t", 5)
-            if len(parts) == 6:
-                last = {
-                    "sha": parts[0],
-                    "who": parts[1],
-                    "email": parts[2],
-                    "when": parts[3],
-                    "when_iso": parts[4],
-                    "subj": parts[5],
-                }
-        out.append({
-            "name": entry.name,
-            "branch": branch,
-            "last": last,
-        })
-    return out
+        entries.append(entry)
+    # map preserves catalog order even when Git calls finish out of order.
+    # Every request still reads both commands; no metadata cache is involved.
+    return list(_REPO_SUMMARY_EXECUTOR.map(_repo_summary, entries))
 
 
 @router.get("/api/code-search/repos/{repo}/stats")

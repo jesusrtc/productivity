@@ -5113,3 +5113,151 @@ Cold terminal creation, previously retained terminal output-typing/IME/cold
 navigation misses, unmeasured UI/API actions and physical/iTerm parity remain
 unfinished. Main merge is still pending after the earlier automatic approval
 rejection. No merge, push or live user-server restart was attempted.
+
+## Bound and overlap repository-summary Git reads — 2026-09-23
+
+This checkpoint starts from `c755f34`. Terminal output typing still misses its
+50 ms target; private reader-thread controls did not establish a reliable fix.
+The retained production change addresses a newly measured slow backend path:
+`GET /api/code-search/repos`.
+
+### Retained endpoint change and comparison
+
+The endpoint ran two independent Git subprocesses per repository sequentially.
+A 20-repository catalog therefore took roughly 500 ms even though each command
+was short. `_repo_summary` retains the exact command sequence, timeouts, parsing,
+branch fallback and response shape. A shared eight-worker executor overlaps
+repositories, and ordered `map` preserves the existing case-insensitive catalog
+order. The bound applies across simultaneous requests, including requests with
+one repository. An empty catalog starts no workers; every nonempty request
+still reads Git afresh.
+
+The isolated fixture uses normal authentication, server lifespan and polling
+watcher. Its 20 real repositories include empty and detached-HEAD cases,
+Unicode/tab-containing subjects, and case-mixed names. Hidden and non-repository
+entries are excluded. All stable metadata and ordering are checked for every
+response; relative-age strings must remain present and nonempty. A final branch
+change and commit check freshness. The committed probe additionally verifies all
+20 rows after that mutation. Relative-age text is checked exactly in unit tests.
+No first requests, slow samples or readiness steps were discarded.
+
+| Fixed A/B/B/A run | First / maximum HTTP | Median HTTP | Regular request misses / 20 | Fresh metadata request |
+| --- | ---: | ---: | ---: | ---: |
+| Original | 547.4 ms | 498.5 ms | 20 | 489.8 ms |
+| Shared eight-worker pool | 155.4 ms | 113.1 ms | 0 | 108.0 ms |
+| Pool repeat | 160.9 ms | 116.6 ms | 0 | 113.3 ms |
+| Restored original control | 560.8 ms | 495.3 ms | 20 | 468.9 ms |
+| Restored candidate, committed probe | 169.5 ms | 109.5 ms | 0 | 111.5 ms |
+
+The three 20-repository candidate runs passed **63/63 complete HTTP requests
+under 200 ms**; maximum server ASGI duration was **168.15 ms**. A final
+one-repository check also passed all **21/21 requests**, including its first
+request: HTTP maximum 83.3 ms, median 34.6 ms, fresh-read 29.8 ms and server
+maximum 82.19 ms. This verifies that single-repository requests can share the
+worker bound without exceeding the budget. All 42 original/control requests
+exceeded 200 ms. Every server stopped. The final committed probe separately
+confirmed its temporary directory was removed. These are complete HTTP and
+server measurements, not UI clicks: the current Code Search UI entry is a
+placeholder. Larger catalogs and latency under concurrent real HTTP clients
+remain unmeasured; the unit tests verify the cross-request concurrency bound.
+
+The first disposable baseline completed its requests and stopped its server,
+but its temporary diagnostic mistakenly called a nonexistent `ServerTimings.write`
+method. That run produced no usable timing report. Its failure log is retained;
+the writer was corrected to use `report()` before the recorded A/B/B/A sequence.
+
+`scripts/perf/lab_code_search_latency.py --output /tmp/<unique-prefix>` reproduces
+the final workload with the default 20 repositories and 20 regular requests.
+Reports refuse overwrite, record response timings before validation, check all
+rows after the final mutation, retain cold samples and exit nonzero on a 200 ms
+miss. The fixture creates Lab metadata through the CLI and only changes its own
+Git repositories.
+
+Focused tests cover completion ordering, a shared eight-worker limit across three
+requests, live metadata changes, all response fields, subject tabs, hidden and
+non-repository entries, worktree pointers, empty/detached/error fallbacks and the
+single-repository/worktree case. Initial endpoint/search validation: **11 passed**.
+Final endpoint, search, terminal diagnostic/output-probe and WebSocket
+reliability validation: **69 passed**. A preceding 69-check run also passed;
+the final rerun follows the stricter bound that includes single-repository
+requests. `git diff --check` passed. Terminal production code is unchanged.
+
+Artifacts: `/tmp/lab-code-search-list-{before-report,after,repeat,control,final}-{http,server}.json`
+and corresponding logs; `/tmp/lab-code-search-list-before.log` retains the failed
+report writer; `/tmp/lab-code-search-list-benchmark.py` is the exact temporary
+A/B/B/A driver; `/tmp/lab-code-search-checkpoint-summary.py` and `.json`;
+`/tmp/lab-code-search-tests.log`, `/tmp/lab-code-search-final-tests.log` and
+`/tmp/lab-code-search-final-bound-tests.log`; the final single-repository
+check uses `/tmp/lab-code-search-single-final-{http,server}.json` and its log.
+
+### Terminal output typing and rejected reader controls
+
+Two unchanged native runs retained the 5,000 mixed files, 2,500 Git changes,
+40 colored output lines every 50 ms, 25 ms input cadence, actual xterm rendering,
+normal shared tmux generation, and 30 file updates/refreshes. Each delivered and
+verified all 1,200 input bytes, source hashes, parse/render coverage and advancing
+output without browser, transport or clock errors. Neither met the 50 ms goal:
+
+| Native run | Output-only maximum / misses | Loaded-phase maximum / misses |
+| --- | ---: | ---: |
+| Untraced current checkpoint | 34.7 ms / 0 | 94.8 ms / 17 |
+| Reduced trace plus CPU/source diagnostics | 70.6 ms / 25 | 46.4 ms / 0 |
+
+The untraced run's single 53 ms long task occurred **before typing began** and
+does not explain its misses. The reduced trace reports no data loss. Its actual
+renderer events span the first dispatched key through the final actual render;
+the CPU profile's timestamp span also covers that interval. This verifies time
+coverage, not precise attribution of every delay. No production sidebar/Git
+change was made from aggregate CPU-profile totals. Source-write waiting remains
+visible, and the slow phase changes between runs. Instrumented and untraced
+latencies are not pooled into one result.
+
+A new private-PTY component diagnostic compared selector and continuously
+reading thread modes in fixed A/B/B/A order, with 600 inputs per run and the
+same producer/geometry. The first comparison was confounded: actual input
+lateness reached 10.12 ms with foreground sleep versus 2.17 ms with the selector.
+Its apparent large improvement is not accepted as evidence for a transport fix.
+
+A second A/B/B/A capped both waits at 1 ms. Actual lateness stayed below 0.61 ms,
+but write stalls remained. A third comparison used nonblocking reads in a
+separate thread, retaining the input fd's nonblocking behavior:
+
+| Matched-cadence component mode, in run order | Producer writes over 10 ms | Producer-write p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Selector, blocking-reader comparison | 29 | 12.13 ms | 12.80 ms |
+| Blocking reader thread | 19 | 11.60 ms | 12.70 ms |
+| Blocking reader thread repeat | 8 | 0.29 ms | 12.52 ms |
+| Selector control | 20 | 11.72 ms | 12.84 ms |
+| Selector, nonblocking-reader comparison | 35 | 12.04 ms | 12.68 ms |
+| Nonblocking reader thread | 12 | 0.31 ms | 13.05 ms |
+| Nonblocking reader thread repeat | 25 | 12.02 ms | 15.91 ms |
+| Selector control | 21 | 11.72 ms | 12.65 ms |
+
+The nonblocking thread did not establish a consistent improvement; no production
+reader implementation was changed. These private controls have no browser,
+WebSocket, xterm negotiation/rendering or live Git workload. Frame/byte-count
+changes alone do not establish latency gains.
+
+An initial nonblocking comparison stopped after its first 600-input selector run
+because the immediate cleanup check still saw the private server exiting.
+A subsequent PID check found all three owned processes gone; only then was the
+same recorded socket inode unlinked. The repeat waited boundedly for both owned
+producer and server exit. The original failure remains in its manifest/log.
+An independent final audit found all **13 private runs' producer, attachment and
+server PIDs absent**, all private sockets absent, and both exact native fixture
+session names absent from a read-only inventory with pruning disabled.
+
+Artifacts: `/tmp/lab-output-checkpoint-{current,profile}-{browser,server,summary}.json`
+and logs; profile `-trace.json`, trace metadata and `-cpu.json`;
+`/tmp/lab-output-current-coverage.py` and `.json`;
+`/tmp/lab-pty-boundary-{reader-thread-abba,reader-thread-cadence-abba,reader-nonblocking-abba,reader-nonblocking-wait-abba}.json`
+and their per-run `root` directories; the corresponding `/tmp/lab-pty-reader-*.py`
+drivers and logs; `/tmp/lab-pty-reader-nonblocking-failed-cleanup.json`;
+`/tmp/lab-reader-and-output-cleanup.py` and `.json`.
+
+Cold terminal creation, retained terminal output/IME/navigation misses,
+unmeasured UI/API actions and physical/iTerm parity remain unfinished. The
+scope question about completion versus immediate acknowledgment for inherently
+long notebook/Git operations remains unanswered; those API semantics are
+unchanged. Main merge remains pending after the earlier automatic approval
+rejection. No merge, push or live user-server restart was attempted.
