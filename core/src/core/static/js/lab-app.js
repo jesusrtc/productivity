@@ -1053,8 +1053,6 @@
     py: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="#3776AB" d="M11.9 2c-5 0-4.6 2.2-4.6 2.2v2.3h4.7v.7H5.3S2 6.8 2 11.9c0 5 2.9 4.9 2.9 4.9h1.7v-2.4s-.1-2.9 2.8-2.9h4.7s2.7.1 2.7-2.6V4.7S17.2 2 11.9 2zM9.3 3.4a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/><path fill="#FFD43B" d="M12.1 22c5 0 4.6-2.2 4.6-2.2v-2.3H12v-.7h6.7s3.3.4 3.3-4.7c0-5-2.9-4.9-2.9-4.9h-1.7v2.4s.1 2.9-2.8 2.9h-4.7s-2.7-.1-2.7 2.6v4.2S6.8 22 12.1 22zm2.6-1.4a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/></svg>',
     // Jupyter: orange top/bottom crescents plus the two grey moons.
     ipynb: '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#F37726" d="M8 12.1c-2.1 0-3.9-.9-5-2.2a5.4 5.4 0 0 0 10 0c-1.1 1.3-2.9 2.2-5 2.2zM8 3.9c2.1 0 3.9.9 5 2.2a5.4 5.4 0 0 0-10 0c1.1-1.3 2.9-2.2 5-2.2z"/><circle cx="13" cy="13.2" r="1" fill="#989798"/><circle cx="2.8" cy="2.6" r=".8" fill="#6f7070"/></svg>',
-    // Markdown: rounded box with the M-and-arrow mark.
-    md: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#519ABA" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3.2" width="14" height="9.6" rx="1.5"/><path d="M3.4 10.3V5.7l1.9 2.2 1.9-2.2v4.6"/><path d="M11.6 5.9v3M10.2 7.6l1.4 1.7 1.4-1.7"/></svg>',
     sh: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><rect x="1" y="2.2" width="14" height="11.6" rx="1.8" stroke="#4EAA25" stroke-width="1.1"/><path d="M3.8 6l2.1 2-2.1 2M8.4 10.4h3.4" stroke="#4EAA25" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     csv: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#8BC34A" stroke-width="1.1"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 6h13M1.5 9.5h13M6 2.5v11M10.5 2.5v11"/></svg>',
     // SQL: a compact database cylinder, the common visual shorthand for SQL.
@@ -1074,7 +1072,7 @@
     if ((node && node.type === 'image') || ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext)) { cls = 'ft-img'; glyph = _FT_SVGS.img; }
     else if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) { cls = 'ft-vid'; glyph = _FT_SVGS.vid; }
     else if (ext === 'ipynb') { cls = 'ft-nb'; glyph = _FT_SVGS.ipynb; }
-    else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; glyph = _FT_SVGS.md; }
+    else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; glyph = ''; }
     else if (ext === 'py') { cls = 'ft-py'; glyph = _FT_SVGS.py; }
     else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; glyph = _ftBadge('#F7DF1E', 'JS', '#222'); }
     else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; glyph = _ftBadge('#3178C6', 'TS', '#fff'); }
@@ -3075,7 +3073,8 @@
     return compactNode(buildSidebarTree(files), '');
   }
 
-  const _SIDEBAR_GITHUB_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.18.55-.39 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.5 7.5 0 0 1 8 4.03c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.47.55.39A8 8 0 0 0 8 .2Z"/></svg>';
+  // The same silhouette is decoded once by CSS rather than reparsed in every row.
+  const _SIDEBAR_GITHUB_ICON = '<span class="sidebar-github-icon" aria-hidden="true"></span>';
 
   function sidebarOpenRepositoryHistory(button) {
     const baseRoot = button && button.getAttribute('data-base-root');
@@ -8929,15 +8928,21 @@
   // of showWorkspaceInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
-  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null} = {}) {
+  let _workspaceSidebarRefreshSequence = 0;
+  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null, _sequence = null} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const workspacePath = currentWorkspace.path;
+    const sequence = _sequence ?? ++_workspaceSidebarRefreshSequence;
+    const current = () => sequence === _workspaceSidebarRefreshSequence
+      && currentWorkspace?.path === workspacePath && currentWorkspace.is_workspace;
     const isAssistant = document.body.classList.contains('assistant-active');
     await _sidebarEnsureWorktrees(workspacePath);
+    if (!current()) return;
     const fileRoot = _sidebarScopedRoot(workspacePath);
+    const ownsSidebar = () => current() && _sidebarScopedRoot(workspacePath) === fileRoot;
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
     // Warm switch: when no `_data` override is passed but the cache has
@@ -8949,15 +8954,17 @@
       const cachedPayload = _workspaceSidebarCache.get(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot !== fileRoot) _workspaceSidebarCache.delete(workspacePath);
       if (cachedPayload && cachedPayload.fileRoot === fileRoot) {
-        // Synchronous warm paint — recursive call returns a Promise but
-        // because `_data` short-circuits both fetches, all the render
-        // work happens in the synchronous prefix.
-        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload});
+        // Cached paint and its reconcile belong to the same refresh. A later
+        // navigation or refresh invalidates both, including an A → B → A switch.
+        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence});
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
+            if (!ownsSidebar()) return;
             const files = await _sidebarFetchWorkspaceFiles(fileRoot);
+            if (!ownsSidebar()) return;
             const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
+            if (!ownsSidebar()) return;
             let pinned = [], references = [], proxies = [];
             try {
               const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
@@ -8969,14 +8976,13 @@
               }
             } catch {}
             const fresh = {files, recentFiles, pinned, references, proxies, fileRoot};
-            if (!currentWorkspace || currentWorkspace.path !== workspacePath
-                || _sidebarScopedRoot(workspacePath) !== fileRoot) return;
+            if (!ownsSidebar()) return;
             const prev = _workspaceSidebarCache.get(workspacePath);
             _workspaceSidebarCache.set(workspacePath, fresh);
             // Re-render only if (a) the data actually changed and (b)
             // the user is still on this workspace.
             if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
-            _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh});
+            _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh, _sequence: sequence});
           } catch (e) {
             console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
           }
@@ -8999,12 +9005,14 @@
       } else {
         // Cold path: fetch fresh + write to cache.
         files = await _sidebarFetchWorkspaceFiles(fileRoot);
+        if (!ownsSidebar()) return;
         recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
+        if (!ownsSidebar()) return;
         pinnedNames = [];
         references = [];
         proxies = [];
         try {
-          const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
+          const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
           if (infoRes.ok) {
             const info = await infoRes.json();
             if (Array.isArray(info.pinned)) pinnedNames = info.pinned;
@@ -9012,8 +9020,10 @@
             if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
+        if (!ownsSidebar()) return;
         _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
+      if (!ownsSidebar()) return;
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
@@ -9193,7 +9203,7 @@
       // previously-rendered file tree the user is still looking at, which
       // is strictly worse than leaving the old list visible while we log
       // the underlying error.
-      if (!sidebar.children.length) {
+      if (ownsSidebar() && !sidebar.children.length) {
         sidebar.innerHTML = '<div class="sidebar-title">Workspace</div>';
       }
     }

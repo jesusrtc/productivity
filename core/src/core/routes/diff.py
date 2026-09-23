@@ -64,8 +64,10 @@ def _workspace_scan_child_depth(directory: Path, depth: int) -> int:
     return depth + 1
 
 
-def _with_symlink_fields(entry: dict, path: Path) -> dict:
-    if not path.is_symlink():
+def _with_symlink_fields(entry: dict, path: Path, *, is_symlink: bool | None = None) -> dict:
+    if is_symlink is None:
+        is_symlink = path.is_symlink()
+    if not is_symlink:
         return entry
     entry["is_symlink"] = True
     try:
@@ -616,24 +618,38 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
             if baseline:
                 checkout_groups[git_root] = (baseline, [])
         try:
-            children = sorted(dir_path.iterdir())
+            # DirEntry reuses the directory's type information and one stat
+            # result per entry instead of issuing repeated Path stat calls.
+            # Entries live only for this scan; later requests still see edits.
+            with os.scandir(dir_path) as entries:
+                children = sorted(entries, key=lambda entry: entry.name)
         except PermissionError:
             return
-        for child in children:
-            if not include_dotfiles and child.name.startswith("."):
+        for child_entry in children:
+            if not include_dotfiles and child_entry.name.startswith("."):
                 continue
-            child_is_symlink = child.is_symlink()
-            if child.is_file():
+            child = Path(child_entry.path)
+            try:
+                child_is_symlink = child_entry.is_symlink()
+            except OSError:
+                child_is_symlink = False
+            try:
+                child_is_file = child_entry.is_file()
+                child_is_dir = not child_is_file and child_entry.is_dir()
+            except OSError:
+                # Match Path.is_file/is_dir for inaccessible or vanished targets.
+                child_is_file = child_is_dir = False
+            if child_is_file:
                 rel = str(child.relative_to(workspace_path))
                 ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
                 entry = {"name": rel, "path": rel, "type": ftype}
-                _with_symlink_fields(entry, child)
+                _with_symlink_fields(entry, child, is_symlink=child_is_symlink)
                 # Every sidebar surface can optionally promote recently
                 # updated files into a shortcut section. Keep mtime on every
                 # file entry (not only notebooks) so that feature can filter
                 # locally without another filesystem walk or endpoint.
                 try:
-                    stat = child.stat()
+                    stat = child_entry.stat()
                     entry["mtime"] = stat.st_mtime
                     # ctime is metadata-change time on Unix, not creation.
                     entry["created"] = getattr(stat, "st_birthtime", None)
@@ -650,11 +666,11 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 files.append(entry)
                 if git_root in checkout_groups:
                     checkout_groups[git_root][1].append((child.relative_to(git_root).as_posix(), entry))
-            elif child.is_dir():
+            elif child_is_dir:
                 if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"documents", "tasks", "notes", "projects"}):
                     rel = str(child.relative_to(workspace_path))
                     entry = {"name": rel, "path": rel, "type": "dir"}
-                    _with_symlink_fields(entry, child)
+                    _with_symlink_fields(entry, child, is_symlink=child_is_symlink)
                     files.append(entry)
                 if child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
                     scan(child, _workspace_scan_child_depth(child, depth), git_root)
@@ -663,7 +679,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 # distinguish it from an absent file/folder.
                 rel = str(child.relative_to(workspace_path))
                 entry = {"name": rel, "path": rel, "type": "file", "broken": True}
-                _with_symlink_fields(entry, child)
+                _with_symlink_fields(entry, child, is_symlink=child_is_symlink)
                 files.append(entry)
 
     def scan_with_checkout_context():

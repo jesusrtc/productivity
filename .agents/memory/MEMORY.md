@@ -255,3 +255,7 @@
 
 - [Open tabs avoid redundant writes](workspace-tab-open-avoids-noop-writes.md) — read current saved state, but only write a changed open/closed flag; no-op writes trigger file-tree rebuilds.
 - [Sidebar templates stay pristine and bounded](sidebar-template-cache-is-pristine-and-bounded.md) — exact markup, deterministic folder IDs, fresh clones, four scopes and 60,000 retained elements; cold rendering remains separate work.
+
+- [File scans reuse request-local entries](workspace-file-scan-reuses-directory-entries.md) — reduce repeated stat calls while preserving fresh edits, symlink targets, and worktree annotations.
+- [Sidebar refreshes keep the latest scope](sidebar-refresh-keeps-latest-scope.md) — captured paths plus generations guard delayed responses; cached paint and reconciliation share ownership.
+- [Shared sidebar icons preserve baselines](sidebar-shared-icons-preserve-baselines.md) — shared graphics reduce DOM without shifting text or symlink overlays; larger and mixed trees still need work.

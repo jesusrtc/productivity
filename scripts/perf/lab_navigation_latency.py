@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -23,13 +24,17 @@ from urllib.parse import quote
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--samples', type=int, default=20, help='Samples per action (at least 2)')
-parser.add_argument('--extra-files', type=int, default=0, help='Additional Markdown files in each workspace')
+parser.add_argument('--extra-files', type=int, default=0, help='Additional files in each workspace')
+parser.add_argument('--extra-file-types', default='md', help='Comma-separated extensions for extra files, e.g. md,py,json,sql')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
+extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
+if not all(re.fullmatch(r'[a-z0-9]{1,16}', extension) for extension in extra_file_types):
+    parser.error('--extra-file-types must contain simple filename extensions')
 checkout = Path(__file__).resolve().parents[2]
 source_paths = [str(checkout / 'core/src'), str(checkout / 'core/cli/src')]
 sys.path[:0] = source_paths
@@ -67,7 +72,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         for number in range(args.extra_files):
             folder = root / 'workspaces' / name / 'notes' / f'batch-{number // 100:03}'
             folder.mkdir(exist_ok=True)
-            (folder / f'entry-{number:05}.md').write_text(f'# Fixture note {number}\n\nSmall document.\n')
+            extension = extra_file_types[number % len(extra_file_types)]
+            (folder / f'entry-{number:05}.{extension}').write_text(f'# Fixture note {number}\n\nSmall document.\n')
     import uvicorn
     from core import auth
     from core.main import create_app
@@ -121,7 +127,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         result = subprocess.run(['node', str(checkout / 'scripts/perf/lab_navigation_latency.mjs'), url,
                                  str(root / 'workspaces'), str(args.samples)],
                                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
-                                     'LAB_PERF_EXTRA_FILES': str(args.extra_files)},
+                                     'LAB_PERF_EXTRA_FILES': str(args.extra_files),
+                                     'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types)},
                                 timeout=max(120, args.samples * 26))
     finally:
         server.should_exit = True

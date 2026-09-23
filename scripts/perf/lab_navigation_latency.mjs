@@ -220,7 +220,7 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,ms:r.duration,status:r.responseStatus}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0)};
+    const fixture={extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(',')};
     console.log(JSON.stringify({fixture,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
     if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length)process.exitCode=1;
   } catch(error) {

@@ -1002,3 +1002,51 @@ def test_workspace_mtime_depth_capped(seed_workspace, client) -> None:
     r = client.get(f"/api/workspace-mtime?path={pdir}")
     assert r.status_code == 200
     assert "mtime" in r.json()
+
+
+def test_workspace_file_scan_sees_edits_and_retargeted_links_on_each_request(
+    client, seed_workspace, monkeypatch,
+) -> None:
+    """Directory-entry reuse is local to one scan, including link targets."""
+    import os
+    from core.routes import nb_exec
+
+    root = seed_workspace('scan-freshness')
+    first = root / 'docs' / 'a.md'
+    first.write_text('# First\n')
+    notebook = root / 'docs' / 'running.ipynb'
+    notebook.write_text('{}')
+    link = root / 'linked'
+    link.symlink_to('docs/a.md')
+    broken = root / 'broken'
+    broken.symlink_to('missing.md')
+    monkeypatch.setattr(nb_exec, 'is_path_pending', lambda path: path.name == 'running.ipynb')
+
+    def scan():
+        result = client.get('/api/workspace-files', params={'path': str(root)})
+        assert result.status_code == 200
+        return {row['path']: row for row in result.json()}
+
+    before = scan()
+    assert before['docs/running.ipynb']['pending'] is True
+    assert before['linked']['symlink_target'] == 'docs/a.md'
+    assert before['linked']['mtime'] == first.stat().st_mtime
+    assert before['broken']['broken'] is True
+    assert 'mtime' not in before['broken']
+
+    future = first.stat().st_mtime + 100
+    os.utime(first, (future, future))
+    (root / 'missing.md').write_text('Now exists\n')
+    link.unlink()
+    link.symlink_to('docs', target_is_directory=True)
+    after = scan()
+    assert after['docs/a.md']['mtime'] == future
+    assert after['linked']['type'] == 'dir'
+    assert after['linked']['symlink_target'] == 'docs'
+    assert after['linked/a.md']['mtime'] == future
+    assert 'broken' not in after['broken']
+    assert after['broken']['mtime'] == (root / 'missing.md').stat().st_mtime
+
+    first.unlink()
+    last = scan()
+    assert 'docs/a.md' not in last and 'linked/a.md' not in last

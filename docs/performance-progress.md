@@ -279,3 +279,78 @@ rendering, larger or mixed trees, rapid scope switching and state retention,
 full-page startup, real-vault backend outliers, and typing under active UI and
 terminal workloads. This checkpoint remains isolated; the earlier merge
 approval request is still pending.
+
+## Follow-on: cold file scans, shared icons, and sidebar races
+
+The file-list route now uses `os.scandir` entries for type checks and stat data.
+Each entry is reused only within that request. Every later request scans again,
+so file changes, repaired or retargeted symlinks, notebook pending state, and
+worktree checkout annotations remain live. Sorted traversal and depth limits
+are unchanged. The new comparison script alternates the old and new route
+implementations over a CLI-created disposable vault and checks complete response
+equality on every pair. It measures filesystem route work, excluding HTTP,
+authentication, and serialization, and does not flush the OS cache.
+
+| 2,000-file scan, 20 samples per implementation | First | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| Baseline (`7eda46a`) | 40.13 ms | 28.70 ms | 40.13 ms |
+| Candidate | 18.68 ms | 18.61 ms | 20.92 ms |
+
+The remaining browser cost includes thousands of repeated inline SVG elements.
+Markdown file icons and GitHub history icons now reuse their original graphics
+through CSS, reducing markup parsing and live DOM size. History buttons, click
+handlers, colors, icon dimensions, and symlink overlays are preserved. A browser
+comparison of the old and new icons exposed an inline-flex baseline difference;
+the final CSS retains the original baseline. The final comparison was visually
+checked at 3× scale. Template retention limits remain unchanged.
+
+Sidebar refreshes now capture the workspace path, selected file root, and a
+generation number. Delayed file or metadata responses cannot paint or populate
+the cache after a newer refresh or scope change. Cached paint and its background
+reconciliation share the same generation. Nine controlled async tests cover
+delays during worktree discovery, file fetches, and metadata fetches while the
+workspace, worktree, or refresh changes. Existing sidebar and backend coverage,
+including fresh edits and symlink retargeting, passed: **124 targeted tests**.
+
+The final unprofiled 40-action run used 2,000 extra Markdown files per workspace:
+
+| Action, 20 samples each | First | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Workspace tab → complete dashboard | 175.20 ms | 102.00 ms | 163.50 ms | 175.20 ms |
+| Sidebar document → rendered Markdown | 60.30 ms | 30.40 ms | 45.10 ms | 60.30 ms |
+
+All **335 API requests** stayed below **66.00 ms**, with no HTTP, network, or
+browser errors. Five additional fresh-server/fresh-browser runs each included
+both cold workspace visits. Their workspace maxima were **184.50, 198.60,
+179.40, 179.60, and 183.10 ms**. All ten document clicks stayed below 66.20 ms.
+The 198.60 ms sample leaves little margin; these runs establish only the measured
+fixture result, not a general cold-start guarantee.
+
+Broader fixtures **still fail** and remain part of the performance record:
+
+- With 2,000 extra files rotated through Markdown, Python, JSON, and SQL, the
+  first workspace visit took **230.50 ms**. The other nine workspace visits
+  passed; document maximum was 51.90 ms and API maximum 75.00 ms.
+- With 5,000 extra Markdown files, all four workspace visits missed: **377.10,
+  400.30, 264.90, and 248.60 ms**. Document maximum was 58.70 ms and API maximum
+  125.90 ms. There were no request or browser errors in either broader run.
+- Before sharing icons, the scan/race candidate still reached 227.00 ms;
+  sharing only the GitHub icon reached 212.60 ms. Those misses are not excluded
+  from the investigation because the final Markdown fixture passed.
+
+Reproduce the scope and response-equality checks with:
+
+```sh
+core/.venv/bin/python scripts/perf/lab_file_scan_latency.py --samples 20
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 20 --extra-files 2000
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 10 --extra-files 2000 --extra-file-types md,py,json,sql
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 4 --extra-files 5000
+```
+
+The overall goal remains unfinished: larger and mixed sidebar rendering,
+full-page startup, the earlier cold real-vault metadata outliers, additional UI
+actions, and typing under active UI/terminal workloads still require work. This
+checkpoint is on `perf/cold-metadata`; main and the live server are unchanged.

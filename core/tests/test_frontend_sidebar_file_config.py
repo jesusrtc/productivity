@@ -515,7 +515,7 @@ process.stdout.write(JSON.stringify({
   pickerHasSelected: picker.includes('value="/worktrees/feature-b" selected'),
   pickerColor: picker.includes('value="#123abc"'),
   pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
-  pickerHasGithub: picker.includes('<svg viewBox="0 0 16 16"'),
+  pickerHasGithub: picker.includes('class="sidebar-github-icon"'),
   mainHasHistory: mainPicker.includes('sidebarOpenRepositoryHistory(this)'),
   mainHasLabel: mainPicker.includes('sidebar-worktree-current') && mainPicker.includes('>main</span>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
