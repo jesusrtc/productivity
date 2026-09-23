@@ -35,8 +35,20 @@ def workspace(request, workspace_id, vault=None):
 def list_documents(request, workspace_id, vault=None):
     from core.routes import term
     from core.routes.assistant import _require_root
-    root = workspace(request, workspace_id, vault)
-    refs = references(root, workspace_id)
+    if workspace_id == term.ASSISTANT_WORKSPACE_ID:
+        root = _require_root(request)
+        # The Assistant section is derived from durable terminal links, including
+        # stopped sessions. Merely reading it never discovers or starts tmux.
+        by_document = {}
+        for session in term._get_workspace_sessions(root, workspace_id):
+            link = session.get('linked_task')
+            identity = terminal_task_links.identity(link)
+            if identity and identity[0] == str(root.resolve()):
+                by_document[identity[:2]] = {**link, 'task_id': None}
+        refs = list(by_document.values())
+    else:
+        root = workspace(request, workspace_id, vault)
+        refs = references(root, workspace_id)
     if not refs:
         return []
     assistant = str(_require_root(request).resolve())

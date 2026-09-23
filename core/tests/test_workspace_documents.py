@@ -194,3 +194,28 @@ def test_attention_includes_inactive_and_shared_workspaces_without_summaries(cli
     assert data['client::demo'][0]['name'] == name
     assert data['__assistant__::__assistant__'][0]['agent_activity']['state'] == 'completed'
     assert 'cwd' not in data['client::demo'][0]
+
+
+@pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
+def test_assistant_documents_derive_from_saved_links_without_tmux(client, linked_workspace, monkeypatch, agent):
+    from core.routes import term
+    root, note, live, session = linked_workspace
+    session(agent=agent)
+    link = link_terminal(client, note)
+    # Multiple task links in one document appear once, using the document title.
+    term._upsert_workspace_session(root, '__assistant__', {'name':'second', 'kind':agent,
+        'linked_task':{**link, 'task_id':'task', 'title':'Task title'}})
+    live.clear()
+    def no_tmux(*args, **kwargs):
+        raise AssertionError('Listing linked documents must not inspect or start processes')
+    monkeypatch.setattr(term, '_tmux_list', no_tmux)
+    response = client.get('/api/workspace-documents?workspace_id=__assistant__&vault=__assistant__')
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 1
+    assert response.json()[0]['title'] == 'Task document'
+    assert response.json()[0]['task_id'] is None
+    records.update(root, str(note.relative_to(root)), 'title', 'New document title')
+    assert client.get('/api/workspace-documents?workspace_id=__assistant__').json()[0]['title'] == 'New document title'
+    term._upsert_workspace_session(root, '__assistant__', {'name':'claude', 'linked_task':None})
+    term._upsert_workspace_session(root, '__assistant__', {'name':'second', 'linked_task':None})
+    assert client.get('/api/workspace-documents?workspace_id=__assistant__').json() == []

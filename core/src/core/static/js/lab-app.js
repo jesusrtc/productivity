@@ -7746,6 +7746,7 @@
 
   async function openWorkspaceDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentWorkspace) return;
+    if (!preserveScroll) window.AssistantView?.closeInlineDocument();
     _clearNbNavigation();
     // Pseudo-paths starting with `__proxy__/` are not real files — they
     // refer to a declared local-dev-server proxy. Route to the iframe
@@ -7915,6 +7916,7 @@
   async function openWorkspaceProxy(name) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     if (!name) return;
+    window.AssistantView?.closeInlineDocument();
     // The iframe hosts a live, stateful app — never rebuild it when this
     // proxy is already the active view (file-watcher refreshes, sidebar
     // re-clicks, and tab revisits all funnel here and used to reload the
@@ -8684,6 +8686,7 @@
   }
 
   function showWorkspaceDashboard() {
+    window.AssistantView?.closeInlineDocument();
     if (document.body.classList.contains('assistant-active') && window.AssistantView) {
       window.AssistantView.setSection('documents');
       return;
@@ -9056,7 +9059,7 @@
       // hit `ReferenceError: _workspaceTreeScope is not defined` and blow out
       // the whole sidebar via the catch handler.
       const _workspaceTreeScope = 'workspace:' + (currentWorkspace && currentWorkspace.name ? currentWorkspace.name : '') + ':' + fileRoot;
-      if (!isAssistant) sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
+      sbHtml += '<section data-workspace-documents aria-label="Linked documents"></section>';
       sbHtml += _sidebarWorktreeScopeStartHtml(workspacePath);
       sbHtml += _sidebarRecentSectionHtml(recentFiles, activePath, fileRoot, {resolved: true});
       sbHtml += _sidebarFilesTitle(fileRoot);
@@ -9144,7 +9147,7 @@
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
       sidebar.innerHTML = sbHtml;
-      if (!isAssistant) void window.LabWorkspaceDocuments?.mount({workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace)}, sidebar);
+      void window.LabWorkspaceDocuments?.mount({workspace_id:isAssistant ? '__assistant__' : currentWorkspace.name,vault:isAssistant ? '__assistant__' : _workspaceVaultId(currentWorkspace)}, sidebar);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
       // Server tabs on the top bar are derived from the same proxies list
@@ -9314,6 +9317,7 @@
 
   async function showWorkspaceInfo({preserveScroll = false, keepShell = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
+    if (!preserveScroll && !keepShell) window.AssistantView?.closeInlineDocument();
     const workspacePath = currentWorkspace.path;
     const content = document.getElementById('content');
     const prevContentScroll = preserveScroll ? content.scrollTop : 0;
@@ -11370,6 +11374,7 @@
   function sidebarToggleCollapse() {
     document.body.classList.toggle('sidebar-collapsed');
     const shown = !document.body.classList.contains('sidebar-collapsed');
+    if (window.AssistantView?.isInlineDocument()) return;
     try { localStorage.setItem(_SIDEBAR_VIS_KEY_PREFIX + _sidebarViewSuffix(), shown ? '1' : '0'); } catch {}
   }
   function _sidebarApplyForView() {
@@ -11381,7 +11386,7 @@
       const v = localStorage.getItem(_SIDEBAR_VIS_KEY_PREFIX + sfx);
       if (v === '0') shown = false; else if (v === '1') shown = true;
     } catch {}
-    document.body.classList.toggle('sidebar-collapsed', !shown);
+    if (!window.AssistantView?.isInlineDocument()) document.body.classList.toggle('sidebar-collapsed', !shown);
     let pct = NaN;
     try { pct = parseFloat(localStorage.getItem(_SIDEBAR_PCT_KEY_PREFIX + sfx)); } catch {}
     if (!Number.isFinite(pct) || pct <= 0) {
@@ -11919,7 +11924,7 @@
     if (session?.document_source) {
       _termShowGroupMenu(anchor, '<button role="menuitem" class="term-group-menu-row" data-action="open">Open document</button><button role="menuitem" class="term-group-menu-row" data-action="unlink">Unlink from document…</button>', action => {
         termCloseGroupMenu();
-        if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task);
+        if (action === 'open') void window.AssistantView.openLinkedTask(session.linked_task, {inline:true});
         else void window.LabWorkspaceDocuments.unlink(session).catch(error => explorerToast(error.message,true));
       });
       return;
@@ -12184,7 +12189,7 @@
         _termHideSessionTooltip();
         let link;
         try { link = JSON.parse(button.dataset.terminalTaskOpen); } catch (_) { return; }
-        void window.AssistantView.openLinkedTask(link).catch(error => explorerToast(error.message,true));
+        void window.AssistantView.openLinkedTask(link, {inline:true}).catch(error => explorerToast(error.message,true));
       }, true);
     }
   }
@@ -12306,10 +12311,11 @@
     const statusSummaryLabel = document.getElementById('termStatusSummaryLabel');
     const statusSummaryText = document.getElementById('termStatusSummaryText');
     const statusIdentity = document.getElementById('termStatusIdentity');
-    if (!el && !statusSummary) return;
     const session = (termSessions || []).find(s =>
       s.name === termCurrentSession && _termActiveWorkspaceId() === termCurrentWorkspaceId
     );
+    window.LabWorkspaceDocuments?.selectTerminal(session, {workspace_id:_termActiveWorkspaceId(),vault:_termVaultId()});
+    if (!el && !statusSummary) return;
     if (!session) {
       if (el) {
         el.innerHTML = '';
@@ -12500,7 +12506,6 @@
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
-      ${s.linked_task ? _termTaskLinkHtml(s.linked_task, true) : ''}
       ${working || ready ? `<span class="sess-activity ${working ? 'sess-working' : 'sess-completion'}" aria-hidden="true"></span>` : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
@@ -12994,8 +12999,20 @@
     return body.session;
   }
 
-  window.LabTaskTerminalBridge = {patch:_termPatchLinks};
+  window.LabTaskTerminalBridge = {patch:_termPatchLinks, show:async session => {
+    const workspaceId = _termActiveWorkspaceId(), vaultId = _termVaultId();
+    if (!workspaceId || !session?.name) return false;
+    await _termRefreshSessionsForWorkspaceId(workspaceId);
+    if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()
+        || !termSessions.some(row => row.name === session.name && row.state !== 'stopped')) return false;
+    await _termActivateTab(session.name);
+    return true;
+  }};
   window.LabWorkspaceDocuments?.configure({
+    context: () => document.body.classList.contains('assistant-active')
+      ? {workspace_id:'__assistant__',vault:'__assistant__'}
+      : document.body.classList.contains('workspace-active') && currentWorkspace?.is_workspace
+        ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace)} : null,
     workspace: () => document.body.classList.contains('workspace-active') && currentWorkspace?.is_workspace
       ? {workspace_id:currentWorkspace.name,vault:_workspaceVaultId(currentWorkspace)} : null,
     refresh: async () => {

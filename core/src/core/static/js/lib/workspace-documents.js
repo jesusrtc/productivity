@@ -2,9 +2,12 @@
 (() => {
   const mime = 'application/x-lab-assistant-document';
   let bridge, attention = {}, polling = false, lastPoll = 0;
+  let selected = null, opened = null;
+  const terminalLinks = new Map();
   const cache = new Map();
   const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const scopeKey = scope => `${scope.vault || 'framework'}::${scope.workspace_id}`;
+  const documentKey = doc => doc?.assistant_root && doc?.document_id ? JSON.stringify([doc.assistant_root, doc.document_id]) : '';
   const notify = (text, error = false) => typeof explorerToast === 'function' && explorerToast(text, error);
   async function api(path = '', body, method = 'POST') {
     const response = await fetch('/api/workspace-documents' + path, body ? {
@@ -15,23 +18,40 @@
     return result;
   }
   function render(host, documents, scope) {
-    const html = `<div class="sidebar-title">Documents <span class="sidebar-title-count">${documents.length || ''}</span></div>` +
-      (documents.length ? documents.map(doc => `<div class="sidebar-file workspace-document" data-terminal-document="${escape(doc.document_id)}">
+    const assistant = scope.workspace_id === '__assistant__';
+    const html = `<div class="sidebar-title">${assistant ? 'Linked documents' : 'Documents'} <span class="sidebar-title-count">${documents.length || ''}</span></div>` +
+      (documents.length ? documents.map(doc => `<div class="sidebar-file workspace-document" data-terminal-document="${escape(doc.document_id)}" data-document-identity="${escape(documentKey(doc))}">
         <button type="button" class="workspace-document-open" ${doc.missing ? 'disabled' : ''} title="${escape(doc.missing ? 'Document unavailable' : doc.path)}"><span aria-hidden="true">▤</span><span>${escape(doc.title || doc.document_id)}</span></button>
-        <button type="button" class="workspace-document-remove" aria-label="Unlink ${escape(doc.title || 'document')}" title="Remove workspace link">×</button></div>`).join('')
-        : '<p class="workspace-documents-empty">Drag an Assistant document here or onto the workspace tab.</p>');
-    if (host._documentsHtml === html) return;
+        ${assistant ? '' : `<button type="button" class="workspace-document-remove" aria-label="Unlink ${escape(doc.title || 'document')}" title="Remove workspace link">×</button>`}</div>`).join('')
+        : `<p class="workspace-documents-empty">${assistant ? 'Documents linked to Assistant terminals appear here.' : 'Drag an Assistant document here or onto the workspace tab.'}</p>`);
+    if (host._documentsHtml === html) { paintSelection(); return; }
     host._documentsHtml = html; host.innerHTML = html;
     host.querySelectorAll('.workspace-document').forEach((row, index) => {
       const doc = documents[index];
-      row.querySelector('.workspace-document-open').onclick = () => window.AssistantView.openLinkedTask(doc);
-      row.querySelector('.workspace-document-remove').onclick = async () => {
+      row.querySelector('.workspace-document-open').onclick = () => window.AssistantView.openLinkedTask(doc, {inline:true}).catch(error => notify(error.message, true));
+      const remove = row.querySelector('.workspace-document-remove');
+      if (remove) remove.onclick = async () => {
         try {
           await api('', {...scope, document_id:doc.document_id, assistant_root:doc.assistant_root}, 'DELETE');
           cache.delete(scopeKey(scope)); await mount(scope, host.parentElement, true);
           await bridge?.refresh(); void poll(true);
         } catch (error) { notify(error.message, true); }
       };
+    });
+    paintSelection();
+  }
+  function paintSelection() {
+    document.querySelectorAll('[data-workspace-documents]').forEach(host => {
+      const key = scopeKey({workspace_id:host.dataset.workspaceId,vault:host.dataset.vault});
+      host.querySelectorAll('[data-document-identity]').forEach(row => {
+        const active = selected?.scope === key && selected.key === row.dataset.documentIdentity;
+        const isOpen = opened?.key === row.dataset.documentIdentity;
+        row.classList.toggle('terminal-selected', active);
+        row.classList.toggle('document-open', isOpen);
+        const button = row.querySelector('.workspace-document-open');
+        if (active || isOpen) button.setAttribute('aria-current', active ? 'true' : 'page');
+        else button.removeAttribute('aria-current');
+      });
     });
   }
   async function mount(scope, sidebar, force = false) {
@@ -56,7 +76,7 @@
   }
   function dropTarget(target) {
     const row = target.closest?.('.workspace-tab[data-kind="workspace"], [data-workspace-documents]');
-    return row?.dataset.workspaceId ? row : null;
+    return row?.dataset.workspaceId && row.dataset.workspaceId !== '__assistant__' ? row : null;
   }
   function clearDrop() { document.querySelectorAll('.workspace-document-drop').forEach(row => row.classList.remove('workspace-document-drop')); }
   document.addEventListener('dragstart', event => {
@@ -131,7 +151,11 @@
   async function poll(force = false) {
     if (polling || document.hidden || (!force && Date.now() - lastPoll < 10000)) { paintAttention(); return; }
     polling = true;
-    try { attention = await api('/attention'); lastPoll = Date.now(); paintAttention(); }
+    try {
+      attention = await api('/attention'); lastPoll = Date.now(); paintAttention();
+      const scope = bridge?.context?.();
+      if (scope) void mount(scope, document.getElementById('sidebar'));
+    }
     catch { /* Keep the last verified state during a transient disconnect. */ }
     finally { polling = false; }
   }
@@ -139,5 +163,15 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void poll(true); });
   window.LabWorkspaceDocuments = {mount, unlink, paintAttention, poll,
     configure(value) { bridge = value; },
-    updateSessions(scope, sessions) { attention[scope] = sessions; paintAttention(); }};
+    selectTerminal(session, scope) { selected = {scope:scopeKey(scope),key:documentKey(session?.linked_task)}; paintSelection(); },
+    openDocument(doc) { opened = doc ? {key:documentKey(doc)} : null; paintSelection(); },
+    updateSessions(scope, sessions) {
+      attention[scope] = sessions; paintAttention();
+      const context = bridge?.context?.();
+      if (context?.workspace_id !== '__assistant__' || scopeKey(context) !== scope) return;
+      const signature = JSON.stringify(sessions.map(row => [row.name,row.linked_task]));
+      if (terminalLinks.get(scope) === signature) return;
+      terminalLinks.set(scope,signature); cache.delete(scope);
+      void mount(context, document.getElementById('sidebar'), true);
+    }};
 })();

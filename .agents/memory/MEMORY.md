@@ -262,3 +262,5 @@
 - [Workspace document references](workspace-document-references.md) — drag Assistant documents into workspaces, share existing terminals, choose ownership when unlinking, and remember modal placement.
 
 - [Workspace completion indicators](workspace-completion-indicators.md) — inactive workspace tabs blink for unreviewed terminal work; shared views use one acknowledgement.
+
+- [Linked documents open inline](linked-documents-inline-navigation.md) — sidebar navigation and terminal-driven highlighting, no duplicate pill badge, temporary Files collapse with draft-preserving Expand.

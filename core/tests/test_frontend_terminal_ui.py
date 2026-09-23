@@ -540,7 +540,11 @@ const document = {getElementById(id) {
   if (id === 'termActiveSession') return activeHeader;
   return null;
 }};
+const highlights = [];
+window.LabWorkspaceDocuments = {selectTerminal:(session,scope)=>highlights.push({session,scope})};
+function _termVaultId() { return 'client'; }
 const termSessions = [{
+  linked_task: {document_id:'doc',assistant_root:'/assistant'},
   name: 'lab-demo-codex-2-abc123', logical_name: 'codex-2',
   kind: 'claude', agent: 'codex',
   label: 'Sessions', summary: 'stale pane prompt',
@@ -559,11 +563,13 @@ function prompt() { return null; }
 _termRenderActiveSessionHeader();
 process.stdout.write(JSON.stringify({
   className: activeHeader.className,
-  html: activeHeader.innerHTML,
+  html: activeHeader.innerHTML, highlights,
 }));
 """
     )
 
+    assert result['highlights'][0]['session']['linked_task']['document_id'] == 'doc'
+    assert result['highlights'][0]['scope'] == {'workspace_id':'demo', 'vault':'client'}
     assert result["className"] == "term-active-session on claude"
     assert '<span class="name">Sessions</span>' in result["html"]
     assert (
@@ -717,6 +723,7 @@ process.stdout.write(JSON.stringify(tooltip));
     )
     assert 'data-tooltip="${termSessEsc(tooltip)}"' in pill
     assert "_termSessionTooltipPayload" in pill
+    assert '_termTaskLinkHtml' not in pill  # Documents are selected from the sidebar.
     assert "node.addEventListener('pointerenter'" in source
     assert "node.addEventListener('pointerleave', _termScheduleSessionTooltipHide)" in source
 

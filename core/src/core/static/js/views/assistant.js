@@ -21,6 +21,9 @@
     modalRoot: null,
     modalCurrent: null,
     modalKind: '',
+    inlineHost: null,
+    inlinePending: false,
+    inlineSidebarCollapsed: false,
     request: 0,
     modalRequest: 0,
     poll: null,
@@ -1057,7 +1060,7 @@
     overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
       <header class="assistant-modal-header">
         <div class="assistant-modal-heading"><span id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
-        <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
+        <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" id="assistantExpandDocument" hidden>Expand</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
@@ -1071,11 +1074,44 @@
       }
     });
     overlay.querySelector('.assistant-modal-close').addEventListener('click', closeDocumentModal);
+    overlay.querySelector('#assistantExpandDocument').onclick = () => {
+      presentDocument(overlay, false);
+      window.LabDocumentTerminal?.open(state.modalCurrent, state.modalRoot, state.data.root);
+    };
     document.body.appendChild(overlay);
     return overlay;
   }
 
+  function presentDocument(overlay, inline) {
+    const content = document.getElementById('content');
+    inline = Boolean(inline && content);
+    if (inline && !state.inlineHost) {
+      state.inlineSidebarCollapsed = document.body.classList.contains('sidebar-collapsed');
+      state.inlineHost = document.createElement('div');
+      state.inlineHost.id = 'assistantInlineHost';
+      state.inlineHost.className = 'main assistant-inline-host';
+      content.after(state.inlineHost);
+      state.inlineHost.append(overlay);
+      document.body.classList.add('assistant-inline-document', 'sidebar-collapsed');
+    } else if (!inline && state.inlineHost) {
+      document.body.append(overlay);
+      state.inlineHost.remove(); state.inlineHost = null;
+      document.body.classList.remove('assistant-inline-document');
+      document.body.classList.toggle('sidebar-collapsed', state.inlineSidebarCollapsed);
+    }
+    overlay.classList.toggle('assistant-document-inline', inline);
+    const section = overlay.querySelector('.assistant-document-modal');
+    section.setAttribute('role', inline ? 'region' : 'dialog');
+    if (inline) section.removeAttribute('aria-modal'); else section.setAttribute('aria-modal', 'true');
+    overlay.querySelector('#assistantExpandDocument').hidden = !inline;
+  }
+
+  function openDocumentTerminal(detail) {
+    window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root, {inline:Boolean(state.inlineHost)});
+  }
+
   function closeDocumentModal(updateHistory = true) {
+    state.inlinePending = false;
     window.AssistantTasks?.reset();
     window.LabDocumentTerminal?.close();
     closeHeadingMenu();
@@ -1090,7 +1126,8 @@
       state.selectedMeetingPath = ''; state.selectedSeriesPath = '';
     }
     const overlay = document.getElementById('assistantDocumentModal');
-    if (overlay) overlay.classList.remove('active');
+    if (overlay) { overlay.classList.remove('active'); presentDocument(overlay, false); }
+    window.LabWorkspaceDocuments?.openDocument(null);
   }
 
   async function fetchDocument(kind, path) {
@@ -1169,10 +1206,12 @@
       state.modalRoot = root; state.modalKind = rootKind;
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
       state.modalIndex = showIndex;
+      presentDocument(overlay, options.inline === undefined ? Boolean(state.inlineHost) : options.inline);
       await renderModal(focusHeading);
       if (request === state.modalRequest) {
         overlay.classList.add('active');
-        window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root);
+        openDocumentTerminal(detail);
+        window.LabWorkspaceDocuments?.openDocument({assistant_root:state.data.root,document_id:root.tree?.id || root.metadata.id});
         if (terminalTask) {
           window.AssistantTasks?.reveal(terminalTask.id);
           window.LabDocumentTerminal?.focusTask(terminalTask.id);
@@ -1182,6 +1221,7 @@
     } catch (error) {
       if (request !== state.modalRequest) return;
       if (!wasOpen) {
+        presentDocument(overlay, Boolean(options.inline));
         document.getElementById('assistantModalDocument').replaceChildren();
         document.getElementById('assistantDocumentNav').replaceChildren();
         document.getElementById('assistantModalTitle').textContent = 'Document unavailable';
@@ -1189,13 +1229,14 @@
       }
       documentError(error.message || String(error));
     } finally {
-      if (request === state.modalRequest) overlay.removeAttribute('aria-busy');
+      if (request === state.modalRequest) { overlay.removeAttribute('aria-busy'); state.inlinePending = false; }
     }
   }
 
-  async function openLinkedTask(link) {
+  async function openLinkedTask(link, options = {}) {
     if (!link?.document_id || !link?.assistant_root) throw new Error('This terminal has no linked task.');
     const request = ++state.modalRequest;
+    state.inlinePending = Boolean(options.inline);
     const response = await fetch('/api/assistant');
     const data = await response.json();
     if (request !== state.modalRequest) return;
@@ -1205,7 +1246,7 @@
     if (!row) throw new Error('The linked document is no longer available.');
     state.data = data;
     // Render over the current workspace without navigating its page or terminal.
-    return openDocumentModal(documentKind(row),row.path,'',{linkedTask:link});
+    return openDocumentModal(documentKind(row),row.path,'',{linkedTask:link,inline:Boolean(options.inline)});
   }
 
   function localImageUrl(documentPath, src) {
@@ -1619,11 +1660,11 @@
       if (detail.tree) state.modalRoot.tree = detail.tree;
       if (detail.path === state.modalRoot.path) state.modalRoot = detail;
       await renderModal(focusHeading);
-      if (request === state.modalRequest) window.LabDocumentTerminal?.open(detail, state.modalRoot, state.data.root);
+      if (request === state.modalRequest) openDocumentTerminal(detail);
     } catch (error) {
       if (request === state.modalRequest) documentError(error.message || String(error));
     } finally {
-      if (request === state.modalRequest) overlay.removeAttribute('aria-busy');
+      if (request === state.modalRequest) { overlay.removeAttribute('aria-busy'); state.inlinePending = false; }
     }
   }
 
@@ -2423,5 +2464,7 @@
     openDocument: openDocumentModal,
     openLinkedTask,
     closeDocument: closeDocumentModal,
+    closeInlineDocument: () => { if (state.inlineHost || state.inlinePending) closeDocumentModal(false); },
+    isInlineDocument: () => Boolean(state.inlineHost),
   };
 })();

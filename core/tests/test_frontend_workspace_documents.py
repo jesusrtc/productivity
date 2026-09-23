@@ -33,7 +33,7 @@ def test_workspace_document_interactions_browser(client, owned_tasks, tmp_path):
     setup = r'''
 const assert=(ok,message)=>{if(!ok)throw new Error(message)};
 const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw new Error('Timed out: '+fn)};
-const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null;
+const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null, pendingIndex=null;
 const scope={workspace_id:'demo',vault:'client'};
 const source={name:'same-running-process',logical_name:'claude',workspace_id:'demo',vault:'client',label:'Claude conversation',kind:'claude',agent:'claude',agent_session_id:'conversation',created_at:123,
   agent_activity:{state:'completed',completed_at:500,completion_id:'turn'}};
@@ -47,7 +47,7 @@ window.fetch=async(url,options={})=>{
  const u=new URL(url,'https://example.test'), body=options.body?JSON.parse(options.body):null;
  calls.push([u.pathname,options.method||'GET',body]);
  let result={};
- if(u.pathname==='/api/assistant')result=FIX.index;
+ if(u.pathname==='/api/assistant'){if(pendingIndex)await pendingIndex;result=FIX.index;}
  else if(u.pathname==='/api/assistant/note')result=FIX.details[u.searchParams.get('path')];
  else if(u.pathname==='/api/term/task-terminals')result=taskLinks;
  else if(u.pathname==='/api/assistant/document-terminal'){assert(body.action==='status','opening must not create a process');result={state:'absent'}}
@@ -56,7 +56,7 @@ window.fetch=async(url,options={})=>{
  else if(u.pathname==='/api/workspace-documents'){
   if(options.method==='POST')documents.splice(0,documents.length,FIX.link);
   if(options.method==='DELETE')documents.splice(0);
-  result=options.method?{ok:true}:documents;
+  result=options.method?{ok:true}:(u.searchParams.get('workspace_id')==='__assistant__'?taskLinks.map(row=>row.linked_task):documents);
  } else throw new Error('Unexpected request '+url);
  return {ok:!!result,json:async()=>structuredClone(result||{})};
 };
@@ -92,8 +92,33 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(docRow.compareDocumentPosition(document.getElementById('recent'))&Node.DOCUMENT_POSITION_FOLLOWING,'Documents above Recently updated');
  assert(LabDocumentTerminal.dropContext(docRow).documentId===FIX.link.document_id,'terminal drop resolves the linked document');
  await LabDocumentTerminal.link(LabDocumentTerminal.dropContext(docRow),source,{workspaceId:'demo',vaultId:'client'});
+ W.selectTerminal(taskLinks[0],scope);
+ assert(docRow.classList.contains('terminal-selected'),'selecting a terminal highlights its document');
+ assert(!document.querySelector('#assistantDocumentModal.active'),'terminal selection does not open the document');
+ await W.mount(scope,document.getElementById('sidebar'),true);
+ assert(document.querySelector('.workspace-document.terminal-selected'),'selection survives refresh');
+ W.selectTerminal(source,{workspace_id:'other',vault:'client'});
+ assert(!docRow.classList.contains('terminal-selected'),'selection never leaks between workspaces');
+ W.selectTerminal(taskLinks[0],scope);
  docRow.querySelector('button').click();
- await until(()=>document.querySelector('select[data-terminal-placement]')&&sockets===1);
+ await until(()=>document.querySelector('#assistantInlineHost #assistantDocumentModal.active'));
+ assert(document.body.classList.contains('sidebar-collapsed'),'Files temporarily collapses');
+ assert(getComputedStyle(document.getElementById('content')).display==='none','inline document replaces main content');
+ assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','inline document is not a dialog');
+ assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'inline view reuses regular terminal panel');
+ const inlineRect=document.querySelector('.assistant-document-modal').getBoundingClientRect();
+ assert(inlineRect.height>700&&inlineRect.bottom<=innerHeight+1,'inline document fits available viewport');
+ assert(document.querySelector('.workspace-document.document-open'),'opened document marked');
+ document.querySelector(`[data-record-path="${FIX.path}"]`).click();
+ await until(()=>!document.getElementById('assistantEditNote').hidden);
+ document.getElementById('assistantEditNote').click();
+ await until(()=>document.querySelector('.assistant-note-editor textarea'));
+ const draft=document.querySelector('.assistant-note-editor textarea');
+ draft.value='Draft kept while expanding';draft.dispatchEvent(new Event('input',{bubbles:true}));
+ document.getElementById('assistantExpandDocument').click();
+ assert(document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Expand preserves editor and unsaved draft');
+ await until(()=>sockets===1);
+ assert(!document.body.classList.contains('sidebar-collapsed'),'Expand restores Files');
  assert(document.body.classList.contains('workspace-active'),'opening preserves workspace');
  const modal=document.querySelector('.assistant-document-modal');
  const select=document.querySelector('select[data-terminal-placement]');
@@ -130,6 +155,24 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  taskLinks=[{...source,state:'running',linked_task:FIX.link}];
  await AssistantView.openLinkedTask(FIX.link);
  await until(()=>document.querySelector('select[data-terminal-placement]')?.value==='right');
+ AssistantView.closeDocument();
+ // Assistant derives its own Linked documents section from saved terminal links.
+ const assistant={workspace_id:'__assistant__',vault:'__assistant__'};
+ await W.mount(assistant,document.getElementById('sidebar'),true);
+ assert(document.querySelector('[data-workspace-documents] .sidebar-title').textContent.includes('Linked documents'),'Assistant section');
+ assert(!document.querySelector('.workspace-document-remove'),'derived links cannot be removed as workspace references');
+ W.selectTerminal(taskLinks[0],assistant);
+ assert(document.querySelector('.workspace-document.terminal-selected'),'Assistant selection highlight');
+ document.body.classList.add('sidebar-collapsed');
+ await AssistantView.openLinkedTask(FIX.link,{inline:true});
+ AssistantView.closeInlineDocument();
+ assert(document.body.classList.contains('sidebar-collapsed'),'original collapsed preference restored');
+ assert(document.getElementById('content').textContent==='Original file content','file content preserved after close');
+ document.body.classList.remove('sidebar-collapsed');
+ let resolveIndex;pendingIndex=new Promise(resolve=>resolveIndex=resolve);
+ const opening=AssistantView.openLinkedTask(FIX.link,{inline:true});
+ AssistantView.closeInlineDocument();resolveIndex();await opening;pendingIndex=null;
+ assert(!document.querySelector('#assistantDocumentModal.active'),'navigation cancels pending document open');
  assert(!notices.some(row=>row[1]),'no errors');
  document.getElementById('result').textContent='PASS';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
@@ -140,7 +183,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
         'js/lib/workspace-documents.js','js/views/assistant.js','js/views/assistant-tasks.js'])
     css = '\n'.join((STATIC / name).read_text() for name in ['css/lab-shell.css','css/assistant-tasks.css','css/workspace-documents.css'])
     page = tmp_path / 'workspace-documents.html'
-    page.write_text('<!doctype html><meta charset="utf-8"><style>:root{--accent:#58a6ff;--text-primary:#e6edf3;--text-secondary:#8b949e;--bg-secondary:#161b22;--border:#30363d;--green:#3fb950}body{background:#0d1117;color:#e6edf3}'+css+'</style><body class="workspace-active"><div id="workspaceTabs"><div class="workspace-tab" data-kind="workspace" data-workspace-id="demo" data-vault="client">Demo<button class="x">×</button></div><div class="workspace-tab" data-kind="workspace" data-workspace-id="inactive" data-vault="client">Inactive<button class="x">×</button></div></div><div id="sidebar"><section data-workspace-documents></section><div id="recent">Recently updated</div></div><article id="document-drag" data-assistant-document-drag draggable="true"><button class="assistant-document-row"><strong>Task document</strong></button></article><div id="content"></div><pre id="result">PENDING</pre><script>const FIX='+json.dumps(fixture).replace('</','<\\/')+';'+setup+'</script>'+scripts+'<script>'+checks+'</script>')
+    page.write_text('<!doctype html><meta charset="utf-8"><style>:root{--accent:#58a6ff;--text-primary:#e6edf3;--text-secondary:#8b949e;--bg-secondary:#161b22;--border:#30363d;--green:#3fb950}body{background:#0d1117;color:#e6edf3}'+css+'</style><body class="workspace-active"><div id="workspaceTabs" style="position:fixed;top:0"><div class="workspace-tab" data-kind="workspace" data-workspace-id="demo" data-vault="client">Demo<button class="x">×</button></div><div class="workspace-tab" data-kind="workspace" data-workspace-id="inactive" data-vault="client">Inactive<button class="x">×</button></div></div><div id="sidebar" class="sidebar"><section data-workspace-documents></section><div id="recent">Recently updated</div></div><article style="position:fixed;top:40px" id="document-drag" data-assistant-document-drag draggable="true"><button class="assistant-document-row"><strong>Task document</strong></button></article><div class="layout"><div id="content" class="main">Original file content</div></div><pre id="result">PENDING</pre><script>const FIX='+json.dumps(fixture).replace('</','<\\/')+';'+setup+'</script>'+scripts+'<script>'+checks+'</script>')
     profile = tmp_path / 'profile'
     browser = subprocess.Popen([chrome,'--headless','--disable-gpu','--no-sandbox','--no-first-run','--no-default-browser-check','--allow-file-access-from-files','--user-data-dir='+str(profile),'--remote-debugging-port=0','about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:

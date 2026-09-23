@@ -8,7 +8,8 @@ terminals you want with **+ New** in the terminal bar, then link them:
   chooser onto an individual task, including a visible subtask, or select the
   task in **Terminal for task** and click an existing terminal.
 - A linked task shows a **Terminal** button. Clicking it displays that exact
-  session in the document modal. Reopening remembers the selected task terminal.
+  session in the terminal panel for an inline document, or inside an expanded
+  document modal. Reopening remembers the selected task terminal.
 - **Unlink** removes only the association. It does not stop the process,
   delete its conversation, change its cwd, or alter its file/folder links.
   Terminal-tab secondary-click also offers **Unlink from task/document**.
@@ -16,12 +17,23 @@ terminals you want with **+ New** in the terminal bar, then link them:
   transfers the link. Each terminal has one task/document association,
   independent of its file and folder/worktree associations.
 
-Linked terminals show an accented task/document label in the terminal tab and
-context header. Click the label to open the document modal over the current
-workspace. Task links select the associated content tab, reveal and highlight
-the exact task (including hidden or completed subtasks), and display its linked
-terminal. Saved subtask and completed-task visibility preferences are preserved.
-The underlying workspace and terminal selection stay in place.
+Select documents from **Documents** in a workspace's Files sidebar, or from
+**Linked documents** in Assistant. The Assistant list is derived from its saved
+terminal links, including stopped terminals, with one entry per document.
+Selecting a terminal highlights its document there without opening it.
+Terminal tabs do not repeat a document link badge.
+
+Click a document row to open it in the main file area. Files temporarily
+collapses to make room for the document's own tabs; its edge handle can reopen
+it. Closing the document or navigating elsewhere restores the previous Files
+visibility without changing the saved preference. Existing content drafts and
+terminal sessions are preserved. **Expand** opens the same document in a modal,
+where the terminal can be placed on the right or bottom. Inline documents use
+the normal terminal panel; **Show terminal** selects an existing linked session.
+
+The context header's task link selects the associated content tab and reveals
+the exact task, including hidden or completed subtasks. Saved subtask and
+completed-task visibility preferences are preserved.
 
 The original process, conversation and unsent input stay in that session.
 Linking does not send a prompt or replace the agent's startup instructions.
