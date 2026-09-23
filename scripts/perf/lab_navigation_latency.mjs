@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Browser stage of lab_navigation_latency.py; run the Python wrapper.
-// Timestamped CDP mouse release -> rendered content -> animation-frame task.
+// Timestamped CDP input -> rendered content -> animation-frame task.
 // This is a browser paint opportunity estimate, not physical display latency.
 import {spawn} from 'node:child_process';
 import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
@@ -9,6 +9,7 @@ import {join} from 'node:path';
 import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 import {captureInputClock,validateInputClock} from './input_clock.mjs';
 import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
+import {runQuickFileWorkload} from './quick_file_workload.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -169,6 +170,7 @@ async function main() {
     const createWorkspaces=process.env.LAB_PERF_CREATE_WORKSPACES==='1';
     const settings=process.env.LAB_PERF_SETTINGS==='1';
     const pins=process.env.LAB_PERF_PINS==='1';
+    const quickFiles=process.env.LAB_PERF_QUICK_FILES==='1';
     const terminalTabs=JSON.parse(process.env.LAB_PERF_TERMINAL_TABS||'[]');
     if(terminalTabs.length)await installTerminalTabProbe(evaluate,terminalTabs);
     const initialWorkspaceTabs=createWorkspaces
@@ -186,6 +188,9 @@ async function main() {
             ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
         );
       }
+    } else if(quickFiles) {
+      actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
+        ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
     } else if(terminalTabs.length) {
       actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
         ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
@@ -365,6 +370,10 @@ async function main() {
       if(settings&&action.kind!=='workspace'&&!await evaluate(`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/alpha')}`))throw new Error('Settings navigated away from the active workspace');
       await sleep(100);
     }
+    if(quickFiles)await runQuickFileWorkload(client,evaluate,rows,{workspaceRoot,samples,
+      extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),
+      fileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES||'md').split(','),
+      layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT||'folders'});
     if(settings) {
       const active=JSON.parse(await readFile(join(workspaceRoot,'alpha','workspace.json'),'utf8'));
       const edited=JSON.parse(await readFile(join(workspaceRoot,'beta','workspace.json'),'utf8'));
@@ -459,7 +468,7 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const fixture={workflow:quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
     const terminals=terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;

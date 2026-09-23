@@ -1,5 +1,7 @@
 # Memory index
 
+- [Named action logs avoid text layout](named-action-logs-avoid-text-layout.md) — skip unused innerText reads for named controls while preserving log labels and unnamed fallbacks
+
 - [Terminal detach drains tty output](terminal-detach-drains-tty-output.md) — bounded worker cleanup avoids the measured tmux close stall while retaining sessions, input and pane-cache limits
 
 - [Pin writes publish confirmed cache state](pin-writes-publish-confirmed-cache-state.md) — show saved Pin/Unpin state on warm paint, retain fresh reconciliation, and keep delayed writes in their original workspace

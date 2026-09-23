@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure workspace/document clicks using an isolated, CLI-created Lab vault.
+"""Measure native Lab actions using an isolated, CLI-created Lab vault.
 
 Uses the normal server lifespan and UI polling, a fresh Chrome profile, and
 fixture preferences that disable automatic agent creation. Never starts or
@@ -38,6 +38,7 @@ parser.add_argument('--create', action='store_true', help='Measure native worksp
 parser.add_argument('--settings', action='store_true', help='Measure settings open, scoped model/sidebar saves and close with native clicks')
 parser.add_argument('--pins', action='store_true', help='Measure native Pin and Unpin clicks through persisted metadata and sidebar redraw')
 parser.add_argument('--terminal-tabs', action='store_true', help='Measure native terminal tab clicks across retained panes and cache eviction')
+parser.add_argument('--quick-files', action='store_true', help='Measure Command+K, filtering, selection, file opening and Escape with native keys')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
@@ -62,6 +63,8 @@ if args.pins and (args.typing or args.resize or args.create or args.settings):
     parser.error('--pins measures a separate workflow and cannot be combined with --typing, --resize, --create or --settings')
 if args.terminal_tabs and (args.typing or args.resize or args.create or args.settings or args.pins):
     parser.error('--terminal-tabs measures a separate workflow and cannot be combined with --typing, --resize, --create, --settings or --pins')
+if args.quick_files and (args.typing or args.resize or args.create or args.settings or args.pins or args.terminal_tabs):
+    parser.error('--quick-files measures a separate workflow and cannot be combined with other workflows')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
 if args.trace_terminal and (not (args.typing or args.terminal_tabs) or not args.server_timings):
@@ -254,6 +257,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_CREATE_WORKSPACES': str(int(args.create)),
                      'LAB_PERF_SETTINGS': str(int(args.settings)),
                      'LAB_PERF_PINS': str(int(args.pins)),
+                     'LAB_PERF_QUICK_FILES': str(int(args.quick_files)),
                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                 timeout=max(120, args.samples * 26))
     finally:

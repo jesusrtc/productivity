@@ -150,6 +150,41 @@ process.stdout.write(JSON.stringify({ uploads, nativeCalls, ev }));
     assert [c["input"] for c in result["nativeCalls"]] == ["/api/index", "/api/log/client"]
 
 
+@pytest.mark.parametrize('attribute', ['name', 'aria-label', 'title'])
+def test_named_control_logging_does_not_read_rendered_text(attribute) -> None:
+    result = _run_node(_browser_harness("""
+const target = makeElement('input');
+target.setAttribute('id', 'quickFileInput');
+target.setAttribute('data-log-action', 'find-file');
+target.setAttribute(ATTRIBUTE, 'Find files');
+Object.defineProperty(target, 'innerText', {get() { throw new Error('Forced layout'); }});
+Object.defineProperty(target, 'textContent', {get() { throw new Error('Unused text read'); }});
+listeners.document.change({type: 'change', target});
+process.stdout.write(JSON.stringify(uploads.flatMap(batch => batch.events)));
+""".replace('ATTRIBUTE', json.dumps(attribute))))
+    assert len(result) == 1
+    assert result[0]['action'] == 'change'
+    assert result[0]['event_type'] == 'change'
+    assert result[0]['target'] == 'input #quickFileInput [find-file] "Find files"'
+
+
+@pytest.mark.parametrize('rendered,raw,expected', [
+    (' Visible\n label ', 'Visible hidden label', 'Visible label'),
+    ('', ' Fallback\n label ', 'Fallback label'),
+    ('x' * 100, 'different', 'x' * 80),
+])
+def test_unnamed_control_logging_keeps_rendered_text_fallback(rendered, raw, expected) -> None:
+    result = _run_node(_browser_harness("""
+const target = makeElement('button');
+target.innerText = RENDERED;
+target.textContent = RAW;
+target.closest = () => target;
+listeners.document.click({type: 'click', target});
+process.stdout.write(JSON.stringify(uploads.flatMap(batch => batch.events)));
+""".replace('RENDERED', json.dumps(rendered)).replace('RAW', json.dumps(raw))))
+    assert result[0]['target'] == f'button "{expected}"'
+
+
 def test_fetch_network_failures_are_warnings() -> None:
     result = _run_node(_browser_harness(
         """

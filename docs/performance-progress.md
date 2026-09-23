@@ -2249,3 +2249,121 @@ matched iTerm comparison remain open; later passing runs do not erase them.
 The goal remains active. Work stays in the isolated branch; no main merge,
 push or live-server restart occurred. The earlier main merge approval remains
 pending after automatic approval review rejected it.
+
+## Measure Command+K and avoid unused logging layout (2026-09-23)
+
+The previous turn made progress in checkpoint `cbb3042`, removing the measured
+terminal-detach stall. This turn extends native interaction coverage to the
+Command+K file picker and removes an unnecessary synchronous layout read from
+shared action logging.
+
+The new `--quick-files` mode uses the existing isolated Lab lifespan and fresh
+Chrome profile. Each repetition opens search with native Command+K, types all
+seven characters of `review-`, selects down/up, opens the selected document
+with Enter, then reopens and closes with Escape. Measurements include browser
+input queueing and wait for a paint opportunity after the expected state.
+Checks require the loaded dialog, focused input, captured workspace/root,
+correct visible paths and selection, and the expected rendered document.
+The complete result order is checked independently against file metadata and
+the configured preferred formats, including the first-100 limit. All generated
+fixture files must be present. No fetch, polling or production picker behavior
+is replaced. The workflow rejects nonfixture roots and incompatible modes.
+
+The first unprofiled 5,000-file, 2,500-modified-Git-path run retained two misses:
+**231.3 ms** for the first workspace click and **463.7 ms** for the first picker
+open. The latter's file-list request took only **33.1 ms**. Other picker actions
+passed, and all backend requests passed. All 27 input clocks and request-ID
+correlations were valid. Artifacts: `/tmp/lab-quick-files-baseline-{browser,server}.json`
+and `.log`. These samples remain in the record.
+
+The matched four-repetition browser profiles showed `_describeElement` in
+`error-report.js` spending **216.5 ms** across named input-change events in the
+baseline. Its unconditional `innerText` read forced style recalculation while
+dialogs were being removed, although `name`, `aria-label` or `title` already
+supplied the logged description. A trace captured a **67.6 ms** synchronous
+style/layout update and about 29,000 elements styled during one such change.
+
+The production change reads rendered text only when no existing label wins.
+Attribute precedence, logged action/id/href metadata, batching and uploads stay
+the same; unnamed controls retain their prior innerText/textContent fallback,
+whitespace normalization and 80-character truncation. Regression tests make
+text access throw for each named-control case and check fallback output.
+
+The candidate profile had no sampled `_describeElement` cost. Aggregate
+`Document::UpdateStyleAndLayout` synchronous duration fell from **562.4 ms** to
+**342.6 ms**, maximum **67.6 ms → 7.1 ms**. Total style-update time stayed similar
+(**1,071.5 ms → 1,108.6 ms**); modal lifecycle still requires style work. These
+small profiled runs establish removal of the unnecessary forced read, not a
+uniform reduction in total rendering time or the cause of the entire 463.7 ms
+outlier. Baseline/candidate picker-open maxima were **177.7/121.7 ms**, document
+open maxima **120.6/102.9 ms**, and Escape maxima **65.3/65.0 ms**. The candidate
+also retained a **221.1 ms first workspace click**.
+
+Artifacts: `/tmp/lab-quick-files-traced-{browser,server}.json`,
+`/tmp/lab-quick-files-baseline-{trace,profile}.json`,
+`/tmp/lab-quick-files-after-{browser,server,trace,profile}.json` and logs.
+
+The first 20-repetition unprofiled large run completed **261 native actions**:
+
+| Action | Samples | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Command+K open | 40 | 86.6 ms | 105.5 ms | 119.6 ms |
+| Filter character | 140 | 27.3 ms | 35.1 ms | 43.0 ms |
+| Arrow selection | 40 | 26.5 ms | 33.9 ms | 35.8 ms |
+| Enter document open | 20 | 66.4 ms | 72.4 ms | 92.7 ms |
+| Escape close | 20 | 43.0 ms | 44.1 ms | 44.2 ms |
+
+The initial workspace click took **146.1 ms**. Every action passed 200 ms. All
+**163 browser API requests** passed, maximum **50.5 ms**; all **192 sidecar
+requests** passed, maximum **49.6 ms**. Every input clock was valid, every
+browser API request matched the sidecar ID/route, Git verified all 2,500
+modified paths, and no browser/API/network failures were recorded. The owned
+server stopped. Artifacts: `/tmp/lab-quick-files-final-{browser,server}.json`
+and `.log`.
+
+The affected logging, quick-file, navigation and input-clock suite covered
+**111 passing tests**. Initially 110 passed and the native clock test could
+not launch Chrome inside the sandbox; that test passed with the required
+access. Logs: `/tmp/lab-quick-files-regressions.log` and
+`/tmp/lab-quick-files-native-clock.log`. The first targeted invocation also
+caught two incorrectly escaped newline literals in the new fallback test
+data; after correcting the data, all 35 targeted tests passed. Six conflicting
+`--quick-files` combinations fail before fixture startup.
+
+The shared-logging typing check used the same large Git-heavy fixture, normal
+polling, 60 fresh sidebar refreshes and 60 real file updates. All **2,400 keys**
+passed 50 ms: normal p50/p95/max **3.4/22.1/42.6 ms**, loaded
+**2.8/24.6/43.1 ms**. Both independent readers verified all characters through
+scrolling, all clocks passed, and no browser, transport or API failures were
+recorded. All **795 browser API requests** passed (maximum **130.4 ms**), as did
+all **826 server requests** (maximum **89.3 ms**). Every API request correlated
+by sidecar ID/route; the echo session was deleted and the owned server stopped.
+Artifacts: `/tmp/lab-quick-files-typing-{browser,server}.json` and `.log`.
+
+The final verification strengthened the picker checks to require every
+generated path individually (rather than only the generated-file count) and
+the opened document's exact root. Its **261 native actions** all passed:
+
+| Action | Samples | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Command+K open | 40 | 87.6 ms | 118.1 ms | 151.7 ms |
+| Filter character | 140 | 26.8 ms | 33.8 ms | 38.6 ms |
+| Arrow selection | 40 | 27.3 ms | 35.8 ms | 38.3 ms |
+| Enter document open | 20 | 66.4 ms | 72.8 ms | 100.6 ms |
+| Escape close | 20 | 41.7 ms | 44.7 ms | 46.9 ms |
+
+Workspace open was **148.2 ms**. All **166 browser API requests** passed,
+maximum **88.6 ms**, and all **195 server requests** passed, maximum **88.0 ms**.
+Clocks, complete expected results, Git state, ID/route correlation and cleanup
+all passed, with no recorded errors. The two diagnostic unit tests passed
+again after strengthening these checks; JavaScript syntax, Python compilation
+and whitespace checks passed. Artifacts:
+`/tmp/lab-quick-files-verified-{browser,server}.json` and `.log`.
+
+The goal remains active. This checkpoint preserves logging behavior and removes
+its unused forced text read; it does not establish that all cold opens meet
+200 ms. The new **463.7 ms picker**, **231.3/221.1 ms workspace** samples and
+older outliers remain unresolved, as do broader unmeasured actions and the
+matched iTerm comparison. No main merge, push or live-server restart occurred.
+The earlier merge approval remains pending after automatic approval review
+rejected that action.
