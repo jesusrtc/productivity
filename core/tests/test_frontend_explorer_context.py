@@ -112,6 +112,33 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
     assert 'ondblclick="${escAttr(modalAction)}"' in source
 
 
+def test_file_identity_is_shared_without_changing_legacy_or_virtual_rows() -> None:
+    helper = _between('function _explorerContextFromRow(', 'function closeExplorerContextMenu(')
+    result = _run_node("""
+const currentWorkspace={path:'/active workspace'},currentRepo='/active repo';
+function row(attrs,classes=[]){return {getAttribute:key=>attrs[key]??null,
+  hasAttribute:key=>Object.hasOwn(attrs,key),classList:{contains:key=>classes.includes(key)}};}
+const summarize=row=>{const ctx=_explorerContextFromRow(row);if(!ctx)return null;const {kind,path,root,surface}=ctx;return {kind,path,root,surface};};
+""" + helper + """
+process.stdout.write(JSON.stringify([
+  summarize(row({'data-open-file':'','data-filepath':`docs/ quoted ' \\" & résumé.md `,'data-entry-root':'/other/worktree'})),
+  summarize(row({'data-entry-kind':'file','data-entry-path':'old.md','data-filepath':'ignored.md'},['tree-file'])),
+  summarize(row({'data-entry-kind':'folder','data-entry-path':'docs','data-entry-root':'/folder/root'},['tree-dir'])),
+  summarize(row({'data-entry-kind':'file','data-entry-path':'pin.md'})),
+  summarize(row({'data-filepath':'__proxy__/server'})),
+  summarize(row({'data-open-file':'','data-filepath':''})),
+  summarize(row({'data-entry-kind':'file','data-entry-path':'','data-filepath':'must-not-fallback.md'})),
+]));
+""")
+    assert result == [
+        {'kind':'file','path': 'docs/ quoted \' " & résumé.md ', 'root':'/other/worktree','surface':'workspace'},
+        {'kind':'file','path':'old.md','root':'/active repo','surface':'repo'},
+        {'kind':'folder','path':'docs','root':'/folder/root','surface':'repo'},
+        {'kind':'file','path':'pin.md','root':'/active workspace','surface':'workspace'},
+        None, None, None,
+    ]
+
+
 def test_notebook_creation_chooses_repository_folder_and_creates_notebook_kind() -> None:
     source = LAB_APP.read_text(encoding="utf-8")
     template = INDEX.read_text(encoding="utf-8")

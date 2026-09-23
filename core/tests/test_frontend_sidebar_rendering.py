@@ -24,6 +24,11 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     def between(a,b):return source[source.index(a):source.index(b,source.index(a))]
     helpers=between('  function esc(s)', '  // ─── Explorer secondary-click menu')+between('  const TREE_EXPANDED_KEY', '  function applyIframeDarkMode')+between('  function _sidebarRecentTreeModel', '  function _sidebarConfigFolderCardHtml')
     helpers+=between('  function _sidebarHandleFileAction', '  async function openWorkspaceDoc(')
+    helpers+=between('  function _explorerContextFromRow(', '  function closeExplorerContextMenu(')
+    helpers+=between("  document.addEventListener('contextmenu',", "  document.addEventListener('click',",)
+    helpers+=between('  function _termLinkDropContext(', '  let _termLinkDropElement')
+    helpers+=between('  function _termPreferredLinkedSidebarRow(', '  function _termRevealLinkedSidebarRow(')
+    helpers+=between("  document.addEventListener('dragstart', event => {", '  function _termDropPaths(')
     helpers+=between('  const _GIT_ROW_CLASSES', '  function _sidebarPlaceGitBadge(')
     helpers+=between('  function _sidebarPlaceGitBadge(', '  function _sidebarApplyGitStatus(')
     helpers+=between('  const _sidebarMarkupCache =', '  // Re-renders just the workspace file sidebar')
@@ -46,6 +51,11 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     checks=r'''
     const assert=(v,m)=>{if(!v)throw Error(m)};
     const wait=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    document.addEventListener('dragstart',event=>{
+      if(!event.isTrusted)return;
+      window.__sidebarNativeDrag={effect:event.dataTransfer.effectAllowed,text:event.dataTransfer.getData('text/plain'),internal:event.dataTransfer.getData('application/x-lab-file-path')};
+      event.preventDefault(); // Inspect the prepared native payload, then stop this test's drag.
+    });
     (async()=>{try{
      const layout=FILE_LAYOUT;
      const files=Array.from({length:5000},(_,i)=>({path:`${layout==='folders'?'notes/batch-'+String(Math.floor(i/100)).padStart(3,'0'):'notes'}/file-${String(i).padStart(5,'0')}.${['md','py','json','sql'][i%4]}`,type:'file',mtime:1,is_symlink:i%17===0,symlink_target:'elsewhere'}));
@@ -135,6 +145,14 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
        b.querySelector('button').dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true}));
        assert(calls.length===count,'History double click opened a file modal');
        assert(b.draggable&&b.dataset.entryRoot==='/candidate','Drag/context metadata lost');
+       assert(!b.hasAttribute('data-entry-path')&&!b.hasAttribute('data-entry-kind'),'Duplicate file identity is still rendered');
+       const ctx=_explorerContextFromRow(b),drop=_termLinkDropContext(b.querySelector('button'));
+       assert(ctx.kind==='file'&&ctx.path===files[index].path&&ctx.root==='/candidate'&&ctx.surface==='workspace','Context identity lost');
+       assert(drop.path===ctx.path&&drop.root===ctx.root&&drop.row===b,'Terminal link drop lost file identity');
+       assert(_termPreferredLinkedSidebarRow({root:ctx.root,path:ctx.path})===b,'Terminal reveal lost file identity');
+       const transfer=new DataTransfer();b.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:transfer}));
+       assert(transfer.getData('text/plain')==='/candidate/'+ctx.path,'Dragged text lost exact root/path');
+       assert(JSON.stringify(JSON.parse(transfer.getData('application/x-lab-file-path')))===JSON.stringify(['/candidate/'+ctx.path]),'Dragged internal identity changed');
       }
      }
      document.body.style.zoom=1; await wait();
@@ -205,6 +223,7 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     '''.replace('FILE_LAYOUT', repr(layout))
     stubs=r'''
     let currentWorkspace={path:'/candidate'};
+    let currentRepo=null;
     const calls=[];
     const _sidebarCurrentSortMode=()=> 'name';
     const _sidebarSortSelectHtml=()=>'';
@@ -212,6 +231,8 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     const openWorkspaceDocModal=(path,options)=>calls.push({kind:'modal',path,...options});
     const openWorkspaceFolderModal=(path,options)=>calls.push({kind:'folder',path,...options});
     const openExplorerHistory=context=>calls.push({...context,kind:'history'});
+    const _termLinkedFileMatches=(linked,root,path)=>linked.root===root&&linked.path===path;
+    const openExplorerContextMenu=(event,row)=>{event.preventDefault();calls.push({..._explorerContextFromRow(row),kind:'context'});};
     '''
     page=tmp_path/'sidebar.html'
     page.write_text('<!doctype html><meta charset="utf-8"><style>'+css+'''\n*{box-sizing:border-box}body{margin:0;background:#0d1117;--text-secondary:#aab;--text-primary:#eee;--border:#333;--accent:#68c;--tree-indent-guide:#334}aside.sidebar{position:fixed;top:50px;bottom:20px;height:auto!important;overflow:auto!important;width:340px;display:block}#reference{left:10px}#sidebar{left:500px}.reference .sidebar-recent-children{content-visibility:visible!important;contain-intrinsic-block-size:none!important}.reference .sidebar-git-history::before{content:none}.reference .ft-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:-3px;background:none}.reference .ft-icon::before{content:none}.reference .ft-icon svg{display:block;position:static;transform:none}</style><body><pre id="result">PENDING</pre><aside id="reference" class="sidebar reference"></aside><aside id="sidebar" class="sidebar"></aside><script>'''+stubs+helpers+checks+'</script>')
@@ -265,6 +286,18 @@ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',win
 await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
 const after=await evaluate("({count:calls.filter(c=>c.kind==='history').length,focused:document.activeElement.outerHTML,last:calls.at(-1)})");
 if(after.count!==before+1)throw Error('Keyboard history action failed '+JSON.stringify({before,after}));
+await evaluate("document.body.style.zoom=1;const s=document.getElementById('sidebar');s.scrollTop=0;");await frame();
+const contextPoint=await evaluate(`(()=>{const row=document.querySelector('#sidebar .sidebar-file');row.scrollIntoView({block:'center'});const r=row.getBoundingClientRect();return {x:r.x+20,y:r.y+r.height/2,path:row.dataset.filepath};})()`);
+await send('Input.dispatchMouseEvent',{type:'mousePressed',x:contextPoint.x,y:contextPoint.y,button:'right',clickCount:1});
+await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:contextPoint.x,y:contextPoint.y,button:'right',clickCount:1});
+const contextAction=await evaluate("({kind:calls.at(-1).kind,path:calls.at(-1).path,root:calls.at(-1).root,surface:calls.at(-1).surface})");
+if(contextAction.kind!=='context'||contextAction.path!==contextPoint.path||contextAction.root!=='/candidate'||contextAction.surface!=='workspace')throw Error('Native context click lost identity '+JSON.stringify(contextAction));
+await send('Input.dispatchMouseEvent',{type:'mousePressed',x:contextPoint.x,y:contextPoint.y,button:'left',clickCount:1});
+await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:contextPoint.x+50,y:contextPoint.y,button:'left',buttons:1});
+await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:contextPoint.x+50,y:contextPoint.y,button:'left',clickCount:1});
+const nativeDrag=await evaluate('window.__sidebarNativeDrag');
+if(!nativeDrag||nativeDrag.effect!=='copy'||nativeDrag.text!=='/candidate/'+contextPoint.path||nativeDrag.internal!==JSON.stringify(['/candidate/'+contextPoint.path]))throw Error('Native drag identity/copy mode changed '+JSON.stringify(nativeDrag));
+await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:0,y:0});await frame();
 // Preparing a group must keep the same visible paint as content-visibility:auto.
 // Exercise both sides of the 100-row boundaries, including focus and drop ink.
 await evaluate("_cancelSidebarLayout(document.getElementById('sidebar'))");

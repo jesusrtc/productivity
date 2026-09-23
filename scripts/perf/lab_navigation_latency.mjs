@@ -10,6 +10,7 @@ import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 import {captureInputClock,validateInputClock} from './input_clock.mjs';
 import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
 import {runQuickFileWorkload} from './quick_file_workload.mjs';
+import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -443,6 +444,7 @@ async function main() {
         await sleep(100);
       }
     }
+    if(process.env.LAB_PERF_FILE_IDENTITY_PROFILE)await compareSidebarIdentity(evaluate,process.env.LAB_PERF_FILE_IDENTITY_PROFILE);
     if(process.env.LAB_PERF_CPU_PROFILE) {
       const {profile}=await client.send('Profiler.stop');
       await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));

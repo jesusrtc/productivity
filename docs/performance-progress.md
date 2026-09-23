@@ -2367,3 +2367,134 @@ older outliers remain unresolved, as do broader unmeasured actions and the
 matched iTerm comparison. No main merge, push or live-server restart occurred.
 The earlier merge approval remains pending after automatic approval review
 rejected that action.
+
+## Share sidebar file identity across actions (2026-09-23)
+
+The previous turn made progress in `5b9d0eb`, removing unused rendered-text
+reads from action logging and adding native Command+K coverage. This turn
+revisited retained cold-opening misses before changing another part of the
+sidebar's construction cost.
+
+Reanalysis of `/tmp/lab-quick-files-after-{browser,server,trace,profile}.json`
+showed the **221.1 ms** first workspace click had only **2.2 ms input queueing**,
+a **95.5 ms** server file-list response, and substantial sidebar construction.
+CPU samples attributed about **54.1 ms** to `_refreshWorkspaceSidebar`, including
+**29.9 ms** in template construction and **7.5 ms** in cloning. This does not
+explain the separate 463.7 ms picker miss. The earlier unprofiled 231.3 ms
+workspace sample had **58.7 ms queueing**, so the retained misses do not all
+have the same measured shape.
+
+A new trace with handler/file/session timings passed: workspace **152.2 ms**,
+picker maximum **156.3 ms**. Its first workspace file-list response took
+**35.6 ms**, with **28.9 ms** in guarded scanning; one later file-list response
+took **70.8 ms**, including **65.5 ms** in the guard. No stable source of the
+scan-time variability was established. Artifacts:
+`/tmp/lab-cold-open-{browser,server,trace,profile}.json` and `.log`.
+
+The production change removes duplicate entry-kind/path attributes from normal
+workspace, self/vault and Recently updated file rows. Opening, context menus,
+file drags, terminal-link drops and linked-file reveal now share the rows'
+existing `data-open-file`, `data-filepath` and explicit `data-entry-root`.
+Repository trees, folders, pinned shortcuts and instruction rows retain their
+explicit entry metadata. Explicit paths retain precedence, including rejecting
+an explicitly empty legacy path. Virtual rows remain excluded. This changes no
+visible element, geometry, cache limit, file scan, polling interval or action.
+
+Four sequential unprofiled runs used the same 5,000 mixed files, flat layout,
+2,500 real modified Git paths and eight workspace/eight document clicks each.
+Only the app source changed for the baseline (`5b9d0eb`), in baseline/candidate/
+candidate/baseline order:
+
+| Run | First workspace | Workspace p50 | Workspace maximum | Document maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline 1 | 150.4 ms | 100.4 ms | 150.4 ms | 65.1 ms |
+| Candidate 1 | 135.3 ms | 101.8 ms | 135.3 ms | 68.3 ms |
+| Candidate 2 | 161.6 ms | 110.8 ms | 161.6 ms | 64.3 ms |
+| Baseline 2 | 144.8 ms | 104.0 ms | 144.8 ms | 67.1 ms |
+
+All 64 actions passed, but these end-to-end results are mixed and do not
+establish a consistent cold-open improvement. All API requests, clock checks,
+request-ID/route correlations, Git checks and cleanup passed. Artifacts:
+`/tmp/lab-sidebar-identity-{before-1,after-1,after-2,before-2}-{browser,server}.json`,
+their logs, and `/tmp/lab-sidebar-identity-comparison.json`.
+
+The structural reduction is deterministic: **10,008 rows** lose two redundant
+attributes; retained markup falls from **5,842,203 to 5,209,255 characters**
+(**632,948 fewer, 10.8%**). Live elements remain **45,172**, pristine template
+elements **40,169**, and the four-scope/60,000-element retention limits remain
+unchanged.
+
+An optional `LAB_PERF_FILE_IDENTITY_PROFILE=<output.json>` diagnostic isolates
+the affected construction step after native actions finish. It reconstructs
+the previous repeated attributes from the exact same compact markup, verifies
+equal DOM after removing just those attributes, and alternates both orders for
+12 samples per form. It builds and clones detached templates without mounting
+them. This is a component measurement after page load, not a cold-open or
+keyboard-latency measurement:
+
+| Component | Repeated attributes median | Shared identity median |
+| --- | ---: | ---: |
+| Template construction | 23.0 ms | 20.9 ms |
+| Clone | 4.8 ms | 4.6 ms |
+| Combined | 28.1 ms | 25.6 ms |
+
+Combined maxima were **39.0/34.1 ms**. The modest **2.5 ms median construction
+and clone reduction** supports retaining the smaller representation; it does
+not resolve the earlier cold misses. Artifacts:
+`/tmp/lab-sidebar-identity-components.json`,
+`/tmp/lab-sidebar-identity-component-{browser,server}.json` and `.log`.
+
+The final unprofiled native navigation/resize check passed all **60 actions**:
+
+| Action | Samples | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Workspace | 20 | 98.6 ms | 131.9 ms | 134.7 ms |
+| Document | 20 | 33.7 ms | 51.0 ms | 54.5 ms |
+| Sidebar resize | 20 | 13.1 ms | 20.7 ms | 27.9 ms |
+
+All **343 browser API requests** passed, maximum **72.1 ms**, and all **372
+server requests** passed, maximum **71.5 ms**. All clocks, ID/route correlations,
+2,500 Git changes and owned-server cleanup passed without browser/API/network
+errors. Artifacts: `/tmp/lab-sidebar-identity-final-{browser,server}.json` and `.log`.
+
+Validation covers **191 affected regressions** across explorer, clipboard,
+terminal links, file configuration, navigation, Pin persistence, Git decoration,
+pristine caching and real-Chrome rendering. The native Git test initially could
+not start Chrome inside the sandbox and passed with the required access. New
+checks verify the shared identity on quoted/Unicode rows, captured foreign
+roots, legacy metadata precedence, virtual-row exclusion, native secondary
+clicks, drag payloads, terminal-link drops and preferred-row reveal.
+
+The first expanded browser check incorrectly expected a constructed
+`DataTransfer` to accept `effectAllowed='copy'`; it retained `none` even though
+the exact path payload was correct. Copy mode is now verified on a trusted
+native dragstart, which passes, and that test drag is then cancelled. One
+subsequent existing pixel check differed at two boundary pixels after the new
+drag step. Moving the pointer away before independent paint checks yielded
+passing flat/nested runs with the original tolerance. Logs retain all attempts:
+`/tmp/lab-sidebar-identity-{regressions,browser-tests,drag-diagnostic,native-tests,rendering-final}.log`.
+After preserving explicitly empty legacy paths, all **88 targeted explorer and
+terminal tests** passed again (`/tmp/lab-sidebar-identity-explicit-empty.log`).
+
+The unprofiled typing check retained all **2,400 keys**, with 60 real file
+updates and 61 loaded-phase refreshes in the same 5,000-file/Git-heavy fixture:
+
+| Phase | Keys | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Normal polling | 1,200 | 2.7 ms | 21.1 ms | 36.4 ms |
+| File updates and sidebar refreshes | 1,200 | 2.5 ms | 23.8 ms | 40.7 ms |
+
+Every key passed 50 ms. Independent parse/render readers verified all text,
+including after the marker scrolled away; every clock passed. All **835 browser
+API requests** passed, maximum **85.1 ms**, and all **866 server requests**
+passed, maximum **84.6 ms**. API ID/route correlation, 2,500 Git changes, terminal
+text, transport settings and cleanup passed with no reported typing/browser/API
+errors. Artifacts: `/tmp/lab-sidebar-identity-typing-{browser,server}.json`
+and `.log`. JavaScript syntax, Python compilation and whitespace checks passed.
+
+This checkpoint reduces repeated metadata and measured construction work. The
+goal remains active: mixed whole-action comparisons and later passing runs do
+not resolve earlier workspace/picker/typing outliers, broader unmeasured UI and
+backend paths or the matched iTerm comparison. No main merge, push or live-server
+restart occurred; the earlier merge approval remains pending after automatic
+approval review rejected it.

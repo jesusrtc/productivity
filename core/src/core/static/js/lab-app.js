@@ -1156,8 +1156,8 @@
 
   // ─── Explorer secondary-click menu ────────────────────────────────────
   // One delegated menu serves the workspace, vault, framework, and repo
-  // trees. Rows opt in with data-entry-kind/path; virtual rows (servers,
-  // external links, Overview) deliberately do not expose filesystem actions.
+  // trees. Rows opt in with data-entry-kind/path or data-open-file/filepath.
+  // Virtual rows (servers, external links, Overview) expose no file actions.
   let _explorerContext = null;
   let _explorerEntryState = null;
   let _explorerDeleteState = null;
@@ -1217,8 +1217,11 @@
 
   function _explorerContextFromRow(row) {
     if (!row) return null;
-    const kind = row.getAttribute('data-entry-kind');
-    const path = row.getAttribute('data-entry-path');
+    // Ordinary sidebar rows already carry their file identity for opening.
+    // Reuse it for context/drag actions instead of duplicating two attributes
+    // across every normal and Recently updated row.
+    const kind = row.getAttribute('data-entry-kind') || (row.hasAttribute('data-open-file') ? 'file' : null);
+    const path = row.getAttribute('data-entry-path') ?? row.getAttribute('data-filepath');
     if (!kind || !path) return null;
     const isRepoTree = row.classList.contains('tree-file') || row.classList.contains('tree-dir');
     const root = row.getAttribute('data-entry-root')
@@ -1821,7 +1824,7 @@
   window.closeExplorerHistory = closeExplorerHistory;
 
   document.addEventListener('contextmenu', (event) => {
-    const row = event.target.closest('[data-entry-kind][data-entry-path]');
+    const row = event.target.closest('[data-entry-kind][data-entry-path], [data-open-file][data-filepath]');
     if (row) openExplorerContextMenu(event, row);
   });
   document.addEventListener('click', (event) => {
@@ -3133,7 +3136,7 @@
         const path = String(file.path || file.name || '');
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${escAttr(path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} data-open-file title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${escAttr(path)}" draggable="true" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} data-open-file title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
         if (groupFiles && (index % 100 === 99 || index === node.files.length - 1)) nodeHtml += '</div>';
       });
       return {html: nodeHtml, rows, parts: nodeParts};
@@ -9462,7 +9465,7 @@
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
             const pinHtml = worktreeSelected ? '' : _sidebarPinButtonHtml(f.name, isPinned);
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
@@ -13337,9 +13340,9 @@
   }
 
   function _termLinkDropContext(target) {
-    const row = target?.closest?.('[data-entry-kind][data-entry-path], .sidebar-file-scope-button, .sidebar-worktree-picker');
+    const row = target?.closest?.('[data-entry-kind][data-entry-path], [data-open-file][data-filepath], .sidebar-file-scope-button, .sidebar-worktree-picker');
     if (!row) return null;
-    if (row.matches('[data-entry-kind]')) return _explorerContextFromRow(row);
+    if (row.matches('[data-entry-kind], [data-open-file][data-filepath]')) return _explorerContextFromRow(row);
     const baseRoot = row.getAttribute('data-base-root');
     if (row.classList.contains('sidebar-file-scope-button')) {
       const root = row.getAttribute('data-folder-path') || baseRoot;
@@ -13780,12 +13783,12 @@
 
   function _termPreferredLinkedSidebarRow(linked) {
     const rows = Array.from(document.querySelectorAll(
-      '[data-entry-kind="file"][data-entry-path][data-entry-root]',
+      '[data-entry-kind="file"][data-entry-path][data-entry-root], [data-open-file][data-filepath][data-entry-root]',
     ));
     const matches = rows.filter(row => _termLinkedFileMatches(
       linked,
       row.getAttribute('data-entry-root'),
-      row.getAttribute('data-entry-path'),
+      row.getAttribute('data-entry-path') ?? row.getAttribute('data-filepath'),
     ));
     return matches.find(row => row.classList.contains('sidebar-file-recent'))
       || matches.find(row => row.classList.contains('tree-file'))
@@ -14353,7 +14356,7 @@
   // Use explicit file identity, never the row's displayed label (which may
   // omit its parent folders or belong to a different vault/worktree).
   document.addEventListener('dragstart', event => {
-    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path]');
+    const row = event.target.closest?.('[data-entry-kind="file"][data-entry-path], [data-open-file][data-filepath]');
     const ctx = _explorerContextFromRow(row);
     if (!ctx || !event.dataTransfer) return;
     const path = ctx.path.startsWith('/') ? ctx.path
@@ -16901,7 +16904,7 @@
       } else if (hasUnseen) {
         dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openWorkspaceDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }

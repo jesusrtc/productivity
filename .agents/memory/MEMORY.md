@@ -1,5 +1,9 @@
 # Memory index
 
+- [Sidebar file identity is shared](sidebar-file-identity-is-shared.md) — one captured path/root serves open, context, drag and terminal links; legacy entry rows keep their metadata
+
+- [Native drag tests use a trusted transfer](native-drag-tests-use-trusted-transfer.md) — verify copy mode in native dragstart, cancel the owned test drag and reset pointer state before pixel comparisons
+
 - [Named action logs avoid text layout](named-action-logs-avoid-text-layout.md) — skip unused innerText reads for named controls while preserving log labels and unnamed fallbacks
 
 - [Terminal detach drains tty output](terminal-detach-drains-tty-output.md) — bounded worker cleanup avoids the measured tmux close stall while retaining sessions, input and pane-cache limits
