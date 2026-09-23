@@ -59,6 +59,7 @@ parser.add_argument('--document-sections', type=int, default=30, help='Markdown 
 parser.add_argument('--document-edit-input', choices=['replace', 'append'], default='replace', help='Replace the whole editor value or append only each revision (both use CDP insertText; default: replace)')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
+parser.add_argument('--trace-assistant', action='store_true', help='Time complete Assistant snapshots, fingerprints, copies and progress maps (requires --assistant and --server-timings; nested phases are not additive)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
 parser.add_argument('--trace-terminal', action='store_true', help='Time owned WebSocket/PTY operations without payloads, plus producer CPU for output typing (requires --typing, --terminal-tabs or --terminal-create, and --server-timings)')
 parser.add_argument('--trace-gc', action='store_true', help='Observe server garbage-collection pauses without changing runtime policy (requires --server-timings)')
@@ -123,6 +124,8 @@ if args.navigation_refresh_delay is not None:
         parser.error('--navigation-refresh-delay requires the standalone navigation workflow')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
+if args.trace_assistant and (not args.assistant or not args.server_timings):
+    parser.error('--trace-assistant requires --assistant and --server-timings')
 if args.trace_terminal and (not (args.typing or args.terminal_tabs or args.terminal_create) or not args.server_timings):
     parser.error('--trace-terminal requires --typing, --terminal-tabs or --terminal-create, and --server-timings')
 if args.trace_files and not args.server_timings:
@@ -278,6 +281,11 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         timings.instrument_sessions()
         if args.assistant:
             timings.instrument_handler('/api/assistant')
+        if args.trace_assistant:
+            from lab import assistant_documents, assistant_records
+            for name in ('snapshot', '_fingerprint', 'deepcopy'):
+                timings.trace_function(assistant_documents, name)
+            timings.trace_function(assistant_records, 'progress_map')
         if args.trace_gc:
             instrumentation.enter_context(timings.trace_garbage_collection())
         if args.trace_watchers:

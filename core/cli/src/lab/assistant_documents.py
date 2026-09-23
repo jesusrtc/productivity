@@ -86,9 +86,12 @@ def write(source, metadata, body):
 def _fingerprint(root):
     from lab import assistant_storage as storage
     files = sorted(path for folder in storage.folders(root) for path in (root/folder).glob('*.md'))
+    # Every record still checks its components and resolves its current target.
+    # Reuse only this scan's root boundary, not a source's validation or stat.
+    resolved_root = root.resolve()
     signature = []
     for source in [*files, root/'.assistant/workspaces.json', root/'.assistant/manifest.json']:
-        records.safe(root, source)
+        records.safe(root, source, resolved_root=resolved_root)
         if source.exists():
             stat = source.stat()
             signature.append((source.relative_to(root).as_posix(), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))

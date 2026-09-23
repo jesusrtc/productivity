@@ -99,7 +99,8 @@ def write_document(path, metadata, body):
         atomic_bytes(path, encode_document(metadata, body))
 
 
-def safe(root, source):
+def safe(root, source, *, resolved_root=None):
+    """Validate a fresh source, optionally reusing a batch's resolved root."""
     root = root.absolute()
     reference = Path(source)
     source = Path(str(source).split("#tab=", 1)[0])
@@ -116,8 +117,12 @@ def safe(root, source):
         current /= part
         if current.is_symlink():
             raise ValueError('Assistant record paths cannot contain symlinks')
-    if not source.resolve().is_relative_to(root.resolve()):
-        raise ValueError('Record path escapes Assistant')
+    resolved_source = source.resolve()
+    if not resolved_source.is_relative_to(root.resolve() if resolved_root is None else resolved_root):
+        # A root alias can move during a listing. Recheck its current boundary
+        # just as the standalone validator does, without trusting a stale hint.
+        if resolved_root is None or not resolved_source.is_relative_to(root.resolve()):
+            raise ValueError('Record path escapes Assistant')
     return Path(str(source) + "#tab=" + str(reference).split("#tab=", 1)[1]) if "#tab=" in str(reference) else source
 
 

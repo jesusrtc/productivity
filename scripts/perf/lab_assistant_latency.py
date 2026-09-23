@@ -25,7 +25,7 @@ parser.add_argument('--output', type=Path, required=True, help='HTTP/server JSON
 parser.add_argument('--notes', type=int, default=100)
 parser.add_argument('--samples', type=int, default=20)
 parser.add_argument('--trace-snapshots', action='store_true', help='Diagnostic whole-snapshot timing; repeat without tracing')
-parser.add_argument('--trace-projections', action='store_true', help='Diagnostic whole-snapshot and progress-map timing; nested phases are not additive')
+parser.add_argument('--trace-projections', action='store_true', help='Diagnostic snapshots, fingerprints, copies and progress maps; nested phases are not additive')
 args = parser.parse_args()
 if args.notes < 2 or args.samples < 1:
     parser.error('Use at least two notes and one sample')
@@ -72,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix='lab-assistant-latency-') as folder:
     if args.trace_snapshots or args.trace_projections:
         timings.trace_function(documents, 'snapshot')
     if args.trace_projections:
+        timings.trace_function(documents, '_fingerprint')
+        timings.trace_function(documents, 'deepcopy')
         timings.trace_function(records, 'progress_map')
     server = uvicorn.Server(uvicorn.Config(timings, access_log=False, log_level='warning',
                                          timeout_graceful_shutdown=5, ws_per_message_deflate=False))

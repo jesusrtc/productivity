@@ -6446,3 +6446,162 @@ samples and failures. The global goal also retains earlier search, cold UI,
 terminal creation/loaded typing and physical parity gaps. Main merge remains
 pending after the earlier automatic approval rejection; no merge, push or live
 server restart was attempted.
+
+
+## Reuse the resolved Assistant root within each fingerprint (2026-09-23)
+
+The new fixture-only `--trace-assistant` diagnostic times complete snapshots,
+fingerprints, snapshot copies and progress maps. It requires the Assistant
+workflow and server timings. The existing HTTP projection diagnostic now also
+includes fingerprint/copy timing. These are nested phases, not additive totals;
+no per-file trace or concurrent cProfile session was used.
+
+The initial full native diagnostic found fingerprinting to be the largest
+measured phase. Across 23 requests, its median was **77.92 ms elapsed / 42.24 ms
+thread CPU**, versus 2.72/2.67 ms for the snapshot copy. In two slow handlers,
+fingerprinting took 124.4 and 132.8 ms. `records.safe` resolved each source and
+then resolved the same Assistant root again for every file.
+
+`_fingerprint` now resolves that root once per scan and passes it as a local
+hint to `safe`. Every source still gets the original lexical containment and
+component-symlink checks, a fresh target resolution, existence check and fresh
+mtime/ctime/size reads. A source outside the captured hint causes another root
+resolution and the original containment check, preserving a root alias moved
+during the scan. Standalone calls retain their original fresh-root behavior.
+There is no cross-request path/stat cache, changed file selection, skipped source
+validation, watcher-policy change or altered response field.
+
+A normal 500-file scan now resolves the root once instead of 502 times; all 502
+source paths still resolve. A regression also verifies that the next scan repeats
+all source checks. The initial candidate lacked the moved-root fallback and
+would reject that legitimate transition. Compatibility review caught it before
+commit; the final version preserves the original behavior and separately tests
+that fallback still rejects a target outside the current root. Preliminary
+measurements are retained separately below, not counted as final-code samples.
+
+### Coarse diagnostic and unprofiled native measurements
+
+All native runs retain 500 notes, 100 embedded subtabs, 5,000 mixed files and
+2,500 Git changes per workspace. Each fresh browser/vault performs 20 Assistant
+entries, 40 All/Starred switches and 20 alternating workspace returns. There are
+no injected refreshes. Normal polling, complete readiness/content predicates,
+input-clock checks and every first sample remain enabled. Original controls
+restore only the two changed CLI production files to `1aadfe5`. Tests and heavy
+diagnostics do not run alongside benchmarks.
+
+| Coarse phase, 23 snapshots per run | Original median elapsed / CPU | Preliminary candidate median elapsed / CPU |
+| --- | ---: | ---: |
+| Fingerprint | 77.92 / 42.24 ms | 68.79 / 35.76 ms |
+| Whole snapshot | 81.68 / 46.29 ms | 74.33 / 39.87 ms |
+| Snapshot copy | 2.72 / 2.67 ms | 2.63 / 2.57 ms |
+
+Progress still ran 70 times, with median 2.66 ms before and 2.08 ms after.
+Fingerprint maxima were 132.84 and 168.18 ms, so the smaller median does not
+eliminate the tail. Those diagnostic runs retained four and three UI misses,
+respectively. Original: three Assistant opens (233.3, 232.3 and 201.3 ms) and a
+201.2 ms workspace return. Preliminary candidate: three Assistant opens (211.2,
+221.1 and 260.6 ms). Browser/ASGI misses were 2/512 and 2/537 before, 1/499 and
+1/525 after. These runs also used passive GC, watcher and coarse file-scan timing;
+they are not the unprofiled native comparison.
+
+| Unprofiled native run | Assistant first | Assistant p50 | Assistant maximum | Assistant misses / 20 | Workspace maximum / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Preliminary candidate | 157.4 ms | 180.2 ms | 203.2 ms | 2 | 172.6 ms |
+| Restored original | 150.3 ms | 185.9 ms | 283.3 ms | 3 | 150.9 ms |
+| Preliminary repeat | 165.7 ms | 177.3 ms | 230.4 ms | 4 | 204.2 ms |
+| Final candidate with moved-root fallback | 150.7 ms | 179.3 ms | 282.1 ms | 5 | 163.4 ms |
+| Final candidate repeat | 155.2 ms | 178.2 ms | 199.8 ms | 0 | 152.6 ms |
+
+The **final code passed 155/160 actions**: 35/40 Assistant entries, all 80 view
+switches and all 40 workspace returns. The first final run's five misses remain:
+205.0, 282.1, 212.6, 200.6 and 235.0 ms. Its view maximum was 48.0 ms; the repeat's
+was 40.6 ms. The successful repeat does not erase the earlier failures. Median
+improvement is modest and tail counts vary between runs; this checkpoint reduces
+repeated root-resolution work without establishing the full latency objective.
+
+Final browser-request misses were 2/513 (maximum 254.80 ms) and 0/513 (162.20 ms).
+ASGI misses were 1/539 (252.31 ms) and 0/539 (160.46 ms). The original control had
+2/506 browser misses (249.00 ms) and 2/532 ASGI misses (247.71 ms). Preliminary
+runs retained 0/513 and 1/500 browser misses, 0/539 and 1/526 ASGI misses; their
+seven UI failures remain in the reports, including the 204.2 ms first workspace
+return. Request counts reflect normal polling over different elapsed runtimes.
+
+All seven native runs passed exact rendered-card, section, Markdown and Git
+checks: 2,500 changed paths, 5,000 modified rows and 5,000 clean rows. Every input
+clock was valid. There were no browser errors, HTTP errors or failed requests.
+The timings run from native browser input through a render opportunity; physical
+display latency and iTerm parity remain unmeasured.
+
+### Complete HTTP requests and fresh external edit
+
+The standalone authenticated HTTP fixture retains first use, 20 complete reads,
+full response checks/hashes and a final external Markdown title/body edit, with
+normal watcher/lifespan behavior. The earlier descendant-index checkpoint is a
+retained baseline with the same backend implementation as the original control.
+
+| HTTP run | First / maximum | Median unchanged | Fresh edit | Misses >=200 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Retained previous backend | 108.84 ms | 63.91 ms | 95.96 ms | 0 / 21 |
+| Preliminary candidate | 106.10 ms | 60.59 ms | 92.50 ms | 0 / 21 |
+| Final candidate | 107.11 ms | 60.22 ms | 91.48 ms | 0 / 21 |
+
+All contents and the externally edited title/body were verified in both new HTTP
+runs. The final HTTP result is from the exact final production files.
+
+### Remaining concurrent work
+
+The original coarse trace shows two 5,051-entry watcher snapshots overlapping
+each of two slow Assistant handlers. For the 201.9 ms handler (118.7 ms CPU),
+the watcher operations consumed 44.3 and 43.4 ms thread CPU over 142.9 and
+147.3 ms elapsed intervals. For the 201.1 ms handler (121.2 ms CPU), the watcher
+operations consumed 43.1 and 41.3 ms CPU over 151.7 and 151.2 ms. A third
+160.4 ms handler had no overlapping watcher operation above 10 ms CPU.
+These whole intervals overlap and are not additive. This is evidence of
+competing metadata work, not proof that watcher changes will solve the tail.
+The next investigation must preserve polling interval, scopes, event detection
+and debounce, and retain the existing native-entry snapshot optimization.
+
+### Verification and cleanup
+
+The final Assistant API/browser, dashboard lifecycle and timing-guard suite
+recorded **304 passes and one known baseline failure**. The separate Assistant
+CLI suite passed **67**, for **371 passes and one baseline failure** overall.
+`test_custom_attributes_browser` still times out at the same editor-save wait
+already reproduced against original code. The earlier preliminary suite recorded
+302 + 67 passes and that same failure; it is not added to the final count.
+Focused runs (54, 55 and finally 28 checks) overlap the broad coverage.
+
+Twenty-eight new cases compare whole responses across five storage generations,
+preserve source order and path results/errors, verify fresh metadata despite a
+preserved mtime, exercise additions/deletions/renames and workspace metadata,
+reject file/folder/metadata/dangling/loop symlinks, retain fragments and missing
+paths, cover root aliases and mid-scan relocation, reject an escaped fallback
+target, and bound only redundant root resolution. Existing content, migration,
+metadata, task/progress, path, editor and navigation checks remain included.
+
+Five Python files parse and `git diff --check` passes. Both production files
+match the saved final tested candidate. All seven native servers and both new
+HTTP servers stopped. The final owned process/directory inventory found no
+benchmark processes, Chrome profiles or fixture roots. No main-checkout files,
+user Assistant data, live server, user tmux sessions or runtime GC policy changed.
+
+Artifacts: `/tmp/lab-assistant-phases-{before,after}-{browser,server}.json`;
+`/tmp/lab-assistant-boundary-native-{after,control,repeat,final,final-repeat}-{browser,server}.json`;
+`/tmp/lab-assistant-boundary-http-{after,final}-{http,server}.json` and logs;
+`/tmp/lab-assistant-boundary-{summary,watcher-overlap,cleanup}.json`;
+`/tmp/lab-assistant-boundary-{core-tests,cli-tests,final-core-tests,final-cli-tests,regression,final-regression,final-fingerprint-tests}.log`;
+and separate preliminary/final saved candidate files.
+
+Reproduce with the checkout's Python environment:
+
+```sh
+python scripts/perf/lab_navigation_latency.py --assistant --assistant-notes 500 --samples 20 --extra-files 5000 --extra-file-types md,py,json,sql --git-changes 2500 --server-timings /tmp/assistant-boundary-new-server.json > /tmp/assistant-boundary-new-browser.json
+python scripts/perf/lab_assistant_latency.py --notes 500 --samples 20 --output /tmp/assistant-boundary-http-new
+```
+
+Add `--trace-assistant --trace-gc --trace-watchers --trace-file-scans` to the
+native command only for a separately labeled diagnostic. The global goal remains
+open for the retained Assistant/API failures and earlier search, cold UI,
+terminal creation/loaded typing and physical parity gaps. Main merge remains
+pending after the earlier automatic approval rejection; no merge, push or live
+server restart was attempted.
