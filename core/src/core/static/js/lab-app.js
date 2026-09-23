@@ -1919,6 +1919,8 @@
     const arrow = btn.querySelector('.folder-arrow');
     if (arrow) arrow.classList.toggle('open', isOpen);
     if (scope && path) _treeSetOpen(scope, path, isOpen);
+    const sidebar = isOpen ? children.closest('#sidebar') : null;
+    if (sidebar) _primeSidebarLayout(sidebar);
   }
 
   function applyIframeDarkMode(iframe) {
@@ -9037,9 +9039,12 @@
         && mounted.first === sidebar.firstChild && mounted.last === sidebar.lastChild
         && mounted.count === sidebar.childNodes.length;
     if (preserveLive && mountedIsCurrent && mounted.markup === markup) return false;
-    const remember = () => _sidebarMountedMarkup.set(sidebar, {
-      scope, markup, first: sidebar.firstChild, last: sidebar.lastChild, count: sidebar.childNodes.length,
-    });
+    const remember = () => {
+      _sidebarMountedMarkup.set(sidebar, {
+        scope, markup, first: sidebar.firstChild, last: sidebar.lastChild, count: sidebar.childNodes.length,
+      });
+      _primeSidebarLayout(sidebar);
+    };
     let cached = _sidebarMarkupCache.get(scope);
     // This identity proof lives only during this synchronous replacement;
     // retaining it in the cache would keep older template subtrees alive.
@@ -9078,6 +9083,62 @@
     // cached decorations only when a pristine node was actually mounted.
     return changes.cloned;
   }
+
+  const _sidebarLayoutJobs = new WeakMap();
+  function _cancelSidebarLayout(sidebar) {
+    if (!sidebar) return;
+    const previous = _sidebarLayoutJobs.get(sidebar);
+    if (previous) {
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(previous.handle);
+      previous.groups.length = 0;
+      previous.first = previous.last = null;
+    }
+    _sidebarLayoutJobs.delete(sidebar);
+  }
+  function _resetSidebarLayout(sidebar) {
+    if (!sidebar) return;
+    _cancelSidebarLayout(sidebar);
+    sidebar.querySelectorAll('[data-sidebar-layout-ready]').forEach(group => group.removeAttribute('data-sidebar-layout-ready'));
+  }
+  function _primeSidebarLayout(sidebar) {
+    if (!sidebar) return;
+    _cancelSidebarLayout(sidebar);
+    if (!sidebar.isConnected || document.hidden || document.body.classList.contains('sidebar-resizing')
+        || typeof requestIdleCallback !== 'function') return;
+    const groups = Array.from(sidebar.querySelectorAll('.sidebar-recent-children:not([data-sidebar-layout-ready])'));
+    if (!groups.length) return;
+    // Prime one existing group per idle callback. Otherwise native find or
+    // browser content extraction can force every skipped group to lay out in
+    // one long task. Rows and their adaptive sizing stay unchanged; only live
+    // groups are decorated, never the pristine cached templates.
+    const job = {groups, index: 0, handle: null, first: sidebar.firstChild,
+      last: sidebar.lastChild, count: sidebar.childNodes.length};
+    _sidebarLayoutJobs.set(sidebar, job);
+    const finish = () => {
+      if (_sidebarLayoutJobs.get(sidebar) === job) _sidebarLayoutJobs.delete(sidebar);
+      job.groups.length = 0;
+      job.first = job.last = null;
+    };
+    const advance = () => {
+      if (_sidebarLayoutJobs.get(sidebar) !== job || !sidebar.isConnected || document.hidden
+          || sidebar.firstChild !== job.first || sidebar.lastChild !== job.last
+          || sidebar.childNodes.length !== job.count) { finish(); return; }
+      const group = job.groups[job.index++];
+      // Recent files are already grouped into at most 200 direct rows. Very
+      // wide folder containers can exceed that; leave those to normal layout.
+      if (sidebar.contains(group) && group.children.length <= 200
+          && !group.closest('.sidebar-folder-children:not(.open)')) {
+        group.setAttribute('data-sidebar-layout-ready', '');
+        group.getBoundingClientRect();
+      }
+      if (job.index < job.groups.length) job.handle = requestIdleCallback(advance, {timeout: 100});
+      else finish();
+    };
+    job.handle = requestIdleCallback(advance, {timeout: 100});
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _primeSidebarLayout(document.getElementById('sidebar'));
+  });
 
   // Re-renders just the workspace file sidebar from scratch. Pulled out
   // of showWorkspaceInfo so the mtime poller can call it independently
@@ -11653,6 +11714,7 @@
         startSidebar = currentSidebarPct();
         startTerm = currentTermPct();
         document.body.classList.add(dragClass);
+        if (resizerId === 'sidebarResizer') _resetSidebarLayout(document.getElementById('sidebar'));
         resizer.classList.add('dragging');
         e.preventDefault();
       });
@@ -11667,6 +11729,7 @@
         document.body.classList.remove(dragClass);
         resizer.classList.remove('dragging');
         onDrop();
+        if (resizerId === 'sidebarResizer') _primeSidebarLayout(document.getElementById('sidebar'));
         refit();
         if (typeof termSendResize === 'function') termSendResize();
       });
@@ -11702,12 +11765,15 @@
     // but if the user shrinks past the pixel minimums we rebalance so no
     // column collapses below its readability threshold.
     window.addEventListener('resize', () => {
+      const sidebar = document.getElementById('sidebar');
+      _resetSidebarLayout(sidebar);
       const sbPx = currentSidebarPct() * vw() / 100;
       const trPx = currentTermPct() * vw() / 100;
       if (sbPx < MIN_SIDEBAR_PX) setSidebarPct(pxToPct(MIN_SIDEBAR_PX));
       if (trPx < MIN_TERM_PX) setTermPct(pxToPct(MIN_TERM_PX));
       refit();
       if (typeof termSendResize === 'function') termSendResize();
+      _primeSidebarLayout(sidebar);
     });
   })();
 

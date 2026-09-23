@@ -1123,3 +1123,92 @@ typing still miss 50 ms, the earlier 202.20 ms file-list request and other
 outliers are not proven resolved, and the nonempty pending registry retains its
 previous cost. The full goal remains active. Main merge/push and live-server
 restart are not included.
+
+## Follow-on: prepare sidebar layout in short idle callbacks
+
+The current build still reproduced Chrome's native extraction pause: a
+**126.73 ms** content build enclosed **120.54 ms** of forced layout, causing
+130.30 ms typing latency in a trace. Grid file rows preserved geometry but made
+that layout **141.15 ms**, so they were removed. Filename inline-size containment
+left **107.05 ms** of layout and was also removed. The final implementation keeps
+the original flex rows and their adaptive sizing.
+
+After mounting, the sidebar now prepares one existing recent-file group per idle
+callback. A live `data-sidebar-layout-ready` attribute changes that group's
+content visibility from auto to visible, allowing later native search/content
+extraction to inspect already-laid-out rows. Every file remains present; browser
+features, accessibility and native find are preserved. This spreads work rather
+than claiming less total CPU. Containers above 200 direct children remain on
+normal layout, so this is not a bound for every possible tree shape.
+
+Jobs verify the mounted first/last children, child count, connection and page
+visibility. Replacements cancel prior callbacks and release all retained DOM
+references. Closed folders stay unprepared; opening a folder or making the page
+visible resumes preparation. Markers never enter pristine templates. An attribute
+is necessary because anonymous flat groups use their class as their reconciliation
+key. The existing four-scope/60,000-element cache bounds remain unchanged.
+
+Native drag checks caught a regression before the checkpoint: prepared groups
+increased median/maximum sidebar drag time from **26.90/35.20 ms** to
+**143.80/150.20 ms**. Preparation now resets at sidebar drag start and window
+resize, stays suspended during dragging, and resumes after release. Final native
+drags measured **17.50 ms median / 30.30 ms maximum**. Their 10 workspace and 10
+document clicks also passed (147.40 / 68.70 ms maxima); all 183 APIs stayed below
+54.80 ms. The new `--resize` probe timestamps mouse-down through release without
+waiting for renderer acknowledgments between events, verifies the actual width,
+and includes the final rendered frame. Artifacts:
+`/tmp/lab-idle-layout-resize-{before,after,fixed}-{browser,server}.json`.
+
+Validation: **120 tests passed**, including real Chrome checks for 5,000-file
+nested and flat trees, geometry, native find, scrolling, hover/keyboard/actions,
+themes/zoom, icons and Git badges. Prepared rows retain identity/focus across
+changed-file reconciliation; stripping only live preparation markers produces
+the exact full-render DOM, and cached templates remain pristine. Scheduler tests
+cover stale callbacks, job replacement, hidden/disconnected views, closed folders,
+unsupported browsers, width invalidation and suspension during drag. The final
+side-by-side screenshot was inspected. Logs/screenshots:
+`/tmp/lab-idle-layout-final-tests.log` and `/tmp/lab-idle-layout-final-qa/`.
+
+The typing probe now retains buffered long tasks and starts optional tracing
+before Page.navigate, so moving work before terminal readiness cannot conceal a
+new startup pause. The final full-startup trace had **54 idle callbacks**, maximum
+**18.37 ms**, totaling 249.62 ms. Largest Layout was **14.23 ms**. Chrome's later
+content build took **18.17 ms**; its former single 120 ms layout did not recur.
+A **67 ms** task before terminal readiness is still recorded, as are all later
+input samples. Traced normal/loaded typing maxima were 37.50/53.20 ms and all
+107 APIs stayed below 45.10 ms. Artifact:
+`/tmp/lab-idle-layout-trace-fixed.json` plus matching browser/server sidecars.
+Earlier experiments are retained at `/tmp/lab-row-layout-{before,grid,contained,prime}-*`.
+
+Untraced comparisons used exact `786afb9` JavaScript/CSS for the prior version,
+fresh browsers, 5,000 `ipynb,pdf,svg,js` files, every one of 100 keys per phase,
+and five verified fixture writes during the loaded phase:
+
+| Version / layout / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Prior, nested, normal | 3.40 ms | 23.50 ms | 86.00 ms | 2 |
+| Candidate, nested, normal | 11.60 ms | 26.70 ms | 43.20 ms | 0 |
+| Candidate, flat, normal | 12.10 ms | 27.10 ms | 37.20 ms | 0 |
+| Prior, nested, changing files | 3.40 ms | 36.20 ms | 85.40 ms | 2 |
+| Candidate, nested, changing files | 12.00 ms | 48.10 ms | 59.90 ms | 4 |
+| Candidate, flat, changing files | 3.80 ms | 42.80 ms | 55.60 ms | 2 |
+| Final resize-safe candidate, nested, normal | 10.60 ms | 27.70 ms | 30.90 ms | 0 |
+| Final resize-safe candidate, nested, changing files | 10.10 ms | 42.00 ms | 66.20 ms | 3 |
+
+Normal typing met 50 ms in these candidate runs, but medians/p95 did not uniformly
+improve and loaded typing still failed. All keys/file changes were verified,
+without input, HTTP, network, browser or timestamp errors. API maxima for the
+four untraced runs were 116.70/148.50/102.40/115.60 ms over 104/104/105/103 requests;
+all correlated to server IDs. Every owned terminal was removed and fixture server
+stopped. Artifacts: `/tmp/lab-idle-layout-final-{before,after,flat}-{browser,server}.json`
+and `/tmp/lab-idle-layout-typing-fixed-{browser,server}.json`.
+
+Separate nested/flat navigation runs passed **80 clicks each**. Workspace maxima
+were **161.40 / 151.80 ms**, document maxima **71.10 / 63.40 ms**, and all 660/657
+APIs stayed below **76.50 / 76.00 ms**. Artifacts:
+`/tmp/lab-idle-layout-final-navigation{,-flat}-{browser,server}.json`.
+
+Remaining work includes changing-file typing, the pre-readiness task, earlier
+request outliers, larger/unusual tree shapes and UI actions not yet measured.
+The overall goal remains active. No main merge, push or live-server restart is
+included.

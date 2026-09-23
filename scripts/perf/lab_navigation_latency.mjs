@@ -231,12 +231,56 @@ async function main() {
       if(Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Mouse event timestamp did not match dispatched source time');
       await sleep(100);
     }
+    if(process.env.LAB_PERF_SIDEBAR_RESIZE==='1') {
+      // Compare steady-state drags as well as the early navigation above.
+      // Input timestamps cover mouse-down through release, without waiting for
+      // renderer acknowledgments between the three native events.
+      const readyDeadline=Date.now()+5000;
+      while(!await evaluate(`typeof _sidebarLayoutJobs==='undefined' || !_sidebarLayoutJobs.has(document.getElementById('sidebar'))`)) {
+        if(Date.now()>readyDeadline)throw new Error('Sidebar layout preparation did not finish');
+        await sleep(20);
+      }
+      for(let i=0;i<samples;i++) {
+        const width=i%2?340:200;
+        const point=await evaluate(`(()=>{
+          const resizer=document.getElementById('sidebarResizer'),r=resizer.getBoundingClientRect();
+          const x=r.x+r.width/2,y=r.y+r.height/2;
+          if(document.elementFromPoint(x,y)!==resizer)throw new Error('Sidebar resizer is not hittable');
+          window.__resizeProbe={done:false};
+          resizer.addEventListener('mousedown',event=>{
+            __resizeProbe.start=event.timeStamp;__resizeProbe.sourceEpoch=performance.timeOrigin+event.timeStamp;
+            __resizeProbe.queue=performance.now()-event.timeStamp;
+          },{capture:true,once:true});
+          document.addEventListener('mouseup',()=>requestAnimationFrame(()=>setTimeout(()=>{
+            __resizeProbe.width=document.getElementById('sidebar').getBoundingClientRect().width;
+            __resizeProbe.dragging=document.body.classList.contains('sidebar-resizing');
+            __resizeProbe.ms=performance.now()-__resizeProbe.start;__resizeProbe.done=true;
+          },0)),{capture:true,once:true});
+          return {x,y};
+        })()`);
+        const sentEpoch=Date.now();
+        await Promise.all([
+          client.send('Input.dispatchMouseEvent',{type:'mousePressed',timestamp:sentEpoch/1000,...point,button:'left',clickCount:1}),
+          client.send('Input.dispatchMouseEvent',{type:'mouseMoved',timestamp:sentEpoch/1000,x:width,y:point.y,button:'left',buttons:1}),
+          client.send('Input.dispatchMouseEvent',{type:'mouseReleased',timestamp:sentEpoch/1000,x:width,y:point.y,button:'left',clickCount:1}),
+        ]);
+        const deadline=Date.now()+5000;
+        while(!await evaluate('__resizeProbe.done')) {
+          if(Date.now()>deadline)throw new Error('Sidebar drag did not complete');
+          await sleep(10);
+        }
+        const row=await evaluate('__resizeProbe');
+        if(row.dragging || Math.abs(row.width-width)>2 || Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Sidebar drag failed: '+JSON.stringify(row));
+        rows.push({sample:i+1,kind:'resize',target:width,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,width:row.width});
+        await sleep(100);
+      }
+    }
     if(process.env.LAB_PERF_CPU_PROFILE) {
       const {profile}=await client.send('Profiler.stop');
       await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));
     }
     const stats={};
-    for(const kind of ['workspace','document']) {
+    for(const kind of new Set(rows.map(row=>row.kind))) {
       const group=rows.filter(r=>r.kind===kind), times=group.map(r=>r.ms).sort((a,b)=>a-b);
       stats[kind]={samples:group.length,first:group[0].ms,p50:times[Math.floor(times.length*.5)],p95:times[Math.ceil(times.length*.95)-1],max:times.at(-1)};
     }

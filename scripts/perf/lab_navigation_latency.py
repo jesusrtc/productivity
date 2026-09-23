@@ -31,6 +31,7 @@ parser.add_argument('--app-revision', help='Compare lab-app.js from a local git 
 parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
+parser.add_argument('--resize', action='store_true', help='Also measure native sidebar drags after navigation (not with --typing)')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
@@ -41,6 +42,8 @@ if args.typing and args.samples < 20:
     parser.error('--typing requires at least 20 samples per phase')
 if args.typing_updates and not args.typing:
     parser.error('--typing-updates requires --typing')
+if args.resize and args.typing:
+    parser.error('--resize measures navigation gestures and cannot be combined with --typing')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
 if args.trace_files and not args.server_timings:
@@ -181,6 +184,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
                                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
                                      'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
+                                     'LAB_PERF_SIDEBAR_RESIZE': str(int(args.resize)),
                                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                                 timeout=max(120, args.samples * 26))
     finally:

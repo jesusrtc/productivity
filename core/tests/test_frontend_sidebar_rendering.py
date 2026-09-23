@@ -152,6 +152,25 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
      await wait();
      assert(window.getSelection().anchorNode.parentElement.closest('#sidebar'),'Find-in-page skipped contained files');
      window.getSelection().removeAllRanges();
+     const deadline=performance.now()+4000;
+     while(_sidebarLayoutJobs.has(candidate)){
+      assert(performance.now()<deadline,'Idle layout preparation did not finish');await wait();
+     }
+     const retainedRow=candidate.querySelector('.sidebar-file');
+     const preparedGroup=retainedRow.closest('.sidebar-recent-children');
+     assert(preparedGroup.hasAttribute('data-sidebar-layout-ready'),'Live file group was not prepared');
+     retainedRow.querySelector('button').focus();
+     _replaceWorkspaceSidebarMarkup(candidate,nextMarkup,'large',true,nextParts);
+     assert(candidate.querySelector('.sidebar-file')===retainedRow,'Prepared flat/nested groups must still reconcile');
+     assert(document.activeElement===retainedRow.querySelector('button'),'Preparation lost retained focus during refresh');
+     assert(preparedGroup.hasAttribute('data-sidebar-layout-ready'),'Unchanged prepared group lost its layout');
+     assert(!_sidebarMarkupCache.get('large').template.content.querySelector('[data-sidebar-layout-ready]'),'Live layout state leaked into pristine templates');
+     _replaceWorkspaceSidebarMarkup(candidate,markup,'large',true,parts);
+     const clean=candidate.cloneNode(true);
+     clean.querySelectorAll('[data-sidebar-layout-ready]').forEach(group=>group.removeAttribute('data-sidebar-layout-ready'));
+     expected.innerHTML=markup;
+     assert(clean.innerHTML===expected.innerHTML,'Prepared/reconciled markup differs from a complete render');
+     document.activeElement.blur();
      // File icons also appear in other inline labels and as flex items. Cover
      // 13px and 14px glyphs, every extension family, symlinks, and both themes.
      const types=['note.md','code.py','query.sql','data.json','dep.lock','book.ipynb','app.js','types.ts','config.toml','page.html','app.css','run.sh','paper.pdf','Data.scala','table.csv','.gitignore','image.png','video.mp4','unknown.xyz'];

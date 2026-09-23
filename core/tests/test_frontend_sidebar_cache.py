@@ -13,6 +13,83 @@ from .test_frontend_terminal_ui import _js_between, _run_node
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_sidebar_idle_layout_keeps_jobs_scoped_and_yields_between_groups():
+    helper = _js_between('  const _sidebarLayoutJobs =',
+                         '  // Re-renders just the workspace file sidebar')
+    result = _run_node(r'''
+const assert=require('node:assert/strict');
+let number=0, currentSidebar=null;
+const callbacks=new Map(), cancelled=[], listeners={}, bodyClasses=new Set();
+let requestIdleCallback=(fn, options)=>{assert.equal(options.timeout,100);callbacks.set(++number,fn);return number};
+const cancelIdleCallback=id=>{cancelled.push(id);callbacks.delete(id)};
+const document={hidden:false,body:{classList:{contains:name=>bodyClasses.has(name)}},addEventListener:(type,fn)=>listeners[type]=fn,getElementById:()=>currentSidebar};
+function group({closed=false,count=100}={}){
+ return {closed,children:{length:count},ready:false,reads:0,
+  closest(){return this.closed?{}:null},
+  setAttribute(name,value){assert.equal(name,'data-sidebar-layout-ready');assert.equal(value,'');this.ready=true},
+  removeAttribute(name){assert.equal(name,'data-sidebar-layout-ready');this.ready=false},
+  getBoundingClientRect(){this.reads++;return {height:2200}}};
+}
+function sidebar(groups){
+ const first={},last={};
+ return {groups,isConnected:true,firstChild:first,lastChild:last,childNodes:[first,last],
+  contains(g){return this.groups.includes(g)},querySelectorAll(selector){return this.groups.filter(g=>selector.includes(':not')?!g.ready:g.ready)}};
+}
+function tick(){const [id,fn]=callbacks.entries().next().value;callbacks.delete(id);fn()}
+''' + helper + r'''
+const a=group(),b=group(),closed=group({closed:true}),wide=group({count:201});
+currentSidebar=sidebar([a,b,closed,wide]);
+_primeSidebarLayout(currentSidebar);
+assert.equal(a.reads,0,'scheduling must not synchronously lay out rows');
+tick();assert.equal(a.reads,1);assert.equal(b.reads,0,'one group per callback');
+tick();assert.equal(b.reads,1);
+tick();tick();
+assert.equal(closed.ready,false,'closed folders stay closed/unprepared');
+assert.equal(wide.ready,false,'wide unbounded containers stay on normal layout');
+assert.equal(_sidebarLayoutJobs.has(currentSidebar),false,'completed job is released');
+
+const oldGroup=group(),newGroup=group();
+currentSidebar=sidebar([oldGroup]);_primeSidebarLayout(currentSidebar);
+const stale=callbacks.values().next().value,oldJob=_sidebarLayoutJobs.get(currentSidebar);
+currentSidebar.groups=[newGroup];_primeSidebarLayout(currentSidebar);
+assert.equal(oldJob.groups.length,0,'replacement releases old DOM references');
+assert.equal(oldJob.first,null);assert.equal(oldJob.last,null);
+stale();assert.equal(oldGroup.reads,0,'late cancelled callback cannot touch old rows');
+assert.equal(_sidebarLayoutJobs.has(currentSidebar),true,'late callback cannot delete newer job');
+tick();assert.equal(newGroup.reads,1);
+
+const swapped=group();currentSidebar=sidebar([swapped]);_primeSidebarLayout(currentSidebar);
+currentSidebar.firstChild={};tick();
+assert.equal(swapped.reads,0,'another view replacing the sidebar invalidates the job');
+assert.equal(_sidebarLayoutJobs.has(currentSidebar),false);
+
+const detached=group();currentSidebar=sidebar([detached]);_primeSidebarLayout(currentSidebar);
+currentSidebar.isConnected=false;tick();assert.equal(detached.reads,0);
+assert.equal(_sidebarLayoutJobs.has(currentSidebar),false);
+
+const hidden=group();currentSidebar=sidebar([hidden]);_primeSidebarLayout(currentSidebar);
+document.hidden=true;tick();assert.equal(hidden.reads,0);
+document.hidden=false;listeners.visibilitychange();tick();assert.equal(hidden.reads,1);
+
+closed.closed=false;currentSidebar=sidebar([closed]);_primeSidebarLayout(currentSidebar);
+tick();assert.equal(closed.reads,1,'newly opened group can be prepared');
+const duringResize=group();currentSidebar=sidebar([closed,duringResize]);_primeSidebarLayout(currentSidebar);
+_resetSidebarLayout(currentSidebar);
+assert.equal(closed.ready,false,'width changes invalidate prepared geometry');
+assert.equal(callbacks.size,0,'width changes cancel pending preparation');
+bodyClasses.add('sidebar-resizing');_primeSidebarLayout(currentSidebar);
+assert.equal(callbacks.size,0,'file refreshes during drag must not prepare offscreen groups');
+bodyClasses.delete('sidebar-resizing');_primeSidebarLayout(currentSidebar);tick();tick();
+assert.equal(closed.reads,2);assert.equal(duringResize.reads,1);
+requestIdleCallback=undefined;
+currentSidebar=sidebar([group()]);_primeSidebarLayout(currentSidebar);
+assert.equal(callbacks.size,0,'unsupported browsers retain ordinary layout');
+assert.equal(_sidebarLayoutJobs.has(currentSidebar),false);
+console.log(JSON.stringify({ok:true,cancelled:cancelled.length}));
+''')
+    assert result == {'ok': True, 'cancelled': 2}
+
+
 @pytest.mark.parametrize('repaint', [False, True])
 @pytest.mark.parametrize('state', ['fresh', 'stale', 'missing', 'changed-scope'])
 def test_retained_rows_refresh_git_without_repainting_fresh_cache(repaint, state):

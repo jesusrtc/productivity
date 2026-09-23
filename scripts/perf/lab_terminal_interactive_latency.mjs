@@ -153,6 +153,9 @@ async function main() {
         await sleep(20);
       }
     };
+    // Include preparation before the terminal is ready: moving layout earlier
+    // must not conceal a new long task during page/workspace startup.
+    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
     await client.send('Page.navigate',{url:baseUrl+'/?workspace='+encodeURIComponent(workspace)});
     await wait(`typeof termAttach==='function' && currentWorkspace?.path===${JSON.stringify(workspace)} && termSessions.some(s=>s.name===${JSON.stringify(name)})`,'Owned terminal did not appear in fixture UI');
     await evaluate(`(async()=>{
@@ -170,9 +173,9 @@ async function main() {
     await evaluate(`(()=>{
       const expected=${JSON.stringify(expected)}, marker=${JSON.stringify(marker)};
       const input=termXterm.element.querySelector('textarea');
-      const probe=window.__typing={rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],phase:null,loadTimer:null,inflight:null};
+      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],phase:null,loadTimer:null,inflight:null};
       probe.observer=new PerformanceObserver(list=>{for(const e of list.getEntries())probe.longtasks.push({at:e.startTime,ms:e.duration});});
-      probe.observer.observe({type:'longtask',buffered:false});
+      probe.observer.observe({type:'longtask',buffered:true});
       document.addEventListener('keydown',e=>{
         if(!/^[a-z]$/.test(e.key))return;
         const index=probe.events.length;
@@ -218,10 +221,9 @@ async function main() {
         if(loaded){probe.refresh();probe.loadTimer=setInterval(probe.refresh,500);}
       };
       probe.stop=async()=>{clearInterval(probe.loadTimer);await probe.inflight;};
-      probe.snapshot=()=>({rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,webgl:!!termXterm?._webglAddon});
+      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,webgl:!!termXterm?._webglAddon});
     })()`);
     if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');}
-    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
     for(const loaded of [false,true]) {
       await evaluate(`__typing.start(${loaded})`);
       const phase=loaded?'sidebar-refresh':'normal', phaseStart=performance.now(), commands=[];

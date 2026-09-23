@@ -1,5 +1,7 @@
 # Memory index
 
+- [Prepare sidebar layout in idle callbacks](sidebar-idle-layout-prepares-live-groups.md) — keep live preparation out of template keys, cancel stale jobs, and invalidate it before width changes
+
 - [Empty pending state skips path resolution](notebook-empty-pending-tracker-skips-resolution.md) — avoid filesystem work when no notebook is running; preserve live identity checks when the registry is nonempty
 
 - [All file icons share graphics](sidebar-all-icons-share-graphics.md) — one span per icon, inherited-color masks, theme-aware config fills, and native-scale pixel regression checks
