@@ -12223,7 +12223,8 @@
       kind,
       agent,
       badge: kind === 'claude' ? (agent || 'claude') : kind,
-      icon: linked ? fileIconHtml(linked) : kind !== 'claude' ? '💻'
+      icon: s?.linked_task?.document_id ? '<span class="term-document-icon" aria-hidden="true">▤</span>'
+        : linked ? fileIconHtml(linked) : kind !== 'claude' ? '💻'
         : agent === 'codex' ? '🧠'
         : agent === 'copilot' ? '🐙'
         : '🤖',

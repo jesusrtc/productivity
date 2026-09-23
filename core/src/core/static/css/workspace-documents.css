@@ -6,6 +6,7 @@
 .workspace-document-open { display:flex; align-items:center; text-align:left; gap:8px; min-width:0; flex:1; padding:5px 0; }
 .workspace-document-open span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .workspace-document-open span:first-child { color:#58a6c5; }
+.term-document-icon { color:#58a6c5; }
 .workspace-document-open:hover { color:var(--text-primary); }
 .workspace-document-remove { opacity:0; }
 .workspace-document:hover .workspace-document-remove, .workspace-document:focus-within .workspace-document-remove { opacity:1; }
