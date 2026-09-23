@@ -6,6 +6,7 @@ lifespan, authentication and watcher. Twenty repos include an empty repository
 and detached HEAD; hidden/non-repo entries must stay excluded. Each response
 checks all stable metadata and ordering, then a final mutation verifies fresh
 branch/commit data. This is endpoint timing, not browser or display latency.
+Use --clients 2 for independent HTTP clients released together each round.
 """
 import argparse
 import contextlib
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -36,9 +38,10 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=Path, required=True, help='Prefix for HTTP/server JSON reports')
 parser.add_argument('--repos', type=int, default=20)
 parser.add_argument('--samples', type=int, default=20)
+parser.add_argument('--clients', type=int, default=1, help='Concurrent clients per round')
 args = parser.parse_args()
-if args.repos < 1 or args.samples < 1:
-    parser.error('Use at least one repository and one sample')
+if args.repos < 1 or args.samples < 1 or not 1 <= args.clients <= 8:
+    parser.error('Use positive repositories/samples and between one and eight clients')
 PREFIX = args.output
 PREFIX.parent.mkdir(parents=True, exist_ok=True)
 if any(Path(str(PREFIX) + suffix).exists() for suffix in ('-http.json', '-server.json')):
@@ -47,7 +50,11 @@ COUNT = args.repos
 source_paths = [str(CHECKOUT / 'core/src'), str(CHECKOUT / 'core/cli/src'), str(CHECKOUT / 'scripts/perf')]
 sys.path[:0] = source_paths
 os.environ['PYTHONPATH'] = os.pathsep.join(source_paths)
-result = {'samples': [], 'repoCount': COUNT, 'budgetMs': 200, 'serverStopped': False}
+result = {
+    'samples': [], 'concurrency': [], 'repoCount': COUNT,
+    'clients': args.clients, 'rounds': args.samples,
+    'budgetMs': 200, 'serverStopped': False,
+}
 with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
     base = Path(folder).resolve()
     root = base / 'vault'
@@ -130,15 +137,53 @@ with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
             if not thread.is_alive() or time.monotonic() > deadline:
                 raise RuntimeError('Fixture server failed')
             time.sleep(0.01)
-        with httpx.Client(base_url=url, timeout=30, cookies={auth.SESSION_COOKIE: cookie}) as client:
-            for sample in range(args.samples):
+        with contextlib.ExitStack() as clients_scope:
+            clients = [clients_scope.enter_context(httpx.Client(
+                base_url=url, timeout=30, cookies={auth.SESSION_COOKIE: cookie},
+            )) for _ in range(args.clients)]
+            workers = clients_scope.enter_context(ThreadPoolExecutor(max_workers=args.clients))
+            barrier = threading.Barrier(args.clients)
+
+            def read_catalog(client_index, sample):
+                barrier.wait(timeout=10)
+                started_epoch = time.time() * 1000
                 started = time.perf_counter()
-                response = client.get('/api/code-search/repos')
-                ms = (time.perf_counter() - started) * 1000
-                measurement = {'sample': sample + 1, 'ms': ms, 'status': response.status_code}
-                result['samples'].append(measurement)
-                response.raise_for_status()
-                measurement['rowsVerified'] = verify_rows(response.json(), expected)
+                try:
+                    response = clients[client_index].get('/api/code-search/repos')
+                except Exception as exc:
+                    return {
+                        'sample': sample + 1, 'client': client_index + 1,
+                        'startEpoch': started_epoch, 'startMonotonicMs': started * 1000,
+                        'ms': (time.perf_counter() - started) * 1000, 'error': repr(exc),
+                    }, None
+                return {
+                    'sample': sample + 1, 'client': client_index + 1,
+                    'startEpoch': started_epoch, 'startMonotonicMs': started * 1000,
+                    'ms': (time.perf_counter() - started) * 1000,
+                    'status': response.status_code,
+                }, response
+
+            for sample in range(args.samples):
+                if args.clients == 1:
+                    completed = [read_catalog(0, sample)]
+                else:
+                    futures = [workers.submit(read_catalog, index, sample) for index in range(args.clients)]
+                    completed = [future.result(timeout=35) for future in futures]
+                result['samples'].extend(measurement for measurement, _ in completed)
+                if args.clients > 1:
+                    starts = [measurement['startMonotonicMs'] for measurement, _ in completed]
+                    overlap = min(measurement['startMonotonicMs'] + measurement['ms']
+                                  for measurement, _ in completed) - max(starts)
+                    result['concurrency'].append({
+                        'sample': sample + 1, 'startSkewMs': max(starts) - min(starts),
+                        'overlapMs': overlap,
+                    })
+                    assert overlap > 0, 'HTTP requests did not overlap'
+                for measurement, response in completed:
+                    if response is None:
+                        raise RuntimeError(measurement['error'])
+                    response.raise_for_status()
+                    measurement['rowsVerified'] = verify_rows(response.json(), expected)
                 time.sleep(0.025)
             # Keep all rows fresh: mutate one repo and check every returned row.
             changed = repos / expected[0]['name']
@@ -151,7 +196,7 @@ with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
                 'subj': 'Fresh fixture result',
             })
             started = time.perf_counter()
-            response = client.get('/api/code-search/repos')
+            response = clients[0].get('/api/code-search/repos')
             ms = (time.perf_counter() - started) * 1000
             result['freshRead'] = {'ms': ms, 'status': response.status_code}
             response.raise_for_status()

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Apple Git resolution keeps its launcher environment](apple-git-resolution-retains-launcher-environment.md) — resolve once per catalog request, preserve SDK/toolchain environment and custom Git selection, retain concurrent HTTP failures
+
 - [Repository summaries share bounded Git workers](repository-summaries-share-bounded-git-workers.md) — overlap independent fresh reads, retain order and fallbacks, and share the eight-worker bound across requests
 - [Reader controls preserve actual input cadence](terminal-reader-controls-need-matched-input-cadence.md) — sleep lateness confounded the first thread comparison; corrected controls did not establish a transport fix
 

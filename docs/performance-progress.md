@@ -5261,3 +5261,136 @@ scope question about completion versus immediate acknowledgment for inherently
 long notebook/Git operations remains unanswered; those API semantics are
 unchanged. Main merge remains pending after the earlier automatic approval
 rejection. No merge, push or live user-server restart was attempted.
+
+## Preserve Apple's Git context while avoiding repeated launcher work — 2026-09-23
+
+This checkpoint starts from `bc6d8f5`. The previous turn made concrete progress
+by committing the bounded repository-summary reads. Its single-client results
+did not prove concurrent-request latency. The current worktree was clean at
+that commit before extending the workload.
+
+### Concurrent requests expose repeated process-launch cost
+
+`lab_code_search_latency.py --clients 2` now runs independent authenticated HTTP
+clients, released together for each of 20 rounds, against the unchanged
+20-repository fixture. Every response still verifies ordered stable metadata,
+empty/detached repositories, Unicode/tab-containing subjects and exclusions.
+A final branch/commit mutation checks all returned rows. The first pair is
+retained. Default `--clients 1` keeps the original direct call path; no worker
+thread is started for its request dispatch. The probe supports one through
+eight clients and retains HTTP failures before validation.
+
+Epoch timestamps are retained, and the final probe also records monotonic
+start times, start skew and actual overlap. Non-overlapping concurrent requests
+fail. In the final candidate, the maximum start skew was **0.365 ms**, and every
+pair overlapped for at least **126.05 ms**. This is HTTP completion timing, not
+browser dispatch or paint.
+
+The initial eight-worker baseline missed 200 ms on **21/40 requests**, maximum
+290.3 ms. Simply raising the limit to sixteen did not solve the problem:
+**27/40 misses**, median 203.1 ms, maximum 243.5 ms. That limit was removed.
+
+A private-process A/B/B/A control used the same owned repository, command,
+exact Git output and 100 samples per run. Removing `communicate`'s timeout did
+not materially change the roughly 10.6 ms command median; final process waits
+were about **0.005–0.007 ms**, while spawning took roughly 1.1–1.2 ms. No timeout
+was removed in production.
+
+PATH selects `/usr/bin/git` on this Mac, which delegates through Apple's
+command-line tool selection. Apple documents these launchers and `xcrun` in
+[its command-line tools FAQ](https://developer.apple.com/library/archive/technotes/tn2339/_index.html).
+A separate A/B/B/A control compared that launcher with the executable returned
+by `xcrun --find git`. All 400 outputs matched. Command medians were **10.56,
+4.94, 4.95 and 10.68 ms**, respectively. That component comparison suggested
+an endpoint optimization; it did not itself prove HTTP latency.
+
+### Retained production behavior
+
+For a nonempty repository catalog on Darwin, and only when PATH selects the
+exact `/usr/bin/git` launcher, `_git_invocation` resolves the selected Git once
+for that request. It also asks `xcrun /usr/bin/env -0` for the launcher-prepared
+environment. Directly using the Git binary without this changed **CPATH,
+LIBRARY_PATH, MANPATH and SDKROOT** in a controlled comparison. Supplying the
+prepared environment made the full child environment equal in default,
+custom-include/library/manual-path, and explicit developer-directory/SDK cases.
+The last case used the selected Command Line Tools directory and `SDKROOT=macosx`.
+
+The executable and environment are request-local, with no persistent cache.
+Environment values are neither logged nor returned. Each request therefore
+rechecks tool selection. Other platforms, custom PATH Git installations and
+wrappers retain their original path. Empty catalogs skip discovery. Failed,
+malformed, unavailable or timed-out discovery falls back to ordinary Git.
+If the selected executable disappears, loses permission, or cannot execute
+during a toolchain update, the same read command falls back to the launcher.
+Existing Git arguments, per-command timeouts, response fields, parsing and
+legacy failure behavior are retained. Both commands for every repository share
+the captured invocation; catalog ordering and fresh metadata remain intact.
+
+The shared Git worker limit remains **eight**. A resolved-Git twelve-worker
+trial passed but had essentially the same median as the eight-worker repeat
+(149.1 versus 149.5 ms), so there was insufficient evidence to retain the larger
+limit. No user PATH, Git installation, developer-tool selection or environment
+setting was changed.
+
+### Complete HTTP results
+
+| Two-client run, in measured order | Median | Maximum | Misses / 40 | Final fresh read |
+| --- | ---: | ---: | ---: | ---: |
+| Original eight-worker code | 223.7 ms | 290.3 ms | 21 | 124.0 ms |
+| Rejected sixteen-worker limit | 203.1 ms | 243.5 ms | 27 | 110.1 ms |
+| Request-local Git context, eight workers | 151.7 ms | 208.8 ms | 1 | 82.0 ms |
+| Eight-worker repeat | 149.5 ms | 195.9 ms | 0 | 108.8 ms |
+| Rejected twelve-worker limit with context | 149.1 ms | 188.9 ms | 0 | 85.2 ms |
+| Restored original eight-worker control | 205.7 ms | 262.9 ms | 20 | 114.3 ms |
+| Restored final eight-worker candidate | 150.2 ms | 187.0 ms | 0 | 83.2 ms |
+
+The two later retained eight-worker runs passed **80/80 concurrent requests**
+and both freshness checks under 200 ms. Their maximum server ASGI time was
+194.30 ms; the final run's server maximum was 183.53 ms. The earlier **208.8 ms
+HTTP / 207.89 ms server miss remains recorded**. The before/control and candidate
+runs are not presented as a guarantee against all future tail latency.
+
+A final single-repository check passed **21/21 requests**: first/maximum 81.5 ms,
+median 34.2 ms and fresh-read 32.1 ms; maximum server time 80.15 ms. This catches
+regression from the extra request-local discovery on small catalogs.
+
+### Statistics coverage, correctness and cleanup
+
+The unchanged statistics endpoint also passed **21/21 complete HTTP requests**
+with one real owned repository containing **10,001 commits, 5,000 tracked files
+and 33 authors**. HTTP first/maximum was 141.7 ms, median 101.5 ms; maximum server
+time was 140.42 ms. A subsequent new commit, tracked file and remote URL change
+returned all four exact updated fields in 98.3 ms. History was generated with
+Git fast-import in the disposable repository; no user repository was changed.
+Statistics still uses its original Git commands and invocation path. This
+extends coverage, not a statistics-endpoint optimization or proof for arbitrary
+history sizes.
+
+**96 regression checks passed**, covering repository/search behavior, native
+launcher-environment equality, terminal diagnostics/output probes and WebSocket
+reliability. After adding three fallback cases, **41 focused repository/search
+checks passed**. These counts overlap. Checks include custom/absent PATH Git,
+non-Darwin behavior, executable validation, malformed and binary-safe environment
+parsing, discovery failures/timeouts, selected-tool execution failures, original
+Git errors, request-local selection, fresh metadata, shared bounds and ordering.
+No production terminal code was changed. Syntax checks and `git diff --check`
+passed. All nine HTTP fixtures stopped their servers and removed their owned
+temporary directories. Component subprocess controls completed/reaped every
+child; no user tmux session or live Lab server was reconfigured or stopped.
+
+Artifacts: `/tmp/lab-code-search-{concurrent-before,concurrent-sixteen,concurrent-resolved,concurrent-resolved-repeat,concurrent-resolved-twelve,concurrent-control,concurrent-final,resolved-single,stats-current}-{http,server}.json`
+and logs; `/tmp/lab-code-search-resolved-summary.py` and `.json`;
+`/tmp/lab-code-search-stats-benchmark.py`;
+`/tmp/lab-git-{wait,wrapper}-control.py`, `.json` and `.log`;
+`/tmp/lab-git-env-equivalence.json` (key names and equality only, no environment
+values); `/tmp/lab-code-search-invocation-tests.log`,
+`/tmp/lab-code-search-resolved-final-tests.log` and
+`/tmp/lab-code-search-resolved-fallback-tests.log`; the final focused rerun
+is `/tmp/lab-code-search-resolved-fallback-final-tests.log` and keeps any
+environment-difference failure output limited to variable names.
+
+The overall goal remains open: earlier cold terminal creation, output typing,
+IME/navigation misses, unmeasured UI/API paths, physical/iTerm parity and the
+scope of inherently long-running operation completion still need work. The
+main merge remains pending after the earlier automatic approval rejection.
+No merge, push or live user-server restart was attempted.

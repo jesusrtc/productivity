@@ -9,6 +9,11 @@ import pytest
 from core.routes import code_search
 
 
+@pytest.fixture(autouse=True)
+def normal_git_invocation(monkeypatch):
+    monkeypatch.setattr(code_search, "_git_invocation", lambda: None)
+
+
 def request_for(root):
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
         index_cache=SimpleNamespace(root=root),
@@ -35,7 +40,8 @@ def summary_pool(monkeypatch):
 
 
 def test_missing_and_empty_catalog_never_runs_git(tmp_path, monkeypatch):
-    monkeypatch.setattr(code_search, "_repo_summary", lambda path: pytest.fail(str(path)))
+    monkeypatch.setattr(code_search, "_repo_summary", lambda path, invocation: pytest.fail(str(path)))
+    monkeypatch.setattr(code_search, "_git_invocation", lambda: pytest.fail("empty catalog resolved Git"))
     assert code_search.list_repos(request_for(tmp_path)) == []
     (tmp_path / "repositories").mkdir()
     (tmp_path / "repositories" / "notes").mkdir()
@@ -46,7 +52,7 @@ def test_missing_and_empty_catalog_never_runs_git(tmp_path, monkeypatch):
 
 def test_single_worktree_repository(tmp_path, monkeypatch, summary_pool):
     entry = repository(tmp_path, "one", worktree=True)
-    monkeypatch.setattr(code_search, "_repo_summary", lambda path: {"path": str(path)})
+    monkeypatch.setattr(code_search, "_repo_summary", lambda path, invocation: {"path": str(path)})
     assert code_search.list_repos(request_for(tmp_path)) == [{"path": str(entry)}]
 
 
@@ -56,7 +62,7 @@ def test_out_of_order_completion_preserves_catalog_order(tmp_path, monkeypatch, 
     later_finished = Event()
     completed = []
 
-    def summary(path):
+    def summary(path, invocation):
         if path.name == "Alpha":
             assert later_finished.wait(2), "independent repositories did not overlap"
         else:
@@ -81,7 +87,7 @@ def test_concurrent_requests_share_worker_bound(tmp_path, monkeypatch, summary_p
     lock = Lock()
     active = maximum = calls = 0
 
-    def summary(path):
+    def summary(path, invocation):
         nonlocal active, maximum, calls
         with lock:
             active += 1
@@ -120,7 +126,7 @@ def test_summaries_read_fresh_git_results_and_preserve_tabs(tmp_path, monkeypatc
     calls = []
     lock = Lock()
 
-    def git_out(path, args, timeout=5):
+    def git_out(path, args, timeout=5, *, invocation=None):
         with lock:
             calls.append((path.name, tuple(args), timeout))
         if args[0] == "rev-parse":
@@ -142,7 +148,32 @@ def test_summaries_read_fresh_git_results_and_preserve_tabs(tmp_path, monkeypatc
 
 @pytest.mark.parametrize("branch,last", [("", ""), ("HEAD", "malformed"), ("feature", "a\tb\tc")])
 def test_empty_detached_or_failed_git_preserves_fallback(monkeypatch, branch, last):
-    monkeypatch.setattr(code_search, "_git_out", lambda path, args: branch if args[0] == "rev-parse" else last)
+    monkeypatch.setattr(code_search, "_git_out", lambda path, args, **kwargs: branch if args[0] == "rev-parse" else last)
     assert code_search._repo_summary(Path("fixture")) == {
         "name": "fixture", "branch": branch or "HEAD", "last": {},
     }
+
+
+def test_each_catalog_resolves_once_and_shares_invocation(tmp_path, monkeypatch, summary_pool):
+    for name in ("one", "two"):
+        repository(tmp_path, name)
+    invocations = [("/sdk-one/git", {"SDKROOT": "one"}), ("/sdk-two/git", {"SDKROOT": "two"})]
+    pending = iter(invocations)
+    resolved = []
+    calls = []
+
+    def resolve():
+        value = next(pending)
+        resolved.append(value)
+        return value
+
+    def summary(path, invocation):
+        calls.append((path.name, invocation))
+        return {"name": path.name}
+
+    monkeypatch.setattr(code_search, "_git_invocation", resolve)
+    monkeypatch.setattr(code_search, "_repo_summary", summary)
+    for invocation in invocations:
+        assert len(code_search.list_repos(request_for(tmp_path))) == 2
+        assert all(value is invocation for _, value in calls[-2:])
+    assert resolved == invocations and len(calls) == 4

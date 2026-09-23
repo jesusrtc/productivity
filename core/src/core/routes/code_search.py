@@ -19,10 +19,13 @@ hang a worker indefinitely.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from itertools import repeat
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +55,46 @@ _SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 _REPO_SUMMARY_EXECUTOR = ThreadPoolExecutor(
     max_workers=8, thread_name_prefix="code-search-repo",
 )
+
+_GitInvocation = tuple[str, dict[str, str]]
+
+
+def _git_invocation() -> _GitInvocation | None:
+    """Resolve Apple's launcher once per catalog, including its environment.
+
+    Keep PATH-selected installations/wrappers untouched. Resolve every request
+    so developer-directory/SDK changes do not leave a stale executable cache.
+    Values from `env` stay request-local and are never included in responses.
+    """
+    if sys.platform != "darwin" or shutil.which("git") != "/usr/bin/git":
+        return None
+    try:
+        found = subprocess.run(
+            ["/usr/bin/xcrun", "--find", "git"], capture_output=True,
+            text=True, timeout=1.0,
+        )
+        executable = found.stdout.strip()
+        if (
+            found.returncode or not os.path.isabs(executable)
+            or executable == "/usr/bin/git" or not os.path.isfile(executable)
+            or not os.access(executable, os.X_OK)
+        ):
+            return None
+        prepared = subprocess.run(
+            ["/usr/bin/xcrun", "/usr/bin/env", "-0"], capture_output=True, timeout=1.0,
+        )
+        if prepared.returncode or not prepared.stdout.endswith(b"\0"):
+            return None
+        environment = {}
+        for entry in prepared.stdout[:-1].split(b"\0"):
+            key, separator, value = entry.partition(b"=")
+            if not separator or not key:
+                return None
+            environment[os.fsdecode(key)] = os.fsdecode(value)
+        return executable, environment
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
+        # Discovery is an optimization; ordinary Git retains error handling.
+        return None
 
 
 def _validate_repo(root: Path, repo: str) -> Path:
@@ -87,29 +130,40 @@ def _git(
     cwd: Path,
     args: list[str],
     timeout: float = 5.0,
+    *,
+    invocation: _GitInvocation | None = None,
 ) -> tuple[int, str, str]:
     """Run `git <args>` inside `cwd` with a timeout.
 
-    Returns (returncode, stdout, stderr). Never raises — timeouts and
-    missing-git both surface as a non-zero returncode + empty stdout.
+    Returns (returncode, stdout, stderr). Timeouts and missing-git
+    surface as a non-zero returncode + empty stdout.
     """
     try:
         proc = subprocess.run(
-            ["git", "-C", str(cwd), *args],
+            [invocation[0] if invocation else "git", "-C", str(cwd), *args],
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=invocation[1] if invocation else None,
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
         return 124, "", f"git timed out after {timeout}s"
-    except FileNotFoundError:
-        return 127, "", "git executable not found"
+    except OSError as exc:
+        if invocation:
+            # A selected tool can disappear during an SDK switch/update.
+            return _git(cwd, args, timeout=timeout)
+        if isinstance(exc, FileNotFoundError):
+            return 127, "", "git executable not found"
+        raise
 
 
-def _git_out(cwd: Path, args: list[str], timeout: float = 5.0) -> str:
+def _git_out(
+    cwd: Path, args: list[str], timeout: float = 5.0,
+    *, invocation: _GitInvocation | None = None,
+) -> str:
     """Convenience: stdout-only, stripped, empty on failure."""
-    rc, out, _ = _git(cwd, args, timeout=timeout)
+    rc, out, _ = _git(cwd, args, timeout=timeout, invocation=invocation)
     return out.strip() if rc == 0 else ""
 
 
@@ -122,11 +176,12 @@ def _is_git_repo(path: Path) -> bool:
 # ─── endpoints ──────────────────────────────────────────────────────────
 
 
-def _repo_summary(entry: Path) -> dict:
-    branch = _git_out(entry, ["rev-parse", "--abbrev-ref", "HEAD"]) or "HEAD"
+def _repo_summary(entry: Path, invocation: _GitInvocation | None = None) -> dict:
+    branch = _git_out(entry, ["rev-parse", "--abbrev-ref", "HEAD"], invocation=invocation) or "HEAD"
     last_line = _git_out(
         entry,
         ["log", "-1", "--format=%h%x09%an%x09%ae%x09%ar%x09%aI%x09%s"],
+        invocation=invocation,
     )
     last: dict = {}
     if last_line:
@@ -161,9 +216,12 @@ def list_repos(request: Request) -> list[dict]:
         if not _is_git_repo(entry):
             continue
         entries.append(entry)
+    if not entries:
+        return []
+    invocation = _git_invocation()
     # map preserves catalog order even when Git calls finish out of order.
     # Every request still reads both commands; no metadata cache is involved.
-    return list(_REPO_SUMMARY_EXECUTOR.map(_repo_summary, entries))
+    return list(_REPO_SUMMARY_EXECUTOR.map(_repo_summary, entries, repeat(invocation)))
 
 
 @router.get("/api/code-search/repos/{repo}/stats")
