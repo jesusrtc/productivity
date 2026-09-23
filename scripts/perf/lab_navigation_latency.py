@@ -28,6 +28,7 @@ parser.add_argument('--extra-files', type=int, default=0, help='Additional files
 parser.add_argument('--extra-file-types', default='md', help='Comma-separated extensions for extra files, e.g. md,py,json,sql')
 parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default='folders')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
+parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
@@ -106,6 +107,14 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         async def baseline_source(request):
             return Response(source, media_type='application/javascript')
         app.router.routes.insert(0, Route('/static/js/lab-app.js', baseline_source))
+    if args.css_revision:
+        from starlette.responses import Response
+        from starlette.routing import Route
+        css_source = subprocess.check_output(['git', 'show',
+            args.css_revision + ':core/src/core/static/css/lab-shell.css'], cwd=checkout)
+        async def baseline_css(request):
+            return Response(css_source, media_type='text/css')
+        app.router.routes.insert(0, Route('/static/css/lab-shell.css', baseline_css))
     timings = None
     if args.server_timings:
         from server_timings import ServerTimings

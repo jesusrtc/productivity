@@ -1041,7 +1041,7 @@
 
   // ─── File-type icons (VS Code Explorer-style) ───────────────────────────
   // One shared extension → icon mapping for every sidebar/tree file row.
-  // Inline SVGs styled after the familiar logos (Python snakes, Jupyter
+  // Shared and inline SVGs styled after familiar logos (Python snakes, Jupyter
   // moons, JS/TS squares, markdown mark…) so types read at a glance — no
   // external assets. The markup is a fixed-size span so rows align
   // regardless of icon shape. Symlinked entries get a small corner-arrow
@@ -1074,7 +1074,7 @@
     else if (ext === 'py') { cls = 'ft-py'; glyph = ''; }
     else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; glyph = _ftBadge('#F7DF1E', 'JS', '#222'); }
     else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; glyph = _ftBadge('#3178C6', 'TS', '#fff'); }
-    else if (ext === 'json' || ext === 'lock') { cls = 'ft-json'; glyph = _ftText('{}', '#CBCB41'); }
+    else if (ext === 'json' || ext === 'lock') { cls = 'ft-json ft-braces'; glyph = ''; }
     else if (['toml', 'yaml', 'yml', 'ini', 'cfg'].includes(ext)) { cls = 'ft-json'; glyph = _FT_SVGS.conf; }
     else if (['html', 'htm', 'xml'].includes(ext)) { cls = 'ft-html'; glyph = _ftText('&lt;&gt;', '#E44D26', 9); }
     else if (['css', 'scss', 'less'].includes(ext)) { cls = 'ft-css'; glyph = _ftText('#', '#2965F1', 11); }
@@ -3091,7 +3091,7 @@
   window.sidebarOpenRepositoryHistory = sidebarOpenRepositoryHistory;
 
   function _sidebarGitHistoryButtonHtml(path, root = '') {
-    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}"></button></span>`;
+    return `<button class="sidebar-actions sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}"></button>`;
   }
 
   function openSidebarFileHistory(path, root = '') {

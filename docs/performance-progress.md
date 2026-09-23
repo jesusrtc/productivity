@@ -874,3 +874,78 @@ This checkpoint reduces changed-file refresh work. It does not establish the
 50 ms typing target, erase prior navigation/request outliers, solve startup
 content extraction, or verify every UI action. The overall goal remains open;
 no main merge or live-server restart is included.
+
+## Follow-on: reduce icon and history-button layout work
+
+Recent-file history buttons now carry the action class directly, eliminating one
+wrapper per recent row while keeping grouped-button styles elsewhere. JSON/lock
+graphics use one shared CSS SVG; configuration files retain their distinct icon.
+Fixed-size icon spans use inline blocks and centered SVGs instead of per-icon
+flex layouts. Adjusted vertical alignment preserves the old 14px/13px graphic
+baselines, and the old empty baseline pseudo-element is no longer necessary.
+The 5,000 mixed-file fixture fell from **55,435 to 45,423 elements**, with its
+pristine template still retained under the same four-scope/60,000-element bounds.
+
+A fresh trace confirmed the startup cause again: Chrome's content extraction
+enclosed a **143.09 ms Layout**, and took 153.26 ms overall. After wrapper/JSON
+changes, those values were 127.42/134.22 ms; after simplifying icon layout,
+120.78/127.04 ms. These traced runs add overhead and are diagnostic, not final
+latency claims. Artifacts: `/tmp/lab-startup-layout-{baseline,simple,inline}-trace.json`
+and corresponding result JSON files. All three still failed startup typing;
+changing-file maxima were 71.50, 46.90, and 43.10 ms respectively.
+
+A separate block-row experiment shifted filename baselines by 0.5 px and was
+removed. Rows retain their original adaptive flex sizing. No browser feature was
+disabled, no files hidden, and no input samples or startup phase discarded.
+
+Validation: **41 sidebar checks passed** (39 in the full run, plus both Chrome
+rendering cases after correcting the native Enter probe to send its character
+event). The Chrome checks compare original/candidate icon boxes and filename
+baselines, 19 icon families in both inline/flex contexts, symlinks, both themes,
+100/125% zoom, 220/340px widths, and complete nested/flat 5,000-file trees. Native
+mouse movement verifies actual hover states, colors, effective opacity and button
+geometry with/without Git badges. Enter activates the focused history button
+exactly once. File/history/modal clicks, native find, scrolling, folder toggles,
+drag/context metadata, template equivalence/cache bounds and navigation races
+still pass. The final side-by-side screenshot was also inspected and matched.
+Logs: `/tmp/lab-startup-final-tests.log`, `/tmp/lab-startup-keyboard-tests.log`.
+
+The fixture now accepts `--css-revision` as well as `--app-revision`, allowing
+exact prior stylesheet/script comparisons without altering backend behavior.
+Sequential untraced runs against `81fe1cf` and the candidate used fresh browsers,
+normal lifespan/polling, 100 keys per phase and five fixture writes per loaded
+phase:
+
+| Fixture / version / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed, prior, normal | 7.10 ms | 27.40 ms | 99.30 ms | 3 |
+| Mixed, candidate, normal | 2.50 ms | 24.20 ms | 62.60 ms | 2 |
+| Mixed, prior, changing files | 3.00 ms | 28.80 ms | 48.90 ms | 0 |
+| Mixed, candidate, changing files | 5.10 ms | 33.80 ms | 41.50 ms | 0 |
+| SVG-heavy, prior, normal | 3.30 ms | 34.60 ms | 125.40 ms | 4 |
+| SVG-heavy, candidate, normal | 5.00 ms | 30.90 ms | 130.90 ms | 4 |
+| SVG-heavy, prior, changing files | 15.60 ms | 108.40 ms | 144.70 ms | 17 |
+| SVG-heavy, candidate, changing files | 15.50 ms | 110.70 ms | 123.00 ms | 17 |
+
+All four runs retained every key and verified final file mtimes and recent-file
+ordering, without input, HTTP, network, browser or timestamp errors. API maxima
+were 94.30, 45.20, 128.60 and 101.50 ms respectively. All four runs still fail the
+overall typing budget. Mixed input improved in this comparison, but its loaded
+median/p95 did not uniformly improve, and SVG-heavy startup remained worse in
+this sample. Artifacts: `/tmp/lab-startup-final-{mixed-before,mixed-after,svg-before,svg-after}-{browser,server}.json`.
+
+The SVG-heavy list (`ipynb,pdf,svg,js`) identifies a concrete remaining limit:
+**85,435 prior / 80,423 candidate elements** exceed the 60,000-element template
+bound, so neither retained a template. Its changed-file refreshes still cause
+97–118 ms tasks. These fixtures exercise listing/rendering of those extensions;
+their generated files were not opened or executed. Further reduction of inline
+SVG structure is needed before fragment reuse can help this case; increasing
+the cache limit would conceal the cause.
+
+Final navigation passed 40 actions: workspace first/maximum **161.60 ms**, median
+106.00 / p95 151.10 ms; document maximum **79.00 ms**, median 36.80 / p95 71.10 ms.
+All 336 APIs stayed below **99.10 ms**, without HTTP, network, browser or input
+timestamp errors (`/tmp/lab-startup-final-navigation-{browser,server}.json`). Every
+owned echo terminal was removed. JavaScript syntax and `git diff --check` passed.
+The goal remains open: startup/SVG-heavy typing misses, prior request outliers,
+and unverified actions remain. No main merge or live-server restart is included.

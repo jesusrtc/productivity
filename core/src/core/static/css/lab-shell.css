@@ -171,11 +171,14 @@
   .sidebar-fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sidebar-actions { display: none; gap: 2px; flex-shrink: 0; }
   .sidebar-file:hover .sidebar-actions { display: flex; }
-  .sidebar-actions button { background: none; border: none; color: #8b949e; cursor: pointer; padding: 1px 4px; font-size: 12px; border-radius: 3px; }
-  .sidebar-actions button:hover { background: #21262d; color: #e6edf3; }
+  .sidebar-actions button, button.sidebar-actions { background: none; border: none; color: #8b949e; cursor: pointer; padding: 1px 4px; font-size: 12px; border-radius: 3px; }
+  .sidebar-actions button:hover, button.sidebar-actions:hover { background: #21262d; color: #e6edf3; }
   .sidebar-actions .sa-del:hover { color: #f85149; }
   .sidebar-file-recent .sidebar-actions { display: flex; opacity: .58; }
   .sidebar-file-recent:hover .sidebar-actions { opacity: 1; }
+  /* A permanent history button is itself the action, without a flex wrapper. */
+  .sidebar-file-recent > button.sidebar-actions,
+  .sidebar-file-recent:hover > button.sidebar-actions { display: block; }
   .sidebar-git-history::before { content: ""; }
   .sidebar-github-icon, .sidebar-git-history::before { display: block; width: 13px; height: 13px; background-color: currentColor; mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20aria-hidden%3D%22true%22%3E%3Cpath%20fill%3D%22black%22%20d%3D%22M8%20.2a8%208%200%200%200-2.53%2015.59c.4.07.55-.18.55-.39%200-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01%201.08.58%201.23.82.72%201.21%201.87.87%202.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95%200-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12%200%200%20.67-.21%202.2.82A7.5%207.5%200%200%201%208%204.03c.68%200%201.36.09%202%20.27%201.53-1.04%202.2-.82%202.2-.82.44%201.1.16%201.92.08%202.12.51.56.82%201.27.82%202.15%200%203.07-1.87%203.75-3.65%203.95.29.25.54.73.54%201.48%200%201.07-.01%201.93-.01%202.2%200%20.21.15.47.55.39A8%208%200%200%200%208%20.2Z%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat; }
   .sidebar-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; flex-shrink: 0; }
@@ -209,16 +212,18 @@
 
   /* File-type icons (shared fileIconHtml() map — glyphs + a few inline
      SVGs, colored with theme accent variables). */
-  .ft-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 5px; flex-shrink: 0; vertical-align: -3px; position: relative; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8px; font-weight: 700; line-height: 1; color: var(--text-dim); }
-  .ft-icon svg { display: block; }
+  .ft-icon { display: inline-block; width: 16px; height: 16px; margin-right: 5px; flex-shrink: 0; vertical-align: -4px; position: relative; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 8px; font-weight: 700; line-height: 1; color: var(--text-dim); }
+  .ft-icon svg { display: block; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  /* Empty inline blocks baseline at their bottom. Preserve the former
+     centered 14px/13px graphics' baselines without an inner flex layout. */
+  .ft-icon.ft-img, .ft-icon.ft-pdf, .ft-icon.ft-generic { vertical-align: -4.5px; }
   /* Reuse the Markdown graphic instead of parsing an SVG tree per file. */
   .ft-icon.ft-md { color: var(--accent); font-size: 12px; background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22none%22%20stroke%3D%22%23519ABA%22%20stroke-width%3D%221.2%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%221%22%20y%3D%223.2%22%20width%3D%2214%22%20height%3D%229.6%22%20rx%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M3.4%2010.3V5.7l1.9%202.2%201.9-2.2v4.6%22%2F%3E%3Cpath%20d%3D%22M11.6%205.9v3M10.2%207.6l1.4%201.7%201.4-1.7%22%2F%3E%3C%2Fsvg%3E") center / 14px 14px no-repeat; }
-  /* Keep the original SVG's inline-flex baseline for text and symlink rows. */
-  .ft-icon.ft-md::before, .ft-icon.ft-py::before, .ft-icon.ft-sql::before { content: ""; display: block; width: 14px; height: 14px; }
   .ft-icon.ft-py { color: var(--green); background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20width%3D%2214%22%20height%3D%2214%22%3E%3Cpath%20fill%3D%22%233776AB%22%20d%3D%22M11.9%202c-5%200-4.6%202.2-4.6%202.2v2.3h4.7v.7H5.3S2%206.8%202%2011.9c0%205%202.9%204.9%202.9%204.9h1.7v-2.4s-.1-2.9%202.8-2.9h4.7s2.7.1%202.7-2.6V4.7S17.2%202%2011.9%202zM9.3%203.4a.9.9%200%201%201%200%201.8.9.9%200%200%201%200-1.8z%22%2F%3E%3Cpath%20fill%3D%22%23FFD43B%22%20d%3D%22M12.1%2022c5%200%204.6-2.2%204.6-2.2v-2.3H12v-.7h6.7s3.3.4%203.3-4.7c0-5-2.9-4.9-2.9-4.9h-1.7v2.4s.1%202.9-2.8%202.9h-4.7s-2.7-.1-2.7%202.6v4.2S6.8%2022%2012.1%2022zm2.6-1.4a.9.9%200%201%201%200-1.8.9.9%200%200%201%200%201.8z%22%2F%3E%3C%2Fsvg%3E") center / 14px 14px no-repeat; }
   .ft-icon.ft-js { color: var(--yellow); }
   .ft-icon.ft-ts { color: var(--accent); }
   .ft-icon.ft-json { color: var(--yellow); font-size: 9px; }
+  .ft-icon.ft-braces { background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20width%3D%2214%22%20height%3D%2214%22%3E%3Ctext%20x%3D%228%22%20y%3D%2212%22%20text-anchor%3D%22middle%22%20font-size%3D%2210%22%20font-weight%3D%22700%22%20font-family%3D%22-apple-system%2C'Segoe%20UI'%2CRoboto%2Csans-serif%22%20fill%3D%22%23CBCB41%22%3E%7B%7D%3C%2Ftext%3E%3C%2Fsvg%3E") center / 14px 14px no-repeat; }
   .ft-icon.ft-nb { color: var(--yellow); font-size: 11px; }
   .ft-icon.ft-img { color: var(--purple); }
   .ft-icon.ft-vid { color: var(--purple); font-size: 9px; }
@@ -1355,8 +1360,8 @@
   body.light-mode .diff-tabs::-webkit-scrollbar-thumb { background: #d0d7de; }
 
   /* Light mode: sidebar */
-  body.light-mode .sidebar-actions button { color: #656d76; }
-  body.light-mode .sidebar-actions button:hover { background: #e8eaed; color: #1f2328; }
+  body.light-mode .sidebar-actions button, body.light-mode button.sidebar-actions { color: #656d76; }
+  body.light-mode .sidebar-actions button:hover, body.light-mode button.sidebar-actions:hover { background: #e8eaed; color: #1f2328; }
   body.light-mode .sidebar-file.active { border-left-color: #0969da; }
 
   /* Light mode: file summary & diff */
