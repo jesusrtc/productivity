@@ -12,6 +12,7 @@ import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
 import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 import {documentEditActions,verifyEditedDocuments} from './document_edit_workload.mjs';
+import {installNavigationRefreshProbe} from './navigation_refresh_probe.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -115,7 +116,7 @@ async function main() {
   const workspaceRoot=process.argv[3], samples=Number(process.argv[4] || 20);
   const profile=await mkdtemp(join(tmpdir(),'lab-navigation-chrome-'));
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
-  let client;
+  let client,evaluate;
   let traceActive=false,profileActive=false,diagnostics;
   const finishDiagnostics=()=>diagnostics||=(async()=>{
     const jobs=[];
@@ -139,6 +140,10 @@ async function main() {
         clearTimeout(timer);
         if(stream)await client.send('IO.close',{handle:stream});
       }
+    })());
+    if(process.env.LAB_PERF_REFRESH_TRACE && evaluate)jobs.push((async()=>{
+      const trace=await evaluate('window.__navigationRefreshProbe?.()||null');
+      await writeFile(process.env.LAB_PERF_REFRESH_TRACE,JSON.stringify(trace));
     })());
     return (await Promise.allSettled(jobs)).filter(result=>result.status==='rejected').map(result=>String(result.reason));
   })();
@@ -174,7 +179,7 @@ async function main() {
       }
     });
     await client.send('Network.setCookie',{name:'lab_session',value:process.env.LAB_PROBE_COOKIE,url:baseUrl,httpOnly:true,sameSite:'Strict'});
-    const evaluate=async expression=>{
+    evaluate=async expression=>{
       const r=await client.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});
       if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);
       return r.result.value;
@@ -190,6 +195,7 @@ async function main() {
     // No ui_check, mocked fetch, disabled polling, or cache flush.
     await evaluate('performance.setResourceTimingBufferSize(10000)');
     const timeOrigin=await evaluate('performance.timeOrigin');
+    if(process.env.LAB_PERF_REFRESH_TRACE)await installNavigationRefreshProbe(evaluate,workspaceRoot);
     if(process.env.LAB_PERF_CPU_PROFILE) {
       await client.send('Profiler.enable');
       await client.send('Profiler.start');

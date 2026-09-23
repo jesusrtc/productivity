@@ -1,5 +1,7 @@
 # Memory index
 
+- [Markdown skips unused disclosure searches](markdown-skips-unused-disclosure-extension.md) — bypass repeated suffix scans only when no disclosure can be consumed; preserve custom parsing and the shared safety/copy pipeline
+
 - [Document saves publish confirmed cache content](document-saves-publish-confirmed-cache.md) — avoid stale inline paints while retaining fresh reconciliation, captured roots and newer drafts
 - [Multiline IME input is not paste latency](multiline-ime-input-is-not-paste-latency.md) — distinguish CDP text setup from clicks and clipboard input; retain slow replacements and failure diagnostics
 

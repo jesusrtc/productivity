@@ -30,6 +30,7 @@ parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default=
 parser.add_argument('--git-changes', type=int, default=0, help='Commit fixture workspaces, then modify this many extra files in each (no user repositories)')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
+parser.add_argument('--markdown-revision', help='Compare markdown-content.js from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
 parser.add_argument('--typing-detaches', action='store_true', help='Also attach/detach another owned terminal during loaded typing')
@@ -172,6 +173,14 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         async def baseline_css(request):
             return Response(css_source, media_type='text/css')
         app.router.routes.insert(0, Route('/static/css/lab-shell.css', baseline_css))
+    if args.markdown_revision:
+        from starlette.responses import Response
+        from starlette.routing import Route
+        markdown_source = subprocess.check_output(['git', 'show',
+            args.markdown_revision + ':core/src/core/static/js/lib/markdown-content.js'], cwd=checkout)
+        async def baseline_markdown(request):
+            return Response(markdown_source, media_type='application/javascript')
+        app.router.routes.insert(0, Route('/static/js/lib/markdown-content.js', baseline_markdown))
     timings = None
     instrumentation = contextlib.ExitStack()
     if args.server_timings:

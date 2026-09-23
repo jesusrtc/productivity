@@ -27,8 +27,9 @@ def test_markdown_disclosures_and_clipboard(tmp_path):
                    app.index('  // Attach (or replace) the online URL')]
     mermaid = app[app.index('  let _mermaidReady;'):app.index('  function ensureHighlight()')]
     assistant = (STATIC / 'js/views/assistant.js').read_text()
-    actions = assistant[assistant.index('  function addCopyButtons('):
-                        assistant.index('  async function refresh(')]
+    actions = ('const state = {headingMenu:null, modalRequest:1};\n'
+               + assistant[assistant.index('  function closeHeadingMenu('):
+                           assistant.index('  async function refreshOpenDocument(')])
     scripts = '\n'.join('<script>' + (STATIC / path).read_text() + '</script>' for path in [
         'vendor/marked@12.0.1/marked.min.js',
         'vendor/dompurify@3.4.15/purify.min.js',
@@ -115,6 +116,18 @@ GENERATED_SECRET
   const safe = document.createElement('div'); safe.innerHTML = sanitized;
   assert(safe.querySelector('details[open] summary'), 'safe HTML preserved');
   assert(!safe.querySelector('script,iframe,[onerror],[ontoggle],[style],a[href]'), 'active HTML removed');
+  // The parser without the disclosure extension uses the same sanitization,
+  // language highlighting, code controls and per-document image renderer.
+  const plain = document.createElement('div');
+  const plainRenderer = new marked.Renderer();
+  plainRenderer.image = (href, title, text) => `<img src="/scoped/${href}" alt="${text}">`;
+  plain.innerHTML = LabMarkdown.render('# Plain\n\n![Chart](chart.png)\n\n```sql\nSELECT 1;\n```\n\n<img src=x onerror="alert(1)"><p style="position:fixed">Text</p>', {renderer:plainRenderer});
+  assert(plain.querySelector('h1').textContent === 'Plain', 'plain parser heading');
+  assert(plain.querySelector('img').getAttribute('src') === '/scoped/chart.png', 'plain parser image options');
+  assert(plain.querySelector('code.language-sql .hljs-keyword'), 'plain parser highlighting');
+  assert(plain.querySelectorAll('button.markdown-code-copy').length === 1, 'plain parser code control');
+  assert(plain.querySelector('code').textContent === 'SELECT 1;\n', 'plain parser exact code');
+  assert(!plain.querySelector('[onerror],[style]'), 'plain parser safety');
   const copied = [];
   const fetched = [];
   window.fetch = async url => { fetched.push(url); return {ok:true, blob: async () => new Blob(['image'], {type:'image/png'})}; };
@@ -234,14 +247,16 @@ GENERATED_SECRET
   sectionButton.remove();
 
   // Assistant uses the same live-DOM copy for whole sections and generated content.
-  addCopyButtons(source);
+  bindHeadingCopyMenu(source);
   const realCopy = LabMarkdown.copy;
   let actionPromise;
   LabMarkdown.copy = (...args) => (actionPromise = realCopy(...args));
-  topHeadings[0].querySelector('button:last-child').click();
+  topHeadings[0].dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true}));
+  document.querySelector('.assistant-heading-menu button').click();
   await actionPromise;
   assert(copied.at(-1).plain.includes('After disclosure.') && !copied.at(-1).plain.includes('HIDDEN_PROMPT'), 'Assistant section uses live state');
-  topHeadings[2].querySelector('button').click();
+  topHeadings[2].dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true}));
+  document.querySelector('.assistant-heading-menu button').click();
   await actionPromise;
   LabMarkdown.copy = realCopy;
   assert(copied.at(-1).plain === 'Generated text.', 'generated content excludes heading and closed notes: ' + copied.at(-1).plain);
@@ -283,7 +298,7 @@ GENERATED_SECRET
     page = tmp_path / 'markdown-copy.html'
     theme = (STATIC / 'vendor/highlightjs@11.9.0/github-dark.min.css').read_text()
     page.write_text('<!doctype html><meta charset="utf-8"><style>' + theme + '</style><body><button id="copy">Copy</button>'
-                    '<div id="workspaceDocBody"></div><pre id="result">PENDING</pre>' + scripts
+                    '<div id="assistantDocumentModal"></div><div id="workspaceDocBody"></div><pre id="result">PENDING</pre>' + scripts
                     + '<script>const MARKDOWN = ' + json.dumps(markdown) + ';\n'
                     + wrappers + mermaid + actions + checks + '</script>')
     profile = tmp_path / 'chrome-profile'

@@ -2768,3 +2768,133 @@ still exceed the budget, earlier misses remain unresolved, iTerm parity is
 unverified, and integrated production verification is pending. No main merge,
 push or live-server restart occurred; local merge still awaits the earlier
 approval after automatic review rejected it.
+
+## Skip disclosure searches in ordinary Markdown (2026-09-23)
+
+**Checkpoint:** avoid repeatedly scanning document suffixes for disclosure tags
+when the source cannot contain one. This change is in the shared Markdown
+renderer, so documents, notebook Markdown and Assistant content keep the same
+sanitization, highlighting and code-copy pipeline. It does not change any
+backend endpoint, cache limit, polling interval or interaction readiness check.
+
+### What the traces established
+
+Two initial six-repetition large-document runs recorded calls to sidebar and
+dashboard refreshes, file reads, document opens and document renders. The first
+had a **203.7 ms warm restore without overlapping dashboard refreshes**; the
+second passed all 42 clicks. In the latter, cached sidebar work took roughly
+63–76 ms and synchronous document rendering roughly 36–43 ms during warm
+restores. The document render started after sidebar work. Duplicate refreshes
+therefore cannot explain every observed workspace-switch miss.
+
+The Markdown disclosure extension calls a regex from Marked's `start` hook.
+Marked invokes that hook on the remaining source for each paragraph, producing
+repeated scans even when the entire document has no disclosure. A parser-only
+Node experiment using vendored Marked and identical generated source found
+roughly 32 ms versus 8 ms at 1,500 sections, and 300 ms versus 25 ms at 5,000
+sections, with equal HTML. These are component measurements, not UI latency.
+
+`LabMarkdown.render` now lazily reuses a base Marked parser for sources without
+possible `<details>`, `<summary>` or closing tags. Detection is deliberately
+conservative: mixed case, code samples, comments and malformed possible tags
+keep the existing extension. Custom hooks, tokenizers and extensions also keep
+it, because they can introduce tags after detection. Non-string error behavior
+and per-call image renderers are preserved. Both parsers use the existing DOM
+sanitizer and postprocessing; no source content or rendered DOM is cached.
+
+### Before/candidate comparisons
+
+Each full comparison used six edit repetitions (42 native clicks), 1,500
+sections per document, 5,000 mixed flat files per workspace and 2,500 actual Git
+changes. Native input clocks, all first samples, normal polling, exact saved
+bytes and complete modal/inline document checks remained enabled. The optional
+call tracer was enabled equally on both revisions; no CPU profiler was used.
+Only `markdown-content.js` was swapped for the baseline revision `40253dc`.
+
+| Run order | Document-render median | Save median / maximum | Warm-restore median / maximum | Other failures |
+| --- | ---: | ---: | ---: | --- |
+| Baseline | 41.3 ms | 171.7 / 177.8 ms | 168.5 / 171.9 ms | Cold switches 251.4, 269.3 ms; text setup 205.1 ms |
+| Candidate | 23.8 ms | 131.3 / 133.6 ms | 149.3 / 167.7 ms | Cold switch 200.8 ms; text setups 201.5, 203.5 ms |
+| Candidate repeat | 21.3 ms | 113.9 / 121.0 ms | 151.7 / 158.4 ms | None |
+| Reverse baseline, incomplete | 39.4 ms (five renders) | 154.9 ms (one save) | No samples | Editor reopen timed out after four completed clicks |
+| Additional baseline | 37.2 ms | 153.8 / 161.1 ms | 168.2 / 178.2 ms | Cold switch 203.1 ms |
+
+All completed Save samples, including the incomplete baseline's one Save, give
+**155.8 ms baseline median versus 120.8 ms candidate median** (13 versus 12
+samples, approximately 22% lower). Synchronous render medians were **38.5 versus
+22.25 ms** across 85 versus 80 calls. Warm-restore medians were **168.5 versus
+150.4 ms**, eight per revision. These small, noisy interaction samples support
+the reduction in Markdown work; they do not establish a cold-navigation fix.
+
+The incomplete reverse baseline is retained as a failure, not removed from the
+record. Its fifth click, editor reopen, failed the existing readiness check.
+The trace shows a background `openWorkspaceDoc(...preserveScroll:true)` and
+sidebar refresh during that reopen; the exact cause still needs investigation.
+It occurred with the previous renderer. Its diagnostics completed and its
+owned server stopped. The four complete comparison runs had no request/Git/
+browser errors, invalid clocks or request-ID/route mismatches; all measured API
+requests stayed below 200 ms. No trace reached its 10,000-event bound.
+
+### Longer verification
+
+A final candidate run disabled call tracing and completed 20 repetitions:
+**139 of 140 native clicks passed**. All 20 Save clicks passed, with **113.1 ms
+median and 125.1 ms maximum**. All 18 warm document restores passed, with
+**146.9 ms median and 196.5 ms maximum**. Other maxima were 90.9 ms for document
+open, 68.6 ms for editor open, 181.6 ms for editor reopen, 56.9 ms for Cancel,
+and 43.4 ms for close.
+
+The overall run still **failed**: the second cold workspace switch took
+**251.1 ms**, including 7.2 ms browser input queueing. One of 40 native text
+setups took **202.3 ms** for a 28-character append. The earlier full multiline
+`Input.insertText` failure is unchanged; these acknowledgement timings are not
+physical typing/display or clipboard-paste measurements.
+
+All **799 browser API requests** stayed below 200 ms (maximum **100.6 ms**),
+as did all **828 server requests** (maximum **96.58 ms**). Every recorded
+request ID/route and all 140 native input clocks passed. Sixty persistence
+checkpoints checked 240 files byte-for-byte; the final four documents totaled
+404,853 bytes. No browser/network/Git errors occurred. The owned server stopped.
+
+### Verification and diagnostics
+
+**97 focused checks passed.** JavaScript/Python syntax checks and
+`git diff --check` passed. The suite covers the parser, real Chrome Markdown/copy behavior,
+document saving, editor workload, sidebar navigation/ownership, dashboard
+scheduling, Markdown routes, Assistant rendering/note editing and notebook
+paths. The new parser test compares actual vendored Marked output on 22 source
+cases, per-call renderer changes, preprocessing hooks, invalid inputs and a
+1,500-section document. The latter executes zero disclosure searches on the
+fast path versus 1,500 with the previous extension.
+
+The old browser copy test referenced removed Assistant inline buttons and
+failed before launching Chrome. It now exercises the current heading context
+menu, retaining its section-boundary, generated-content and clipboard checks.
+Additional browser assertions cover sanitization, syntax colors, exact code
+text, image options and code-copy controls on the plain parser path.
+
+The fixture accepts `--markdown-revision` for source-only comparisons. Optional
+`LAB_PERF_REFRESH_TRACE=/tmp/calls.json` records bounded refresh/open/render call
+metadata and durations, including on failed runs. It preserves original return
+values, promise identity and exceptions and is restricted to the disposable
+fixture. It does not record document source or response bodies. Its regression
+checks successful, asynchronous-failing and synchronous-failing calls, scope
+rejection and the event bound.
+
+Artifacts:
+
+- `/tmp/lab-navigation-refresh-before-{browser,server,calls}.json` and
+  `/tmp/lab-navigation-refresh-docs-before-{browser,server,calls}.json` contain
+  the initial attribution runs.
+- `/tmp/lab-markdown-1500-{before,after,after-2,before-2,before-3}-{browser,server,calls}.json`
+  and matching `.log` files retain all comparison runs, including the failure.
+- `/tmp/lab-markdown-1500-final-{browser,server}.json` and `.log` contain the
+  longer, untraced verification.
+- `/tmp/lab-markdown-1500-comparison.json` summarizes all runs; its generator is
+  `/tmp/lab-markdown-summary.py`.
+- `/tmp/lab-markdown-regressions-final.log` contains the focused checks.
+
+The goal remains active: cold workspace latency, editor input, the baseline
+reopen failure, earlier misses and iTerm parity remain unresolved. No main
+merge, push or live-server restart occurred. Local merge still awaits the
+earlier approval after automatic review rejected it.
