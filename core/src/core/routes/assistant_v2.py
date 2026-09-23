@@ -45,6 +45,20 @@ def document_rows(root):
                'latest_date':max((item.get('date') or '' for item in related),default='')}
 
 
+def plain_note_rows(root):
+    # Reuse this listing's snapshot for descendant search text. A snapshot
+    # fingerprints every document even on a cache hit; rereading it per note
+    # makes the filesystem work quadratic. The next listing still reads fresh.
+    rows = list(records.records(root))
+    for row in rows:
+        if row['type'] != 'note' or row.get('embedded') or row.get('note_type') not in {'plain','thread','subtab'}:
+            continue
+        yield {**row, 'search_text':' '.join(
+            str(child.get(field) or '')
+            for child in [row, *records.descendants(rows, row)]
+            for field in ('title','tldr','owner'))}
+
+
 def tab_revision(row):
     # A physical file's mtime and root updated timestamp also change when a
     # sibling/child is edited. Hash only this tab's own content and metadata.

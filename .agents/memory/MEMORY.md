@@ -1,5 +1,7 @@
 # Memory index
 
+- [Assistant notes share a listing snapshot](assistant-notes-share-a-listing-snapshot.md) — avoid per-note filesystem scans while retaining fresh requests, complete descendant text and native Assistant latency tails.
+
 - [Search decodes after complete pipe capture](search-decodes-after-complete-pipe-capture.md) — reduce transient allocation and unnecessary newline scans while preserving encoding, both EOFs, strict errors and timeout behavior.
 - [Concurrent cProfile needs consistency checks](concurrent-cprofile-needs-consistency-checks.md) — overlapping sessions failed and guarded function costs were inconsistent; retain diagnostics and use coarse timers with unprofiled controls.
 

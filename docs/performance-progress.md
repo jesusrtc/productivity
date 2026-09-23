@@ -5935,3 +5935,127 @@ objective remains open for retained search misses, other corpora/regexes, cold
 UI and terminal creation, terminal output typing tails, broader UI/API coverage
 and physical/iTerm parity. Main merge remains pending after the earlier automatic
 approval rejection; no merge, push or live user-server restart was attempted.
+
+## Assistant note listings reuse one fresh snapshot (2026-09-23)
+
+The Assistant endpoint rebuilt `records.records(root)` for every plain note's
+descendant search text. The embedded-document cache does not make this free:
+each call fingerprints all files and deep-copies the rows. An owned fixture
+with 100 notes and 20 embedded subtabs performed **108 snapshots per response**.
+Whole-snapshot diagnostics attributed about 2,429 ms of the four original
+responses' combined 2,501 ms HTTP time to those calls.
+
+`assistant_v2.plain_note_rows` now loads one local snapshot and uses it for all
+eligible notes and descendants. The complete endpoint performs **eight snapshots**;
+other consumers remain unchanged. No response cache, watcher/polling change,
+prewarming or early response was added. Existing descendant order, all row
+fields, note-type and embedded filters, path validation and string conversion
+remain intact. Every subsequent request still checks fresh files.
+
+### Complete HTTP reads
+
+`scripts/perf/lab_assistant_latency.py` creates its vault through Lab, initializes
+and migrates an owned Assistant root through the normal storage functions, and
+creates real notes and subtabs. It uses authenticated HTTP, normal server
+lifespan and polling. Initialization's process-local snapshot is discarded so
+the first measured request reads the fixture itself. Every response validates
+all note identities, paths, titles, bodies, summaries, stars, attributes and
+descendant search text, along with document/task fields and dashboard sections.
+Repeated unchanged responses must have identical complete hashes. A final
+Markdown edit must appear immediately in both notes and document search text.
+Every first sample and failure is retained.
+
+| 100-note HTTP run | First | Median of unchanged reads | Maximum, including fresh read | Misses >=200 ms | Fresh edit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original, 20 reads + edit | 636.18 ms | 614.99 ms | 657.04 ms | 21 / 21 | 633.09 ms |
+| Candidate, 20 reads + edit | 77.29 ms | 55.66 ms | 77.29 ms | 0 / 21 | 72.38 ms |
+| Original, coarse snapshot diagnostic, 3 reads + edit | 643.62 ms | 616.56 ms | 643.62 ms | 4 / 4 | 626.59 ms |
+| Candidate, coarse snapshot diagnostic, 3 reads + edit | 78.34 ms | 56.49 ms | 78.34 ms | 0 / 4 | 64.35 ms |
+
+All 50 responses passed content checks. These are single-client complete
+endpoint measurements, not physical display timing or a concurrent-client
+guarantee. All four servers stopped and their fixture roots were removed.
+
+### Native Dashboard, All, Starred and workspace navigation
+
+The reusable `--assistant` workflow adds native Chrome clicks to the existing
+isolated navigation harness. Each of 20 cycles enters Assistant, switches to
+All, switches to Starred, then returns to an alternating workspace. Every
+displayed card must have the correct path, kind, title, summary, star state and
+empty-task badge. Dashboard checks include section order, item limits and
+overflow counts; full lists check all matching rows. The probe compares every
+Markdown file after each cycle. It does not open an Assistant API warm-up,
+mock fetch, change polling, or exclude cold clicks.
+
+All three full runs used the same 100-note/20-subtab workload, 5,000 mixed files
+and 2,500 Git changes **per workspace**, a fresh browser profile and normal
+server lifespan. The entire Git result and rendered decorations were verified.
+
+| Native run, 80 clicks each | Assistant first | Assistant browser p50 | Assistant maximum | Assistant misses / 20 | View-switch maximum / 40 | Workspace-return maximum / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Original | 967.8 ms | 831.3 ms | 1,563.5 ms | 20 | 40.4 ms | 237.1 ms |
+| Candidate | 115.2 ms | 148.7 ms | 232.4 ms | 2 | 39.6 ms | 185.7 ms |
+| Candidate repeat | 212.1 ms | 165.6 ms | 242.5 ms | 2 | 39.4 ms | 156.5 ms |
+
+The candidate passed **36/40 Assistant entries** and **120/120 other clicks**.
+Four Assistant misses remain: 231.7, 232.4, 212.1 and 242.5 ms. The repeat's
+cold miss remains included. Native input timestamps, clock validation and a
+render opportunity define these numbers; they do not establish physical
+input/display latency. The original also missed its first workspace return.
+
+The candidate runs retained 1,018 browser API requests with two >=200 ms
+responses, and 1,069 ASGI requests with two misses (maxima 200.26 and 220.41 ms).
+All returned successfully, with no browser errors or failed requests. The
+original retained 27 misses among 462 browser requests and 27 among 488 ASGI
+requests. Request counts differ because normal polling continues during the
+different elapsed runtimes; no poll or request was removed from the workloads.
+The first candidate's slow clicks included Assistant responses of 200.8 and
+194.2 ms, so the isolated 56 ms median is not a universal service-time bound.
+
+The original small smoke run retained two slow Assistant entries (763.7 and
+870.2 ms) and three API misses. An additional candidate probe with the minimum
+two-note fixture passed all eight clicks, all 63 browser requests and all 89
+ASGI requests; it verifies singular Starred counts as well as the file-backed
+fixture manifest. These small runs do not replace the loaded comparison.
+
+### Correctness and remaining work
+
+The 16 new regression cases span split-file schema 2, embedded subtabs, unified
+storage and document tasks. They compare the old and new complete note rows
+and full endpoint responses, assert one local listing read, preserve nested
+descendant order, and verify edits, additions, deletions, caller mutation
+isolation and symlink rejection. Existing Assistant route/storage/dashboard,
+task/meeting, metadata, query and frontend checks were included.
+
+With browser access, **189 checks passed and one failed**. The failing
+`test_custom_attributes_browser` times out saving an attribute. Restoring the
+original endpoint reproduced the same failure; the candidate was restored
+after that control. A prior sandbox-only run passed 181 checks but could not
+launch Chrome for nine tests. Those startup failures are retained separately.
+The strengthened full-response regression checks then passed all 16 cases.
+Python parsing, Node syntax checks and `git diff --check` passed.
+
+All five native fixture servers stopped. A final process/directory inventory
+found no remaining owned navigation/Assistant benchmark processes or fixture
+roots. No user tmux sessions, live user server, main-checkout files or user
+Assistant documents were changed.
+
+Reproduce with the checkout's Python environment:
+
+```sh
+python scripts/perf/lab_assistant_latency.py --notes 100 --samples 20 --output /tmp/assistant-http-new
+python scripts/perf/lab_navigation_latency.py --assistant --samples 20 --extra-files 5000 --extra-file-types md,py,json,sql --git-changes 2500 --server-timings /tmp/assistant-native-new-server.json > /tmp/assistant-native-new-browser.json
+```
+
+Artifacts: `/tmp/lab-assistant-{before,after}{,-trace}-{http,server}.json` and
+logs; `/tmp/lab-assistant-native-{smoke,before,after,small,repeat}-{browser,server}.json`
+and logs; `/tmp/lab-assistant-{summary,cleanup}.json`;
+`/tmp/lab-assistant-focused-tests{,-native}.log`,
+`/tmp/lab-assistant-attributes-original.log` and
+`/tmp/lab-assistant-note-listing-final.log`.
+
+The overall goal remains open: native Assistant entry still has four retained
+misses, the endpoint has eight snapshot consumers, and prior search, cold UI,
+terminal creation/typing tails and physical/iTerm parity gaps remain. Main merge
+remains pending after the earlier automatic approval rejection; no merge, push
+or live-server restart was attempted.

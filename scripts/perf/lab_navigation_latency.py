@@ -48,6 +48,8 @@ parser.add_argument('--quick-files', action='store_true', help='Measure Command+
 parser.add_argument('--document-edit', action='store_true', help='Measure document editor open, save, cancel and close in alternating fixture workspaces')
 parser.add_argument('--document-typing', action='store_true', help='Also measure native editor keys, Enter and Tab before Save/Cancel (requires --document-edit; IME setup remains separate)')
 parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
+parser.add_argument('--assistant', action='store_true', help='Measure Assistant entry, All and Starred views through full native rendering')
+parser.add_argument('--assistant-notes', type=int, default=100, help='Notes in the owned Assistant fixture (at least 2)')
 parser.add_argument('--notebook-view', action='store_true', help='Measure notebook opening, code visibility and output folding with native clicks (does not execute cells)')
 parser.add_argument('--notebook-cells', type=int, default=200, help='Cells per notebook-view fixture (default: 200)')
 parser.add_argument('--notebook-typing', action='store_true', help='Measure native notebook keys, visible highlighting and draft restoration (requires --notebook-view; does not execute cells)')
@@ -63,6 +65,10 @@ parser.add_argument('--trace-watchers', action='store_true', help='Time complete
 parser.add_argument('--trace-file-scans', action='store_true', help='Time file handlers, guarded workers and serialization without per-notebook tracing (requires --server-timings)')
 parser.add_argument('--websocket-deflate', action='store_true', help='Diagnostic comparison only: enable WebSocket compression (production disables it)')
 args = parser.parse_args()
+if args.assistant and any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.terminal_create,args.quick_files,args.document_edit,args.notebook_view,args.pending_notebooks,args.navigation_refresh_delay)):
+    parser.error('--assistant measures a separate workflow and cannot be combined with other workflows')
+if args.assistant_notes < 2:
+    parser.error('--assistant-notes must be at least 2')
 if args.samples < 2:
     parser.error('--samples must be at least 2')
 if args.terminal_create and any((args.typing,args.resize,args.create,args.settings,args.pins,args.terminal_tabs,args.quick_files,args.document_edit,args.notebook_view)):
@@ -165,6 +171,11 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         subprocess.run([sys.executable, '-m', 'lab', *args], check=True,
                        stdout=subprocess.DEVNULL)
     lab('init', str(root), '--name', 'Navigation fixture', '--no-example', '--no-git')
+    assistant_fixture = None
+    if args.assistant:
+        from assistant_fixture import seed_assistant
+        assistant_fixture = seed_assistant(base / 'assistant', args.assistant_notes)
+        (base / 'assistant-expected.json').write_text(json.dumps(assistant_fixture))
     pending_notebooks = []
     for name in ('alpha', 'beta'):
         lab('workspace', 'new', name, '--name', name.title(), '--desc', name + ' fixture')
@@ -262,6 +273,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         from server_timings import ServerTimings
         timings = ServerTimings(app, correlate_requests=True, trace_terminal=args.trace_terminal)
         timings.instrument_sessions()
+        if args.assistant:
+            timings.instrument_handler('/api/assistant')
         if args.trace_gc:
             instrumentation.enter_context(timings.trace_garbage_collection())
         if args.trace_watchers:
@@ -379,6 +392,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_DOCUMENT_EDIT': str(int(args.document_edit)),
                      'LAB_PERF_DOCUMENT_TYPING': str(int(args.document_typing)),
                      'LAB_PERF_DOCUMENT_HISTORY': str(int(args.document_history)),
+                     'LAB_PERF_ASSISTANT_FILE': str(base / 'assistant-expected.json') if assistant_fixture else '',
                      'LAB_PERF_NOTEBOOK_VIEW': str(int(args.notebook_view)),
                      'LAB_PERF_NOTEBOOK_TYPING': str(int(args.notebook_typing)),
                      'LAB_PERF_NOTEBOOK_CODE_LINES': str(args.notebook_code_lines),
