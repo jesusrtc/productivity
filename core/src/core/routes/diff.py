@@ -931,17 +931,22 @@ _ENTRY_DIFF_MAX_BYTES = 8 * 1024 * 1024
 
 
 def _entry_root(path: str, request: Request) -> Path:
-    """Resolve an explorer root and keep it inside the authorized vault.
+    """Resolve an explorer root inside the vault or an approved admin location.
 
     The auth middleware scopes ``request_root`` from the absolute ``path`` in
     the query/body, including cross-vault tabs and the admin-only framework
-    overview. This explicit containment check prevents an absolute-path API
-    call from turning the explorer operations into a general filesystem API.
+    overview. Admins can also select the same registered project and worktree
+    locations used by Git status and worktree discovery. Unconfigured paths
+    remain outside the explorer, and vault users retain their scoped boundary.
     """
     root = Path(path).expanduser().resolve()
     scoped_root = auth.request_root(request).expanduser().resolve()
     if root != scoped_root and scoped_root not in root.parents:
-        raise HTTPException(status_code=403, detail="Path is outside the vault")
+        allowed = auth.is_admin(auth.require_user(request)) and _git_status_dir_allowed(
+            root, scoped_root, include_projects=True,
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Path is outside the vault")
     if not root.is_dir():
         raise HTTPException(status_code=404, detail="Explorer root not found")
     return root

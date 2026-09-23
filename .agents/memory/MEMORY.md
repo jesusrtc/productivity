@@ -290,3 +290,5 @@
 - [Incremental Files and instant scope switches](workspace-files-incremental-and-instant-scope-switches.md) — native change invalidation, bounded DOM caches, and a generic under-200ms warm folder/worktree switch target.
 
 - [Shared project and worktree folders](shared-project-and-worktree-folders.md) — editable ~/src and ~/src/.worktrees defaults, project picker, custom locations, and inherited worktree paths.
+
+- [External project explorer access](external-project-explorer-access.md) — history and explorer actions share approved project/worktree roots; vault-user and traversal boundaries remain enforced.
