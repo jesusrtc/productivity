@@ -48,6 +48,7 @@ parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
 parser.add_argument('--trace-terminal', action='store_true', help='Time owned terminal WebSocket/PTY operations without payloads (requires --typing or --terminal-tabs, and --server-timings)')
+parser.add_argument('--trace-gc', action='store_true', help='Observe server garbage-collection pauses without changing runtime policy (requires --server-timings)')
 parser.add_argument('--websocket-deflate', action='store_true', help='Diagnostic comparison only: enable WebSocket compression (production disables it)')
 args = parser.parse_args()
 if args.samples < 2:
@@ -87,6 +88,8 @@ if args.trace_terminal and (not (args.typing or args.terminal_tabs) or not args.
     parser.error('--trace-terminal requires --typing or --terminal-tabs, and --server-timings')
 if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
+if args.trace_gc and not args.server_timings:
+    parser.error('--trace-gc requires --server-timings')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
 if args.git_changes < 0 or args.git_changes > args.extra_files:
@@ -193,6 +196,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         from server_timings import ServerTimings
         timings = ServerTimings(app, correlate_requests=True, trace_terminal=args.trace_terminal)
         timings.instrument_sessions()
+        if args.trace_gc:
+            instrumentation.enter_context(timings.trace_garbage_collection())
         if args.create:
             from core.routes import mutation
             timings.instrument_handler('/api/workspaces')

@@ -25,3 +25,11 @@ lookups and awaited FastAPI serialization. Treat those traces as diagnostics;
 use untraced browser runs and alternating route/ASGI comparisons for performance
 claims. The file-scan comparator supports notebook extensions and swaps the
 baseline's original pending helper only between completed sequential samples.
+
+`--trace-gc` adds a passive, bounded GC callback to the server sidecar. It records
+cycle duration, generation, thread/request identity and collection counts;
+it never changes thresholds, disables GC or forces collections. The callback
+is removed on fixture cleanup without removing other observers. Compare with
+detailed file tracing disabled as well: diagnostic allocations can affect
+collector frequency and pause size. A GC timestamp does not itself establish
+that a particular browser sample missed its latency budget.

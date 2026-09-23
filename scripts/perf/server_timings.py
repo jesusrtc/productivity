@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from functools import wraps
 from inspect import iscoroutinefunction
 from itertools import count
+import gc
 import json
 from threading import get_ident
 import time
@@ -33,6 +34,39 @@ class ServerTimings:
         self.sessions = []
         self.handlers = []
         self.functions = []
+        self.garbage_collection = None
+
+    @contextmanager
+    def trace_garbage_collection(self, *, limit=10000):
+        """Observe runtime pauses without changing GC policy or forcing a cycle."""
+        if limit < 1:
+            raise ValueError('GC trace limit must be positive')
+        report = {'enabled': gc.isenabled(), 'thresholds': gc.get_threshold(),
+                  'cycles': [], 'dropped': 0}
+        self.garbage_collection = report
+        active = None
+
+        def observe(phase, info):
+            nonlocal active
+            if phase == 'start':
+                active = (time.perf_counter(), time.time() * 1000, get_ident(),
+                          info['generation'], self._request_id.get())
+            elif phase == 'stop' and active is not None:
+                start, epoch, thread, generation, request_id = active
+                active = None
+                elapsed = (time.perf_counter() - start) * 1000
+                if len(report['cycles']) >= limit:
+                    report['dropped'] += 1
+                    return
+                report['cycles'].append({'startEpoch': epoch, 'ms': elapsed,
+                    'thread': thread, 'generation': generation, 'requestId': request_id,
+                    'collected': info['collected'], 'uncollectable': info['uncollectable']})
+
+        gc.callbacks.append(observe)
+        try:
+            yield
+        finally:
+            gc.callbacks.remove(observe)
 
     async def __call__(self, scope, receive, send):
         if self.trace_terminal and scope['type'] == 'websocket' and scope.get('path', '').startswith('/ws/term/'):
@@ -274,4 +308,5 @@ class ServerTimings:
     def report(self):
         return {'measurement': 'ASGI entry through final response body; excludes pre-entry queueing',
                 'requests': self.requests, 'sessions': self.sessions,
-                'handlers': self.handlers, 'functions': self.functions, 'terminal': self.terminal}
+                'handlers': self.handlers, 'functions': self.functions, 'terminal': self.terminal,
+                'garbageCollection': self.garbage_collection}

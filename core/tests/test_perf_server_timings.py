@@ -19,6 +19,63 @@ _spec.loader.exec_module(_module)
 ServerTimings = _module.ServerTimings
 
 
+def test_gc_observer_records_real_cycles_without_changing_runtime_policy():
+    import gc
+    before_callbacks = list(gc.callbacks)
+    before_policy = (gc.isenabled(), gc.get_threshold())
+    timings = ServerTimings(None)
+    assert timings.report()['garbageCollection'] is None
+    with pytest.raises(RuntimeError, match='original failure'):
+        with timings.trace_garbage_collection():
+            cycle = []
+            cycle.append(cycle)
+            del cycle
+            gc.collect(2)
+            assert (gc.isenabled(), gc.get_threshold()) == before_policy
+            raise RuntimeError('original failure')
+    assert gc.callbacks == before_callbacks
+    assert (gc.isenabled(), gc.get_threshold()) == before_policy
+    report = timings.report()['garbageCollection']
+    assert report['enabled'] == before_policy[0]
+    assert report['thresholds'] == before_policy[1]
+    rows = [row for row in report['cycles'] if row['generation'] == 2]
+    assert rows and rows[-1]['collected'] >= 1
+    assert all(row['ms'] >= 0 and row['startEpoch'] > 0 for row in rows)
+    assert report['dropped'] == 0
+
+
+def test_gc_observer_is_bounded_and_preserves_other_callbacks(monkeypatch):
+    other = lambda *_: None
+    fake = SimpleNamespace(callbacks=[other], isenabled=lambda: True, get_threshold=lambda: (1, 2, 3))
+    monkeypatch.setattr(_module, 'gc', fake)
+    timings = ServerTimings(None)
+    with timings.trace_garbage_collection(limit=2):
+        callback = fake.callbacks[-1]
+        callback('stop', {'generation': 0})  # Ignore a cycle that predates observation.
+        for generation in (0, 1, 2):
+            callback('start', {'generation': generation})
+            callback('stop', {'generation': generation, 'collected': 7, 'uncollectable': 0})
+    assert fake.callbacks == [other]
+    report = timings.report()['garbageCollection']
+    assert [row['generation'] for row in report['cycles']] == [0, 1]
+    assert report['dropped'] == 1
+    with pytest.raises(ValueError, match='positive'):
+        with timings.trace_garbage_collection(limit=0):
+            pass
+    assert fake.callbacks == [other]
+
+
+def test_gc_trace_cli_requires_a_sidecar_before_starting_a_fixture():
+    import subprocess
+    import sys
+    script = Path(__file__).resolve().parents[2] / 'scripts/perf/lab_navigation_latency.py'
+    result = subprocess.run([sys.executable, str(script), '--trace-gc'],
+                            text=True, capture_output=True, timeout=10)
+    assert result.returncode == 2
+    assert '--trace-gc requires --server-timings' in result.stderr
+    assert result.stdout == ''
+
+
 def test_stream_timing_preserves_messages_and_omits_secrets():
     messages = [
         {'type': 'http.response.start', 'status': 200, 'headers': [(b'secret', b'value')]},

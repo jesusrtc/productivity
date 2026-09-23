@@ -1108,3 +1108,42 @@ def test_workspace_file_scan_refreshes_pending_state_without_file_edits(client, 
     with nb_exec._pending_guard:
         nb_exec._pending_paths.clear()
     assert scan() == before
+
+
+def test_successful_file_scan_releases_request_paths_without_cyclic_gc(tmp_path, monkeypatch):
+    """Completed scans must not retain their response through a closure cycle."""
+    import gc
+    import weakref
+    from core.routes import diff
+
+    root = tmp_path / 'scan'
+    nested = root / 'docs' / 'nested'
+    nested.mkdir(parents=True)
+    (root / 'docs' / 'one.md').write_text('# One')
+    (nested / 'two.ipynb').write_text('{}')
+    observed = []
+
+    class TrackedPath(type(root)):
+        pass
+
+    def track_path(*args, **kwargs):
+        value = TrackedPath(*args, **kwargs)
+        observed.append(weakref.ref(value))
+        return value
+
+    monkeypatch.setattr(diff, 'Path', track_path)
+    monkeypatch.setattr(diff.lab_paths, 'assistant_root', lambda: None)
+    monkeypatch.setattr(diff.auth, 'request_root', lambda _: tmp_path)
+    # Isolate route lifetime from executor bookkeeping after Future completion.
+    monkeypatch.setattr(diff.fsguard, 'guarded', lambda _, fn: fn())
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        result = diff.api_workspace_files(str(root), None)
+        assert {row['path'] for row in result} == {'docs/one.md', 'docs/nested/two.ipynb'}
+        assert observed
+        assert not any(reference() is not None for reference in observed), (
+            'Completed scan retains paths until a cyclic garbage collection')
+    finally:
+        if enabled:
+            gc.enable()

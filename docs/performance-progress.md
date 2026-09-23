@@ -3223,3 +3223,119 @@ The previous 205.4 ms cold switch, 50.7 ms typing miss, editor-input failures
 and earlier historical misses remain unresolved. Main merge remains pending
 after the earlier automatic approval rejection; no merge, push or live-server
 restart occurred.
+
+## 2026-09-23 — Release completed file scans without cyclic GC
+
+The previous checkpoint's 52.9 ms typing miss included 31.6 ms between a
+browser input frame and the next received echo. A new terminal trace on
+`f339a8f` showed several distinct delay locations: one **51.8 ms** failure
+had 28.5 ms of browser input-handler queueing; another key's PTY output waited
+about 20 ms before WebSocket sending; a file-response serialization overlapped
+a 32 ms server gap. That trace does not establish a single cause for every
+historical miss. Artifacts: `/tmp/lab-echo-path-before-{browser,server}.json`
+and log. Its owned terminal was removed and server stopped.
+
+Added optional `--trace-gc`, requiring `--server-timings`, to the isolated
+fixture. A passive callback records collection wall time, generation,
+thread/request identity and object counts. It keeps at most 10,000 cycles,
+reports dropped records, and removes only its own callback during cleanup.
+It never changes GC thresholds, disables GC, or forces a collection. Tests
+cover actual cycles, unchanged policy, exceptional cleanup, bounded records,
+other callbacks and CLI rejection before fixture startup.
+
+With detailed file tracing enabled, the observer found a **46.71 ms** GC
+cycle; terminal messages were handled after that cycle ended. That run passed
+all 2,400 key checks despite the pause, so this is evidence of a server delay,
+not a fabricated failing key. Artifacts:
+`/tmp/lab-echo-gc-before-{browser,server}.json` and log.
+
+The file-list scanner's inner `scan` function captured its own name for
+recursion. Its closure therefore retained the request's full file list,
+workspace path and other captured state until cyclic GC reclaimed the group.
+A new regression uses weak references to request paths and disables automatic
+GC only inside that test: the baseline keeps completed request objects alive,
+while the candidate releases them by ordinary reference counting. Both forms
+of the final test fail against the old implementation for the intended
+retention assertion. Baseline evidence:
+`/tmp/lab-scan-cycle-baseline-{test,final-test}.log`.
+
+Production now passes the recursive callable explicitly. The scanner no
+longer captures itself. Traversal order, depth/skip rules, symlinks, pending
+notebook state, checkout annotations, response serialization and guarded-worker
+behavior are unchanged. There is no callback clearing when a request times
+out; a worker still traversing a slow volume keeps the callable it needs.
+GC policy and polling remain unchanged.
+
+### Comparison with detailed file tracing disabled
+
+Both runs used 5,000 mixed files, 2,500 real Git changes, 2,400 keys at 25 ms
+cadence and background file updates. Only terminal/echo timing, the passive
+GC observer and ordinary request timing remained enabled. Statistics below
+cover GC cycles starting between the first input and final key render:
+
+| Measure | Baseline | Candidate |
+| --- | ---: | ---: |
+| Cycles observed | 673 | 652 |
+| Objects reclaimed by cyclic GC | 529,843 | 13,755 |
+| Total collection wall time | 244.43 ms | 127.25 ms |
+| Longest collection | 21.86 ms | 12.33 ms |
+| Collections over 10 ms | 6 | 1 |
+| Normal typing maximum | 45.4 ms | 42.7 ms |
+| Loaded typing maximum | 48.9 ms | 41.8 ms |
+
+This is one before/after diagnostic pair; total request counts differ slightly
+with asynchronous polling. Both passed all key/API limits and verified exact
+echoes including scrolling. The lifetime regression independently demonstrates
+the removed retention cycle. The comparison is saved in
+`/tmp/lab-scan-cycle-gc-comparison.json`; source artifacts are
+`/tmp/lab-echo-gc-light-{before,after}-{browser,server}.json` and matching logs.
+All observers remained within their bounds, and both owned terminals/servers
+were cleaned up.
+
+Forty alternating full-ASGI comparisons against `f339a8f`, with 5,000 mixed
+files and symlink fixtures, produced **identical complete JSON responses**.
+Median scan/serialization time was essentially unchanged: 18.42 vs 18.35 ms;
+maxima were 24.88 vs 21.86 ms. The benefit is prompt release and reduced later
+collection work. Alternating variants share one runtime, so these scan timings
+are not an independent GC comparison. Artifact: `/tmp/lab-scan-cycle-asgi.json`.
+
+**89 focused checks passed**, covering workspace routes, filesystem guards,
+worktree annotations and diagnostics. After making the lifetime-test tracking
+stub independent of pathlib constructor versions, its final check plus the
+20 diagnostics tests passed again (**21 checks**). Logs:
+`/tmp/lab-scan-cycle-{regressions,final-tests}.log`. `git diff --check` passed.
+
+### Final UI verification without detailed tracing
+
+The final typing run enabled ordinary request timing only: no file-function,
+PTY, echo-process or GC tracing. **All 2,400 keys passed 50 ms**. Maxima were
+**44.9 ms** normally and **40.1 ms** during file updates. Every character was
+independently verified at parse and cursor-row render, with 88 scrolled reads
+in each verifier. There were 60 file updates and 60 loaded refreshes. All
+**802 browser API requests** passed (maximum **133.0 ms**), as did all
+**833 server requests** (maximum **117.14 ms**). Clock, transport, Git,
+route/request-ID and browser checks passed. No long task was recorded; owned
+terminal removal and server shutdown were confirmed. Artifacts:
+`/tmp/lab-scan-cycle-typing-final-{browser,server,summary}.json` and log.
+
+The 1,500-section document workflow passed **140/140 clicks**. Its two cold
+workspace switches took **167.2 / 191.1 ms**. Twenty Saves topped out at
+**118.4 ms**, twenty editor reopens at **167.4 ms**, and eighteen remembered
+workspace restores at **169.3 ms**. All 60 persistence checks passed, reading
+240 files; final verified content totalled 404,853 bytes across four documents.
+
+The document run still **failed overall**: one of its 40 short append-mode
+editor input setups took **203.85 ms** for 59 characters. That is CDP
+`Input.insertText` setup latency, distinct from the measured clicks and from
+clipboard paste. Its exact-content verification passed. Keep this failure;
+there was no replacement rerun. All **793 browser API requests** passed
+(maximum **70.2 ms**) and all **822 server requests** passed (maximum
+**66.01 ms**). Clocks, request correlation, Git and browser checks passed;
+the server stopped. Artifacts:
+`/tmp/lab-scan-cycle-docs-final-{browser,server,summary}.json` and log.
+
+The goal remains active: this fixes one confirmed server-pause mechanism,
+while the editor setup failure, earlier historical misses, broader UI/API
+coverage and physical/iTerm parity remain unresolved. No main merge, push or
+live-server restart occurred. Main merge remains pending after the earlier
+automatic approval rejection.

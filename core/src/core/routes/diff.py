@@ -612,7 +612,9 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
     # then, so the two stay consistent.
     from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
 
-    def scan(dir_path, depth=0, git_root=None):
+    # Pass recursion explicitly: a self-referencing closure would retain this
+    # request's entire file list until cyclic GC pauses the server to reclaim it.
+    def scan(dir_path, depth=0, git_root=None, *, recurse):
         if depth > _WORKSPACE_SCAN_MAX_DEPTH:
             return
         if (dir_path / ".git").exists():
@@ -685,7 +687,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                     _with_symlink_fields(entry, child, is_symlink=child_is_symlink)
                     files.append(entry)
                 if child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
-                    scan(child, _workspace_scan_child_depth(child, depth), git_root)
+                    recurse(child, _workspace_scan_child_depth(child, depth), git_root, recurse=recurse)
             elif child_is_symlink:
                 # Broken symlink: still surface the row so the sidebar can
                 # distinguish it from an absent file/folder.
@@ -702,7 +704,7 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
             baseline = worktree_recent.checkout_baseline(git_root)
             if baseline:
                 checkout_groups[git_root] = (baseline, [])
-        scan(workspace_path, git_root=git_root)
+        scan(workspace_path, git_root=git_root, recurse=scan)
         for root, (baseline, entries) in checkout_groups.items():
             worktree_recent.mark_checkout_files(root, baseline, entries)
 
