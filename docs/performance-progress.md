@@ -949,3 +949,87 @@ timestamp errors (`/tmp/lab-startup-final-navigation-{browser,server}.json`). Ev
 owned echo terminal was removed. JavaScript syntax and `git diff --check` passed.
 The goal remains open: startup/SVG-heavy typing misses, prior request outliers,
 and unverified actions remain. No main merge or live-server restart is included.
+
+## Follow-on: share the remaining file-icon graphics
+
+All file icons now render one fixed-size span. The remaining fixed-color SVG
+trees moved to shared CSS backgrounds. Image and generic-document icons use
+currentColor masks, preserving inherited theme/Git colors. Configuration files
+retain a separate glyph from JSON/lock: its strokes sit above theme-colored
+circle interiors, including custom `--bg-primary` values. Symlink overlays,
+file-type selection, icon boxes and text baselines stay intact. No external
+asset requests, hidden rows, asynchronous rendering or cache-limit increases
+were introduced.
+
+The 5,000-file `ipynb,pdf,svg,js` fixture fell from **80,423 to 45,423 elements**.
+Its pristine template now fits the existing four-scope/60,000-element bound,
+allowing folder-fragment reuse during real file changes. A configuration-only
+fixture (`toml,yaml,ini,cfg`) also retained a 45,423-element template.
+
+Validation: **119 checks passed**, including both real-Chrome nested/flat
+5,000-file cases, sidebar cache/navigation/config/dashboard tests and the full
+terminal UI test file. A stale terminal test expected three inline sidebar
+click handlers; it now checks the delegated handler and captured root introduced
+in an earlier checkpoint. The existing linked-terminal call restrictions remain.
+JavaScript syntax and `git diff --check` passed.
+
+Original vectors are retained independently in
+`core/tests/fixtures/file-icons-legacy.js`. Browser screenshots compare all 19
+icon families, with/without symlinks, under dark/light/custom colors and 100/125%
+zoom. At native scale, per-cell mean RGB differences were at most 0.066/255,
+and the largest channel difference was 18/255, confined to edge compositing of
+theme fills/masks. Tests cap those at 0.1 and 20 respectively. Fractional zoom
+rasterizes CSS backgrounds differently from inline SVG; those screenshots were
+inspected, and geometry/baseline checks pass. Native hover/Enter, file/history/
+modal actions, Git badges, find-in-page and complete scrolling remain covered.
+Artifacts: `/tmp/lab-all-icons-final-tests.log` and
+`/tmp/lab-all-icons-final-qa/test_sidebar_offscreen_renderi{0,1}/sidebar*.png`.
+
+Sequential untraced typing runs used exact `a54295a` JavaScript/CSS for the
+baseline, fresh Chrome profiles, normal startup/polling, 100 keys per phase and
+five fixture writes during the loaded phase:
+
+| Fixture / version / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| SVG-heavy, prior, normal | 4.50 ms | 22.10 ms | 128.00 ms | 4 |
+| SVG-heavy, candidate, normal | 3.60 ms | 22.80 ms | 112.20 ms | 3 |
+| SVG-heavy, prior, changing files | 7.40 ms | 81.50 ms | 107.50 ms | 11 |
+| SVG-heavy, candidate, changing files | 3.90 ms | 35.20 ms | 67.30 ms | 1 |
+| Config-heavy, candidate, normal | 2.90 ms | 24.20 ms | 106.60 ms | 3 |
+| Config-heavy, candidate, changing files | 3.20 ms | 36.10 ms | 84.20 ms | 4 |
+
+The prior SVG-heavy run had five loaded 90–105 ms tasks; neither candidate had
+a loaded task at/above 50 ms. Each candidate still had a 109 ms startup task.
+All runs preserved all 200 keys and verified final file mtimes and recent-file
+ordering, with no input, HTTP, network, browser or timestamp errors. Every owned
+echo terminal was removed and every fixture server stopped. All three runs
+still fail the 50 ms typing budget. Artifacts:
+`/tmp/lab-all-icons-final-{svg-before,svg-after,config-after}-{browser,server}.json`.
+
+An earlier candidate run also remains recorded: normal maximum 79.10 ms and
+changing-files maximum 52.50 ms, with three total typing misses and all 97 APIs
+below 100.50 ms (`/tmp/lab-shared-all-icons-{browser,server}.json`). It does not
+replace the slower final samples.
+
+Final API maxima were **86.60 / 202.20 / 127.50 ms** for prior SVG, candidate SVG,
+and candidate config respectively, over 96/102/103 requests. The 202.20 ms miss
+was `/api/workspace-files`. Timing/order correlation places its ASGI entry
+150.49 ms after browser initiation and its final body 52.09 ms later; the
+preceding overlapping file-list request took 184.34 ms inside ASGI. The next
+browser file-list request took 195 ms. This suggests delay before ASGI entry,
+but does not establish its cause; the endpoint already runs in a worker thread,
+and these logs do not contain request IDs. No endpoint error or data loss was
+observed. The request miss is retained for follow-up rather than excluded.
+
+Both final navigation probes passed **80 actions each** (40 workspace and 40
+document clicks). The ordinary fixture had workspace median/p95/maximum
+67.50/73.80/**81.00 ms**, and document maximum **70.30 ms**; all 652 APIs were
+below **50.60 ms**. The 5,000-file SVG-heavy fixture had workspace
+103.20/121.30/**184.60 ms**, and document maximum **78.90 ms**; all 657 APIs were
+below **144.20 ms**. Neither probe had browser, HTTP, network or budget errors.
+Artifacts: `/tmp/lab-all-icons-final-navigation{,-large}-{browser,server}.json`.
+
+This checkpoint makes changed-file refreshes cheaper across file types. Startup
+typing, remaining loaded keystrokes, file-list queueing and previously recorded
+outliers still need work, and every UI action has not been verified. The overall
+goal remains active. No main merge, push or live-server restart is included.

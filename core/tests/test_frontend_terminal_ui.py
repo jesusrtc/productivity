@@ -574,7 +574,7 @@ process.stdout.write(JSON.stringify({
 
 
 def test_terminal_request_block_keeps_history_in_a_three_item_viewport() -> None:
-    file_icons = _js_between("  const _FT_FONT", "  function buildSidebarTree(")
+    file_icons = _js_between("  function fileIconHtml(", "  function buildSidebarTree(")
     header_helpers = _js_between(
         "function _termSessionDisplay(s)",
         "function _termSessionPillHtml(s, index)",
@@ -1028,7 +1028,14 @@ def test_linked_terminal_sync_only_runs_from_explicit_file_or_terminal_clicks() 
     assert "_termSyncFromFileClick" not in repo_open
     assert "_termSyncFromFileClick" not in workspace_open
     assert source.count("_termSyncFromFileClick(") == 3
-    assert source.count("onclick=\"openWorkspaceDocFromFileClick(") == 3
+    sidebar_action = _js_between(
+        "function _sidebarHandleFileAction(event)",
+        "async function openWorkspaceDoc(filepath",
+    )
+    assert "openWorkspaceDocFromFileClick(path, {root});" in sidebar_action
+    assert "addEventListener('click', _sidebarHandleFileAction)" in sidebar_action
+    assert "const root = row.getAttribute('data-entry-root');" in sidebar_action
+    assert "onclick=\"openWorkspaceDocFromFileClick(" not in source
     assert source.count("onclick=\"openWorkspaceFileFromFileClick(") == 1
     assert "if (ctx.surface === 'repo') openWorkspaceFile(ctx.path);" in source
     assert "else openWorkspaceDoc(ctx.path, {root: ctx.root});" in source

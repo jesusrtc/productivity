@@ -1,4 +1,5 @@
 """Offscreen groups preserve file geometry and interactions in real Chrome."""
+import json
 import os
 from pathlib import Path
 import re
@@ -26,6 +27,7 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     helpers+=between('  const _GIT_ROW_CLASSES', '  function _sidebarPlaceGitBadge(')
     helpers+=between('  function _sidebarPlaceGitBadge(', '  function _sidebarApplyGitStatus(')
     helpers+=between('  const _sidebarMarkupCache =', '  // Re-renders just the workspace file sidebar')
+    helpers+=(root/'core/tests/fixtures/file-icons-legacy.js').read_text()
     workspace_tree=between('        function renderTree(node, depth, parentPath, offset)',
                            '      sbHtml += _sidebarWorktreeScopeEndHtml(workspacePath);')
     # The extracted block includes the enclosing if's closing brace.
@@ -49,16 +51,16 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
      const files=Array.from({length:5000},(_,i)=>({path:`${layout==='folders'?'notes/batch-'+String(Math.floor(i/100)).padStart(3,'0'):'notes'}/file-${String(i).padStart(5,'0')}.${['md','py','json','sql'][i%4]}`,type:'file',mtime:1,is_symlink:i%17===0,symlink_target:'elsewhere'}));
      files[2444].path=files[2444].path.replace(/\.md$/, ` 'quoted' " & résumé.md`);
      const ref=document.getElementById('reference'), candidate=document.getElementById('sidebar');
+     const optimizedFileIconHtml=fileIconHtml;
+     fileIconHtml=legacyFileIconHtml;
      ref.innerHTML=_sidebarRecentSectionHtml(files,null,'/reference',{resolved:true});
+     fileIconHtml=optimizedFileIconHtml;
      // Keep the original icon wrapper in the reference. Its pseudo-element
      // is disabled below so geometry compares old and new history buttons.
      ref.querySelectorAll('.sidebar-git-history').forEach(button=>{
       const wrapper=document.createElement('span');wrapper.className='sidebar-actions';
       button.replaceWith(wrapper);wrapper.appendChild(button);button.classList.remove('sidebar-actions');
       button.innerHTML=_SIDEBAR_GITHUB_ICON;
-     });
-     ref.querySelectorAll('.ft-braces').forEach(icon=>{
-      icon.classList.remove('ft-braces');icon.innerHTML=_ftText('{}','#CBCB41');
      });
      const parts=[];
      const markup=_sidebarRecentSectionHtml(files,null,'/candidate',{resolved:true,parts});
@@ -153,15 +155,15 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
      // File icons also appear in other inline labels and as flex items. Cover
      // 13px and 14px glyphs, every extension family, symlinks, and both themes.
      const types=['note.md','code.py','query.sql','data.json','dep.lock','book.ipynb','app.js','types.ts','config.toml','page.html','app.css','run.sh','paper.pdf','Data.scala','table.csv','.gitignore','image.png','video.mp4','unknown.xyz'];
+     window.__iconTypes=types;
      const iconChecks=document.createElement('div');iconChecks.style.cssText='position:absolute;top:0;left:1000px;width:420px';
      const legacy=document.createElement('div');legacy.className='reference';legacy.style.cssText='position:absolute;width:200px';
      const simple=document.createElement('div');simple.style.cssText='position:absolute;left:210px;width:200px';
-     const sampleMarkup=types.flatMap(name=>[false,true].flatMap(link=>[
-      `<div class="sidebar-file"><span class="sidebar-fname">${fileIconHtml(name,{is_symlink:link})}${name}</span></div>`,
-      `<div class="sidebar-file">${fileIconHtml(name,{is_symlink:link})}<span class="sidebar-fname">${name}</span></div>`,
+     const sampleMarkup=renderIcon=>types.flatMap(name=>[false,true].flatMap(link=>[
+      `<div class="sidebar-file"><span class="sidebar-fname">${renderIcon(name,{is_symlink:link})}${name}</span></div>`,
+      `<div class="sidebar-file">${renderIcon(name,{is_symlink:link})}<span class="sidebar-fname">${name}</span></div>`,
      ])).join('');
-     legacy.innerHTML=simple.innerHTML=sampleMarkup;
-     legacy.querySelectorAll('.ft-braces').forEach(icon=>{icon.classList.remove('ft-braces');icon.innerHTML=_ftText('{}','#CBCB41')});
+     legacy.innerHTML=sampleMarkup(legacyFileIconHtml);simple.innerHTML=sampleMarkup(fileIconHtml);
      iconChecks.append(legacy,simple);document.body.appendChild(iconChecks);
      for(const light of [false,true])for(const zoom of [1,1.25]){
       document.body.classList.toggle('light-mode',light);document.body.style.zoom=zoom;await wait();
@@ -193,7 +195,7 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     const openExplorerHistory=context=>calls.push({...context,kind:'history'});
     '''
     page=tmp_path/'sidebar.html'
-    page.write_text('<!doctype html><meta charset="utf-8"><style>'+css+'''\n*{box-sizing:border-box}body{margin:0;background:#0d1117;--text-secondary:#aab;--text-primary:#eee;--border:#333;--accent:#68c;--tree-indent-guide:#334}aside.sidebar{position:fixed;top:50px;bottom:20px;height:auto!important;overflow:auto!important;width:340px;display:block}#reference{left:10px}#sidebar{left:500px}.reference .sidebar-recent-children{content-visibility:visible!important;contain-intrinsic-block-size:none!important}.reference .sidebar-git-history::before{content:none}.reference .ft-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:-3px}.reference .ft-icon svg{position:static;transform:none}.reference .ft-md::before,.reference .ft-py::before,.reference .ft-sql::before{content:"";display:block;width:14px;height:14px}</style><body><pre id="result">PENDING</pre><aside id="reference" class="sidebar reference"></aside><aside id="sidebar" class="sidebar"></aside><script>'''+stubs+helpers+checks+'</script>')
+    page.write_text('<!doctype html><meta charset="utf-8"><style>'+css+'''\n*{box-sizing:border-box}body{margin:0;background:#0d1117;--text-secondary:#aab;--text-primary:#eee;--border:#333;--accent:#68c;--tree-indent-guide:#334}aside.sidebar{position:fixed;top:50px;bottom:20px;height:auto!important;overflow:auto!important;width:340px;display:block}#reference{left:10px}#sidebar{left:500px}.reference .sidebar-recent-children{content-visibility:visible!important;contain-intrinsic-block-size:none!important}.reference .sidebar-git-history::before{content:none}.reference .ft-icon{display:inline-flex;align-items:center;justify-content:center;vertical-align:-3px;background:none}.reference .ft-icon::before{content:none}.reference .ft-icon svg{display:block;position:static;transform:none}</style><body><pre id="result">PENDING</pre><aside id="reference" class="sidebar reference"></aside><aside id="sidebar" class="sidebar"></aside><script>'''+stubs+helpers+checks+'</script>')
     with tempfile.TemporaryDirectory(prefix='lab-sidebar-qa-') as directory:
      profile=Path(directory)/'chrome'
      chrome=subprocess.Popen([chrome,'--headless=new','--no-first-run','--disable-background-networking','--window-size=1400,1000','--remote-debugging-port=0','--user-data-dir='+str(profile),'about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
@@ -246,12 +248,70 @@ const after=await evaluate("({count:calls.filter(c=>c.kind==='history').length,f
 if(after.count!==before+1)throw Error('Keyboard history action failed '+JSON.stringify({before,after}));
 await evaluate("document.activeElement.blur();document.body.classList.remove('light-mode');document.body.style.zoom=1;for(const id of ['reference','sidebar']){const el=document.getElementById(id);el.style.width='340px';el.scrollTop=0;const row=el.querySelectorAll('.sidebar-file')[2];_gitSetRowClass(row,'');row.querySelector('.git-badge')?.remove();}");
 await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:0,y:0});await frame();
+// Compare actual painted pixels, including inherited colors and symlink overlays.
+// Decode Chrome's own PNG in a canvas so the check needs no imaging dependency.
+const iconPixels=[];
+for(const theme of ['dark','light','custom'])for(const zoom of [1,1.25]){
+ const pairs=await evaluate(`(()=>{
+  document.body.classList.toggle('light-mode','${theme}'==='light');document.body.style.zoom=${zoom};
+  const sheet=document.createElement('div');sheet.id='icon-sheet';
+  sheet.style.cssText='position:fixed;z-index:99999;left:0;top:0;width:640px;padding:16px;background:#182030;color:white;font:12px sans-serif;--bg-primary:#101318;--bg-secondary:#283240;--purple:#bb88ff;--text-dim:#8899aa;--accent:#66bbff';
+  if('${theme}'==='light')sheet.style.cssText+=';--bg-primary:#fafaff;--bg-secondary:#e4e8ee;--purple:#8844bb;--text-dim:#556677;--accent:#2266aa';
+  if('${theme}'==='custom')sheet.style.cssText+=';--bg-primary:#ff9933;--bg-secondary:#145236;--purple:#ff22aa;--text-dim:#22ffee;--accent:#eecc22';
+  const pairs=[];
+  for(const name of window.__iconTypes){
+   const row=document.createElement('div');row.style.cssText='display:flex;height:24px;align-items:center';
+   const label=document.createElement('span');label.textContent=name;label.style.width='160px';row.appendChild(label);
+   for(const link of [false,true]){
+    const pair={name,link,nodes:[]};
+    for(const legacy of [true,false]){
+     const cell=document.createElement('div');cell.className=legacy?'reference':'';
+     cell.style.cssText='position:relative;width:48px;height:24px;background:var(--bg-secondary)';
+     cell.innerHTML=(legacy?legacyFileIconHtml:fileIconHtml)(name,{is_symlink:link});
+     cell.firstChild.style.cssText='position:absolute;left:12px;top:4px';
+     row.appendChild(cell);pair.nodes.push(cell);
+    }
+    pairs.push(pair);
+   }
+   sheet.appendChild(row);
+  }
+  document.body.appendChild(sheet);
+  return pairs.map(({name,link,nodes})=>({name,link,rects:nodes.map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})}));
+ })()`);
+ await frame();
+ const shot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+ await writeFile(screenshotPath.replace('.png',`-icons-${theme}-${zoom}.png`),Buffer.from(shot.data,'base64'));
+ const stats=await evaluate(`(async()=>{
+  const img=new Image();img.src='data:image/png;base64,${shot.data}';await img.decode();
+  const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0);
+  return ${JSON.stringify(pairs)}.map(({name,link,rects})=>{
+   const crops=rects.map(r=>ctx.getImageData(Math.round(r.x),Math.round(r.y),Math.round(r.width),Math.round(r.height)).data);
+   let sum=0,max=0,changed=0;
+   for(let i=0;i<crops[0].length;i+=4){let pixel=0;for(let c=0;c<3;c++){const d=Math.abs(crops[0][i+c]-crops[1][i+c]);sum+=d;pixel=Math.max(pixel,d);}max=Math.max(max,pixel);if(pixel)changed++;}
+   return {name,link,mean:sum/(crops[0].length/4*3),max,changed};
+  });
+ })()`);
+ iconPixels.push({theme,zoom,stats});
+ await evaluate("document.getElementById('icon-sheet').remove()");
+}
+await writeFile(screenshotPath.replace('.png','-icons.json'),JSON.stringify(iconPixels,null,2));
+await evaluate("document.body.classList.remove('light-mode');document.body.style.zoom=1");await frame();
 '''
       browser_script=tmp_path/'check-sidebar.mjs'
       driver=(root/'scripts/chrome-dump-auth.mjs').read_text()
       browser_script.write_text(driver.replace("const evaluated = await send(",interactions+"\nconst evaluated = await send(",1))
       r=subprocess.run(['node',str(browser_script),str(profile),page.as_uri(),str(tmp_path/'rendered.html'),str(tmp_path/'sidebar.png')],env={**os.environ,'LAB_UI_AUTH_COOKIE':''},capture_output=True,text=True,timeout=60)
       assert r.returncode == 0, r.stderr
+      # At native scale the shared assets preserve the original painted glyphs.
+      # Allow only small edge-compositing differences for masks/theme fills.
+      # Fractional zoom rasterizes CSS backgrounds differently from inline SVG;
+      # its geometry is checked above and screenshots remain available for QA.
+      icon_pixels=json.loads((tmp_path/'sidebar-icons.json').read_text())
+      for case in icon_pixels:
+       if case['zoom'] != 1:continue
+       for icon in case['stats']:
+        assert icon['mean'] <= .1 and icon['max'] <= 20, (case['theme'],icon)
       rendered=(tmp_path/'rendered.html').read_text()
       match=re.search(r'<pre id="result">(.*?)</pre>',rendered,re.S)
       assert match and '&quot;ok&quot;:true' in match.group(1).replace(chr(34), '&quot;'), match.group(1) if match else 'No result'

@@ -36,7 +36,7 @@ def _between(start_marker: str, end_marker: str) -> str:
 
 def test_sql_and_scala_files_use_language_specific_icons() -> None:
     icon_helpers = _between(
-        'const _FT_FONT =',
+        'function fileIconHtml(',
         'function buildSidebarTree(entries)',
     )
     result = _run_node(
@@ -55,7 +55,7 @@ process.stdout.write(JSON.stringify({sql, uppercase, scala, plain}));
     assert '.ft-icon.ft-sql' in css and '%3Cellipse' in css
     assert 'class="ft-icon ft-sql"' in result["uppercase"]
     assert 'class="ft-icon ft-scala"' in result["scala"]
-    assert '#DE3423' in result["scala"]
+    assert '.ft-icon.ft-scala' in css and '%23DE3423' in css
     assert 'class="ft-icon ft-generic"' in result["plain"]
 
 

@@ -1,5 +1,7 @@
 # Memory index
 
+- [All file icons share graphics](sidebar-all-icons-share-graphics.md) — one span per icon, inherited-color masks, theme-aware config fills, and native-scale pixel regression checks
+
 - [Native Enter includes its character event](browser-native-enter-includes-character.md) — CDP button-activation checks need carriage-return text as well as keyDown/keyUp
 
 - [Reuse pristine sidebar folder fragments](sidebar-template-fragments-reuse-pristine-folders.md) — source-range reuse avoids reparsing unchanged folders; transient identity proofs must not retain older templates
