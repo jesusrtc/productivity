@@ -319,7 +319,14 @@
     } catch (err) {}
   }
 
-  async function selectRepo(workspaceKey, {initialLoad = false} = {}) {
+  function _settleWorkspaceHistory(path) {
+    const url = new URL(window.location);
+    url.searchParams.set('workspace', path);
+    url.searchParams.delete('repo');
+    history.replaceState(null, '', url);
+  }
+
+  async function selectRepo(workspaceKey, {initialLoad = false, historySettled = false} = {}) {
     if (!workspaceKey) return;
     currentWorkspace = workspacesList.find(p => p.path === workspaceKey)
       || workspacesList.find(p => p.name === workspaceKey);
@@ -340,10 +347,7 @@
     // pushState here would create a duplicate history entry, breaking
     // the back button. replaceState normalizes (e.g., ?repo= → ?workspace=)
     // without adding to history.
-    const url = new URL(window.location);
-    url.searchParams.set('workspace', currentWorkspace.path);
-    url.searchParams.delete('repo');
-    history.replaceState(null, '', url);
+    if (!historySettled) _settleWorkspaceHistory(currentWorkspace.path);
 
     renderRepoTabs();
 
@@ -15493,6 +15497,10 @@
   // strips the mutually-exclusive body classes; the destination init will
   // assert its own.
   function _swapViewState({preserveHomeTerminal = false} = {}) {
+    // Save the outgoing notebook position while its layout is still intact.
+    // Reading cell geometry after shell/tab changes forces an intermediate
+    // layout of the page that navigation is about to replace.
+    _clearNbNavigation();
     _workspaceDeleteTarget = null;
     closeVaultWorkspaceMenu();
     window.AssistantView?.closeDocument(false);
@@ -15509,8 +15517,8 @@
   }
 
   // Navigate to a real workspace by absolute path. `replace` is true when
-  // called from popstate (browser already updated URL — replaceState would
-  // create a duplicate; do nothing).
+  // called from popstate: skip pushing an entry, then normalize the current
+  // entry just as ordinary workspace selection does.
   function goToWorkspace(path, opts = {}) {
     if (!path) return;
     if (!opts.replace) {
@@ -15528,11 +15536,13 @@
     // History can synchronously update layout to save the outgoing view.
     // Capture it before clearing that view's classes; otherwise Chrome may
     // lay out a temporary shell that is immediately replaced below.
+    const knownWorkspace = (workspacesList || []).find(p => p.path === path);
+    if (knownWorkspace) _settleWorkspaceHistory(knownWorkspace.path);
     _swapViewState();
     if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     const dispatch = () => {
       const workspace = (workspacesList || []).find(p => p.path === path);
-      if (workspace) selectRepo(workspace.path);
+      if (workspace) selectRepo(workspace.path, {historySettled: workspace === knownWorkspace});
     };
     if (workspacesList && workspacesList.length) {
       dispatch();

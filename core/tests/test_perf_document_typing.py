@@ -59,7 +59,8 @@ def test_document_typing_checks_each_edit_and_frame_then_removes_listeners():
     global.document=Object.assign(target(),{activeElement:editor});
     const keys=documentTypingKeys('x\n\tz');
     const clock=event=>({source:event.timeStamp,handlerAt:event.timeStamp+1,sourceEpoch:1000+event.timeStamp});
-    const probe=observeDocumentTyping(editor,keys,editor.value,clock);
+    let view=true;
+    const probe=observeDocumentTyping(editor,keys,editor.value,clock,()=>view);
     for(const [index,key] of keys.entries()) {
       if(fault==='missing' && index===3)break;
       const event={type:'keydown',key:key.key,code:key.code,target:editor,isTrusted:true,timeStamp:performance.now()};
@@ -69,16 +70,18 @@ def test_document_typing_checks_each_edit_and_frame_then_removes_listeners():
       editor.value+=key.insert;editor.selectionStart=editor.selectionEnd=editor.value.length;
       if(fault==='value' && index===0)editor.value+='wrong';
       if(fault==='cursor' && index===0)editor.selectionStart--;
+      if(fault==='view' && index===0)view=false;
       if(key.key==='Tab') {
         event.defaultPrevented=true;document.emit('keydown',event);
       } else editor.emit('input',{type:'input',target:editor,isTrusted:true,inputType:key.key==='Enter'?'insertLineBreak':'insertText'});
       if(fault==='frame' && index===0)editor.value='different frame';
+      if(fault==='view-frame' && index===0)view=false;
       while(frames.length)frames.shift()();
     }
     const snapshot=probe.snapshot();probe.dispose();
     return {...snapshot,remainingListeners:editor.listeners.size+document.listeners.size};
   }
-  const scenarios=Object.fromEntries(['good','missing','target','untrusted','value','cursor','frame'].map(fault=>[fault,scenario(fault)]));
+  const scenarios=Object.fromEntries(['good','missing','target','untrusted','value','cursor','frame','view','view-frame'].map(fault=>[fault,scenario(fault)]));
   global.setTimeout=realTimeout;
   process.stdout.write(JSON.stringify(scenarios));
 })().catch(error=>{console.error(error);process.exitCode=1;});
@@ -90,7 +93,7 @@ def test_document_typing_checks_each_edit_and_frame_then_removes_listeners():
     assert all(row['done'] and row['valueVerified'] and row['paintValueVerified']
                for row in good['rows'])
     assert not result['missing']['complete']
-    for fault in ('target', 'untrusted', 'value', 'cursor', 'frame'):
+    for fault in ('target', 'untrusted', 'value', 'cursor', 'frame', 'view', 'view-frame'):
         assert result[fault]['error'], fault
     assert all(row['remainingListeners'] == 0 for row in result.values())
 

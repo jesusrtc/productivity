@@ -82,14 +82,15 @@ console.log(JSON.stringify({stable, renamed, paints, active: el.markup.includes(
 def test_workspace_click_during_startup_does_not_wait_for_page_quiet():
     """A user can act as soon as tabs appear, before startup's quiet window."""
     scheduling = _js_between('  function afterPageQuiet(', '  const _assetPromises')
-    selection = _js_between('  async function selectRepo(', '  async function loadDiff()')
+    selection = _js_between('  function _settleWorkspaceHistory(', '  async function loadDiff()')
     result = _run_node(r'''
 const calls = [], timers = [];
 const performance = {now: () => 500};
 const setTimeout = callback => timers.push(callback);
 const location = {search: ''};
 window.location = 'http://localhost/?view=productivity';
-const history = {replaceState: () => {}};
+let historyReplacements=0;
+const history = {replaceState: () => {historyReplacements++;}};
 const document = {
   readyState: 'complete', title: '',
   body: {classList: {add: () => {}, remove: () => {}}},
@@ -123,16 +124,17 @@ const workspaceTabsRender = () => {};
   await selectRepo('/alpha', {initialLoad: true});
   const initial = {calls: [...calls], timers: timers.length};
   calls.length = 0;
-  await selectRepo('/beta');
+  await selectRepo('/beta', {historySettled: true});
   calls.length = 0;
   for (const timer of timers.splice(0)) timer();
-  console.log(JSON.stringify({firstClick, remembered, initial, late: calls}));
+  console.log(JSON.stringify({firstClick, remembered, initial, late: calls, historyReplacements}));
 })();
 ''')
     assert result['firstClick'] == {
         'calls': ['shell:alpha', 'attrs:alpha', 'dashboard:alpha', 'terminal:alpha'],
         'timers': 0,
     }
+    assert result['historyReplacements'] == 3
     assert result['remembered'] == {
         'calls': ['attrs:beta', 'dashboard:beta', 'doc:docs/review.md', 'terminal:beta'],
         'doc': 'docs/review.md', 'timers': 0,

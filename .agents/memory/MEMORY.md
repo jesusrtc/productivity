@@ -1,5 +1,9 @@
 # Memory index
 
+- [Normalize workspace history before teardown](workspace-history-normalization-precedes-teardown.md) — preserve history and notebook position without a second intermediate layout; repeated restoration falls below 200 ms
+- [Notebook typing checks its visible text and draft](notebook-typing-checks-visible-highlight-and-draft.md) — native keys verify the syntax overlay, cursor, localStorage and both restored drafts while preserving notebook files
+- [Direct shell launch needs a measured gain](direct-shell-launch-needs-measured-gain.md) — a terminal-only direct argv candidate did not establish a cold-start improvement and was removed
+
 - [Cold creation separates process and render milestones](terminal-cold-start-needs-process-and-render-milestones.md) — trace-only parse/render/readiness stages and cleanup-time process timestamps retain first-use startup costs
 - [Opening renderer hooks need a measured gain](terminal-opening-renderer-hook-needs-latency-gain.md) — skipping temporary DOM construction passed correctness but did not improve end-to-end latency; keep forced-GPU-failure coverage
 

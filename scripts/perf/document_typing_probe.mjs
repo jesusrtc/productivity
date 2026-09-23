@@ -13,14 +13,14 @@ export function documentTypingKeys(text) {
 }
 
 // Serialized into the fixture browser. No module-level dependencies.
-export function observeDocumentTyping(editor,keys,before,captureClock) {
+export function observeDocumentTyping(editor,keys,before,captureClock,verifyView=()=>true) {
   if(!editor || document.activeElement!==editor || editor.value!==before
     || editor.selectionStart!==before.length || editor.selectionEnd!==before.length)throw Error('Document typing source/cursor is not ready');
   const state={rows:[],expected:before,error:null},pending=[];
   const fail=message=>{state.error ||= message;};
   const checkValue=()=>editor.isConnected && document.activeElement===editor
     && editor.value===state.expected && editor.selectionStart===state.expected.length
-    && editor.selectionEnd===state.expected.length;
+    && editor.selectionEnd===state.expected.length && verifyView(state.expected);
   const keydown=event=>{
     const key=keys[state.rows.length];
     if(event.target!==editor || !event.isTrusted || !key || event.key!==key.key || event.code!==key.code) {

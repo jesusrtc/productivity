@@ -36,7 +36,7 @@ const context = vm.createContext({
   _workspaceVaultId:w => w.vault, _workspaceDisplayName:w => w.display_name || w.name,
   workspacesList:[a,b],workspaceTabsAll:[a,b],workspaceTabsHot:[],
   selectRepo(path){context.currentWorkspace=context.workspacesList.find(w=>w.path===path);},
-  renderRepoTabs(){}, confirm(text){prompts.push(text);return confirmation;},
+  renderRepoTabs(){}, _clearNbNavigation(){}, _settleWorkspaceHistory(){}, confirm(text){prompts.push(text);return confirmation;},
   fetch:async (url,options) => {requests.push({url,options});return {ok:true,json:async()=>({killed:[]})};},
   _termSessionsCache:new Map(),_workspaceSidebarCache:new Map(),_workspaceAttrsCache:new Map(),
   _termSessionsKey:(id,vault)=>vault+':'+id,localStorage:{removeItem(){}},

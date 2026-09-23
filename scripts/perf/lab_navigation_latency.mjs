@@ -15,6 +15,7 @@ import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
 import {documentEditActions,verifyEditedDocuments,verifyDocumentHistory} from './document_edit_workload.mjs';
 import {runDocumentTyping} from './document_typing_probe.mjs';
 import {notebookViewActions} from './notebook_view_workload.mjs';
+import {runNotebookTyping} from './notebook_typing_probe.mjs';
 import {installNavigationRefreshProbe,installNavigationRefreshStress,navigationRefreshCoverage} from './navigation_refresh_probe.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
@@ -154,7 +155,7 @@ async function main() {
     })());
     return (await Promise.allSettled(jobs)).filter(result=>result.status==='rejected').map(result=>String(result.reason));
   })();
-  const rows=[],inputSetups=[],documentTyping=[],documentHistory=[];
+  const rows=[],inputSetups=[],documentTyping=[],documentHistory=[],notebookTyping=[];
   try {
     // Let Chrome reserve its own free port; a random fixed-range choice can
     // collide with another local browser. Read only this fixture's profile.
@@ -237,7 +238,7 @@ async function main() {
     } else if(terminalCreation) {
       actions.push(...await terminalCreationActions(evaluate,workspaceRoot,samples,terminalCreation));
     } else if(notebookView) {
-      actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples));
+      actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples,{typing:process.env.LAB_PERF_NOTEBOOK_TYPING==='1'}));
     } else if(documentEdit) {
       actions.push(...await documentEditActions(workspaceRoot,samples,{inputMode:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',typing:process.env.LAB_PERF_DOCUMENT_TYPING==='1'}));
     } else if(quickFiles) {
@@ -402,6 +403,10 @@ async function main() {
       if(!clockCheck.valid)throw new Error('Mouse input clock validation failed: '+clockCheck.reason);
       if(action.kind==='terminal-create')rows.at(-1).creationVerification=await verifyTerminalCreation(client,evaluate,workspaceRoot,action.target);
       if(action.expectedDocuments)rows.at(-1).documentVerification=await verifyEditedDocuments(action.expectedDocuments);
+      if(action.notebookTyping) {
+        await runNotebookTyping(client,evaluate,notebookTyping,{workspaceRoot,action,sample:i+1});
+        rows.at(-1).draftVerification=await verifyEditedDocuments(action.expectedDocuments);
+      }
       if(action.terminal) {
         if(terminalState.cacheSize>3||terminalState.panes>4)throw new Error('Terminal pane retention exceeded its production bound');
         if(action.kind==='terminal-first') {
@@ -526,6 +531,8 @@ async function main() {
     const fixture={workflow:terminalCreation?'terminal-create':notebookView?'notebook-view':documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     if(notebookView)fixture.notebookCells=await evaluate('__notebookViewExpected.alpha.cells.length');
+    fixture.notebookTyping=process.env.LAB_PERF_NOTEBOOK_TYPING==='1';
+    fixture.notebookCodeLines=Number(process.env.LAB_PERF_NOTEBOOK_CODE_LINES||0);
     fixture.documentTyping=process.env.LAB_PERF_DOCUMENT_TYPING==='1';
     fixture.documentHistory=process.env.LAB_PERF_DOCUMENT_HISTORY==='1';
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
@@ -537,13 +544,14 @@ async function main() {
     }
     const inputSetupMisses=inputSetups.filter(row=>!row.completed||row.ms>=200);
     const documentTypingMisses=documentTyping.filter(row=>!row.done||!row.clockCheck.valid||row.ms>=200);
+    const notebookTypingMisses=notebookTyping.filter(row=>!row.done||!row.clockCheck.valid||row.ms>=200);
     const documentHistoryMisses=documentHistory.filter(row=>!row.verified||row.ms>=200);
-    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,documentTyping,documentTypingMisses,documentHistory,documentHistoryMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
-    if(misses.length || inputSetupMisses.length || documentTypingMisses.length || documentHistoryMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length)process.exitCode=1;
+    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,documentTyping,documentTypingMisses,notebookTyping,notebookTypingMisses,documentHistory,documentHistoryMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    if(misses.length || inputSetupMisses.length || documentTypingMisses.length || notebookTypingMisses.length || documentHistoryMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
     const diagnosticsErrors=await finishDiagnostics();
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,diagnosticsErrors,inputSetups,documentTyping,documentHistory,rows},null,2));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,diagnosticsErrors,inputSetups,documentTyping,notebookTyping,documentHistory,rows},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}

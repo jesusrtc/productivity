@@ -25,7 +25,7 @@ export function notebookViewReady(expected,{codeHidden=false,collapsed=false}={}
   });
 }
 
-export async function notebookViewActions(evaluate,workspaceRoot,samples) {
+export async function notebookViewActions(evaluate,workspaceRoot,samples,{typing=false}={}) {
   if(resolve(workspaceRoot)!==workspaceRoot || !/\/lab-navigation-[^/]+\/vault\/workspaces$/.test(workspaceRoot))throw Error('Notebook viewing requires the disposable fixture');
   if(!Number.isInteger(samples)||samples<2)throw Error('Notebook viewing requires at least two samples');
   const expected={},files=[];
@@ -41,6 +41,7 @@ export async function notebookViewActions(evaluate,workspaceRoot,samples) {
     })};
   }
   await evaluate(`window.__notebookViewExpected=${JSON.stringify(expected)};window.__notebookViewReady=${notebookViewReady.toString()};`);
+  const drafts=Object.fromEntries(Object.entries(expected).map(([name,value])=>[name,value.cells[1].source]));
   const actions=[];
   for(let i=0;i<samples;i++) {
     const name=i%2?'beta':'alpha',identity=`__notebookViewExpected[${JSON.stringify(name)}]`;
@@ -57,6 +58,15 @@ export async function notebookViewActions(evaluate,workspaceRoot,samples) {
     );
     // These controls must never write or execute either notebook.
     actions.at(-1).expectedDocuments=files;
+    if(typing) {
+      const text=`\nfixture draft ${i+1} jqvxmb\n`;
+      actions.at(-1).notebookTyping={before:drafts[name],text};
+      drafts[name]+=text;
+    }
   }
+  if(typing)for(const name of ['alpha','beta'])actions.push({
+    kind:'notebook-draft-restore',target:name,selector:'.workspace-tab[data-workspace-id="'+name+'"]',
+    ready:`__notebookViewReady(__notebookViewExpected[${JSON.stringify(name)}])`,expectedDocuments:files,
+  });
   return actions;
 }

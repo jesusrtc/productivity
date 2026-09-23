@@ -76,6 +76,7 @@ def test_home_section_switch_keeps_the_mounted_terminal():
     result = run('''
 let _workspaceDeleteTarget = null;
 const closeVaultWorkspaceMenu = () => {};
+const _clearNbNavigation = () => {};
 const calls = [];
 const termDetach = () => calls.push('detach');
 const _termIsScopeActive = id => id === _termActiveWorkspaceId();

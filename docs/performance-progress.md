@@ -4980,3 +4980,136 @@ Cold creation, earlier output-typing/IME/navigation failures, unmeasured actions
 and endpoints, and physical/iTerm parity remain unfinished. Main merge is still
 pending after the earlier automatic approval rejection. No merge, push or live
 server restart was attempted.
+
+## Notebook draft restoration settles history before teardown — 2026-09-23
+
+This checkpoint starts from `bac2beb`. A terminal launch candidate was measured
+and removed. New notebook editing coverage exposed a repeatable workspace
+restoration delay; the retained production change moves history normalization
+and notebook position capture ahead of outgoing-view teardown.
+
+### Retained production change
+
+`goToWorkspace` already pushed history before clearing the old view, but
+`selectRepo` still normalized the URL with `replaceState` after the body classes
+were removed. The same normalization now happens before `_swapViewState` when
+the destination is already in the catalog. Selection receives `historySettled`
+only for that exact workspace object. Direct/initial selection and selection
+after a deferred catalog lookup retain their original normalization path.
+Replacement state remains null; URL fields, hash, entry count and popstate
+behavior are preserved. `_swapViewState` also captures the final notebook
+reading position before modifying the shell and clears its old listeners.
+Terminal parking still uses the outgoing workspace.
+
+Moving position capture alone did not materially improve repeated restoration.
+The subsequent history change produced the measured gain below. No notebook
+cells, outputs, source highlighting, persistence or freshness checks were
+removed, and no new notebook cache or virtualization was introduced.
+
+### Notebook workload and native results
+
+`--notebook-view --notebook-typing --notebook-code-lines 500` measures native
+letters, digits, spaces and Enter at the existing fixed 25 ms cadence. The
+textarea is transparent in production, so each input and paint check verifies
+its exact value/cursor/focus, connected/editable state, matching visible syntax
+overlay text and exact localStorage draft. Keys continue dispatching without
+waiting for renderer acknowledgments. Bad clocks and incomplete input fail.
+The shared document observer's optional visible-state verifier defaults to a
+no-op, preserving ordinary document measurements.
+
+The fixture retains all 200 notebook cells, their complete outputs and controls,
+5,000 mixed files and 2,500 Git changes per workspace. The first code cell has
+an explicit 500-line Python source extension; the option defaults to zero so
+the original viewing workload is unchanged. Every visit verifies all cells.
+Two final workspace switches restore both latest drafts. Both notebook files
+must remain byte-for-byte unchanged. This does not execute cells or measure
+kernel start/interrupt, rich outputs or physical display latency. Native Tab
+is not replaced with a synthetic indentation operation.
+
+| Untraced 20-visit run | Repeated restoration median | Maximum | Click misses / 122 | Native keys / misses |
+| --- | ---: | ---: | ---: | ---: |
+| Original production code | 247.1 ms | 313.5 ms | 21 | 491 / 0 |
+| Earlier position capture only | 250.1 ms | 264.9 ms | 19 | 491 / 0 |
+| Position plus earlier history normalization | 162.7 ms | 167.6 ms | 0 | 491 / 0 |
+| Final repeat | 163.1 ms | 170.3 ms | 0 | 491 / 0 |
+
+The final two runs passed **244/244 native clicks and 982/982 native key checks
+under 200 ms**. Their final-draft restoration maxima were 184.8 and 164.5 ms;
+key maxima were 73.1 and 72.1 ms. These key results meet the general UI target;
+they are not terminal/iTerm parity measurements. Original failures included
+18/18 repeated restores, one workspace opening, one notebook opening and one
+final restoration. None was excluded.
+
+The initial four-visit expansion had three click misses (workspace 203.1 ms,
+restoration maximum 259.8 ms), with 96 keys at maximum 52.2 ms. A verbose
+diagnostic trace overflowed: its saved completion reported data loss, and its
+late event ordering is unusable. It also perturbed the run heavily: six click
+misses and all 96 keys above 200 ms, maximum 1,019.9 ms. A separate CPU-only
+four-visit profile retained five click misses, restoration maximum 261.5 ms
+and 96 keys at maximum 43.4 ms. Diagnostic results remain separate from the
+untraced comparisons; no precise per-action attribution is claimed from the
+incomplete trace. Code inspection identified the second history normalization
+after shell teardown, and the unchanged native comparison established the gain.
+
+### Other checks and cleanup
+
+The 1,500-section document workflow passed 42 clicks (maximum 194.4 ms), 330
+native keys (72.2 ms), 12 separate IME setups (189.7 ms), and Back/Forward
+round trips (173.5/138.1 ms). Save/Cancel and history checked all four exact
+files, both rendered views and unchanged history IDs/URLs. History durations
+include controller acknowledgment and are separate from timestamped input.
+
+The terminal regression passed all 48 actions under 200 ms: workspace opening
+148.5 ms, first terminal activation maximum 134.7 ms, warm maximum 100.1 ms,
+and cache-cycle maximum 132.1 ms. Exact text, selected session, focus, open
+socket and the three-parked/four-total-pane bounds passed. Its six owned
+sessions were removed and independently absent from an exact-name inventory
+with pruning disabled.
+
+**175 focused checks passed:** 173 passed in the initial run; two native Chrome
+checks could not launch the browser inside the sandbox and passed when rerun
+with browser-launch permission. The initial launch failures remain in the log.
+Checks cover history ordering/fallback, URL/state preservation, Home terminals,
+workspace deletion, notebook paths, document refresh/save, terminal creation,
+sidebar/dashboard behavior, native clock validation and all new probe failure
+guards. JavaScript syntax and `git diff --check` passed.
+
+### Rejected direct-shell candidate
+
+The installed tmux manual supports direct execution of multiple command
+arguments. A terminal-only candidate passed `[shell, '-l']` directly, retaining
+agent launch behavior and saved command metadata. It did not establish an
+end-to-end cold-start improvement, so it was fully removed:
+
+| Untraced 20-creation run | First / maximum | Median | p95 | Misses |
+| --- | ---: | ---: | ---: | ---: |
+| Original | 317.0 ms | 168.1 ms | 198.7 ms | 1 |
+| Direct arguments | 281.1 ms | 167.8 ms | 183.1 ms | 1 |
+| Direct arguments repeat | 267.3 ms | 168.3 ms | 181.3 ms | 1 |
+| Restored original | 269.7 ms | 170.8 ms | 203.0 ms | 3 |
+
+All 80 creations passed functional/identity/clock checks and owned cleanup.
+Every recorded producer PID was absent, all 80 exact names were absent from
+the read-only inventory, and all fixture servers stopped. The configured shell,
+first sample and readiness predicates were unchanged. Production term.py is
+unchanged from `bac2beb`.
+
+Across all runs in this checkpoint, **4,065 browser and 4,538 server API records
+were below 200 ms**, maxima 162.8/182.50 ms. All fixture servers stopped, and
+there were no browser/request errors. This covers measured requests only.
+
+Artifacts: `/tmp/lab-terminal-direct-shell-{before,after,repeat,control}-{browser,server}.json`
+and logs, `/tmp/lab-terminal-direct-shell-candidate.patch`, and
+`/tmp/lab-direct-shell-cleanup.json`; notebook
+`/tmp/lab-notebook-typing-{initial,before,trace,cpu,after,history,final}-{browser,server}.json`
+and logs (the trace/cpu prefixes also contain their diagnostics);
+`/tmp/lab-notebook-history-{document,terminal}-{browser,server}.json` and logs;
+`/tmp/lab-notebook-history-terminal-cleanup.json`;
+`/tmp/lab-current-latency-summary.json` and its `.py`/`.log` helpers;
+`/tmp/lab-notebook-{typing-probe,position,history}-tests.log`;
+`/tmp/lab-notebook-history-{final,native}-tests.log`.
+
+Cold terminal creation, previously retained terminal output-typing/IME/cold
+navigation misses, unmeasured UI/API actions and physical/iTerm parity remain
+unfinished. Main merge is still pending after the earlier automatic approval
+rejection. No merge, push or live user-server restart was attempted.

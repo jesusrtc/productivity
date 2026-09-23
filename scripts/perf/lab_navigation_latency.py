@@ -48,6 +48,8 @@ parser.add_argument('--document-typing', action='store_true', help='Also measure
 parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
 parser.add_argument('--notebook-view', action='store_true', help='Measure notebook opening, code visibility and output folding with native clicks (does not execute cells)')
 parser.add_argument('--notebook-cells', type=int, default=200, help='Cells per notebook-view fixture (default: 200)')
+parser.add_argument('--notebook-typing', action='store_true', help='Measure native notebook keys, visible highlighting and draft restoration (requires --notebook-view; does not execute cells)')
+parser.add_argument('--notebook-code-lines', type=int, default=0, help='Extra Python source lines in the first code cell of each notebook (0–2000; requires --notebook-view)')
 parser.add_argument('--document-sections', type=int, default=30, help='Markdown sections per fixture document (default: 30)')
 parser.add_argument('--document-edit-input', choices=['replace', 'append'], default='replace', help='Replace the whole editor value or append only each revision (both use CDP insertText; default: replace)')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
@@ -97,6 +99,12 @@ if args.notebook_view and any((args.typing,args.resize,args.create,args.settings
     parser.error('--notebook-view measures a separate workflow and cannot be combined with other workflows')
 if args.notebook_cells < 2 or args.notebook_cells > 2000:
     parser.error('--notebook-cells must be between 2 and 2000')
+if args.notebook_typing and not args.notebook_view:
+    parser.error('--notebook-typing requires --notebook-view')
+if not 0 <= args.notebook_code_lines <= 2000:
+    parser.error('--notebook-code-lines must be between 0 and 2000')
+if args.notebook_code_lines and not args.notebook_view:
+    parser.error('--notebook-code-lines requires --notebook-view')
 if args.navigation_refresh_delay is not None:
     if not 1 <= args.navigation_refresh_delay <= 1000:
         parser.error('--navigation-refresh-delay must be between 1 and 1000 ms')
@@ -167,6 +175,10 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                     output = ''.join(f'{name} output {number} line {line}\n' for line in range(20))
                     cell.update(cell_type='code', source=f'print({output!r}, end="")', execution_count=number,
                                 outputs=[{'output_type': 'stream', 'name': 'stdout', 'text': output}])
+                    if number == 1:
+                        cell['source'] += ''.join(
+                            f'\nvalue_{line} = sum(range({line + 1}))  # fixture calculation'
+                            for line in range(args.notebook_code_lines))
                 cells.append(cell)
             notebook.write_text(json.dumps({'nbformat': 4, 'nbformat_minor': 5, 'metadata': {
                 'kernelspec': {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}}, 'cells': cells}))
@@ -347,6 +359,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_DOCUMENT_TYPING': str(int(args.document_typing)),
                      'LAB_PERF_DOCUMENT_HISTORY': str(int(args.document_history)),
                      'LAB_PERF_NOTEBOOK_VIEW': str(int(args.notebook_view)),
+                     'LAB_PERF_NOTEBOOK_TYPING': str(int(args.notebook_typing)),
+                     'LAB_PERF_NOTEBOOK_CODE_LINES': str(args.notebook_code_lines),
                      'LAB_PERF_DOCUMENT_SECTIONS': str(args.document_sections),
                      'LAB_PERF_DOCUMENT_EDIT_INPUT': args.document_edit_input,
                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
