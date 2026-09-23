@@ -27,6 +27,8 @@ parser.add_argument('--samples', type=int, default=20, help='Samples per action 
 parser.add_argument('--extra-files', type=int, default=0, help='Additional files in each workspace')
 parser.add_argument('--extra-file-types', default='md', help='Comma-separated extensions for extra files, e.g. md,py,json,sql')
 parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default='folders')
+parser.add_argument('--pending-notebooks', type=int, default=0,
+                    help='Mark this many extra notebooks per workspace pending (tracker only; no cell execution)')
 parser.add_argument('--git-changes', type=int, default=0, help='Commit fixture workspaces, then modify this many extra files in each (no user repositories)')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 parser.add_argument('--css-revision', help='Compare lab-shell.css from a local git revision')
@@ -129,6 +131,13 @@ if args.git_changes < 0 or args.git_changes > args.extra_files:
 extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
 if not all(re.fullmatch(r'[a-z0-9]{1,16}', extension) for extension in extra_file_types):
     parser.error('--extra-file-types must contain simple filename extensions')
+notebook_count = sum(extra_file_types[number % len(extra_file_types)] == 'ipynb' for number in range(args.extra_files))
+if not 0 <= args.pending_notebooks <= notebook_count:
+    parser.error('--pending-notebooks must fit the extra ipynb files in each workspace')
+if args.pending_notebooks and any((args.typing, args.resize, args.create, args.settings,
+        args.pins, args.terminal_tabs, args.terminal_create, args.quick_files,
+        args.document_edit, args.notebook_view)):
+    parser.error('--pending-notebooks requires the standalone navigation workflow')
 checkout = Path(__file__).resolve().parents[2]
 source_paths = [str(checkout / 'core/src'), str(checkout / 'core/cli/src')]
 sys.path[:0] = source_paths
@@ -156,6 +165,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         subprocess.run([sys.executable, '-m', 'lab', *args], check=True,
                        stdout=subprocess.DEVNULL)
     lab('init', str(root), '--name', 'Navigation fixture', '--no-example', '--no-git')
+    pending_notebooks = []
     for name in ('alpha', 'beta'):
         lab('workspace', 'new', name, '--name', name.title(), '--desc', name + ' fixture')
         for number in (1, 2):
@@ -182,13 +192,18 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 cells.append(cell)
             notebook.write_text(json.dumps({'nbformat': 4, 'nbformat_minor': 5, 'metadata': {
                 'kernelspec': {'name': 'python3', 'display_name': 'Python 3', 'language': 'python'}}, 'cells': cells}))
+        pending_count = 0
         for number in range(args.extra_files):
             folder = root / 'workspaces' / name / 'notes'
             if args.extra_file_layout == 'folders':
                 folder /= f'batch-{number // 100:03}'
             folder.mkdir(exist_ok=True)
             extension = extra_file_types[number % len(extra_file_types)]
-            (folder / f'entry-{number:05}.{extension}').write_text(f'# Fixture note {number}\n\nSmall document.\n')
+            extra_file = folder / f'entry-{number:05}.{extension}'
+            extra_file.write_text(f'# Fixture note {number}\n\nSmall document.\n')
+            if extension == 'ipynb' and pending_count < args.pending_notebooks:
+                pending_notebooks.append(extra_file)
+                pending_count += 1
         if args.git_changes:
             workspace = root / 'workspaces' / name
             def git(*arguments):
@@ -334,7 +349,11 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         if args.terminal_create:
             from terminal_creation_fixture import terminal_creation_fixture
             creation_context = terminal_creation_fixture(url, cookie, root / 'workspaces/alpha')
-        with terminal_context as terminal_tabs, creation_context as creation_report:
+        with terminal_context as terminal_tabs, creation_context as creation_report, contextlib.ExitStack() as pending_context:
+            from core.routes import nb_exec
+            for notebook in pending_notebooks:
+                nb_exec._mark_running(notebook)
+                pending_context.callback(nb_exec._mark_done, notebook)
             result = subprocess.run(
                 command,
                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
@@ -342,6 +361,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_TERMINAL_CREATE': json.dumps(creation_report),
                      'LAB_PERF_TYPING_DETACH': json.dumps(terminal_tabs[0] if args.typing_detaches else None),
                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
+                     'LAB_PERF_PENDING_NOTEBOOKS': json.dumps([
+                         str(notebook.relative_to(root / 'workspaces')) for notebook in pending_notebooks]),
                      'LAB_PERF_NAVIGATION_REFRESH_DELAY': str(args.navigation_refresh_delay or ''),
                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
                      'LAB_PERF_GIT_CHANGES': str(args.git_changes),
@@ -370,10 +391,20 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         thread.join(15)
         sock.close()
         instrumentation.close()
+        pending_cleaned = True
+        if pending_notebooks:
+            from core.routes import nb_exec
+            with nb_exec._pending_guard:
+                pending_cleaned = all(str(path.resolve()) not in nb_exec._pending_paths
+                                      and str(path.resolve()) not in nb_exec._pending_leases
+                                      for path in pending_notebooks)
         if timings:
             args.server_timings.parent.mkdir(parents=True, exist_ok=True)
             report = {**timings.report(), 'serverStopped': not thread.is_alive(),
                       'websocketDeflate': args.websocket_deflate}
+            if pending_notebooks:
+                report['pendingNotebooks'] = {'perWorkspace': args.pending_notebooks,
+                    'executesCells': False, 'cleaned': pending_cleaned}
             if args.trace_terminal and (base / 'echo-timings.json').exists():
                 report['echo'] = json.loads((base / 'echo-timings.json').read_text())
             if args.typing_output:
@@ -381,6 +412,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
             if args.terminal_create:
                 report['terminalCreation'] = creation_report
             args.server_timings.write_text(json.dumps(report, indent=2) + '\n')
+        if not pending_cleaned:
+            raise RuntimeError('Owned pending notebook markers survived cleanup')
     if thread.is_alive():
         raise RuntimeError('Fixture server did not stop')
     raise SystemExit(result.returncode)

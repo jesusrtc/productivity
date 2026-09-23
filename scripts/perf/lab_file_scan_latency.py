@@ -30,12 +30,17 @@ def main():
     parser.add_argument('--samples', type=int, default=20)
     parser.add_argument('--transport', choices=['route', 'asgi'], default='route')
     parser.add_argument('--endpoint', choices=['files', 'mtime'], default='files')
+    parser.add_argument('--pending-notebooks', type=int, default=0,
+                        help='Mark this many fixture notebooks pending (tracker only; does not execute cells)')
     args = parser.parse_args()
     if args.files < 1 or args.samples < 2:
         parser.error('Use at least one file and two samples')
     file_types = [extension.strip().lower() for extension in args.file_types.split(',')]
     if not all(re.fullmatch(r'[a-z0-9]{1,16}', extension) for extension in file_types):
         parser.error('--file-types must contain simple filename extensions')
+    notebook_count = sum(file_types[number % len(file_types)] == 'ipynb' for number in range(args.files))
+    if not 0 <= args.pending_notebooks <= notebook_count:
+        parser.error('--pending-notebooks must fit the generated ipynb files')
 
     checkout = Path(__file__).resolve().parents[2]
     source_paths = [str(checkout / 'core/src'), str(checkout / 'core/cli/src')]
@@ -56,17 +61,26 @@ def main():
         lab('init', str(root), '--name', 'Scan fixture', '--no-example', '--no-git')
         lab('workspace', 'new', 'files')
         target = root / 'workspaces/files'
+        notebooks = []
         for number in range(args.files):
             parent = target / 'notes' / str(number // 100)
             parent.mkdir(exist_ok=True)
             extension = file_types[number % len(file_types)]
-            (parent / f'file-{number}.{extension}').write_text('# Fixture\n')
+            created_file = parent / f'file-{number}.{extension}'
+            created_file.write_text('# Fixture\n')
+            if extension == 'ipynb':
+                notebooks.append(created_file)
         (target / 'docs/link.md').symlink_to(target / f'notes/0/file-0.{file_types[0]}')
         (target / 'docs/broken').symlink_to(target / 'missing')
 
         from core.routes import diff, nb_exec
         from core import auth
         from starlette.requests import Request
+
+        pending_context = stack.enter_context(contextlib.ExitStack())
+        for notebook in notebooks[:args.pending_notebooks]:
+            nb_exec._mark_running(notebook)
+            pending_context.callback(nb_exec._mark_done, notebook)
 
         request = Request({
             'type': 'http', 'headers': [],
@@ -156,13 +170,37 @@ def main():
                 rows[name] = variants[name](str(target), request)
                 durations[name].append((time.perf_counter() - start) * 1000)
             assert rows['baseline'] == rows['candidate'], 'File scan changed response'
+            if args.endpoint == 'files':
+                expected_pending = {str(path.relative_to(target)) for path in notebooks[:args.pending_notebooks]}
+                assert {row['path'] for row in rows['candidate'] if row.get('pending')} == expected_pending
+        pending_context.close()
+        cleared_times = {}
+        if args.pending_notebooks and args.endpoint == 'files':
+            cleared_rows = {}
+            for name in variants:
+                nb_exec.is_path_pending = pending_variants[name]
+                start = time.perf_counter()
+                cleared_rows[name] = variants[name](str(target), request)
+                cleared_times[name] = (time.perf_counter() - start) * 1000
+                assert not any(row.get('pending') for row in cleared_rows[name]), 'Finished run stayed pending'
+            assert cleared_rows['baseline'] == cleared_rows['candidate'], 'Cleared scan changed response'
+        with nb_exec._pending_guard:
+            assert all(str(path.resolve()) not in nb_exec._pending_paths
+                       and str(path.resolve()) not in nb_exec._pending_leases
+                       for path in notebooks[:args.pending_notebooks]), 'Owned pending state survived cleanup'
         print(json.dumps({
             'fixture': {
                 'files': args.files, 'samples': args.samples,
                 'fileTypes': file_types,
+                'pendingNotebooks': args.pending_notebooks,
+                'executesCells': False,
                 'baseline': args.baseline, 'transport': args.transport, 'endpoint': args.endpoint,
             },
             'responsesEqual': True,
+            'pendingStateVerified': True,
+            'pendingStateCleaned': True,
+            'clearedRequestMs': cleared_times,
+            'durationsMs': durations,
             'stats': {
                 name: {'first': values[0], 'p50': statistics.median(values), 'max': max(values)}
                 for name, values in durations.items()

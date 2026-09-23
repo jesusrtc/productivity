@@ -401,6 +401,20 @@ async function main() {
       const terminalState=action.terminal?await evaluate(`__terminalTabs.state(${JSON.stringify(action.target)})`):null;
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,clock:row.clock,clockCheck,requests:row.requests,...(action.terminal?{cacheState,terminalState}:{})});
       if(!clockCheck.valid)throw new Error('Mouse input clock validation failed: '+clockCheck.reason);
+      const pendingNotebooks=JSON.parse(process.env.LAB_PERF_PENDING_NOTEBOOKS||'[]');
+      if(pendingNotebooks.length && action.kind==='workspace') {
+        const expected=pendingNotebooks.filter(path=>path.startsWith(action.target+'/')).map(path=>path.slice(action.target.length+1)).sort();
+        const pendingState=await evaluate(`(()=>{
+          const cached=(_workspaceSidebarCache.get(currentWorkspace?.path)?.files||[]).filter(row=>row.pending).map(row=>row.path).sort();
+          const rendered=[...document.querySelectorAll('#sidebar .sidebar-file[data-open-file]:not(.sidebar-file-recent)')]
+            .filter(row=>row.querySelector('.nb-running-dot[title="A cell is currently running"]'))
+            .map(row=>row.dataset.filepath).sort();
+          return {workspace:currentWorkspace?.path,cached,rendered};
+        })()`);
+        if(pendingState.workspace!==workspaceRoot+'/'+action.target || JSON.stringify(pendingState.cached)!==JSON.stringify(expected)
+            || JSON.stringify(pendingState.rendered)!==JSON.stringify(expected))throw new Error('Pending notebook indicators differ: '+JSON.stringify({expected,pendingState}));
+        rows.at(-1).pendingVerification=pendingState;
+      }
       if(action.kind==='terminal-create')rows.at(-1).creationVerification=await verifyTerminalCreation(client,evaluate,workspaceRoot,action.target);
       if(action.expectedDocuments)rows.at(-1).documentVerification=await verifyEditedDocuments(action.expectedDocuments);
       if(action.notebookTyping) {
@@ -532,6 +546,8 @@ async function main() {
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     if(notebookView)fixture.notebookCells=await evaluate('__notebookViewExpected.alpha.cells.length');
     fixture.notebookTyping=process.env.LAB_PERF_NOTEBOOK_TYPING==='1';
+    fixture.pendingNotebooks=JSON.parse(process.env.LAB_PERF_PENDING_NOTEBOOKS||'[]');
+    fixture.pendingTrackerOnly=true;
     fixture.notebookCodeLines=Number(process.env.LAB_PERF_NOTEBOOK_CODE_LINES||0);
     fixture.documentTyping=process.env.LAB_PERF_DOCUMENT_TYPING==='1';
     fixture.documentHistory=process.env.LAB_PERF_DOCUMENT_HISTORY==='1';

@@ -5491,3 +5491,113 @@ checkpoint. Cold creation, occasional workspace/typing misses, broader path
 coverage and physical/iTerm parity remain unresolved. The main merge remains
 pending after the earlier automatic approval rejection; no merge, push or live
 user-server restart was attempted.
+
+## Reduce sidebar scan work while notebooks are pending
+
+The previous empty-registry optimization left the busy case unchanged: even
+one active notebook made every sidebar notebook resolve all its path ancestors.
+This checkpoint removes that work for unrelated ordinary filenames on POSIX,
+while preserving the existing full lookup for possible matches and aliases.
+
+### Retained behavior and new workload
+
+Under the same pending lock, a small nonempty registry first compares the
+requested final filename with the resolved pending keys. If none matches,
+lstat can prove an existing entry is a regular file, allowing a false result
+without resolving its ancestors. Matching names, symlinks, missing or
+inaccessible entries, unusual final path components and non-POSIX systems keep
+the original resolution. A limit of 16 active paths bounds the extra name
+search; larger registries keep the old path. No pending state, file identity or
+negative result is cached. Empty-state behavior and run counting are unchanged.
+
+Both scan and browser fixtures now accept `--pending-notebooks`. The scan
+fixture marks that many owned files; navigation marks that many per workspace.
+These are **pending-tracker fixtures, not notebook execution benchmarks**. They
+use the normal marker/operation-lease functions and clear them on exit. The
+browser checks exact cached pending paths and rendered running indicators
+after every workspace navigation. The scan comparison checks complete response
+equality and exact pending paths, then clears the markers and verifies both
+implementations immediately remove pending fields without file edits. Its
+report retains every individual duration and the two final fresh-read timings.
+
+### Alternating full-ASGI component checks
+
+Each row below contains 20 alternating samples per implementation against
+`ef11b4e`, using 5,000 notebook files. All first samples are retained. This is
+FastAPI TestClient with validation/serialization and thread dispatch; socket
+transport and normal background services are measured separately below.
+
+| Active paths | Original median / maximum | Candidate median / maximum |
+| --- | ---: | ---: |
+| 0 | 19.85 / 24.83 ms | 19.76 / 21.94 ms |
+| 1 | 110.62 / 113.66 ms | 37.45 / 42.27 ms |
+| 16 | 110.34 / 119.70 ms | 43.90 / 47.13 ms |
+| 17, original-resolution fallback | 110.81 / 125.31 ms | 110.85 / 119.53 ms |
+
+All 160 timed responses matched, every pending identity was verified, and all
+markers/leases cleared. Six final fresh reads were below 21.53 ms. A further
+one-pending comparison after adding the explicit POSIX guard retained equality:
+original median/max **123.46/145.29 ms**, final candidate **43.22/48.67 ms**;
+cleared reads were 23.97/23.63 ms. The guard leaves this POSIX fast path in place
+and retains the original resolver on other platforms. The non-POSIX branch is
+covered with a resolver double, not a native Windows performance claim.
+
+### Native browser comparison
+
+Five fresh-browser runs used normal server lifespan/polling, 5,000 notebook
+files per workspace, 2,500 Git changes, one owned pending marker in each
+workspace, and 20 workspace plus 20 document clicks. Only the production
+pending helper was restored for the control; the workload and readiness
+predicate stayed the same.
+
+| Run | Workspace first / maximum | Workspace p95 | File-list median / maximum | UI misses |
+| --- | ---: | ---: | ---: | ---: |
+| Original before | 232.6 / 248.0 ms | 232.6 ms | 106.33 / 205.44 ms | 2 / 40 |
+| Candidate | 164.0 / 164.0 ms | 146.4 ms | 40.31 / 72.30 ms | 0 / 40 |
+| Candidate repeat | 231.4 / 231.4 ms | 159.9 ms | 44.78 / 144.80 ms | 1 / 40 |
+| Restored original control | 319.6 / 319.6 ms | 278.9 ms | 111.78 / 270.01 ms | 2 / 40 |
+| Restored candidate | 183.0 / 183.0 ms | 166.4 ms | 43.83 / 123.35 ms | 0 / 40 |
+
+The candidate passed **119/120 actions**; its 231.4 ms cold opening remains a
+failure. Warm workspace medians remained around 99–100 ms for both versions,
+so this is chiefly a scan/cold-navigation improvement, not a claim that every
+warm click became faster. Document maxima across all runs were 61.3–68.0 ms.
+The candidate's 1,002 browser API records and 1,089 server API records were all
+under 200 ms (maxima 146.0/144.80 ms). The controls retained four server API
+misses, including the 205.44 and 270.01 ms file-list maxima. There were no HTTP,
+network or browser errors. All 100 workspace switches verified their pending
+metadata and running dots. All five servers stopped, markers and leases were
+cleared, and their fixture directories were independently verified removed.
+
+Before targeting the busy case, the ordinary mixed-file navigation baseline
+passed 40/40 actions, workspace/document maxima 150.6/70.1 ms. A separate
+instrumented browser/CPU/file-scan/watcher run retained nine workspace misses,
+maximum 255.4 ms; its slowest file handler was 61.50 ms and it did not reproduce
+the earlier 165 ms mtime request. No polling or watcher policy was changed,
+and those diagnostic misses are not relabeled as passing performance evidence.
+
+### Validation and limits
+
+**117 focused checks passed**, including notebook execution-route behavior,
+workspace scans, worktree metadata and timing instrumentation. Added cases
+exercise same-name files in different directories, symlinked ancestors and
+retargeting, regular-to-symlink replacement, missing targets, lstat failure,
+parent-directory resolution, queued counts, small/large registries and the
+non-POSIX fallback. Existing tests also verify pending transitions without file
+edits. Python/JavaScript syntax checks and `git diff --check` passed. The older
+broad suite's known baseline failures remain separate.
+
+Artifacts: `/tmp/lab-busy-notebooks-{before,after,repeat,control,final}-{browser,server}.json`
+and logs; `/tmp/lab-busy-notebooks-summary.json`;
+`/tmp/lab-busy-notebooks-{before,after}-asgi.json`;
+`/tmp/lab-busy-notebooks-final-{0,1,16,17}-asgi.json` and logs;
+`/tmp/lab-busy-notebooks-guarded-final-asgi.json`;
+`/tmp/lab-busy-notebooks-{tests,final-tests}.log`;
+`/tmp/lab-workspace-current-{before,profile}-{browser,server}.json`, logs,
+and profile `-trace.json`, trace metadata and `-cpu.json`.
+
+The overall goal remains open: the retained cold miss, terminal creation and
+output-typing tails, broader UI/API coverage and physical/iTerm parity still
+need work. No terminal behavior, notebook execution semantics or API completion
+semantics changed. Main merge remains pending after the earlier automatic
+approval rejection; no merge, push or live user-server restart was attempted.

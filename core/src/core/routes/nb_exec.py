@@ -23,6 +23,7 @@ import asyncio
 import copy
 import json
 import os
+import stat
 import tempfile
 import threading
 import time
@@ -150,6 +151,20 @@ def is_path_pending(target: Path) -> bool:
         # of paths (and their symlink ancestors) merely to look up an empty dict.
         if not _pending_paths:
             return False
+        # Resolving each notebook's ancestors dominates large sidebar scans
+        # while even one run is active. On POSIX, a regular entry cannot resolve
+        # to a different final filename; only a symlink can. Bound this name
+        # filter so many active runs do not introduce an unbounded linear
+        # search on every lookup. Matching names, links, unusual paths and
+        # failed metadata reads retain the original full resolution.
+        name = target.name
+        if (os.name == "posix" and name not in {"", ".."} and len(_pending_paths) <= 16
+                and not any(key.rsplit(os.sep, 1)[-1] == name for key in _pending_paths)):
+            try:
+                if stat.S_ISREG(target.lstat().st_mode):
+                    return False
+            except OSError:
+                pass
         return _pending_paths.get(str(target.resolve()), 0) > 0
 
 
