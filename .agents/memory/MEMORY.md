@@ -376,3 +376,5 @@
 - [Latency fixtures match production WebSocket settings](latency-fixture-matches-websocket-configuration.md) — explicitly disable compression by default, verify negotiation, and retain labeled legacy comparisons
 
 - [Trace terminal latency across the PTY boundary](terminal-latency-trace-crosses-pty.md) — correlate browser, ASGI, PTY and owned echo metadata while preserving byte semantics and safe cleanup
+
+- [tmux creation hooks preserve API errors](tmux-creation-hooks-must-preserve-api-errors.md) — session output markers can precede a failing hook; native API regression guards against masking creation errors during batching.

@@ -5394,3 +5394,100 @@ IME/navigation misses, unmeasured UI/API paths, physical/iTerm parity and the
 scope of inherently long-running operation completion still need work. The
 main merge remains pending after the earlier automatic approval rejection.
 No merge, push or live user-server restart was attempted.
+
+## Terminal creation: startup control and rejected combined tmux client
+
+This checkpoint adds native API regression coverage and records a rejected
+optimization. **Production terminal code remains identical to `361fee7`.**
+The combined spawn/configuration client reduced request time slightly but
+changed user-hook failure behavior, so it was removed.
+
+### Unchanged native browser workload
+
+Four serial runs each created 20 terminals in the normal disposable navigation
+fixture, with 5,000 mixed files per workspace, 2,500 Git changes, the configured
+echo shell, native clicks and keys, actual xterm render checks, saved identity,
+workspace isolation and the existing parked-pane bound. No first launch or
+budget miss was omitted. These are before/candidate/candidate/control runs:
+
+| Implementation | Creation median | First creation | Creation p95 | POST median | POST max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original | 167.0 ms | 848.3 ms | 204.9 ms | 47.9 ms | 70.6 ms |
+| Rejected combined client | 165.3 ms | 303.0 ms | 180.4 ms | 45.4 ms | 55.3 ms |
+| Rejected candidate repeat | 163.6 ms | 300.8 ms | 173.6 ms | 42.3 ms | 59.8 ms |
+| Restored original control | 166.4 ms | 285.3 ms | 190.6 ms | 54.7 ms | 60.8 ms |
+
+Every first creation exceeded 200 ms. The original run also retained a
+204.9 ms warm creation. Workspace opening missed at 218.3 ms initially and
+204.6 ms in the restored control. All four runs had zero browser errors,
+failed requests or HTTP errors; passing request budgets do not erase the UI
+misses. Candidate cold timings are not claimed as an improvement: the restored
+control was faster than both candidates on that measure.
+
+### Shell startup component
+
+On the initial 848.3 ms creation, the POST finished 44.5 ms after the click and
+xterm was constructed at 95.8 ms. The unchanged shell's existing PID/cwd file
+was written at 800.1 ms, before tty setup and first output. This places most of
+that delay before the source's first record, rather than in xterm rendering.
+It does not identify the underlying system mechanism or pure interpreter CPU.
+The corresponding source-record milestones in the next three runs were
+254.6, 250.6 and 237.1 ms.
+
+A separate direct-PTY component control launched four fresh copies of the
+**same echo-shell body**, ten times each. Each received the same `-l` argument;
+the probe verified PID/cwd, exact readiness output and a UTF-8 echo. First
+ready times were **170.7, 142.0, 143.4 and 144.0 ms**; the remaining nine-launch
+medians were **17.9, 17.7, 17.9 and 17.6 ms**. Popen returned in 1.2–1.8 ms on
+the four first launches, and the PID-file timestamp was within 0.5 ms of ready.
+This demonstrates a first-launch delay without tmux, WebSocket or browser;
+it does not explain the full original 800 ms source milestone. This component
+does not replace the normal tmux creation benchmark or measure iTerm/physical
+keyboard/display latency. The original browser fixture and shell were not
+prewarmed or changed. An initial component attempt failed its cwd assertion
+because `/tmp` resolves to `/private/tmp`; its child was reaped before the
+canonical-path retry. All 40 completed-control children were reaped and the
+temporary fixture removed.
+
+### Why batching was rejected
+
+The candidate sent new-session and the four existing wheel commands in one
+tmux client invocation. It used the documented
+[`new-session -P -F` output](https://man.openbsd.org/tmux#new-session) as a
+creation marker so a later wheel error could remain best-effort. Ordinary
+creation, duplicate rejection, immediate exit and later setting failure passed
+117 initial checks. An added native `after-new-session` hook-error case then
+found that **new-session can create the pane, print the marker and still fail
+its hook**. The candidate incorrectly returned success. Moving the marker to
+a separate following display-message command did not solve the problem.
+
+The new native API regression reproduced the defect as HTTP 200 from the
+candidate versus HTTP 500 from the restored implementation. On the restored
+path it also verifies that wheel settings and success metadata remain
+untouched after the failed hook. A second native API test checks shell argv
+with spaces and the login flag, cwd, named socket, wheel settings, another
+session's inherited options, durable saved identity and repeat-create adoption.
+Both run on private owned tmux servers, independent of user sessions.
+
+After restoration, **110 existing terminal checks and both new native API
+checks passed**. The first restored suite had 111 passes and one test assertion
+failure from expecting unnecessary quotes around `-l`; comparing parsed argv
+fixed the assertion, and both native tests then passed. The hook regression
+already passed in that restored suite. Native teardown verified all private
+server/pane processes exited. The four browser fixtures stopped their servers,
+reported cleanup complete, and a separate read-only audit found all **80 exact
+session names and 80 recorded PIDs absent**.
+
+Artifacts: `/tmp/lab-terminal-current-checkpoint-{browser,server}.json`,
+`/tmp/lab-terminal-spawn-batch-{after,repeat,control}-{browser,server}.json`,
+their logs and `/tmp/lab-terminal-spawn-batch-summary.json`;
+`/tmp/lab-terminal-startup-component.py`, `.json`, `.log` and `-retry.log`;
+`/tmp/lab-terminal-spawn-batch-candidate.patch`, `-rejected.patch` and
+`-rejected-tests.py`; `/tmp/lab-term-spawn-batch-{tests-retry,hooks-tests,hooks-retry-tests}.log`;
+`/tmp/lab-term-create-native-{candidate,restored,final}-tests.log`.
+
+The latency goal remains open. No production optimization is claimed by this
+checkpoint. Cold creation, occasional workspace/typing misses, broader path
+coverage and physical/iTerm parity remain unresolved. The main merge remains
+pending after the earlier automatic approval rejection; no merge, push or live
+user-server restart was attempted.
