@@ -15480,8 +15480,6 @@
   // create a duplicate; do nothing).
   function goToWorkspace(path, opts = {}) {
     if (!path) return;
-    _swapViewState();
-    if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     if (!opts.replace) {
       const url = new URL(window.location);
       url.searchParams.set('workspace', path);
@@ -15494,6 +15492,11 @@
       url.searchParams.delete('subview');
       history.pushState({nav: 'workspace', path}, '', url.pathname + url.search + url.hash);
     }
+    // History can synchronously update layout to save the outgoing view.
+    // Capture it before clearing that view's classes; otherwise Chrome may
+    // lay out a temporary shell that is immediately replaced below.
+    _swapViewState();
+    if (opts.deleteTarget?.path === path) _workspaceDeleteTarget = opts.deleteTarget;
     const dispatch = () => {
       const workspace = (workspacesList || []).find(p => p.path === path);
       if (workspace) selectRepo(workspace.path);

@@ -11,7 +11,7 @@ import {captureInputClock,validateInputClock} from './input_clock.mjs';
 import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
 import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
-import {documentEditActions,verifyEditedDocuments} from './document_edit_workload.mjs';
+import {documentEditActions,verifyEditedDocuments,verifyDocumentHistory} from './document_edit_workload.mjs';
 import {runDocumentTyping} from './document_typing_probe.mjs';
 import {installNavigationRefreshProbe,installNavigationRefreshStress,navigationRefreshCoverage} from './navigation_refresh_probe.mjs';
 const baseUrl = process.argv[2];
@@ -119,6 +119,8 @@ async function main() {
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client,evaluate;
   let traceActive=false,profileActive=false,diagnostics;
+  const traceCategories=process.env.LAB_PERF_TRACE_CATEGORIES||'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking';
+  let traceStartedEpoch;
   const finishDiagnostics=()=>diagnostics||=(async()=>{
     const jobs=[];
     if(profileActive)jobs.push((async()=>{
@@ -132,11 +134,13 @@ async function main() {
       })]);
       let stream;
       try {
+        const endedEpoch=Date.now();
         const results=await Promise.all([client.send('Tracing.end'),complete]);
         stream=results[1].stream;
         let trace='';
         while(true){const chunk=await client.send('IO.read',{handle:stream});trace+=chunk.data;if(chunk.eof)break;}
         await writeFile(process.env.LAB_PERF_TRACE,trace);
+        await writeFile(process.env.LAB_PERF_TRACE+'.metadata.json',JSON.stringify({categories:traceCategories,startedEpoch:traceStartedEpoch,endedEpoch,completion:results[1]}));
       } finally {
         clearTimeout(timer);
         if(stream)await client.send('IO.close',{handle:stream});
@@ -148,7 +152,7 @@ async function main() {
     })());
     return (await Promise.allSettled(jobs)).filter(result=>result.status==='rejected').map(result=>String(result.reason));
   })();
-  const rows=[],inputSetups=[],documentTyping=[];
+  const rows=[],inputSetups=[],documentTyping=[],documentHistory=[];
   try {
     // Let Chrome reserve its own free port; a random fixed-range choice can
     // collide with another local browser. Read only this fixture's profile.
@@ -185,7 +189,7 @@ async function main() {
       if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);
       return r.result.value;
     };
-    if(process.env.LAB_PERF_TRACE){await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});traceActive=true;}
+    if(process.env.LAB_PERF_TRACE){traceStartedEpoch=Date.now();await client.send('Tracing.start',{categories:traceCategories,transferMode:'ReturnAsStream'});traceActive=true;}
     await client.send('Page.navigate',{url:baseUrl+'/?view=productivity'});
     const until=Date.now()+15000;
     while(!await evaluate('document.querySelectorAll(".workspace-tab[data-kind=workspace]").length === 2 && document.readyState === "complete"')) {
@@ -418,6 +422,7 @@ async function main() {
       if(settings&&action.kind!=='workspace'&&!await evaluate(`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/alpha')}`))throw new Error('Settings navigated away from the active workspace');
       await sleep(100);
     }
+    if(documentEdit && process.env.LAB_PERF_DOCUMENT_HISTORY==='1')await verifyDocumentHistory(client,evaluate,actions.at(-1).expectedDocuments,workspaceRoot,documentHistory);
     if(quickFiles)await runQuickFileWorkload(client,evaluate,rows,{workspaceRoot,samples,
       extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),
       fileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES||'md').split(','),
@@ -512,6 +517,7 @@ async function main() {
     const fixture={workflow:documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     fixture.documentTyping=process.env.LAB_PERF_DOCUMENT_TYPING==='1';
+    fixture.documentHistory=process.env.LAB_PERF_DOCUMENT_HISTORY==='1';
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
     const terminals=terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;
     const refreshStress=process.env.LAB_PERF_NAVIGATION_REFRESH_DELAY?await evaluate('__navigationRefreshStress()'):null;
@@ -521,12 +527,13 @@ async function main() {
     }
     const inputSetupMisses=inputSetups.filter(row=>!row.completed||row.ms>=200);
     const documentTypingMisses=documentTyping.filter(row=>!row.done||!row.clockCheck.valid||row.ms>=200);
-    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,documentTyping,documentTypingMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
-    if(misses.length || inputSetupMisses.length || documentTypingMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length)process.exitCode=1;
+    const documentHistoryMisses=documentHistory.filter(row=>!row.verified||row.ms>=200);
+    console.log(JSON.stringify({fixture,git,sidebar,terminals,refreshStress,timeOrigin,stats,misses,inputSetups,inputSetupMisses,documentTyping,documentTypingMisses,documentHistory,documentHistoryMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    if(misses.length || inputSetupMisses.length || documentTypingMisses.length || documentHistoryMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length || refreshStress?.misses.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
     const diagnosticsErrors=await finishDiagnostics();
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,diagnosticsErrors,inputSetups,documentTyping,rows},null,2));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,diagnosticsErrors,inputSetups,documentTyping,documentHistory,rows},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}

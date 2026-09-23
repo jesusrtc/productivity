@@ -1,5 +1,7 @@
 # Memory index
 
+- [Workspace history precedes view teardown](workspace-history-precedes-view-teardown.md) — avoid a synchronous intermediate style/layout flush while retaining history entries, exact document restoration and old terminal ownership
+
 - [Editor keys are separate from IME setup](editor-keys-are-separate-from-ime-setup.md) — native input has its own clock/value/cursor and Save/Cancel checks; keep IME and navigation failures
 - [Browser traces need time coverage checks](browser-traces-need-time-coverage-checks.md) — a saved verbose trace can stop before the failing sample and materially perturb click timings
 

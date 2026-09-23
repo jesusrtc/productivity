@@ -54,3 +54,50 @@ export async function verifyEditedDocuments(expected) {
   for(const [file,content] of expected)if(!(await readFile(file)).equals(Buffer.from(content,'utf8')))throw new Error('Saved/cancelled document content or workspace identity changed: '+file);
   return {files:expected.length,bytes:expected.reduce((sum,[,content])=>sum+Buffer.byteLength(content),0)};
 }
+
+// Exercise the browser's real history stack in the owned, completed workflow.
+// Timings include CDP and controller overhead: command-to-verified-paint upper
+// bounds, separate from timestamped mouse/key input and physical display.
+export async function verifyDocumentHistory(client,evaluate,expected,workspaceRoot,results=[]) {
+  if(resolve(workspaceRoot)!==workspaceRoot || !/\/lab-navigation-[^/]+\/vault\/workspaces$/.test(workspaceRoot))throw Error('Document history requires the disposable fixture');
+  const original=await client.send('Page.getNavigationHistory');
+  if(original.currentIndex<2)throw Error('Document history needs two workspace visits');
+  const origin=new URL(original.entries[original.currentIndex].url).origin;
+  for(const [direction,index] of [['back',original.currentIndex-1],['forward',original.currentIndex]]) {
+    const entry=original.entries[index],url=new URL(entry.url),scope=url.searchParams.get('workspace');
+    if(url.hostname!=='127.0.0.1' || url.origin!==origin || !['alpha','beta'].some(name=>scope===join(workspaceRoot,name)))throw Error('History entry escaped the disposable workspaces');
+    const source=new Map(expected).get(join(scope,'docs/review-1.md'));
+    if(typeof source!=='string')throw Error('History document expectation is missing');
+    const headings=Array.from(source.matchAll(/^## (Section \d+)$/gm),match=>match[1]);
+    const paragraphs=[...headings.map(()=>'Fixture paragraph with formatting and code.'),
+      ...Array.from(source.matchAll(/^(?:Saved fixture revision|native keys) .+$/gm),match=>match[0].replaceAll('`',''))];
+    const title=source.split('\n')[0].slice(2);
+    const started=performance.now();
+    await client.send('Page.navigateToHistoryEntry',{entryId:entry.id});
+    await evaluate(`(async()=>{
+      const ready=()=>currentWorkspace?.path===${JSON.stringify(scope)} && _workspaceDocRoot===${JSON.stringify(scope)}
+        && _workspaceDocPath==='docs/review-1.md' && _workspaceDocContent===${JSON.stringify(source)}
+        && location.href===${JSON.stringify(entry.url)} && !_workspaceDocEditing
+        && !document.getElementById('docViewModal').classList.contains('active')
+        && document.querySelector('#content #workspaceDocBody h1')?.textContent===${JSON.stringify(title)}
+        && JSON.stringify(Array.from(document.querySelectorAll('#content #workspaceDocBody h2'),h=>h.firstChild.textContent))===${JSON.stringify(JSON.stringify(headings))}
+        && JSON.stringify(Array.from(document.querySelectorAll('#content #workspaceDocBody p'),p=>p.textContent))===${JSON.stringify(JSON.stringify(paragraphs))}
+        && Array.from(document.querySelectorAll('#sidebar [data-open-file]')).length>0
+        && Array.from(document.querySelectorAll('#sidebar [data-open-file]')).every(row=>row.dataset.entryRoot===${JSON.stringify(scope)});
+      const deadline=performance.now()+10000;
+      while(!ready()){
+        if(performance.now()>deadline)throw Error('History document/sidebar did not finish');
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,0)));
+      if(!ready())throw Error('History changed before the verified paint');
+    })()`);
+    const ms=performance.now()-started;
+    const current=await client.send('Page.getNavigationHistory');
+    if(current.currentIndex!==index || JSON.stringify(current.entries.map(e=>[e.id,e.url]))!==JSON.stringify(original.entries.map(e=>[e.id,e.url])))throw Error('History navigation added or changed entries');
+    results.push({direction,ms,entryId:entry.id,target:scope.split('/').at(-1),verified:true,
+      measurement:'CDP history command to verified paint opportunity and controller acknowledgment',
+      documentVerification:await verifyEditedDocuments(expected)});
+  }
+  return results;
+}

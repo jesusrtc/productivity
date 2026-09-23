@@ -113,3 +113,37 @@ def test_document_append_requires_its_owned_edit_workflow():
                              '--document-edit-input', 'append'], capture_output=True, text=True)
     assert result.returncode == 2
     assert '--document-edit-input requires --document-edit' in result.stderr
+
+
+def test_document_history_requires_the_edit_workflow():
+    result = subprocess.run([sys.executable, str(ROOT / 'scripts/perf/lab_navigation_latency.py'),
+                             '--document-history'], capture_output=True, text=True)
+    assert result.returncode == 2
+    assert '--document-history requires --document-edit' in result.stderr
+
+
+def test_document_history_refuses_foreign_roots_and_history_entries_before_navigation():
+    result = _run_node(r"""
+(async()=>{
+  const {verifyDocumentHistory}=await import('./scripts/perf/document_edit_workload.mjs');
+  const root='/tmp/lab-navigation-owned/vault/workspaces',calls=[],errors=[];
+  const makeEntry=(host,scope)=>({id:1,url:'http://'+host+'/?workspace='+encodeURIComponent(scope)});
+  for(const [owned,previous] of [[false,makeEntry('127.0.0.1:1234',root+'/alpha')],
+    [true,makeEntry('foreign.invalid',root+'/alpha')],
+    [true,makeEntry('127.0.0.1:9999',root+'/alpha')],
+    [true,makeEntry('127.0.0.1:1234','/user/workspaces/alpha')]]) {
+    const client={send:async method=>{
+      calls.push(method);if(method!=='Page.getNavigationHistory')throw Error('Unexpected navigation');
+      return {currentIndex:2,entries:[{},previous,makeEntry('127.0.0.1:1234',root+'/beta')]};
+    }};
+    try{await verifyDocumentHistory(client,()=>{throw Error('Unexpected browser access');},[],owned?root:'/user/workspaces');}
+    catch(error){errors.push(error.message);}
+  }
+  process.stdout.write(JSON.stringify({calls,errors}));
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+    assert result['calls'] == ['Page.getNavigationHistory'] * 3
+    assert result['errors'] == [
+        'Document history requires the disposable fixture',
+        *(['History entry escaped the disposable workspaces'] * 3),
+    ]

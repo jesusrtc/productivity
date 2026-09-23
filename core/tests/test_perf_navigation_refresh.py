@@ -85,6 +85,36 @@ def test_refresh_stress_delivers_once_only_to_its_original_navigation():
     assert result == {'count': 4, 'delivered': 1, 'delay': 20}
 
 
+def test_history_timing_preserves_receiver_arguments_errors_and_does_not_inspect_state():
+    result = _run_node(r'''
+(async()=>{
+  const {installNavigationRefreshProbe}=await import('./scripts/perf/navigation_refresh_probe.mjs');
+  const vm=require('vm'),assert=require('assert/strict'),calls=[];
+  const context={performance:{now:()=>1},calls};context.window=context;
+  vm.createContext(context);
+  vm.runInContext(
+    'let currentWorkspace={path:"/fixture"},_workspaceDocPath="doc.md",_workspaceInfoSequence=2,_workspaceSidebarRefreshSequence=3;'+
+    'let showWorkspaceInfo=()=>{},_refreshWorkspaceSidebar=()=>{},_sidebarFetchWorkspaceFiles=()=>{};'+
+    'let openWorkspaceDoc=()=>{},renderWorkspaceDoc=()=>{};'+
+    'const failure=new Error("native history error");'+
+    'const state={secret:"do not record",get preserveScroll(){throw Error("state inspected");}};'+
+    'const history={pushState(...args){calls.push({receiver:this===history,sameState:args[0]===state,args:args.slice(1)});return 42;},'+
+    'replaceState(){throw failure;}};',context);
+  await installNavigationRefreshProbe(code=>vm.runInContext(code,context),'/tmp/lab-navigation-owned/vault/workspaces');
+  assert.equal(vm.runInContext('history.pushState(state,"","/next")',context),42);
+  assert.throws(()=>vm.runInContext('history.replaceState(state,"","/next")',context),/native history error/);
+  const trace=context.__navigationRefreshProbe();
+  assert(!JSON.stringify(trace).includes('do not record'));
+  process.stdout.write(JSON.stringify({calls,phases:trace.events.map(row=>[row.name,row.phase])}));
+})().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+    assert result == {
+        'calls': [{'receiver': True, 'sameState': True, 'args': ['', '/next']}],
+        'phases': [['history.pushState', 'begin'], ['history.pushState', 'end'],
+                   ['history.replaceState', 'begin'], ['history.replaceState', 'error']],
+    }
+
+
 def test_refresh_stress_coverage_keeps_missed_and_late_deliveries():
     result = _run_node(r'''
 (async()=>{

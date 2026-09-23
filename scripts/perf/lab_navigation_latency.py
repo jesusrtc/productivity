@@ -43,6 +43,7 @@ parser.add_argument('--terminal-tabs', action='store_true', help='Measure native
 parser.add_argument('--quick-files', action='store_true', help='Measure Command+K, filtering, selection, file opening and Escape with native keys')
 parser.add_argument('--document-edit', action='store_true', help='Measure document editor open, save, cancel and close in alternating fixture workspaces')
 parser.add_argument('--document-typing', action='store_true', help='Also measure native editor keys, Enter and Tab before Save/Cancel (requires --document-edit; IME setup remains separate)')
+parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
 parser.add_argument('--document-sections', type=int, default=30, help='Markdown sections per fixture document (default: 30)')
 parser.add_argument('--document-edit-input', choices=['replace', 'append'], default='replace', help='Replace the whole editor value or append only each revision (both use CDP insertText; default: replace)')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
@@ -80,6 +81,8 @@ if args.document_edit_input != 'replace' and not args.document_edit:
     parser.error('--document-edit-input requires --document-edit')
 if args.document_typing and not args.document_edit:
     parser.error('--document-typing requires --document-edit')
+if args.document_history and not args.document_edit:
+    parser.error('--document-history requires --document-edit')
 if args.navigation_refresh_delay is not None:
     if not 1 <= args.navigation_refresh_delay <= 1000:
         parser.error('--navigation-refresh-delay must be between 1 and 1000 ms')
@@ -293,6 +296,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_QUICK_FILES': str(int(args.quick_files)),
                      'LAB_PERF_DOCUMENT_EDIT': str(int(args.document_edit)),
                      'LAB_PERF_DOCUMENT_TYPING': str(int(args.document_typing)),
+                     'LAB_PERF_DOCUMENT_HISTORY': str(int(args.document_history)),
                      'LAB_PERF_DOCUMENT_SECTIONS': str(args.document_sections),
                      'LAB_PERF_DOCUMENT_EDIT_INPUT': args.document_edit_input,
                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},

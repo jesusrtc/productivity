@@ -3449,3 +3449,134 @@ The remaining work includes the 200.8 ms workspace restore, occasional IME
 setup misses, broader UI/API coverage and unmeasured physical/iTerm parity.
 No main merge, push or live-server restart occurred. Main merge remains
 pending after the earlier automatic approval rejection.
+
+## Update workspace history before clearing the outgoing view (2026-09-23)
+
+The native-editor checkpoint exposed a 200.8 ms remembered-workspace restore.
+A CPU/call-timing diagnostic retained four restore misses (maximum 225.2 ms),
+and V8 position ticks placed 361 ms of aggregate self time at the
+`history.pushState` statement in `goToWorkspace`. The first workspace request
+in its slow restores began about 60–67 ms after input. Artifacts:
+`/tmp/lab-restore-before-{browser,server,cpu,calls}.json` and log. These sampled
+CPU/call timings are diagnostic, not the final performance result.
+
+### Confirmed synchronous style/layout work
+
+The old order called `_swapViewState` before `history.pushState`. Teardown
+removed the previous view's body classes, then the history update could force
+Chrome to process that temporary style state before destination selection
+added its classes again.
+
+A six-visit control without native editor keys had history calls around
+0.2–1.1 ms. Adding the existing native-key workload reproduced two calls at
+**54.3 and 47.0 ms**. The trace places **49.19 and 42.47 ms** of style updating
+inside those calls, covering **36,575 and 36,581 elements**, followed by small
+layout events. This identifies actual work within the history call; it does
+not infer a browser subsystem from anonymous native CPU time.
+
+Production now updates history **before** tearing down the outgoing view.
+The URL parameters, hash, state object, entry count, replacement-navigation
+behavior and synchronous destination dispatch stay the same. Teardown still
+closes menus/Assistant documents and parks the previous terminal before clearing
+its workspace identity. An explicitly requested delete target is restored only
+after teardown. Sidebar/document caches, rendering, polling and bounds did not
+change.
+
+The same six-visit diagnostic after the change produced:
+
+| Measure | Before | After |
+| --- | ---: | ---: |
+| Longest history push | 54.3 ms | 3.1 ms |
+| Style/layout time inside the two slow baseline pushes | 49.96 / 42.89 ms | No such events in any push |
+| Longest remembered-workspace restore | 210.4 ms | 172.3 ms |
+| Remembered restore median (four samples) | 168.05 ms | 164.85 ms |
+| Click budget misses | 1/42 | 0/42 |
+
+This is one short before/after diagnostic pair, not a universal latency claim.
+Both runs verified 330 native editor keys, all saved/cancelled files, and both
+document views. Artifacts:
+`/tmp/lab-history-keys-{before,after}-{browser,server,cpu,calls,trace}.json`,
+matching logs, and `/tmp/lab-history-layout-comparison.json`.
+The no-native-key control is `/tmp/lab-history-before-*`.
+
+The optional call observer now times history methods while preserving their
+receiver, arguments, return value and exceptions; it never reads or records
+history state payloads. `LAB_PERF_TRACE_CATEGORIES` permits a focused trace,
+retaining the original verbose default. This comparison used
+`devtools.timeline,blink.user_timing`, yielding complete ~13–22-second traces
+instead of the previous ~6-second verbose capture. A `.metadata.json` sidecar
+records categories, start/end epochs and the native completion result. Both
+native-key traces reported `dataLossOccurred: false`, and event ranges cover
+the final measured clicks.
+
+### Navigation and history validation
+
+**155 focused checks passed**, covering navigation/races, deletion guards,
+workspace tab order, server views, Home/terminal ownership and UI behavior,
+document source/persistence, diagnostic ownership and native input clocks.
+Log: `/tmp/lab-history-regressions-final.log`. Syntax and whitespace checks
+passed. The new outgoing-view regression fails against `3ff7993` for the
+intended reason: history observes cleared classes and no workspace. This
+baseline ran from an in-memory copy of the old source; production files were
+not replaced. Log: `/tmp/lab-history-baseline-regression.log`.
+
+`--document-edit --document-history` additionally traverses the real Chrome
+history stack Back and Forward. It checks exact complete headings/paragraphs,
+saved source, modal/edit state, every fixture sidebar file's root, and all four
+persisted files. History entry IDs and URLs must remain identical, with only
+the current index changing. It refuses foreign origins/roots before navigation.
+Timing is reported separately as a CDP-command-to-verified-paint/controller
+round trip, including CDP overhead; it is not a native key timestamp or a
+physical-display measurement. Its 200 ms gate cannot hide a failed click or
+IME setup. A small smoke run passed Back/Forward at 25.27/12.11 ms; artifacts:
+`/tmp/lab-history-stack-smoke-{browser,server}.json` and log.
+
+### Final large-document result, including the remaining misses
+
+With 1,500 sections, 5,000 mixed files per workspace, 2,500 real Git changes,
+20 alternating visits and ordinary request timing only:
+
+- **All 18 remembered-workspace restores passed**, maximum **174.0 ms**.
+- **139/140 clicks passed**. The first cold workspace click still missed at
+  **205.7 ms**, including 1.9 ms input queueing. Its file-list request started
+  4 ms after input and took **95.6 ms** in Chrome / **91.52 ms** inside ASGI;
+  dashboard requests began about 104.9 ms after input. This is separate from
+  the removed history stall and remains a useful next profiling target.
+- **All 1,122 native editor keys passed the 200 ms UI budget**, maximum
+  **58.4 ms** on Tab. Exact value/cursor/focus and clock checks passed; 17
+  samples shared a paint opportunity with later input. This does not claim
+  that every editor key stayed below the terminal's stricter 50 ms target.
+- Real browser Back/Forward passed at **156.46 / 138.36 ms**, including exact
+  final saved content and unchanged history entries.
+- **One of 40 IME setups failed**, Save Alpha sample 32 at **269.79 ms**.
+  This result remains alongside the earlier setup failures; no replacement
+  run was used to obtain a pass.
+- All **840 browser API requests** passed (maximum **95.6 ms**); all
+  **869 server requests** passed (maximum **91.52 ms**). Request IDs/routes,
+  clocks, Git state and browser/transport checks passed.
+
+The document run therefore **failed overall**. All 62 persistence steps
+(including history) passed, reading 248 files; final content totalled 405,464
+bytes across four files. The owned server/browser stopped. Artifacts:
+`/tmp/lab-history-final-docs-{browser,server,summary}.json` and log.
+
+### Final terminal typing verification
+
+Without CPU, layout, file-function, PTY or GC tracing, **all 2,400 terminal
+keystrokes passed 50 ms**. Maxima were **37.5 ms** normally and **39.7 ms** with
+60 file updates and 61 sidebar refreshes. Independent parse and cursor-row
+render checks verified every character, including 87 scrolled reads per
+verifier. No long task, clock, transport or browser error was recorded.
+
+All **785 browser API requests** passed (maximum **119.1 ms**) and all
+**816 server requests** passed (maximum **90.14 ms**); request IDs/routes and
+real Git state matched. The owned benchmark terminal was removed and its
+server stopped. Artifacts:
+`/tmp/lab-history-final-typing-{browser,server,summary}.json` and log.
+This is validation after the navigation change, not evidence that reordering
+history itself caused the lower terminal maxima.
+
+The goal remains active: cold navigation and IME misses, broader UI/API
+coverage and physical/iTerm parity are unresolved. No main merge, push or
+live-server restart occurred. Main merge remains pending after the earlier
+automatic approval rejection.
