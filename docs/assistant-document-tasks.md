@@ -1,9 +1,19 @@
 # Tasks inside documents
 
-Documents is the production library and modal. The existing saved dashboard
+Documents is the production library. Single-click a document to open it inline
+in the main workspace area; double-click to open its modal. **Expand** moves an
+inline document into the modal while preserving its editor and draft. Closing
+returns to the document list. The existing saved dashboard
 sections, filter JSON, independent document/series/note stars, series history,
 external links, content editor, heading copy, tab creation and nested subtabs
 remain in place. There is no separate prototype view.
+
+The header groups actions separately from key task and meeting properties.
+**Copy** offers Google Docs and plain-text formats. **Properties** contains
+document details, organization, tracking, external URL and custom attributes.
+Recent content-tab changes use small blue dots for updates and green dots for
+new tabs. Hover reveals the change time; dismissal and three-day expiry remain
+available without opening a tab clearing its marker.
 
 A document owns a single JSON `tasks` array in its Markdown frontmatter and
 `task_format: "document-tasks-v1"`. Content tabs are always untracked. A task

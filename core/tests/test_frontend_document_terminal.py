@@ -86,7 +86,7 @@ const drag=(source,target)=>{const dataTransfer=new DataTransfer();source.dispat
  AssistantView.init({section:'documents'});
  await until(()=>document.querySelector('[data-assistant-document]'));
  document.querySelector('[data-assistant-view="all"]').click();
- document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).click();
+ document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}));
  await until(()=>host()?.textContent.includes('Drag a terminal'));
  assert(!counters.opened&&!counters.sockets,'opening task allocates no terminal');
  assert(host().getBoundingClientRect().height<180,'unlinked panel stays compact');
@@ -106,7 +106,7 @@ const drag=(source,target)=>{const dataTransfer=new DataTransfer();source.dispat
  await until(()=>latestSocket.messages.some(message=>message.type==='input'&&message.data==='my unsent draft'));
  const initialName=latestSocket.url;
  AssistantView.closeDocument();assert(!counters.sockets&&!counters.terminals&&!intervals.size,'close releases browser resources');
- document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).click();
+ document.querySelector(`[data-assistant-document="${FIX.paths.note}"]`).dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}));
  await until(()=>counters.sockets===1);
  assert(latestSocket.url===initialName&&!counters.opened,'reopen remembers task and exact existing session');
  hidden=true;document.dispatchEvent(new Event('visibilitychange'));

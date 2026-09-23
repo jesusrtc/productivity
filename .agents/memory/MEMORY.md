@@ -264,3 +264,7 @@
 - [Workspace completion indicators](workspace-completion-indicators.md) — inactive workspace tabs blink for unreviewed terminal work; shared views use one acknowledgement.
 
 - [Linked documents open inline](linked-documents-inline-navigation.md) — sidebar navigation and terminal-driven highlighting, no duplicate pill badge, temporary Files collapse with draft-preserving Expand.
+
+- [Assistant documents open inline](assistant-documents-open-inline.md) — single-click and keyboard open inline; double-click opens the modal, with drafts and navigation preserved.
+- [Recent tab activity uses dots](assistant-tab-activity-dots.md) — blue updates and green new tabs replace labels and rails, preserving dismissal and expiry.
+- [Document controls are grouped](assistant-document-header-groups.md) — readable titles, responsive actions, Copy menu and organized Properties in inline and modal views.

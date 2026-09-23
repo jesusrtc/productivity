@@ -49,7 +49,11 @@ const until=async fn=>{for(let i=0;i<180;i++){if(fn())return;await new Promise(r
 const editor=()=>document.getElementById('assistantAttributesEditor');
 const text=()=>document.getElementById('assistantAttributesJson');
 const sections=path=>[...document.querySelectorAll(`[data-assistant-document="${path}"]`)].map(row=>row.closest('[data-dashboard-section]').dataset.dashboardSection).sort().join(',');
-const openEditor=()=>document.querySelector('[data-edit-attributes]').click();
+const openEditor=()=>{
+ const properties=document.querySelector('.assistant-metadata-more');
+ if(!properties.open)properties.querySelector('summary').click();
+ document.querySelector('[data-edit-attributes]').click();
+};
 const set=value=>{text().value=JSON.stringify(value,null,2);text().dispatchEvent(new Event('input'))};
 const submit=()=>editor().querySelector('form').requestSubmit();
 let mutations=0,conflicts=0;
@@ -70,6 +74,9 @@ window.fetch=async(url,options={})=>{
 const save=async(value,count)=>{set(value);submit();await until(()=>mutations===count&&!editor());await AssistantView.refresh()};
 const open=async name=>{
  await AssistantView.openDocument(name==='task'?'task':'note',FIX.paths[name]);
+ await until(()=>!document.getElementById('assistantDocumentModal').hasAttribute('aria-busy'));
+ // Reopening remembers the last subtab; explicitly select the record to edit.
+ document.querySelector(`[data-record-path="${FIX.paths[name]}"]`).click();
  await until(()=>!document.getElementById('assistantDocumentModal').hasAttribute('aria-busy'));
  openEditor();assert(editor().open,'attribute editor opens');
 };

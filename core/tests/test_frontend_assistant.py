@@ -35,7 +35,7 @@ def test_assistant_view_has_minimal_lists_modal_and_copy_actions() -> None:
     assert "isDueSoon" in source
     assert "assistant-row-tldr" in source
     assert 'class="assistant-compact-row' in source
-    assert "openDocumentModal(kind, path)" in source
+    assert "openDocumentModal(kind, path, '', options)" in source
     assert "assistantDocumentModal" in source
     assert "assistantDocumentNav" in source
     assert "Main task" in source

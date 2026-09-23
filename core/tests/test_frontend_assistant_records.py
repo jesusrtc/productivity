@@ -95,6 +95,7 @@ window.fetch=async (url,options={})=>{
  const notePane=host().firstElementChild;
  assert(field('priority')&&field('status'),'discussion is the same subtab concept');
  assert(!host().textContent.includes('Workspace'),'note body contains only content');
+ document.querySelector('.assistant-copy-menu').open=true;
  assert(document.getElementById('assistantCopyRich').getBoundingClientRect().height>=36,'comfortable copy target');
  nav.querySelector('[data-record-index]').click();
  await until(()=>host().querySelector('.assistant-index'));

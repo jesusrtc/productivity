@@ -24,6 +24,7 @@
     inlineHost: null,
     inlinePending: false,
     inlineSidebarCollapsed: false,
+    documentClickTimer: null,
     request: 0,
     modalRequest: 0,
     poll: null,
@@ -934,10 +935,10 @@
     bindStars(content);
     bindSeriesStars(content);
     bindDashboard(content);
-    content.querySelectorAll('[data-assistant-document]').forEach(button => button.addEventListener('click', () => {
+    content.querySelectorAll('[data-assistant-document]').forEach(button => bindDocumentLink(button, options => {
       const kind = button.dataset.documentKind, path = button.dataset.assistantDocument;
       selectEntry(kind, path, true);
-      openDocumentModal(kind, path);
+      openDocumentModal(kind, path, '', options);
     }));
     document.getElementById('assistantRefresh')?.addEventListener('click', refresh);
     content.querySelectorAll('[data-assistant-view]').forEach(button => {
@@ -975,8 +976,8 @@
     content.querySelectorAll('[data-assistant-meeting]').forEach(button => bindRow(button, 'meeting'));
     bindSeries(content);
     content.querySelectorAll('[data-assistant-note]').forEach(button => {
-      button.addEventListener('click', () => {
-        if (state.data?.schema === 2) openDocumentModal('note', button.dataset.assistantNote);
+      bindDocumentLink(button, options => {
+        if (state.data?.schema === 2) openDocumentModal('note', button.dataset.assistantNote, '', options);
         else window.openWorkspaceDocModal(button.dataset.assistantNote, {root: state.data.root});
       });
     });
@@ -1005,17 +1006,39 @@
   function bindRow(button, kind) {
     const attribute = kind === 'task' ? 'assistantTask' : 'assistantMeeting';
     const path = button.dataset[attribute];
+    bindDocumentLink(button, options => {
+      selectEntry(kind, path, true);
+      openDocumentModal(kind, path, '', options);
+    });
+  }
+
+  function bindDocumentLink(button, open) {
+    // Keep the chooser mounted until the second click can reach the same row.
+    // Keyboard activation opens immediately; pointer clicks allow double-click.
+    const openInline = () => {
+      state.documentClickTimer = null;
+      open({inline:button.closest('.assistant-document-overlay') ? Boolean(state.inlineHost) : true});
+    };
     button.addEventListener('click', event => {
       if (event.target.closest('[data-assistant-nudge]')) return;
-      selectEntry(kind, path, true);
-      openDocumentModal(kind, path);
+      clearTimeout(state.documentClickTimer);
+      if (event.detail > 1) return;
+      if (!event.detail) openInline();
+      else state.documentClickTimer = setTimeout(openInline, 300);
     });
-    button.addEventListener('keydown', event => {
+    button.addEventListener('dblclick', event => {
+      if (event.target.closest('[data-assistant-nudge]')) return;
+      event.preventDefault();
+      clearTimeout(state.documentClickTimer);
+      state.documentClickTimer = null;
+      open({inline:false});
+    });
+    if (button.tagName !== 'BUTTON') button.addEventListener('keydown', event => {
       if (event.target.closest('[data-assistant-nudge]')) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-      selectEntry(kind, path, true);
-      openDocumentModal(kind, path);
+      clearTimeout(state.documentClickTimer);
+      openInline();
     });
   }
 
@@ -1060,13 +1083,15 @@
     overlay.innerHTML = `<section class="assistant-document-modal" role="dialog" aria-modal="true" aria-labelledby="assistantModalTitle">
       <header class="assistant-modal-header">
         <div class="assistant-modal-heading"><span id="assistantModalKind">Assistant</span><h2 id="assistantModalTitle">Loading…</h2></div>
-        <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button><button type="button" id="assistantExpandDocument" hidden>Expand</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
+        <div class="assistant-modal-actions"><span id="assistantNoteStatus" class="assistant-note-status" role="status" aria-live="polite" hidden></span><button type="button" id="assistantEditNote" hidden>Edit</button><button type="button" id="assistantSaveNote" hidden>Save</button><button type="button" id="assistantRevertNote" hidden>Discard</button><details class="assistant-copy-menu"><summary>Copy <span aria-hidden="true">⌄</span></summary><div><button type="button" id="assistantCopyRich">Copy for Google Docs</button><button type="button" id="assistantCopyPlain">Copy plain text</button></div></details><button type="button" id="assistantExpandDocument" hidden>Expand</button><button type="button" class="assistant-modal-close" aria-label="Close Assistant document">×</button></div>
         <div class="assistant-modal-metadata" id="assistantModalMetadata"></div>
       </header>
       <div class="assistant-modal-body" id="assistantModalBody"><aside class="assistant-document-nav" id="assistantDocumentNav"></aside><main class="assistant-document-pane" id="assistantModalDocument"><div class="loading">Loading…</div></main></div>
       <section id="assistantDocumentTerminal" class="assistant-document-terminal" hidden aria-label="Document terminal"></section>
     </section>`;
     overlay.addEventListener('click', event => {
+      const copyMenu = overlay.querySelector('.assistant-copy-menu');
+      if (!event.target.closest('.assistant-copy-menu summary')) copyMenu.open = false;
       if (event.target === overlay) closeDocumentModal();
       else if (!event.target.closest('.assistant-metadata-more')) {
         const more = overlay.querySelector('.assistant-metadata-more');
@@ -1111,6 +1136,8 @@
   }
 
   function closeDocumentModal(updateHistory = true) {
+    clearTimeout(state.documentClickTimer);
+    state.documentClickTimer = null;
     state.inlinePending = false;
     window.AssistantTasks?.reset();
     window.LabDocumentTerminal?.close();
@@ -1157,6 +1184,8 @@
     window.AssistantTasks?.reset();
     const overlay = ensureModal();
     const wasOpen = overlay.classList.contains('active');
+    const inline = options.inline ?? (wasOpen ? Boolean(state.inlineHost) : document.body.classList.contains('assistant-active'));
+    state.inlinePending = inline;
     const request = ++state.modalRequest;
     overlay.setAttribute('aria-busy', 'true');
     try {
@@ -1206,7 +1235,7 @@
       state.modalRoot = root; state.modalKind = rootKind;
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
       state.modalIndex = showIndex;
-      presentDocument(overlay, options.inline === undefined ? Boolean(state.inlineHost) : options.inline);
+      presentDocument(overlay, inline);
       await renderModal(focusHeading);
       if (request === state.modalRequest) {
         overlay.classList.add('active');
@@ -1221,7 +1250,7 @@
     } catch (error) {
       if (request !== state.modalRequest) return;
       if (!wasOpen) {
-        presentDocument(overlay, Boolean(options.inline));
+        presentDocument(overlay, inline);
         document.getElementById('assistantModalDocument').replaceChildren();
         document.getElementById('assistantDocumentNav').replaceChildren();
         document.getElementById('assistantModalTitle').textContent = 'Document unavailable';
@@ -1358,46 +1387,53 @@
       : metadata.title || metadata.id || 'Document';
     heading.title = heading.textContent;
     document.getElementById('assistantModalKind').textContent = subtab ? 'Tab' : metadata.note_type === 'series' ? 'Meeting series' : metadata.note_type === 'meeting' ? 'Meeting' : 'Document';
-    const primary = tracked ? [
+    const workflow = tracked ? [
       metadataSelect('status', progress?.derived ? 'Overall' : 'Status', status, metadata.schema === 2 ? lifecycle : state.data?.statuses || lifecycle),
       metadataSelect('priority', 'Priority', metadata.priority || 'P2', ['P0', 'P1', 'P2', 'P3'].map(value => [value, value])),
       metadataInput('due', 'Due', metadata.due, 'date'),
-      ...(task && !subtab ? [metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Once'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']])] : []),
-      metadataInput('owner', 'POC', metadata.owner),
-    ] : recordKind === 'meeting' ? [
+    ] : [];
+    const meeting = recordKind === 'meeting' || metadata.note_type === 'meeting' ? [
       metadataInput('date', 'Date', metadata.date, 'date'),
       metadataSelect('series', 'Series', metadata.series, [['', 'Standalone'], ...(state.data?.meeting_series || [])
         .filter(row => metadata.schema === 2 || row.workspace === (metadata.workspace || workspace.id || record.path.split('/')[1]))
         .map(row => [row.id, row.title])]),
     ] : [];
-    if (tracked && metadata.note_type === 'meeting') primary.push(
-      metadataInput('date', 'Date', metadata.date, 'date'),
-      metadataSelect('series', 'Series', metadata.series, [['','Standalone'], ...(state.data?.meeting_series || []).map(row => [row.id,row.title])]),
-    );
-    if (metadata.schema === 2 && !record.embedded) primary.push(
-      metadataSelect('note_type', 'Label', metadata.note_type || 'plain', [['plain','None'],['meeting','Meeting'],['series','Meeting series']]),
-      metadataToggle('keep_in_documents', 'Keep in Documents', metadata.keep_in_documents ?? metadata.type === 'note'),
-      metadataSelect('project', 'Project', metadata.project, [['', 'None'], ...(state.data.projects || []).map(row => [row.id,row.title])]),
-      metadataSelect('workspace', 'Workspace', metadata.workspace, [['', 'None'], ...workspaceRows().map(row => [row.id,row.name || row.id])]),
-    );
-    if (metadata.schema === 2) {
-      primary.push(metadataInput('external_url', 'External document URL', metadata.external_url, 'url'), externalDocument(metadata));
-      primary.push(`<button type="button" class="assistant-attributes-button" data-edit-attributes aria-label="Edit custom attributes">Attributes${Object.keys(metadata.attributes || {}).length ? ' (' + Object.keys(metadata.attributes).length + ')' : ''}</button>`);
-      if (!detail.document_tasks) primary.unshift(metadataToggle('track_task', 'Track this tab', metadata.track_task ?? (metadata.type === 'task' || Boolean(metadata.status))));
-      const owner = state.modalRoot || record;
-      primary.unshift(starButton({...owner.metadata,path:owner.path}, owner.metadata.note_type === 'series' ? 'series' : 'document'));
+    const organization = [];
+    const documentFields = [metadataInput('title', 'Title', metadata.title), metadataInput('tldr', 'Summary', metadata.tldr)];
+    if (metadata.schema === 2 && !record.embedded) {
+      documentFields.push(
+        metadataSelect('note_type', 'Label', metadata.note_type || 'plain', [['plain','None'],['meeting','Meeting'],['series','Meeting series']]),
+        metadataToggle('keep_in_documents', 'Keep in Documents', metadata.keep_in_documents ?? metadata.type === 'note'),
+      );
+      organization.push(
+        metadataSelect('project', 'Project', metadata.project, [['', 'None'], ...(state.data.projects || []).map(row => [row.id,row.title])]),
+        metadataSelect('workspace', 'Workspace', metadata.workspace, [['', 'None'], ...workspaceRows().map(row => [row.id,row.name || row.id])]),
+      );
     }
-    const fields = [['title', 'Title'], ['tldr', 'Summary'], ...(task ? [
+    const tracking = [];
+    if (tracked) organization.push(metadataInput('owner', 'POC', metadata.owner));
+    if (task && !subtab) tracking.push(metadataSelect('recurrence', 'Repeats', metadata.recurrence, [['', 'Once'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]));
+    let star = '', attributes = '';
+    if (metadata.schema === 2) {
+      documentFields.push(metadataInput('external_url', 'External document URL', metadata.external_url, 'url'));
+      attributes = `<button type="button" class="assistant-attributes-button" data-edit-attributes aria-label="Edit custom attributes">Attributes${Object.keys(metadata.attributes || {}).length ? ' (' + Object.keys(metadata.attributes).length + ')' : ''}</button>`;
+      if (!detail.document_tasks) tracking.unshift(metadataToggle('track_task', 'Track this tab', metadata.track_task ?? (metadata.type === 'task' || Boolean(metadata.status))));
+      const owner = state.modalRoot || record;
+      star = starButton({...owner.metadata,path:owner.path}, owner.metadata.note_type === 'series' ? 'series' : 'document');
+    }
+    const fields = task ? [
       ['group', 'Group'], ['scheduled', 'Planned', 'date'],
       ['defer_until', 'Deferred until', 'date'], ['waiting_on', 'Waiting on'], ['follow_up_at', 'Follow up', 'date'],
-    ] : [])];
+    ] : [];
+    tracking.push(...fields.map(([field, label, type]) => metadataInput(field, label, metadata[field], type)));
     const info = [
       ['Workspace', workspace.name || metadata.workspace], ['Vault', workspace.vault],
       ['Attendees', Array.isArray(metadata.attendees) ? metadata.attendees.join(', ') : metadata.attendees],
       ['Parent', metadata.parent?.id || metadata.parent], ['Created', metadata.created], ['Updated', metadata.updated],
       ['Workspace path', workspace.workspace_path],
     ].filter(([, value]) => value);
-    bar.innerHTML = `${primary.join('')}<details class="assistant-metadata-more"><summary aria-label="More metadata" title="More metadata">···</summary><div class="assistant-metadata-popover">${fields.map(([field, label, type]) => metadataInput(field, label, metadata[field], type)).join('')}<dl>${info.map(([label, value]) => `<div><dt>${e(label)}</dt><dd>${e(value)}</dd></div>`).join('')}</dl></div></details><span class="assistant-metadata-message" role="status" aria-live="polite"></span>`;
+    const group = (title, controls) => controls.length ? `<fieldset class="assistant-property-group"><legend>${title}</legend>${controls.join('')}</fieldset>` : '';
+    bar.innerHTML = `${star}${workflow.length ? `<div class="assistant-header-properties" role="group" aria-label="Task progress">${workflow.join('')}</div>` : ''}${meeting.length ? `<div class="assistant-header-properties" role="group" aria-label="Meeting">${meeting.join('')}</div>` : ''}<details class="assistant-metadata-more"><summary aria-label="Document properties">Properties <span aria-hidden="true">⌄</span></summary><div class="assistant-metadata-popover">${group('Document', documentFields)}${group('Organization', organization)}${group('Tracking', tracking)}${attributes}<dl>${info.map(([label, value]) => `<div><dt>${e(label)}</dt><dd>${e(value)}</dd></div>`).join('')}</dl></div></details>${externalDocument(metadata)}<span class="assistant-metadata-message" role="status" aria-live="polite"></span>`;
     bindStars(bar);
     bar.querySelector('[data-edit-attributes]')?.addEventListener('click', () => editDocumentAttributes(record));
     const more = bar.querySelector('details');
@@ -1778,7 +1814,7 @@
       const row = rows.get(badge.dataset.tabActivity);
       const activity = row && recentTabActivity(row, now);
       badge.hidden = !activity;
-      badge.textContent = activity?.kind || '';
+      badge.setAttribute('aria-label', activity?.kind || 'No recent changes');
       badge.dataset.activityKind = activity?.kind || '';
       badge.title = activity ? `${activity.kind} · ${new Date(activity.at).toLocaleString()} · Highlight clears after 3 days or when dismissed` : '';
       badge.closest('[data-record-path]')?.classList.toggle('has-recent-activity', Boolean(activity));
@@ -1799,7 +1835,7 @@
   }
 
   function tabActivityBadge(row) {
-    return `<small class="assistant-tab-activity" data-tab-activity="${e(row.path)}" hidden></small>`;
+    return `<small class="assistant-tab-activity" role="img" data-tab-activity="${e(row.path)}" hidden></small>`;
   }
 
   function documentTabs(tree) {
@@ -2155,7 +2191,7 @@
   }
 
   function bindSeries(host) {
-    host.querySelectorAll('[data-assistant-series]').forEach(button => button.addEventListener('click', () => {
+    host.querySelectorAll('[data-assistant-series]').forEach(button => bindDocumentLink(button, options => {
       const path = button.dataset.assistantSeries;
       const url = new URL(window.location);
       url.searchParams.set('view', 'assistant'); url.searchParams.set('subview', state.data?.documents ? 'documents' : 'notes');
@@ -2163,7 +2199,7 @@
       url.searchParams.delete('assistant_workspace');
       history.pushState({nav:'assistant', series:path}, '', url.pathname + url.search + url.hash);
       state.selectedSeriesPath = path; state.selectedMeetingPath = ''; state.selectedTaskPath = '';
-      openDocumentModal('series', path);
+      openDocumentModal('series', path, '', options);
     }));
   }
 
@@ -2449,6 +2485,8 @@
       event.stopImmediatePropagation();
       if (state.headingMenu) { closeHeadingMenu(true); return; }
       if (document.querySelector('#assistantSeriesMenu:popover-open')) { closeSeriesMenu(true); return; }
+      const copyMenu = overlay.querySelector('.assistant-copy-menu[open]');
+      if (copyMenu) { copyMenu.open = false; copyMenu.querySelector('summary').focus(); return; }
       const more = document.querySelector('#assistantModalMetadata details[open]');
       if (more) { more.open = false; more.querySelector('summary').focus(); }
       else closeDocumentModal();
@@ -2462,9 +2500,10 @@
     section: () => state.section,
     selectTask: path => selectEntry('task', path, true),
     openDocument: openDocumentModal,
+    bindDocumentLink,
     openLinkedTask,
     closeDocument: closeDocumentModal,
-    closeInlineDocument: () => { if (state.inlineHost || state.inlinePending) closeDocumentModal(false); },
+    closeInlineDocument: () => { if (state.inlineHost || state.inlinePending || state.documentClickTimer) closeDocumentModal(false); },
     isInlineDocument: () => Boolean(state.inlineHost),
   };
 })();

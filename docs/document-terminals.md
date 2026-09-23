@@ -23,7 +23,8 @@ terminal links, including stopped terminals, with one entry per document.
 Selecting a terminal highlights its document there without opening it.
 Terminal tabs do not repeat a document link badge.
 
-Click a document row to open it in the main file area. Files temporarily
+Single-click a document row in Assistant or the workspace sidebar to open it
+in the main file area. Double-click opens it directly in a modal. Files temporarily
 collapses to make room for the document's own tabs; its edge handle can reopen
 it. Closing the document or navigating elsewhere restores the previous Files
 visibility without changing the saved preference. Existing content drafts and

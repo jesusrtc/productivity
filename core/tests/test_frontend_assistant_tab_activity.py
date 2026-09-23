@@ -59,7 +59,7 @@ Date.now=()=>now;
 const nav=()=>document.getElementById('assistantDocumentNav');
 const tab=path=>[...nav().querySelectorAll('[data-record-path]')].find(row=>row.dataset.recordPath===path);
 const badge=path=>tab(path).querySelector('[data-tab-activity]');
-const label=path=>badge(path).hidden?'':badge(path).textContent;
+const label=path=>badge(path).hidden?'':badge(path).dataset.activityKind;
 const dismiss=path=>{
  const menu=tab(path).closest('.assistant-record-tab-row').querySelector('details');
  menu.open=true;
@@ -80,6 +80,10 @@ window.fetch=async (url,options={})=>{
  if(!sessionStorage.getItem('activity-reloaded')){
   assert(label(task.new)==='New'&&label(task.updated)==='Updated','tasks distinguish new and updated tabs');
   assert(label(task.root)===''&&label(task.old)==='','older tabs stay quiet');
+  assert(badge(task.new).textContent===''&&badge(task.updated).textContent==='','activity dots never consume title width with text');
+  assert(badge(task.new).getAttribute('aria-label')==='New'&&badge(task.updated).title.startsWith('Updated'),'dots retain accessible descriptions');
+  assert(badge(task.new).getBoundingClientRect().width===6&&badge(task.updated).getBoundingClientRect().width===6,'both markers are small dots');
+  assert(getComputedStyle(badge(task.new)).backgroundColor!==getComputedStyle(badge(task.updated)).backgroundColor,'new and updated dots have distinct colors');
   tab(task.new).click();
   await until(()=>tab(task.new).classList.contains('active'));
   assert(label(task.new)==='New','opening a tab does not clear highlight');
@@ -101,7 +105,7 @@ window.fetch=async (url,options={})=>{
  assert(label(task.new)==='Updated','later revision highlights dismissed tab again');
  assert(label(task.root)===''&&label(task.old)==='','child edit does not highlight parent or siblings');
  nav().querySelector('[data-record-index]').click();
- assert([...document.querySelectorAll('.assistant-index [data-tab-activity]')].some(row=>row.dataset.tabActivity===task.new&&row.textContent==='Updated'&&!row.hidden),'Index mirrors tab markers');
+ assert([...document.querySelectorAll('.assistant-index [data-tab-activity]')].some(row=>row.dataset.tabActivity===task.new&&row.dataset.activityKind==='Updated'&&!row.hidden),'Index mirrors tab markers');
  dismiss(task.new);
  assert([...document.querySelectorAll('.assistant-index [data-tab-activity]')].find(row=>row.dataset.tabActivity===task.new).hidden,'dismiss clears Index marker');
  // A different window may already have dismissed a still newer revision.

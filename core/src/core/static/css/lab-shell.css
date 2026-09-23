@@ -1993,6 +1993,7 @@
   .term-sessions .sess .sess-link { position: absolute; top: 2px; right: 3px; color: var(--accent); font-size: 8px; line-height: 1; opacity: .9; }
   .term-sessions .sess .sess-activity { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
   .term-sessions .sess .sess-working { background: var(--yellow); }
+  .term-sessions .sess .sess-working:has(+ .sess-completion) { right: 12px; }
   .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); }
   .term-sessions .sess .sess-label { display: none; }
   .term-divider-section { display: flex; flex-direction: column; gap: 3px; min-width: 0; width: 100%; }
@@ -2032,6 +2033,7 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess { width: auto; max-width: 240px; padding: 3px 9px; }
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
   .term-panel.term-sessions-full .term-sessions .sess:has(.sess-activity) { padding-right: 14px; }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.sess-working + .sess-completion) { padding-right: 23px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
   .term-session-tooltip { position: fixed; z-index: 1200; width: min(420px, calc(100vw - 16px)); box-sizing: border-box; padding: 9px 10px; color: var(--text-primary); background: #20252c; border: 1px solid #414852; border-radius: 6px; box-shadow: 0 5px 18px rgba(0,0,0,.48); font: 11px/1.35 ui-monospace, monospace; overflow-wrap: anywhere; pointer-events: auto; }
@@ -2879,9 +2881,8 @@
 
 /* New and updated document tabs keep their markers until dismissed or expired. */
 .assistant-record-tab .assistant-record-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.assistant-tab-activity { flex:none; margin-left:auto; padding:2px 5px; border-radius:4px; background:color-mix(in srgb,#7da4cc 12%,transparent); color:#acc8e4; font-size:10px; font-weight:500; line-height:1.4; white-space:nowrap; }
-.assistant-tab-activity[data-activity-kind="New"] { color:#a0cdb6; background:color-mix(in srgb,#a0cdb6 10%,transparent); }
-.assistant-record-tree .assistant-record-tab.has-recent-activity { box-shadow:inset 2px 0 #7da4cc; }
+.assistant-tab-activity { display:inline-block; flex:none; width:6px; height:6px; margin-left:auto; border-radius:50%; background:#7da4cc; }
+.assistant-tab-activity[data-activity-kind="New"] { background:#62bd89; }
 .assistant-tab-activity[hidden], .assistant-tab-menu [data-dismiss-tab-activity][hidden] { display:none; }
 .assistant-index .assistant-tab-activity { display:inline-block; margin-left:6px; vertical-align:middle; }
 .assistant-index .assistant-tab-activity[hidden] { display:none; }
@@ -3073,3 +3074,38 @@
 .assistant-document-modal .assistant-note-marks > span { min-height:1.65em; }
 .assistant-document-modal .assistant-tasks-task-label { font-size:var(--lab-document-font-size,18px); }
 .assistant-document-modal .assistant-tasks-section-head h2 { font-size:var(--lab-document-font-size,18px); }
+
+/* Shared inline/modal document chrome: actions above grouped properties. */
+.assistant-document-modal { container:assistant-document / inline-size; }
+.assistant-modal-header { display:flex; flex-wrap:wrap; gap:10px 16px; }
+.assistant-modal-heading { flex:1 1 260px; align-self:center; }
+.assistant-modal-heading h2 { min-width:0; }
+.assistant-modal-actions { flex:0 1 auto; min-width:0; flex-wrap:wrap; gap:6px; }
+.assistant-copy-menu { position:relative; flex:none; }
+.assistant-copy-menu > summary { display:flex; align-items:center; gap:8px; min-height:36px; box-sizing:border-box; padding:7px 12px; border:1px solid var(--border); border-radius:6px; color:var(--text-secondary); font-size:var(--lab-modal-font-size,14px); list-style:none; cursor:pointer; }
+.assistant-copy-menu > summary::-webkit-details-marker { display:none; }
+.assistant-copy-menu > summary:hover, .assistant-copy-menu[open] > summary { background:var(--bg-tertiary); color:var(--text-primary); }
+.assistant-copy-menu > div { position:absolute; z-index:5; right:0; top:calc(100% + 5px); min-width:210px; padding:5px; border:1px solid var(--border); border-radius:7px; background:var(--bg-secondary); box-shadow:0 8px 30px #0006; }
+.assistant-copy-menu button { display:block; width:100%; min-height:36px; padding:8px 10px; border:0; border-radius:4px; background:transparent; color:var(--text-secondary); text-align:left; font:inherit; cursor:pointer; }
+.assistant-copy-menu button:hover { background:var(--bg-tertiary); color:var(--text-primary); }
+.assistant-modal-metadata { flex:1 0 100%; box-sizing:border-box; gap:6px 12px; padding-top:8px; border-top:1px solid var(--border); }
+.assistant-header-properties { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; min-width:0; }
+.assistant-header-properties + .assistant-header-properties { padding-left:12px; border-left:1px solid var(--border); }
+.assistant-header-properties .assistant-metadata-field { gap:4px; }
+.assistant-metadata-more > summary { display:flex; align-items:center; gap:8px; font-size:inherit; }
+.assistant-metadata-popover { width:min(390px,calc(100vw - 70px)); }
+.assistant-property-group { min-width:0; margin:0 0 14px; padding:0; border:0; }
+.assistant-property-group legend { width:100%; margin-bottom:8px; padding:0 0 5px; border-bottom:1px solid var(--border); color:var(--text-primary); font-weight:600; }
+.assistant-metadata-popover .assistant-metadata-field { grid-template-columns:110px minmax(0,1fr); }
+.assistant-metadata-popover .assistant-metadata-field > span { overflow-wrap:anywhere; }
+.assistant-metadata-popover .assistant-metadata-field :is(input,select) { width:100%; max-width:none; }
+.assistant-metadata-popover .assistant-metadata-field:has([data-metadata-field="external_url"]) { min-width:0; max-width:none; }
+.assistant-metadata-popover .assistant-metadata-toggle { white-space:normal; }
+.assistant-metadata-message:empty { display:none; }
+@container assistant-document (max-width:680px) {
+  .assistant-modal-heading { flex-basis:100%; padding-right:0; }
+  .assistant-modal-actions { flex-basis:100%; }
+  .assistant-modal-actions > button:not(.assistant-modal-close) { display:block; }
+  .assistant-modal-actions > .assistant-modal-close { position:static; margin-left:auto; }
+  .assistant-header-properties + .assistant-header-properties { padding-left:0; border-left:0; }
+}

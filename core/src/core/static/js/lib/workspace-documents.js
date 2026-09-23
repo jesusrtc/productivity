@@ -28,7 +28,8 @@
     host._documentsHtml = html; host.innerHTML = html;
     host.querySelectorAll('.workspace-document').forEach((row, index) => {
       const doc = documents[index];
-      row.querySelector('.workspace-document-open').onclick = () => window.AssistantView.openLinkedTask(doc, {inline:true}).catch(error => notify(error.message, true));
+      window.AssistantView.bindDocumentLink(row.querySelector('.workspace-document-open'), options =>
+        window.AssistantView.openLinkedTask(doc, options).catch(error => notify(error.message, true)));
       const remove = row.querySelector('.workspace-document-remove');
       if (remove) remove.onclick = async () => {
         try {

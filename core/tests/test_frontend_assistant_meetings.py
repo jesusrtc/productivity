@@ -101,6 +101,7 @@ window.fetch=async (url, options={})=>{
  AssistantView.init({task:'task'});
  await until(()=>host()?.textContent.includes('Review task context.'));
  assert(taskRows().length===2,'opening a task deep link does not scope the list to its workspace');
+ document.querySelector('.assistant-copy-menu').open=true;
  assert(document.getElementById('assistantCopyRich').getBoundingClientRect().height>=36,'copy buttons have a comfortable target');
  assert(!host().querySelector('.assistant-copy-actions'),'headings have no inline copy controls');
  const heading=text=>[...host().querySelectorAll('h1,h2,h3,h4,h5,h6')].find(h=>h.textContent===text);
