@@ -170,14 +170,23 @@ async function main() {
         await sleep(10);
       }
       await evaluate(`(async()=>{
-        const tab=document.querySelector(${JSON.stringify(selector)});
+        let tab=document.querySelector(${JSON.stringify(selector)});
         if(tab.dataset.kind==='workspace' && !tab.dataset.key.startsWith(${JSON.stringify(workspaceRoot + '/')})) throw new Error('Unexpected fixture workspace');
         tab.scrollIntoView({block:'center'});
         // Scrolling can schedule layout and anchoring; target the settled row.
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        // A normal sidebar reconcile may replace rows during the scroll.
+        tab=document.querySelector(${JSON.stringify(selector)});
+        if(!tab) throw new Error('Click target disappeared after scrolling');
         const rect=tab.getBoundingClientRect();
-        window.__probe={start:null,done:false};
-        tab.addEventListener('click',()=>{
+        const x=rect.x+rect.width/2, y=rect.y+rect.height/2;
+        const hit=document.elementFromPoint(x,y);
+        window.__probe={start:null,done:false,hitMatches:!!hit && tab.contains(hit),x,y};
+        document.addEventListener('click',event=>{
+          if(!event.target.closest(${JSON.stringify(selector)})) {
+            __probe.error='Click reached another target: '+event.target.tagName+'.'+event.target.className;
+            __probe.done=true;return;
+          }
           __probe.start=performance.now();
           const check=()=>{
             if(${action.ready}) {
@@ -186,14 +195,14 @@ async function main() {
             else requestAnimationFrame(check);
           };requestAnimationFrame(check);
         },{once:true,capture:true});
-        return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
+        return {x,y};
       })()`).then(async({x,y})=>{
         await client.send('Input.dispatchMouseEvent',{type:'mousePressed',x,y,button:'left',clickCount:1});
         await client.send('Input.dispatchMouseEvent',{type:'mouseReleased',x,y,button:'left',clickCount:1});
       });
       const clickDeadline=Date.now()+12000;
       while(!await evaluate('__probe.done')) {
-        if(Date.now()>clickDeadline)throw new Error('Click did not complete: '+selector);
+        if(Date.now()>clickDeadline)throw new Error('Click did not complete: '+selector+' '+JSON.stringify(await evaluate('__probe')));
         await sleep(10);
       }
       const row=await evaluate(`({...__probe,requests:performance.getEntriesByType('resource').filter(r=>r.startTime>=__probe.start && r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,start:r.startTime-__probe.start,ms:r.duration}))})`);

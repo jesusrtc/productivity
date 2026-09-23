@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -583,9 +584,11 @@ def api_workspace_onepager(path: str):
     return {"content": ""}
 
 
-@router.get("/api/workspace-files")
+@router.get("/api/workspace-files", response_model=list[dict[str, Any]])
 def api_workspace_files(path: str, request: Request, include_dotfiles: bool = False):
     """List all files in a workspace directory as a flat list with relative paths."""
+    # A generic response model preserves every metadata field while letting
+    # FastAPI use Pydantic's serializer instead of a Python walk of every value.
     workspace_path = Path(path)
     if not workspace_path.is_dir():
         return []

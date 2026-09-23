@@ -354,3 +354,68 @@ The overall goal remains unfinished: larger and mixed sidebar rendering,
 full-page startup, the earlier cold real-vault metadata outliers, additional UI
 actions, and typing under active UI/terminal workloads still require work. This
 checkpoint is on `perf/cold-metadata`; main and the live server are unchanged.
+
+## Follow-on: file-list response serialization
+
+The file-list route now declares `list[dict[str, Any]]` as its response model.
+The generic dictionaries retain every metadata key and value while selecting
+FastAPI/Pydantic's compiled serialization path, avoiding an additional Python
+walk of the large result. This follows the
+[FastAPI response-model guidance](https://fastapi.tiangolo.com/tutorial/response-model/).
+The installed comparison used FastAPI 0.139.2 and Pydantic 2.13.4; no dependencies
+were changed. Filesystem discovery and access checks remain unchanged.
+
+The file-scan comparison tool now supports `--transport asgi`, which registers
+both implementations with their respective response models in a minimal
+TestClient app. It includes worker dispatch, response validation, serialization,
+and client JSON decoding. It excludes sockets and production middleware; a
+fixture-only adapter supplies the same user state to both routes. Twenty
+alternating pairs over 5,000 files, including valid and broken links, produced
+identical complete JSON results:
+
+| ASGI request | First | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| Untyped response (`cc9e13b`) | 80.70 ms | 73.99 ms | 80.70 ms |
+| Typed generic dictionaries | 52.44 ms | 53.21 ms | 58.72 ms |
+
+In the normal-server 5,000-file browser fixture, the four large file-list HTTP
+requests took **95.80, 79.80, 75.90, and 71.90 ms**. Workspace navigation still
+failed at **367.30, 369.40, 269.10, and 243.70 ms**; document maximum was
+62.50 ms. Rendering remains substantial even after the serialization reduction.
+
+The mixed 2,000-file fixture's 40-action run passed: workspace first/max
+**197.30 ms**, median 148.40 ms, p95 179.70 ms; document maximum 64.80 ms.
+All **338 API requests** stayed below **60.70 ms**, with no request or browser
+errors. However, five further fresh-browser runs found two misses: their cold
+workspace maxima were **200.30, 195.40, 195.40, 199.70, and 201.00 ms**.
+Document clicks stayed below 66.50 ms and APIs below 48.00 ms. The mixed-tree
+budget therefore remains **unresolved**, despite the passing 40-action run.
+
+The browser probe now observes clicks at document capture phase and reacquires
+the target after scroll/layout settles. A normal background sidebar reconcile
+can replace the earlier row and its attached probe listener. Unexpected actual
+click targets fail explicitly; timeout reports include whether the planned
+coordinates hit the intended row. The probe still sends real CDP mouse input
+and requires complete content plus a frame/task paint opportunity.
+
+A new trial of row-level `content-visibility` completed clicks with this probe:
+5,000-file warm switches reached 168.00 and 164.90 ms, but cold visits still took
+333.30 and 328.00 ms. The CSS experiment was **reverted**; it is not part of the
+checkpoint and has not received full interaction/visual regression coverage.
+The earlier targeting failure is no longer sufficient evidence of a product
+bug, but neither does this small trial establish that containment is safe to ship.
+
+All **56 backend/worktree/Assistant regression tests** passed after the response
+model change, covering file dates, links, pending notebooks, and depth behavior.
+The earlier checkpoint's 124-test result remains recorded separately.
+
+```sh
+core/.venv/bin/python scripts/perf/lab_file_scan_latency.py \
+  --baseline cc9e13b --files 5000 --samples 20 --transport asgi
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 20 --extra-files 2000 --extra-file-types md,py,json,sql
+```
+
+This checkpoint also remains isolated on `perf/cold-metadata`. The overall goal,
+including the earlier real-vault outliers and broader action/typing coverage,
+is still active.
