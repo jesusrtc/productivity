@@ -167,6 +167,7 @@ async function main() {
     const actions=[];
     const createWorkspaces=process.env.LAB_PERF_CREATE_WORKSPACES==='1';
     const settings=process.env.LAB_PERF_SETTINGS==='1';
+    const pins=process.env.LAB_PERF_PINS==='1';
     const initialWorkspaceTabs=createWorkspaces
       ? await evaluate(`Array.from(document.querySelectorAll('.workspace-tab[data-kind="workspace"]'),row=>row.dataset.key)`)
       : [];
@@ -181,6 +182,17 @@ async function main() {
           {kind:'create-workspace',target:id,selector:'#vaultWorkspaceSubmit',input:name,
             ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
         );
+      }
+    } else if(pins) {
+      actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
+        ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
+      const path='docs/review-1.md';
+      const ordinary='#sidebar .sidebar-file[data-open-file]:not(.sidebar-file-recent)[data-filepath="'+path+'"]';
+      const shortcut='#sidebar > .sidebar-file[data-filepath="'+path+'"]';
+      for(let i=0;i<samples;i++)for(const pinned of [true,false]) {
+        const row=pinned||i%2===0?ordinary:shortcut;
+        actions.push({kind:pinned?'pin':'unpin',target:row===ordinary?'file':'shortcut',selector:row+' button',hover:row,pinned,path,
+          ready:`document.querySelectorAll(${JSON.stringify(shortcut)}).length===${pinned?1:0} && document.querySelector(${JSON.stringify(ordinary+' button')})?.title===${JSON.stringify(pinned?'Unpin':'Pin to top')} && _workspaceSidebarCache.get(${JSON.stringify(workspaceRoot+'/alpha')})?.pinned.includes(${JSON.stringify(path)})===${pinned} && document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
       }
     } else if(settings) {
       actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
@@ -223,6 +235,18 @@ async function main() {
       while(!await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) {
         if(Date.now()>until)throw new Error('Click target did not appear: '+selector);
         await sleep(10);
+      }
+      if(action.hover) {
+        // Reveal the normal hover-only control before timing its click. This
+        // preparation is not reported as a measurement of pointer hover.
+        const point=await evaluate(`(async()=>{
+          let row=document.querySelector(${JSON.stringify(action.hover)});row.scrollIntoView({block:'center'});
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+          row=document.querySelector(${JSON.stringify(action.hover)});const rect=row.getBoundingClientRect();
+          return {x:rect.x+30,y:rect.y+rect.height/2};
+        })()`);
+        await client.send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});
+        await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
       }
       if(action.input) {
         if(action.inputSelector) {
@@ -288,10 +312,19 @@ async function main() {
         await sleep(10);
       }
       const row=await evaluate(`({...__probe,requests:performance.getEntriesByType('resource').filter(r=>r.startTime>=__probe.start && r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,start:r.startTime-__probe.start,ms:r.duration}))})`);
-      if(row.error)throw new Error(row.error);
+      if(row.error) {
+        const state=pins?await evaluate(`({workspace:currentWorkspace?.path,pinned:_workspaceSidebarCache.get(currentWorkspace?.path)?.pinned,rows:Array.from(document.querySelectorAll('#sidebar .sidebar-file[data-filepath="docs/review-1.md"]'),el=>({html:el.outerHTML,parent:el.parentElement.className})),dashboard:document.querySelector('#content [data-workspace-display-title]')?.textContent})`):null;
+        throw new Error(row.error+' '+JSON.stringify({probe:row,state}));
+      }
       const clockCheck=validateInputClock(row.clock,sentEpoch);
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,clock:row.clock,clockCheck,requests:row.requests});
       if(!clockCheck.valid)throw new Error('Mouse input clock validation failed: '+clockCheck.reason);
+      if(pins&&action.kind!=='workspace') {
+        const metadata=JSON.parse(await readFile(join(workspaceRoot,'alpha','workspace.json'),'utf8'));
+        const other=JSON.parse(await readFile(join(workspaceRoot,'beta','workspace.json'),'utf8'));
+        if((metadata.pinned||[]).includes(action.path)!==action.pinned || (other.pinned||[]).length)throw new Error('Pin state was not persisted in the correct workspace');
+        if(!await evaluate(`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/alpha')} && document.querySelectorAll('#sidebar .sidebar-file[data-open-file]:not(.sidebar-file-recent)[data-filepath="docs/review-1.md"]').length===1`))throw new Error('Pin changed the active workspace or removed its ordinary file row');
+      }
       if(settings&&action.kind==='workspace') {
         const count=await evaluate(`window.__settingsExpectedRecentRows=document.querySelectorAll('#sidebar .sidebar-file-recent').length`);
         if(!count)throw new Error('Settings fixture has no recent-file rows');
@@ -393,7 +426,7 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const fixture={workflow:pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
     console.log(JSON.stringify({fixture,git,sidebar,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));

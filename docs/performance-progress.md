@@ -2015,3 +2015,93 @@ UI flows and prior outliers remain open; the overall goal stays active. This
 checkpoint remains in the isolated worktree, without a main merge, push or
 live-server restart. Explicit merge approval remains pending after automatic
 approval review rejected that action.
+
+## Publish saved Pin state before warm refresh (2026-09-22)
+
+The previous turn was progress: checkpoint `076735e` reduced ordinary Pin
+control markup and verified navigation and typing. This turn extends coverage
+to the actual Pin and Unpin interactions, which still wrote metadata and then
+painted old cached pin state before the fresh file scan/metadata reconciliation.
+
+The new `--pins` diagnostic uses timestamped native clicks, reveals hover-only
+controls before timing, and measures until the shortcut, ordinary button,
+cached state and rendered dashboard agree. Every action also checks metadata
+persisted in the intended workspace and verifies that its ordinary file row
+remains. Unpin alternates between the original row and pinned shortcut. Hover
+preparation is not claimed as measured hover latency. The mode is exclusive
+with typing, resize, workspace creation and settings workflows.
+
+The initial probe accidentally selected the recent-file copy's Git-history
+button. That run timed out and is retained at
+`/tmp/lab-pin-action-before-{browser,server}.json` and `.log`. A small diagnostic
+at `/tmp/lab-pin-action-debug-{browser,server}.json` identified the wrong control;
+the ordinary-row selector now excludes `.sidebar-file-recent`. Neither failed
+attempt is counted as a passing latency run.
+
+The corrected matched comparison used **5,000 extra mixed files** per workspace
+(`ipynb,pdf,svg,js`), flat layout, **2,500 actual modified Git paths**, one initial
+workspace click and **20 Pin / 20 Unpin actions**, with CPU sampling enabled in
+both runs. Before the change, three actions exceeded 200 ms: **299.2 ms Pin**,
+**214.1 ms shortcut Unpin**, and **200.3 ms shortcut Unpin**. For the 299.2 ms
+action, the metadata write completed about 24.5 ms after input; the subsequent
+file scan started at 74.5 ms and took 107.6 ms, with background refresh work also
+present. Waiting for fresh reconciliation was material to the visible delay.
+
+`togglePin` now captures its workspace path, confirms successful GET and PUT
+responses, and publishes the saved pin list into the latest cached payload
+before the existing dashboard refresh. It preserves all other cached fields
+and keeps the fresh file/metadata reconciliation. With no cache it follows the
+normal cold refresh. A workspace switch during the request cannot redirect the
+write to another workspace or repaint that workspace's dashboard. Failed saves
+leave cached state unchanged.
+
+| Matched CPU-profiled measurement | Baseline | Confirmed state cached |
+| --- | ---: | ---: |
+| Pin p50 / p95 / maximum | 121.4 / 156.7 / 299.2 ms | 102.7 / 124.4 / 131.0 ms |
+| Unpin p50 / p95 / maximum | 128.6 / 200.3 / 214.1 ms | 103.3 / 114.6 / 133.4 ms |
+| First workspace open | 147.2 ms | 168.2 ms |
+| Actions at or above 200 ms | 3 / 41 | 0 / 41 |
+| Browser API requests / maximum | 716 / 128.4 ms | 705 / 79.9 ms |
+| Server requests / maximum through body | 738 / 129.5 ms | 727 / 73.9 ms |
+
+Across the complete profiles, inclusive sidebar refresh samples decreased from
+**2,914.1 to 2,384.9 ms**, template construction/mounting from **1,049.8 to
+890.0 ms**, and Git decoration from **809.2 to 523.8 ms**. These are aggregate
+sampled costs, not per-action durations. Both runs verified Git decorations,
+all input clocks and request ID/route/status correlations. No HTTP, network or
+browser errors occurred and both owned servers stopped. Artifacts:
+`/tmp/lab-pin-action-baseline-{browser,server,profile}.json` and
+`/tmp/lab-pin-action-after-{browser,server,profile}.json`, plus corresponding logs.
+
+The final **unprofiled 60-cycle run** retained **121 actions** (one workspace
+open, 60 Pins, 60 Unpins), all under 200 ms:
+
+| Action | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Pin | 105.3 ms | 116.5 ms | 126.8 ms |
+| Unpin | 102.6 ms | 118.9 ms | 123.8 ms |
+
+The initial workspace open took **146.6 ms**. All **2,050 browser API requests**
+passed, maximum **93.2 ms**; all **2,072 server requests** passed, maximum
+**90.9 ms** through the response body. All clocks, metadata persistence checks,
+ordinary-row preservation checks, Git decorations and browser/server
+correlations passed. No HTTP/network/browser errors occurred and the owned
+server stopped. Artifacts: `/tmp/lab-pin-action-final-{browser,server}.json`
+and `.log`.
+
+**181 focused regressions passed**, including 17 new persistence/ownership
+cases, native Pin geometry and actions, large sidebar cache/rendering,
+navigation, Git decorations, file configuration, explorer context, dashboard,
+terminal and latency checks. The new cases cover successful Pin/Unpin with
+and without a cache, cache replacement during a save, workspace switches during
+reads and writes, HTTP/network failures, quoted/Unicode pin names, preserving
+unrelated metadata and avoiding mutation before confirmation. Log:
+`/tmp/lab-pin-action-regressions.log` (90.84 s). JavaScript syntax and whitespace
+checks passed; all four incompatible `--pins` workflow combinations were
+rejected before fixture startup.
+
+The measured Pin/Unpin misses are addressed in this fixture. This does not
+resolve earlier cold-open/typing outliers, unmeasured interactions or the
+matched iTerm comparison. The goal remains active. Work stays in the isolated
+branch; no main merge, push or live-server restart occurred. The earlier main
+merge approval remains pending after automatic approval review rejected it.

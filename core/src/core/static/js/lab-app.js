@@ -8699,8 +8699,10 @@
 
   async function togglePin(filename) {
     if (!currentWorkspace) return;
+    const workspacePath = currentWorkspace.path;
     try {
-      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
+      const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
+      if (!infoRes.ok) return;
       const info = await infoRes.json();
       let pinned = Array.isArray(info.pinned) ? [...info.pinned] : [];
       const idx = pinned.indexOf(filename);
@@ -8710,12 +8712,17 @@
         pinned.push(filename);
       }
       info.pinned = pinned;
-      await fetch(`/api/workspace-info`, {
+      const saved = await fetch(`/api/workspace-info`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: currentWorkspace.path, data: info }),
+        body: JSON.stringify({ path: workspacePath, data: info }),
       });
-      showWorkspaceInfo();
+      if (!saved.ok) return;
+      // The write is confirmed. Warm paint can use the new pins immediately;
+      // the usual refresh still reads fresh files and workspace metadata.
+      const cached = _workspaceSidebarCache.get(workspacePath);
+      if (cached) _workspaceSidebarCache.set(workspacePath, {...cached, pinned});
+      if (currentWorkspace?.path === workspacePath) showWorkspaceInfo();
     } catch(e) {}
   }
 

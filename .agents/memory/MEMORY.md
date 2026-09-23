@@ -1,5 +1,7 @@
 # Memory index
 
+- [Pin writes publish confirmed cache state](pin-writes-publish-confirmed-cache-state.md) — show saved Pin/Unpin state on warm paint, retain fresh reconciliation, and keep delayed writes in their original workspace
+
 - [Sidebar Pin controls keep their own name](sidebar-pin-controls-keep-name-separate.md) — delegate clicks without confusing pin names and file paths; preserve native geometry and existing double-click behavior
 
 - [Terminal probes verify text after scrolling](terminal-echo-probe-verifies-scrolled-text.md) — exact varied input, independent parse/render continuity, and explicit coverage beyond the ready marker
