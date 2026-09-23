@@ -277,7 +277,7 @@ async function main() {
     result.timestampErrors=result.events.flatMap((e,i)=>Math.abs(e.sourceEpoch-sent[i]?.epoch)>2?[{index:i,sourceEpoch:e.sourceEpoch,sentEpoch:sent[i]?.epoch}]:[]);
     const deadline=Date.now()+5000;
     while(pendingRequests.size){if(Date.now()>deadline)throw new Error('API requests still pending: '+[...pendingRequests.values()].join(', '));await sleep(10);}
-    result.requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,ms:r.duration,status:r.responseStatus}))`);
+    result.requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus}))`);
     result.requestMisses=result.requests.filter(r=>r.ms>=200);
     result.requestErrors=result.requests.filter(r=>r.status>=400);
     result.misses=result.rows.filter(r=>r.total>=50);

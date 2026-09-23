@@ -1,5 +1,7 @@
 # Memory index
 
+- [Separate browser and server latency](latency-probes-separate-server-and-browser-time.md) — optional isolated ASGI/handler/function timings correlate route, workspace scope, and start time without logging headers or bodies
+
 - [Codex launch options](codex-launch-explicit-autopilot-options.md) — use explicit workspace sandbox and on-request approvals; removed `--full-auto` made terminal tabs exit immediately
 
 - [External links use the default browser](external-links-use-default-browser.md) — local links leave the Lab PWA through the OS browser; shared handling across document views and terminal hyperlinks.

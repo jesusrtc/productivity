@@ -30,6 +30,8 @@ parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default=
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
+parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
+parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
@@ -37,6 +39,8 @@ if args.typing and args.samples < 20:
     parser.error('--typing requires at least 20 samples per phase')
 if args.typing_updates and not args.typing:
     parser.error('--typing-updates requires --typing')
+if args.trace_sessions and not args.server_timings:
+    parser.error('--trace-sessions requires --server-timings')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
 extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
@@ -102,7 +106,19 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         async def baseline_source(request):
             return Response(source, media_type='application/javascript')
         app.router.routes.insert(0, Route('/static/js/lab-app.js', baseline_source))
-    server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_level='warning'))
+    timings = None
+    if args.server_timings:
+        from server_timings import ServerTimings
+        timings = ServerTimings(app)
+        timings.instrument_sessions()
+        if args.trace_sessions:
+            from core.routes import term
+            for name in ('_tmux_list', '_load_meta', '_known_vaults', '_sync_meta',
+                         '_get_workspace_sessions', '_enrich_session_details',
+                         '_workspace_session_by_name', '_home_session_rows',
+                         '_sessions_for_root'):
+                timings.trace_function(term, name)
+    server = uvicorn.Server(uvicorn.Config(timings or app, access_log=False, log_level='warning'))
     def run_server():
         # Lifespan prints fixture URLs; leave stdout as machine-readable results.
         with contextlib.redirect_stdout(sys.stderr):
@@ -149,6 +165,10 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         server.should_exit = True
         thread.join(15)
         sock.close()
+        if timings:
+            args.server_timings.parent.mkdir(parents=True, exist_ok=True)
+            report = {**timings.report(), 'serverStopped': not thread.is_alive()}
+            args.server_timings.write_text(json.dumps(report, indent=2) + '\n')
     if thread.is_alive():
         raise RuntimeError('Fixture server did not stop')
     raise SystemExit(result.returncode)

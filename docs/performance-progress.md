@@ -734,3 +734,66 @@ the cause of this background request outlier has not been established. Results
 are `/tmp/lab-navigation-incremental-cold-{1,2,3}.json`. This checkpoint leaves
 both the typing misses and backend/request outliers open; no main merge or
 live-server restart is included.
+
+## Follow-on: distinguish request latency from server execution
+
+The isolated navigation/typing fixture now accepts `--server-timings <json>` and
+optional `--trace-sessions`. A pass-through ASGI wrapper measures response headers,
+final body, and app return. Terminal-listing handler timings exclude dependency
+resolution and worker-pool scheduling; optional coarse function timings cover
+tmux discovery, runtime/saved metadata, vault discovery, and enrichment, including
+work on fsguard threads. Browser request records now include absolute start times
+and workspace scope to correlate requests. No response changes, extra warm-up
+requests, user-server restart, or production instrumentation are involved.
+
+ASGI timing starts at app entry, so it cannot identify socket acceptance or
+event-loop queueing before that entry. Function durations include nested work and
+must not be added together. Sidecars are written during fixture cleanup even if
+the browser fails; `serverStopped` identifies incomplete shutdown. Exceptions and
+responses still propagate unchanged.
+
+An initial cProfile experiment captured unrelated server/event-loop/filesystem
+thread work in its per-handler profiles on the installed Python 3.14.3. Those
+profiles were not used to attribute costs. That mode was removed in favor of
+direct wall timings. Its workspace click reached 202.60 ms; this diagnostic
+failure is retained at `/tmp/lab-sessions-diagnostic-1-browser.json`. A subsequent
+run without cProfile reached 198.90 ms, with terminal ASGI responses at 17–41 ms
+(`/tmp/lab-sessions-timed-1-{browser,server}.json`).
+
+Eight further fresh-browser runs with 5,000 mixed files per workspace, real
+lifespan/polling, and direct function tracing produced:
+
+| Run | Workspace maximum | Browser API maximum | Terminal ASGI maximum | Terminal handler maximum |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 215.60 ms | 55.20 ms | 23.29 ms | 15.81 ms |
+| 2 | 178.50 ms | 38.70 ms | 16.04 ms | 12.92 ms |
+| 3 | 184.30 ms | 41.00 ms | 16.05 ms | 12.07 ms |
+| 4 | 183.20 ms | 47.00 ms | 20.81 ms | 15.71 ms |
+| 5 | 169.10 ms | 36.90 ms | 16.79 ms | 12.23 ms |
+| 6 | 179.40 ms | 39.70 ms | 21.91 ms | 16.24 ms |
+| 7 | 179.40 ms | 38.70 ms | 19.49 ms | 14.34 ms |
+| 8 | 170.60 ms | 38.70 ms | 21.66 ms | 15.66 ms |
+
+The first run fails the UI budget. All 421 browser API requests passed, and all
+server API samples were below 49.66 ms. No HTTP, network, or browser errors were
+reported. Artifacts: `/tmp/lab-sessions-traced-{1..8}-{browser,server}.json`.
+The previous **567.20 ms** terminal request was not reproduced. Its cause remains
+unknown; these passing terminal samples do not erase it or justify a speculative
+production cache/timeout change.
+
+A 200-key live echo-terminal run with five changing-file updates retained every
+key, verified final mtimes/order, and recorded no input, HTTP, network, or browser
+errors. All 97 browser API requests were below **57.90 ms**; server API maximum
+54.75 ms, terminal handler 21.18 ms (tmux listing 10.07 ms, enrichment 8.02 ms).
+Typing still failed: normal median 3.80 / p95 29.80 / max **104.70 ms**, with three
+keys at/above 50 ms; changing-file median 10.30 / p95 48.20 / max **74.30 ms**,
+with five misses. Startup input queueing reached 103.20 ms and refresh tasks
+reached 59–66 ms. Artifacts: `/tmp/lab-sessions-typing-{browser,server}.json`.
+The owned terminal was removed; no user terminal was changed.
+
+Validation: **five diagnostic tests passed** for streaming response fidelity,
+non-HTTP pass-through, failure recording, nested FastAPI router instrumentation,
+and preserving traced function results/exceptions without logging arguments.
+Both modified browser probes pass Node syntax checking; `git diff --check` passes.
+This is a measurement checkpoint, with the UI/typing misses and intermittent
+request outlier still open. Production code remains at the previous checkpoint.
