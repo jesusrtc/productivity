@@ -1,5 +1,7 @@
 # Memory index
 
+- [Capped search keeps complete process output](capped-search-keeps-complete-process-output.md) — parse only consumed lines while preserving pipe EOF, strict decoding and timeout behavior; file-backed capture lost descendant output.
+
 - [Apple Git resolution keeps its launcher environment](apple-git-resolution-retains-launcher-environment.md) — resolve once per catalog request, preserve SDK/toolchain environment and custom Git selection, retain concurrent HTTP failures
 
 - [Repository summaries share bounded Git workers](repository-summaries-share-bounded-git-workers.md) — overlap independent fresh reads, retain order and fallbacks, and share the eight-worker bound across requests

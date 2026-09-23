@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure complete repository-list HTTP responses in a disposable vault.
+"""Measure complete repository-list or code-search HTTP responses in a disposable vault.
 
 Retain the first request and every subsequent sample. Use the normal server
 lifespan, authentication and watcher. Twenty repos include an empty repository
@@ -7,6 +7,7 @@ and detached HEAD; hidden/non-repo entries must stay excluded. Each response
 checks all stable metadata and ordering, then a final mutation verifies fresh
 branch/commit data. This is endpoint timing, not browser or display latency.
 Use --clients 2 for independent HTTP clients released together each round.
+Use --repos 1 --search-files 5000 for capped code search over many matching files.
 """
 import argparse
 import contextlib
@@ -33,15 +34,34 @@ def verify_rows(actual, expected):
     return len(actual)
 
 
+def verify_matches(actual, files):
+    rows = actual['results']
+    count = min(100, files * 20)
+    assert set(actual) == {'mode', 'results', 'truncated'}
+    assert actual['mode'] == 'code' and actual['truncated'] == (count == 100)
+    assert len(rows) == count and len({(row['path'], row['line']) for row in rows}) == count
+    for row in rows:
+        assert set(row) == {'path', 'line', 'snippet'}
+        assert row['path'].startswith('src/file-') and row['path'].endswith('.txt'), row
+        number = int(row['path'].removeprefix('src/file-').removesuffix('.txt'))
+        assert 0 <= number < files and 1 <= row['line'] <= 20, row
+        assert row['snippet'] == 'LAB_MATCH ' + 'x' * 240, row
+    return len(rows)
+
+
 CHECKOUT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=Path, required=True, help='Prefix for HTTP/server JSON reports')
 parser.add_argument('--repos', type=int, default=20)
 parser.add_argument('--samples', type=int, default=20)
 parser.add_argument('--clients', type=int, default=1, help='Concurrent clients per round')
+parser.add_argument('--search-files', type=int, default=0,
+                    help='Code-search workload: this many files with 20 matching lines each (requires --repos 1)')
 args = parser.parse_args()
 if args.repos < 1 or args.samples < 1 or not 1 <= args.clients <= 8:
     parser.error('Use positive repositories/samples and between one and eight clients')
+if args.search_files < 0 or (args.search_files and args.repos != 1):
+    parser.error('--search-files requires a nonnegative count and --repos 1')
 PREFIX = args.output
 PREFIX.parent.mkdir(parents=True, exist_ok=True)
 if any(Path(str(PREFIX) + suffix).exists() for suffix in ('-http.json', '-server.json')):
@@ -55,6 +75,8 @@ result = {
     'clients': args.clients, 'rounds': args.samples,
     'budgetMs': 200, 'serverStopped': False,
 }
+route = '/api/code-search/repos/Alpha-00/search' if args.search_files else '/api/code-search/repos'
+query = {'mode': 'code', 'q': 'LAB_MATCH', 'limit': 100} if args.search_files else None
 with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
     base = Path(folder).resolve()
     root = base / 'vault'
@@ -107,6 +129,16 @@ with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
     (repos / '.hidden').mkdir()
     git(repos / '.hidden', 'init', '--quiet')
     expected.sort(key=lambda row: row['name'].lower())
+    if args.search_files:
+        search_repo = repos / 'Alpha-00'
+        (search_repo / 'src').mkdir()
+        for number in range(args.search_files):
+            (search_repo / 'src' / f'file-{number:05}.txt').write_text(
+                ('LAB_MATCH ' + 'x' * 240 + '\n') * 20)
+        git(search_repo, 'add', '--all')
+        git(search_repo, 'commit', '--quiet', '-m', 'Search workload')
+        result['searchFixture'] = {'files': args.search_files, 'linesPerFile': 20,
+                                   'limit': 100, 'query': 'LAB_MATCH'}
     import httpx
     import uvicorn
     from core import auth
@@ -119,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
     os.environ['LAB_PORT'] = str(sock.getsockname()[1])
     app = create_app()
     timings = ServerTimings(app, correlate_requests=True)
-    timings.instrument_handler('/api/code-search/repos')
+    timings.instrument_handler('/api/code-search/repos/{repo}/search' if args.search_files else route)
     server = uvicorn.Server(uvicorn.Config(
         timings, access_log=False, log_level='warning', timeout_graceful_shutdown=5,
         ws_per_message_deflate=False,
@@ -149,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
                 started_epoch = time.time() * 1000
                 started = time.perf_counter()
                 try:
-                    response = clients[client_index].get('/api/code-search/repos')
+                    response = clients[client_index].get(route, params=query)
                 except Exception as exc:
                     return {
                         'sample': sample + 1, 'client': client_index + 1,
@@ -183,24 +215,37 @@ with tempfile.TemporaryDirectory(prefix='lab-code-search-list-') as folder:
                     if response is None:
                         raise RuntimeError(measurement['error'])
                     response.raise_for_status()
-                    measurement['rowsVerified'] = verify_rows(response.json(), expected)
+                    measurement['rowsVerified'] = (verify_matches(response.json(), args.search_files)
+                        if args.search_files else verify_rows(response.json(), expected))
                 time.sleep(0.025)
-            # Keep all rows fresh: mutate one repo and check every returned row.
+            # Mutate only the owned repository and verify the next fresh read.
             changed = repos / expected[0]['name']
-            git(changed, 'checkout', '--quiet', '-b', 'fresh-fixture')
-            git(changed, 'commit', '--quiet', '--allow-empty', '-m', 'Fresh fixture result')
-            expected[0]['branch'] = 'fresh-fixture'
-            expected[0]['last'].update({
-                'sha': git(changed, 'rev-parse', '--short', 'HEAD'),
-                'when_iso': git(changed, 'log', '-1', '--format=%aI'),
-                'subj': 'Fresh fixture result',
-            })
+            if args.search_files:
+                (changed / 'fresh.txt').write_text('FRESH_MARKER café\n')
+                git(changed, 'add', '--all')
+                git(changed, 'commit', '--quiet', '-m', 'Fresh search result')
+                query = {'mode': 'code', 'q': 'FRESH_MARKER', 'limit': 100}
+            else:
+                git(changed, 'checkout', '--quiet', '-b', 'fresh-fixture')
+                git(changed, 'commit', '--quiet', '--allow-empty', '-m', 'Fresh fixture result')
+                expected[0]['branch'] = 'fresh-fixture'
+                expected[0]['last'].update({
+                    'sha': git(changed, 'rev-parse', '--short', 'HEAD'),
+                    'when_iso': git(changed, 'log', '-1', '--format=%aI'),
+                    'subj': 'Fresh fixture result',
+                })
             started = time.perf_counter()
-            response = clients[0].get('/api/code-search/repos')
+            response = clients[0].get(route, params=query)
             ms = (time.perf_counter() - started) * 1000
             result['freshRead'] = {'ms': ms, 'status': response.status_code}
             response.raise_for_status()
-            result['freshRead']['rowsVerified'] = verify_rows(response.json(), expected)
+            if args.search_files:
+                assert response.json() == {'mode': 'code', 'truncated': False, 'results': [
+                    {'path': 'fresh.txt', 'line': 1, 'snippet': 'FRESH_MARKER café'},
+                ]}, response.json()
+                result['freshRead']['rowsVerified'] = 1
+            else:
+                result['freshRead']['rowsVerified'] = verify_rows(response.json(), expected)
             result['freshRead']['verified'] = True
     except Exception as exc:
         result['error'] = repr(exc)

@@ -5601,3 +5601,105 @@ output-typing tails, broader UI/API coverage and physical/iTerm parity still
 need work. No terminal behavior, notebook execution semantics or API completion
 semantics changed. Main merge remains pending after the earlier automatic
 approval rejection; no merge, push or live user-server restart was attempted.
+
+## Parse capped code-search results without splitting unused output
+
+The 5,000-file code-search workload returns 100 results from 100,000 matching
+lines (27,455,000 captured characters). The old parser split the entire output
+before applying the response limit. The retained change lazily visits nonempty
+lines and stops parsing at the existing limit. It preserves all of Python's
+[`str.splitlines()` boundaries](https://docs.python.org/3/library/stdtypes.html#str.splitlines),
+result order, malformed/binary-line handling, path normalization, integer
+conversion, Unicode snippets, the 300-character snippet cap and exact-limit
+truncation. Both ripgrep and Git fallback parsing use the same path.
+
+Command invocation, output capture, full decoding, completion, timeouts and
+ripgrep's thread policy are unchanged. No search result or negative result is
+cached. The Code Search UI entry remains a placeholder; these measurements
+cover the implemented backend route, not a browser search interaction.
+
+### Full HTTP comparison
+
+The reusable `scripts/perf/lab_code_search_latency.py` now accepts
+`--repos 1 --search-files 5000`. It creates a disposable CLI-managed vault and
+real Git repository, runs the normal authenticated server with polling, and
+retains every first/subsequent response. Each response must contain exactly
+100 unique valid file/line pairs and the exact expected snippets. A newly
+committed Unicode result must appear immediately in the final fresh query.
+The existing catalog workload remains the default; neither its verification
+nor its concurrent-client barriers were relaxed.
+
+Each run below contains 20 timed HTTP requests plus the fresh query. Original
+controls use `873e785`; only `code_search.py` was restored for the later control.
+The candidate repeat uses the restored final production source.
+
+| Run | First / maximum | Median | Requests at or above 200 ms | Fresh query |
+| --- | ---: | ---: | ---: | ---: |
+| Original before | 284.30 / 284.30 ms | 233.81 ms | 19 / 20 | 120.91 ms |
+| Initial lazy parser | 222.42 / 222.59 ms | 218.24 ms | 18 / 20 | 124.78 ms |
+| Retained parser | 265.51 / 265.51 ms | 221.10 ms | 19 / 20 | 122.10 ms |
+| Restored original control | 275.49 / 275.49 ms | 234.48 ms | 20 / 20 | 119.72 ms |
+| Retained parser repeat | 255.52 / 255.52 ms | 218.11 ms | 17 / 20 | 119.05 ms |
+
+All 100 timed responses and five fresh queries passed content verification;
+all servers stopped and fixture roots were removed. The median improvement is
+about 13–16 ms. **The large-search endpoint still misses 200 ms.** First requests
+and misses remain in the reports; command execution/capture dominates the
+remaining time.
+
+A separate parsing-only diagnostic alternated original/candidate order for
+40 pairs using identical complete captured output, with exact response equality.
+Original median/max parsing was **14.887/15.864 ms**; candidate **0.138/0.174 ms**.
+Separate, untimed tracemalloc checks measured peak allocations of
+**32,310,831 versus 42,207 bytes** beyond the existing captured string. These
+component figures exclude subprocess execution, decoding, transport and UI.
+
+### Rejected output-capture change
+
+Redirecting stdout to a private temporary file reduced parent-side pipe work.
+Two full candidate runs had medians 146.35 and 150.78 ms, but retained cold
+misses of 254.85 and 236.56 ms. This implementation was **removed** after a native
+completion regression: a wrapper forks a descendant, the descendant closes
+stderr, and the wrapper exits before the descendant writes stdout. File-backed
+capture returned only the first row; the original pipe waits for stdout EOF
+and returns both rows. Waiting for the parent and stderr is insufficient.
+The failing case is now a passing regression against the retained capture path.
+
+Earlier component diagnostics recorded default-pipe subprocess median/parent
+thread CPU of 215.34/58.81 ms versus file-backed 137.34/15.96 ms. A one-thread
+ripgrep diagnostic had HTTP median 173.26 ms and a 217.28 ms maximum; this was
+not retained, since it changes tool scheduling and has no established benefit
+for sparse-search workloads. Neither diagnostic is a claim that the target
+has been achieved. The full captured output and every latency failure remain
+available in their raw artifacts.
+
+### Verification and remaining scope
+
+**159 focused checks passed**, covering both search backends, all 11 line-boundary
+forms, result limits, invalid lines, ignored nonzero tool returns, strict decoding
+past the result cap, original command arguments, delayed descendant output and
+native timeout child cleanup. Existing repository/Git-invocation/search-route
+checks passed in the same run. Python compilation, CLI argument checks and
+`git diff --check` passed. The older broad-suite baseline failures remain separate.
+
+The benchmark's unchanged default catalog passed 40 concurrent HTTP responses
+(two clients, 20 rounds), maximum **197.71 ms**, plus the fresh metadata query
+at 86.30 ms. A four-file smoke check verified the uncapped 80-result branch and
+new Unicode result, maximum 50.60 ms and fresh query 13.26 ms. Both fixtures were
+removed and servers stopped. This small check validates fixture branching; it
+does not replace the large workload.
+
+Artifacts: `/tmp/lab-code-search-{matches-before,matches-lazy,lazy-retained,lazy-control,lazy-repeat}-{http,server}.json`
+and logs; `/tmp/lab-code-search-matches-summary.json`;
+`/tmp/lab-code-search-parser-comparison.{py,json}`;
+`/tmp/lab-code-search-{process-default,process-one,process-file,matches-capture,matches-repeat}-{http,server}.json`;
+`/tmp/lab-code-search-file-capture-rejected.patch` and `-tests.py`;
+`/tmp/lab-code-search-capture-descendant-tests.log`;
+`/tmp/lab-code-search-lazy-final-tests.log`;
+`/tmp/lab-code-search-{catalog-regression,small-fixture-check}-{http,server}.json`.
+
+The overall goal remains open, including large code searches, retained cold
+navigation/terminal-creation misses, terminal output typing tails, broader
+UI/API coverage and physical/iTerm parity. Main merge remains pending after
+the earlier automatic approval rejection; no merge, push or live user-server
+restart was attempted.

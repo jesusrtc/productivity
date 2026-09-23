@@ -49,6 +49,9 @@ def _repos_root(request: Request) -> Path:
 
 _REPO_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
+# Match the nonempty pieces from str.splitlines() lazily. A capped code search
+# only consumes its first result lines, even when rg returned megabytes more.
+_SEARCH_LINE_RE = re.compile(r"[^\n\r\v\f\x1c-\x1e\x85\u2028\u2029]+")
 
 # Share the bound across requests: a catalog should not spawn one Git process
 # per repository (or create a separate pool for every connected browser).
@@ -333,7 +336,8 @@ def _search_code(repo_dir: Path, q: str, limit: int) -> dict:
 
     results: list[dict] = []
     truncated = False
-    for line in proc.stdout.splitlines():
+    for match in _SEARCH_LINE_RE.finditer(proc.stdout):
+        line = match.group()
         if not line or line.startswith("Binary file"):
             continue
         # Lines come as `path:line:snippet` (or `./path:line:snippet`
