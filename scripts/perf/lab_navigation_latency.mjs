@@ -241,7 +241,7 @@ async function main() {
       actions.push(...await terminalCreationActions(evaluate,workspaceRoot,samples,terminalCreation));
     } else if(assistant) {
       if(process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY)await installAssistantRefreshStress(evaluate,workspaceRoot,Number(process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY));
-      actions.push(...await assistantActions(evaluate,workspaceRoot,samples,assistant,{details:process.env.LAB_PERF_ASSISTANT_DETAILS==='1',terminal:JSON.parse(process.env.LAB_PERF_ASSISTANT_TERMINAL||'null')}));
+      actions.push(...await assistantActions(evaluate,workspaceRoot,samples,assistant,{details:process.env.LAB_PERF_ASSISTANT_DETAILS==='1',terminal:JSON.parse(process.env.LAB_PERF_ASSISTANT_TERMINAL||'null'),diagnostics:process.env.LAB_PERF_ASSISTANT_TERMINAL_TRACE==='1'}));
     } else if(notebookView) {
       actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples,{typing:process.env.LAB_PERF_NOTEBOOK_TYPING==='1'}));
     } else if(documentEdit) {

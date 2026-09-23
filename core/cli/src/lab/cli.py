@@ -1,57 +1,56 @@
 from __future__ import annotations
 
+from importlib import import_module
+
 import click
 
-from lab.commands.agents import agents_group
-from lab.commands.assistant import assistant_group
-from lab.commands.app import app_group
-from lab.commands.artifact import artifact_group
-from lab.commands.config import config_group
-from lab.commands.context import context_cmd
-from lab.commands.migrations import migrations_cmd
-from lab.commands.index import index_group
-from lab.commands.link import link_group
-from lab.commands.notebook import notebook_group
-from lab.commands.ref import ref_group
-from lab.commands.repo import repo_group
-from lab.commands.pr import pr_group
-from lab.commands.workspace import workspace_group
-from lab.commands.search import search_cmd
-from lab.commands.service import open_cmd, start, stop
-from lab.commands.task import task_group
-from lab.commands.terminal import terminal_group
-from lab.commands.vault import init_cmd, vault_group
+# Agent launches run in a fresh process. Loading unrelated notebook, Assistant
+# and other commands adds startup work before the agent can produce output.
+# Help and completion still resolve the same command objects through Click.
+_COMMANDS = {
+    'workspace': ('workspace', 'workspace_group'),
+    'assistant': ('assistant', 'assistant_group'),
+    'config': ('config', 'config_group'),
+    'agents': ('agents', 'agents_group'),
+    'agent': ('agents', 'agents_group'),
+    'migrations': ('migrations', 'migrations_cmd'),
+    'context': ('context', 'context_cmd'),
+    'app': ('app', 'app_group'),
+    'task': ('task', 'task_group'),
+    'terminal': ('terminal', 'terminal_group'),
+    'pr': ('pr', 'pr_group'),
+    'artifact': ('artifact', 'artifact_group'),
+    'link': ('link', 'link_group'),
+    'notebook': ('notebook', 'notebook_group'),
+    'ref': ('ref', 'ref_group'),
+    'index': ('index', 'index_group'),
+    'repo': ('repo', 'repo_group'),
+    'search': ('search', 'search_cmd'),
+    'init': ('vault', 'init_cmd'),
+    'vault': ('vault', 'vault_group'),
+    'start': ('service', 'start'),
+    'stop': ('service', 'stop'),
+    'open': ('service', 'open_cmd'),
+}
 
 
-@click.group()
+class _LazyGroup(click.Group):
+    def list_commands(self, ctx):
+        return sorted(set(_COMMANDS) | set(super().list_commands(ctx)))
+
+    def get_command(self, ctx, cmd_name):
+        command = super().get_command(ctx, cmd_name)
+        if command is None and cmd_name in _COMMANDS:
+            module, attribute = _COMMANDS[cmd_name]
+            command = getattr(import_module('lab.commands.' + module), attribute)
+            self.add_command(command, name=cmd_name)
+        return command
+
+
+@click.group(cls=_LazyGroup)
 @click.version_option(package_name="lab")
 def main() -> None:
     """CLI for Lab vaults and the local Lab server."""
-
-
-main.add_command(workspace_group)
-main.add_command(assistant_group)
-main.add_command(config_group)
-main.add_command(agents_group)
-main.add_command(agents_group, name="agent")
-main.add_command(migrations_cmd)
-main.add_command(context_cmd)
-main.add_command(app_group)
-main.add_command(task_group)
-main.add_command(terminal_group)
-main.add_command(pr_group)
-main.add_command(artifact_group)
-main.add_command(link_group)
-main.add_command(notebook_group)
-main.add_command(ref_group)
-main.add_command(index_group)
-main.add_command(repo_group)
-main.add_command(search_cmd)
-main.add_command(init_cmd)
-main.add_command(vault_group)
-main.add_command(start)
-main.add_command(stop)
-main.add_command(open_cmd)
 
 
 if __name__ == "__main__":

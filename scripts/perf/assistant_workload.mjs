@@ -104,7 +104,7 @@ export function assistantDetailReady(expected,view) {
     && document.getElementById('assistantEditNote')?.hidden===false;
 }
 
-export function installAssistantTerminal(marker) {
+export function installAssistantTerminal(marker,{diagnostics=false}={}) {
   if(typeof window._termGuardViewportDisposal!=='function')throw Error('Missing native terminal lifecycle hook');
   const original=window._termGuardViewportDisposal,records=[];
   let latest;
@@ -116,10 +116,22 @@ export function installAssistantTerminal(marker) {
   };
   window._termGuardViewportDisposal=function(xt,...args){
     const result=original.call(this,xt,...args),record={renders:0,rendered:false};
+    const stage=(phase,range)=>{
+      if(!diagnostics || !xt.element?.closest('#assistantDocumentTerminal .assistant-terminal-screen'))return;
+      if(record.stages.length>=1000){record.dropped++;return;}
+      const b=xt.buffer.active,row=b.baseY+b.cursorY-b.viewportY;
+      record.stages.push({phase,at:performance.now(),marker:text(xt).endsWith(marker),
+        ...(phase==='render'?{cursorRendered:range.start<=row && range.end>=row}:{})});
+    };
+    if(diagnostics){
+      Object.assign(record,{createdAt:performance.now(),stages:[],dropped:0});
+      xt.onWriteParsed(()=>stage('parse'));
+    }
     xt.onRender(range=>{
       if(!xt.element?.closest('#assistantDocumentTerminal .assistant-terminal-screen'))return;
       if(!record.renders){records.push(record);latest=new WeakRef(xt);}
       record.renders++;
+      stage('render',range);
       const b=xt.buffer.active,row=b.baseY+b.cursorY-b.viewportY;
       if(range.start<=row && range.end>=row && text(xt).endsWith(marker)){
         record.rendered=true;record.renderAt=performance.now();
@@ -137,7 +149,7 @@ export function installAssistantTerminal(marker) {
   };
 }
 
-export async function assistantActions(evaluate,workspaceRoot,samples,expected,{details=false,terminal=null}={}) {
+export async function assistantActions(evaluate,workspaceRoot,samples,expected,{details=false,terminal=null,diagnostics=false}={}) {
   if(resolve(workspaceRoot)!==workspaceRoot || !/\/lab-navigation-[^/]+\/vault\/workspaces$/.test(workspaceRoot)
       || expected.root!==join(dirname(dirname(workspaceRoot)),'assistant'))throw Error('Assistant requires the disposable fixture');
   if(!Number.isInteger(samples)||samples<2||expected.documents.length<2)throw Error('Incomplete Assistant fixture');
@@ -156,7 +168,7 @@ export async function assistantActions(evaluate,workspaceRoot,samples,expected,{
   let detail;
   if(details) {
     if(terminal?.agent!=='owned-echo-cli' || terminal.socketMode!=='private' || !/^detail-[a-f0-9]{12}$/.test(terminal.marker))throw Error('Document details require the owned echo terminal');
-    await evaluate(`(${installAssistantTerminal.toString()})(${JSON.stringify(terminal.marker)})`);
+    await evaluate(`(${installAssistantTerminal.toString()})(${JSON.stringify(terminal.marker)},${JSON.stringify({diagnostics})})`);
     // Every seventieth fixture note is starred and owns two subtabs, so it is
     // present near the top of the normal Starred view without changing filters.
     const number=Math.floor((expected.notes.length-1)/70)*70,root=expected.notes[number],digits=String(number).padStart(4,'0');

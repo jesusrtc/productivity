@@ -1,5 +1,7 @@
 # Memory index
 
+- [CLI commands load on demand](cli-commands-load-on-demand.md) — reduce fresh agent-launch imports while preserving full Click help, aliases, completion and launch context; cold UI misses remain.
+
 - [Assistant details share request records](assistant-detail-shares-request-records.md) — one fresh library scan per modern detail request, with fresh source reads, validation, and owned-terminal browser measurements.
 
 - [Assistant fingerprints share root resolution](assistant-fingerprint-shares-root-resolution.md) — retain fresh source/path checks and moved-root fallback while avoiding repeated root walks; native latency tails remain.

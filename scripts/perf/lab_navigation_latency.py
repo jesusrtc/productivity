@@ -62,7 +62,7 @@ parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-assistant', action='store_true', help='Time complete Assistant snapshots, fingerprints, copies and progress maps (requires --assistant and --server-timings; nested phases are not additive)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
-parser.add_argument('--trace-terminal', action='store_true', help='Time owned WebSocket/PTY operations without payloads, plus producer CPU for output typing (requires --typing, --terminal-tabs or --terminal-create, and --server-timings)')
+parser.add_argument('--trace-terminal', action='store_true', help='Time owned WebSocket/PTY operations without payloads, plus producer CPU for output typing (requires --typing, --terminal-tabs, --terminal-create or --assistant-details, and --server-timings)')
 parser.add_argument('--trace-gc', action='store_true', help='Observe server garbage-collection pauses without changing runtime policy (requires --server-timings)')
 parser.add_argument('--trace-watchers', action='store_true', help='Time complete watcher snapshots/diffs, watch refreshes and index rebuilds without changing their policy (requires --server-timings)')
 parser.add_argument('--trace-file-scans', action='store_true', help='Time file handlers, guarded workers and serialization without per-notebook tracing (requires --server-timings)')
@@ -129,8 +129,8 @@ if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
 if args.trace_assistant and (not args.assistant or not args.server_timings):
     parser.error('--trace-assistant requires --assistant and --server-timings')
-if args.trace_terminal and (not (args.typing or args.terminal_tabs or args.terminal_create) or not args.server_timings):
-    parser.error('--trace-terminal requires --typing, --terminal-tabs or --terminal-create, and --server-timings')
+if args.trace_terminal and (not (args.typing or args.terminal_tabs or args.terminal_create or args.assistant_details) or not args.server_timings):
+    parser.error('--trace-terminal requires --typing, --terminal-tabs, --terminal-create or --assistant-details, and --server-timings')
 if args.trace_files and not args.server_timings:
     parser.error('--trace-files requires --server-timings')
 if args.trace_gc and not args.server_timings:
@@ -302,12 +302,17 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         if args.trace_terminal:
             from core.routes import term
             instrumentation.enter_context(timings.trace_terminal_io(term))
-            if args.terminal_tabs or args.terminal_create:
+            if args.terminal_tabs or args.terminal_create or args.assistant_details:
                 timings.trace_function(term, '_tmux_find_session_socket')
                 timings.trace_function(term, '_term_ws_context')
                 timings.trace_function(term, '_tmux_has_session')
                 timings.trace_function(term, '_tmux_available')
                 timings.trace_function(term.tmux_sockets, 'socket_names')
+            if args.assistant_details:
+                from core import document_terminals
+                for name in ('operate', '_identity', '_memory_ready', '_spawn', '_argv', '_save'):
+                    timings.trace_function(document_terminals, name)
+                timings.trace_function(term, '_configure_tmux_wheel_scrolling')
         if args.trace_files or args.trace_file_scans:
             from core import fsguard
             from fastapi import routing
@@ -415,6 +420,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_ASSISTANT_FILE': str(base / 'assistant-expected.json') if assistant_fixture else '',
                      'LAB_PERF_ASSISTANT_DETAILS': str(int(args.assistant_details)),
                      'LAB_PERF_ASSISTANT_TERMINAL': json.dumps(detail_terminal_report),
+                     'LAB_PERF_ASSISTANT_TERMINAL_TRACE': str(int(args.trace_terminal)),
                      'LAB_PERF_ASSISTANT_REFRESH_DELAY': str(args.assistant_refresh_delay or ''),
                      'LAB_PERF_NOTEBOOK_VIEW': str(int(args.notebook_view)),
                      'LAB_PERF_NOTEBOOK_TYPING': str(int(args.notebook_typing)),

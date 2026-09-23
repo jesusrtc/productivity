@@ -6857,3 +6857,131 @@ those hashes still match after testing. Changed Python files parse and
 `git diff --check` passes. `/tmp/lab-assistant-detail-cleanup.json` confirms no
 matching owned processes and no server on the one remaining test socket path.
 The earlier `63bbf16` checkpoint remains clean in its separate worktree.
+
+## Checkpoint: load CLI commands on demand before agent launch
+
+This follow-up starts from `c30075c` and changes only the CLI root command
+registration in production. Fresh `lab agents run` processes previously
+imported every root command, including unrelated Assistant and notebook/HTTP
+support. The new Click group lists the same complete command catalog and lazily
+imports/caches the selected actual command. Command modules, argument parsing,
+Lab guide injection, exact conversation IDs and child environments are unchanged.
+`agent` and `agents` still return the same command object. Help and completion
+resolve all commands they need to describe, preserving their existing output.
+
+### Identify the remaining startup interval
+
+The optional `--trace-terminal` mode now supports `--assistant-details`. It
+observes the ordinary document admission/spawn functions and existing WebSocket/
+PTY hooks, without collecting payloads. The owned echo fixture reads the existing
+PID/cwd/context record's mtime during cleanup; no new filesystem operation is
+added to the measured launch. This is a pre-output milestone, not pure CPU time
+or the exact beginning of the process. Optional browser parse/render diagnostics
+are capped at 1,000 stages per terminal with explicit overflow counts. The final
+version distinguishes matching buffer text from rendering the cursor row.
+Normal runs add no parser listener or diagnostic stage timeline.
+
+In the full original diagnostic, the first detail HTTP request took 36.3 ms.
+Document admission began 50.17 ms after the native click, including 35.33 ms
+identity resolution, 4.69 ms memory admission and 27.86 ms spawning. WebSocket
+acceptance was at 147.74 ms; initial tmux control/redraw bytes arrived around
+168 ms. The echo process's pre-output record appeared at **362.02 ms**, with
+matching output parsed at **362.9 ms**. Complete opening took **403.4 ms**.
+Most of the remaining first-open time therefore precedes the agent marker;
+neither the document response nor rendering alone explains the full delay.
+Nested function intervals must not be summed.
+
+The initial diagnostic attempt failed before starting its server because a
+GET-only handler helper was applied to the POST document-terminal endpoint.
+The corrected diagnostic uses the whole `operate` function plus ASGI timing.
+The failed log remains `/tmp/lab-assistant-startup-trace-before.log`. The small
+corrected smoke verified all 20 actions but retained a 436.7 ms first-open miss.
+The final diagnostic smoke additionally verified cursor-row render fields, had
+zero dropped stages and retained its **370.1 ms** first-open miss. Neither smoke
+replaces the full workload or proves the cold-start target.
+
+### Launcher work and full browser measurements
+
+Before editing, the complete original help/error behavior was saved for
+comparison. All **146** cases matched after the change. Permanent regressions
+also compare version output, aliases and shell completion against the prior
+eager Click registration. Fresh subprocess tests run both agent aliases through
+the normal launcher, verifying the exact argv, pinned vault, document context
+and Assistant environment while only the agents/context command modules load.
+
+Twenty fresh interpreter invocations of `lab agents run --help` retained all
+first-use samples and completed successfully in each version:
+
+| Standalone CLI completion | Original | Candidate |
+| --- | ---: | ---: |
+| First | 58.94 ms | 38.71 ms |
+| Median | 58.93 ms | 36.09 ms |
+| Maximum | 61.63 ms | 39.67 ms |
+
+These isolate command loading and help dispatch, not complete agent startup or
+browser latency. The separate `-X importtime` diagnostic confirms the original
+unrelated imports; its instrumented durations are not used as normal timings.
+
+Every full native run still uses 500 notes, 100 subtabs, 5,000 mixed files per
+workspace, 2,500 Git changes, all 200 actions, normal polling and the private
+owned echo terminals. No cold sample, other sidebar terminal, validation or
+readiness requirement was removed.
+
+| Full native run | Actions below 200 ms | First document open | Document-open p50 | Document process record after click |
+| --- | ---: | ---: | ---: | ---: |
+| Original, traced | 199/200 | 403.4 ms | 150.5 ms | 362.02 ms |
+| Candidate, traced | 197/200 | **681.1 ms** | 147.8 ms | 596.03 ms |
+| Original, untraced control | 196/200 | 404.0 ms | 150.7 ms | 356.56 ms |
+| Candidate, untraced | 197/200 | 383.4 ms | 149.5 ms | 341.95 ms |
+
+The traced candidate was slower, including Assistant entries of **321.0** and
+200.7 ms. It does not establish a native startup improvement. The untraced
+candidate had three retained misses: Assistant entry **348.8 ms**, document open
+**383.4 ms** and workspace return **214.9 ms**. Its Assistant request also missed
+the backend budget: **237.00 ms browser / 234.97 ms ASGI**. The matching original
+control retained document opens **404.0**, 205.7 and 200.6 ms and a 203.8 ms
+subtab selection. The control ran after the candidate with the exact old CLI
+restored temporarily, then the tested candidate was restored and byte-verified.
+The modest untraced first-open difference does not erase the worse diagnostic
+or establish consistent sub-200 ms UI behavior.
+
+The traced original/candidate had 590/585 browser requests and 625/620 ASGI
+requests, all below 200 ms, with browser maxima 126.60/162.90 ms and ASGI maxima
+124.39/161.19 ms. The untraced original had 589 browser and 624 ASGI requests,
+all below 200 ms, with maxima 165.40 and 164.16 ms. The untraced candidate had
+585 browser and 620 ASGI requests, including the one Assistant miss above.
+No run had a failed request, HTTP error response or browser error.
+
+All four runs verified 200 valid clocks, 20 complete 500-file checks, all 2,500
+changed Git paths, 5,000 modified rows and 5,000 clean rows, and 20 document
+terminal render instances. Both full diagnostics recorded zero dropped browser
+stages. All servers and private terminal fixtures stopped and cleaned up. The
+workload remains an owned echo CLI, not real provider startup or physical
+keyboard/display/iTerm parity.
+
+Artifacts: `/tmp/lab-assistant-startup-{trace,native}-{control,after}-{browser,server}.json`,
+their logs, `/tmp/lab-assistant-startup-trace-{smoke,final-smoke}-{browser,server}.json`,
+`/tmp/lab-agent-cli-{before,after}-latency.json`, the original help/error snapshot
+and import diagnostic, and `/tmp/lab-assistant-startup-summary.json` containing
+verified comparisons and original/candidate production hashes.
+
+### Stability and checkpoint limits
+
+The complete CLI suite passed **277** tests. The targeted command-backed route,
+document-terminal lifecycle, real owned agent process, browser and diagnostic
+suite passed **81**: **358 relevant passes, zero failures**. The final three
+CLI regressions were rerun after adding explicit version comparison; they overlap
+the CLI total and are not added again. The pre-existing custom-attributes browser
+failure documented at earlier checkpoints is outside this targeted selection;
+this does not claim a globally green suite.
+
+Reports are `/tmp/lab-agent-cli-all.log`, `/tmp/lab-agent-cli-final-regression.log`,
+`/tmp/lab-assistant-startup-core-tests.log` and
+`/tmp/lab-assistant-startup-core-checks/results.xml`.
+`/tmp/lab-assistant-startup-cleanup.json` records no matching owned processes and
+no server on the remaining private test socket path. `git diff --check` passes.
+
+This checkpoint reduces measured command-launch overhead and improves the
+startup diagnostic evidence. Cold document opening, the retained Assistant/API
+and workspace misses, prior loaded typing/search tails and physical parity remain
+open. No main merge, remote push, user-data edit or live-server restart occurred.

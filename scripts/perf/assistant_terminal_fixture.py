@@ -62,7 +62,11 @@ def assistant_terminal_fixture(root):
                 entries = json.loads(registry.read_text())['terminals'] if registry.exists() else {}
                 report['terminals'] = [{key:entry.get(key) for key in ('name','pane_pid','socket','state','document_id','cwd')}
                                        for entry in entries.values()]
-                report['processes'] = [json.loads(path.read_text()) for path in processes.glob('*.json')]
+                # Read the existing launch marker's timestamp only at cleanup;
+                # do not add filesystem operations to the measured startup.
+                report['processes'] = [{**json.loads(path.read_text()),
+                    'processRecordEpoch':path.stat().st_mtime_ns/1_000_000}
+                    for path in processes.glob('*.json')]
                 panes = run('list-panes', '-a', '-F', '#{pane_pid}|#{session_name}|#{pane_current_path}')
                 report['panes'] = [dict(pid=int(pid), name=name, cwd=cwd)
                                    for pid,name,cwd in (line.split('|',2) for line in panes.stdout.splitlines())]
