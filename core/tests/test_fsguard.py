@@ -5,6 +5,8 @@ from __future__ import annotations
 import errno
 import logging
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -18,7 +20,13 @@ def _reset_inflight():
     """Guard against cross-test leakage of the module-level inflight counter."""
     fsguard._inflight = 0
     yield
+    # Timed-out test operations still own their slots until they exit.
+    # Never reset the counter underneath those workers.
+    deadline = time.monotonic() + 2
+    while fsguard._inflight and time.monotonic() < deadline:
+        time.sleep(.01)
     fsguard._inflight = 0
+    fsguard._operations.clear()
 
 
 # ─── vault_name() ───────────────────────────────────────────────────────
@@ -169,6 +177,78 @@ def test_guarded_saturated_pool_fails_fast(tmp_path: Path, monkeypatch: pytest.M
     expected_name = fsguard.vault_name(tmp_path)
     assert exc_info.value.detail == f"resource is not available for vault {expected_name}"
     assert elapsed < 0.05
+    fsguard._inflight = 0
+
+
+def test_concurrent_reads_share_a_worker_and_result(tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def read():
+        calls.append(1)
+        started.set()
+        assert release.wait(2)
+        return {"files": ["note.md"]}
+
+    with ThreadPoolExecutor(max_workers=8) as callers:
+        futures = [callers.submit(fsguard.guarded, tmp_path, read, operation_key=("files",))
+                   for _ in range(8)]
+        assert started.wait(1)
+        try:
+            time.sleep(.05)
+            assert fsguard._inflight == 1
+            assert calls == [1]
+        finally:
+            release.set()
+        results = [future.result(2) for future in futures]
+    assert all(result is results[0] for result in results)
+
+
+def test_timeout_does_not_start_duplicate_work_and_walk_cooperates(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    exited = threading.Event()
+    calls = []
+
+    def walk():
+        calls.append(1)
+        entered.set()
+        try:
+            assert release.wait(2)
+            fsguard.checkpoint()
+            pytest.fail("timed-out traversal continued")
+        finally:
+            exited.set()
+
+    try:
+        with pytest.raises(HTTPException):
+            fsguard.guarded(tmp_path, walk, timeout=.03, operation_key=("files",))
+        assert entered.is_set()
+        for _ in range(8):
+            with pytest.raises(HTTPException):
+                fsguard.guarded(tmp_path, walk, timeout=.03, operation_key=("files",))
+        assert calls == [1]
+    finally:
+        release.set()
+        assert exited.wait(1)
+
+
+@pytest.mark.parametrize("code", [errno.EMFILE, errno.ENFILE, errno.EINTR])
+def test_failure_response_does_not_touch_filesystem(tmp_path, monkeypatch, code):
+    def no_io(*args, **kwargs):
+        pytest.fail("error reporting attempted filesystem I/O")
+
+    def fail():
+        raise OSError(code, "unavailable")
+
+    monkeypatch.setattr(Path, "resolve", no_io)
+    monkeypatch.setattr(Path, "read_text", no_io)
+    monkeypatch.setattr(Path, "is_file", no_io)
+    with pytest.raises(HTTPException) as error:
+        fsguard.guarded(tmp_path, fail)
+    assert error.value.status_code == 503
+    assert error.value.headers["Retry-After"] == "2"
 
 
 def test_guarded_timeout_logs_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:

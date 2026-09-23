@@ -270,6 +270,30 @@ def test_local_jupyter_shared_human_agent_workflow_and_cli(
     assert any(out["type"] == "error" for out in missing_state.json()["cell"]["outputs"])
 
 
+def test_real_kernel_recovers_after_timeout_and_process_exit(client, monorepo):
+    rel, _ = _workspace_with_cli(monorepo)
+    assert client.put("/api/nb/runtime", json={"path": rel, "spec": _existing_spec()}).status_code == 200
+    assert client.post("/api/nb/runtime/build", json={"path": rel}).status_code == 200
+    assert client.post("/api/nb/exec", json={"path": rel, "code": "saved_value = 42"}).status_code == 200
+
+    timeout = client.post("/api/nb/exec", json={
+        "path": rel, "code": "import time; time.sleep(60)", "timeout": 1,
+    })
+    assert timeout.status_code == 504
+    recovered = client.post("/api/nb/exec", json={"path": rel, "code": "print(saved_value)"})
+    assert recovered.status_code == 200, recovered.text
+    assert "42" in str(recovered.json()["cell"]["outputs"])
+
+    started = time.monotonic()
+    died = client.post("/api/nb/exec", json={"path": rel, "code": "import os; os._exit(1)", "timeout": 30})
+    assert died.status_code == 502, died.text
+    assert time.monotonic() - started < 10
+    fresh = client.post("/api/nb/exec", json={"path": rel, "code": "print('new kernel')"})
+    assert fresh.status_code == 200, fresh.text
+    notebook = json.loads((monorepo / rel).read_text())
+    assert all(not cell.get("metadata", {}).get("lab_pending") for cell in notebook["cells"])
+
+
 def test_agent_api_shows_running_state_and_streams_output_before_completion(
     client, monorepo: Path
 ) -> None:

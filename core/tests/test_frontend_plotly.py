@@ -73,9 +73,22 @@ const until = async (predicate, message) => {
   throw new Error(message);
 };
 (async () => {
+  // Older HTML-only outputs call Plotly directly without an AMD wrapper.
+  const direct = document.createElement('div');
+  document.body.appendChild(direct);
+  direct.innerHTML = '<div class="nb-output-html"><div id="direct-chart"></div><scr' +
+    'ipt>window.directRuns = (window.directRuns || 0) + 1; Plotly.newPlot("direct-chart", [{y:[2,4,3]}]);</scr' + 'ipt></div>';
+  assert(!window.Plotly, 'Plotly must load lazily');
+  const originalEnsurePlotly = ensurePlotly;
+  ensurePlotly = () => Promise.reject(new Error('temporary load failure'));
+  await activateNotebookScripts(direct);
+  assert(!window.directRuns && direct.querySelector('.nb-script-error'), 'failed load leaves scripts dormant with visible error');
+  ensurePlotly = originalEnsurePlotly;
+  await Promise.all([activateNotebookScripts(direct), activateNotebookScripts(direct)]);
+  await until(() => direct.querySelectorAll('.scatterlayer .point').length === 3, 'direct Plotly call loads its dependency');
+  assert(window.directRuns === 1 && !direct.querySelector('.nb-script-error'), 'concurrent activation and load retry run once');
   const saved = document.getElementById('saved');
   saved.innerHTML = _renderNbOutput(OUTPUT) + _renderNbOutput(OUTPUT);
-  assert(!window.Plotly, 'Plotly must load lazily');
   await activateNotebookScripts(saved);
   const charts = saved.querySelectorAll('.nb-plotly-chart');
   await until(() => [...charts].every(chart => chart._transitionData?._frames?.length === 1), 'both charts and frames render');

@@ -20,7 +20,7 @@ import logging
 import os
 import threading
 import tomllib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Callable, TypeVar
@@ -53,6 +53,19 @@ _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="fsg
 # calls that will never finish.
 _inflight_lock = threading.Lock()
 _inflight = 0
+_operations: dict[tuple, tuple[Future, threading.Event]] = {}
+_worker_state = threading.local()
+
+
+class _CancelledRead(RuntimeError):
+    pass
+
+
+def checkpoint() -> None:
+    """Stop a timed-out walk between syscalls, releasing its worker slot."""
+    cancelled = getattr(_worker_state, "cancelled", None)
+    if cancelled is not None and cancelled.is_set():
+        raise _CancelledRead()
 
 
 def _timeout_seconds() -> float:
@@ -119,9 +132,12 @@ def vault_name(root: Path) -> str:
 
 
 def _unavailable(root: Path) -> HTTPException:
+    # Never resolve paths or read a registry on this error path: the volume
+    # may be stuck, or the process may have no descriptors left to open it.
     return HTTPException(
         status_code=503,
-        detail=f"resource is not available for vault {vault_name(root)}",
+        detail=f"resource is not available for vault {Path(root).name}",
+        headers={"Retry-After": "2"},
     )
 
 
@@ -134,16 +150,23 @@ def _describe_op(fn: Callable, args: tuple) -> str:
     return name
 
 
-def _run_tracked(fn: Callable[..., T], args: tuple, kwargs: dict) -> T:
+def _run_tracked(fn: Callable[..., T], args: tuple, kwargs: dict,
+                 cancelled: threading.Event, key: tuple | None) -> T:
     global _inflight
+    _worker_state.cancelled = cancelled
     try:
+        checkpoint()
         return fn(*args, **kwargs)
     finally:
+        _worker_state.cancelled = None
         with _inflight_lock:
             _inflight -= 1
+            if key is not None:
+                _operations.pop(key, None)
 
 
-def guarded(root: Path, fn: Callable[..., T], *args, timeout: float | None = None, **kwargs) -> T:
+def guarded(root: Path, fn: Callable[..., T], *args, timeout: float | None = None,
+            operation_key: tuple | None = None, **kwargs) -> T:
     """Run ``fn(*args, **kwargs)`` on the bounded fsguard worker pool.
 
     Raises ``fastapi.HTTPException(503, ...)`` naming ``root``'s vault
@@ -153,40 +176,50 @@ def guarded(root: Path, fn: Callable[..., T], *args, timeout: float | None = Non
     of a stalled volume), or if the pool is already saturated with other
     stuck calls.
 
-    On timeout the worker thread is deliberately leaked -- there is no way
-    to cancel a blocking syscall from Python -- which is why the pool is
-    bounded: repeated timeouts occupy at most ``_MAX_WORKERS`` threads total,
-    they don't accumulate one per request.
+    Callers may share an operation_key for identical read-only work. The key
+    remains reserved until the worker exits, even after a caller times out.
+    Walks should call checkpoint() between syscalls so abandoned work stops.
+    A blocked syscall itself cannot be cancelled, so the pool remains bounded.
     """
     global _inflight
+    key = (str(root), operation_key) if operation_key is not None else None
     with _inflight_lock:
-        if _inflight >= _MAX_WORKERS:
-            raise _unavailable(root)
-        _inflight += 1
-
-    try:
-        future = _executor.submit(_run_tracked, fn, args, kwargs)
-    except RuntimeError:
-        # Executor rejected the submission (e.g. shutting down) -- release
-        # the slot we reserved above and fail the same way a stall would.
-        with _inflight_lock:
-            _inflight -= 1
-        raise _unavailable(root)
+        existing = _operations.get(key) if key is not None else None
+        if existing is not None:
+            future, cancelled = existing
+            if cancelled.is_set():
+                raise _unavailable(root)
+        else:
+            if _inflight >= _MAX_WORKERS:
+                raise _unavailable(root)
+            _inflight += 1
+            cancelled = threading.Event()
+            try:
+                future = _executor.submit(_run_tracked, fn, args, kwargs, cancelled, key)
+            except RuntimeError:
+                _inflight -= 1
+                raise _unavailable(root)
+            if key is not None:
+                _operations[key] = (future, cancelled)
 
     effective_timeout = timeout if timeout is not None else _timeout_seconds()
     try:
         return future.result(timeout=effective_timeout)
-    except FutureTimeoutError:
-        log.error(
-            "fs timeout after %ss reading %s (vault %s)",
-            effective_timeout, _describe_op(fn, args), vault_name(root),
-        )
+    except (FutureTimeoutError, _CancelledRead):
+        with _inflight_lock:
+            first_timeout = not cancelled.is_set()
+            cancelled.set()
+        if first_timeout:
+            log.error(
+                "fs timeout after %ss reading %s (vault %s)",
+                effective_timeout, _describe_op(fn, args), Path(root).name,
+            )
         raise _unavailable(root)
     except (InterruptedError, OSError) as exc:
-        if isinstance(exc, InterruptedError) or getattr(exc, "errno", None) == errno.EINTR:
+        if isinstance(exc, InterruptedError) or getattr(exc, "errno", None) in {errno.EINTR, errno.EMFILE, errno.ENFILE}:
             log.error(
-                "fs EINTR reading %s (vault %s): %s",
-                _describe_op(fn, args), vault_name(root), exc,
+                "fs %s reading %s (vault %s): %s",
+                errno.errorcode.get(exc.errno, "EINTR"), _describe_op(fn, args), Path(root).name, exc,
             )
             raise _unavailable(root)
         raise

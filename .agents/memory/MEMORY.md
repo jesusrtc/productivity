@@ -279,3 +279,5 @@
 - [Terminal clicks open linked documents](linked-terminal-click-opens-document.md) — explicit activation opens inline and reveals the task; polling only highlights, and newer navigation cancels pending opens.
 
 - [Document tabs need readable widths](document-tabs-readable-width.md) — 420px default drawer, wrapping titles, and more resizing room now that tabs overlay the document.
+
+- [Filesystem polls are bounded](filesystem-polls-are-bounded.md) — cycle-safe linked folders, closed scandir handles, shared reads, cooperative cancellation, and no I/O in failure reporting.

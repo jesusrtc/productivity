@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -44,6 +45,7 @@ from core.state import NotebookExecutionEvent
 
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 # ── Path safety (shared shape with routes/notebook.py) ───────────────────────
@@ -918,43 +920,23 @@ async def exec_cell(body: ExecBody, request: Request) -> dict:
             body.timeout,
             on_event=on_kernel_event,
         )
-    except Exception as exc:
+    except BaseException as exc:
         from core.notebook_kernel import KernelExecutionError
 
-        if isinstance(exc, KernelExecutionError):
+        detail = exc.detail if isinstance(exc, KernelExecutionError) else str(exc) or "execution cancelled"
+        try:
             with _lock_for(target):
-                _mark_pending_failed(
-                    target, pending_idx, run_id, type(exc).__name__, exc.detail
-                )
-            await publish_terminal("failed", exc.detail)
+                _mark_pending_failed(target, pending_idx, run_id, type(exc).__name__, detail)
+            await asyncio.shield(publish_terminal("failed", detail))
+        except Exception:
+            # EMFILE/disk failures must not strand the in-memory pending flag
+            # or replace the kernel's original error with a checkpoint error.
+            log.exception("could not persist notebook failure for %s", body.path)
+        finally:
             _live_remove(target, run_id)
             _mark_done(target)
-            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-        with _lock_for(target):
-            _mark_pending_failed(
-                target, pending_idx, run_id, type(exc).__name__, str(exc)
-            )
-        await publish_terminal("failed", str(exc))
-        _live_remove(target, run_id)
-        _mark_done(target)
-        raise
-    except BaseException as exc:
-        with _lock_for(target):
-            _mark_pending_failed(
-                target,
-                pending_idx,
-                run_id,
-                type(exc).__name__,
-                str(exc) or "execution cancelled",
-            )
-        # Cancellation may already have cancelled this task; shield the final
-        # notification so other open notebook views are not left running.
-        try:
-            await asyncio.shield(publish_terminal("failed", str(exc) or "execution cancelled"))
-        except Exception:
-            pass
-        _live_remove(target, run_id)
-        _mark_done(target)
+        if isinstance(exc, KernelExecutionError):
+            raise HTTPException(status_code=exc.status_code, detail=detail) from exc
         raise
 
     cell_outputs = result.get("cell_outputs") or []

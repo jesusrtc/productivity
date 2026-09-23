@@ -1722,21 +1722,26 @@ def _tmux_list(
     generations = tmux_sockets.generations()
     for generation in generations:
         socket_name = str(generation["name"])
-        proc = subprocess.run(
-            _tmux_command(
-                socket_name,
-                "list-sessions",
-                "-F",
-                (
-                    "#{session_name}|#{session_created}|#{session_attached}|"
-                    "#{session_windows}|#{pane_tty}|#{pane_pid}"
-                    + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
+        try:
+            proc = subprocess.run(
+                _tmux_command(
+                    socket_name,
+                    "list-sessions",
+                    "-F",
+                    (
+                        "#{session_name}|#{session_created}|#{session_attached}|"
+                        "#{session_windows}|#{pane_tty}|#{pane_pid}"
+                        + ("|#{session_activity}|#{session_last_attached}|#{@lab_last_access}|#{session_id}" if activity else "")
+                    ),
                 ),
-            ),
-            capture_output=True,
-            text=True,
-            env=_tmux_child_env(),
-        )
+                capture_output=True,
+                text=True,
+                env=_tmux_child_env(),
+                timeout=3,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            log.warning("tmux list-sessions unavailable on socket %s: %s", socket_name, exc)
+            return None  # Unknown, never an empty list that could prune metadata.
         if proc.returncode != 0:
             err = (proc.stderr or "").lower()
             if tmux_sockets.is_no_server_error(err):
@@ -2287,6 +2292,7 @@ def list_sessions(
             ws_rows = fsguard.guarded(
                 vault_row["path"], _sessions_for_root, vault_row["path"], None,
                 include_agent_details=False,
+                operation_key=("terminal-sessions",),
             )
         except HTTPException as exc:
             if exc.status_code != 503:
@@ -2298,9 +2304,7 @@ def list_sessions(
             # of failing the listing for every other vault.
             _warn_root_unavailable_once(vault_row["path"], "session listing", exc)
             continue
-        for r in ws_rows:
-            r["vault"] = vault_row["id"]
-        rows.extend(ws_rows)
+        rows.extend({**r, "vault": vault_row["id"]} for r in ws_rows)
     rows.sort(key=lambda r: r.get("created", 0), reverse=True)
     return rows
 
@@ -2339,6 +2343,7 @@ def list_attachable_sessions(
             ws_rows = fsguard.guarded(
                 vault_row["path"], _sessions_for_root, vault_row["path"], None,
                 include_agent_details=False,
+                operation_key=("terminal-sessions",),
             )
         except HTTPException as exc:
             if exc.status_code != 503:

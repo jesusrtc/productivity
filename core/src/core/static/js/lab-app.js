@@ -194,17 +194,18 @@
       if (existing) {
         if (existing.dataset.loaded === '1') return resolve();
         existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', () => reject(new Error('failed to load ' + src)), { once: true });
+        existing.addEventListener('error', () => { existing.remove(); reject(new Error('failed to load ' + src)); }, { once: true });
         return;
       }
       const s = document.createElement('script');
       s.src = src;
       s.async = false;
       s.onload = () => { s.dataset.loaded = '1'; resolve(); };
-      s.onerror = () => reject(new Error('failed to load ' + src));
+      s.onerror = () => { s.remove(); reject(new Error('failed to load ' + src)); };
       document.head.appendChild(s);
     });
     _assetPromises.set(src, p);
+    p.catch(() => { if (_assetPromises.get(src) === p) _assetPromises.delete(src); });
     return p;
   }
 
@@ -2922,7 +2923,33 @@
     _sidebarLogRecentDiagnostics(files, rootPath, pending.reason);
   }
 
-  async function _sidebarFetchWorkspaceFiles(workspacePath) {
+  const _sidebarFileRequests = new Map();
+  function _sidebarFetchWorkspaceFiles(workspacePath) {
+    const key = JSON.stringify([workspacePath, showWorkspaceDotFiles]);
+    const previous = _sidebarFileRequests.get(key);
+    if (previous && (previous.running || Date.now() < previous.retryAt)) return previous.promise;
+    const state = {running: true, failures: previous ? previous.failures : 0, retryAt: 0};
+    state.promise = _sidebarLoadWorkspaceFiles(workspacePath).then(files => {
+      _sidebarFileRequests.delete(key);
+      return files;
+    }, error => {
+      state.running = false;
+      state.failures += 1;
+      state.retryAt = Date.now() + Math.min(60_000, 1_000 * (2 ** state.failures));
+      throw error;
+    });
+    _sidebarFileRequests.set(key, state);
+    // Retain failures only for retry pacing, with a bounded number of roots.
+    if (_sidebarFileRequests.size > 64) {
+      for (const [oldKey, oldState] of _sidebarFileRequests) {
+        if (oldKey !== key && !oldState.running) _sidebarFileRequests.delete(oldKey);
+        if (_sidebarFileRequests.size <= 64) break;
+      }
+    }
+    return state.promise;
+  }
+
+  async function _sidebarLoadWorkspaceFiles(workspacePath) {
     const url = `/api/workspace-files?path=${encodeURIComponent(workspacePath)}&include_dotfiles=${showWorkspaceDotFiles}`;
     const response = await fetch(url);
     if (!response.ok) {
@@ -6015,32 +6042,30 @@
   // swap it in. Also shim `require(["plotly"], fn)` (Jupyter's requirejs
   // idiom) so the chart init script can find the Plotly global.
   // Plotly is intentionally lazy-loaded; if any cell script will call
-  // `require(["plotly"], fn)`, load it and wait briefly before activating.
-  function _waitForPlotly(root, timeoutMs) {
-    var hasRequirePlotly = false;
-    root.querySelectorAll('.nb-outputs script, .nb-output-html script').forEach(function (s) {
-      if ((s.textContent || '').indexOf('require(["plotly"') !== -1
-        || (s.textContent || '').indexOf("require(['plotly'") !== -1) {
-        hasRequirePlotly = true;
+  // `require(["plotly"], fn)` or Plotly directly, load it before activating.
+  function _waitForPlotly(root) {
+    const needs = Array.from(root.querySelectorAll('.nb-outputs script, .nb-output-html script'))
+      .some(s => /\bPlotly\s*[.\[]|require\s*\(\s*\[\s*['"]plotly['"]/.test(s.textContent || ''));
+    if (!needs || window.Plotly) return Promise.resolve(true);
+    return ensurePlotly().then(() => {
+      if (!window.Plotly) throw new Error('Plotly did not initialize');
+      root.querySelectorAll('.nb-script-error').forEach(el => el.remove());
+      return true;
+    }).catch(error => {
+      if (!root.querySelector('.nb-script-error')) {
+        const message = document.createElement('div');
+        message.className = 'nb-script-error';
+        message.setAttribute('role', 'alert');
+        message.textContent = 'Unable to load notebook charts: ' + error.message + '. Reopen the notebook to retry.';
+        root.appendChild(message);
       }
-    });
-    if (!hasRequirePlotly || window.Plotly) return Promise.resolve();
-    return ensurePlotly().catch(function () {}).then(function () {
-      if (window.Plotly) return;
-      return new Promise(function (resolve) {
-        var start = Date.now();
-        (function poll() {
-          if (window.Plotly) return resolve();
-          if (Date.now() - start > (timeoutMs || 5000)) return resolve();
-          setTimeout(poll, 50);
-        })();
-      });
+      return false;
     });
   }
 
   async function activateNotebookScripts(root) {
     if (!root) return;
-    await _waitForPlotly(root, 5000);
+    if (!await _waitForPlotly(root)) return;
     root.querySelectorAll('.nb-outputs script, .nb-output-html script').forEach(old => {
       // Live updates revisit this output body. Existing charts must keep
       // their zoom/selection instead of being initialized on every event.
@@ -10494,7 +10519,8 @@
       }
       _lastWorkspaceMtime = mtime;
     } catch(e) {
-      if (currentWorkspace && currentWorkspace.path === workspacePath) {
+      if (currentWorkspace && currentWorkspace.path === workspacePath
+          && (typeof _sidebarScopedRoot !== 'function' || _sidebarScopedRoot(workspacePath) === fileRoot)) {
         _workspaceMtimeFailures += 1;
         const backoffMs = Math.min(60_000, 1_000 * (2 ** _workspaceMtimeFailures));
         _workspaceMtimeRetryAt = Date.now() + backoffMs;

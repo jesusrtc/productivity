@@ -633,6 +633,27 @@ def test_notebook_actions_require_a_configured_runtime(client, monorepo, endpoin
     assert not (monorepo / rel).exists()
 
 
+def test_kernel_failure_clears_pending_even_when_error_checkpoint_cannot_open_file(
+    client, monorepo, monkeypatch, patch_kernel,
+):
+    import errno
+    from core import notebook_kernel
+    rel = "workspaces/demo/notebooks/no-descriptors.ipynb"
+
+    async def unavailable(*args, **kwargs):
+        raise notebook_kernel.KernelExecutionError("kernel unavailable", status_code=503)
+
+    def no_descriptors(*args, **kwargs):
+        raise OSError(errno.EMFILE, "too many open files")
+
+    monkeypatch.setattr(notebook_kernel, "execute", unavailable)
+    monkeypatch.setattr(nb_exec_route, "_mark_pending_failed", no_descriptors)
+    response = client.post("/api/nb/exec", json={"path": rel, "code": "pass"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "kernel unavailable"
+    assert not nb_exec_route.is_path_pending(monorepo / rel)
+
+
 def test_kernel_failure_finishes_pending_cell(client, monorepo, monkeypatch, patch_kernel):
     from core import notebook_kernel
 

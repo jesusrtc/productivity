@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from core import auth, fsguard, server_config, worktree_recent
+from core import auth, fsguard, server_config, workspace_scan, worktree_recent
 from core.diff_parser import (
     diff_notebook_cells,
     get_branch,
@@ -38,30 +38,6 @@ from core.diff_parser import (
 
 
 router = APIRouter()
-
-
-# Keep a hard runaway guard, but leave enough room for ordinary source trees.
-# Five levels was too shallow for real nested checkouts such as
-# repositories/queries/forge/experimental/cached-queries/cached_queries/tools.
-# Nested Git roots still reset the budget below, but correctness must not
-# depend on whether a checkout uses a `.git` directory, a `.git` file, or
-# metadata that is unavailable to the server process.
-_WORKSPACE_SCAN_MAX_DEPTH = 16
-_WORKSPACE_SCAN_SKIP_DIRS = {
-    ".git", "__pycache__", "node_modules", ".venv", "venv",
-    ".mypy_cache", ".pytest_cache", "build", "dist", ".tox", ".eggs",
-    "skills", "worktrees",
-}
-
-
-def _workspace_scan_child_depth(directory: Path, depth: int) -> int:
-    """Give each nested Git checkout its own bounded scan-depth budget."""
-    try:
-        if (directory / ".git").exists():
-            return 0
-    except OSError:
-        pass
-    return depth + 1
 
 
 def _with_symlink_fields(entry: dict, path: Path) -> dict:
@@ -585,101 +561,52 @@ def api_workspace_onepager(path: str):
 def api_workspace_files(path: str, request: Request, include_dotfiles: bool = False):
     """List all files in a workspace directory as a flat list with relative paths."""
     workspace_path = Path(path)
-    if not workspace_path.is_dir():
-        return []
-    assistant_root = lab_paths.assistant_root()
-    assistant_collections = bool(assistant_root and workspace_path.resolve() == assistant_root.resolve()
-                                 and (workspace_path / ".assistant/manifest.json").is_file())
-    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
-    # `worktrees/` is the dedicated subfolder for MP worktrees — each one is
-    # a full repo checkout, so listing them in the workspace's file sidebar
-    # would drown out docs/notes. Accessible via the Repositories panel +
-    # diff tabs instead.
-    files = []
-    checkout_groups = {}
-
-    # Cheap O(1) check against the in-memory tracker maintained by
-    # routes/nb_exec.py. The previous file-scan implementation skipped
-    # notebooks larger than 5 MB (e.g. Plotly-heavy notebooks easily clear
-    # that), which left the sidebar dot dark for exactly the notebooks
-    # users were most likely to want a "running" indicator on. The tracker
-    # naturally clears on server restart — the Jupyter subprocess also dies
-    # then, so the two stay consistent.
-    from core.routes.nb_exec import is_path_pending as _ipynb_is_pending  # noqa: PLC0415
-
-    def scan(dir_path, depth=0, git_root=None):
-        if depth > _WORKSPACE_SCAN_MAX_DEPTH:
-            return
-        if (dir_path / ".git").exists():
-            git_root = dir_path
-            baseline = worktree_recent.checkout_baseline(git_root)
-            if baseline:
-                checkout_groups[git_root] = (baseline, [])
-        try:
-            children = sorted(dir_path.iterdir())
-        except PermissionError:
-            return
-        for child in children:
-            if not include_dotfiles and child.name.startswith("."):
-                continue
-            child_is_symlink = child.is_symlink()
-            if child.is_file():
-                rel = str(child.relative_to(workspace_path))
-                ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
-                entry = {"name": rel, "path": rel, "type": ftype}
-                _with_symlink_fields(entry, child)
-                # Every sidebar surface can optionally promote recently
-                # updated files into a shortcut section. Keep mtime on every
-                # file entry (not only notebooks) so that feature can filter
-                # locally without another filesystem walk or endpoint.
-                try:
-                    stat = child.stat()
-                    entry["mtime"] = stat.st_mtime
-                    # ctime is metadata-change time on Unix, not creation.
-                    entry["created"] = getattr(stat, "st_birthtime", None)
-                except OSError:
-                    pass
-                # Flag .ipynb files that currently have a running cell
-                # so the sidebar can render a blinking activity dot
-                # without each client polling every notebook. The common
-                # mtime above also lets notebooks compare against a per-file
-                # "last viewed" timestamp and show a new-results dot.
-                if child.suffix.lower() == ".ipynb":
-                    if _ipynb_is_pending(child):
-                        entry["pending"] = True
-                files.append(entry)
-                if git_root in checkout_groups:
-                    checkout_groups[git_root][1].append((child.relative_to(git_root).as_posix(), entry))
-            elif child.is_dir():
-                if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"documents", "tasks", "notes", "projects"}):
-                    rel = str(child.relative_to(workspace_path))
-                    entry = {"name": rel, "path": rel, "type": "dir"}
-                    _with_symlink_fields(entry, child)
-                    files.append(entry)
-                if child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
-                    scan(child, _workspace_scan_child_depth(child, depth), git_root)
-            elif child_is_symlink:
-                # Broken symlink: still surface the row so the sidebar can
-                # distinguish it from an absent file/folder.
-                rel = str(child.relative_to(workspace_path))
-                entry = {"name": rel, "path": rel, "type": "file", "broken": True}
-                _with_symlink_fields(entry, child)
-                files.append(entry)
+    from core.routes.nb_exec import is_path_pending
 
     def scan_with_checkout_context():
-        # A selected folder can be a subdirectory of a linked worktree.
+        assistant_root = lab_paths.assistant_root()
+        assistant_collections = bool(assistant_root and workspace_path.resolve() == assistant_root.resolve()
+                                     and (workspace_path / ".assistant/manifest.json").is_file())
+        files = []
+        checkout_groups = {}
         git_root = next((parent for parent in workspace_path.parents if (parent / ".git").exists()), None)
-        if git_root:
-            baseline = worktree_recent.checkout_baseline(git_root)
-            if baseline:
-                checkout_groups[git_root] = (baseline, [])
-        scan(workspace_path, git_root=git_root)
+        image_exts = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+        for item in workspace_scan.walk(workspace_path, include_dotfiles=include_dotfiles, git_root=git_root):
+            child = item.path
+            if item.git_root and item.git_root not in checkout_groups:
+                checkout_groups[item.git_root] = (worktree_recent.checkout_baseline(item.git_root), [])
+            if child == workspace_path:
+                continue
+            rel = str(child.relative_to(workspace_path))
+            if item.is_file:
+                entry = {"name": rel, "path": rel,
+                         "type": "image" if child.suffix.lower() in image_exts else "file",
+                         "mtime": item.stat.st_mtime,
+                         "created": getattr(item.stat, "st_birthtime", None)}
+                if child.suffix.lower() == ".ipynb" and is_path_pending(child):
+                    entry["pending"] = True
+                if item.git_root:
+                    checkout_groups[item.git_root][1].append((child.relative_to(item.git_root).as_posix(), entry))
+            elif item.is_dir:
+                if not (item.is_symlink or assistant_collections and item.depth == 1
+                        and child.name in {"documents", "tasks", "notes", "projects"}):
+                    continue
+                entry = {"name": rel, "path": rel, "type": "dir"}
+            elif item.is_symlink:
+                entry = {"name": rel, "path": rel, "type": "file", "broken": True}
+            else:
+                continue
+            if item.is_symlink:
+                _with_symlink_fields(entry, child)
+            files.append(entry)
         for root, (baseline, entries) in checkout_groups.items():
-            worktree_recent.mark_checkout_files(root, baseline, entries)
+            fsguard.checkpoint()
+            if baseline:
+                worktree_recent.mark_checkout_files(root, baseline, entries)
+        return files
 
-    vault_root = auth.request_root(request)
-    fsguard.guarded(vault_root, scan_with_checkout_context)
-    return files
+    return fsguard.guarded(auth.request_root(request), scan_with_checkout_context,
+                           operation_key=("workspace-files", str(workspace_path), include_dotfiles))
 
 
 @router.get("/api/agents/context/files")
@@ -870,60 +797,19 @@ def api_workspace_file(path: str, file: str):
 
 @router.get("/api/workspace-mtime")
 def api_workspace_mtime(path: str, request: Request):
-    """Return the latest mtime across files in a workspace directory.
-
-    The client polls this every second from the workspace / self view to decide
-    whether to refresh. The OLD implementation used ``rglob("*")`` with no
-    skip-list and no depth cap, so on the self-view (``path = monorepo
-    root``) it walked ``apps/*/.venv/``, ``repositories/``, and every
-    cached site-packages tree — stalling the event loop for 20+ seconds
-    every 2 seconds. That was the "reload takes forever" regression.
-
-    Fix: mirror the same skip-list + dotfile skip + bounded depth the sibling
-    ``/api/workspace-files`` already uses so the two endpoints agree on
-    "what counts as part of the workspace". Nested Git checkouts receive a
-    fresh depth budget. The general budget is also large enough for normal
-    source trees even when nested Git metadata cannot be detected, while a
-    hard cap still prevents an arbitrary directory chain from running away.
-    On the self-view this drops the walk from ~25s to ~100ms.
-    """
+    """Return the latest visible file/directory mtime using the sidebar walk."""
     workspace_path = Path(path)
-    if not workspace_path.is_dir():
-        # A missing directory is an expected steady state, not an error: a
-        # browser tab can outlive its workspace (deleted, or on an unplugged
-        # external volume) and keep polling for days — as a 404 each poll
-        # logged a WARNING, thousands of pure noise lines. ``null`` tells
-        # the client "nothing to compare against"; old clients treat it as
-        # a harmless no-op (``null > x`` is false).
-        return {"mtime": None}
-    # Must stay in sync with api_workspace_files above — clients assume the
-    # same tree shape (sidebar vs. mtime poll).
-    latest = workspace_path.stat().st_mtime
 
-    def scan(dir_path: Path, depth: int) -> None:
-        nonlocal latest
-        if depth > _WORKSPACE_SCAN_MAX_DEPTH:
-            return
-        try:
-            children = list(dir_path.iterdir())
-        except (PermissionError, OSError):
-            return
-        for child in children:
-            if child.name.startswith("."):
+    def scan():
+        latest = None
+        for item in workspace_scan.walk(workspace_path):
+            if item.stat is None or item.is_dir and item.depth and item.path.name in workspace_scan.SKIP_DIRS:
                 continue
-            try:
-                if child.is_file():
-                    latest = max(latest, child.stat().st_mtime)
-                elif child.is_dir() and child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
-                    latest = max(latest, child.stat().st_mtime)
-                    scan(child, _workspace_scan_child_depth(child, depth))
-            except OSError:
-                # Broken symlink / disappeared mid-walk — skip.
-                continue
+            latest = max(latest or 0, item.stat.st_mtime)
+        return {"mtime": latest}
 
-    vault_root = auth.request_root(request)
-    fsguard.guarded(vault_root, scan, workspace_path, 0)
-    return {"mtime": latest}
+    return fsguard.guarded(auth.request_root(request), scan,
+                           operation_key=("workspace-mtime", str(workspace_path)))
 
 
 @router.get("/api/workspace-asset")

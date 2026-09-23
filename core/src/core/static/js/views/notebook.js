@@ -256,14 +256,14 @@ function _waitForPlotly(root, timeoutMs = 5000) {
   const scripts = root.querySelectorAll(".nb-outputs script, .nb-output-html script");
   const needs = Array.from(scripts).some((s) => {
     const t = s.textContent || "";
-    return t.indexOf('require(["plotly"') !== -1 || t.indexOf("require(['plotly'") !== -1;
+    return /\bPlotly\s*[.\[]|require\s*\(\s*\[\s*['"]plotly['"]/.test(t);
   });
-  if (!needs || window.Plotly) return Promise.resolve();
+  if (!needs || window.Plotly) return Promise.resolve(true);
   return new Promise((resolve) => {
     const start = Date.now();
     const poll = () => {
-      if (window.Plotly) return resolve();
-      if (Date.now() - start > timeoutMs) return resolve();
+      if (window.Plotly) return resolve(true);
+      if (Date.now() - start > timeoutMs) return resolve(false);
       setTimeout(poll, 50);
     };
     poll();
@@ -273,7 +273,17 @@ function _waitForPlotly(root, timeoutMs = 5000) {
 async function activateNotebookScripts(root) {
   if (!root) return;
   _installRequireShim();
-  await _waitForPlotly(root);
+  if (!await _waitForPlotly(root)) {
+    if (!root.querySelector('.nb-script-error')) {
+      const message = document.createElement('div');
+      message.className = 'nb-script-error';
+      message.setAttribute('role', 'alert');
+      message.textContent = 'Unable to load notebook charts. Reload to retry.';
+      root.appendChild(message);
+    }
+    return;
+  }
+  root.querySelectorAll('.nb-script-error').forEach(el => el.remove());
   root.querySelectorAll(".nb-outputs script, .nb-output-html script").forEach((old) => {
     if (old.dataset.labActivated) return;
     const s = document.createElement("script");

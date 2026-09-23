@@ -2181,6 +2181,24 @@ def test_copilot_explicit_auto_false_overrides_vault(client, seed_workspace, iso
 # ─── rolling tmux socket generations ───────────────────────────────────────
 
 
+@pytest.mark.parametrize("failure", ["timeout", "descriptors"])
+def test_tmux_discovery_is_bounded_and_preserves_unknown_state(monkeypatch, failure):
+    import errno
+    from core.routes import term as term_mod
+
+    monkeypatch.setattr(term_mod, "_tmux_available", lambda: True)
+    monkeypatch.setattr(term_mod.tmux_sockets, "generations", lambda: [{"name": "default"}])
+
+    def fail(command, **kwargs):
+        assert kwargs["timeout"] == 3
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(command, 3)
+        raise OSError(errno.EMFILE, "too many open files")
+
+    monkeypatch.setattr(term_mod.subprocess, "run", fail)
+    assert term_mod._tmux_list(["neurona-"]) is None
+
+
 def test_tmux_list_aggregates_active_and_draining_sockets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -91,6 +91,7 @@ class _KernelProcess:
         # Connection files are JSON and jupyter-client decodes the key as
         # UTF-8. Keep the authentication material random but ASCII-safe.
         manager.session.key = secrets.token_hex(32).encode("ascii")
+        client = None
         try:
             manager.start_kernel(
                 cwd=self.handle.working_dir,
@@ -100,10 +101,11 @@ class _KernelProcess:
             client.start_channels()
             client.wait_for_ready(timeout=timeout)
         except Exception as exc:
-            try:
-                manager.shutdown_kernel(now=True)
-            except Exception:
-                pass
+            # Close even partially initialized channels. Keep the manager
+            # private until ready so an interrupt during startup only sets
+            # interrupt_requested, instead of signaling an unready kernel.
+            self.manager, self.client = manager, client
+            self.close()
             raise KernelExecutionError(f"local Jupyter kernel failed to start: {exc}", status_code=503) from exc
         self.manager = manager
         self.client = client
@@ -189,10 +191,7 @@ class _KernelProcess:
             while not idle:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    try:
-                        self.manager.interrupt_kernel()
-                    except Exception:
-                        pass
+                    self._interrupt_and_drain(msg_id)
                     self.interrupt_requested.clear()
                     raise KernelExecutionError(
                         f"local Jupyter execution timed out after {timeout}s",
@@ -204,6 +203,12 @@ class _KernelProcess:
                     # A cell may be legitimately quiet for minutes while a
                     # library waits on a CLI, database, or subprocess. A
                     # one-second poll miss is not the execution deadline.
+                    if not self.manager.is_alive():
+                        self.close()
+                        raise KernelExecutionError(
+                            "local Jupyter kernel exited during execution; run the cell again to start a new kernel",
+                            status_code=502,
+                        )
                     continue
                 if _parent_id(message) != msg_id:
                     continue
@@ -300,22 +305,48 @@ class _KernelProcess:
             self.manager.interrupt_kernel()
         return True
 
+    def _interrupt_and_drain(self, msg_id: str) -> None:
+        """Do not hand a still-busy kernel to the next cell after a timeout."""
+        try:
+            self.manager.interrupt_kernel()
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                try:
+                    message = self.client.get_iopub_msg(timeout=0.1)
+                except Empty:
+                    if not self.manager.is_alive():
+                        break
+                    continue
+                if (_parent_id(message) == msg_id and _msg_type(message) == "status"
+                        and (message.get("content") or {}).get("execution_state") == "idle"):
+                    return
+        except Exception:
+            pass
+        # A kernel ignoring SIGINT would otherwise make each subsequent cell
+        # wait its full 300/600/1800-second deadline. Release it and its sockets.
+        self.close()
+
     def restart(self, timeout: int = 60) -> bool:
         if self.manager is None:
             self.start(timeout=timeout)
             return False
         assert self.client is not None
-        self.client.stop_channels()
-        self.manager.restart_kernel(now=True)
-        self.client = self.manager.blocking_client()
-        self.client.start_channels()
-        self.client.wait_for_ready(timeout=timeout)
+        try:
+            self.client.stop_channels()
+            self.manager.restart_kernel(now=True)
+            self.client = self.manager.blocking_client()
+            self.client.start_channels()
+            self.client.wait_for_ready(timeout=timeout)
+        except Exception as exc:
+            self.close()
+            raise KernelExecutionError(f"local Jupyter kernel failed to restart: {exc}", status_code=503) from exc
         return True
 
     def close(self) -> None:
         manager, client = self.manager, self.client
         self.manager = None
         self.client = None
+        self.kernel_id = None
         if client is not None:
             try:
                 client.stop_channels()

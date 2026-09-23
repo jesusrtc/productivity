@@ -34,6 +34,42 @@ def _between(start_marker: str, end_marker: str) -> str:
     return source[start:end]
 
 
+def test_sidebar_reads_share_requests_back_off_and_recover():
+    helpers = _between("  const _sidebarFileRequests =", "  function _sidebarFileConfigCogHtml(")
+    result = _run_node(helpers + """
+let showWorkspaceDotFiles = false;
+let now = 0;
+Date.now = () => now;
+let calls = 0, fail = false;
+const _sidebarRecentLog = () => {};
+const fetch = async () => {
+  calls++;
+  return {ok: !fail, status: fail ? 503 : 200,
+    json: async () => fail ? {detail: 'temporarily unavailable'} : [{path: 'note.md'}]};
+};
+(async () => {
+  const first = _sidebarFetchWorkspaceFiles('/one');
+  const second = _sidebarFetchWorkspaceFiles('/one');
+  if (first !== second) throw new Error('concurrent reads were duplicated');
+  await Promise.all([first, second]);
+  const afterShared = calls;
+  fail = true;
+  await _sidebarFetchWorkspaceFiles('/one').catch(() => {});
+  await _sidebarFetchWorkspaceFiles('/one').catch(() => {});
+  const afterFailure = calls;
+  await _sidebarFetchWorkspaceFiles('/two').catch(() => {});
+  const afterOtherRoot = calls;
+  now = 2001;
+  fail = false;
+  const recovered = await _sidebarFetchWorkspaceFiles('/one');
+  await _sidebarFetchWorkspaceFiles('/one');
+  process.stdout.write(JSON.stringify({afterShared, afterFailure, afterOtherRoot, calls, recovered}));
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+    assert result == {"afterShared": 1, "afterFailure": 2, "afterOtherRoot": 3,
+                      "calls": 5, "recovered": [{"path": "note.md"}]}
+
+
 def test_sql_and_scala_files_use_language_specific_icons() -> None:
     icon_helpers = _between(
         'const _FT_FONT =',
