@@ -2498,3 +2498,125 @@ not resolve earlier workspace/picker/typing outliers, broader unmeasured UI and
 backend paths or the matched iTerm comparison. No main merge, push or live-server
 restart occurred; the earlier merge approval remains pending after automatic
 approval review rejected it.
+
+## Measure document saves and cancellation across workspaces (2026-09-23)
+
+This checkpoint adds measurement coverage; it changes no production behavior.
+The original goal remains incomplete. Earlier cold navigation and typing misses
+remain evidence, and the locally matched iTerm comparison is still unavailable.
+
+The new `--document-edit` workflow alternates between Alpha and Beta, which each
+contain `docs/review-1.md` and `docs/review-2.md`. Native clicks open the document,
+open its editor, save a revision, reopen it, cancel another revision, and close
+the modal. First workspace visits require the dashboard; subsequent visits
+require the previously saved document to be restored. Editor readiness includes
+the exact source, textarea focus, the loaded two-file sibling list and disabled
+sibling buttons. Save, Cancel and Close require all expected headings and
+paragraphs in both modal and inline views, unchanged document/workspace identity,
+and restored file navigation. Saved text exercises Unicode, literal angle
+brackets inside code, ampersands and quotes.
+
+Every Save, Cancel and Close also compares all four files byte-for-byte with
+independent expected contents, outside the measured click. This checks both
+same-named files in the other workspace and each unedited sibling. Text insertion
+prepares the Save/Cancel action; it is not a measurement of editor typing. The
+existing external click timestamps, strict input-clock checks, paint opportunity,
+normal polling, complete request reporting and 200 ms budget remain unchanged.
+`--document-sections` changes fixture Markdown size; its default stays at 30.
+
+Evidence, including failed runs:
+
+- The first 30-section smoke run completed all **14 actions**, maximum **72.4
+  ms**. Its browser request to `/api/log/client` took **222.6 ms**, so the run
+  failed the request budget. The corresponding server request, ID 65, took
+  **8.51 ms** after ASGI entry and began about **214.2 ms** after the browser's
+  resource start. This locates most delay before application entry; it does not
+  establish whether the source was browser scheduling, transport, or server
+  admission. All 79 browser requests correlated to the 108 server requests;
+  server maximum was 59.77 ms. The owned server stopped.
+- An initial 300-section, 5,000-file run completed 14 actions (maximum 172.3 ms)
+  before its third workspace click timed out. The fixture incorrectly required
+  a dashboard when the application restored the last document. Only the probe
+  expectation was corrected. The failed run and its prior timings are retained;
+  its owned server stopped. This is not a production regression or a passing
+  28-action run.
+- The final unprofiled run used **300 sections per document, 5,000 mixed
+  ipynb/pdf/svg/js files per workspace, and 2,500 actual Git changes**. All
+  **140 actions** passed. All **780 browser requests** were below 200 ms
+  (maximum **75.1 ms**), as were all **809 server requests** (maximum **74.785
+  ms**). Every browser request correlated by server ID and route. All native
+  clocks, Git response/decorations, exact content checks and browser/error checks
+  passed. The 60 persistence checkpoints compared **240 files**, with 81,253
+  bytes across the four files at the final checkpoint. The server stopped.
+
+| Final action | Samples | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| First workspace visit | 2 | 167.0 ms | 167.0 ms | 167.0 ms |
+| Open document | 20 | 32.1 ms | 49.3 ms | 64.7 ms |
+| Open editor | 20 | 49.7 ms | 52.8 ms | 53.3 ms |
+| Save and update both views | 20 | 66.9 ms | 80.5 ms | 83.8 ms |
+| Reopen saved editor | 20 | 51.4 ms | 54.6 ms | 59.2 ms |
+| Cancel and retain saved content | 20 | 35.0 ms | 41.7 ms | 44.6 ms |
+| Close modal | 20 | 35.9 ms | 39.1 ms | 41.4 ms |
+| Restore visited workspace/document | 18 | 108.2 ms | 123.0 ms | 123.0 ms |
+
+These results cover the stated fixture. They do not erase the first logging
+request miss, prove behavior for arbitrarily large documents, or cover editor
+keystrokes, concurrent conflicting edits, comments, artifact links, notebook
+execution, every other UI flow, or the unmerged production lifecycle.
+
+Validation covers disposable-scope rejection before reads/input, immutable
+per-step expectations, exact Unicode contents, detection of unintended writes
+to the other workspace or sibling, cancelled drafts, incompatible workflow
+flags, and invalid document size. **15 focused probe/clock/echo checks passed**
+in the final combined invocation. After tightening the disk verifier to compare
+raw UTF-8 bytes directly, all **10 document-probe checks passed again**. The
+earlier sandbox invocation passed 14 checks but
+could not start Chrome for the native-clock test; that test then passed with
+access to its owned Chrome process. No production test result is inferred from
+this diagnostic-only change.
+
+Artifacts:
+
+- `/tmp/lab-document-edit-{smoke,large,final}-{browser,server}.json`, plus matching
+  `.log` files; `large` is the retained incorrect-expectation run.
+- `/tmp/lab-document-edit-summary.json` contains complete final per-action
+  statistics, request correlation counts and retained smoke request miss.
+- `/tmp/lab-document-edit-{probe-tests,native-clock,tests-final,bytes-tests}.log`.
+
+Example (from a checkout with its Python environment):
+
+```sh
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --document-edit --document-sections 300 --samples 20 \
+  --extra-files 5000 --extra-file-types ipynb,pdf,svg,js \
+  --extra-file-layout flat --git-changes 2500 \
+  --server-timings /tmp/lab-document-edit-server.json
+```
+
+### Local iTerm comparison remains unresolved
+
+The installed scripting API reported iTerm2 **3.6.11**. Its bundled
+`/Applications/iTerm.app/Contents/Resources/iTerm2.sdef` exposes session IDs,
+window creation, input text and visible screen contents. The official
+[screen API documentation](https://iterm2.com/python-api/screen.html) describes
+screen-content access and change notifications; neither this API nor the
+[rendering preferences documentation](https://iterm2.com/documentation-preferences-general.html)
+provides an end-to-end keyboard/display measurement. Scripted text injection
+and buffer polling must not be labeled native keyboard-to-render latency.
+
+Read-only macOS checks for the owned test process returned `AXTrusted=false`,
+`PostEvent=false` and `ScreenCapture=false`; no permissions or preferences were
+changed. A System Events capability check did not return and was stopped. A
+separate iTerm smoke call requested an owned window running only `/bin/sleep 2`,
+but did not return its window/session ownership result before being stopped.
+No `/bin/sleep 2` process remained at inspection; window creation/closure was
+not verified. The computer-use connector then explicitly refused iTerm access
+for safety reasons. No alternative UI access was attempted after that refusal.
+Both owned automation processes were stopped and their execution sessions
+confirmed exit 143. **No local iTerm latency number was obtained**, and no
+physical keyboard/display parity is claimed.
+
+Local merge remains pending after the earlier automatic approval-review
+rejection. The independently modified main checkout and live Lab server were
+not changed.

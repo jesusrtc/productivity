@@ -1,5 +1,7 @@
 # Memory index
 
+- [Document editing checks both views](document-edit-latency-checks-both-views.md) — measure saved/cancelled modal and inline content, exact files across workspaces, and restored document navigation
+
 - [Sidebar file identity is shared](sidebar-file-identity-is-shared.md) — one captured path/root serves open, context, drag and terminal links; legacy entry rows keep their metadata
 
 - [Native drag tests use a trusted transfer](native-drag-tests-use-trusted-transfer.md) — verify copy mode in native dragstart, cancel the owned test drag and reset pointer state before pixel comparisons

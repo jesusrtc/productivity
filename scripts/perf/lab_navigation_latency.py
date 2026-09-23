@@ -39,6 +39,8 @@ parser.add_argument('--settings', action='store_true', help='Measure settings op
 parser.add_argument('--pins', action='store_true', help='Measure native Pin and Unpin clicks through persisted metadata and sidebar redraw')
 parser.add_argument('--terminal-tabs', action='store_true', help='Measure native terminal tab clicks across retained panes and cache eviction')
 parser.add_argument('--quick-files', action='store_true', help='Measure Command+K, filtering, selection, file opening and Escape with native keys')
+parser.add_argument('--document-edit', action='store_true', help='Measure document editor open, save, cancel and close in alternating fixture workspaces')
+parser.add_argument('--document-sections', type=int, default=30, help='Markdown sections per fixture document (default: 30)')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
@@ -65,6 +67,10 @@ if args.terminal_tabs and (args.typing or args.resize or args.create or args.set
     parser.error('--terminal-tabs measures a separate workflow and cannot be combined with --typing, --resize, --create, --settings or --pins')
 if args.quick_files and (args.typing or args.resize or args.create or args.settings or args.pins or args.terminal_tabs):
     parser.error('--quick-files measures a separate workflow and cannot be combined with other workflows')
+if args.document_edit and (args.typing or args.resize or args.create or args.settings or args.pins or args.terminal_tabs or args.quick_files):
+    parser.error('--document-edit measures a separate workflow and cannot be combined with other workflows')
+if args.document_sections < 1:
+    parser.error('--document-sections must be positive')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
 if args.trace_terminal and (not (args.typing or args.terminal_tabs) or not args.server_timings):
@@ -111,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
             (root / 'workspaces' / name / 'docs' / f'review-{number}.md').write_text(
                 f'# {name.title()} review {number}\n\n' + '\n\n'.join(
                     f'## Section {i}\n\nFixture paragraph with **formatting** and `code`.'
-                    for i in range(30)))
+                    for i in range(args.document_sections)))
         for number in range(args.extra_files):
             folder = root / 'workspaces' / name / 'notes'
             if args.extra_file_layout == 'folders':
@@ -258,6 +264,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_SETTINGS': str(int(args.settings)),
                      'LAB_PERF_PINS': str(int(args.pins)),
                      'LAB_PERF_QUICK_FILES': str(int(args.quick_files)),
+                     'LAB_PERF_DOCUMENT_EDIT': str(int(args.document_edit)),
+                     'LAB_PERF_DOCUMENT_SECTIONS': str(args.document_sections),
                      'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                 timeout=max(120, args.samples * 26))
     finally:

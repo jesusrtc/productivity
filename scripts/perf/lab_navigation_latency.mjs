@@ -11,6 +11,7 @@ import {captureInputClock,validateInputClock} from './input_clock.mjs';
 import {installTerminalTabProbe} from './terminal_tab_probe.mjs';
 import {runQuickFileWorkload} from './quick_file_workload.mjs';
 import {compareSidebarIdentity} from './sidebar_identity_probe.mjs';
+import {documentEditActions,verifyEditedDocuments} from './document_edit_workload.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -172,6 +173,7 @@ async function main() {
     const settings=process.env.LAB_PERF_SETTINGS==='1';
     const pins=process.env.LAB_PERF_PINS==='1';
     const quickFiles=process.env.LAB_PERF_QUICK_FILES==='1';
+    const documentEdit=process.env.LAB_PERF_DOCUMENT_EDIT==='1';
     const terminalTabs=JSON.parse(process.env.LAB_PERF_TERMINAL_TABS||'[]');
     if(terminalTabs.length)await installTerminalTabProbe(evaluate,terminalTabs);
     const initialWorkspaceTabs=createWorkspaces
@@ -189,6 +191,8 @@ async function main() {
             ready:`currentWorkspace?.path===${JSON.stringify(workspaceRoot+'/'+id)} && document.querySelector('#content [data-workspace-display-title]')?.textContent===${JSON.stringify(name)} && !document.getElementById('vaultWorkspaceModal')?.classList.contains('active') && !!document.querySelector('.workspace-tab[data-workspace-id="${id}"]')`},
         );
       }
+    } else if(documentEdit) {
+      actions.push(...await documentEditActions(workspaceRoot,samples));
     } else if(quickFiles) {
       actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
         ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
@@ -271,7 +275,7 @@ async function main() {
       }
       if(action.input) {
         if(action.inputSelector) {
-          await evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(action.inputSelector)});if(!input)throw Error('Settings input is not ready');input.focus();input.select();})()`);
+          await evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(action.inputSelector)});if(!input)throw Error('Action input is not ready');input.focus();input.select();})()`);
         } else if(!await evaluate(`document.activeElement?.id==='vaultWorkspaceName' && !document.getElementById('vaultWorkspaceName').value`))throw new Error('New workspace name field is not ready');
         await client.send('Input.insertText',{text:action.input});
       }
@@ -342,6 +346,7 @@ async function main() {
       const terminalState=action.terminal?await evaluate(`__terminalTabs.state(${JSON.stringify(action.target)})`):null;
       rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,clock:row.clock,clockCheck,requests:row.requests,...(action.terminal?{cacheState,terminalState}:{})});
       if(!clockCheck.valid)throw new Error('Mouse input clock validation failed: '+clockCheck.reason);
+      if(action.expectedDocuments)rows.at(-1).documentVerification=await verifyEditedDocuments(action.expectedDocuments);
       if(action.terminal) {
         if(terminalState.cacheSize>3||terminalState.panes>4)throw new Error('Terminal pane retention exceeded its production bound');
         if(action.kind==='terminal-first') {
@@ -470,7 +475,7 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const fixture={workflow:documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
     const terminals=terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;
