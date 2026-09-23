@@ -15,11 +15,15 @@ import time
 from typing import Callable
 
 from core import fsguard
+from core.workspace_index import ChangeHub, DirectoryIndex
 
 
 log = logging.getLogger(__name__)
 REQUEST_WAIT_SECONDS = 0.15
-REFRESH_SECONDS = 2.0
+RECONCILE_SECONDS = 300.0
+FALLBACK_SECONDS = 30.0
+DEBOUNCE_SECONDS = 0.2
+MAX_DEBOUNCE_SECONDS = 1.0
 MAX_WORKERS = 2
 MAX_ROOTS = 32
 
@@ -37,6 +41,7 @@ class Progress:
     last_step: float = field(default_factory=time.monotonic)
     cancelled: threading.Event = field(default_factory=threading.Event)
     warned: bool = False
+    cache: object = None
 
     def step(self, path: Path, operation: str) -> None:
         if self.cancelled.is_set():
@@ -69,6 +74,9 @@ class _Entry:
     progress: Progress | None = None
     error: str | None = None
     failures: int = 0
+    index: DirectoryIndex | None = None
+    reconciled: float = 0
+    duration: float = 0
 
 
 @dataclass
@@ -89,21 +97,36 @@ class Store:
         self._entries: OrderedDict[tuple, _Entry] = OrderedDict()
         self._threads: set[threading.Thread] = set()
         self._closed = False
+        self._hub = ChangeHub()
+        self._retired = []
 
-    def _scan(self, key: tuple, entry: _Entry, collect: Callable[[Progress], Snapshot]):
+    def _scan(self, key: tuple, entry: _Entry, collect: Callable[[Progress], Snapshot], full: bool):
+        view = None
         try:
+            with self._lock:
+                retired, self._retired = self._retired, []
+            for index in retired:
+                index.close()
+            view = entry.index.begin(entry.progress, full=full)
+            entry.progress.cache = view
             snapshot = collect(entry.progress)
+            view.commit()
             with self._lock:
                 entry.snapshot = snapshot
                 entry.error = None
                 entry.failures = 0
+                if view.full:
+                    entry.reconciled = time.monotonic()
             elapsed = time.monotonic() - entry.progress.started
             if elapsed >= fsguard._timeout_seconds():
                 log.info("workspace scan completed root=%s entries=%s elapsed=%.2fs",
                          key[1], entry.progress.visited, elapsed)
         except ScanCancelled:
-            pass
+            if view:
+                view.abort()
         except Exception as exc:
+            if view:
+                view.abort()
             # Log once per scan, not once per waiting browser/endpoint. The
             # last complete snapshot survives a failed refresh.
             log.warning("workspace scan failed root=%s operation=%s path=%s entries=%s: %s",
@@ -115,6 +138,7 @@ class Store:
         finally:
             with self._lock:
                 entry.checked = time.monotonic()
+                entry.duration = entry.checked - entry.progress.started
                 entry.done.set()
                 self._threads.discard(threading.current_thread())
 
@@ -132,14 +156,21 @@ class Store:
                     victim = next((k for k, e in self._entries.items() if e.done.is_set()), None)
                     if victim is None:
                         return Read(None, {"state": "busy", "detail": "File scans are busy"})
-                    del self._entries[victim]
-                entry = _Entry()
+                    self._retired.append(self._entries.pop(victim).index)
+                entry = _Entry(index=DirectoryIndex(root, include_dotfiles, self._hub))
                 entry.done.set()
                 self._entries[key] = entry
             self._entries.move_to_end(key)
             age = time.monotonic() - entry.checked
-            interval = max(REFRESH_SECONDS, min(60, 2 ** min(entry.failures, 6))) if entry.error else REFRESH_SECONDS
-            due = entry.progress is None or age >= interval or refresh and not entry.error
+            interval = RECONCILE_SECONDS if entry.index.watching() else FALLBACK_SECONDS
+            # Slow/unavailable volumes must get a rest even in fallback mode.
+            interval = max(interval, entry.duration * 4)
+            full = refresh or time.monotonic() - entry.reconciled >= interval
+            pending, changed, first_changed = entry.index.pending()
+            quiet = time.monotonic() - changed >= DEBOUNCE_SECONDS or time.monotonic() - first_changed >= MAX_DEBOUNCE_SECONDS
+            due = entry.snapshot is None or full or bool(entry.error) or pending and quiet
+            if entry.error and age < min(60, 2 ** min(entry.failures, 6)):
+                due = False
             busy = False
             if entry.done.is_set() and due:
                 if len(self._threads) >= MAX_WORKERS:
@@ -148,7 +179,7 @@ class Store:
                     entry.done = threading.Event()
                     entry.progress = Progress(str(root))
                     entry.error = None
-                    thread = threading.Thread(target=self._scan, args=(key, entry, collect),
+                    thread = threading.Thread(target=self._scan, args=(key, entry, collect, full),
                                               name="workspace-scan", daemon=True)
                     self._threads.add(thread)
                     try:
@@ -185,6 +216,13 @@ class Store:
                 status["detail"] = f"File scan is waiting on {progress.operation}: {progress.path}"
             return Read(entry.snapshot, status)
 
+    def invalidate_all(self) -> None:
+        """Explicit reconciliation hook (also used by materialized test reads)."""
+        with self._lock:
+            for entry in self._entries.values():
+                entry.index.invalidate()
+                entry.reconciled = 0
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
@@ -198,3 +236,4 @@ class Store:
         deadline = time.monotonic() + 0.5
         for thread in threads:
             thread.join(max(0, deadline - time.monotonic()))
+        self._hub.close()

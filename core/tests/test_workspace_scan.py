@@ -63,6 +63,7 @@ def test_mtime_reports_resource_exhaustion_instead_of_partial_success(client, se
 
 
 def test_files_and_mtime_collect_one_background_snapshot(client, seed_workspace, monkeypatch):
+    client = client._inner  # Exercise production caching, not fixture materialization.
     import threading
     from core import workspace_snapshot
     from core.routes import diff
@@ -98,6 +99,7 @@ def test_files_and_mtime_collect_one_background_snapshot(client, seed_workspace,
         assert 'docs/complete.md' in {row['path'] for row in files.json()}
         assert mtime.json()['mtime'] is not None
         assert mtime.json()['revision']
+        assert files.headers['x-lab-files-revision'] == mtime.json()['revision']
         assert calls == [root]
     finally:
         release.set()

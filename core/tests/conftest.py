@@ -86,6 +86,9 @@ class MaterializedClient:
         cache = getattr(self._inner.app.state, "index_cache", None)
         if cache is not None:
             cache.rebuild()
+        snapshots = getattr(self._inner.app.state, "workspace_snapshots", None)
+        if snapshots is not None:
+            snapshots.invalidate_all()
 
     def get(self, *args, **kwargs):
         self._rebuild()
@@ -116,13 +119,16 @@ class MaterializedClient:
 
 
 @pytest.fixture()
-def client(monorepo: Path):
+def client(monorepo: Path, monkeypatch):
     """FastAPI TestClient pointed at the fixture monorepo."""
     # Ensure the `lab` CLI is discoverable by subprocess.run.
     venv_bin = Path(sys.executable).parent
     os.environ["PATH"] = f"{venv_bin}:{os.environ.get('PATH', '')}"
 
     from core.main import create_app
+    # Most route tests materialize reads synchronously; native delivery has
+    # separate integration coverage and must not race fixture teardown.
+    monkeypatch.setenv("LAB_WORKSPACE_WATCHER", "off")
     app = create_app()
     with TestClient(app) as c:
         login = c.post("/api/auth/login", json={"username": "admin", "password": "admin"})

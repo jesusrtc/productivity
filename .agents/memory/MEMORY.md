@@ -284,3 +284,5 @@
 
 - [Workspace files use background snapshots](workspace-files-use-background-snapshots.md) — share Files/mtime work, collect initial 202 responses, preserve complete listings, and diagnose individual stalled reads.
 - [Polling watcher does not follow nested links](polling-watcher-does-not-follow-nested-links.md) — lstat prevents recursive ancestor links from consuming the index watcher; Files still browses linked folders.
+
+- [Incremental Files and instant scope switches](workspace-files-incremental-and-instant-scope-switches.md) — native change invalidation, bounded DOM caches, and a generic under-200ms warm folder/worktree switch target.

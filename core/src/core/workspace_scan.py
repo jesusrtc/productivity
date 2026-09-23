@@ -37,7 +37,8 @@ class Entry:
 
 def walk(root: Path, *, include_dotfiles: bool = False,
          git_root: Path | None = None,
-         progress: Callable[[Path, str], None] | None = None) -> Iterator[Entry]:
+         progress: Callable[[Path, str], None] | None = None,
+         cache=None) -> Iterator[Entry]:
     """Yield root, directories, files and broken links with one stat per entry.
 
     Linked folders remain browsable. Ancestor inode tracking stops cycles even
@@ -67,7 +68,11 @@ def walk(root: Path, *, include_dotfiles: bool = False,
         if identity in ancestors or entry.depth > 64:
             yield entry
             return
-        try:
+        def listing():
+            # Directory mtime does not change for an in-place child edit.
+            # Reuse a listing only when no filesystem event invalidated it.
+            step(entry.path, "stat")
+            directory_stat = entry.path.stat()
             step(entry.path, "scandir")
             with os.scandir(entry.path) as iterator:
                 children = []
@@ -76,6 +81,10 @@ def walk(root: Path, *, include_dotfiles: bool = False,
                     children.append(child)
             step(entry.path, "sort")
             children.sort(key=lambda child: child.name)
+            return directory_stat, children
+
+        try:
+            entry.stat, children = cache.listing(entry.path, listing) if cache else listing()
         except (FileNotFoundError, NotADirectoryError, PermissionError):
             yield entry
             return
@@ -100,6 +109,8 @@ def walk(root: Path, *, include_dotfiles: bool = False,
                 if not is_symlink:
                     continue
                 info = None
+            if cache and is_symlink and info is not None:
+                cache.link(Path(child.path), stat.S_ISDIR(info.st_mode), step)
             yield from visit(Entry(Path(child.path), info, is_symlink,
                                    entry.depth + 1, entry.git_root), budget + 1, ancestors)
 

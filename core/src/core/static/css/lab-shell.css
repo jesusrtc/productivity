@@ -603,6 +603,8 @@
   .sidebar-worktree-scope .tree-node { margin-left: 6px; }
   .sidebar-recent-folder { color: var(--text-secondary); }
   .sidebar-title .sidebar-title-count { margin-left: 5px; color: var(--text-dim); font-size: 10px; font-weight: 400; }
+  .sidebar-scan-status { padding: 4px 16px; color: var(--text-dim); font-size: 12px; }
+  .sidebar-scan-status:empty { display: none; }
   /* Segmented control used in the Settings modal (agent + theme pickers). */
   .seg-group { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; width: fit-content; }
   .seg-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: none; border-right: 1px solid var(--border); padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit; }

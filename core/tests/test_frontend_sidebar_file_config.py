@@ -1226,3 +1226,77 @@ function showWorkspaceInfo() { refreshes++; }
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """)
     assert result == {'misses': 0, 'refreshes': 2}
+
+
+def test_completed_scan_refreshes_stale_restored_tree_even_after_mtime_baseline_changes():
+    poller = _between('// Auto-refresh workspace view when any file in the workspace folder changes',
+                      '// Sidebar git decorations poll.')
+    result = _run_node("""
+let tick, refreshes = 0;
+const UI_CHECK = false;
+const sidebar = {_fileScope: {fileRoot:'/root', revision:'old-listing'}};
+const document = {getElementById: () => sidebar, hidden:false, body:{classList:{contains:()=>false}}};
+const currentWorkspace = {is_workspace:true, path:'/root'};
+const currentRepo = null, _workspaceDocPath = null, _workspaceDocEditing = false;
+function setInterval(callback) { tick = callback; }
+const fetch = async () => ({ok:true, status:200, json:async () => ({mtime:100,revision:'completed-scan'})});
+function showWorkspaceInfo() { refreshes++; sidebar._fileScope.revision = 'completed-scan'; }
+""" + poller + """
+(async () => {
+  await tick();
+  await tick();
+  process.stdout.write(JSON.stringify({refreshes}));
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+    assert result == {'refreshes': 1}
+
+
+def test_repository_switch_reconciles_git_and_ignores_late_outgoing_tree():
+    loader = _between('  async function loadWorkspaceView(', '  function dirHasChangedFiles(')
+    result = _run_node("""
+let selected = '/a', releaseA, fileTree = [], _repoFileRoot = '';
+const currentRepo = '/repo', showWorkspaceDotFiles = false, showDotFiles = false, workspaceOpenFile = null;
+const diffCache = {branch:{files:[],base_branch:'cached'}};
+const elements = new Map();
+const document = {getElementById: key => {
+  if (!elements.has(key)) elements.set(key, {innerHTML:'',textContent:''});
+  return elements.get(key);
+}};
+const _sidebarEnsureWorktrees = async () => {};
+const _sidebarScopedRoot = () => selected;
+let diffs = 0;
+const fetch = async url => {
+  const root = new URL('http://example.test' + url).searchParams.get('repo');
+  if (url.startsWith('/api/diff')) {
+    diffs++;
+    if (root === '/a') await new Promise(resolve => {releaseA = resolve;});
+    return {json:async () => ({files:[],base_branch:root})};
+  }
+  return {json:async () => [{path:root + '.py',name:root + '.py',type:'file'}]};
+};
+const _sidebarFetchWorkspaceFiles = async () => [];
+const _sidebarRememberAvailableExtensions = () => {};
+const _sidebarResolveRecentFiles = async () => [];
+const filterDotFiles = rows => rows, _sidebarSortNestedTree = rows => rows;
+const _sidebarFilesUnchanged = () => false;
+const _sidebarMarkPainted = () => {};
+const _sidebarCurrentSortMode = () => 'name';
+const _sidebarFileConfigCogHtml = () => '', _sidebarRecentSelectorsHtml = () => '';
+const _sidebarFileScopeButtonsHtml = () => '', _sidebarWorktreePickerHtml = () => '';
+const symlinkLegendHtml = () => '', _sidebarWorktreeScopeStartHtml = () => '';
+const _sidebarRecentSectionHtml = () => '', _sidebarFilesTitle = () => '';
+const _sidebarWorktreeScopeEndHtml = () => '';
+const renderTreeNodes = rows => JSON.stringify(rows);
+""" + loader + """
+(async () => {
+  const outgoing = loadWorkspaceView({refreshDiff:true});
+  await Promise.resolve();
+  selected = '/b';
+  await loadWorkspaceView({refreshDiff:true});
+  releaseA();
+  await outgoing;
+  process.stdout.write(JSON.stringify({diffs, root:_repoFileRoot, branch:diffCache.branch.base_branch,
+    tree:fileTree.map(row => row.path), rendered:document.getElementById('sidebar').innerHTML.includes('/b.py')}));
+})().catch(error => {console.error(error); process.exitCode=1;});
+""")
+    assert result == {'diffs': 2, 'root': '/b', 'branch': '/b', 'tree': ['/b.py'], 'rendered': True}

@@ -1230,7 +1230,7 @@
     const createNotebook = _canCreateExecutableNotebook(root)
       ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
       : '';
-    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div><div class="muted" data-workspace-scan-root="${escAttr(root)}" role="status">${_sidebarScanLabel(_sidebarScanStates.get(root))}</div>`;
+    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div><div class="sidebar-scan-status" data-workspace-scan-root="${escAttr(root)}" role="status">${_sidebarScanLabel(_sidebarScanStates.get(root))}</div>`;
   }
 
   function _explorerContextFromRow(row) {
@@ -2926,7 +2926,7 @@
   const _sidebarFileRequests = new Map();
   const _sidebarScanStates = new Map();
   function _sidebarScanLabel(state) {
-    if (state === 'scanning' || state === 'refreshing') return 'Updating files…';
+    if (state === 'scanning') return 'Loading files…';
     if (state === 'stalled' || state === 'error' || state === 'busy') return 'Files temporarily unavailable. Showing the last listing.';
     return '';
   }
@@ -3007,6 +3007,9 @@
       error.sidebarReported = true;
       throw error;
     }
+    // Retain the revision of these rows (not a later mtime poll). This closes
+    // the race where a background scan completes between navigation requests.
+    files._snapshotRevision = response.headers?.get('X-Lab-Files-Revision') || null;
     return files;
   }
 
@@ -3467,6 +3470,87 @@
     }
   }
 
+  // Keep the actual nodes: parsing/rendering a large cached JSON tree on every
+  // click still blocks the browser. Moving its existing nodes also preserves
+  // expansion and scroll state. The bounded cache is shared by all surfaces.
+  const _sidebarScopeViews = new Map();
+  function _sidebarScopeCacheKey(baseRoot) {
+    const {selectedFolders, selectedWorktrees, ...settings} = _sidebarFileConfig;
+    const folder = _sidebarWorkspaceRoot(baseRoot);
+    const worktree = _sidebarActiveWorktreeFolder(baseRoot)
+      ? String((selectedWorktrees || {})[folder] || '') : '';
+    const surface = currentRepo ? 'repo' : document.body.classList.contains('self-active')
+      ? 'self' : document.body.classList.contains('vault-active') ? 'vault'
+      : document.body.classList.contains('assistant-active') ? 'assistant' : 'workspace';
+    return JSON.stringify([surface, baseRoot, folder, worktree, showWorkspaceDotFiles, settings]);
+  }
+
+  function _sidebarMarkPainted(baseRoot, fileRoot, files) {
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar._fileScope = {baseRoot, fileRoot, key: _sidebarScopeCacheKey(baseRoot),
+      view: sidebar.firstElementChild, revision: files?._snapshotRevision};
+  }
+
+  function _sidebarCacheCurrentScope(baseRoot) {
+    const sidebar = document.getElementById('sidebar');
+    const scope = sidebar && sidebar._fileScope;
+    if (!scope || scope.view !== sidebar.firstElementChild || scope.baseRoot !== baseRoot
+        || scope.key !== _sidebarScopeCacheKey(baseRoot)) return;
+    const entry = {
+      ...scope, nodes: Array.from(sidebar.childNodes), scroll: sidebar.scrollTop,
+      payload: _workspaceSidebarCache.get(baseRoot)?.fileRoot === scope.fileRoot
+        ? _workspaceSidebarCache.get(baseRoot) : null,
+      signature: sidebar._filesSignature,
+      worktrees: _sidebarWorktreeFolders, discoveryKey: _sidebarWorktreeDiscoveryKey,
+      resolved: _sidebarWorktreeFolderResolved,
+      repoTree: currentRepo ? fileTree : null, repoDiff: currentRepo ? diffCache : null,
+    };
+    _sidebarScopeViews.delete(scope.key);
+    _sidebarScopeViews.set(scope.key, entry);
+    while (_sidebarScopeViews.size > 8) _sidebarScopeViews.delete(_sidebarScopeViews.keys().next().value);
+  }
+
+  function _sidebarRestoreScope(baseRoot) {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return false;
+    const key = _sidebarScopeCacheKey(baseRoot);
+    const cached = _sidebarScopeViews.get(key);
+    if (!cached) {
+      sidebar._fileScope = null;
+      sidebar.innerHTML = _sidebarFileScopeButtonsHtml(baseRoot) +
+        '<div class="sidebar-title">Loading files…</div>';
+      return false;
+    }
+    _sidebarScopeViews.delete(key);
+    _sidebarScopeViews.set(key, cached);
+    _sidebarWorktreeFolders = cached.worktrees;
+    _sidebarWorktreeDiscoveryKey = cached.discoveryKey;
+    _sidebarWorktreeFolderResolved = cached.resolved;
+    if (cached.payload) _workspaceSidebarCache.set(baseRoot, cached.payload);
+    if (currentRepo) {
+      _repoFileRoot = cached.fileRoot;
+      fileTree = cached.repoTree;
+      diffCache = cached.repoDiff;
+    }
+    sidebar.replaceChildren(...cached.nodes);
+    sidebar._fileScope = cached;
+    sidebar._filesSignature = cached.signature;
+    sidebar.scrollTop = cached.scroll;
+    sidebar.querySelectorAll('.sidebar-file.active').forEach(row => row.classList.remove('active'));
+    _sidebarSetScanState(cached.fileRoot, _sidebarScanStates.get(cached.fileRoot) || 'ready');
+    return true;
+  }
+
+  function _sidebarFilesUnchanged(baseRoot, fileRoot, data) {
+    const sidebar = document.getElementById('sidebar');
+    const signature = JSON.stringify([_sidebarScopeCacheKey(baseRoot), fileRoot, data]);
+    const unchanged = sidebar._fileScope?.key === _sidebarScopeCacheKey(baseRoot)
+      && sidebar._fileScope.view === sidebar.firstElementChild
+      && sidebar._filesSignature === signature;
+    sidebar._filesSignature = signature;
+    return unchanged;
+  }
+
   async function sidebarSelectFolder(button) {
     _termCancelPendingLinkedFileOpen();
     const baseRoot = String(button && button.getAttribute('data-base-root') || '');
@@ -3475,6 +3559,7 @@
     const selected = requested && _sidebarFolderScope(requested) ? requested : '';
     const previous = String((_sidebarFileConfig.selectedFolders || {})[baseRoot] || '');
     if (selected === previous) return;
+    _sidebarCacheCurrentScope(baseRoot);
     _sidebarFileConfig.selectedFolders = {...(_sidebarFileConfig.selectedFolders || {})};
     if (selected) _sidebarFileConfig.selectedFolders[baseRoot] = selected;
     else delete _sidebarFileConfig.selectedFolders[baseRoot];
@@ -3488,7 +3573,8 @@
     _workspaceSidebarCache.delete(baseRoot);
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
-    await _refreshSidebarAfterFileConfig();
+    const restored = _sidebarRestoreScope(baseRoot);
+    afterFirstPaint(() => _refreshSidebarAfterFileConfig({scopeSwitch: restored}));
   }
 
   async function sidebarSelectWorktree(select) {
@@ -3497,6 +3583,10 @@
     if (!baseRoot) return;
     const workspaceRoot = _sidebarWorkspaceRoot(baseRoot);
     const selected = String(select.value || '');
+    // The browser has already changed the select before onchange runs. Keep
+    // the outgoing cached view's picker consistent with its own checkout.
+    select.value = String((_sidebarFileConfig.selectedWorktrees || {})[workspaceRoot] || '');
+    _sidebarCacheCurrentScope(baseRoot);
     _sidebarFileConfig.selectedWorktrees = {...(_sidebarFileConfig.selectedWorktrees || {})};
     if (selected) _sidebarFileConfig.selectedWorktrees[workspaceRoot] = selected;
     else delete _sidebarFileConfig.selectedWorktrees[workspaceRoot];
@@ -3509,7 +3599,8 @@
     _workspaceSidebarCache.delete(baseRoot);
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
-    await _refreshSidebarAfterFileConfig();
+    const restored = _sidebarRestoreScope(baseRoot);
+    afterFirstPaint(() => _refreshSidebarAfterFileConfig({scopeSwitch: restored}));
   }
 
   function sidebarSetWorktreeColor(input) {
@@ -3524,13 +3615,13 @@
     termRenderSessionList();
   }
 
-  async function _refreshSidebarAfterFileConfig() {
+  async function _refreshSidebarAfterFileConfig({scopeSwitch = false} = {}) {
     if (document.body.classList.contains('self-active')) return selfPopulateSidebar();
     if (document.body.classList.contains('vault-active')) return vaultPopulateSidebar();
-    if (currentRepo) return loadWorkspaceView();
+    if (currentRepo) return loadWorkspaceView({refreshDiff: scopeSwitch});
     if (currentWorkspace && currentWorkspace.is_workspace) {
-      _workspaceSidebarCache.delete(currentWorkspace.path);
-      return _refreshWorkspaceSidebar({preserveScroll: true});
+      if (!scopeSwitch) _workspaceSidebarCache.delete(currentWorkspace.path);
+      return _refreshWorkspaceSidebar({preserveScroll: true, _warmPainted: scopeSwitch});
     }
   }
 
@@ -3656,7 +3747,7 @@
     showWorkspaceInfo({preserveScroll: true});
   }
 
-  async function loadWorkspaceView() {
+  async function loadWorkspaceView({refreshDiff = false} = {}) {
     if (!currentRepo) return;
     const baseRoot = currentRepo;
     const dotFiles = showWorkspaceDotFiles;
@@ -3668,22 +3759,21 @@
     content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
 
     // Ensure branch diff (vs master) is loaded for change indicators
-    if (!diffCache.branch) {
+    let branchDiff = diffCache.branch;
+    let nextTree = [];
+    if (refreshDiff || !branchDiff) {
       try {
         const dres = await fetch(`/api/diff?repo=${encodeURIComponent(fileRoot)}&type=branch`);
-        diffCache.branch = await dres.json();
-        document.getElementById('countBranch').textContent = diffCache.branch.files.length;
-        if (diffCache.branch.base_branch) document.getElementById('branchTabLabel').textContent = `vs ${diffCache.branch.base_branch}`;
+        branchDiff = await dres.json();
       } catch (err) {}
     }
 
     // Load file tree
     try {
       const res = await fetch(`/api/tree?repo=${encodeURIComponent(fileRoot)}`);
-      fileTree = await res.json();
-      _sidebarRememberAvailableExtensions(_sidebarFlattenTreeFiles(fileTree));
+      nextTree = await res.json();
     } catch (err) {
-      fileTree = [];
+      nextTree = [];
     }
     let recentFiles = [];
     let sidebarFiles = [];
@@ -3695,6 +3785,12 @@
 
     if (currentRepo !== baseRoot || _sidebarScopedRoot(baseRoot) !== fileRoot
         || showWorkspaceDotFiles !== dotFiles) return;
+    fileTree = nextTree;
+    diffCache.branch = branchDiff;
+    if (branchDiff && Array.isArray(branchDiff.files)) {
+      document.getElementById('countBranch').textContent = branchDiff.files.length;
+      if (branchDiff.base_branch) document.getElementById('branchTabLabel').textContent = `vs ${branchDiff.base_branch}`;
+    }
     // Get changed files with status for indicators (vs master)
     const changedFiles = new Map();
     if (diffCache.branch) {
@@ -3721,7 +3817,8 @@
     const filtered = showDotFiles ? fileTree : filterDotFiles(fileTree);
     const metadataByPath = new Map(sidebarFiles.map(file => [String(file.path || file.name || ''), file]));
     const sortedFiles = _sidebarSortNestedTree(filtered, metadataByPath, _sidebarCurrentSortMode('files'));
-    sb.innerHTML = '<div class="sidebar-title sidebar-title-with-action"><span>Workspace</span>' + _sidebarFileConfigCogHtml() + '</div>' +
+    if (_sidebarFilesUnchanged(baseRoot, fileRoot, [sortedFiles, recentFiles, [...changedFiles], workspaceOpenFile])) return;
+    sb.innerHTML = '<div class="sidebar-scope-view"><div class="sidebar-title sidebar-title-with-action"><span>Workspace</span>' + _sidebarFileConfigCogHtml() + '</div>' +
       _sidebarRecentSelectorsHtml() +
       _sidebarFileScopeButtonsHtml(baseRoot) +
       _sidebarWorktreePickerHtml(baseRoot) +
@@ -3730,7 +3827,8 @@
       _sidebarRecentSectionHtml(recentFiles, workspaceOpenFile, fileRoot, {resolved: true}) +
       _sidebarFilesTitle(fileRoot, 'repo') +
       '<ul class="tree-node">' + renderTreeNodes(sortedFiles, changedFiles) + '</ul>' +
-      _sidebarWorktreeScopeEndHtml(baseRoot);
+      _sidebarWorktreeScopeEndHtml(baseRoot) + '</div>';
+    _sidebarMarkPainted(baseRoot, fileRoot);
   }
 
   function dirHasChangedFiles(node, changedFiles) {
@@ -8958,7 +9056,7 @@
   // of showWorkspaceInfo so the mtime poller can call it independently
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
-  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null} = {}) {
+  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null, _warmPainted = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
@@ -8966,7 +9064,7 @@
     const workspacePath = currentWorkspace.path;
     const dotFiles = showWorkspaceDotFiles;
     const isAssistant = document.body.classList.contains('assistant-active');
-    await _sidebarEnsureWorktrees(workspacePath);
+    if (!_data) await _sidebarEnsureWorktrees(workspacePath);
     const fileRoot = _sidebarScopedRoot(workspacePath);
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
@@ -8982,7 +9080,11 @@
         // Synchronous warm paint — recursive call returns a Promise but
         // because `_data` short-circuits both fetches, all the render
         // work happens in the synchronous prefix.
-        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload});
+        const mounted = sidebar._fileScope;
+        if (!_warmPainted && !(mounted?.key === _sidebarScopeCacheKey(workspacePath)
+            && mounted.view === sidebar.firstElementChild)) {
+          _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload});
+        }
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
@@ -9005,7 +9107,10 @@
             _workspaceSidebarCache.set(workspacePath, fresh);
             // Re-render only if (a) the data actually changed and (b)
             // the user is still on this workspace.
-            if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
+            if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) {
+              if (sidebar._fileScope?.fileRoot === fileRoot) sidebar._fileScope.revision = files._snapshotRevision;
+              return;
+            }
             _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh});
           } catch (e) {
             if (!e || !e.sidebarReported) console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
@@ -9044,10 +9149,10 @@
             if (Array.isArray(info.proxies)) proxies = info.proxies;
           }
         } catch(e) {}
-        _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
       if (!currentWorkspace || currentWorkspace.path !== workspacePath
           || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
+      if (!_data) _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
@@ -9208,7 +9313,8 @@
 
       sbHtml += _agentContextMetaHtml(workspacePath, fileRoot,
         isAssistant ? 'Assistant instructions' : 'Workspace instructions');
-      sidebar.innerHTML = sbHtml;
+      sidebar.innerHTML = '<div class="sidebar-scope-view">' + sbHtml + '</div>';
+      _sidebarMarkPainted(workspacePath, fileRoot, files);
       void window.LabWorkspaceDocuments?.mount({workspace_id:isAssistant ? '__assistant__' : currentWorkspace.name,vault:isAssistant ? '__assistant__' : _workspaceVaultId(currentWorkspace)}, sidebar);
       _populateAgentContextMeta(sidebar);
       if (preserveScroll) sidebar.scrollTop = prevSidebarScroll;
@@ -10534,7 +10640,10 @@
       }
       if (mtime == null) { _workspaceMtimeMisses += 1; return; }
       _workspaceMtimeMisses = 0;
+      const displayed = document.getElementById?.('sidebar')?._fileScope;
+      const displayedRevision = displayed?.fileRoot === fileRoot ? displayed.revision : null;
       if (_workspaceMtimeAwaitingSnapshot
+          || (displayedRevision && revision && displayedRevision !== revision)
           || (_lastWorkspaceRevision && revision && revision !== _lastWorkspaceRevision)
           || (_lastWorkspaceMtime && mtime > _lastWorkspaceMtime)) {
         const isSelf = document.body.classList.contains('self-active');
@@ -16777,6 +16886,10 @@
       // applied imperatively after rebuild and the selection flickers.
       const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const workbenchActive = !activePath ? ' active' : '';
+      if (_sidebarFilesUnchanged(baseRoot, fileRoot, [files, recentFiles, activePath])) {
+        sidebar._fileScope.revision = files._snapshotRevision;
+        return;
+      }
       let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${workbenchActive}" data-workbench="1" onclick="selfShowWorkbench()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(baseRoot);
@@ -16792,10 +16905,11 @@
       sbHtml += _sidebarWorktreeScopeEndHtml(baseRoot);
 
       sbHtml += _agentContextMetaHtml(baseRoot, fileRoot, 'Home instructions');
-      sidebar.innerHTML = sbHtml;
+      sidebar.innerHTML = '<div class="sidebar-scope-view">' + sbHtml + '</div>';
+      _sidebarMarkPainted(baseRoot, fileRoot, files);
       _populateAgentContextMeta(sidebar);
     } catch(e) {
-      sidebar.innerHTML = '<div class="sidebar-title">Home</div>';
+      if (!sidebar._fileScope) sidebar.innerHTML = '<div class="sidebar-title">Home</div>';
     }
   }
 
@@ -18153,6 +18267,10 @@
 
       const activePath = _workspaceDocRoot === fileRoot ? (_workspaceDocPath || null) : null;
       const overviewActive = !activePath ? ' active' : '';
+      if (_sidebarFilesUnchanged(rootPath, fileRoot, [files, recentFiles, activePath])) {
+        sidebar._fileScope.revision = files._snapshotRevision;
+        return;
+      }
       let sbHtml = `<div class="sidebar-overview-row"><a class="sidebar-file${overviewActive}" data-vault-overview="1" onclick="vaultShowOverview()" style="font-weight:600;padding:8px 16px;font-size:13px"><span class="sidebar-fname">Overview</span></a>${_sidebarFileConfigCogHtml()}</div>`;
       sbHtml += _sidebarRecentSelectorsHtml();
       sbHtml += _sidebarFileScopeButtonsHtml(rootPath);
@@ -18163,12 +18281,13 @@
       sbHtml += _sidebarFilesTitle(fileRoot);
       sbHtml += renderSidebarFileTree(buildSidebarTree(files), 0, '', {scope: `vault:${fileRoot}`, autoOpen: _AUTO_OPEN_VAULT, activePath, root: fileRoot});
       sbHtml += _sidebarWorktreeScopeEndHtml(rootPath);
-      sidebar.innerHTML = sbHtml;
+      sidebar.innerHTML = '<div class="sidebar-scope-view">' + sbHtml + '</div>';
+      _sidebarMarkPainted(rootPath, fileRoot, files);
       // Fast first decoration pass (cached + rate-limited server-side);
       // the shared 6s poll keeps it fresh afterwards.
       _sidebarGitStatusRefresh();
     } catch (e) {
-      sidebar.innerHTML = '<div class="sidebar-title">Vault</div>';
+      if (!sidebar._fileScope) sidebar.innerHTML = '<div class="sidebar-title">Vault</div>';
     }
   }
 

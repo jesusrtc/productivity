@@ -74,6 +74,55 @@ isolation, live notebook flags, watcher links, and browser polling. The client
 also avoids logging the same failed shared request again for each sidebar
 subscriber.
 
+## Large folders and instant scope switching
+
+The background-snapshot fix removed the ten-second failure loop, but ordinary
+Files reads still requested a full refresh and mtime polls rescanned every two
+seconds. Folder/worktree selection also deleted its previous sidebar payload
+and waited for discovery, Git comparisons, and files before rendering. Those
+paths explain the persistent updating message and slow switches.
+
+Files now uses a bounded in-memory directory index shared with mtime polling.
+Native FSEvents on macOS, inotify on Linux, or Windows notifications invalidate
+only affected directory listings and their cached metadata. In-place edits,
+creation, deletion, moves, linked targets, and symlink replacement are covered.
+Subscriptions are shared, capped at 32, pruned when links disappear, and closed
+when roots are evicted or the app stops. There is no per-file kqueue descriptor.
+Events during collection remain pending for the next pass; failed collections
+retain their invalidations and last complete snapshot.
+
+Healthy native subscriptions reconcile fully every five minutes to catch missed
+events; unavailable subscriptions fall back to thirty seconds. Slow scans get
+at least four times their previous duration between full reconciliations.
+`LAB_WORKSPACE_WATCHER=off` selects that fallback. `refresh=true` explicitly
+reconciles everything; ordinary requests reuse the index. Notifications are
+debounced and applied when the visible client polls. The existing narrow Lab
+metadata watcher remains separate. Filtering on an mtime time window alone
+would still enumerate files and miss deletions; parent directory mtimes also
+do not identify in-place child edits.
+
+The browser retains up to eight visited sidebar DOM trees, keyed by surface,
+workspace, selected folder/worktree, and display settings. Switching restores
+nodes, expansion state, scroll, and worktree choices before starting background
+requests. Unchanged data does not rebuild the restored tree. The displayed
+snapshot revision is compared with polling revisions so scan completion during
+navigation cannot leave a stale tree behind. Normal background updates have no
+loading banner; initial loading and failures remain visible in small status text.
+
+Validation: Chrome tests switch a 50,000-file cached tree in workspace, Home,
+vault, and repository views while background loading is held pending. Measured
+switch-to-frame times were 12–21 ms locally, below the requested 200 ms budget.
+The checks include actual worktree select changes, DOM identity, preserved open
+folders, filter isolation, and cache limits. A separate 20,000-file / 501-directory
+fixture reread one directory after an edit and zero on a cached traversal.
+Unit and native-event tests cover incremental updates, moves, symlink targets,
+overflow, failed scans, fallback scheduling, shared watches, and cleanup.
+
+These are local fixture measurements, not a measurement of the remote SDUI
+checkout. First visits still require an initial scan; caches are in memory and
+rebuild after a server/browser restart. The implementation has no project-name
+or repository-size special cases.
+
 ## File-descriptor exhaustion and cascading 500s
 
 `EMFILE` from ordinary JSON reads, `os.pipe`, and Jupyter socket creation proves

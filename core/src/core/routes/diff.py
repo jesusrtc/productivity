@@ -576,7 +576,8 @@ def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
             git_root = parent
             break
     image_exts = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
-    for item in workspace_scan.walk(workspace_path, include_dotfiles=include_dotfiles, git_root=git_root, progress=progress.step):
+    for item in workspace_scan.walk(workspace_path, include_dotfiles=include_dotfiles,
+                                    git_root=git_root, progress=progress.step, cache=progress.cache):
         child = item.path
         if item.stat is not None and not (item.is_dir and item.depth and child.name in workspace_scan.SKIP_DIRS):
             latest = max(latest or 0, item.stat.st_mtime)
@@ -595,7 +596,8 @@ def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
                      "created": getattr(item.stat, "st_birthtime", None)}
             if child.suffix.lower() == ".ipynb":
                 progress.step(child, "resolve notebook")
-                notebooks[rel] = str(child.resolve())
+                notebooks[rel] = str(progress.cache.canonical(child, progress.step)
+                                     if progress.cache else child.resolve())
             if item.git_root:
                 checkout_groups[item.git_root][1].append((child.relative_to(item.git_root).as_posix(), entry))
         elif item.is_dir:
@@ -615,6 +617,8 @@ def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
         progress.step(root, "git checkout comparison")
         if baseline:
             worktree_recent.mark_checkout_files(root, baseline, entries)
+            for rel, row in entries:
+                revision.update(f"{rel}:{row.get('checkout_generated', False)}\0".encode())
     return workspace_snapshot.Snapshot(files, latest, revision.hexdigest(), notebooks)
 
 
@@ -629,6 +633,8 @@ def _workspace_snapshot_read(path: str, request: Request, include_dotfiles: bool
 
 def _snapshot_headers(result: workspace_snapshot.Read) -> dict:
     headers = {"Cache-Control": "no-store", "X-Lab-Scan-State": result.scan["state"]}
+    if result.snapshot is not None:
+        headers["X-Lab-Files-Revision"] = result.snapshot.revision
     if result.scan["state"] != "ready":
         headers["Retry-After"] = "2"
     return headers
@@ -636,11 +642,11 @@ def _snapshot_headers(result: workspace_snapshot.Read) -> dict:
 
 @router.get("/api/workspace-files")
 def api_workspace_files(path: str, request: Request, include_dotfiles: bool = False,
-                        refresh: bool = True):
+                        refresh: bool = False):
     """Complete file snapshot, or 202 while the first background scan finishes.
 
-    Refresh requests briefly wait for fresh data and otherwise keep the last
-    complete listing. Clients polling a 202 use refresh=false to collect it.
+    Native events invalidate changed directories; ordinary reads reuse the
+    index. Explicit refresh=true requests a complete reconciliation.
     """
     from core.routes.nb_exec import pending_paths
 
