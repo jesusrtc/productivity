@@ -262,10 +262,12 @@ class ServerTimings:
             @wraps(original)
             def timed(*args, **kwargs):
                 row, start = begin(kwargs)
+                cpu_start = time.thread_time()
                 try:
                     return original(*args, **kwargs)
                 finally:
                     row['ms'] = (time.perf_counter() - start) * 1000
+                    row['threadCpuMs'] = (time.thread_time() - cpu_start) * 1000
                     records.append(row)
 
         routes[0].endpoint = timed
@@ -274,8 +276,10 @@ class ServerTimings:
     def trace_function(self, module, name):
         """Optional coarse function timings, including calls on fsguard workers.
 
-        These are wall times, not exclusive CPU costs. Nested/concurrent calls
-        must not be summed. Arguments/results are deliberately not recorded.
+        Wall times include waiting. Synchronous calls also report CPU consumed
+        by their thread; async calls omit it because unrelated tasks can run
+        during an await. Nested calls must not be summed. Arguments/results
+        are deliberately not recorded.
         """
         original = getattr(module, name)
 
@@ -297,10 +301,12 @@ class ServerTimings:
             @wraps(original)
             def timed(*args, **kwargs):
                 row, start = begin()
+                cpu_start = time.thread_time()
                 try:
                     return original(*args, **kwargs)
                 finally:
                     row['ms'] = (time.perf_counter() - start) * 1000
+                    row['threadCpuMs'] = (time.thread_time() - cpu_start) * 1000
                     self.functions.append(row)
 
         setattr(module, name, timed)

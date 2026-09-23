@@ -16,6 +16,55 @@ const _replaceWorkspaceSidebarMarkup = (el,markup,scope)=>paints.push(scope);
 '''
 
 
+@pytest.mark.parametrize('callback_error', [False, True])
+@pytest.mark.parametrize('outcome', ['success', 'error', 'workspace', 'worktree', 'newer'])
+def test_cold_sidebar_dispatches_files_before_dashboard_without_waiting_or_losing_errors(callback_error, outcome):
+    refresh = _js_between('  async function _refreshWorkspaceSidebar(', '  function paintWorkspaceShell(')
+    result = _run_node(r'''
+const callbackError=CALLBACK_ERROR,outcome=OUTCOME;
+let currentWorkspace={path:'/alpha',name:'alpha',is_workspace:true};
+let fileRoot='/alpha',_workspaceDocRoot=null,_workspaceDocPath=null,_workspaceSidebarRefreshSequence=0;
+const _workspaceSidebarCache=new Map(),paints=[],events=[],errors=[],unhandled=[];
+const sidebar={scrollTop:0,children:[{}]};
+const document={getElementById:()=>sidebar,body:{classList:{contains:()=>false}}};
+console.error=(...args)=>errors.push(args.join(' '));
+process.on('unhandledRejection',error=>unhandled.push(String(error)));
+const _sidebarEnsureWorktrees=async()=>{},_sidebarScopedRoot=()=>fileRoot;
+let release,reject;
+const gate=new Promise((ok,fail)=>{release=ok;reject=fail;});
+const _sidebarFetchWorkspaceFiles=()=>{events.push('files');return gate;};
+const _sidebarResolveRecentFiles=async files=>files;
+const fetch=async()=>{events.push('metadata');return {ok:true,json:async()=>({pinned:[]})};};
+'''.replace('CALLBACK_ERROR', str(callback_error).lower()).replace('OUTCOME', repr(outcome))
+        + _RENDER_STUBS + refresh + r'''
+(async()=>{
+  const pending=_refreshWorkspaceSidebar({_beforeRender:()=>{
+    events.push('dashboard');
+    if(callbackError)throw Error('callback failure');
+  }});
+  await new Promise(resolve=>setImmediate(resolve));
+  const whileReading={events:[...events],paints:[...paints]};
+  if(outcome==='workspace')currentWorkspace={path:'/beta',name:'beta',is_workspace:true};
+  if(outcome==='worktree')fileRoot='/alpha/tree';
+  if(outcome==='newer')_workspaceSidebarRefreshSequence++;
+  if(outcome==='error')reject(Error('read failure'));else release([]);
+  await pending;await new Promise(resolve=>setImmediate(resolve));
+  console.log(JSON.stringify({whileReading,events,paints,errors,unhandled,cacheSize:_workspaceSidebarCache.size}));
+})().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+    assert result['whileReading'] == {'events': ['files', 'dashboard'], 'paints': []}
+    assert result['events'].count('dashboard') == 1
+    assert result['unhandled'] == []
+    if callback_error or outcome == 'error':
+        assert len(result['errors']) == 1
+        assert result['paints'] == [] and result['cacheSize'] == 0
+    elif outcome == 'success':
+        assert result['events'] == ['files', 'dashboard', 'metadata']
+        assert result['paints'] == ['/alpha'] and result['cacheSize'] == 1
+    else:
+        assert result['paints'] == [] and result['cacheSize'] == 0
+
+
 @pytest.mark.parametrize('phase', ['worktrees', 'files', 'info'])
 @pytest.mark.parametrize('change', ['workspace', 'newer', 'worktree'])
 def test_slow_sidebar_response_keeps_latest_navigation(phase, change):

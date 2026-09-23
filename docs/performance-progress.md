@@ -3580,3 +3580,121 @@ The goal remains active: cold navigation and IME misses, broader UI/API
 coverage and physical/iTerm parity are unresolved. No main merge, push or
 live-server restart occurred. Main merge remains pending after the earlier
 automatic approval rejection.
+
+## Overlap cold dashboard reads with file discovery (2026-09-23)
+
+The previous checkpoint's cold click waited for a 95.6 ms browser file-list
+request before starting five independent dashboard reads. The cold path now
+dispatches the file request first, then starts the existing dashboard batch
+while discovery is pending. Request order matters: starting dashboard reads
+before files previously congested Chrome's connection pool. Starting them
+after dispatch avoids that reversal while removing the completion dependency.
+
+The callback runs once. The original file promise is still awaited and its
+failure is observed even if the callback throws. Complete file data and the
+existing workspace/root/generation checks still precede sidebar publication.
+Warm, cached and background scheduling, full document/sidebar readiness,
+polling, cache bounds and backend behavior are unchanged.
+
+### Fixed A/B/B/A comparison
+
+Four predetermined short runs compared baseline `2489ef9` with the candidate,
+using 1,500-section documents, 5,000 mixed flat files per workspace and 2,500
+real Git changes. Each run included two cold workspace clicks and 12 document
+actions. Only ordinary server request timing was enabled.
+
+| Run | Cold Alpha | Cold Beta | Click misses | IME misses |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline A1 | 200.4 ms | 187.9 ms | 1 | 0 |
+| Candidate B1 | 152.5 ms | 186.7 ms | 0 | 0 |
+| Candidate B2 | 148.9 ms | 156.3 ms | 0 | 0 |
+| Baseline A2 | 130.9 ms | 173.1 ms | 0 | 0 |
+
+Across four cold samples per variant, the median was **180.5 → 154.4 ms**
+and maximum **200.4 → 186.7 ms**. File request durations varied: 38.5–95.7 ms
+for the baseline and 46.3–51.3 ms for the candidate. The entire click change
+cannot be attributed to overlapping requests. Resource timing independently
+confirmed the intended scheduling: candidate dashboard actions began
+**0.1–0.3 ms after file dispatch**, rather than after discovery completed.
+The baseline failure remains in the report; there were no replacement runs.
+Artifacts: `/tmp/lab-cold-overlap-abba.json`,
+`/tmp/lab-cold-overlap-{a1,b1,b2,a2}-{browser,server}.json` and matching logs.
+
+### Scan diagnostics and regression checks
+
+The optional synchronous handler/function observers now report thread CPU
+alongside elapsed time. Async observers omit thread CPU because another task
+can execute on that thread during an await. Both synchronous measurements
+include nested work and must not be summed across nested observations.
+
+The earlier 91.52 ms cold ASGI response was not reproduced in the detailed
+diagnostic runs. One cold worker took 28.49 ms elapsed / 20.04 ms thread CPU;
+its waiting handler used under 1 ms CPU. Later file requests reached 59.15 ms,
+sometimes overlapping ~9–10 ms GC pauses, and sometimes without significant
+GC. This does not identify or fix the rare cold scan delay. Per-notebook
+tracing adds work, so final latency claims exclude these observers. Artifacts:
+`/tmp/lab-cold-scan-{before,cpu}-{browser,server}.json` and logs. The full CPU
+diagnostic retained four IME misses, maximum 280.98 ms; all 140 clicks passed.
+
+**204 focused checks passed**, covering sidebar/dashboard races and errors,
+navigation/history, deletion, workspace tabs/proxies, Home/terminal ownership,
+native pins, document editing/input and timing observers. The new ten-case
+cold-read regression holds file discovery pending and checks dispatch order,
+one callback, deferred painting, changed scopes/generations and both failure
+paths without unhandled rejections. The success case fails against the old
+source for the intended reason: dashboard work has not started while files
+are pending. That baseline was loaded in memory without replacing production
+files. A deterministic CPU-clock test distinguishes waiting from synchronous
+CPU and prevents async attribution. Syntax and whitespace checks passed.
+Logs: `/tmp/lab-cold-overlap-tests.log`,
+`/tmp/lab-cold-overlap-regressions-final.log`, and
+`/tmp/lab-cold-overlap-baseline-regression.log`.
+
+### Final large-document validation
+
+The same large fixture, 20 alternating visits, native editor keys and actual
+browser history ran without CPU, file-function, layout or GC tracing:
+
+- **All 140 clicks passed 200 ms**, maximum **177.3 ms** on a remembered
+  workspace restore. Cold workspace clicks were **166.4 / 154.8 ms**; all
+  18 remembered restores passed. Dashboard requests overlapped discovery.
+- **All 1,122 native editor keys passed 200 ms**, maximum **50.8 ms** on Tab.
+  Exact value/cursor/focus and clocks passed; 13 keys shared a paint opportunity
+  with later input. This does not apply the terminal's 50 ms budget to editors.
+- Back/Forward passed at **140.46 / 136.67 ms**, including complete saved
+  content, correct sidebar roots and unchanged history entries.
+- **One of 40 IME insertions failed**, Cancel Beta sample 55 at **202.11 ms**.
+  The run therefore **failed overall**; no replacement run was used to pass.
+- All **833 browser API requests** passed, maximum **156.3 ms**; all
+  **862 server requests** passed, maximum **154.26 ms**. Both maxima were Git
+  status. A later file response reached **124.28 ms** inside ASGI, so scan
+  variability remains unresolved even though cold clicks passed in this run.
+
+Request IDs/routes, Git state and browser/transport checks were clean. All
+62 persistence checks passed, reading 248 files; final content was 405,464
+bytes across four files. The owned browser/server stopped. Artifacts:
+`/tmp/lab-cold-overlap-final-docs-{browser,server,summary}.json` and log.
+
+### Final terminal typing validation
+
+With detailed diagnostics disabled, **all 2,400 terminal keystrokes passed
+50 ms**. Maxima were **38.6 ms** normally and **48.8 ms** with 60 file updates
+and 61 sidebar refreshes. Independent parse and cursor-row render checks
+verified every character, including 87 scrolled reads per verifier. No clock,
+transport, browser error or long task was recorded. Normal polling and
+WebSocket compression settings were unchanged.
+
+All **798 browser API requests** passed, maximum **119.8 ms**, and all
+**835 server requests** passed, maximum **98.31 ms**. Request IDs/routes and
+real Git state matched. The owned benchmark terminal was removed and its
+server/browser stopped. Artifacts:
+`/tmp/lab-cold-overlap-final-typing-{browser,server,summary}.json` and log.
+This validates the checkpoint; it does not attribute terminal performance to
+the cold dashboard scheduling change or establish physical/iTerm parity.
+
+All eight owned servers in this checkpoint's two diagnostics, four A/B/B/A
+runs and two final validations report `serverStopped: true`. The goal remains
+active: occasional IME insertion misses, variable scan delays, broader UI/API
+coverage and physical/iTerm parity are unresolved. No main merge, push or live
+server restart occurred. Main merge remains pending after the earlier
+automatic approval rejection.

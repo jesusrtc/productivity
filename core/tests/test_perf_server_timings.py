@@ -170,6 +170,28 @@ def test_function_timings_preserve_results_exceptions_and_omit_arguments():
     assert 'private' not in str(timings.report())
 
 
+def test_sync_cpu_timing_distinguishes_waiting_and_async_omits_shared_thread_cost(monkeypatch):
+    wall = iter([10, 10.025, 20, 20.050])
+    cpu = iter([1, 1.003])
+    fake_time = SimpleNamespace(perf_counter=lambda: next(wall),
+                                time=lambda: 100, thread_time=lambda: next(cpu))
+    monkeypatch.setattr(_module, 'time', fake_time)
+    async def async_function():
+        await asyncio.sleep(0)
+        return 'async result'
+    functions = SimpleNamespace(sync=lambda: 'sync result', async_function=async_function)
+    timings = ServerTimings(None)
+    timings.trace_function(functions, 'sync')
+    timings.trace_function(functions, 'async_function')
+    assert functions.sync() == 'sync result'
+    assert asyncio.run(functions.async_function()) == 'async result'
+    sync, asynchronous = timings.functions
+    assert sync['ms'] == pytest.approx(25)
+    assert sync['threadCpuMs'] == pytest.approx(3)
+    assert asynchronous['ms'] == pytest.approx(50)
+    assert 'threadCpuMs' not in asynchronous
+
+
 def test_request_correlation_preserves_existing_headers_and_messages():
     start = {'type': 'http.response.start', 'status': 200,
              'headers': [(b'server-timing', b'existing;dur=3'), (b'x-original', b'yes')]}

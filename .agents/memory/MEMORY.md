@@ -1,5 +1,8 @@
 # Memory index
 
+- [Cold dashboard reads follow file dispatch](cold-dashboard-reads-follow-file-dispatch.md) — overlap independent I/O after dispatching files first; retain one batch, complete sidebar data, errors and navigation ownership
+- [Synchronous diagnostics separate thread CPU](synchronous-diagnostics-separate-thread-cpu.md) — distinguish waiting from computation on sync workers; omit misleading async thread totals and retain the unresolved cold scan spike
+
 - [Workspace history precedes view teardown](workspace-history-precedes-view-teardown.md) — avoid a synchronous intermediate style/layout flush while retaining history entries, exact document restoration and old terminal ownership
 
 - [Editor keys are separate from IME setup](editor-keys-are-separate-from-ime-setup.md) — native input has its own clock/value/cursor and Save/Cancel checks; keep IME and navigation failures
@@ -318,7 +321,7 @@
 - [Large file lists use typed serialization](large-file-lists-use-typed-serialization.md) — generic response dictionaries retain all metadata while avoiding the Python JSON conversion walk; compare complete ASGI results.
 - [Offscreen sidebar groups keep complete rows](sidebar-offscreen-groups-keep-complete-rows.md) — native search/actions remain available; flat and nested groups preserve 22px row extents and bounded template retention.
 - [Sidebar actions share row metadata](sidebar-file-actions-share-row-metadata.md) — delegated file/history/modal handlers use escaped paths and roots while controls keep their separate actions.
-- [Dashboard reads overlap sidebar rendering](dashboard-reads-overlap-sidebar-render.md) — start after file data arrives; share one request batch and guard old success/error responses by generation.
+- [Dashboard reads overlap sidebar rendering](dashboard-reads-overlap-sidebar-render.md) — earlier scheduling checkpoint; retain one batch and generation guards, with cold reads now starting after file dispatch.
 - [File scans avoid unused full paths](file-scans-avoid-unused-full-paths.md) — relative prefixes and DirEntry stats remove repeated path work while preserving link, notebook, worktree, and freshness behavior.
 - [Unchanged background sidebars retain live rows](sidebar-background-refresh-retains-unchanged-rows.md) — compare freshly generated markup and mounted scope/identity; preserve focus without suppressing fresh data or changed rendering.
 - [Input latency includes browser queueing](input-latency-includes-browser-queueing.md) — send timestamped CDP input from outside the renderer with normal polling; keep all keys and verify their exact echoed text.

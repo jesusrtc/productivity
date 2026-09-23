@@ -9342,7 +9342,14 @@
           : (_sidebarCurrentRecentMode() === 'mtime' ? _sidebarRecentFiles(files) : []);
       } else {
         // Cold path: fetch fresh + write to cache.
-        files = await _sidebarFetchWorkspaceFiles(fileRoot);
+        const filesRead = _sidebarFetchWorkspaceFiles(fileRoot);
+        // Dispatch files first, then overlap independent dashboard reads with
+        // discovery. Starting those requests before files can congest Chrome's
+        // connection pool; waiting for the complete scan needlessly serializes
+        // them. Observe the read even if the optional callback throws.
+        filesRead.catch(() => {});
+        if (_beforeRender) { _beforeRender(); _beforeRender = null; }
+        files = await filesRead;
         if (!ownsSidebar()) return;
         recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
         if (!ownsSidebar()) return;
@@ -9747,8 +9754,8 @@
       dashboardReads.catch(() => {});
       return dashboardReads;
     };
-    // Start dashboard I/O once the file list is ready, overlapping parsing and
-    // layout without queueing dashboard requests ahead of the cold file scan.
+    // Dispatch the cold file request first, then overlap dashboard I/O with
+    // discovery and rendering. Warm paths share the same one-batch callback.
     await _refreshWorkspaceSidebar({preserveScroll, backgroundRefresh, _beforeRender: startDashboardReads});
     if (!current()) return;
 
