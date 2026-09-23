@@ -7,6 +7,7 @@ import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
+import {captureInputClock,validateInputClock} from './input_clock.mjs';
 const baseUrl = process.argv[2];
 if (!baseUrl || !process.env.LAB_PROBE_COOKIE || new URL(baseUrl).hostname !== '127.0.0.1') throw new Error('Run through lab_navigation_latency.py');
 const chromePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -242,6 +243,7 @@ async function main() {
       }
       let sentEpoch;
       await evaluate(`(async()=>{
+        const captureInputClock=${captureInputClock.toString()};
         let tab=document.querySelector(${JSON.stringify(selector)});
         if(tab.dataset.kind==='workspace' && !tab.dataset.key.startsWith(${JSON.stringify(workspaceRoot + '/')})) throw new Error('Unexpected fixture workspace');
         tab.scrollIntoView({block:'center'});
@@ -259,9 +261,10 @@ async function main() {
             __probe.error='Click reached another target: '+event.target.tagName+'.'+event.target.className;
             __probe.done=true;return;
           }
-          __probe.start=event.timeStamp;
-          __probe.sourceEpoch=performance.timeOrigin+event.timeStamp;
-          __probe.queue=performance.now()-event.timeStamp;
+          __probe.clock=captureInputClock(event);
+          __probe.start=__probe.clock.source;
+          __probe.sourceEpoch=__probe.clock.sourceEpoch;
+          __probe.queue=__probe.clock.handlerAt-event.timeStamp;
           const check=()=>{
             if(${action.ready}) {
               requestAnimationFrame(()=>setTimeout(()=>{__probe.ms=performance.now()-__probe.start;__probe.done=true;},0));
@@ -286,8 +289,9 @@ async function main() {
       }
       const row=await evaluate(`({...__probe,requests:performance.getEntriesByType('resource').filter(r=>r.startTime>=__probe.start && r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,start:r.startTime-__probe.start,ms:r.duration}))})`);
       if(row.error)throw new Error(row.error);
-      rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,requests:row.requests});
-      if(Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Mouse event timestamp did not match dispatched source time');
+      const clockCheck=validateInputClock(row.clock,sentEpoch);
+      rows.push({sample:i+1,kind:action.kind,target:action.target,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,clock:row.clock,clockCheck,requests:row.requests});
+      if(!clockCheck.valid)throw new Error('Mouse input clock validation failed: '+clockCheck.reason);
       if(settings&&action.kind==='workspace') {
         const count=await evaluate(`window.__settingsExpectedRecentRows=document.querySelectorAll('#sidebar .sidebar-file-recent').length`);
         if(!count)throw new Error('Settings fixture has no recent-file rows');
@@ -329,13 +333,15 @@ async function main() {
       for(let i=0;i<samples;i++) {
         const width=i%2?340:200;
         const point=await evaluate(`(()=>{
+          const captureInputClock=${captureInputClock.toString()};
           const resizer=document.getElementById('sidebarResizer'),r=resizer.getBoundingClientRect();
           const x=r.x+r.width/2,y=r.y+r.height/2;
           if(document.elementFromPoint(x,y)!==resizer)throw new Error('Sidebar resizer is not hittable');
           window.__resizeProbe={done:false};
           resizer.addEventListener('mousedown',event=>{
-            __resizeProbe.start=event.timeStamp;__resizeProbe.sourceEpoch=performance.timeOrigin+event.timeStamp;
-            __resizeProbe.queue=performance.now()-event.timeStamp;
+            __resizeProbe.clock=captureInputClock(event);
+            __resizeProbe.start=__resizeProbe.clock.source;__resizeProbe.sourceEpoch=__resizeProbe.clock.sourceEpoch;
+            __resizeProbe.queue=__resizeProbe.clock.handlerAt-event.timeStamp;
           },{capture:true,once:true});
           document.addEventListener('mouseup',()=>requestAnimationFrame(()=>setTimeout(()=>{
             __resizeProbe.width=document.getElementById('sidebar').getBoundingClientRect().width;
@@ -356,8 +362,9 @@ async function main() {
           await sleep(10);
         }
         const row=await evaluate('__resizeProbe');
-        if(row.dragging || Math.abs(row.width-width)>2 || Math.abs(row.sourceEpoch-sentEpoch)>2)throw new Error('Sidebar drag failed: '+JSON.stringify(row));
-        rows.push({sample:i+1,kind:'resize',target:width,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,width:row.width});
+        const clockCheck=validateInputClock(row.clock,sentEpoch);
+        rows.push({sample:i+1,kind:'resize',target:width,ms:row.ms,queue:row.queue,sourceEpoch:row.sourceEpoch,sentEpoch,clock:row.clock,clockCheck,width:row.width});
+        if(row.dragging || Math.abs(row.width-width)>2 || !clockCheck.valid)throw new Error('Sidebar drag failed: '+JSON.stringify({row,clockCheck}));
         await sleep(100);
       }
     }

@@ -1807,3 +1807,116 @@ PTY stalls, cold-open/API outliers and unmeasured UI flows remain open. Physical
 iTerm parity is still unmeasured. No main merge, push or live-server restart is
 included; the earlier merge-approval question remains pending after automatic
 review rejection.
+
+## Checkpoint: validate native input clocks and verify scrolling echo text
+
+The earlier 654 timestamp-validation failures compared the supplied Unix epoch
+directly with `performance.timeOrigin + event.timeStamp`. That assumes the
+wall/monotonic clock offset remains fixed. Chromium's current `GetEventTimeTicks`
+maps supplied input time using the current wall/monotonic pair, while the W3C
+timing specification explicitly allows wall time to drift relative to the
+monotonic timeline. Sources:
+[Chromium input handler](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/content/browser/devtools/protocol/input_handler.cc),
+[W3C clock drift](https://www.w3.org/TR/hr-time-2/#clock-drift).
+The installed browser used here reports Chrome 153.0.8010.53; the source reference
+is the current upstream implementation, not a locally built browser.
+
+The keyboard, click and resize probes now share `input_clock.mjs`. Each handler
+brackets a wall-clock sample with monotonic reads. Validation maps the original
+event timestamp using that current pair and retains both the raw and mapped
+differences. It rejects missing/nonfinite values, brackets wider than 1 ms, and
+mapped errors beyond the existing 2 ms tolerance. Latency still uses the original
+event timestamp and the same 50/200 ms budgets. No latency is corrected after
+measurement, and old reports lacking these clock samples remain unchanged.
+
+Native Chrome controls confirm that a deliberate 250 ms renderer block remains
+visible in input queue and render timings. Deliberately backdated/future input
+timestamps of -500/+500 ms are rejected. Generated clock cases cover large
+positive/negative offsets, invalid samples and uncertain brackets without
+mutating durations. An initial control-test attempt omitted the required string
+argument to a CDP binding and timed out; the binding and bounded waits were fixed
+before successful validation. Both test logs remain in `/tmp`.
+
+The first longer, 2,400-key terminal run exposed another probe limit: the ready
+marker disappeared after **2,314 verified keys**. The terminal was 49 columns by
+49 rows with a tmux status row; the 38-character marker plus those keys fill
+the 48 content rows exactly. The echo trace confirms **all 2,400 bytes received
+and written**, but the old matcher could not verify the remaining scrolled text.
+This failed run is retained as `/tmp/lab-clock-terminal-{browser,server}.json`.
+Its first 1,200-key phase passed at 36.3 ms maximum; incomplete later coverage is
+not counted as a passing run. All captured clock samples validate with the new
+method, but this run did not reproduce the earlier raw clock drift.
+
+The owned typing fixture now uses reproducible varied letters instead of a
+26-character repeating sequence, allowing exact alignment of a scrolled view.
+Separate parse/render readers verify continuity from the initial marker, then
+the complete visible suffix. They reject altered/dropped text, ambiguous
+alignment, insufficient context, output ahead of input, and any unverified
+characters that scrolled away. Parsed-only progress cannot authorize a gap in
+rendered text. Reports include terminal dimensions, input-pattern identity and
+each reader's actual scrolled-read count. Failed runs also retain clock checks.
+
+The complete **2,400-key** follow-up with 5,000 flat mixed files, real background
+file updates and owned-terminal tracing passed:
+
+| Typing phase | p50 | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Quiet, 1,200 keys | 3.2 ms | 18.5 ms | 39.7 ms |
+| Background updates, 1,200 keys | 4.7 ms | 24.5 ms | 46.8 ms |
+
+All **785 API requests** passed, maximum **140.6 ms**. All clock, exact-text,
+focus, transport and updated-file checks passed. Clock brackets were at most
+0.1 ms; mapped dispatch differences were -1.1 to +0.1 ms. The echo process read
+and wrote all 2,400 bytes across 2,399 reads (one coalesced read), with maximum
+read-to-write time 0.044 ms. For the slowest key, browser queueing took 21.1 ms
+and parse-to-render another 20.7 ms; the corresponding server PTY write-to-read
+took about 0.1 ms. The earlier large PTY stall did not reproduce. Browser API
+IDs/routes match server records; no HTTP/network/browser errors occurred; the
+fixture stopped normally. Artifacts:
+`/tmp/lab-clock-scroll-{browser,server}.json` and corresponding `.log`.
+
+The Git-heavy click/resize check retained a **253.3 ms first workspace open**,
+including 28.3 ms browser queueing and an 80.8 ms file-list request. This remains
+a real unprofiled budget miss. The other 59 actions passed; document maximum was
+80.5 ms and resize maximum 20.1 ms. All **344 API requests** passed (maximum
+80.8 ms), all 60 clock checks and all Git decorations passed, API correlation
+matched and shutdown completed. Artifacts:
+`/tmp/lab-clock-navigation-{browser,server}.json` and corresponding `.log`.
+
+A short CPU/timeline diagnostic retained all eight actions: the first open took
+187.5 ms, while two later workspace switches took 219.1/251.5 ms under tracing.
+In the first-open window, sampling attributed **64.5 ms** to sidebar refresh,
+including **50.7 ms** in template construction/mounting and **35.7 ms** in template
+building. Timeline HTML parsing took 30.5 ms. Later traced switches included
+substantial fresh Git-badge insertion as well as markup parsing. Those heavily
+instrumented durations are not substituted for the unprofiled 253.3 ms miss.
+The next production investigation is the sidebar construction portion of cold
+workspace navigation. Artifacts:
+`/tmp/lab-clock-cold-{browser,server,profile,trace}.json` and corresponding `.log`.
+
+**19 diagnostic regressions passed**, including real Chrome queued keyboard,
+mouse-down and click controls, exact scrolling continuity and existing ASGI/PTY
+instrumentation checks. Log: `/tmp/lab-clock-final-tests.log`.
+
+The installed iTerm2 version is **3.6.11**. Its current documentation describes
+a throughput mode that lowers frame rate under heavy output and prioritizes
+input processing; it does not establish a universal per-keystroke latency.
+A matched local comparison remains required before claiming parity.
+[iTerm2 settings documentation](https://iterm2.com/documentation-preferences-general.html).
+
+The final **unprofiled Git-heavy 2,400-key** run retained **one real 53.3 ms miss**
+in the background-update phase: 20.4 ms queueing, 18.6 ms handler-to-parse and
+14.3 ms parse-to-render. Quiet maximum was 44.8 ms. Every key was verified,
+including **89 parsed and 88 rendered reads after the marker scrolled away**.
+All clock checks passed (brackets at most 0.1 ms, mapped differences -1.1 to
++0.1 ms); the raw clock drift did not reproduce in this run. All Git state,
+exact-text, focus, transport and updated-file checks passed. All **788 API
+requests** passed, maximum **131.8 ms**, with valid correlation and normal
+shutdown. Artifacts: `/tmp/lab-clock-final-{browser,server}.json` and `.log`.
+The passing earlier run does not erase this longer Git workload's budget miss.
+
+This checkpoint changes diagnostics only. The overall goal remains active:
+the new 53.3 ms typing and 253.3 ms cold-open misses, older outliers, unmeasured
+UI flows and the matched iTerm comparison remain open. The worktree is isolated;
+there is no main merge, push or live-server restart. The earlier explicit merge
+approval remains pending after automatic approval review rejected the merge.

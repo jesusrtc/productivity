@@ -1,5 +1,9 @@
 # Memory index
 
+- [Terminal probes verify text after scrolling](terminal-echo-probe-verifies-scrolled-text.md) — exact varied input, independent parse/render continuity, and explicit coverage beyond the ready marker
+
+- [Input validation samples the current clock offset](input-validation-samples-current-clock-offset.md) — wall and monotonic clocks may drift; preserve raw measurements, queued input and strict validation limits
+
 - [Git decorations use path indexes](sidebar-git-decorations-use-path-indexes.md) — preserve prefix and scope semantics, avoid unchanged badge mutations, and verify real Git state in latency fixtures
 
 - [Settings latency includes the actual sidebar redraw](settings-latency-waits-for-sidebar-redraw.md) — verify inactive-workspace saves, stored preferences and restored rows; separate form setup from measured native clicks

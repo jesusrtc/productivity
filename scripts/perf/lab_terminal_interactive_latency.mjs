@@ -7,6 +7,8 @@ import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
+import {captureInputClock,validateInputClock} from './input_clock.mjs';
+import {echoInput,createEchoReader} from './terminal_echo_reader.mjs';
 const [baseUrl,name,marker,sampleArg,workspace,intervalArg] = process.argv.slice(2);
 const samples=Number(sampleArg), interval=Number(intervalArg)*1000;
 const changeFiles=process.env.LAB_PERF_TYPING_UPDATES==='1';
@@ -184,13 +186,16 @@ async function main() {
       await termAttach(${JSON.stringify(name)},_termActiveWorkspaceId());
     })()`);
     await wait(`termCurrentSession===${JSON.stringify(name)} && termWS?.readyState===1 && termXterm && Array.from({length:termXterm.buffer.active.length},(_,i)=>termXterm.buffer.active.getLine(i)?.translateToString(true)||'').join('').includes(${JSON.stringify(marker)})`,'Owned echo app did not become ready');
-    const expected=Array.from({length:samples*2},(_,i)=>String.fromCharCode(97+i%26)).join('');
+    const expected=echoInput(samples*2);
     const fixtureDocuments=changeFiles?await Promise.all([1,2].map(async number=>{
       const path=join(workspace,'docs',`review-${number}.md`);
       return {path,content:await readFile(path,'utf8')};
     })):[];
     await evaluate(`(()=>{
       const expected=${JSON.stringify(expected)}, marker=${JSON.stringify(marker)};
+      const captureInputClock=${captureInputClock.toString()};
+      const createEchoReader=${createEchoReader.toString()};
+      const parsedEcho=createEchoReader(expected,marker),renderedEcho=createEchoReader(expected,marker);
       const input=termXterm.element.querySelector('textarea');
       const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],phase:null,loadTimer:null,inflight:null};
       probe.observer=new PerformanceObserver(list=>{for(const e of list.getEntries())probe.longtasks.push({at:e.startTime,ms:e.duration});});
@@ -200,31 +205,28 @@ async function main() {
         const index=probe.events.length;
         if(e.target!==input)probe.errors.push('Input focus lost at '+index);
         if(e.key!==expected[index])probe.errors.push('Unexpected key at '+index+': '+e.key);
-        probe.events.push({index,char:e.key,phase:probe.phase,source:e.timeStamp,sourceEpoch:performance.timeOrigin+e.timeStamp,handlerAt:performance.now()});
+        probe.events.push({index,char:e.key,phase:probe.phase,...captureInputClock(e)});
       },true);
-      const echoed=()=>{
+      const echoLength=reader=>{
         const buffer=termXterm.buffer.active;
         // tmux may draw a status bar below the app. Read only through the
         // echo process's cursor, retaining exact text and wrapped lines.
         let text='';for(let i=0;i<=buffer.baseY+buffer.cursorY;i++)text+=buffer.getLine(i)?.translateToString(true,0,i===buffer.baseY+buffer.cursorY?buffer.cursorX:undefined)||'';
-        const offset=text.lastIndexOf(marker);
-        if(offset<0){probe.errors.push('Echo marker disappeared');return '';}
-        const tail=text.slice(offset+marker.length);
-        if(!expected.startsWith(tail)){probe.errors.push('Unexpected echo text: '+JSON.stringify(tail));return '';}
-        return tail;
+        try{return reader(text,probe.events.length)}catch(error){probe.errors.push(error.message);return 0;}
       };
       probe.parseListener=termXterm.onWriteParsed(()=>{
-        const at=performance.now(),tail=echoed();
-        while(probe.parsed.length<tail.length)probe.parsed.push(at);
+        const at=performance.now(),length=echoLength(parsedEcho);
+        while(probe.parsed.length<length)probe.parsed.push(at);
       });
       probe.listener=termXterm.onRender(range=>{
-        const renderAt=performance.now(),buffer=termXterm.buffer.active,tail=echoed();
+        const renderAt=performance.now(),buffer=termXterm.buffer.active;
         const cursorRow=buffer.baseY+buffer.cursorY-buffer.viewportY;
         if(range.start>cursorRow || range.end<cursorRow){
-          if(tail.length>probe.rows.length)probe.skippedRenders.push({at:renderAt,range,cursorRow,tailLength:tail.length,cols:termXterm.cols,rows:termXterm.rows});
+          if(probe.parsed.length>probe.rows.length)probe.skippedRenders.push({at:renderAt,range,cursorRow,parsedLength:probe.parsed.length,cols:termXterm.cols,rows:termXterm.rows});
           return;
         }
-        while(probe.rows.length<tail.length && probe.rows.length<probe.events.length) {
+        const length=echoLength(renderedEcho);
+        while(probe.rows.length<length && probe.rows.length<probe.events.length) {
           const e=probe.events[probe.rows.length];
           probe.rows.push({...e,renderAt,parsedAt:probe.parsed[e.index],total:renderAt-e.source,queue:e.handlerAt-e.source,handlerToRender:renderAt-e.handlerAt});
         }
@@ -242,7 +244,7 @@ async function main() {
         if(loaded){probe.refresh();probe.loadTimer=setInterval(probe.refresh,500);}
       };
       probe.stop=async()=>{clearInterval(probe.loadTimer);await probe.inflight;};
-      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,webgl:!!termXterm?._webglAddon});
+      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
     })()`);
     if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');}
     for(const loaded of [false,true]) {
@@ -297,7 +299,8 @@ async function main() {
     const result=await evaluate('__typing.observer.disconnect(); __typing.listener.dispose(); __typing.parseListener.dispose(); __typing.snapshot()');
     result.browserVersion=browserVersion.Browser;
     result.sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>entry.elements),retainedElements:_sidebarMarkupCacheElements})`);
-    result.timestampErrors=result.events.flatMap((e,i)=>Math.abs(e.sourceEpoch-sent[i]?.epoch)>2?[{index:i,sourceEpoch:e.sourceEpoch,sentEpoch:sent[i]?.epoch}]:[]);
+    result.timestampChecks=result.events.map((e,i)=>({index:i,...validateInputClock(e,sent[i]?.epoch)}));
+    result.timestampErrors=result.timestampChecks.filter(check=>!check.valid);
     const deadline=Date.now()+5000;
     while(pendingRequests.size){if(Date.now()>deadline)throw new Error('API requests still pending: '+[...pendingRequests.values()].join(', '));await sleep(10);}
     result.requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
@@ -313,7 +316,7 @@ async function main() {
     const expectedDeflate=process.env.LAB_PERF_WS_DEFLATE==='1';
     if(!result.terminalSockets.length || result.terminalSockets.some(socket=>socket.status!==101 || socket.deflate!==expectedDeflate))result.transportErrors.push('Terminal WebSocket negotiation differs from fixture configuration');
     if(inputs.length!==sent.length || inputs.some(frame=>frame.length!==1 || !Number.isFinite(frame.epoch)))result.transportErrors.push('Owned terminal input frames do not match native key count');
-    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,websocketDeflate:expectedDeflate};
+    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,websocketDeflate:expectedDeflate,inputPattern:'lcg-817'};
     result.git=await checkSidebarGitFixture(evaluate);
     if(result.git)result.errors.push(...result.git.errors);
     result.updates=updates;
@@ -324,7 +327,8 @@ async function main() {
     if(result.errors.length || result.timestampErrors.length || result.transportErrors.length || result.misses.length || result.requestMisses.length || result.requestErrors.length || browserErrors.length || requestFailures.length)process.exitCode=1;
   } catch(error) {
     const partial=evaluate?await evaluate('window.__typing?.snapshot()').catch(()=>null):null;
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,updates,browserErrors,requestFailures,terminalFrames},null,2));
+    const timestampChecks=(partial?.events||[]).map((e,i)=>({index:i,...validateInputClock(e,sent[i]?.epoch)}));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,updates,browserErrors,requestFailures,terminalFrames,timestampChecks,timestampErrors:timestampChecks.filter(check=>!check.valid)},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}
