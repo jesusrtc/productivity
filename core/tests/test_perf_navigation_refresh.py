@@ -140,6 +140,7 @@ def test_refresh_stress_coverage_keeps_missed_and_late_deliveries():
     (['--navigation-refresh-delay', '20', '--document-edit'], 'standalone navigation'),
     (['--navigation-refresh-delay', '20', '--typing'], 'standalone navigation'),
     (['--assistant-refresh-delay', '20'], 'requires --assistant'),
+    (['--assistant-details'], 'requires --assistant'),
     (['--assistant', '--assistant-refresh-delay', '0'], 'delay of 1'),
     (['--assistant', '--assistant-refresh-delay', '1001'], 'delay of 1'),
 ])

@@ -241,7 +241,7 @@ async function main() {
       actions.push(...await terminalCreationActions(evaluate,workspaceRoot,samples,terminalCreation));
     } else if(assistant) {
       if(process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY)await installAssistantRefreshStress(evaluate,workspaceRoot,Number(process.env.LAB_PERF_ASSISTANT_REFRESH_DELAY));
-      actions.push(...await assistantActions(evaluate,workspaceRoot,samples,assistant));
+      actions.push(...await assistantActions(evaluate,workspaceRoot,samples,assistant,{details:process.env.LAB_PERF_ASSISTANT_DETAILS==='1',terminal:JSON.parse(process.env.LAB_PERF_ASSISTANT_TERMINAL||'null')}));
     } else if(notebookView) {
       actions.push(...await notebookViewActions(evaluate,workspaceRoot,samples,{typing:process.env.LAB_PERF_NOTEBOOK_TYPING==='1'}));
     } else if(documentEdit) {
@@ -549,7 +549,8 @@ async function main() {
     const requestErrors=requests.filter(r=>r.status>=400);
     const fixture={workflow:assistant?'assistant':terminalCreation?'terminal-create':notebookView?'notebook-view':documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
-    if(assistant)fixture.assistantNotes=assistant.documents.length;
+    if(assistant){fixture.assistantNotes=assistant.documents.length;fixture.assistantDetails=process.env.LAB_PERF_ASSISTANT_DETAILS==='1';
+      if(fixture.assistantDetails)fixture.assistantTerminal=await evaluate('__assistantTerminal.snapshot()');}
     if(notebookView)fixture.notebookCells=await evaluate('__notebookViewExpected.alpha.cells.length');
     fixture.notebookTyping=process.env.LAB_PERF_NOTEBOOK_TYPING==='1';
     fixture.pendingNotebooks=JSON.parse(process.env.LAB_PERF_PENDING_NOTEBOOKS||'[]');

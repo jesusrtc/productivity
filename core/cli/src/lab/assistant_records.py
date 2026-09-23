@@ -171,7 +171,12 @@ def records(root, collection=None):
                    'mtime': source.stat().st_mtime}
 
 
-def resolve(root, reference, collection=None):
+def resolve(root, reference, collection=None, *, record_rows=None):
+    """Resolve against fresh records or a caller's current validated snapshot.
+
+    A supplied iterable is consumed only after reference validation. The selected
+    source still gets a fresh path check and file read.
+    """
     reference = str(reference)
     if Path(reference).is_absolute() or '..' in Path(reference).parts:
         raise ValueError('Invalid Assistant reference')
@@ -179,7 +184,17 @@ def resolve(root, reference, collection=None):
     canonical = storage.canonical(root, reference)
     collections = {'subtasks': 'tasks', 'meetings': 'notes', 'meeting-series': 'notes'}
     folder = None if collection in {'meetings', 'meeting-series', 'documents'} else collections.get(collection, collection)
-    matches = [row for row in records(root, folder) if reference in
+    if record_rows is None:
+        rows = records(root, folder)
+    else:
+        if folder is not None and folder not in {'tasks', 'notes', 'projects'}:
+            from lab import assistant_documents as documents
+            if not documents.enabled(root):
+                if folder:
+                    raise ValueError('Invalid record collection')
+                folder = None
+        rows = record_rows if folder is None else (row for row in record_rows if row['type'] + 's' == folder)
+    matches = [row for row in rows if reference in
                [row['id'], row['path'], *(row.get('aliases') or [])] or canonical == row['path']]
     if len(matches) != 1:
         raise ValueError('Assistant document not found or reference is ambiguous')

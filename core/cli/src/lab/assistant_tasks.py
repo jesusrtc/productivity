@@ -118,8 +118,8 @@ def summary(tasks):
             'blocked':sum(branches(branches,task,'blocked') for task in roots)}
 
 
-def read(root, reference):
-    source, _, _ = records.resolve(root, reference, 'documents')
+def read(root, reference, *, record_rows=None):
+    source, _, _ = records.resolve(root, reference, 'documents', record_rows=record_rows)
     source = documents.physical(source)
     raw = source.read_bytes()
     meta, body, tabs = documents.unpack(raw)
@@ -129,8 +129,8 @@ def read(root, reference):
     return source, raw, meta, body, tabs
 
 
-def view(root, reference):
-    source, raw, meta, _, _ = read(root, reference)
+def view(root, reference, *, record_rows=None):
+    source, raw, meta, _, _ = read(root, reference, record_rows=record_rows)
     tasks = normalize(meta.get('tasks', []))
     return {'document_id':meta['id'],'path':source.relative_to(root).as_posix(),
             'revision':hashlib.sha256(raw).hexdigest(),'tasks':tasks,'summary':summary(tasks)}

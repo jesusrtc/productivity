@@ -49,6 +49,7 @@ parser.add_argument('--document-edit', action='store_true', help='Measure docume
 parser.add_argument('--document-typing', action='store_true', help='Also measure native editor keys, Enter and Tab before Save/Cancel (requires --document-edit; IME setup remains separate)')
 parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
 parser.add_argument('--assistant', action='store_true', help='Measure Assistant entry, All and Starred views through full native rendering')
+parser.add_argument('--assistant-details', action='store_true', help='Also measure document open, root/subtab selection, dashboard return and close (requires --assistant)')
 parser.add_argument('--assistant-notes', type=int, default=100, help='Notes in the owned Assistant fixture (at least 2)')
 parser.add_argument('--assistant-refresh-delay', type=int, help='Controlled overlap: invoke an Assistant background refresh 1–1000 ms after each entry; normal polling remains enabled')
 parser.add_argument('--notebook-view', action='store_true', help='Measure notebook opening, code visibility and output folding with native clicks (does not execute cells)')
@@ -71,6 +72,8 @@ if args.assistant and any((args.typing,args.resize,args.create,args.settings,arg
     parser.error('--assistant measures a separate workflow and cannot be combined with other workflows')
 if args.assistant_notes < 2:
     parser.error('--assistant-notes must be at least 2')
+if args.assistant_details and not args.assistant:
+    parser.error('--assistant-details requires --assistant')
 if args.assistant_refresh_delay is not None and (not args.assistant or not 1 <= args.assistant_refresh_delay <= 1000):
     parser.error('--assistant-refresh-delay requires --assistant and a delay of 1–1000 ms')
 if args.samples < 2:
@@ -281,6 +284,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         timings.instrument_sessions()
         if args.assistant:
             timings.instrument_handler('/api/assistant')
+            if args.assistant_details:
+                timings.instrument_handler('/api/assistant/note')
         if args.trace_assistant:
             from lab import assistant_documents, assistant_records
             for name in ('snapshot', '_fingerprint', 'deepcopy'):
@@ -335,6 +340,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
     thread = threading.Thread(target=run_server)
     thread.start()
     creation_report = None
+    detail_terminal_report = None
     try:
         deadline = time.monotonic() + 15
         while not server.started:
@@ -374,6 +380,9 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
             from terminal_creation_fixture import terminal_creation_fixture
             creation_context = terminal_creation_fixture(url, cookie, root / 'workspaces/alpha')
         with terminal_context as terminal_tabs, creation_context as creation_report, contextlib.ExitStack() as pending_context:
+            if args.assistant_details:
+                from assistant_terminal_fixture import assistant_terminal_fixture
+                detail_terminal_report = pending_context.enter_context(assistant_terminal_fixture(base / 'assistant'))
             from core.routes import nb_exec
             for notebook in pending_notebooks:
                 nb_exec._mark_running(notebook)
@@ -404,6 +413,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_DOCUMENT_TYPING': str(int(args.document_typing)),
                      'LAB_PERF_DOCUMENT_HISTORY': str(int(args.document_history)),
                      'LAB_PERF_ASSISTANT_FILE': str(base / 'assistant-expected.json') if assistant_fixture else '',
+                     'LAB_PERF_ASSISTANT_DETAILS': str(int(args.assistant_details)),
+                     'LAB_PERF_ASSISTANT_TERMINAL': json.dumps(detail_terminal_report),
                      'LAB_PERF_ASSISTANT_REFRESH_DELAY': str(args.assistant_refresh_delay or ''),
                      'LAB_PERF_NOTEBOOK_VIEW': str(int(args.notebook_view)),
                      'LAB_PERF_NOTEBOOK_TYPING': str(int(args.notebook_typing)),
@@ -437,6 +448,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                 report['outputLoad'] = json.loads((base / 'output-load.json').read_text()) if (base / 'output-load.json').exists() else None
             if args.terminal_create:
                 report['terminalCreation'] = creation_report
+            if args.assistant_details:
+                report['assistantTerminal'] = detail_terminal_report
             args.server_timings.write_text(json.dumps(report, indent=2) + '\n')
         if not pending_cleaned:
             raise RuntimeError('Owned pending notebook markers survived cleanup')

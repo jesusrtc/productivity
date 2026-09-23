@@ -73,8 +73,19 @@ def tab_revision(row):
 
 def detail(root, reference, collection=None):
     try:
-        source, metadata, body = records.resolve(root, reference, collection)
-        rows = list(records.records(root))
+        if collection in {None, 'documents'}:
+            rows = []
+            def current_rows():
+                # Resolution validates the reference before consuming this
+                # iterable. Share exactly that request's complete record read.
+                for row in records.records(root):
+                    rows.append(row)
+                    yield row
+            source, metadata, body = records.resolve(root, reference, collection, record_rows=current_rows())
+        else:
+            # Legacy filtered collections keep their original validation order.
+            source, metadata, body = records.resolve(root, reference, collection)
+            rows = list(records.records(root))
         by_key = {records.key(row):row for row in rows}
         progress = records.progress_map(rows)
         current = by_key[records.key(metadata)]
@@ -96,7 +107,7 @@ def detail(root, reference, collection=None):
                 'kind':kind(row), 'task_summary':document_tasks.summary(own_tasks), 'tab_revision':tab_revision(row), 'description':row.get('tldr') or documents.summary(row.get('body','')),
                 'track_task':records.tracks_task(row),
                 'progress':progress[records.key(row)], 'children':[node(child) for child in children]}
-        task_data = document_tasks.view(root, ancestor['id']) if ancestor.get('task_format') == document_tasks.FORMAT else None
+        task_data = document_tasks.view(root, ancestor['id'], record_rows=rows) if ancestor.get('task_format') == document_tasks.FORMAT else None
         return {'path':source.relative_to(root).as_posix(), 'metadata':metadata, 'body':body, 'document_tasks':task_data,
                 'workspace':records.workspace(root,metadata.get('workspace')),
                 'progress':progress[records.key(metadata)], 'embedded':current.get('embedded',False),

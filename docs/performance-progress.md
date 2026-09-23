@@ -6708,3 +6708,152 @@ session, live server or main-checkout source file was changed.
 This is a checkpoint of reduced collection work with functional regression
 coverage. The full latency goal remains open for the recorded Assistant tails
 and the previously documented search, cold UI, terminal and physical-parity gaps.
+
+## Checkpoint: share one current library read within document details
+
+This follow-up lives in the separate `perf/assistant-detail` worktree, based on
+`63bbf16`. The requested `63bbf16` checkpoint remains unchanged and clean.
+Its subsequent stability run completed 1,796 non-slow core passes, 274 CLI
+passes and the already reproduced custom-attributes browser failure: **2,070
+passes, no new failures**, with 11 slow tests deselected. Exact reports are
+`/tmp/lab-checkpoint-63bbf16-validation.json` and the corresponding core/CLI
+JUnit reports. Push and main merge remain pending after automatic approval
+rejections; this follow-up does not retry either action.
+
+### Production change and compatibility
+
+A modern document detail request previously read the complete library three
+times: reference resolution, tree/progress construction, and document-task
+resolution. Although parsed files are cached, every read still fingerprints
+the entire library. `records.resolve` now accepts an optional current iterable.
+`assistant_v2.detail` lazily captures the first complete read and shares it with
+the tree and `assistant_tasks.view`. A supplied empty iterable stays empty.
+Filtered legacy collection calls retain their original validation order.
+
+Reference validation precedes consumption of the lazy snapshot. The selected
+source still receives a fresh path/symlink check and metadata/body read; task
+data still comes from a freshly validated physical file with its raw revision.
+Every next request performs its normal fresh library read. This does not add
+a cross-request cache, TTL, prewarm, polling delay or new GC policy.
+
+Regression coverage compares complete detail responses with independent reads
+across legacy, schema-2, embedded, unified and document-task layouts. It covers
+IDs, paths, aliases, collection filters/errors, empty collection semantics,
+empty supplied iterables, traversal rejection before iteration, source symlink
+changes, fresh external edits, raw task revisions and unchanged inputs. One new
+test initially supplied a bare ID to the legacy path-only task endpoint; it was
+corrected to use the actual relative source path, without changing production
+legacy behavior. All 28 detail cases and the existing focused suite then passed.
+
+### Complete HTTP detail workload
+
+`scripts/perf/lab_assistant_detail_latency.py` creates an owned 500-note library
+with 100 embedded subtabs and three document-owned tasks with derived progress.
+It performs 20 root and 20 subtab reads, followed by a normal external title/body
+edit and a fresh read of each. The verifier checks every response field, all
+three tree nodes, task summaries, exact metadata/body, raw task revisions and
+unchanged response hashes. The fresh root revision changes while independent
+subtab revisions remain unchanged; the other 499 Markdown files stay byte-exact.
+
+Both matching coarse-trace runs retained first use, normal lifecycle/watchers,
+all 42 responses and all correctness checks. Neither had a 200 ms miss.
+
+| Complete HTTP detail | Original | Candidate |
+| --- | ---: | ---: |
+| First / maximum | 115.07 ms | 70.76 ms |
+| Unchanged-read median | 76.06 ms | 27.16 ms |
+| Fresh root edit | 110.76 ms | 63.66 ms |
+| Fresh subtab after edit | 74.82 ms | 26.97 ms |
+| Snapshot / fingerprint / copy calls, each | 126 | 42 |
+| Resolution calls | 84 | 84 |
+| Progress-map calls | 44 | 44 |
+
+Snapshot median stayed near 23 ms; the gain comes from removing two complete
+reads per request. Function intervals are nested and must not be added together.
+These are HTTP completion measurements, not native browser or physical latency.
+Artifacts: `/tmp/lab-assistant-detail-{before,after}-trace-{http,server}.json`.
+
+### Native document and subtab workload
+
+The optional `--assistant-details` workload adds document opening, root and two
+subtab selections, return to the document dashboard, and close. Each of 20 cycles
+still includes Assistant entry, All, Starred and workspace return: **200 native
+actions** in total. It retains 500 notes, 100 subtabs, 5,000 mixed Markdown/Python/
+JSON/SQL files per workspace, 2,500 Git changes, normal polling and all cold
+samples. Content readiness checks complete titles, navigation order/selection,
+remembered tab, exact Markdown, task counts, copy/edit controls and terminal
+rendering. Every workspace return verifies all 500 Markdown files byte-for-byte.
+
+Document terminals use the ordinary launch/admission/context/WebSocket/xterm
+path with a labeled **owned echo CLI on a private tmux socket**. The terminal
+must show Running and render the expected marker on the cursor row. This is
+not a real agent startup benchmark, shared-default-tmux contention test or
+physical display/iTerm comparison. The extra normal Assistant sidebar terminal
+also starts and remains in the workload. The fixture verifies both owned echo
+processes, the document registry/context, private panes and complete cleanup.
+Guard tests reject unowned roots/configuration and wrong/out-of-range/hidden
+terminal renders while preserving the original lifecycle hook's receiver,
+arguments, return value and errors.
+
+| Native action | Original p50 / max | Candidate p50 / max | Repeat p50 / max |
+| --- | ---: | ---: | ---: |
+| Assistant entry, 20 | 115.4 / 152.5 ms | 118.4 / 235.0 ms | 116.0 / 149.5 ms |
+| All/Starred, 40 | 34.4 / 56.8 ms | 34.6 / 38.8 ms | 34.6 / 39.1 ms |
+| Document open, 20 | 201.1 / 450.8 ms | 149.8 / 452.1 ms | 150.0 / 411.1 ms |
+| Root selection, 20 | 118.9 / 204.3 ms | 70.1 / 102.9 ms | 70.2 / 146.9 ms |
+| Subtab selection, 40 | 150.5 / 265.4 ms | 103.8 / 183.1 ms | 100.7 / 195.9 ms |
+| Document dashboard, 20 | 33.3 / 39.3 ms | 34.2 / 39.0 ms | 34.1 / 39.5 ms |
+| Document close, 20 | 34.3 / 41.5 ms | 35.1 / 49.7 ms | 34.5 / 46.8 ms |
+| Workspace return, 20 | 133.2 / 182.3 ms | 147.1 / 219.7 ms | 131.8 / 154.3 ms |
+
+The original passed **184/200** actions, retaining 11 document-open, one root
+and four subtab misses. The candidate passed **195/200**: Assistant entry
+235.0 ms, document opens **452.1** and 233.3 ms, and workspace returns 219.7 and
+218.4 ms. The repeat passed **199/200**, retaining its **411.1 ms first document
+open**. The repeat does not erase the earlier candidate failures. All 60 root/
+subtab selections passed in both candidate runs. Cold terminal-inclusive opening
+still exceeds the target despite the lower detail-request cost.
+
+All three runs had zero HTTP/browser request failures or browser errors. Browser
+requests below 200 ms were 598/598, 590/590 and 589/589; ASGI requests were
+633/633, 625/625 and 624/624. Browser maxima were 176.90, 192.70 and 154.90 ms;
+ASGI maxima were 176.27, 191.09 and 153.24 ms. The 80 detail requests per run had
+medians 89.61, 40.11 and 39.52 ms and maxima 176.27, 86.05 and 96.49 ms.
+Different request counts reflect normal polling over different runtimes.
+
+Every run retained all 200 valid input clocks, all 20 complete file checks,
+all 2,500 changed paths, 5,000 modified and 5,000 clean Git rows, and 20 verified
+document-terminal render instances. All three servers stopped and their private
+terminal fixtures reported cleanup. Native measurements still end at a browser
+render opportunity, not physical display scanout.
+
+Artifacts: `/tmp/lab-assistant-detail-native-{before,after,repeat}-{browser,server}.json`
+and corresponding logs. Earlier instrumentation smoke failures are retained:
+`native-smoke` had six document-terminal 503s because Claude was not installed;
+`native-terminal-smoke` failed an overly narrow ownership assertion when the
+ordinary sidebar terminal also launched. The corrected ownership smoke is
+`native-terminal-verified`; its first open still took 422.4 ms. These runs are
+not substituted for the full before/after workload.
+
+The remaining opening/terminal delays, prior Assistant and search tails, loaded
+typing, other cold UI actions and physical iTerm parity keep the overall goal
+open. No user data, live server or main-checkout source was changed.
+
+### Final regression and cleanup checks
+
+The complete Assistant API/browser, document-terminal and benchmark-guard
+selection passed **358** tests with the same known custom-attributes editor-save
+timeout as the original baseline. The complete CLI suite passed **274** tests:
+**632 passes, one pre-existing failure, no new failures and no skipped tests**.
+The 69 earlier focused passes overlap this coverage and are not added again.
+The failing assertion was compared against the retained original-main browser
+log, rather than classified by test name alone.
+
+Reports are `/tmp/lab-assistant-detail-{core,cli}-tests.log` and
+`/tmp/lab-assistant-detail-{core,cli}-checks/results.xml`.
+`/tmp/lab-assistant-detail-summary.json` contains the verified full-workload
+results, regression summary and hashes of the three production source files;
+those hashes still match after testing. Changed Python files parse and
+`git diff --check` passes. `/tmp/lab-assistant-detail-cleanup.json` confirms no
+matching owned processes and no server on the one remaining test socket path.
+The earlier `63bbf16` checkpoint remains clean in its separate worktree.

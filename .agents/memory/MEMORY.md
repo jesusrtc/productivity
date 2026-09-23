@@ -1,5 +1,7 @@
 # Memory index
 
+- [Assistant details share request records](assistant-detail-shares-request-records.md) — one fresh library scan per modern detail request, with fresh source reads, validation, and owned-terminal browser measurements.
+
 - [Assistant fingerprints share root resolution](assistant-fingerprint-shares-root-resolution.md) — retain fresh source/path checks and moved-root fallback while avoiding repeated root walks; native latency tails remain.
 
 - [Assistant navigation defers background refresh](assistant-navigation-defers-background-refresh.md) — finish the clicked view and deep link, then read fresh once; preserve newer actions, retries, normal polling and remaining latency misses.
