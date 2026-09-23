@@ -1,5 +1,7 @@
 # Memory index
 
+- [Confirmed terminals attach before refresh](terminal-creation-publishes-before-refresh.md) — retain fresh metadata with atomic fallback and creation/close read ownership; avoid duplicate repaint and selection theft
+
 - [Connect with the final renderer grid](terminal-connection-uses-final-renderer-geometry.md) — real WebGL and DOM can fit different columns; initial connections must follow final renderer setup
 - [Terminal asset hints need failure and latency checks](terminal-asset-hints-need-failure-and-latency-checks.md) — failed preloads can poison later loads; the tested prefetch/parallel candidate showed no end-to-end gain
 

@@ -10541,6 +10541,14 @@
   // await. The terminal state block at ~line 5780 still hosts the rest
   // of the related globals; this is the one that needs to win the TDZ.
   const _termSessionsCache = new Map(); // workspaceId -> sessions[]
+  // Ignore list reads that predate confirmed creation or a later close.
+  // Close intent also cancels a pending creation's missing-row fallback.
+  const _termSessionListVersions = new Map();
+  function _termInvalidateSessionReads(key) {
+    const version = (_termSessionListVersions.get(key) || 0) + 1;
+    _termSessionListVersions.set(key, version);
+    return version;
+  }
 
   // localStorage key prefix for per-view terminal-visibility. Same
   // hoisting rule as the consts above — the visibility helpers are
@@ -11941,11 +11949,12 @@
     });
   })();
 
-  async function termRefreshSessions(workspaceId) {
+  async function termRefreshSessions(workspaceId, createdSession = null) {
     workspaceId = workspaceId || _termActiveWorkspaceId();
     if (!workspaceId) return;
     const vaultId = _termVaultId();
     const sessionCacheKey = _termSessionsKey(workspaceId, vaultId);
+    const listVersion = _termSessionListVersions.get(sessionCacheKey);
     let fresh = [];
     let ok = false;
     try {
@@ -11953,7 +11962,14 @@
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
-    if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
+    if (listVersion !== _termSessionListVersions.get(sessionCacheKey)) return ok;
+    if (!ok) fresh = _termSessionsCache.get(sessionCacheKey) || [];
+    // Keep the creation fallback in the same publication as the fresh list:
+    // an asset-load continuation must never see the confirmed row disappear.
+    if (createdSession && !fresh.some(s => s && s.name === createdSession.name)) {
+      fresh = [{...createdSession, workspace_id: createdSession.workspace_id || workspaceId}, ...fresh];
+    }
+    if (ok || createdSession) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard. termOpenForWorkspace's warm-switch path fires
     // this refresh without awaiting, so by the time the response lands
     // the user may already be on a different tab. Cache the result but
@@ -11964,7 +11980,7 @@
     // last successful list for this workspace instead of wiping the pills —
     // the tmux sessions are almost certainly still alive, and the reconnect
     // loop needs their names to keep retrying.
-    termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
+    termSessions = fresh;
     if (ok) {
       // Any name that's no longer in the live list is genuinely gone —
       // don't keep its dead/backoff bookkeeping around. If tmux later
@@ -12465,6 +12481,7 @@
       : names.length > 1 ? `${names.length} selected terminal tabs` : 'this terminal tab';
     if (!confirm(`Close ${label}? Running work will stop and closed tabs will stay closed after reload. External sessions will only be detached from Lab.`)) return false;
     const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
+    _termInvalidateSessionReads(scope);
     _termCloseTabsPending.add(scope);
     const failures = [];
     try {
@@ -14250,20 +14267,23 @@
       // tmux name (possible if the user just recycled the same logical
       // name after the previous session died).
       _termClearDead(created.name);
-      // Framework pseudo-workspaces use the workspace-id-aware helper.
-      if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === ASSISTANT_WORKSPACE_ID) {
-        await termRefreshSessionsByWorkspaceId(workspaceId);
-      } else {
-        await termRefreshSessions(workspaceId);
-      }
-      if (!_termIsScopeActive(workspaceId)) return;
+      const sessionCacheKey = _termSessionsKey(workspaceId, vaultId);
+      // POST has persisted this session and returned its metadata. Start
+      // attachment now; keep the live-list reconciliation for enrichment.
+      _termInvalidateSessionReads(sessionCacheKey);
       if (!termSessions.some(s => s && s.name === created.name)) {
         termSessions = [{...created, workspace_id: created.workspace_id || workspaceId}, ...termSessions];
-        _termSessionsCache.set(_termSessionsKey(workspaceId, vaultId), termSessions);
-        termRenderSessionList();
       }
-      if (homeSection && homeSection !== _termHomeSection()) return created;
+      _termSessionsCache.set(sessionCacheKey, termSessions);
       termAttach(created.name, workspaceId);
+      // Framework pseudo-workspaces use the workspace-id-aware helper.
+      if (workspaceId === CEREBRO_WORKSPACE_ID || workspaceId === SELF_WORKSPACE_ID || workspaceId === ASSISTANT_WORKSPACE_ID) {
+        await termRefreshSessionsByWorkspaceId(workspaceId, created);
+      } else {
+        await termRefreshSessions(workspaceId, created);
+      }
+      if (workspaceId !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return;
+      // A later user selection owns attachment; refresh must not steal it.
       return created;
     } catch (e) {
       alert('Failed to create session: ' + e.message);
@@ -14282,6 +14302,7 @@
       ? 'Detach ' + (session.logical_name || termCurrentSession) + ' from Lab? The original tmux session will keep running.'
       : 'Close terminal session ' + termCurrentSession + '? It will stay closed after reload.';
     if (!confirm(question)) return;
+    _termInvalidateSessionReads(_termSessionsKey(workspaceId, vaultId));
     const name = termCurrentSession;
     termDetach();  // full close (soft=false) — evicts cache entry
     try { await fetch('/api/term/sessions/' + encodeURIComponent(name) + '?purge=true', {method: 'DELETE'}); } catch {}
@@ -14306,6 +14327,7 @@
     if (!confirm(`Kill all terminal sessions for "${label}"? Running work will stop and sessions will stay closed after reload. Attached external sessions will only be detached from Lab.`)) return;
     const isActive = () => workspaceId === _termActiveWorkspaceId() && vaultId === _termVaultId();
     const names = new Set((termSessions || []).map(s => s.name));
+    _termInvalidateSessionReads(scopeKey);
     _termKillAllPending.add(scopeKey);
     const button = document.getElementById('termKillAllBtn');
     if (button) button.disabled = true;
@@ -18815,22 +18837,29 @@
     termStartPeriodicRefresh();
   }
 
-  async function termRefreshSessionsByWorkspaceId(pid) {
+  async function termRefreshSessionsByWorkspaceId(pid, createdSession = null) {
     // Fetches the live session list and re-renders the pill row.
     let fresh = [];
     let ok = false;
     const vaultId = _termVaultId();
     const sessionCacheKey = _termSessionsKey(pid, vaultId);
+    const listVersion = _termSessionListVersions.get(sessionCacheKey);
     try {
       const r = await fetch('/api/term/sessions?workspace_id=' + encodeURIComponent(pid) + _vaultQuery(vaultId));
       ok = r.ok;
       fresh = r.ok ? await r.json() : [];
     } catch { fresh = []; ok = false; }
-    if (ok) _termSessionsCache.set(sessionCacheKey, fresh);
+    if (listVersion !== _termSessionListVersions.get(sessionCacheKey)) return ok;
+    if (!ok) fresh = _termSessionsCache.get(sessionCacheKey) || [];
+    // Same atomic creation fallback as termRefreshSessions.
+    if (createdSession && !fresh.some(s => s && s.name === createdSession.name)) {
+      fresh = [{...createdSession, workspace_id: createdSession.workspace_id || pid}, ...fresh];
+    }
+    if (ok || createdSession) _termSessionsCache.set(sessionCacheKey, fresh);
     // Stale-response guard — see termRefreshSessions for why.
     if (pid !== _termActiveWorkspaceId() || vaultId !== _termVaultId()) return ok;
     // Failed fetch → keep the last-known list (see termRefreshSessions).
-    termSessions = ok ? fresh : (_termSessionsCache.get(sessionCacheKey) || []);
+    termSessions = fresh;
     if (ok) {
       // Forget dead/backoff bookkeeping for sessions tmux no longer has.
       const live = new Set(termSessions.map(s => s.name));

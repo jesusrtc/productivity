@@ -22,6 +22,7 @@ def run(body, *extra):
         section('  function _termHomeViewActive()', '  // Which tab (if any)'),
         section('  function _termActiveWorkspaceId()', '  async function termAutoSpawnEnabled'),
         section('  function _termVisibilityKey()', '  function _termRememberVisibility'),
+        section('  const _termSessionListVersions =', '  // localStorage key prefix'),
     ])
     prelude = '''
 const window = {};

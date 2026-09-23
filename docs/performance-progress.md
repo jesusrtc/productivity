@@ -4738,3 +4738,118 @@ renderer geometry; it can instead examine work awaited before attachment, such
 as the confirmed-created row followed by autospawn persistence and a fresh
 session-list request. Main merge remains pending after the prior automatic
 approval rejection. No merge, push or live restart was attempted.
+
+
+## Attach confirmed terminal rows while refreshing metadata — 2026-09-23
+
+Session creation previously awaited both autospawn persistence and a fresh
+session-list GET before starting attachment. The POST already persists the
+session and returns its identity, kind, cwd, command and linked metadata.
+The retained change still waits for autospawn persistence, then seeds the
+owning cache from that confirmed response and starts the existing attachment
+path while the fresh GET reconciles metadata. It does not add an initial
+pill repaint; the normal refresh and connection renders supply the UI update.
+The renderer/fit/WebSocket order, asset loader and backend are unchanged.
+
+### Preserve asynchronous ownership and recovery
+
+Per-workspace/vault list versions prevent reads started before confirmed
+creation from removing its row while assets load. Explicit current-tab,
+selected-tabs and kill-all close intent also advances the version, so the
+creation refresh cannot bring back a tab the user subsequently closed.
+A delayed refresh never attaches again or overrides a later selection.
+Captured vault/workspace and Home association behavior remain in place.
+
+Two regression checks exposed problems in intermediate candidates:
+
+- The initial overlap candidate could restore a ghost pill after the newly
+  usable terminal was closed while its GET was pending. The actual close
+  handler reproduced this failure. Versions now invalidate that older read
+  and its fallback; tests cover all three close paths, with stale responses
+  both containing and omitting the closed row.
+- Merging a missing created row only in the caller after awaiting refresh was
+  too late. The actual attachment preamble, with a deferred asset promise,
+  could resume between the empty-list publication and the caller's next
+  microtask, fail membership validation and cancel attachment. Both ordinary
+  workspace and Home checks failed. The fallback now joins the same refresh
+  publication as the fresh list, including failed reads after another metadata
+  update invalidates the warm cache. Fresh enrichment still takes precedence.
+
+The final focused set passed **150 tests** across creation, Home, document
+terminals, close/multiselect actions, resources, lifecycle and WebSocket client
+recovery. It includes real DOM and WebGL connection-geometry checks. Earlier
+stages recorded 134 passes, then 27 passes/one close-race failure, 144 passes
+after close ownership, two asset-boundary failures, and 146 passes after atomic
+publication. Four additional failed-read/cache-invalidation cases bring the
+final total to 150. These failures were fixed, not excluded from the record.
+`git diff --check` passed. The older broad suite's known baseline failures
+remain separate; this checkpoint does not claim a new fully green broad run.
+
+### Native creation comparison
+
+All runs used the same untraced 5,000-file, 2,500-Git-change fixture and ordinary
+New/Terminal clicks through first rendered output, followed by an exact native
+key echo and saved-identity verification. All first samples remain included.
+Controls served the frontend from `aa862c3`; all used the unchanged current
+backend. The configured owned echo shell isolates Lab creation, not arbitrary
+user shell scripts or agent startup.
+
+| Run | Creations | First / max | Median | p95 | Creation misses >200 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Unchanged control (`before`) | 20 | 317.5 ms | 171.7 ms | 196.6 ms | 1 |
+| Initial overlap, extra repaint (`after`) | 20 | 287.6 ms | 172.1 ms | 193.8 ms | 1 |
+| Overlap without extra repaint (`once`) | 20 | 268.0 ms | 164.9 ms | 184.5 ms | 1 |
+| Repeated unchanged control (`control`) | 20 | 299.9 ms | 192.0 ms | 218.7 ms | 9 |
+| Close/atomic-publication guards (`final`) | 40 | 316.8 ms | 166.2 ms | 181.1 ms | 1 |
+| Completed failed-cache fallback (`verified`) | 20 | 297.6 ms | 172.3 ms | 193.0 ms | 1 |
+
+The last 60 creations had **58/60 under 200 ms**; both misses were first cold
+creations. Control medians ranged from 171.7 to 192.0 ms, so the full difference
+from the slower control should not be attributed to this frontend change.
+Creation POST medians also varied: 38.53/58.39 ms in controls versus 48.36/51.42 ms
+in the last two runs. No cold-start improvement is established by these runs.
+The initial extra-repaint candidate did not improve the first control's median
+and its duplicate publication was removed.
+
+Existing native timing records corroborate the overlap: in 56 of 58 final
+creation rows with an unambiguous POST/GET pair, pane construction began before
+the list response completed, versus zero of 39 such control rows. Rows with
+additional session requests were omitted only from that component classification;
+all their latency and functional results remain in the table.
+
+Picker maxima across creation runs were 47.3–54.6 ms. The `once` run also had a
+**216.1 ms workspace-opening miss**, retained separately from its creation miss.
+The other five workspace-opening samples were 145.7–166.8 ms. The last 40- and
+20-creation runs opened the workspace in 157.3 and 147.9 ms.
+
+### Functional recheck and cleanup
+
+A separate native terminal-tab run passed all **68 actions under 200 ms**:
+workspace opening 178.9 ms, first/cold terminal switching maximum 125.0 ms,
+warm switching 101.2 ms, and cache-eviction cycling 123.9 ms. Exact input,
+rendered replay, focus and the three-parked-plus-one-active pane bounds passed.
+This is not a new steady-state typing benchmark.
+
+Across the six creation runs plus the tab run, all **1,940 browser and 2,306
+server API records** were under 200 ms (maxima 108.0/100.79 ms). No browser,
+request or request-failure errors were recorded. All 140 creations passed
+unique live/saved identity, workspace isolation, rendered marker/native key,
+selection/focus/socket, input-clock and pane-bound checks. Each fixture
+completed cleanup and stopped its server. All 140 recorded producer PIDs were
+independently checked absent; a final read-only listing with draining/pruning
+disabled found none of the 146 exact owned creation/tab session names remaining.
+
+Artifacts: `/tmp/lab-terminal-create-confirmed-{before,after,once,control,final,verified,tabs}-{browser,server}.json`
+and associated logs; `/tmp/lab-terminal-create-confirmed-comparison.json`,
+`/tmp/lab-terminal-create-confirmed-cleanup.json`; test logs
+`/tmp/lab-terminal-create-confirmed-{tests,once-tests,guard-tests,membership-rejected-tests,final-tests,final-fallback-tests}.log`.
+Intermediate source/test archives are
+`/tmp/lab-terminal-create-confirmed-first.patch`,
+`/tmp/lab-terminal-create-confirmed-before-close-guard.patch` and its `-test.py`,
+and `/tmp/lab-terminal-create-confirmed-before-atomic-refresh.patch` and its
+`-test.py`. The summary helper is `/tmp/lab-terminal-confirmed-summarize.py`.
+
+Cold creation remains over budget, as do previously retained output-typing,
+IME and navigation failures. Remaining UI/API coverage and physical/iTerm
+parity are still unresolved. Main merge remains pending after the prior
+automatic approval rejection. No merge, push or live server restart was attempted.

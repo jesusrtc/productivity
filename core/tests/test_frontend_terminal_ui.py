@@ -59,7 +59,8 @@ def test_framework_top_tab_is_labeled_home() -> None:
 
 @pytest.mark.parametrize("mode", ["success", "cancel", "failure", "settings_failure", "navigate"])
 def test_kill_all_preserves_workspace_scope_and_reports_failures(mode: str) -> None:
-    handler = _js_between("  const _termKillAllPending", "  async function termCopyAttachCmd")
+    handler = (_js_between('  const _termSessionListVersions =', '  // localStorage key prefix')
+               + _js_between("  const _termKillAllPending", "  async function termCopyAttachCmd"))
     result = _run_node(r"""
 const mode = MODE;
 const calls = [], alerts = [], statuses = [];
@@ -1232,7 +1233,7 @@ def test_productivity_view_uses_directory_overview() -> None:
 
 
 def test_terminal_close_click_purges_saved_session_and_disables_autospawn() -> None:
-    term_kill_current = _js_between(
+    term_kill_current = _js_between('  const _termSessionListVersions =', '  // localStorage key prefix') + _js_between(
         "async function termKillCurrent()",
         "async function termCopyAttachCmd()",
     )
@@ -1255,6 +1256,7 @@ const SELF_WORKSPACE_ID = '__self__';
 const LOGS_WORKSPACE_ID = '__logs__';
 
 function _termActiveWorkspaceId() { return 'demo'; }
+function _termSessionsKey(workspaceId, vaultId) { return vaultId + '::' + workspaceId; }
 function _termIsScopeActive(workspaceId) { return workspaceId === 'demo'; }
 function confirm(msg) { confirmMessages.push(msg); return true; }
 function termDetach() { detached = true; termCurrentSession = null; }
@@ -2493,7 +2495,8 @@ console.log(JSON.stringify({initial, divider, grouped, other, ungrouped}));
 
 @pytest.mark.parametrize('mode', ['background', 'group', 'cancel', 'failure', 'settings_failure', 'navigate'])
 def test_context_close_targets_only_requested_tabs_and_keeps_scope(mode: str) -> None:
-    helpers = _js_between('  const _termCloseTabsPending', '  function _termSessionDisplay(s)')
+    helpers = (_js_between('  const _termSessionListVersions =', '  // localStorage key prefix')
+               + _js_between('  const _termCloseTabsPending', '  function _termSessionDisplay(s)'))
     result = _run_node(r'''
 const mode = MODE;
 let vault = 'one', termCurrentSession = 'active';
