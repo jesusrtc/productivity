@@ -4092,3 +4092,86 @@ The updated diagnostic/echo/owned-export checks passed: **36 focused tests**
 coverage began 1,696.69 ms before the first measured key and ended 18.67 ms after
 the last measured render. All private trace/margin PIDs were independently
 confirmed gone and their sockets absent after cleanup.
+
+## 2026-09-23 — Remove the Git timer's duplicate cached decoration pass
+
+The six-second Git timer now calls `_sidebarGitStatusRefresh({repaint: false})`.
+Mounted rows already display cached decorations; traversing every row again
+before a freshness check/fetch duplicates work. Rebuild paths retain the helper's
+default cached paint. Fresh server responses still decorate current rows once.
+Polling cadence, five-second fetch floor, in-flight coalescing, failure behavior
+and workspace/worktree ownership guards are unchanged.
+
+A regression using the actual timer callback and refresh helper failed on the
+prior code because it painted old status before fetching. It now checks live
+fetching, overlapping ticks, no repeat paint with fresh cache, default paint for
+rebuilt rows, updated response application, late response scope and inactive
+views. **66 focused tests passed**, including native Chrome sidebar cache/Git
+checks, sidebar configuration, output echo and diagnostics. The baseline failure
+and candidate run are retained in `/tmp/lab-git-poll-{baseline-test,candidate-tests}.log`.
+
+### Matching private-transport trace comparison
+
+Both runs used the corrected probe, 800 native keys, scrolling output, 5,000 mixed
+files, 2,500 Git changes and 20 document updates. Baseline supplied only
+`lab-app.js` from `0217588`; the backend, workload and diagnostic settings matched.
+Three measured Git timer callbacks changed from **13.268 / 7.688 / 9.447 ms**
+to **0.179 / 0.013 / 0.035 ms**. This directly verifies removal of the duplicate
+synchronous traversal without attributing unrelated whole-run variance to it.
+
+Both runs retained every character and rendered ongoing output. All 800 keys in
+each run passed 50 ms: baseline output/loaded maxima **45.3/39.0 ms**, candidate
+**39.2/43.8 ms**. The loaded maximum increased, so this is not a claim of an
+end-to-end improvement for every sample. API browser/server maxima were
+**80.7/79.62 ms** before and **88.4/79.40 ms** after. Real Git checks passed.
+Both traces covered the first input through last render, reported no data loss,
+and saved complete CPU/trace diagnostics without errors. Both private server PIDs
+were confirmed gone after cleanup.
+
+Artifacts: `/tmp/lab-output-transport-git-poll-{before,after}-{browser,server,cpu,trace,transport,summary}.json`,
+trace metadata, logs, `/tmp/lab-git-poll-comparison.json`, and the fixed control
+wrapper/run manifest. Detailed tracing is disabled for the following final checks.
+
+### Final fixed sequence with detailed diagnostics disabled
+
+All four runs retained normal lifecycle/polling, 5,000 mixed files and 2,500 Git
+changes per workspace. The three typing runs each retained 2,400 native keys,
+independent parse/render verification and 60 real document updates. No run was
+replaced to remove a failed result.
+
+| Workload | UI / typing result | Browser API maximum | Server API maximum |
+| --- | --- | ---: | ---: |
+| Output, shared transport | 46/2,400 keys failed 50 ms; output/loaded maxima 50.5/72.1 ms | 115.2 ms (799) | 113.53 ms (831) |
+| Output, private transport | 6/2,400 keys failed 50 ms; output/loaded maxima 54.2/52.4 ms | 152.1 ms (778) | 141.11 ms (809) |
+| Ordinary echo, shared transport | all 2,400 passed; normal/loaded maxima 39.2/33.2 ms | 118.9 ms (776) | 112.51 ms (808) |
+| Workspace/document navigation | all 80 clicks passed; workspace/document maxima 163.0/66.9 ms | 69.3 ms (654) | 67.76 ms (683) |
+
+Request counts are in parentheses. All **3,007 browser** and **3,131 server**
+request timings passed 200 ms. Ordinary echo included 87 parsed/86 rendered
+reads after its initial marker scrolled away. Shared/private output sources
+retained exact input hashes and wrote 51,440/51,360 lines. Both output phases
+showed continuing valid rendered load. The output runs each completed 61
+refreshes; ordinary echo completed 60. Real Git checks, native clocks, transport,
+request, browser and input validation passed in every typing run. Navigation
+validated 2,500 modified paths and 5,000 modified/5,000 clean rendered rows.
+
+Source batch writes still reached **39.32 ms** shared and **23.07 ms** private,
+so those pauses are not exclusive to a shared server. Both output runs had no
+browser long task; ordinary echo had one while still passing every key. The
+server/environment comparison is evidence for further investigation, not a
+complete attribution of all stalls. The installed client and current shared
+tmux server both report **3.6a**, ruling out that simple version mismatch.
+
+All four HTTP servers stopped; all three owned terminals were removed. The
+private socket was absent and its recorded PID independently confirmed gone.
+No user terminal, main checkout, live server or default tmux configuration was
+changed. Artifacts:
+`/tmp/lab-output-transport-git-final-{shared,private,quiet,navigation}-{browser,server,transport}.json`,
+typing summary JSONs, logs and `/tmp/lab-git-poll-final-runs.json`.
+`node --check` and `git diff --check` passed.
+
+The goal remains active: active-output typing misses, previously recorded IME
+and cold-navigation outliers, unmeasured UI/API actions and physical/iTerm parity
+remain unresolved. The Git timer change is a verified local reduction, not proof
+that every action meets the overall budget. Main merge and push remain pending
+after the earlier automatic approval rejection; no live-server restart occurred.

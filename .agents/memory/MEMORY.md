@@ -1,5 +1,7 @@
 # Memory index
 
+- [Periodic Git polling skips the cached repaint](periodic-git-poll-skips-cached-repaint.md) — refresh existing decorations once from live data, while newly mounted rows retain their fast cached paint
+
 - [Terminal footer includes a full margin cell](terminal-footer-includes-full-margin-cell.md) — a visible terminator can occupy the cursor cell; verify the full row without waiting for the next key, preserving exact input and render checks
 
 - [Disposable fixtures use the default tmux generation](terminal-fixtures-use-default-tmux-generation.md) — owned sessions and HTTP/browser fixtures can still share the default tmux server; keep transport controls separate and never change user sessions

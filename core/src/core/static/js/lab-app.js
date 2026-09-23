@@ -10940,7 +10940,9 @@
     if (document.hidden) return;
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     if (currentRepo) return;
-    _sidebarGitStatusRefresh();
+    // Mounted rows already have cached decorations. Fetch fresh status without
+    // traversing them once more just to reapply the previous result first.
+    _sidebarGitStatusRefresh({repaint: false});
   }, 6000);
 
   // ─── Terminal panel (tmux + PTY bridge) ───

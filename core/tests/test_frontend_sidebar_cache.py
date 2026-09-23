@@ -127,6 +127,59 @@ const fetch = async url => {
     assert result['cached']['files'] == {'a.md': 'M' if state == 'fresh' else 'A'}
 
 
+def test_git_poll_refreshes_status_once_and_keeps_cached_paint_for_rebuilt_rows():
+    helper = _js_between('  async function _sidebarGitStatusRefresh(',
+                         '  // Parsing thousands of file rows')
+    poll = _js_between('  // Sidebar git decorations poll.',
+                       '  // ─── Terminal panel')
+    result = _run_node(r'''
+const assert=require('node:assert/strict');
+let currentWorkspace={path:'/alpha',is_workspace:true},currentRepo=null;
+let root='/alpha',_gitStatusInFlight=false,now=10000,tick;
+const UI_CHECK=false,document={hidden:false},Date={now:()=>now};
+const _GIT_STATUS_MIN_MS=5000,_gitStatusByPath=new Map();
+const _sidebarScopedRoot=()=>root;
+const painted=[],requests=[],pending=[];
+const _sidebarApplyGitStatus=entry=>painted.push(entry.files);
+const setInterval=(fn,interval)=>{assert.equal(interval,6000);tick=fn;};
+const fetch=url=>new Promise(resolve=>{requests.push(url);pending.push(resolve);});
+const old={'a.md':'M'},fresh={'a.md':'D','new.md':'A'};
+_gitStatusByPath.set(root,{files:old,ignored:[],ts:0});
+''' + helper + poll + r'''
+(async()=>{
+  tick();
+  assert.deepEqual(requests,['/api/git-status?repo=%2Falpha']);
+  assert.deepEqual(painted,[],'periodic refresh must not reapply old decorations before fetching');
+  tick();
+  assert.equal(requests.length,1,'one status request stays in flight');
+  assert.deepEqual(painted,[],'an overlapping tick must not traverse retained rows again');
+  await _sidebarGitStatusRefresh();
+  assert.deepEqual(painted,[old],'newly rebuilt rows still get the cached first paint');
+  pending.shift()({ok:true,json:async()=>({files:fresh,ignored:['tmp/']})});
+  await new Promise(setImmediate);
+  assert.deepEqual(painted,[old,fresh],'the response paints current status once');
+  assert.equal(_gitStatusInFlight,false);
+  tick();
+  assert.equal(requests.length,1,'a fresh cache retains the existing fetch floor');
+  assert.deepEqual(painted,[old,fresh]);
+  now+=6000;
+  tick();assert.equal(requests.length,2);
+  root='/worktree';
+  pending.shift()({ok:true,json:async()=>({files:{'later.md':'U'},ignored:[]})});
+  await new Promise(setImmediate);
+  assert.deepEqual(painted,[old,fresh],'a late old-scope response must not decorate a different checkout');
+  assert.deepEqual(_gitStatusByPath.get('/alpha').files,{'later.md':'U'});
+  for(const inactive of ['hidden','repo','workspace']) {
+    document.hidden=inactive==='hidden';currentRepo=inactive==='repo'?'/repo':null;
+    currentWorkspace=inactive==='workspace'?null:{path:'/alpha',is_workspace:true};
+    tick();assert.equal(requests.length,2);
+  }
+  console.log(JSON.stringify({ok:true}));
+})();
+''')
+    assert result == {'ok': True}
+
+
 def test_sidebar_template_cache_in_chrome(tmp_path):
     chrome = (os.environ.get('CHROME_BIN') or shutil.which('chromium')
               or '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
