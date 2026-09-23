@@ -1,5 +1,8 @@
 # Memory index
 
+- [Editor keys are separate from IME setup](editor-keys-are-separate-from-ime-setup.md) — native input has its own clock/value/cursor and Save/Cancel checks; keep IME and navigation failures
+- [Browser traces need time coverage checks](browser-traces-need-time-coverage-checks.md) — a saved verbose trace can stop before the failing sample and materially perturb click timings
+
 - [File scans release recursive closures](file-scans-release-recursive-closures.md) — avoid retaining complete file lists until cyclic GC while keeping live filesystem workers and traversal semantics intact
 
 - [Sidebar parent lookups belong to one build](sidebar-tree-lookups-belong-to-one-build.md) — reduce repeated path work while preserving fresh trees, file identity, metadata and path normalization

@@ -3339,3 +3339,113 @@ while the editor setup failure, earlier historical misses, broader UI/API
 coverage and physical/iTerm parity remain unresolved. No main merge, push or
 live-server restart occurred. Main merge remains pending after the earlier
 automatic approval rejection.
+
+## Native editor keys and IME setup remain separate (2026-09-23)
+
+This checkpoint adds diagnostic coverage; it makes **no production editor
+change**. The previous 203.85 ms editor setup failure remains recorded above.
+
+### Control experiment and trace limits
+
+A verbose trace of the existing 1,500-section append workflow saved 323 MB
+and about 813,000 events. Its event range covers only the first ~5.9 seconds,
+while the CPU profile spans ~66 seconds. It cannot explain the later 221.68 ms
+IME setup failure at sample 67. The traced run also missed 97/140 click
+budgets; these heavily instrumented timings are not production latency claims.
+Artifacts: `/tmp/lab-editor-append-before-{browser,server,trace,cpu}.json`,
+`/tmp/lab-editor-append-before.log`, and
+`/tmp/lab-editor-append-trace-summary.{py,txt}`. Input setup records now include
+sample numbers and start/end epochs so coverage can be checked directly.
+
+The first three IME setups are covered by the trace. They took approximately
+158–165 ms to acknowledge, while their visible `TypingCommand::InsertText`
+events lasted about 9–14 ms. Most CPU samples are native `(program)` time;
+that alone does not identify a Chrome subsystem or a Lab handler.
+
+A separate plain-textarea control used Chrome 153.0.8010.53, the same
+1,500-section source and textarea font/spacing, a 900 px textarea, and a
+1440×1000 viewport. Twenty short multiline appends were alternated with an
+experimental `contain:content` variant. Twenty single native keys per variant
+were then measured in the same control. These are different input workloads,
+not a claim that identical text takes the same two paths:
+
+| Input/control | Acknowledgment median / max | Paint-opportunity median / max |
+| --- | ---: | ---: |
+| Multiline IME append, ordinary textarea | 159.06 / 187.13 ms | 161.4 / 189.8 ms |
+| Multiline IME append, CSS containment | 159.09 / 183.68 ms | 161.1 / 186.3 ms |
+| Single native key, ordinary textarea | 3.17 / 5.91 ms | 16.8 / 21.9 ms |
+| Single native key, CSS containment | 3.13 / 4.13 ms | 16.2 / 22.5 ms |
+
+Every control verified exact source plus inserted text and trusted input.
+Containment provided no meaningful improvement, so no CSS change was made.
+Artifacts and executable controls: `/tmp/lab-editor-append-control.{mjs,json}`
+and `/tmp/lab-editor-key-control.{mjs,json}`. Both owned browsers completed and
+were removed. These are neither clipboard-paste nor physical-display results.
+
+### Added native-key workload
+
+`--document-edit --document-typing` adds fixed-cadence native input before
+Save and Cancel. It sends timestamped letters, digits, spaces, Enter and Tab
+at 25 ms intervals without waiting for preceding CDP acknowledgments. The
+ordinary production Tab handler still inserts four spaces. Trusted key events,
+current clock mapping, exact textarea value, selection, focus and connected
+identity are checked after every edit and at a subsequent animation-frame
+task. Coalesced paints retain the latest input index; they are not discarded.
+All four fixture files remain independently verified after Save/Cancel/Close,
+and modal plus inline content must include the saved native text.
+
+The native-key results are separate from `inputSetups` and from click results.
+The existing 200 ms click, API and IME-setup failure gates are unchanged; native
+editor keys also have a 200 ms gate. A native-key pass cannot hide a failed
+setup. The probe is limited to the disposable Alpha/Beta documents, cleans up
+its listeners, and retains records when clock validation fails.
+
+**17 focused checks passed** for document scope/content, native event/value/
+cursor/paint checks, missing or corrupted input, listener cleanup, independent
+input dispatch, failure retention and clock mapping. The first sandboxed test
+run could not start Chrome for an existing native-clock test; the approved
+isolated-browser run passed. Final log:
+`/tmp/lab-editor-native-tests-final.log`. The small native smoke run passed
+110 keys (maximum 23.5 ms) and all 14 clicks; artifacts:
+`/tmp/lab-editor-native-smoke-{browser,server}.json` and log.
+
+### Full fixture result, including failures
+
+The extended workflow used 1,500 sections per document, 5,000 mixed files per
+workspace, 2,500 real Git changes, 20 alternating workspace visits and normal
+polling. Ordinary request timing was enabled; no CPU, Blink, file-function,
+terminal or GC tracing was enabled.
+
+| Native input | Count | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| Letters, digits and spaces | 1,002 | 11.9 ms | 26.8 ms |
+| Enter | 80 | 14.75 ms | 25.6 ms |
+| Tab | 40 | 24.6 ms | 47.0 ms |
+
+**All 1,122 native keys passed**. All exact-value, cursor, focus and clock
+checks passed; 13 samples shared a paint opportunity with a later key. This
+is browser input-to-paint-opportunity evidence, not observed physical pixels.
+
+The run **failed overall**. It passed **139/140 clicks**, with one Alpha
+workspace restore at **200.8 ms** (sample 127, including 7.2 ms input queueing).
+The two cold workspace clicks were under budget, with a maximum of 186.5 ms.
+The failing restore started its first API request about 67.2 ms after input;
+its file list took 35 ms and Git status 50.1 ms. These correlated timings
+narrow the investigation but do not identify the remaining frontend cost.
+
+One of 40 IME setups also missed: sample 32, Save Alpha, **236.39 ms**. Median
+setup time was 169.97 ms. This failure is retained alongside the earlier
+203.85 ms failure; native-key coverage does not replace the IME measurement.
+There was no replacement rerun to obtain a pass.
+
+All **815 browser API requests** passed (maximum **109.8 ms**), as did all
+**844 server requests** (maximum **107.45 ms**). Request IDs/routes, clocks,
+real Git state and browser/transport errors checked cleanly. All 60 file
+verification steps passed, reading 240 files; final content was 405,464 bytes
+across four files. The owned server stopped and browser cleanup completed.
+Artifacts: `/tmp/lab-editor-native-large-{browser,server,summary}.json` and log.
+
+The remaining work includes the 200.8 ms workspace restore, occasional IME
+setup misses, broader UI/API coverage and unmeasured physical/iTerm parity.
+No main merge, push or live-server restart occurred. Main merge remains
+pending after the earlier automatic approval rejection.

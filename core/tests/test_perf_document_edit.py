@@ -43,6 +43,18 @@ def test_document_edit_checks_all_files_and_freezes_each_step_expectation():
     }
     const actions=await documentEditActions(root,4),saves=actions.filter(action=>action.kind==='edit-save');
     const append=await documentEditActions(root,4,{inputMode:'append'}),composed=new Map(original);
+    const typed=await documentEditActions(root,4,{inputMode:'append',typing:true}),typedContents=new Map(original);
+    let typingMatches=true;
+    for(const action of typed.filter(action=>action.input)) {
+      const file=join(root,action.target,'docs/review-1.md');
+      const setup=typedContents.get(file)+action.input;
+      typingMatches&&=setup===action.typingBefore && action.typingInput.includes('\t');
+      const text=setup+action.typingInput.replaceAll('\t','    ');
+      if(action.kind==='edit-save') {
+        typingMatches&&=text===action.expectedDocuments.find(([path])=>path===file)[1];
+        typedContents.set(file,text);
+      } else typingMatches&&=action.expectedDocuments.every(([,text])=>!text.includes('discard keys')&&!text.includes('UNSAVED'));
+    }
     let appendMatches=true;
     for(const action of append.filter(action=>action.input)) {
       const file=join(root,action.target,'docs/review-1.md');
@@ -65,13 +77,14 @@ def test_document_edit_checks_all_files_and_freezes_each_step_expectation():
       try{await verifyEditedDocuments(saves[0].expectedDocuments);}catch(error){failures.push(error.message.includes(file));}
       await writeFile(file,originalText);
     }
-    process.stdout.write(JSON.stringify({untouched,appendMatches,firstRevision:first.includes('revision 1')&&!first.includes('revision 3'),laterRevision:later.startsWith(first)&&later.includes('revision 3'),before,saved,failures,
+    process.stdout.write(JSON.stringify({untouched,appendMatches,typingMatches,firstRevision:first.includes('revision 1')&&!first.includes('revision 3'),laterRevision:later.startsWith(first)&&later.includes('revision 3'),before,saved,failures,
       scopes:saves.map(action=>action.target),cancelNeverSaved:actions.filter(action=>action.kind==='edit-cancel').every(action=>action.input.includes('UNSAVED')&&action.expectedDocuments.every(([,text])=>!text.includes('UNSAVED')))}));
   } finally {await rm(dir,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
     assert result['untouched'] and result['firstRevision'] and result['laterRevision']
     assert result['appendMatches']
+    assert result['typingMatches']
     assert result['before']['files'] == result['saved']['files'] == 4
     assert result['saved']['bytes'] > result['before']['bytes']
     assert result['failures'] == [True, True]
