@@ -1991,7 +1991,9 @@
   .term-sessions .sess .sess-icon .ft-icon, .term-active-session > span > .ft-icon { margin-right: 0; vertical-align: middle; }
   .term-sessions .sess .sess-order { display: none; color: var(--text-dim); font-size: 9px; line-height: 1; }
   .term-sessions .sess .sess-link { position: absolute; top: 2px; right: 3px; color: var(--accent); font-size: 8px; line-height: 1; opacity: .9; }
-  .term-sessions .sess .sess-working { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--yellow); pointer-events: none; }
+  .term-sessions .sess .sess-activity { position: absolute; top: calc(50% - 3px); right: 3px; width: 6px; height: 6px; border-radius: 50%; pointer-events: none; }
+  .term-sessions .sess .sess-working { background: var(--yellow); }
+  .term-sessions .sess .sess-completion { background: var(--green); animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--green); }
   .term-sessions .sess .sess-label { display: none; }
   .term-divider-section { display: flex; flex-direction: column; gap: 3px; min-width: 0; width: 100%; }
   .term-divider-tabs { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -2029,7 +2031,7 @@
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions { width: auto; padding: 6px 10px; }
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess { width: auto; max-width: 240px; padding: 3px 9px; }
   .term-panel.term-sessions-horizontal.term-sessions-full .term-sessions .sess .sess-label { flex: 0 1 auto; max-width: 140px; }
-  .term-panel.term-sessions-full .term-sessions .sess:has(.sess-working) { padding-right: 14px; }
+  .term-panel.term-sessions-full .term-sessions .sess:has(.sess-activity) { padding-right: 14px; }
 
   .term-sessions .sess:hover { color: var(--text-primary); border-color: var(--accent); }
   .term-session-tooltip { position: fixed; z-index: 1200; width: min(420px, calc(100vw - 16px)); box-sizing: border-box; padding: 9px 10px; color: var(--text-primary); background: #20252c; border: 1px solid #414852; border-radius: 6px; box-shadow: 0 5px 18px rgba(0,0,0,.48); font: 11px/1.35 ui-monospace, monospace; overflow-wrap: anywhere; pointer-events: auto; }
@@ -2042,11 +2044,9 @@
   .term-context-identity-part { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .term-context-identity-arrow { color: var(--text-dim); font-weight: 400; }
   .term-session-tooltip > .term-context-identity { margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid #414852; }
-  .term-sessions .sess.recent:not(.active)::after,
-  .term-sessions .sess.completion-ready::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-recent-color, var(--green)); pointer-events: none; }
-  .term-sessions .sess.completion-ready::after { animation: term-completion-blink 1.6s step-end infinite; box-shadow: 0 0 5px var(--term-recent-color, var(--green)); }
+  .term-sessions .sess.recent:not(.active)::after { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: 3px; border-radius: 2px; background: var(--term-recent-color, var(--green)); pointer-events: none; }
   @keyframes term-completion-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .term-sessions .sess.completion-ready::after { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .term-sessions .sess .sess-completion { animation: none; } }
   .term-completion-summary { color: var(--green); margin-bottom: 6px; }
   .term-working-summary { color: var(--yellow); margin-bottom: 6px; }
 

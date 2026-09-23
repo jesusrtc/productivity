@@ -81,6 +81,108 @@ console.log(JSON.stringify({passed:true}));
     assert result['passed']
 
 
+@pytest.mark.parametrize('agent', ['codex', 'claude', 'copilot'])
+def test_two_separate_clicks_acknowledge_same_response_before_viewing_delay(agent):
+    result = _run_node(CLOCK + MODULE + """
+const C = window.LabTerminalCompletion, s = session(AGENT);
+C.click('vault', s); // The opening click can precede the socket connection.
+advance(100); show('vault', s);
+advance(1899); C.click('vault', s);
+assert(C.meta('vault', s), 'two clicks less than two seconds apart do not acknowledge');
+advance(1); C.click('vault', s);
+advance(999); assert(C.meta('vault', s), 'allow a following double-click to cancel');
+advance(1); assert(C.meta('vault', s) === null, 'second separate click clears early');
+assert(clock < 20000, 'manual shortcut is independent of automatic delay');
+console.log(JSON.stringify({passed:true}));
+""".replace('AGENT', repr(agent)))
+    assert result['passed']
+
+
+@pytest.mark.parametrize('late', [False, True])
+def test_double_click_only_renames_even_after_an_earlier_selection(late):
+    result = _run_node(CLOCK + MODULE + """
+const C = window.LabTerminalCompletion, s = session();
+show('vault', s); C.click('vault', s, 1);
+if (LATE) {advance(3000); C.click('vault', s, 1);}
+advance(100); C.click('vault', s, 2); C.cancelClick();
+advance(1000); assert(C.meta('vault', s), 'rename never acknowledges');
+advance(2000); C.click('vault', s, 1); advance(1000);
+assert(C.meta('vault', s), 'rename also resets the first click');
+C.click('vault', s, 1); advance(2000); C.click('vault', s, 1); advance(1000);
+assert(C.meta('vault', s) === null, 'later deliberate clicks still work');
+console.log(JSON.stringify({passed:true}));
+""".replace('LATE', str(late).lower()))
+    assert result['passed']
+
+
+@pytest.mark.parametrize('reset', ['switch', 'blur', 'new_response', 'working', 'disconnect'])
+def test_click_shortcut_cannot_carry_across_a_view_or_response_change(reset):
+    result = _run_node(CLOCK + MODULE + """
+const C = window.LabTerminalCompletion, s = session();
+show('vault', s); C.click('vault', s); advance(2000); C.click('vault', s);
+const reset = RESET;
+if (reset === 'switch') show('vault', session('claude', 100, 'other'));
+if (reset === 'blur') {focused = false; windowEvents.blur();}
+if (reset === 'disconnect') leave();
+if (reset === 'new_response') {s.agent_activity = session('codex', 200).agent_activity; termRenderSessionList();}
+if (reset === 'working') {s.agent_activity = {state:'working'}; termRenderSessionList();}
+advance(1000);
+assert(C.meta('vault', s), 'pending click cannot acknowledge after reset');
+focused = true; s.agent_activity = session('codex', reset === 'new_response' ? 200 : 100).agent_activity;
+show('vault', s); C.click('vault', s); advance(1000);
+assert(C.meta('vault', s), 'returning starts a fresh first click');
+advance(1000); C.click('vault', s); advance(1000);
+assert(C.meta('vault', s) === null, 'fresh separate clicks acknowledge');
+console.log(JSON.stringify({passed:true}));
+""".replace('RESET', repr(reset)))
+    assert result['passed']
+
+
+def test_second_click_does_not_acknowledge_a_newer_completion_from_another_window():
+    result = _run_node(CLOCK + MODULE + r"""
+const C = window.LabTerminalCompletion, s = session();
+show('vault', s); C.click('vault', s); advance(2000); C.click('vault', s);
+const stored = JSON.parse(values['labTerminalCompletionsSeen-v1']);
+Object.values(stored)[0].completed.at = 200;
+values['labTerminalCompletionsSeen-v1'] = JSON.stringify(stored);
+advance(1000);
+assert(C.meta('vault', s), 'click only acknowledges the response actually viewed');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
+def test_working_and_completed_share_one_dot_and_leave_recency_independent():
+    helpers = _js_between('  function _termSessionDisplay(s)', '  function _termMarkVisibleCompletionSeen()')
+    result = _run_node(CLOCK + MODULE + r"""
+const termDeadSessions = new Set();
+const termCurrentSession = null, termCurrentWorkspaceId = 'demo';
+const _termActiveWorkspaceId = () => 'demo', _termRecentScopeKey = () => 'vault';
+const _termSessionRecentMeta = () => ({label:'now'}), _termRecentWindowLabel = () => '5m';
+const termSessEsc = value => String(value);
+""" + helpers + r"""
+const s = session();
+const render = () => _termSessionPillHtml(s, 0);
+const done = s.agent_activity;
+s.agent_activity = {state:'working'};
+assert(render().includes('sess-working') && !render().includes('sess-completion'), 'one yellow working dot');
+s.agent_activity = done;
+assert(render().includes('sess-completion') && !render().includes('sess-working'), 'one green completed dot');
+assert(!render().includes('completion-ready'), 'completion never decorates the vertical line');
+s.agent_activity = {state:'working'};
+assert(render().includes('sess-working') && !render().includes('sess-completion'), 'new work takes priority over a previous unread completion');
+assert(!JSON.parse(_termSessionTooltipPayload(s)).completion, 'hover matches current working state');
+s.agent_activity = done;
+show('vault', s); advance(19999);
+assert(render().includes('sess-completion'), 'green remains during viewing delay');
+advance(1);
+assert(!render().includes('sess-activity'), 'green disappears after full viewing delay');
+assert(render().includes(' recent'), 'recency stays independent after acknowledgement');
+console.log(JSON.stringify({passed:true}));
+""")
+    assert result['passed']
+
+
 @pytest.mark.parametrize('event', ['blur', 'visibilitychange', 'pagehide'])
 def test_leaving_lab_resets_the_viewing_interval(event):
     result = _run_node(CLOCK + MODULE + """

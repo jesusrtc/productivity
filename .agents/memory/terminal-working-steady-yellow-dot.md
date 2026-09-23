@@ -2,7 +2,7 @@
 
 Codex, Claude, and Copilot terminal tabs show a fixed yellow dot while their
 recorded agent state is working. The user explicitly corrected blinking yellow
-to steady yellow: only the finished/ready-to-review green line should blink.
+to steady yellow: only the finished/ready-to-review green dot should blink.
 Hover and the accessible tab label say Working. Clear the dot on the next
 refresh for any non-working state; hide it for unreachable terminals. It has
 no acknowledgement delay. Keep the configurable 20-second viewing delay for

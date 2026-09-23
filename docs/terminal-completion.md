@@ -6,20 +6,30 @@ recorded agent state is working. Hover and the tab's accessible label say
 finishes or the recorded state becomes waiting, interrupted, errored, or unknown.
 Unreachable terminals do not show it. There is no viewing delay for this dot.
 
-Codex, Claude, and Copilot terminal tabs blink their green left-edge vertical
-line when a completed response is ready to review. A steady line means recently
-selected. The same 3px line is used for both states, including on the active tab
-while a response is unread; there is no separate completion dot. It follows the existing
-recent-marker color setting and blinks on/off every 0.8 seconds with a slight
-glow. Reduced-motion preferences use a steady glowing line instead.
+When a completed response is ready to review, the same dot turns **green and
+blinks**, including on the active tab until acknowledged. It blinks on/off every
+0.8 seconds with a slight glow. Reduced-motion preferences use a steady glowing
+dot instead. A new working state takes priority over any previous unread
+completion, so only one status dot is shown.
 Hovering shows when the response finished without acknowledging it.
 
-The blinking stops after the terminal has been continuously selected, visible, and
-connected in the focused Lab window for **20 seconds**. Clicking or keyboard
-activation alone does not clear it. Switching terminals, hiding the panel,
+The left-edge vertical line indicates **recency only**. It stays steady and
+continues to use the recent-marker color and timing settings, independently of
+the activity dot.
+
+The green dot disappears after the terminal has been continuously selected, visible, and
+connected in the focused Lab window for **20 seconds**. A single click or
+keyboard activation does not clear it. Switching terminals, hiding the panel,
 leaving the Lab window, disconnecting, or reloading resets the viewing interval.
 A new response gets its own full interval, including when it finishes in an
 already open terminal. Hovering never acknowledges a response.
+
+To dismiss it sooner, click the tab once and then click it again **at least two
+seconds later**, keeping that tab selected. The second click clears the green
+dot after a one-second grace period to distinguish it from a double-click.
+Double-click still opens Rename and cancels manual dismissal. Switching tabs,
+leaving the window, disconnecting, or a new response resets the click sequence.
+Clicks during work do not count toward dismissing a future completion.
 
 Configure the delay under **Settings → Global → Terminal appearance → Stop
 blinking after viewing (seconds)**. It accepts 1–3600 seconds and is saved for
@@ -57,7 +67,7 @@ arrive with the normal scoped refresh; a provider pause or abrupt termination
 without a recorded state change cannot be distinguished from ongoing work.
 
 The provider protocols distinguish response/turn completion from successfully
-fulfilling every part of a user request. The blinking line means a response is ready to
+fulfilling every part of a user request. The blinking green dot means a response is ready to
 review; it is not a test-success or task-quality judgment. See the
 [Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs),
 [Claude stop reasons](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons),
@@ -75,7 +85,8 @@ errors, interruptions, children, malformed/partial files, cache invalidation,
 bounded reads, and exact conversation lookup. `test_frontend_terminal_completion.py`
 covers unread persistence, scope isolation, newer responses, uncertain state,
 the exact viewing threshold, switching/visibility resets, configurable delay,
-and focused/visible/connected acknowledgement. `test_frontend_terminal_ui.py`
+focused/visible/connected acknowledgement, and separate-click dismissal without
+interfering with Rename. `test_frontend_terminal_ui.py`
 checks that working dots and labels follow the current state for all three
 agents, including unreachable terminals. Settings browser checks verify
 the default, saving, and reopening the delay field.

@@ -9962,7 +9962,7 @@
 
   let _termTabActivationSeq = 0;
 
-  async function _termActivateTab(name) {
+  async function _termActivateTab(name, completionClickDetail = null) {
     const request = ++_termTabActivationSeq;
     const workspaceId = _termActiveWorkspaceId();
     const session = (termSessions || []).find(row => row.name === name);
@@ -10000,6 +10000,12 @@
     }
     // The mounted-session fast path also cancels an older pending attach.
     await termAttach(name, workspaceId);
+    if (completionClickDetail !== null && request === _termTabActivationSeq
+        && name === termCurrentSession && workspaceId === termCurrentWorkspaceId
+        && _termIsScopeActive(workspaceId)) {
+      const current = termSessions.find(row => row.name === name);
+      if (current) window.LabTerminalCompletion?.click(_termRecentScopeKey(), current, completionClickDetail);
+    }
   }
 
   function _termHomeAssociationHtml(session) {
@@ -12185,9 +12191,10 @@
   function _termSessionTooltipPayload(s) {
     const identity = _termSessionIdentity(s);
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
+    const working = _termSessionIsWorking(s);
     return JSON.stringify({items: _termPreviewRequests(_termSessionRequests(s)),
-      ...(_termSessionIsWorking(s) ? {working: true} : {}),
-      ...(completion ? {completion: completion.label} : {}),
+      ...(working ? {working: true} : {}),
+      ...(completion && !working ? {completion: completion.label} : {}),
       ...(identity.length ? {identity} : {})});
   }
 
@@ -12421,8 +12428,8 @@
     const recentMeta = _termSessionRecentMeta(s);
     const recent = recentMeta ? ' recent' : '';
     const completion = window.LabTerminalCompletion?.meta(_termRecentScopeKey(), s);
-    const ready = completion ? ' completion-ready' : '';
     const working = _termSessionIsWorking(s);
+    const ready = completion && !working;
     const logical = s.logical_name || '';
     const dead = termDeadSessions.has(s.name) ? ' dead' : '';
     const statusTitle = dead ? 'Session unreachable — click to retry' : '';
@@ -12430,17 +12437,17 @@
     const context = _termSessionContext(s);
     const summary = _termSessionSummary(s);
     const ariaSummary = summary.length > 160 ? `${summary.slice(0, 157).trim()}...` : summary;
-    const ariaLabel = `${display} · ${visual.badge}${working ? ' · Working' : ''}${completion ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
+    const ariaLabel = `${display} · ${visual.badge}${working ? ' · Working' : ''}${ready ? ` · ${completion.label}` : ''}${ariaSummary ? ` · ${context.label}: ${ariaSummary}` : ''}`;
     const tooltip = _termSessionTooltipPayload(s, [statusTitle, completion?.label, recentTitle].filter(Boolean).join(' · '));
     const linked = String(s.linked_file && s.linked_file.path || '').trim();
     const scope = s.linked_scope;
     const scopeAttrs = scope ? ` style="--term-scope-color:${termSessEsc(_termScopeColor(scope))}" data-linked-scope="${termSessEsc(scope.root)}"` : '';
-    return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${ready}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
+    return `<span${scopeAttrs} class="sess ${visual.kind}${active}${recent}${dead}" role="tab" aria-label="${termSessEsc(ariaLabel)}" aria-selected="${active ? 'true' : 'false'}" tabindex="${active ? '0' : '-1'}" draggable="true" data-order-token="${termSessEsc(`s:${logical}`)}" data-name="${termSessEsc(s.name)}" data-logical="${termSessEsc(logical)}" data-tooltip="${termSessEsc(tooltip)}">
       <span class="sess-icon" aria-hidden="true">${visual.icon}</span>
       <span class="sess-order" aria-hidden="true">${index + 1}</span>
       ${scope?.worktree && !linked ? '' : `<span class="sess-label${s.label ? ' custom' : ''}">${termSessEsc(display)}</span>`}
       ${_termSessionAssociationHtml(s)}
-      ${working ? '<span class="sess-working" aria-hidden="true"></span>' : ''}
+      ${working || ready ? `<span class="sess-activity ${working ? 'sess-working' : 'sess-completion'}" aria-hidden="true"></span>` : ''}
       ${linked ? `<span class="sess-link" aria-hidden="true">&#x21C4;</span>` : ''}
     </span>`;
   }
@@ -12574,6 +12581,7 @@
       node.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        window.LabTerminalCompletion?.cancelClick();
         if (e.metaKey || e.ctrlKey || _termTabSelection().size > 1) return;
         termRenameSession(node.getAttribute('data-name'));
       });
@@ -12593,11 +12601,12 @@
         termCloseGroupMenu();
         if (event.metaKey || event.ctrlKey) {
           event.preventDefault();
+          window.LabTerminalCompletion?.cancelClick();
           _termSelectTab(name, true);
           return;
         }
         _termSelectTab(null);
-        void _termActivateTab(name);
+        void _termActivateTab(name, event.detail);
       });
     });
     el.querySelectorAll('[data-divider-options]').forEach(divider => {

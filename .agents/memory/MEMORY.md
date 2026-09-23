@@ -241,10 +241,12 @@
 
 - [Central settings use explicit scopes](central-settings-use-explicit-scopes.md) — Cmd/Ctrl+, consolidates settings; inactive workspace edits never borrow the active scope.
 
-- [Terminal completion blinks green line](terminal-completion-blinking-line.md) — steady means recent; blinking means ready to review, with the configurable 20-second viewing delay for Codex, Claude, and Copilot.
+- [Terminal completion uses a blinking green dot](terminal-completion-blinking-dot.md) — recency stays on the steady vertical line; completion has its own dot and configurable 20-second viewing delay.
 
 - [Terminal browser resources are bounded](terminal-browser-resources-are-bounded.md) — cap and expire hidden views, dispose active renderers and observers, and recover graphics without restarting sessions.
 
 - [Task terminals reuse existing sessions](task-terminals-use-existing-sessions.md) — explicit drag/drop links, preserved processes and drafts, no automatic task terminal creation.
 
-- [Working terminals use a steady yellow dot](terminal-working-steady-yellow-dot.md) — Codex, Claude, and Copilot; only the green ready-to-review line blinks.
+- [Working terminals use a steady yellow dot](terminal-working-steady-yellow-dot.md) — Codex, Claude, and Copilot; only the green ready-to-review dot blinks.
+
+- [Completion second-click dismissal](terminal-completion-second-click.md) — two separate clicks on the same selected tab dismiss early; double-click remains Rename.

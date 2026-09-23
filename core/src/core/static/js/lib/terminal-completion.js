@@ -7,6 +7,13 @@
   let seen = {};
   let viewing = null;
   let timer = null;
+  let clicks = null;
+  let clickTimer = null;
+  function cancelClick() {
+    if (clickTimer !== null) clearTimeout(clickTimer);
+    clickTimer = null;
+    clicks = null;
+  }
   function getDelaySeconds() {
     try {
       const value = Number(localStorage.getItem(delayKey));
@@ -18,6 +25,7 @@
     if (timer !== null) clearTimeout(timer);
     timer = null;
     viewing = null;
+    cancelClick();
   }
   function setDelaySeconds(value) {
     const number = Number(value);
@@ -82,6 +90,7 @@
     return true;
   }
   function watch(scope, session) {
+    if (session?.agent_activity?.state === 'working') cancelClick();
     const previous = record(scope, session);
     if (!previous?.completed || previous.at >= previous.completed.at) {
       stopViewing();
@@ -92,8 +101,12 @@
     const id = JSON.stringify([key(scope, session), previous.completed.at]);
     const now = performance.now();
     if (viewing?.id !== id) {
+      // A cold tab can finish connecting after its first click. Keep that
+      // click only when it belongs to the exact same completed response.
+      const firstClick = clicks?.id === id ? clicks : null;
       stopViewing();
       viewing = {id, started: now};
+      clicks = firstClick;
     }
     const remaining = getDelaySeconds() * 1000 - (now - viewing.started);
     if (remaining <= 0) {
@@ -107,6 +120,37 @@
         refresh();
       }, remaining);
     }
+  }
+  function click(scope, session, detail = 1) {
+    if (detail > 1 || session?.agent_activity?.state === 'working') {
+      cancelClick();
+      return;
+    }
+    const previous = record(scope, session);
+    if (!previous?.completed || previous.at >= previous.completed.at) {
+      cancelClick();
+      return;
+    }
+    const id = JSON.stringify([key(scope, session), previous.completed.at]);
+    const now = performance.now();
+    if (clicks?.id !== id) {
+      cancelClick();
+      clicks = {id, firstAt: now};
+      return;
+    }
+    if (now - clicks.firstAt < 2000 || viewing?.id !== id || clickTimer !== null) return;
+    const expected = clicks;
+    // Allow the browser's second click/dblclick to cancel before acknowledging,
+    // including a double-click made several seconds after the first selection.
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
+      refresh(); // Recheck current tab, visibility, connection and response.
+      if (clicks !== expected || viewing?.id !== id) return;
+      if (see(scope, session, previous.completed.at)) {
+        stopViewing();
+        refresh();
+      }
+    }, 1000);
   }
   window.addEventListener('storage', event => {
     if (event.key === delayKey) {
@@ -125,5 +169,5 @@
   window.addEventListener('pagehide', stopViewing);
   window.addEventListener('focus', refresh);
   document.addEventListener('visibilitychange', () => document.hidden ? stopViewing() : refresh());
-  window.LabTerminalCompletion = {meta, watch, stopViewing, getDelaySeconds, setDelaySeconds};
+  window.LabTerminalCompletion = {meta, watch, stopViewing, click, cancelClick, getDelaySeconds, setDelaySeconds};
 })();

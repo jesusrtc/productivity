@@ -843,13 +843,13 @@ for (const agent of ['codex', 'claude', 'copilot']) {
     session.agent_activity = state ? {state} : undefined;
     const html = _termSessionPillHtml(session, 0);
     rows.push({state:state || 'absent',
-      dot:html.includes('class="sess-working"'),
+      dot:html.includes('class="sess-activity sess-working"'),
       label:html.includes(' · Working'),
       tooltip:JSON.parse(_termSessionTooltipPayload(session)).working === true});
   }
   session.agent_activity = {state:'working'};
   termDeadSessions.add(agent);
-  rows.push({state:'unreachable', dot:_termSessionPillHtml(session, 0).includes('class="sess-working"'),
+  rows.push({state:'unreachable', dot:_termSessionPillHtml(session, 0).includes('class="sess-activity sess-working"'),
     tooltip:JSON.parse(_termSessionTooltipPayload(session)).working === true, label:false});
 }
 console.log(JSON.stringify({rows}));
