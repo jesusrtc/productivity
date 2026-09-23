@@ -1,5 +1,7 @@
 # Memory index
 
+- [Document startup handoff milestones](document-startup-handoff-milestones.md) — distinguish Lab launch work, trace overhead and provider bootstrap; preserve the owned workload and cold failures.
+
 - [CLI commands load on demand](cli-commands-load-on-demand.md) — reduce fresh agent-launch imports while preserving full Click help, aliases, completion and launch context; cold UI misses remain.
 
 - [Assistant details share request records](assistant-detail-shares-request-records.md) — one fresh library scan per modern detail request, with fresh source reads, validation, and owned-terminal browser measurements.

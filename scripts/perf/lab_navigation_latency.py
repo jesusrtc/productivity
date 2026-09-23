@@ -50,6 +50,7 @@ parser.add_argument('--document-typing', action='store_true', help='Also measure
 parser.add_argument('--document-history', action='store_true', help='Also verify browser Back/Forward, exact saved content and unchanged history entries (requires --document-edit)')
 parser.add_argument('--assistant', action='store_true', help='Measure Assistant entry, All and Starred views through full native rendering')
 parser.add_argument('--assistant-details', action='store_true', help='Also measure document open, root/subtab selection, dashboard return and close (requires --assistant)')
+parser.add_argument('--trace-agent-launch', action='store_true', help='Trace owned document-agent interpreter entry and provider exec (requires --assistant-details and --server-timings; diagnostic overhead applies)')
 parser.add_argument('--assistant-notes', type=int, default=100, help='Notes in the owned Assistant fixture (at least 2)')
 parser.add_argument('--assistant-refresh-delay', type=int, help='Controlled overlap: invoke an Assistant background refresh 1–1000 ms after each entry; normal polling remains enabled')
 parser.add_argument('--notebook-view', action='store_true', help='Measure notebook opening, code visibility and output folding with native clicks (does not execute cells)')
@@ -74,6 +75,8 @@ if args.assistant_notes < 2:
     parser.error('--assistant-notes must be at least 2')
 if args.assistant_details and not args.assistant:
     parser.error('--assistant-details requires --assistant')
+if args.trace_agent_launch and (not args.assistant_details or not args.server_timings):
+    parser.error('--trace-agent-launch requires --assistant-details and --server-timings')
 if args.assistant_refresh_delay is not None and (not args.assistant or not 1 <= args.assistant_refresh_delay <= 1000):
     parser.error('--assistant-refresh-delay requires --assistant and a delay of 1–1000 ms')
 if args.samples < 2:
@@ -387,7 +390,7 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
         with terminal_context as terminal_tabs, creation_context as creation_report, contextlib.ExitStack() as pending_context:
             if args.assistant_details:
                 from assistant_terminal_fixture import assistant_terminal_fixture
-                detail_terminal_report = pending_context.enter_context(assistant_terminal_fixture(base / 'assistant'))
+                detail_terminal_report = pending_context.enter_context(assistant_terminal_fixture(base / 'assistant', trace_launch=args.trace_agent_launch))
             from core.routes import nb_exec
             for notebook in pending_notebooks:
                 nb_exec._mark_running(notebook)

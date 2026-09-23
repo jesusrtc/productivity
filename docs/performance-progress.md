@@ -6985,3 +6985,108 @@ This checkpoint reduces measured command-launch overhead and improves the
 startup diagnostic evidence. Cold document opening, the retained Assistant/API
 and workspace misses, prior loaded typing/search tails and physical parity remain
 open. No main merge, remote push, user-data edit or live-server restart occurred.
+
+## Diagnostic checkpoint: separate interpreter entry and provider handoff
+
+Production remains exactly `adbdedf`. This checkpoint adds opt-in evidence for
+the remaining document-open startup interval; it does not claim another UI
+speedup. `--trace-agent-launch` requires `--assistant-details` and
+`--server-timings`, and can be combined with `--trace-terminal` to correlate
+process, WebSocket/PTY and browser milestones.
+
+The owned fixture wraps only the document's launch argv. Its interpreter still
+runs ordinary startup/sitecustomize, then the same runpy module entry used by
+`-m lab`. It preserves the normal command arguments and inherited environment,
+apart from one explicit diagnostic timestamp key passed to the owned echo
+provider. No provider, instruction file or normal launch policy is replaced.
+The wrapper rejects unexpected launcher forms, other roots/configuration and
+any executable other than the fixture's owned provider. It restores the
+original launcher on success or failure. It records timestamps, CPU counters
+and PID, never prompts, arguments or environment payloads.
+
+The first implementation recorded interpreter entry and the request to execute
+the provider. A refined version additionally records a handoff timestamp after
+writing its trace, immediately before `os.execvpe`; the echo provider records
+its first timestamp before its usual json/pathlib imports. This prevents trace
+logging time from being misclassified as provider bootstrap. The timestamp is
+added to a copy of the child environment; the caller's environment is unchanged.
+The pre-existing PID/context file is still read for its mtime only at cleanup.
+All instrumentation is optional, and normal fixture launch source is unchanged
+when the new flag is off.
+
+### Full-workload observations
+
+Both diagnostics retain 500 notes, 100 subtabs, 5,000 mixed files per workspace,
+2,500 Git changes, normal polling, 200 native actions and the ordinary additional
+sidebar terminal. Every first sample and latency failure remains included.
+
+| Milestone relative to first document click | Initial full probe | Refined full probe |
+| --- | ---: | ---: |
+| Lab interpreter reaches probe | 128.43 ms | 127.46 ms |
+| Lab requests provider exec | 156.53 ms | 152.05 ms |
+| Lab interval elapsed / process CPU | 28.10 / 22.17 ms | 24.60 / 22.66 ms |
+| Handoff after trace write | Not separately captured | 152.22 ms |
+| Trace logging interval | Not separately captured | 0.17 ms |
+| Provider's first timestamp | Not separately captured | 386.26 ms |
+| Existing provider record mtime | 322.46 ms | 389.31 ms |
+| Complete document opening | **365.1 ms** | **434.5 ms** |
+
+The refined handoff-to-provider-entry interval was **234.04 ms**, compared with
+24.60 ms inside the measured Lab module-launch interval. This includes process
+replacement, interpreter bootstrap and waiting; it does not identify a specific
+OS mechanism or establish that all time was CPU work. The provider is the owned
+generated Python echo CLI. These instrumented results do not measure real agent
+startup, physical display latency or iTerm parity, and cannot be presented as
+unprofiled speed gains. The evidence argues against expecting more root-CLI
+import reductions alone to solve this entire cold-open delay.
+
+Both full runs passed **197/200** latency checks. The initial probe retained
+document-open misses of **365.1**, 201.7 and 202.4 ms. The refined probe retained
+its **434.5 ms** cold document open and subtab selections of **205.2** and
+**202.2 ms**. Every action completed with correct content and terminal rendering.
+Neither run supersedes prior unprofiled failures.
+
+The initial/refined full runs had 587/590 browser requests with maxima
+164.60/155.20 ms, and 622/625 ASGI requests with maxima 162.98/153.61 ms.
+All were below 200 ms, with zero failed requests, HTTP errors or browser errors.
+Both retained 200 valid input clocks, 20 complete 500-file checks, all 2,500 Git
+changes, 5,000 modified and 5,000 clean rows, 20 verified terminal renders and
+zero dropped browser stages. The exact traced PID matched the document registry
+and the owned provider record. Both launch hooks were restored, servers stopped,
+and private terminal fixtures cleaned up.
+
+Two separate two-note smoke runs verified all 20 actions each and retained cold
+opens of **320.0** and **352.8 ms**. The refined smoke measured 31.12 ms in the
+Lab interval, 0.14 ms trace logging and 169.78 ms handoff-to-provider-entry time.
+These small runs validate instrumentation, not the full performance target.
+Their omitted Git workload is recorded as `null`, not treated as a passing
+2,500-change verification.
+
+### Verification and retained artifacts
+
+All **22** diagnostic/guard checks passed. They exercise real original/traced
+launcher subprocesses, argv with spaces, conversation arguments, pinned vault,
+document context, ordinary sitecustomize identity, retained PID, ordered
+timestamps, diagnostic-only environment metadata, refusal of an unowned
+provider, disabled instrumentation and restoration after exceptions. No
+production source file changed, so this is not a new global functional-suite
+result; the previous known custom-attributes browser failure remains recorded.
+
+Artifacts: `/tmp/lab-agent-process-{smoke,full,handoff-smoke,handoff-full}-`
+`{browser,server}.json`, their logs, `/tmp/lab-agent-process-final-probe-tests.log`,
+`/tmp/lab-agent-process-summary.json`, and its verification script
+`/tmp/summarize_agent_process.py`. An initial summary attempt incorrectly indexed
+the small smoke's null Git result and failed; the corrected summary explicitly
+requires null for those smokes and the complete expected Git result for both
+full runs. No measurement was discarded or reclassified because of that error.
+`/tmp/lab-agent-process-cleanup.json` confirms no remaining matching processes.
+`/tmp/lab-agent-process-default-program.json` records a byte-exact comparison of
+the original/current generated program with tracing disabled and identical
+fixture marker/path inputs. Changed Python files parse and `git diff --check`
+passes.
+
+The next investigation should distinguish the remaining provider/process
+bootstrap interval from Lab-owned work, or address the other retained UI/API
+and typing misses. The complete under-200 ms / under-50 ms / physical-parity goal
+remains unproven. Main, user data and the live server remain untouched; no merge
+or remote push was attempted.

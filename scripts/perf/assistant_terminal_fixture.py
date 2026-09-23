@@ -12,7 +12,7 @@ import uuid
 
 
 @contextmanager
-def assistant_terminal_fixture(root):
+def assistant_terminal_fixture(root, *, trace_launch=False):
     root = Path(root).resolve()
     base = root.parent
     if root.name != 'assistant' or not base.name.startswith('lab-navigation-'):
@@ -33,14 +33,21 @@ def assistant_terminal_fixture(root):
     processes.mkdir()
     marker = 'detail-'+uuid.uuid4().hex[:12]
     binary = binary_dir/'claude'
-    binary.write_text(f'#!{sys.executable}\nimport json,os,sys\nfrom pathlib import Path\n'
+    launch_header = ('import time\nprovider_enter=time.time_ns()/1_000_000\n'
+                     'provider_cpu=time.process_time_ns()/1_000_000\n') if trace_launch else ''
+    launch_fields = (',"providerEntryEpoch":provider_enter,"providerEntryCpuMs":provider_cpu,'
+                     '"handoffEpoch":float(os.environ["LAB_PERF_DOCUMENT_EXEC_EPOCH"]) '
+                     'if "LAB_PERF_DOCUMENT_EXEC_EPOCH" in os.environ else None') if trace_launch else ''
+    binary.write_text(f'#!{sys.executable}\n'+launch_header+'import json,os,sys\nfrom pathlib import Path\n'
         'if "--version" in sys.argv:\n print("2.1.0");sys.exit(0)\n'
         f'Path({str(processes)!r},str(os.getpid())+".json").write_text('
-        'json.dumps({"pid":os.getpid(),"cwd":os.getcwd(),"context":os.environ.get("LAB_DOCUMENT_CONTEXT")}))\n'+echo_program(marker)+'\n')
+        'json.dumps({"pid":os.getpid(),"cwd":os.getcwd(),"context":os.environ.get("LAB_DOCUMENT_CONTEXT")'+launch_fields+'}))\n'+echo_program(marker)+'\n')
     binary.chmod(0o700)
     settings.update_global(root, {'defaultAgent':'claude', 'autopilot':{'claude':False}})
     report = dict(marker=marker, agent='owned-echo-cli', socketMode='private', processes=[], cleaned=False)
-    with tempfile.TemporaryDirectory(prefix='lab-detail-tmux-', dir='/tmp') as directory:
+    from agent_launch_probe import document_launch_trace
+    with document_launch_trace(root, enabled=trace_launch) as launch_trace, tempfile.TemporaryDirectory(prefix='lab-detail-tmux-', dir='/tmp') as directory:
+        report['launchTrace'] = launch_trace
         os.environ.update(PATH=str(binary_dir)+':'+os.environ['PATH'], TMUX_TMPDIR=directory)
         env = term._tmux_child_env()
         socket_name = 'detail-echo'
