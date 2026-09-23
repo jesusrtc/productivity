@@ -3025,3 +3025,51 @@
 .term-panel.term-sessions-full .term-task-link-pill .term-task-link-label { display:inline; }
 .assistant-tasks-task.is-terminal-target > .assistant-tasks-task-row { background:rgba(88,166,255,.12); box-shadow:inset 3px 0 var(--accent); }
 .assistant-tasks-task.is-terminal-target:focus { outline:none; }
+
+/* Browser-local typography from Settings → Global → Appearance. Keep modal
+   controls separate from reading text, and never resize a terminal canvas. */
+.form-modal, .doc-modal-box, .assistant-document-modal {
+  font-size:var(--lab-modal-font-size,14px);
+}
+.form-modal .fm-title, .assistant-document-modal .assistant-modal-heading h2 {
+  font-size:calc(var(--lab-modal-font-size,14px) * 1.07);
+}
+.form-modal label, .form-modal .fm-err,
+.form-modal :is(input,textarea,select), .form-modal .fm-actions button,
+.doc-modal-box :is(.doc-modal-title,.doc-modal-folder,.doc-modal-sort,.doc-modal-sort select,.doc-modal-file,.doc-modal-files-error),
+.assistant-document-modal :is(.assistant-modal-metadata,.assistant-record-tab,.assistant-tabs-heading,.assistant-series-link,.assistant-series-toggle,.assistant-series-meeting-title,.assistant-document-nav-item small),
+.assistant-document-modal .assistant-modal-actions > button:not(.assistant-modal-close) {
+  font-size:var(--lab-modal-font-size,14px);
+}
+.form-modal label .hint,
+.assistant-document-modal :is(.assistant-note-status,.assistant-tab-activity,.assistant-document-nav-item strong,.assistant-document-nav-item i) {
+  font-size:calc(var(--lab-modal-font-size,14px) * .86);
+}
+/* Workspace Markdown has fixed paragraph and heading sizes elsewhere. Scope
+   these overrides to modals so the main document and notebook views stay put. */
+.doc-modal-body :is(.workspace-content,.nb-markdown,.md-content,.doc),
+.assistant-document-modal .assistant-document-pane .assistant-markdown {
+  font-size:var(--lab-document-font-size,18px); line-height:1.65;
+}
+.doc-modal-body .workspace-content :is(p,li) { font-size:inherit; line-height:1.65; }
+.doc-modal-body .workspace-content h1 { font-size:2em; }
+.doc-modal-body .workspace-content h2 { font-size:1.55em; }
+.doc-modal-body .workspace-content h3 { font-size:1.25em; }
+.doc-modal-body :is(.workspace-content,.nb-markdown,.md-content,.doc) pre,
+.assistant-document-modal .assistant-markdown pre { font-size:.9em; line-height:1.6; }
+.doc-modal-body :is(.workspace-content,.nb-markdown,.md-content,.doc) code,
+.assistant-document-modal .assistant-markdown code { font-size:.9em; }
+.doc-modal-body :is(.workspace-content,.nb-markdown,.md-content,.doc) pre code,
+.assistant-document-modal .assistant-markdown pre code { font-size:inherit; }
+.doc-modal-body :is(.nb-markdown,.md-content,.doc) table,
+.assistant-document-modal .assistant-markdown table { font-size:inherit; }
+.doc-modal-body :is(.view-table,.nb-source,.nb-source-old,.nb-source-new,.nb-output,.nb-cell-edit-highlight,.nb-cell-edit-area),
+.assistant-document-modal .assistant-note-editor > :is(.assistant-note-marks,textarea) {
+  font-size:var(--lab-document-font-size,18px); line-height:1.65;
+}
+/* The legacy workspace editor sets its font inline. */
+.doc-modal-body #workspaceDocEditor { font-size:var(--lab-document-font-size,18px)!important; line-height:1.65!important; }
+.doc-modal-body .workspace-content > div:first-child :is(button,span) { font-size:var(--lab-modal-font-size,14px)!important; }
+.assistant-document-modal .assistant-note-marks > span { min-height:1.65em; }
+.assistant-document-modal .assistant-tasks-task-label { font-size:var(--lab-document-font-size,18px); }
+.assistant-document-modal .assistant-tasks-section-head h2 { font-size:var(--lab-document-font-size,18px); }

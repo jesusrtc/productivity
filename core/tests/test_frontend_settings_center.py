@@ -94,6 +94,38 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  assert(document.querySelectorAll('#labSettingsCenter').length===1,'one settings dialog');
  assert(form().elements.defaultAgent.querySelector('[value="claude"]').disabled,'uninstalled Claude labelled and disabled');
  assert(q('[data-catalog-status]').textContent.includes('1 vault is'),'offline vault visible');fits();
+ assert(q('[name="auto_codex"]').getAttribute('role')==='switch','boolean settings are accessible switches');
+ q('[data-search]').value='font';q('[data-search]').dispatchEvent(new Event('input'));
+ assert(q('[data-section="appearance"]')&&!q('[data-section="documents"]'),'search finds font settings');
+ q('[data-section="appearance"]').click();await until(()=>q('[name="documentFontSize"]'));
+ assert(q('[name="documentFontSize"]').value==='18','larger document default');fits();
+ const samples=document.createElement('div');samples.innerHTML=`<div class="nb-markdown" id="outsideModal">Outside</div><div class="doc-modal-body"><div class="workspace-content"><div class="nb-markdown" id="fileText"><h2>Heading</h2><p>Paragraph</p><code>Code</code></div><textarea id="workspaceDocEditor" style="font-size:15px">Editor</textarea></div><div class="nb-cell-edit-wrap"><pre class="nb-cell-edit-highlight">Code</pre><textarea class="nb-cell-edit-area">Code</textarea></div></div><div class="assistant-document-modal"><div class="assistant-document-pane"><div class="assistant-markdown" id="noteText">Note<table><tr><td>Cell</td></tr></table></div><div class="assistant-note-editor"><pre class="assistant-note-marks"><span>Line</span><span></span></pre><textarea>Line\n</textarea></div></div><div class="xterm-screen" style="font:13px monospace"><canvas></canvas></div></div>`;
+ document.body.append(samples);
+ const size=selector=>getComputedStyle(samples.querySelector(selector)).fontSize;
+ const outsideSize=size('#outsideModal'),terminalSize=size('.xterm-screen');
+ const resizeFont=(name,value)=>{const el=q(`[name="${name}"]`);el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));};
+ resizeFont('documentFontSize',24);resizeFont('modalFontSize',20);fits();
+ assert(size('#fileText')==='24px'&&size('#fileText p')==='24px'&&size('#noteText')==='24px'&&size('#noteText table')==='24px','reading text and tables resize together');
+ assert(size('#fileText h2')==='37.2px'&&parseFloat(size('#fileText code'))>20,'headings and inline code scale');
+ assert(size('#workspaceDocEditor')==='24px'&&size('.assistant-note-editor textarea')==='24px'&&size('.assistant-note-marks')==='24px','document editors scale with reading text');
+ assert(size('.nb-cell-edit-highlight')===size('.nb-cell-edit-area'),'notebook editor overlay stays aligned');
+ assert(size('#outsideModal')===outsideSize&&size('.xterm-screen')===terminalSize,'outside reading surfaces and terminal canvas remain unchanged');
+ assert(getComputedStyle(q('.settings-preview-document')).fontSize==='24px'&&getComputedStyle(q('[data-title]')).fontSize!=='21px','live preview and settings UI resize');
+ assert(JSON.parse(localStorage.getItem('labModalTypography-v1')).documentFontSize===24,'font preferences persisted');
+ const reloadFrame=document.createElement('iframe');reloadFrame.hidden=true;document.body.append(reloadFrame);
+ const settingsScript=document.createElement('script');settingsScript.textContent=document.querySelectorAll('script')[2].textContent;reloadFrame.contentDocument.head.append(settingsScript);
+ assert(reloadFrame.contentDocument.documentElement.style.getPropertyValue('--lab-document-font-size')==='24px','saved size applied on fresh page initialization');reloadFrame.remove();
+ LabSettings.close();await LabSettings.open({section:'appearance'});await until(()=>q('[name="documentFontSize"]'));
+ assert(q('[name="documentFontSize"]').value==='24'&&q('[name="modalFontSize"]').value==='20','saved font sizes restored');
+ resizeFont('documentFontSize',32);resizeFont('modalFontSize',24);fits();
+ q('[data-reset="documentFontSize"]').click();q('[data-reset="modalFontSize"]').click();
+ assert(size('#fileText')==='18px'&&q('[name="modalFontSize"]').value==='14','individual font resets');
+ resizeFont('documentFontSize',12);
+ const marks=samples.querySelector('.assistant-note-marks'),editor=samples.querySelector('.assistant-note-editor textarea');
+ assert(getComputedStyle(marks).lineHeight===getComputedStyle(editor).lineHeight&&Math.abs(marks.children[1].getBoundingClientRect().height-19.8)<.1,'blank editor lines stay aligned at smallest size');
+ q('[data-reset="documentFontSize"]').click();samples.remove();
+ document.body.classList.add('light-mode');fits();document.body.classList.remove('light-mode');
+ await section('general');
  field('theme','light');await save();
  assert(cfg.defaultAgent==='claude'&&calls.find(c=>c.body)?.body.theme==='light','theme does not change default agent');
  field('defaultAgent','codex');await save();assert(cfg.defaultAgent==='codex'&&cfg.model===null,'choose installed global agent');
@@ -130,7 +162,8 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  await openSidebarFileConfig();await until(()=>form()?.elements.showHidden);assert(q('[data-title]').textContent==='Workspace Alpha · File sidebar','local file sidebar shortcut');LabSettings.close();
  focus.dispatchEvent(new KeyboardEvent('keydown',{key:',',ctrlKey:true,bubbles:true,cancelable:true}));await until(()=>form()?.elements.defaultAgent);fits();
  assert(currentWorkspace.path==='/vault-a/same'&&!calls.some(c=>c.path.includes('/term/sessions')),'opening or saving settings never changes workspace or launches terminals');
- document.getElementById('result').textContent='PASS scoped settings, shortcuts, missing agent, policy, drafts, late responses';
+ q('[data-section="appearance"]').click();await until(()=>q('[name="documentFontSize"]'));fits();
+ document.getElementById('result').textContent='PASS scoped settings, typography, responsive switches, shortcuts, policy, drafts, late responses';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''
     page=tmp_path/'settings.html'

@@ -256,3 +256,5 @@
 - [Terminal task links open the highlighted task](terminal-task-links-open-highlighted-task.md) — clickable tab/header labels open the modal at the exact task without changing workspace or starting terminals.
 
 - [Provider idle-event boundaries](terminal-provider-idle-events.md) — Claude local commands do not start work; Copilot shutdown preserves a verified final response.
+
+- [Modal fonts and Obsidian-style settings](modal-font-settings-and-obsidian-layout.md) — independent document/interface sizes, live preview, browser persistence, and row controls with switches.

@@ -5,10 +5,31 @@
   const labels = {claude:'Claude Code',codex:'Codex',copilot:'Copilot',terminal:'Terminal',attach:'Attach tmux session'};
   const globalScope = {key:'global',label:'Global',kind:'global'};
   const sections = scope => scope.kind === 'global'
-    ? [['general','General'],['terminals','Terminal appearance'],['documents','Document terminals']]
+    ? [['general','General'],['appearance','Appearance'],['terminals','Terminal appearance'],['documents','Document terminals']]
     : [['general','Agent'],['terminals','Terminal sessions'],['files','File sidebar']];
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let state = null;
+  const typographyKey = 'labModalTypography-v1';
+  const typographyDefaults = {modalFontSize:14,documentFontSize:18};
+  function readTypography() {
+    let saved;
+    try { saved=JSON.parse(localStorage.getItem(typographyKey)); } catch {}
+    return Object.fromEntries(Object.entries(typographyDefaults).map(([name,fallback])=>{
+      const value=saved?.[name], max=name==='modalFontSize'?24:32;
+      return [name,typeof value==='number'&&Number.isFinite(value)?Math.max(12,Math.min(max,Math.round(value))):fallback];
+    }));
+  }
+  function applyTypography(value) {
+    document.documentElement.style.setProperty('--lab-modal-font-size',value.modalFontSize+'px');
+    document.documentElement.style.setProperty('--lab-document-font-size',value.documentFontSize+'px');
+  }
+  applyTypography(readTypography());
+  window.addEventListener('storage',event=>{
+    if(event.key===typographyKey||event.key===null) {
+      applyTypography(readTypography());
+      if(state?.section==='appearance') appearance(state.dialog.querySelector('[data-panel]'));
+    }
+  });
   const bridge = () => window.LabSettingsBridge;
   async function api(url, body, signal) {
     const response = await fetch(url,body === undefined ? {signal} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal});
@@ -29,11 +50,13 @@
   }
   function nav() {
     if (!state) return;
-    const needle = state.dialog.querySelector('[data-search]').value.toLowerCase();
-    const items = [...state.scopes.values()].filter(scope=>scope.key==='global'||`${scope.label} ${scope.vaultLabel||''} ${scope.path||''}`.toLowerCase().includes(needle));
-    state.dialog.querySelector('[data-nav]').innerHTML = items.map(scope=>`<div class="settings-scope"><button type="button" class="settings-scope-button${state.scope.key===scope.key?' selected':''}" data-scope="${esc(scope.key)}" title="${esc(scope.path||'Applies across Lab')}">${esc(scope.label)}${scope.vaultLabel?`<small>${esc(scope.vaultLabel)}</small>`:''}</button>${state.scope.key===scope.key?sections(scope).map(([id,label])=>`<button type="button" class="settings-section-button${state.section===id?' selected':''}" data-section="${id}"${state.section===id?' aria-current="page"':''}>${label}</button>`).join(''):''}</div>`).join('');
+    const needle = state.dialog.querySelector('[data-search]').value.trim().toLowerCase();
+    const scopeMatches=scope=>`${scope.label} ${scope.vaultLabel||''} ${scope.path||''}`.toLowerCase().includes(needle);
+    const sectionMatches=([id,label])=>(label+(id==='appearance'?' font size text modal document reading':'' )).toLowerCase().includes(needle);
+    const items = [...state.scopes.values()].filter(scope=>!needle||scopeMatches(scope)||sections(scope).some(sectionMatches));
+    state.dialog.querySelector('[data-nav]').innerHTML = items.map(scope=>`<div class="settings-scope"><button type="button" class="settings-scope-button${state.scope.key===scope.key?' selected':''}" data-scope="${esc(scope.key)}" title="${esc(scope.path||'Applies across Lab')}">${esc(scope.label)}${scope.vaultLabel?`<small>${esc(scope.vaultLabel)}</small>`:''}</button>${state.scope.key===scope.key||needle?sections(scope).filter(row=>!needle||scopeMatches(scope)||sectionMatches(row)).map(([id,label])=>`<button type="button" class="settings-section-button${state.scope.key===scope.key&&state.section===id?' selected':''}" data-section="${id}" data-section-scope="${esc(scope.key)}"${state.scope.key===scope.key&&state.section===id?' aria-current="page"':''}>${label}</button>`).join(''):''}</div>`).join('')||'<p class="settings-hint">No matching settings.</p>';
     state.dialog.querySelectorAll('[data-scope]').forEach(button=>button.onclick=()=>select(state.scopes.get(button.dataset.scope),'general'));
-    state.dialog.querySelectorAll('[data-section]').forEach(button=>button.onclick=()=>select(state.scope,button.dataset.section));
+    state.dialog.querySelectorAll('[data-section]').forEach(button=>button.onclick=()=>select(state.scopes.get(button.dataset.sectionScope),button.dataset.section));
   }
   async function select(scope, section = 'general', force = false) {
     if (!state || (!force && !mayLeave())) return;
@@ -46,6 +69,7 @@
       if (!s.config) await s.ready;
       if (s!==state||token!==s.version) return;
       if (section==='general') await general(panel,scope,s,token);
+      else if(section==='appearance') appearance(panel);
       else if(section==='documents') documents(panel,s);
       else if(section==='terminals') terminals(panel,scope,s);
       else files(panel,scope,s);
@@ -67,14 +91,32 @@
     };
     return node;
   }
-  const field=(label,control,hint='')=>`<label class="settings-field"><span>${label}</span>${control}${hint?`<small>${hint}</small>`:''}</label>`;
+  const field=(label,control,hint='')=>`<label class="settings-field"><span class="settings-field-copy"><span>${label}</span>${hint?`<small>${hint}</small>`:''}</span><span class="settings-control">${control}</span></label>`;
   const input=(name,value,type='text',extra='')=>`<input name="${name}" type="${type}" value="${esc(value)}" ${extra}>`;
-  const check=(name,label,checked,hint='')=>`<label class="settings-check"><input name="${name}" type="checkbox" ${checked?'checked':''}><span>${label}${hint?`<small>${hint}</small>`:''}</span></label>`;
+  const check=(name,label,checked,hint='')=>`<label class="settings-check"><span class="settings-field-copy"><span>${label}</span>${hint?`<small>${hint}</small>`:''}</span><input name="${name}" type="checkbox" role="switch" ${checked?'checked':''}></label>`;
   function choices(name,value,rows) {return `<select name="${name}">${rows.map(([id,label,disabled])=>`<option value="${esc(id)}" ${String(value??'')===String(id)?'selected':''} ${disabled?'disabled':''}>${esc(label)}</option>`).join('')}</select>`;}
   function agentOptions(s,supported=Object.keys(s.available)) {return Object.keys(labels).filter(id=>['claude','codex','copilot'].includes(id)).map(id=>[id,labels[id]+(!s.available[id]?' — Not installed':!supported.includes(id)?' — Disabled in vault':''),!s.available[id]||!supported.includes(id)]);}
   async function saveGlobal(patch,s) {
     s.config=await api('/api/settings/global',patch,s.abort.signal);
     bridge()?.settingsSaved(s.config);
+  }
+  function appearance(panel) {
+    const value=readTypography();
+    const slider=(name,label,hint,max)=>`<div class="settings-field"><div class="settings-field-copy"><label for="settings-${name}">${label}</label><small>${hint}</small></div><div class="settings-font-control"><button type="button" data-reset="${name}" aria-label="Reset ${label.toLowerCase()}" title="Reset to ${typographyDefaults[name]} px">↺</button><output for="settings-${name}" data-size="${name}">${value[name]} px</output><input id="settings-${name}" name="${name}" type="range" min="12" max="${max}" step="1" value="${value[name]}" aria-valuetext="${value[name]} pixels"></div></div>`;
+    panel.innerHTML=`<div class="settings-form"><p class="settings-intro">Make dialogs and documents easier to read. Font sizes apply immediately and are saved in this browser.</p><div class="settings-group">
+      ${slider('documentFontSize','Document font size','Text in document modals, Markdown, and document editors.',32)}
+      ${slider('modalFontSize','Modal interface font size','Settings, dialog labels, buttons, and document navigation.',24)}
+      </div><section class="settings-preview" aria-label="Document font preview"><small>Document preview</small><div class="settings-preview-document"><h3>A little more room to read</h3><p>Your notes, ideas, and documents at a size that feels comfortable.</p><p>Headings, <strong>bold text</strong>, and <code>inline code</code> scale together.</p></div></section></div>`;
+    function update(name,size) {
+      value[name]=size;
+      const input=panel.querySelector(`[name="${name}"]`);input.value=size;input.setAttribute('aria-valuetext',size+' pixels');
+      panel.querySelector(`[data-size="${name}"]`).value=size+' px';
+      applyTypography(value);
+      try {localStorage.setItem(typographyKey,JSON.stringify(value));message('Font sizes saved');}
+      catch {message('Font sizes applied. Browser storage is unavailable; they will reset after reloading.',true);}
+    }
+    panel.querySelectorAll('input[type="range"]').forEach(input=>input.oninput=()=>update(input.name,Number(input.value)));
+    panel.querySelectorAll('[data-reset]').forEach(button=>button.onclick=()=>update(button.dataset.reset,typographyDefaults[button.dataset.reset]));
   }
   async function general(panel,scope,s,token) {
     if(scope.kind==='global') {
@@ -158,7 +200,7 @@
       return;
     }
     const selected=bridge().terminalOptions(scope);
-    form(panel,`<p class="settings-intro">Options shown in <strong>+ New</strong> for ${esc(scope.label)}, in this browser. These checkboxes only control the menu; choose the default under <strong>Agent</strong>.</p>
+    form(panel,`<p class="settings-intro">Options shown in <strong>+ New</strong> for ${esc(scope.label)}, in this browser. These switches control the menu; choose the default under <strong>Agent</strong>.</p>
       ${Object.entries(labels).map(([id,label])=>check(id,label,selected.includes(id),id in s.available?(s.available[id]?'Installed':'Not installed on the computer running Lab'):'')).join('')}
       <button type="button" data-appearance>Configure Lab-wide tab appearance</button>
       <details class="settings-danger"><summary>Stop terminal sessions</summary><p>Running work will stop. Attached external sessions are detached without stopping their originals.</p><button type="button" data-stop ${bridge().canStop(scope)?'':'disabled'}>Stop sessions in ${esc(scope.label)}</button>${bridge().canStop(scope)?'':'<small>Open this workspace first to stop its sessions.</small>'}</details>`,async f=>bridge().saveTerminalOptions(scope,Object.keys(labels).filter(id=>f.elements[id].checked)));
@@ -235,7 +277,7 @@
     if(!bridge())return;
     if(state) {if(options.scope)state.scopes.set(options.scope.key,options.scope);return select(options.scope||globalScope,options.section||'general');}
     const dialog=document.createElement('dialog');dialog.id='labSettingsCenter';dialog.className='lab-settings-center';dialog.setAttribute('aria-labelledby','labSettingsTitle');
-    dialog.innerHTML=`<header><div><strong id="labSettingsTitle">Settings</strong><span>⌘,</span></div><button type="button" data-close aria-label="Close settings">×</button></header><div class="settings-layout"><aside><input data-search type="search" placeholder="Find a workspace…" aria-label="Find a workspace"><nav data-nav aria-label="Settings scopes"></nav><small data-catalog-status></small></aside><main><h2 data-title></h2><p class="settings-scope-caption" data-scope-caption></p><div data-panel></div></main></div><footer><span role="status" data-message></span><button type="button" data-done>Done</button></footer>`;
+    dialog.innerHTML=`<header><div><strong id="labSettingsTitle">Settings</strong><span>⌘,</span></div><button type="button" data-close aria-label="Close settings">×</button></header><div class="settings-layout"><aside><input data-search type="search" placeholder="Search settings…" aria-label="Search settings"><nav data-nav aria-label="Settings scopes"></nav><small data-catalog-status></small></aside><main><h2 data-title></h2><p class="settings-scope-caption" data-scope-caption></p><div data-panel></div></main></div><footer><span role="status" data-message></span><button type="button" data-done>Done</button></footer>`;
     const s=state={dialog,abort:new AbortController(),version:0,dirty:false,focus:document.activeElement,scopes:new Map([['global',globalScope]]),scope:options.scope||globalScope,section:options.section||'general'};
     for(const scope of bridge().initialScopes())s.scopes.set(scope.key,scope);
     if(options.scope)s.scopes.set(options.scope.key,options.scope);
