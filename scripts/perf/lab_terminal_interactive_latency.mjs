@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 import {captureInputClock,validateInputClock} from './input_clock.mjs';
-import {echoInput,createEchoReader,createOutputEchoReader,readRenderedOutput} from './terminal_echo_reader.mjs';
+import {echoInput,echoTextThroughCursor,createEchoReader,createOutputEchoReader,readRenderedOutput} from './terminal_echo_reader.mjs';
 const [baseUrl,name,marker,sampleArg,workspace,intervalArg] = process.argv.slice(2);
 const samples=Number(sampleArg), interval=Number(intervalArg)*1000;
 const changeFiles=process.env.LAB_PERF_TYPING_UPDATES==='1';
@@ -124,6 +124,34 @@ async function main() {
   const profile=await mkdtemp(join(tmpdir(),'lab-interactive-input-'));
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client,evaluate;
+  let traceActive=false,profileActive=false,diagnostics,traceStartedEpoch;
+  const traceCategories=process.env.LAB_PERF_TRACE_CATEGORIES||'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking';
+  const finishDiagnostics=()=>diagnostics||=(async()=>{
+    const jobs=[];
+    if(profileActive)jobs.push((async()=>{
+      const {profile}=await client.send('Profiler.stop');
+      await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));
+    })());
+    if(traceActive)jobs.push((async()=>{
+      let timer,stream;
+      const complete=Promise.race([client.once('Tracing.tracingComplete'),new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error('Trace completion timed out')),15000);
+      })]);
+      try {
+        const endedEpoch=Date.now();
+        const results=await Promise.all([client.send('Tracing.end'),complete]);
+        stream=results[1].stream;
+        let trace='';
+        while(true){const chunk=await client.send('IO.read',{handle:stream});trace+=chunk.data;if(chunk.eof)break;}
+        await writeFile(process.env.LAB_PERF_TRACE,trace);
+        await writeFile(process.env.LAB_PERF_TRACE+'.metadata.json',JSON.stringify({categories:traceCategories,startedEpoch:traceStartedEpoch,endedEpoch,completion:results[1]}));
+      } finally {
+        clearTimeout(timer);
+        if(stream)await client.send('IO.close',{handle:stream});
+      }
+    })());
+    return (await Promise.allSettled(jobs)).filter(result=>result.status==='rejected').map(result=>String(result.reason));
+  })();
   const sent=[], phases=[], updates=[], browserErrors=[],requestFailures=[],pendingRequests=new Map();
   const terminalSockets=new Map(), terminalFrames=[];
   let networkEpochOffset=null;
@@ -181,7 +209,7 @@ async function main() {
     };
     // Include preparation before the terminal is ready: moving layout earlier
     // must not conceal a new long task during page/workspace startup.
-    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
+    if(process.env.LAB_PERF_TRACE){traceStartedEpoch=Date.now();await client.send('Tracing.start',{categories:traceCategories,transferMode:'ReturnAsStream'});traceActive=true;}
     await client.send('Page.navigate',{url:baseUrl+'/?workspace='+encodeURIComponent(workspace)});
     await wait(`typeof termAttach==='function' && currentWorkspace?.path===${JSON.stringify(workspace)} && termSessions.some(s=>s.name===${JSON.stringify(name)})`,'Owned terminal did not appear in fixture UI');
     if(detachTerminal) {
@@ -206,12 +234,13 @@ async function main() {
       const captureInputClock=${captureInputClock.toString()};
       const createEchoReader=${createEchoReader.toString()};
       const createOutputEchoReader=${createOutputEchoReader.toString()};
+      const echoTextThroughCursor=${echoTextThroughCursor.toString()};
       const readRenderedOutput=${readRenderedOutput.toString()},outputLoad=${outputLoad};
       const reader=outputLoad?createOutputEchoReader:createEchoReader;
       const parsedEcho=reader(expected,marker),renderedEcho=reader(expected,marker);
       const input=termXterm.element.querySelector('textarea');
       const detachTerminal=${JSON.stringify(detachTerminal)};
-      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],detachments:[],detaching:null,phase:null,loadTimer:null,inflight:null,outputCoverage:{}};
+      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],detachments:[],detaching:null,phase:null,loadTimer:null,inflight:null,outputCoverage:{},marginCoverage:{parsed:[],rendered:[]}};
       probe.detach=()=>{
         if(!detachTerminal||probe.detaching)return;
         const record={start:performance.now(),phase:probe.phase};probe.detachments.push(record);
@@ -244,15 +273,22 @@ async function main() {
         if(e.key!==expected[index])probe.errors.push('Unexpected key at '+index+': '+e.key);
         probe.events.push({index,char:e.key,phase:probe.phase,...captureInputClock(e)});
       },true);
-      const echoLength=reader=>{
+      const echoLength=(reader,stage)=>{
         const buffer=termXterm.buffer.active;
         // tmux may draw a status bar below the app. Read only through the
         // echo process's cursor, retaining exact text and wrapped lines.
-        let text='';for(let i=0;i<=buffer.baseY+buffer.cursorY;i++)text+=buffer.getLine(i)?.translateToString(true,0,i===buffer.baseY+buffer.cursorY?buffer.cursorX:undefined)||'';
-        try{return reader(text,probe.events.length)}catch(error){probe.errors.push(error.message);return 0;}
+        const text=echoTextThroughCursor(buffer,termXterm.cols,outputLoad);
+        try {
+          const length=reader(text,probe.events.length);
+          if(outputLoad && length!==null && buffer.cursorX===termXterm.cols-1 && !echoTextThroughCursor(buffer,termXterm.cols).endsWith('|')) {
+            const records=probe.marginCoverage[stage];
+            if(!records.some(record=>record.length===length))records.push({length,at:performance.now(),cursorX:buffer.cursorX,columns:termXterm.cols});
+          }
+          return length;
+        } catch(error){probe.errors.push(error.message);return 0;}
       };
       probe.parseListener=termXterm.onWriteParsed(()=>{
-        const at=performance.now(),length=echoLength(parsedEcho);
+        const at=performance.now(),length=echoLength(parsedEcho,'parsed');
         while(probe.parsed.length<length)probe.parsed.push(at);
       });
       probe.listener=termXterm.onRender(range=>{
@@ -271,7 +307,7 @@ async function main() {
           if(probe.parsed.length>probe.rows.length)probe.skippedRenders.push({at:renderAt,range,cursorRow,parsedLength:probe.parsed.length,cols:termXterm.cols,rows:termXterm.rows});
           return;
         }
-        const length=echoLength(renderedEcho);
+        const length=echoLength(renderedEcho,'rendered');
         while(probe.rows.length<length && probe.rows.length<probe.events.length) {
           const e=probe.events[probe.rows.length];
           probe.rows.push({...e,renderAt,parsedAt:probe.parsed[e.index],total:renderAt-e.source,queue:e.handlerAt-e.source,handlerToRender:renderAt-e.handlerAt});
@@ -291,9 +327,9 @@ async function main() {
         if(loaded){probe.refresh();probe.loadTimer=setInterval(probe.refresh,500);}
       };
       probe.stop=async()=>{clearInterval(probe.loadTimer);await probe.inflight;await probe.detaching;};
-      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,detachments:probe.detachments,outputCoverage:probe.outputCoverage,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
+      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,detachments:probe.detachments,outputCoverage:probe.outputCoverage,marginCoverage:probe.marginCoverage,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
     })()`);
-    if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');}
+    if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');profileActive=true;}
     for(const loaded of [false,true]) {
       await evaluate(`__typing.start(${loaded})`);
       const phase=phaseNames[Number(loaded)], phaseStart=performance.now(), commands=[];
@@ -336,14 +372,9 @@ async function main() {
       const rows=snapshot.rows.filter(r=>r.phase===phase);
       phases.push({phase,total:stats(rows.map(r=>r.total)),queue:stats(rows.map(r=>r.queue)),handlerToRender:stats(rows.map(r=>r.handlerToRender))});
     }
-    if(process.env.LAB_PERF_CPU_PROFILE){const {profile}=await client.send('Profiler.stop');await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));}
-    if(process.env.LAB_PERF_TRACE){
-      const complete=client.once('Tracing.tracingComplete');await client.send('Tracing.end');
-      const {stream}=await complete;let trace='';
-      while(true){const chunk=await client.send('IO.read',{handle:stream});trace+=chunk.data;if(chunk.eof)break;}
-      await client.send('IO.close',{handle:stream});await writeFile(process.env.LAB_PERF_TRACE,trace);
-    }
+    const diagnosticsErrors=await finishDiagnostics();
     const result=await evaluate('__typing.observer.disconnect(); __typing.listener.dispose(); __typing.parseListener.dispose(); __typing.snapshot()');
+    result.diagnosticsErrors=diagnosticsErrors;
     result.browserVersion=browserVersion.Browser;
     result.sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>entry.elements),retainedElements:_sidebarMarkupCacheElements})`);
     result.timestampChecks=result.events.map((e,i)=>({index:i,...validateInputClock(e,sent[i]?.epoch)}));
@@ -373,11 +404,12 @@ async function main() {
     await wait(`location.pathname==='/api/ping' && !document.getElementById('termPanel') && document.body.textContent.includes('status')`,'Frame control failed to load');
     result.emptyPageFrames=stats(await evaluate(`(async()=>{const frames=[];let last=await new Promise(requestAnimationFrame);for(let i=0;i<100;i++){const next=await new Promise(requestAnimationFrame);frames.push(next-last);last=next;}return frames;})()`));
     console.log(JSON.stringify(result,null,2));
-    if(result.errors.length || result.timestampErrors.length || result.transportErrors.length || result.misses.length || result.requestMisses.length || result.requestErrors.length || browserErrors.length || requestFailures.length)process.exitCode=1;
+    if(result.errors.length || diagnosticsErrors.length || result.timestampErrors.length || result.transportErrors.length || result.misses.length || result.requestMisses.length || result.requestErrors.length || browserErrors.length || requestFailures.length)process.exitCode=1;
   } catch(error) {
+    const diagnosticsErrors=await finishDiagnostics();
     const partial=evaluate?await evaluate('window.__typing?.snapshot()').catch(()=>null):null;
     const timestampChecks=(partial?.events||[]).map((e,i)=>({index:i,...validateInputClock(e,sent[i]?.epoch)}));
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,updates,browserErrors,requestFailures,terminalFrames,timestampChecks,timestampErrors:timestampChecks.filter(check=>!check.valid)},null,2));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,diagnosticsErrors,partial,phases,sent,updates,browserErrors,requestFailures,terminalFrames,timestampChecks,timestampErrors:timestampChecks.filter(check=>!check.valid)},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}

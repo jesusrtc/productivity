@@ -26,7 +26,7 @@ def test_output_readers_require_exact_suffixes_and_independent_render_continuity
         pytest.skip('Node required')
     script = r'''
 import assert from 'node:assert/strict';
-import {echoInput,createOutputEchoReader,readRenderedOutput} from HELPER;
+import {echoInput,echoTextThroughCursor,createOutputEchoReader,readRenderedOutput} from HELPER;
 const expected=echoInput(5000),marker='ready-marker';
 const frame=(end,start=Math.max(0,end-64))=>marker+':'+String(start).padStart(6,'0')+':'+expected.slice(start,end)+'|';
 const parse=createOutputEchoReader(expected,marker),render=createOutputEchoReader(expected,marker);
@@ -56,6 +56,24 @@ assert.equal(incomplete(frame(160),160),160);
 const parsed=anchored(),rendered=anchored();
 parsed(frame(100),100);parsed(frame(150),150);
 assert.throws(()=>rendered(frame(150),150),/Unverified/);
+
+// A full rightmost cell is visible even if tmux leaves its cursor on it.
+// Only the footer's exact terminator protocol authorizes including that cell.
+const marginMarker='ready-'+('a'.repeat(32)),marginReader=createOutputEchoReader(expected,marginMarker);
+for(let end=0;end<=200;end++) {
+  const offset=Math.max(0,end-64),text=marginMarker+':'+String(offset).padStart(6,'0')+':'+expected.slice(offset,end)+'|';
+  const lines=text.match(/.{1,49}/g),tail=lines.at(-1);
+  const buffer={baseY:0,cursorY:lines.length-1,cursorX:tail.length===49?48:tail.length,
+    getLine(row){return {translateToString(trim,start=0,end){return (lines[row]||'').padEnd(49,' ').slice(start,end).trimEnd();}};}};
+  assert.equal(marginReader(echoTextThroughCursor(buffer,49,true),end),end);
+  if(tail.length===49) {
+    assert.equal(createOutputEchoReader(expected,marginMarker)(echoTextThroughCursor(buffer,49),end),null);
+    assert.throws(()=>marginReader(echoTextThroughCursor(buffer,49,true),end-1),/ahead of observed/);
+    // No terminator means incomplete, even when the last cell was included.
+    lines[lines.length-1]=tail.slice(0,-1)+' ';
+    assert.equal(marginReader(echoTextThroughCursor(buffer,49,true),end),null);
+  }
+}
 
 const cols=49,rows=20,viewportY=100,lines=new Map(),asked=[];
 const line=n=>'load '+String(n).padStart(8,'0')+' '+String.fromCharCode(65+n%26).repeat(cols-15);

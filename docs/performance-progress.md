@@ -4013,3 +4013,82 @@ Next: distinguish shared tmux scheduling from byte-pump and browser work, retain
 normal/default-transport measurements, and add any fully owned transport test as
 an explicitly separate diagnostic. Browser CPU `(program)` samples do not name
 a cause; any new Chrome trace must check actual time coverage and preserve misses.
+
+## 2026-09-23 — Separate transport effects and correct right-margin observation
+
+The prior turn made progress by adding active-output coverage and rejecting an
+ineffective PTY change. This follow-up retained that production implementation.
+
+A fixed shared/private/private/shared sequence used 1,200 native keys per run,
+5,000 mixed files, 2,500 Git changes, continuous output, 30 file updates, ordinary
+polling and terminal I/O timing. Private runs used `TMUX_TMPDIR` under a newly
+created `/tmp/lab-tmux-control-*` directory; the wrapper captured the private
+socket inode and server PID, verified identity before cleanup, and never changed
+ordinary/default-server sessions. Both private PIDs were confirmed gone afterward.
+
+| Run | Keys ≥50 ms | Output maximum | Output + sidebar maximum | Loaded source batch-write maximum |
+| --- | ---: | ---: | ---: | ---: |
+| shared-a | 19 | 53.4 ms | 53.1 ms | 29.09 ms |
+| private-b | 2 | 53.7 ms | 43.7 ms | 3.76 ms |
+| private-b2 | 1 | 50.1 ms | 39.7 ms | 0.52 ms |
+| shared-a2 | 9 | 47.4 ms | 71.0 ms | 32.17 ms |
+
+All 4,800 characters matched source hashes and independent parse/render checks.
+API maxima were below 200 ms in all four runs. Loaded received-frame counts were
+16,230 / 1,795 / 1,795 / 11,186 respectively, for the same 300 source batches per
+loaded phase. This associates bursts with the shared transport/environment;
+it does not distinguish server contention from server configuration/state, or
+justify changing the user's tmux routing. All failures remain retained. Artifacts:
+`/tmp/lab-output-transport-{shared-a,private-b,private-b2,shared-a2}-{browser,server,transport,summary}.json`,
+`/tmp/lab-output-transport-runs.json`, comparison JSON, logs and control wrapper.
+
+An 800-key private diagnostic captured reduced Chrome timeline categories and a
+CPU profile. Every key passed, maximum 49.4/43.8 ms. The 62,667-event trace covered
+the workload and reported no data loss. It exposed a 10.03 ms callback at the
+six-second Git decoration poll; the callback reapplies cached decorations before
+checking freshness/fetching. Native `(program)` CPU samples in other windows
+still do not establish a named browser cause. Artifacts:
+`/tmp/lab-output-transport-private-trace-{browser,server,cpu,trace,transport,summary}.json`
+and `...-trace.json.metadata.json`.
+
+The terminal probe now accepts `LAB_PERF_TRACE_CATEGORIES`, records trace
+start/end epochs and completion metadata, and saves independent CPU/trace
+outputs even when the workload throws. Export happens once, closes trace streams
+on read failure, reports diagnostic errors and retains successful sibling output.
+Tests exercise normal export, one-export semantics, independent failures, stream
+cleanup and the disabled path.
+
+### A conservative overcount at the last column
+
+At a full row, tmux may leave its cursor on the last occupied cell. The busy
+footer's required `|` terminator can occupy that cell, but the probe read only
+columns before the cursor. It therefore waited for later input despite the full
+footer being present in a rendered row. The reader now includes the rightmost
+cell only for the explicitly terminated output-footer protocol. Exact bytes,
+source-offset continuity, no-ahead checks, cursor-row render gating and the
+ordinary echo reader are retained. Regression coverage includes both boundaries
+in a 49-column viewport, incomplete terminators and ahead-of-input rejection.
+
+Native evidence with detailed tracing disabled confirms this case at input
+lengths **2 and 51**, cursor column **48 of 49**, in both parse and render
+observers. The two corrected runs retained all 2,400 keys apiece and all 60 file
+updates; source hashes and rendered output coverage passed:
+
+- Shared transport: **44 misses**, maxima **63.0/79.6 ms**; API maxima
+  **74.0 ms** browser / **72.98 ms** server.
+- Private transport: **one miss**, index 2358 at **54.3 ms**; maxima
+  **46.6/54.3 ms**; API maxima **97.8/96.06 ms**.
+
+These are new workloads, not replacements for failed earlier runs. Earlier
+measurements at the full-row terminator boundary may overcount by one key
+interval; other misses remain unexplained by that correction. Artifacts:
+`/tmp/lab-output-transport-margin-{shared,private}-{browser,server,transport,summary}.json`
+and `/tmp/lab-output-transport-margin-runs.json`. All fixture HTTP servers stopped,
+owned sessions were removed and private tmux servers stopped. No main merge,
+push or live-server restart occurred; the earlier merge rejection remains pending.
+
+The updated diagnostic/echo/owned-export checks passed: **36 focused tests**
+(within the subsequent 66-test sidebar/terminal run). Actual reduced-trace
+coverage began 1,696.69 ms before the first measured key and ended 18.67 ms after
+the last measured render. All private trace/margin PIDs were independently
+confirmed gone and their sockets absent after cleanup.

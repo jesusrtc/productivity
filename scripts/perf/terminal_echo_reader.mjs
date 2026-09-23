@@ -8,6 +8,17 @@ export function echoInput(length, seed=817) {
   }).join('');
 }
 
+export function echoTextThroughCursor(buffer, columns, outputFooter=false) {
+  const last=buffer.baseY+buffer.cursorY;
+  let end=buffer.cursorX,text='';
+  // tmux can leave its cursor ON the rightmost cell after filling a row.
+  // The output footer has a required terminator, so include that cell and
+  // let its exact frame reader verify completion. Ordinary echo is unchanged.
+  if(outputFooter && end===columns-1)end=columns;
+  for(let row=0;row<=last;row++)text+=buffer.getLine(row)?.translateToString(true,0,row===last?end:undefined)||'';
+  return text;
+}
+
 // Serialized into the owned terminal probe. Each parse/render observer gets
 // its own reader so parsed-but-never-rendered text cannot authorize a gap.
 export function createEchoReader(expected, marker) {
