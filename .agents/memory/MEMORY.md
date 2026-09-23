@@ -281,3 +281,6 @@
 - [Document tabs need readable widths](document-tabs-readable-width.md) — 420px default drawer, wrapping titles, and more resizing room now that tabs overlay the document.
 
 - [Filesystem polls are bounded](filesystem-polls-are-bounded.md) — cycle-safe linked folders, closed scandir handles, shared reads, cooperative cancellation, and no I/O in failure reporting.
+
+- [Workspace files use background snapshots](workspace-files-use-background-snapshots.md) — share Files/mtime work, collect initial 202 responses, preserve complete listings, and diagnose individual stalled reads.
+- [Polling watcher does not follow nested links](polling-watcher-does-not-follow-nested-links.md) — lstat prevents recursive ancestor links from consuming the index watcher; Files still browses linked folders.

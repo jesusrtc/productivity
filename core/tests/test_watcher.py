@@ -4,7 +4,7 @@ import sys
 import time
 from pathlib import Path
 
-from watchdog.observers.polling import PollingObserver
+from watchdog.observers.polling import PollingObserverVFS
 from watchdog.events import FileSystemEventHandler
 
 from core.state import IndexCache
@@ -115,4 +115,19 @@ def test_watcher_defaults_to_polling_on_darwin(
 
     observer = w._make_observer()
 
-    assert isinstance(observer, PollingObserver)
+    assert isinstance(observer, PollingObserverVFS)
+
+
+def test_polling_watcher_records_links_without_descending(monorepo: Path):
+    root = monorepo / "content"
+    (root / "docs").mkdir()
+    (root / "docs/back").symlink_to(root, target_is_directory=True)
+    (root / "alias").symlink_to(root / "docs", target_is_directory=True)
+    watcher = IndexWatcher(monorepo, IndexCache(monorepo), debounce_ms=100, on_rebuild=lambda _: None)
+    observer = watcher._polling_observer()
+    observer.schedule(FileSystemEventHandler(), str(root), recursive=True)
+    emitter = next(iter(observer.emitters))
+    snapshot = emitter._take_snapshot()
+    assert set(snapshot.paths) == {str(root), str(root / "docs"), str(root / "docs/back"),
+                                   str(root / "alias"), str(root / "meetings")}
+    assert not snapshot.isdir(str(root / "docs/back"))

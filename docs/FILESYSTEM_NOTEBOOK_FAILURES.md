@@ -30,6 +30,50 @@ reduced from 76.4 ms to 40.6 ms over three runs on this machine. Cycle and
 concurrency regressions are covered separately; this timing does not establish
 the original client's storage latency or prove it had a symlink cycle.
 
+### Follow-up: a healthy large scan still hit the request deadline
+
+The September 23 05:37 logs came from the first fix (`fsguard.py:213`). Files
+and mtime still ran separate traversals of `/Users/jcortes/src/sdui`, and each
+had to finish within ten seconds. Cancellation prevented runaway duplicate
+work, but also discarded progress through a healthy large tree. Those logs do
+not identify a particular slow syscall or establish the size of that checkout.
+
+Both endpoints now use one background snapshot per vault, path, and dotfile
+setting. Requests wait at most 150 ms for collection (HTTP overhead and response
+serialization are additional). The first slow scan returns 202 with Retry-After;
+the browser collects that same job instead of treating it as an empty listing
+or starting over. A refresh keeps the last complete result visible with an
+"Updating files" status. Polling reuses snapshots for two seconds; explicit file
+loads can request a refresh. A revision also detects deletion or replacement
+when the greatest mtime did not increase. Notebook running flags stay live
+without resolving file paths on request threads.
+
+The scan service permits two workers, no queued jobs, and at most 32 cached
+scopes. It is independent of the small-read fsguard pool. Shutdown cancels walks
+between syscalls without waiting indefinitely for blocked OS calls. Failed
+refreshes retain the last success and retry with exponential backoff. An actual
+read stall still returns 503 when no snapshot exists; its response and one
+warning identify the workspace root, last operation/path, visited-entry count,
+and time without progress. Slow scans that continue progressing are not aborted
+at ten seconds. Completed slow scans emit a duration/count info log.
+
+Testing also reproduced a separate recursive-link problem in the default macOS
+polling index watcher. Watchdog's normal stat follows nested symlinks; a docs
+link back to an ancestor could expand repeatedly and stall watcher shutdown.
+The polling watcher now uses lstat to observe the links themselves. Explicit
+watch roots are still resolved, and the Files walker still follows linked
+folders with ancestor-cycle protection. This removes the reproduced loop; it
+does not prove the remote client had that topology.
+
+A controlled HTTP experiment delayed traversal of 275 files past the old
+deadline. One scan completed in 13.25 seconds across 38 Files/mtime requests;
+the slowest request took 183 ms, responses were only 202/200, and all 275 files
+were present in the completed listing. Regression tests cover shared progress,
+stalls and recovery, capacity, stale results, cancellation, per-vault/dotfile
+isolation, live notebook flags, watcher links, and browser polling. The client
+also avoids logging the same failed shared request again for each sidebar
+subscriber.
+
 ## File-descriptor exhaustion and cascading 500s
 
 `EMFILE` from ordinary JSON reads, `os.pipe`, and Jupyter socket creation proves

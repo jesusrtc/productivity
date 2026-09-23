@@ -2563,8 +2563,14 @@
           if (!filesResponse.ok) throw new Error('Could not load other notes. Use Refresh to try again.');
           const files = await filesResponse.json();
           if (request !== state.request || !document.body.classList.contains('assistant-active')) return;
-          state.noteFiles = Array.isArray(files) ? files : [];
-          state.notesError = '';
+          // Retain the last notes while the initial background listing runs.
+          // The normal Assistant refresh collects the completed snapshot.
+          if (filesResponse.status === 202) {
+            state.notesError = 'Updating files…';
+          } else {
+            state.noteFiles = Array.isArray(files) ? files : [];
+            state.notesError = '';
+          }
         } catch (error) {
           if (request !== state.request) return;
           state.notesError = error.message || 'Could not load other notes.';

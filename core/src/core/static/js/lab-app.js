@@ -1230,7 +1230,7 @@
     const createNotebook = _canCreateExecutableNotebook(root)
       ? '<button class="sidebar-title-action" type="button" onclick="event.stopPropagation();openNewNotebookDialog()" title="Choose a repository folder and create a notebook">＋ Notebook</button>'
       : '';
-    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div>`;
+    return `<div class="sidebar-title sidebar-title-with-action"><span>Files</span><span class="sidebar-title-actions">${_sidebarSortSelectHtml('files')}${createFile}${createNotebook}</span></div><div class="muted" data-workspace-scan-root="${escAttr(root)}" role="status">${_sidebarScanLabel(_sidebarScanStates.get(root))}</div>`;
   }
 
   function _explorerContextFromRow(row) {
@@ -2924,6 +2924,21 @@
   }
 
   const _sidebarFileRequests = new Map();
+  const _sidebarScanStates = new Map();
+  function _sidebarScanLabel(state) {
+    if (state === 'scanning' || state === 'refreshing') return 'Updating files…';
+    if (state === 'stalled' || state === 'error' || state === 'busy') return 'Files temporarily unavailable. Showing the last listing.';
+    return '';
+  }
+
+  function _sidebarSetScanState(root, state) {
+    _sidebarScanStates.set(root, state);
+    if (_sidebarScanStates.size > 64) _sidebarScanStates.delete(_sidebarScanStates.keys().next().value);
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    document.querySelectorAll('[data-workspace-scan-root]').forEach(node => {
+      if (node.getAttribute('data-workspace-scan-root') === root) node.textContent = _sidebarScanLabel(state);
+    });
+  }
   function _sidebarFetchWorkspaceFiles(workspacePath) {
     const key = JSON.stringify([workspacePath, showWorkspaceDotFiles]);
     const previous = _sidebarFileRequests.get(key);
@@ -2951,7 +2966,17 @@
 
   async function _sidebarLoadWorkspaceFiles(workspacePath) {
     const url = `/api/workspace-files?path=${encodeURIComponent(workspacePath)}&include_dotfiles=${showWorkspaceDotFiles}`;
-    const response = await fetch(url);
+    let response = await fetch(url);
+    // A 202 means the initial snapshot is still being built, not an empty
+    // workspace. Keep all subscribers on this promise and collect that scan.
+    while (response.status === 202) {
+      await response.json();
+      _sidebarSetScanState(workspacePath, 'scanning');
+      const retrySeconds = Number(response.headers && response.headers.get('Retry-After')) || 2;
+      await new Promise(resolve => setTimeout(resolve, Math.min(10, Math.max(1, retrySeconds)) * 1000));
+      response = await fetch(url + '&refresh=false');
+    }
+    _sidebarSetScanState(workspacePath, response.headers && response.headers.get('X-Lab-Scan-State') || (response.ok ? 'ready' : 'error'));
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       _sidebarRecentLog('error', 'recent files source fetch failed ' + JSON.stringify({
@@ -2964,7 +2989,9 @@
         target: workspacePath,
         status_code: response.status,
       });
-      throw new Error(body.detail || response.statusText || 'Could not load workspace files');
+      const error = new Error(body.detail || response.statusText || 'Could not load workspace files');
+      error.sidebarReported = true;
+      throw error;
     }
     const files = await response.json();
     if (!Array.isArray(files)) {
@@ -2976,7 +3003,9 @@
         event_type: 'sidebar.recent.invalid_payload',
         target: workspacePath,
       });
-      throw new Error('Invalid workspace files response');
+      const error = new Error('Invalid workspace files response');
+      error.sidebarReported = true;
+      throw error;
     }
     return files;
   }
@@ -3630,6 +3659,7 @@
   async function loadWorkspaceView() {
     if (!currentRepo) return;
     const baseRoot = currentRepo;
+    const dotFiles = showWorkspaceDotFiles;
     await _sidebarEnsureWorktrees(baseRoot);
     const fileRoot = _sidebarScopedRoot(baseRoot);
     _repoFileRoot = fileRoot;
@@ -3663,6 +3693,8 @@
       recentFiles = await _sidebarResolveRecentFiles(sidebarFiles, fileRoot);
     } catch (_) {}
 
+    if (currentRepo !== baseRoot || _sidebarScopedRoot(baseRoot) !== fileRoot
+        || showWorkspaceDotFiles !== dotFiles) return;
     // Get changed files with status for indicators (vs master)
     const changedFiles = new Map();
     if (diffCache.branch) {
@@ -8932,6 +8964,7 @@
     if (!sidebar) return;
     const prevSidebarScroll = preserveScroll ? sidebar.scrollTop : 0;
     const workspacePath = currentWorkspace.path;
+    const dotFiles = showWorkspaceDotFiles;
     const isAssistant = document.body.classList.contains('assistant-active');
     await _sidebarEnsureWorktrees(workspacePath);
     const fileRoot = _sidebarScopedRoot(workspacePath);
@@ -8967,7 +9000,7 @@
             } catch {}
             const fresh = {files, recentFiles, pinned, references, proxies, fileRoot};
             if (!currentWorkspace || currentWorkspace.path !== workspacePath
-                || _sidebarScopedRoot(workspacePath) !== fileRoot) return;
+                || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
             const prev = _workspaceSidebarCache.get(workspacePath);
             _workspaceSidebarCache.set(workspacePath, fresh);
             // Re-render only if (a) the data actually changed and (b)
@@ -8975,7 +9008,7 @@
             if (prev && JSON.stringify(prev) === JSON.stringify(fresh)) return;
             _refreshWorkspaceSidebar({preserveScroll: true, _data: fresh});
           } catch (e) {
-            console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
+            if (!e || !e.sidebarReported) console.error('[_refreshWorkspaceSidebar] reconcile failed:', e && e.stack || e);
           }
         });
         return;
@@ -8996,12 +9029,14 @@
       } else {
         // Cold path: fetch fresh + write to cache.
         files = await _sidebarFetchWorkspaceFiles(fileRoot);
+        if (!currentWorkspace || currentWorkspace.path !== workspacePath
+            || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
         recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
         pinnedNames = [];
         references = [];
         proxies = [];
         try {
-          const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(currentWorkspace.path)}`);
+          const infoRes = await fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`);
           if (infoRes.ok) {
             const info = await infoRes.json();
             if (Array.isArray(info.pinned)) pinnedNames = info.pinned;
@@ -9011,6 +9046,8 @@
         } catch(e) {}
         _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
+      if (!currentWorkspace || currentWorkspace.path !== workspacePath
+          || _sidebarScopedRoot(workspacePath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
@@ -9187,7 +9224,7 @@
       // AND the server-side client-errors log (window.onerror -> /api/log).
       // Without this the catch silently degrades the sidebar to a bare
       // "Workspace" title and we lose the actual reason every time.
-      console.error('[_refreshWorkspaceSidebar] failed:', e && e.stack || e);
+      if (!e || !e.sidebarReported) console.error('[_refreshWorkspaceSidebar] failed:', e && e.stack || e);
       // Only wipe the sidebar if it's empty — otherwise we'd nuke the
       // previously-rendered file tree the user is still looking at, which
       // is strictly worse than leaving the old list visible while we log
@@ -10440,6 +10477,8 @@
 
   // Auto-refresh workspace view when any file in the workspace folder changes (mtime check)
   let _lastWorkspaceMtime = 0;
+  let _lastWorkspaceRevision = null;
+  let _workspaceMtimeAwaitingSnapshot = false;
   let _workspaceMtimeMissPath = null; // workspace path the miss counter applies to
   let _workspaceMtimeMisses = 0;      // consecutive "directory missing" responses
   let _workspaceMtimeTick = 0;
@@ -10464,6 +10503,8 @@
       _workspaceMtimeFailures = 0;
       _workspaceMtimeRetryAt = 0;
       _lastWorkspaceMtime = 0;
+      _lastWorkspaceRevision = null;
+      _workspaceMtimeAwaitingSnapshot = false;
     }
     // Never stack recursive filesystem walks. Previously the one-second
     // interval launched another request while the prior request was still
@@ -10477,18 +10518,25 @@
     if (_workspaceMtimeMisses >= 3 && _workspaceMtimeTick % 60 !== 0) return;
     _workspaceMtimeInFlight = true;
     try {
-      const res = await fetch(`/api/workspace-mtime?path=${encodeURIComponent(fileRoot)}`);
+      const res = await fetch(`/api/workspace-mtime?path=${encodeURIComponent(fileRoot)}&include_dotfiles=${typeof showWorkspaceDotFiles !== 'undefined' && showWorkspaceDotFiles}`);
       if (!res.ok) throw new Error(`workspace mtime request failed (${res.status})`);
-      const { mtime } = await res.json();
+      const { mtime, revision, scan } = await res.json();
       // A request for a tab we just navigated away from must not overwrite
       // the new workspace's baseline or retry state.
       if (!currentWorkspace || currentWorkspace.path !== workspacePath
           || (typeof _sidebarScopedRoot === 'function' && _sidebarScopedRoot(workspacePath) !== fileRoot)) return;
       _workspaceMtimeFailures = 0;
       _workspaceMtimeRetryAt = 0;
+      if (scan && typeof _sidebarSetScanState === 'function') _sidebarSetScanState(fileRoot, scan.state);
+      if (res.status === 202) {
+        _workspaceMtimeAwaitingSnapshot = true;
+        return; // Initial scan is progressing, not missing.
+      }
       if (mtime == null) { _workspaceMtimeMisses += 1; return; }
       _workspaceMtimeMisses = 0;
-      if (_lastWorkspaceMtime && mtime > _lastWorkspaceMtime) {
+      if (_workspaceMtimeAwaitingSnapshot
+          || (_lastWorkspaceRevision && revision && revision !== _lastWorkspaceRevision)
+          || (_lastWorkspaceMtime && mtime > _lastWorkspaceMtime)) {
         const isSelf = document.body.classList.contains('self-active');
         const isVaultView = document.body.classList.contains('vault-active');
         const isAssistant = document.body.classList.contains('assistant-active');
@@ -10518,10 +10566,13 @@
         }
       }
       _lastWorkspaceMtime = mtime;
+      _lastWorkspaceRevision = revision;
+      _workspaceMtimeAwaitingSnapshot = false;
     } catch(e) {
       if (currentWorkspace && currentWorkspace.path === workspacePath
           && (typeof _sidebarScopedRoot !== 'function' || _sidebarScopedRoot(workspacePath) === fileRoot)) {
         _workspaceMtimeFailures += 1;
+        if (!_lastWorkspaceMtime) _workspaceMtimeAwaitingSnapshot = true;
         const backoffMs = Math.min(60_000, 1_000 * (2 ** _workspaceMtimeFailures));
         _workspaceMtimeRetryAt = Date.now() + backoffMs;
       }
@@ -16706,6 +16757,7 @@
   // Mirrors the pattern used by showWorkspaceInfo() for real workspaces.
   async function selfPopulateSidebar() {
     const sidebar = document.getElementById('sidebar');
+    const dotFiles = showWorkspaceDotFiles;
     try {
       const baseRoot = SELF_REPO_PATH;
       await _sidebarEnsureWorktrees(baseRoot);
@@ -16714,7 +16766,7 @@
       const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('self-active')
           || !currentWorkspace || currentWorkspace.path !== baseRoot
-          || _sidebarScopedRoot(baseRoot) !== fileRoot) return;
+          || _sidebarScopedRoot(baseRoot) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
       _sidebarRememberAvailableExtensions(files);
       _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
       _rememberNotebookFolders(fileRoot, files);
@@ -18086,6 +18138,7 @@
     const sidebar = document.getElementById('sidebar');
     if (!sidebar || !currentWorkspace || currentWorkspace.name !== VAULT_WORKSPACE_ID) return;
     const rootPath = currentWorkspace.path;
+    const dotFiles = showWorkspaceDotFiles;
     try {
       await _sidebarEnsureWorktrees(rootPath);
       const fileRoot = _sidebarScopedRoot(rootPath);
@@ -18093,7 +18146,7 @@
       const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('vault-active')) return;
       if (!currentWorkspace || currentWorkspace.path !== rootPath) return;
-      if (_sidebarScopedRoot(rootPath) !== fileRoot) return;
+      if (_sidebarScopedRoot(rootPath) !== fileRoot || showWorkspaceDotFiles !== dotFiles) return;
       _sidebarRememberAvailableExtensions(files);
       _sidebarMaybeLogRecentDiagnostics(files, fileRoot);
       _rememberNotebookFolders(fileRoot, files);

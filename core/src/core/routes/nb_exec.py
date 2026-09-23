@@ -150,6 +150,12 @@ def is_path_pending(target: Path) -> bool:
         return _pending_paths.get(str(target.resolve()), 0) > 0
 
 
+def pending_paths() -> frozenset[str]:
+    """Already-resolved running paths, for cached listings without disk I/O."""
+    with _pending_guard:
+        return frozenset(_pending_paths)
+
+
 # ── Live execution snapshots ────────────────────────────────────────────────
 # WebSocket events carry small deltas, while this registry provides a complete
 # snapshot to a browser that opens or reconnects midway through a cell. The

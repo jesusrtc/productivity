@@ -11,7 +11,7 @@ from typing import Any, Callable
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
-from watchdog.observers.polling import PollingObserver
+from watchdog.observers.polling import PollingObserverVFS
 try:
     from watchdog.observers.kqueue import KqueueObserver
 except Exception:  # pragma: no cover - platform/package dependent
@@ -86,13 +86,18 @@ class IndexWatcher:
             # Broadcast failures must not crash the watcher thread.
             pass
 
-    def _polling_observer(self) -> PollingObserver:
+    def _polling_observer(self) -> PollingObserverVFS:
         try:
             poll_interval = float(os.environ.get("LAB_WATCHER_POLL_INTERVAL_S", "1.0"))
         except ValueError:
             poll_interval = 1.0
         poll_interval = max(0.05, poll_interval)
-        return PollingObserver(timeout=poll_interval)
+        # Watch links themselves, not arbitrary trees they point into. The
+        # workspace Files service follows links with cycle protection; the
+        # index watcher must not recursively re-enter an ancestor checkout.
+        # Explicit watch roots are already resolved in _schedule_dir.
+        return PollingObserverVFS(stat=os.lstat, listdir=os.scandir,
+                                  polling_interval=poll_interval)
 
     def _make_observer(self) -> BaseObserver:
         observer_kind = os.environ.get("LAB_WATCHER_OBSERVER", "").lower()

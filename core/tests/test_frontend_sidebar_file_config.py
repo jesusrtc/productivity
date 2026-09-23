@@ -1119,6 +1119,7 @@ const currentWorkspace = {is_workspace: true, path: '/vault/workspace'};
 const currentRepo = null;
 const _workspaceDocEditing = false;
 const _workspaceDocPath = null;
+function showWorkspaceInfo() {}
 function setInterval(callback) { tick = callback; }
 function fetch() {
   fetchCalls += 1;
@@ -1166,3 +1167,62 @@ function response(status, body) {
         "callsDuringBackoff": 1,
         "callsAfterBackoff": 2,
     }
+
+
+def test_sidebar_waits_for_complete_snapshot_and_keeps_requests_shared():
+    helpers = _between('  const _sidebarFileRequests =', '  function _sidebarFileConfigCogHtml(')
+    result = _run_node(helpers + """
+let showWorkspaceDotFiles = false;
+const urls = [], timers = [], logs = [];
+const _sidebarRecentLog = (...args) => logs.push(args);
+function setTimeout(callback, delay) { timers.push(delay); queueMicrotask(callback); }
+function fetch(url) {
+  urls.push(url);
+  const status = urls.length < 3 ? 202 : 200;
+  return Promise.resolve({ok: true, status,
+    headers: {get: name => name === 'Retry-After' ? '2' : (status === 202 ? 'scanning' : 'ready')},
+    json: async () => status === 202 ? {scan: {state: 'scanning'}} : [{path: 'complete.md'}]});
+}
+(async () => {
+  const first = _sidebarFetchWorkspaceFiles('/large');
+  const second = _sidebarFetchWorkspaceFiles('/large');
+  if (first !== second) throw new Error('duplicate request');
+  showWorkspaceDotFiles = true;
+  const rows = await first;
+  process.stdout.write(JSON.stringify({urls, timers, logs, rows, state: _sidebarScanStates.get('/large')}));
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+    assert result == {
+        'urls': ['/api/workspace-files?path=%2Flarge&include_dotfiles=false',
+                 '/api/workspace-files?path=%2Flarge&include_dotfiles=false&refresh=false',
+                 '/api/workspace-files?path=%2Flarge&include_dotfiles=false&refresh=false'],
+        'timers': [2000, 2000], 'logs': [], 'rows': [{'path': 'complete.md'}], 'state': 'ready',
+    }
+
+
+def test_mtime_pending_is_not_missing_and_revision_refreshes_deletions():
+    poller = _between('// Auto-refresh workspace view when any file in the workspace folder changes',
+                      '// Sidebar git decorations poll.')
+    result = _run_node("""
+let tick, response, refreshes = 0;
+const UI_CHECK = false;
+const document = {hidden: false, body: {classList: {contains: () => false}}};
+const currentWorkspace = {is_workspace: true, path: '/root'};
+const currentRepo = null, _workspaceDocPath = null, _workspaceDocEditing = false;
+function setInterval(callback) { tick = callback; }
+const fetch = async () => response;
+function showWorkspaceInfo() { refreshes++; }
+""" + poller + """
+(async () => {
+  response = {ok:true, status:202, json:async () => ({mtime:null, scan:{state:'scanning'}})};
+  for (let i = 0; i < 5; i++) await tick();
+  const misses = _workspaceMtimeMisses;
+  response = {ok:true, status:200, json:async () => ({mtime:100, revision:'first'})};
+  await tick();
+  response = {ok:true, status:200, json:async () => ({mtime:100, revision:'deleted-file'})};
+  await tick();
+  await tick();
+  process.stdout.write(JSON.stringify({misses, refreshes}));
+})().catch(error => {console.error(error); process.exitCode = 1;});
+""")
+    assert result == {'misses': 0, 'refreshes': 2}

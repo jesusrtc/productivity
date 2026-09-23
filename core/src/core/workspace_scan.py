@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import stat
-from typing import Iterator
+from typing import Callable, Iterator
 
 from core import fsguard
 
@@ -36,7 +36,8 @@ class Entry:
 
 
 def walk(root: Path, *, include_dotfiles: bool = False,
-         git_root: Path | None = None) -> Iterator[Entry]:
+         git_root: Path | None = None,
+         progress: Callable[[Path, str], None] | None = None) -> Iterator[Entry]:
     """Yield root, directories, files and broken links with one stat per entry.
 
     Linked folders remain browsable. Ancestor inode tracking stops cycles even
@@ -44,7 +45,12 @@ def walk(root: Path, *, include_dotfiles: bool = False,
     Close each scandir iterator before yielding or descending: keeping parent
     iterators open would consume one descriptor per level per concurrent walk.
     """
-    fsguard.checkpoint()
+    def step(path: Path, operation: str):
+        fsguard.checkpoint()
+        if progress:
+            progress(path, operation)
+
+    step(root, "stat")
     try:
         root_stat = root.stat()
     except (FileNotFoundError, NotADirectoryError):
@@ -53,7 +59,7 @@ def walk(root: Path, *, include_dotfiles: bool = False,
         return
 
     def visit(entry: Entry, budget: int, ancestors: frozenset) -> Iterator[Entry]:
-        fsguard.checkpoint()
+        step(entry.path, "visit")
         if not entry.is_dir or entry.path.name in SKIP_DIRS and entry.depth > 0:
             yield entry
             return
@@ -62,8 +68,14 @@ def walk(root: Path, *, include_dotfiles: bool = False,
             yield entry
             return
         try:
+            step(entry.path, "scandir")
             with os.scandir(entry.path) as iterator:
-                children = sorted(iterator, key=lambda child: child.name)
+                children = []
+                for child in iterator:
+                    step(entry.path, "scandir")
+                    children.append(child)
+            step(entry.path, "sort")
+            children.sort(key=lambda child: child.name)
         except (FileNotFoundError, NotADirectoryError, PermissionError):
             yield entry
             return
@@ -75,9 +87,9 @@ def walk(root: Path, *, include_dotfiles: bool = False,
             return
         ancestors = ancestors | {identity}
         for child in children:
-            fsguard.checkpoint()
             if not include_dotfiles and child.name.startswith("."):
                 continue
+            step(Path(child.path), "stat")
             is_symlink = child.is_symlink()
             # Don't stat ordinary dependency directories we won't visit.
             if child.name in SKIP_DIRS and not is_symlink and child.is_dir(follow_symlinks=False):

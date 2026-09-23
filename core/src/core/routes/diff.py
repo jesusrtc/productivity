@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from lab import naming, paths as lab_paths
 
+import hashlib
 import json
 import mimetypes
 import os
@@ -18,10 +19,10 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from core import auth, fsguard, server_config, workspace_scan, worktree_recent
+from core import auth, fsguard, server_config, workspace_scan, workspace_snapshot, worktree_recent
 from core.diff_parser import (
     diff_notebook_cells,
     get_branch,
@@ -557,56 +558,103 @@ def api_workspace_onepager(path: str):
     return {"content": ""}
 
 
-@router.get("/api/workspace-files")
-def api_workspace_files(path: str, request: Request, include_dotfiles: bool = False):
-    """List all files in a workspace directory as a flat list with relative paths."""
+def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
+                                progress: workspace_snapshot.Progress) -> workspace_snapshot.Snapshot:
+    progress.step(workspace_path, "resolve assistant root")
+    assistant_root = lab_paths.assistant_root()
+    assistant_collections = bool(assistant_root and workspace_path.resolve() == assistant_root.resolve()
+                                 and (workspace_path / ".assistant/manifest.json").is_file())
+    files = []
+    notebooks = {}
+    latest = None
+    revision = hashlib.blake2b(digest_size=16)
+    checkout_groups = {}
+    git_root = None
+    for parent in workspace_path.parents:
+        progress.step(parent / ".git", "find git root")
+        if (parent / ".git").exists():
+            git_root = parent
+            break
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+    for item in workspace_scan.walk(workspace_path, include_dotfiles=include_dotfiles, git_root=git_root, progress=progress.step):
+        child = item.path
+        if item.stat is not None and not (item.is_dir and item.depth and child.name in workspace_scan.SKIP_DIRS):
+            latest = max(latest or 0, item.stat.st_mtime)
+            revision.update(str(child.relative_to(workspace_path)).encode("utf-8", errors="surrogateescape"))
+            revision.update(f"\0{item.stat.st_mtime_ns}:{item.stat.st_size}\0".encode())
+        if item.git_root and item.git_root not in checkout_groups:
+            progress.step(item.git_root / ".git", "checkout baseline")
+            checkout_groups[item.git_root] = (worktree_recent.checkout_baseline(item.git_root), [])
+        if child == workspace_path:
+            continue
+        rel = str(child.relative_to(workspace_path))
+        if item.is_file:
+            entry = {"name": rel, "path": rel,
+                     "type": "image" if child.suffix.lower() in image_exts else "file",
+                     "mtime": item.stat.st_mtime,
+                     "created": getattr(item.stat, "st_birthtime", None)}
+            if child.suffix.lower() == ".ipynb":
+                progress.step(child, "resolve notebook")
+                notebooks[rel] = str(child.resolve())
+            if item.git_root:
+                checkout_groups[item.git_root][1].append((child.relative_to(item.git_root).as_posix(), entry))
+        elif item.is_dir:
+            if not (item.is_symlink or assistant_collections and item.depth == 1
+                    and child.name in {"documents", "tasks", "notes", "projects"}):
+                continue
+            entry = {"name": rel, "path": rel, "type": "dir"}
+        elif item.is_symlink:
+            entry = {"name": rel, "path": rel, "type": "file", "broken": True}
+        else:
+            continue
+        if item.is_symlink:
+            progress.step(child, "readlink")
+            _with_symlink_fields(entry, child)
+        files.append(entry)
+    for root, (baseline, entries) in checkout_groups.items():
+        progress.step(root, "git checkout comparison")
+        if baseline:
+            worktree_recent.mark_checkout_files(root, baseline, entries)
+    return workspace_snapshot.Snapshot(files, latest, revision.hexdigest(), notebooks)
+
+
+def _workspace_snapshot_read(path: str, request: Request, include_dotfiles: bool, refresh: bool):
     workspace_path = Path(path)
-    from core.routes.nb_exec import is_path_pending
+    return request.app.state.workspace_snapshots.read(
+        auth.request_root(request), workspace_path, include_dotfiles,
+        lambda progress: _collect_workspace_snapshot(workspace_path, include_dotfiles, progress),
+        refresh=refresh,
+    )
 
-    def scan_with_checkout_context():
-        assistant_root = lab_paths.assistant_root()
-        assistant_collections = bool(assistant_root and workspace_path.resolve() == assistant_root.resolve()
-                                     and (workspace_path / ".assistant/manifest.json").is_file())
-        files = []
-        checkout_groups = {}
-        git_root = next((parent for parent in workspace_path.parents if (parent / ".git").exists()), None)
-        image_exts = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
-        for item in workspace_scan.walk(workspace_path, include_dotfiles=include_dotfiles, git_root=git_root):
-            child = item.path
-            if item.git_root and item.git_root not in checkout_groups:
-                checkout_groups[item.git_root] = (worktree_recent.checkout_baseline(item.git_root), [])
-            if child == workspace_path:
-                continue
-            rel = str(child.relative_to(workspace_path))
-            if item.is_file:
-                entry = {"name": rel, "path": rel,
-                         "type": "image" if child.suffix.lower() in image_exts else "file",
-                         "mtime": item.stat.st_mtime,
-                         "created": getattr(item.stat, "st_birthtime", None)}
-                if child.suffix.lower() == ".ipynb" and is_path_pending(child):
-                    entry["pending"] = True
-                if item.git_root:
-                    checkout_groups[item.git_root][1].append((child.relative_to(item.git_root).as_posix(), entry))
-            elif item.is_dir:
-                if not (item.is_symlink or assistant_collections and item.depth == 1
-                        and child.name in {"documents", "tasks", "notes", "projects"}):
-                    continue
-                entry = {"name": rel, "path": rel, "type": "dir"}
-            elif item.is_symlink:
-                entry = {"name": rel, "path": rel, "type": "file", "broken": True}
-            else:
-                continue
-            if item.is_symlink:
-                _with_symlink_fields(entry, child)
-            files.append(entry)
-        for root, (baseline, entries) in checkout_groups.items():
-            fsguard.checkpoint()
-            if baseline:
-                worktree_recent.mark_checkout_files(root, baseline, entries)
-        return files
 
-    return fsguard.guarded(auth.request_root(request), scan_with_checkout_context,
-                           operation_key=("workspace-files", str(workspace_path), include_dotfiles))
+def _snapshot_headers(result: workspace_snapshot.Read) -> dict:
+    headers = {"Cache-Control": "no-store", "X-Lab-Scan-State": result.scan["state"]}
+    if result.scan["state"] != "ready":
+        headers["Retry-After"] = "2"
+    return headers
+
+
+@router.get("/api/workspace-files")
+def api_workspace_files(path: str, request: Request, include_dotfiles: bool = False,
+                        refresh: bool = True):
+    """Complete file snapshot, or 202 while the first background scan finishes.
+
+    Refresh requests briefly wait for fresh data and otherwise keep the last
+    complete listing. Clients polling a 202 use refresh=false to collect it.
+    """
+    from core.routes.nb_exec import pending_paths
+
+    result = _workspace_snapshot_read(path, request, include_dotfiles, refresh)
+    if result.snapshot is None:
+        body = {"scan": result.scan}
+        if result.status_code != 202:
+            body["detail"] = result.scan.get("detail", "Workspace files are temporarily unavailable")
+        return JSONResponse(body, status_code=result.status_code, headers=_snapshot_headers(result))
+    # Running notebook state is live, independent of the snapshot's age.
+    running = pending_paths()
+    files = [dict(row, pending=True) if result.snapshot.notebooks.get(row["path"]) in running else row
+             for row in result.snapshot.files]
+    return JSONResponse(files, headers=_snapshot_headers(result))
 
 
 @router.get("/api/agents/context/files")
@@ -796,20 +844,15 @@ def api_workspace_file(path: str, file: str):
 
 
 @router.get("/api/workspace-mtime")
-def api_workspace_mtime(path: str, request: Request):
-    """Return the latest visible file/directory mtime using the sidebar walk."""
-    workspace_path = Path(path)
-
-    def scan():
-        latest = None
-        for item in workspace_scan.walk(workspace_path):
-            if item.stat is None or item.is_dir and item.depth and item.path.name in workspace_scan.SKIP_DIRS:
-                continue
-            latest = max(latest or 0, item.stat.st_mtime)
-        return {"mtime": latest}
-
-    return fsguard.guarded(auth.request_root(request), scan,
-                           operation_key=("workspace-mtime", str(workspace_path)))
+def api_workspace_mtime(path: str, request: Request, include_dotfiles: bool = False):
+    """Use the same complete snapshot as Files; never start a second tree walk."""
+    result = _workspace_snapshot_read(path, request, include_dotfiles, False)
+    snapshot = result.snapshot
+    body = {"mtime": snapshot.mtime if snapshot else None,
+            "revision": snapshot.revision if snapshot else None, "scan": result.scan}
+    if result.status_code == 503:
+        body["detail"] = result.scan.get("detail", "Workspace files are temporarily unavailable")
+    return JSONResponse(body, status_code=result.status_code, headers=_snapshot_headers(result))
 
 
 @router.get("/api/workspace-asset")

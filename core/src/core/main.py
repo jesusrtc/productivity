@@ -463,6 +463,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.workspace_snapshots.close()
         document_terminals.stop_supervisor()
         servers_route.stop_supervisor()
         _stop_vault_runtime(app)
@@ -476,6 +477,8 @@ def create_app() -> FastAPI:
         docs_url=None,
         redoc_url=None,
     )
+    from core.workspace_snapshot import Store
+    app.state.workspace_snapshots = Store()
 
     # Allow local dev frontends (Vite, Live Server, etc.) in addition to same-origin.
     app.add_middleware(

@@ -5,7 +5,8 @@ linked-folder contents, but track ancestor device/inode pairs: a symlink to a Gi
 ancestor resets the old per-checkout depth budget and can defeat the recursion
 limit. Close scandir iterators before descent and use each entry's cached stat.
 
-Identical read-only polls use fsguard operation_key to share in-flight work. Keys
+Workspace Files/mtime now use background snapshots; see
+workspace-files-use-background-snapshots.md. Other identical read-only polls use fsguard operation_key to share in-flight work. Keys
 remain reserved after caller timeout until the worker really exits. Traversals
 call fsguard.checkpoint between filesystem calls so abandoned work releases its
 slot. Never do filesystem I/O while constructing timeout/exhaustion errors.
