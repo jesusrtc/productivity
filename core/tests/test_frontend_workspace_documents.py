@@ -87,6 +87,8 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
     app = (STATIC / 'js/lab-app.js').read_text()
     setup += app[app.index('  let _termTabActivationSeq ='):app.index('  function _termHomeAssociationHtml(session)')]
     setup += app[app.index('  function sidebarToggleCollapse()'):app.index('  function _sidebarApplyForView()')]
+    setup += app[app.index('  function _termDropPaths('):app.index('  function _termReflowSelection(')]
+    setup += "const pastedPaths=[]; const termXterm={paste:value=>pastedPaths.push(value),focus(){}}; const termWS={readyState:1}; const _termDragState=null, workspaceTabsDragId=null;"
     checks = r'''
 (async()=>{
  const W=LabWorkspaceDocuments;
@@ -105,6 +107,15 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  await until(()=>document.querySelector('.workspace-document-open'));
  const docRow=document.querySelector('.workspace-document');
  assert(docRow.draggable,'workspace document rows can be dragged again');
+ const pathTransfer=new DataTransfer();
+ docRow.querySelector('.workspace-document-open span:last-child').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:pathTransfer}));
+ const expectedPath=FIX.link.assistant_root+'/'+FIX.link.path;
+ assert(pathTransfer.getData('text/plain')===expectedPath,'workspace document carries absolute source path');
+ assert(JSON.parse(pathTransfer.getData('application/x-lab-file-path'))[0]===expectedPath,'document uses ordinary file-drop format');
+ const callsBeforePaste=calls.length;
+ _termHandleDrop({dataTransfer:pathTransfer,preventDefault(){},stopPropagation(){}});
+ assert(pastedPaths.at(-1)===_termQuoteDropPath(expectedPath),'terminal pastes the document path without submitting');
+ assert(calls.length===callsBeforePaste,'pasting does not link, open or start a terminal');
  const removeTransfer=new DataTransfer();
  docRow.querySelector('.workspace-document-remove').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:removeTransfer}));
  assert(!removeTransfer.types.includes('application/x-lab-assistant-document'),'unlink button never starts a document drag');
@@ -211,6 +222,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  linkedRow.querySelector('.workspace-document-open span:last-child').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:linkedTransfer}));
  const draggedDoc=JSON.parse(linkedTransfer.getData('application/x-lab-assistant-document'));
  assert(draggedDoc.document_id===FIX.link.document_id&&draggedDoc.assistant_root===FIX.link.assistant_root,'dragging the sidebar title carries the same document and database');
+ assert(linkedTransfer.getData('text/plain')===expectedPath,'Assistant Linked documents also carry their source path');
  const otherWorkspace=document.querySelector('[data-workspace-id="inactive"]');
  otherWorkspace.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:linkedTransfer}));
  await until(()=>calls.some(row=>row[0]==='/api/workspace-documents'&&row[1]==='POST'&&row[2].workspace_id==='inactive'));

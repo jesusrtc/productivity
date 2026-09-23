@@ -1,5 +1,7 @@
 # Memory index
 
+- [Document drags paste source paths](document-drags-paste-source-path.md) — sidebar documents paste their absolute Markdown path into terminals while retaining workspace-link drags.
+
 - [Host resources are limited to Lab](host-resources-limited-to-lab.md) — host CPU/memory, verified Lab processes, exact stop targets, and cooperative Files-scan pause.
 
 - [Document terminals keep independent code scopes](document-terminal-independent-code-scope.md) — draggable sidebar documents, identical shared names, and document plus folder/worktree navigation on terminal clicks.

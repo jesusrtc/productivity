@@ -20,7 +20,7 @@
   function render(host, documents, scope) {
     const assistant = scope.workspace_id === '__assistant__';
     const html = `<div class="sidebar-title">${assistant ? 'Linked documents' : 'Documents'} <span class="sidebar-title-count">${documents.length || ''}</span></div>` +
-      (documents.length ? documents.map(doc => `<div class="sidebar-file workspace-document" ${doc.missing ? '' : 'draggable="true" data-assistant-document-drag'} data-assistant-root="${escape(doc.assistant_root)}" data-terminal-document="${escape(doc.document_id)}" data-document-identity="${escape(documentKey(doc))}">
+      (documents.length ? documents.map(doc => `<div class="sidebar-file workspace-document" ${doc.missing ? '' : 'draggable="true" data-assistant-document-drag'} data-assistant-root="${escape(doc.assistant_root)}" data-document-path="${escape(doc.path)}" data-terminal-document="${escape(doc.document_id)}" data-document-identity="${escape(documentKey(doc))}">
         <button type="button" class="workspace-document-open" ${doc.missing ? 'disabled' : ''} title="${escape(doc.missing ? 'Document unavailable' : doc.path)}"><span aria-hidden="true">▤</span><span>${escape(doc.title || doc.document_id)}</span></button>
         ${assistant ? '' : `<button type="button" class="workspace-document-remove" aria-label="Unlink ${escape(doc.title || 'document')}" title="Remove workspace link">×</button>`}</div>`).join('')
         : `<p class="workspace-documents-empty">${assistant ? 'Documents linked to Assistant terminals appear here.' : 'Drag an Assistant document here or onto the workspace tab.'}</p>`);
@@ -82,9 +82,18 @@
   function clearDrop() { document.querySelectorAll('.workspace-document-drop').forEach(row => row.classList.remove('workspace-document-drop')); }
   document.addEventListener('dragstart', event => {
     const row = event.target.closest?.('[data-assistant-document-drag]');
-    if (!row || event.target.closest('input,textarea,select,a,button:not(.assistant-document-row):not(.workspace-document-open)')) return;
+    if (!row || !event.dataTransfer || event.target.closest('input,textarea,select,a,button:not(.assistant-document-row):not(.workspace-document-open)')) return;
     event.dataTransfer.setData(mime, JSON.stringify({document_id:row.dataset.terminalDocument, assistant_root:row.dataset.assistantRoot}));
-    event.dataTransfer.effectAllowed = 'link';
+    // Carry both identities: workspace drops link the document, terminal
+    // drops paste its real source path through the ordinary file-drop handler.
+    const root = row.dataset.assistantRoot || '', relative = row.dataset.documentPath || '';
+    const path = relative.startsWith('/') ? relative
+      : root.startsWith('/') && relative ? root.replace(/\/+$/, '') + '/' + relative.replace(/^\.\//, '') : '';
+    if (path && !/[\x00-\x1f\x7f]/.test(path)) {
+      event.dataTransfer.setData('application/x-lab-file-path', JSON.stringify([path]));
+      event.dataTransfer.setData('text/plain', path);
+    }
+    event.dataTransfer.effectAllowed = 'copyLink';
     row.closest('.assistant-document-overlay')?.classList.add('drag-document-out');
   });
   document.addEventListener('dragover', event => {
