@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--files', type=int, default=2000)
     parser.add_argument('--samples', type=int, default=20)
     parser.add_argument('--transport', choices=['route', 'asgi'], default='route')
+    parser.add_argument('--endpoint', choices=['files', 'mtime'], default='files')
     args = parser.parse_args()
     if args.files < 1 or args.samples < 2:
         parser.error('Use at least one file and two samples')
@@ -69,15 +70,19 @@ def main():
         source = subprocess.check_output(
             ['git', 'show', args.baseline + ':core/src/core/routes/diff.py'], cwd=checkout, text=True,
         )
+        function_name = 'api_workspace_' + args.endpoint
+        function_names = {function_name}
+        if args.endpoint == 'files':
+            function_names.add('_with_symlink_fields')
         functions = [
             node for node in ast.parse(source).body
-            if isinstance(node, ast.FunctionDef) and node.name in {'api_workspace_files', '_with_symlink_fields'}
+            if isinstance(node, ast.FunctionDef) and node.name in function_names
         ]
-        if len(functions) != 2:
-            raise RuntimeError('Baseline must contain the scan and symlink helper')
+        if len(functions) != len(function_names):
+            raise RuntimeError('Baseline is missing a scan function or helper')
         baseline_model = None
         for function in functions:
-            if function.name == 'api_workspace_files':
+            if function.name == function_name:
                 baseline_model = next((
                     keyword.value for decorator in function.decorator_list
                     if isinstance(decorator, ast.Call)
@@ -86,7 +91,8 @@ def main():
             function.decorator_list = []
         namespace = dict(diff.__dict__)
         exec(compile(ast.Module(body=functions, type_ignores=[]), '<baseline>', 'exec'), namespace)
-        variants = {'baseline': namespace['api_workspace_files'], 'candidate': diff.api_workspace_files}
+        candidate = getattr(diff, function_name)
+        variants = {'baseline': namespace[function_name], 'candidate': candidate}
         if args.transport == 'asgi':
             from fastapi import FastAPI
             from fastapi.testclient import TestClient
@@ -100,7 +106,7 @@ def main():
                 return await call_next(incoming)
 
             candidate_model = next(
-                route.response_model for route in diff.router.routes if route.endpoint is diff.api_workspace_files
+                route.response_model for route in diff.router.routes if route.endpoint is candidate
             )
             models = {
                 'candidate': candidate_model,
@@ -130,7 +136,7 @@ def main():
         print(json.dumps({
             'fixture': {
                 'files': args.files, 'samples': args.samples,
-                'baseline': args.baseline, 'transport': args.transport,
+                'baseline': args.baseline, 'transport': args.transport, 'endpoint': args.endpoint,
             },
             'responsesEqual': True,
             'stats': {

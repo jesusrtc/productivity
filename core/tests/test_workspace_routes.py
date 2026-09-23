@@ -1050,3 +1050,32 @@ def test_workspace_file_scan_sees_edits_and_retargeted_links_on_each_request(
     first.unlink()
     last = scan()
     assert 'docs/a.md' not in last and 'linked/a.md' not in last
+
+
+def test_workspace_file_scan_preserves_unusual_names_and_notebook_paths(client, seed_workspace, monkeypatch):
+    from core.routes import nb_exec
+
+    root = seed_workspace('file-names')
+    names = {
+        'résumé.PNG': 'image',
+        '.png': 'file',
+        '...png': 'file',
+        '.photo.png': 'image',
+        'archive.tar.gz': 'file',
+        'trailing.': 'file',
+        'quoted \' " & name.md': 'file',
+        'running.IPYNB': 'file',
+    }
+    for name in names:
+        (root / 'docs' / name).write_text('fixture')
+    notebook = root / 'docs' / 'running.IPYNB'
+    monkeypatch.setattr(nb_exec, 'is_path_pending', lambda path: path == notebook)
+    response = client.get('/api/workspace-files', params={'path': str(root), 'include_dotfiles': True})
+    assert response.status_code == 200
+    rows = {row['path']: row for row in response.json()}
+    for name, kind in names.items():
+        row = rows['docs/' + name]
+        assert row['name'] == 'docs/' + name
+        assert row['type'] == kind
+        assert row['mtime'] == (root / 'docs' / name).stat().st_mtime
+    assert rows['docs/running.IPYNB']['pending'] is True

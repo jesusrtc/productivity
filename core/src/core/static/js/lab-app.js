@@ -1049,14 +1049,10 @@
   const _ftBadge = (bg, label, fg) => `<svg viewBox="0 0 16 16" width="14" height="14"><rect width="16" height="16" rx="3" fill="${bg}"/><text x="8" y="11.8" text-anchor="middle" font-size="8.5" font-weight="700" font-family="${_FT_FONT}" fill="${fg}">${label}</text></svg>`;
   const _ftText = (label, color, size) => `<svg viewBox="0 0 16 16" width="14" height="14"><text x="8" y="12" text-anchor="middle" font-size="${size || 10}" font-weight="700" font-family="${_FT_FONT}" fill="${color}">${label}</text></svg>`;
   const _FT_SVGS = {
-    // Python: the two interlocked snakes (blue over yellow, white eyes).
-    py: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="#3776AB" d="M11.9 2c-5 0-4.6 2.2-4.6 2.2v2.3h4.7v.7H5.3S2 6.8 2 11.9c0 5 2.9 4.9 2.9 4.9h1.7v-2.4s-.1-2.9 2.8-2.9h4.7s2.7.1 2.7-2.6V4.7S17.2 2 11.9 2zM9.3 3.4a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/><path fill="#FFD43B" d="M12.1 22c5 0 4.6-2.2 4.6-2.2v-2.3H12v-.7h6.7s3.3.4 3.3-4.7c0-5-2.9-4.9-2.9-4.9h-1.7v2.4s.1 2.9-2.8 2.9h-4.7s-2.7-.1-2.7 2.6v4.2S6.8 22 12.1 22zm2.6-1.4a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/></svg>',
     // Jupyter: orange top/bottom crescents plus the two grey moons.
     ipynb: '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#F37726" d="M8 12.1c-2.1 0-3.9-.9-5-2.2a5.4 5.4 0 0 0 10 0c-1.1 1.3-2.9 2.2-5 2.2zM8 3.9c2.1 0 3.9.9 5 2.2a5.4 5.4 0 0 0-10 0c1.1-1.3 2.9-2.2 5-2.2z"/><circle cx="13" cy="13.2" r="1" fill="#989798"/><circle cx="2.8" cy="2.6" r=".8" fill="#6f7070"/></svg>',
     sh: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><rect x="1" y="2.2" width="14" height="11.6" rx="1.8" stroke="#4EAA25" stroke-width="1.1"/><path d="M3.8 6l2.1 2-2.1 2M8.4 10.4h3.4" stroke="#4EAA25" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     csv: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#8BC34A" stroke-width="1.1"><rect x="1.5" y="2.5" width="13" height="11" rx="1"/><path d="M1.5 6h13M1.5 9.5h13M6 2.5v11M10.5 2.5v11"/></svg>',
-    // SQL: a compact database cylinder, the common visual shorthand for SQL.
-    sql: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M2 4v8c0 1.1 2.7 2 6 2s6-.9 6-2V4" fill="#4479A1"/><ellipse cx="8" cy="4" rx="6" ry="2.3" fill="#69A7D0"/><path d="M2 8c0 1.1 2.7 2 6 2s6-.9 6-2M2 11c0 1.1 2.7 2 6 2s6-.9 6-2" stroke="#C7E9FF" stroke-width=".9"/></svg>',
     // Scala: the language's three stacked red ribbon forms.
     scala: '<svg viewBox="0 0 16 16" width="14" height="14"><path fill="#DE3423" d="M3 1.5c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1V1.5zm0 5.1c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1V6.6zm0 5.1c3.4 1 6.5-.1 10-1v4.1c-3.3.9-6.6 2-10 1v-4.1z"/></svg>',
     git: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#F05033" stroke-width="1.2"><circle cx="4.5" cy="3.8" r="1.5"/><circle cx="4.5" cy="12.2" r="1.5"/><circle cx="11.5" cy="8" r="1.5"/><path d="M4.5 5.3v5.4M6 8h4" stroke-linecap="round"/></svg>',
@@ -1073,7 +1069,7 @@
     else if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) { cls = 'ft-vid'; glyph = _FT_SVGS.vid; }
     else if (ext === 'ipynb') { cls = 'ft-nb'; glyph = _FT_SVGS.ipynb; }
     else if (ext === 'md' || ext === 'markdown' || ext === 'rst') { cls = 'ft-md'; glyph = ''; }
-    else if (ext === 'py') { cls = 'ft-py'; glyph = _FT_SVGS.py; }
+    else if (ext === 'py') { cls = 'ft-py'; glyph = ''; }
     else if (['js', 'mjs', 'cjs', 'jsx'].includes(ext)) { cls = 'ft-js'; glyph = _ftBadge('#F7DF1E', 'JS', '#222'); }
     else if (ext === 'ts' || ext === 'tsx') { cls = 'ft-ts'; glyph = _ftBadge('#3178C6', 'TS', '#fff'); }
     else if (ext === 'json' || ext === 'lock') { cls = 'ft-json'; glyph = _ftText('{}', '#CBCB41'); }
@@ -1082,7 +1078,7 @@
     else if (['css', 'scss', 'less'].includes(ext)) { cls = 'ft-css'; glyph = _ftText('#', '#2965F1', 11); }
     else if (['sh', 'bash', 'zsh', 'fish'].includes(ext) || lower === 'makefile' || lower === 'dockerfile') { cls = 'ft-sh'; glyph = _FT_SVGS.sh; }
     else if (ext === 'pdf') { cls = 'ft-pdf'; glyph = _ftDoc('#E5252A'); }
-    else if (ext === 'sql') { cls = 'ft-sql'; glyph = _FT_SVGS.sql; }
+    else if (ext === 'sql') { cls = 'ft-sql'; glyph = ''; }
     else if (ext === 'scala') { cls = 'ft-scala'; glyph = _FT_SVGS.scala; }
     else if (['csv', 'tsv', 'parquet'].includes(ext)) { cls = 'ft-csv'; glyph = _FT_SVGS.csv; }
     else if (lower.startsWith('.git')) { cls = 'ft-git'; glyph = _FT_SVGS.git; }
@@ -3089,9 +3085,7 @@
   window.sidebarOpenRepositoryHistory = sidebarOpenRepositoryHistory;
 
   function _sidebarGitHistoryButtonHtml(path, root = '') {
-    const safePath = String(path || '').replace(/'/g, "\\'");
-    const safeRoot = String(root || '').replace(/'/g, "\\'");
-    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" onclick="event.preventDefault();event.stopPropagation();openSidebarFileHistory('${safePath}','${safeRoot}')" ondblclick="event.preventDefault();event.stopPropagation()" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
+    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
   }
 
   function openSidebarFileHistory(path, root = '') {
@@ -3116,24 +3110,32 @@
 
     const renderNode = node => {
       let nodeHtml = '';
+      let rows = node.files.length;
       node.folders.forEach(folder => {
         const fid = 'recent-folder-' + encodeURIComponent(JSON.stringify([scope, folder.path]));
         const open = _treeIsOpen(scope, folder.path, true);
+        const children = renderNode(folder.children);
+        rows += 1 + (open ? children.rows : 0);
         nodeHtml += `<div class="sidebar-folder sidebar-recent-folder" data-tree-scope="${escAttr(scope)}" data-tree-path="${escAttr(folder.path)}" data-tree-target="${fid}" data-entry-root="${escAttr(scopeRoot)}" onclick="_treeToggleFolder(this,event)" title="${escAttr(folder.path)} · Cmd-click to browse files"><span class="folder-arrow${open ? ' open' : ''}">&#9654;</span>${esc(folder.label)}/</div>`;
-        nodeHtml += `<div class="sidebar-folder-children${open ? ' open' : ''}" id="${fid}">${renderNode(folder.children)}</div>`;
+        nodeHtml += `<div class="sidebar-folder-children sidebar-recent-children${open ? ' open' : ''}" id="${fid}" style="contain-intrinsic-block-size:auto ${children.rows * 22}px">${children.html}</div>`;
       });
-      node.files.forEach(file => {
+      // Flat folders also need bounded offscreen groups. These plain blocks
+      // retain every row and add no indentation or visible hierarchy.
+      const groupFiles = node.files.length > 200;
+      node.files.forEach((file, index) => {
+        if (groupFiles && index % 100 === 0) {
+          nodeHtml += `<div class="sidebar-recent-children" style="contain-intrinsic-block-size:auto ${Math.min(100, node.files.length - index) * 22}px">`;
+        }
         const path = String(file.path || file.name || '');
-        const safePath = path.replace(/'/g, "\\'");
         const base = path.split('/').pop();
         const activeCls = activePath === path ? ' active' : '';
-        const safeRoot = String(scopeRoot).replace(/'/g, "\\'");
-        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${esc(path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})" title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        nodeHtml += `<a class="sidebar-file sidebar-file-recent${activeCls}${symlinkClass(file)}" data-filepath="${escAttr(path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(path)}" data-entry-root="${escAttr(scopeRoot)}"${symlinkTitle(file)} data-open-file title="Recently updated · ${escAttr(path)}"><span class="sidebar-fname">${symlinkMarker(file)}${fileIconHtml(base, file)}${esc(base)}</span>${_sidebarGitHistoryButtonHtml(path, scopeRoot)}</a>`;
+        if (groupFiles && (index % 100 === 99 || index === node.files.length - 1)) nodeHtml += '</div>';
       });
-      return nodeHtml;
+      return {html: nodeHtml, rows};
     };
 
-    html += renderNode(tree);
+    html += renderNode(tree).html;
     return html;
   }
 
@@ -7739,6 +7741,30 @@
   }
   window.openWorkspaceDocFromFileClick = openWorkspaceDocFromFileClick;
 
+  // Reuse the path/root already carried for drag and context-menu actions.
+  // Thousands of duplicate inline handlers make large file trees costly to parse.
+  function _sidebarHandleFileAction(event) {
+    const row = event.target.closest('.sidebar-file[data-open-file]');
+    if (!row || !event.currentTarget.contains(row)) return;
+    const path = row.getAttribute('data-filepath');
+    const root = row.getAttribute('data-entry-root');
+    if (!path) return;
+    if (event.target.closest('.sidebar-git-history')) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === 'click') openSidebarFileHistory(path, root);
+      return;
+    }
+    if (event.type === 'dblclick') {
+      event.stopPropagation();
+      openWorkspaceDocModal(path, {root});
+    } else {
+      openWorkspaceDocFromFileClick(path, {root});
+    }
+  }
+  document.getElementById('sidebar')?.addEventListener('click', _sidebarHandleFileAction);
+  document.getElementById('sidebar')?.addEventListener('dblclick', _sidebarHandleFileAction);
+
   async function openWorkspaceDoc(filepath, {preserveScroll = false, root = null} = {}) {
     if (!currentWorkspace) return;
     _clearNbNavigation();
@@ -8769,8 +8795,10 @@
   }
 
   function _gitSetRowClass(row, cls) {
-    _GIT_ROW_CLASSES.forEach(c => { if (c !== cls) row.classList.remove(c); });
-    if (cls) row.classList.add(cls);
+    _GIT_ROW_CLASSES.forEach(c => {
+      if (c !== cls && row.classList.contains(c)) row.classList.remove(c);
+    });
+    if (cls && !row.classList.contains(cls)) row.classList.add(cls);
   }
 
   function _sidebarPlaceGitBadge(row, badge) {
@@ -8929,7 +8957,7 @@
   // when a doc is open (otherwise newly added files don't appear in the
   // sidebar until the user navigates away and back).
   let _workspaceSidebarRefreshSequence = 0;
-  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null, _sequence = null} = {}) {
+  async function _refreshWorkspaceSidebar({preserveScroll = false, _data = null, _sequence = null, _beforeRender = null} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
@@ -8956,7 +8984,7 @@
       if (cachedPayload && cachedPayload.fileRoot === fileRoot) {
         // Cached paint and its reconcile belong to the same refresh. A later
         // navigation or refresh invalidates both, including an A → B → A switch.
-        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence});
+        _refreshWorkspaceSidebar({preserveScroll, _data: cachedPayload, _sequence: sequence, _beforeRender});
         // Background reconcile.
         Promise.resolve().then(async () => {
           try {
@@ -9024,6 +9052,7 @@
         _workspaceSidebarCache.set(workspacePath, {files, recentFiles, pinned: pinnedNames, references, proxies, fileRoot});
       }
       if (!ownsSidebar()) return;
+      if (_beforeRender) _beforeRender();
       _rememberNotebookFolders(fileRoot, files);
       const fileEntries = (files || []).filter(f => f && f.type !== 'dir');
       const dirEntries = (files || []).filter(f => f && f.type === 'dir');
@@ -9153,7 +9182,7 @@
             const activeCls = activePath === f.path ? ' active' : '';
             const isPinned = pinnedSet.has(f.name);
             const pinHtml = worktreeSelected ? '' : `<span class="sidebar-actions"><button onclick="event.stopPropagation();togglePin('${f.name.replace(/'/g, "\\'")}')" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '&#x2716;' : '&#x1F4CC;'}</button></span>`;
-            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
+            html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(fileRoot)}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${icon}${fname}</span>${pinHtml}</a>`;
           });
           return html;
         }
@@ -9351,29 +9380,44 @@
   }
   window.workspaceSaveDisplayName = workspaceSaveDisplayName;
 
+  let _workspaceInfoSequence = 0;
   async function showWorkspaceInfo({preserveScroll = false, keepShell = false} = {}) {
     if (!currentWorkspace || !currentWorkspace.is_workspace) return;
     const workspacePath = currentWorkspace.path;
+    const sequence = ++_workspaceInfoSequence;
+    const current = () => sequence === _workspaceInfoSequence && currentWorkspace?.path === workspacePath;
     const content = document.getElementById('content');
     const prevContentScroll = preserveScroll ? content.scrollTop : 0;
     if (!preserveScroll && !keepShell) content.innerHTML = '<div class="loading">Loading workspace dashboard...</div>';
-    await _refreshWorkspaceSidebar({preserveScroll});
-
-    try {
-      const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await Promise.all([
+    let dashboardReads;
+    const startDashboardReads = () => {
+      if (dashboardReads) return dashboardReads;
+      dashboardReads = Promise.all([
         fetch(`/api/workspace-info?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-actions?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-onepager?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-artifacts?path=${encodeURIComponent(workspacePath)}`),
         fetch(`/api/workspace-alerts?path=${encodeURIComponent(workspacePath)}`),
       ]);
+      // Observe failures immediately even while sidebar rendering is pending.
+      // The await below still reports them in the owning dashboard.
+      dashboardReads.catch(() => {});
+      return dashboardReads;
+    };
+    // Start dashboard I/O once the file list is ready, overlapping parsing and
+    // layout without queueing dashboard requests ahead of the cold file scan.
+    await _refreshWorkspaceSidebar({preserveScroll, _beforeRender: startDashboardReads});
+    if (!current()) return;
+
+    try {
+      const [infoRes, actionsRes, onepagerRes, artifactsRes, alertsRes] = await startDashboardReads();
 
       const info = await infoRes.json();
       const actions = await actionsRes.json();
       const onepager = await onepagerRes.json();
       const artifacts = await artifactsRes.json();
       const alerts = await alertsRes.json();
-      if (!currentWorkspace || currentWorkspace.path !== workspacePath) return;
+      if (!current()) return;
 
       // workspace-info is the authoritative workspace.json read. Reconcile its
       // display name into every tab cache so a stale catalog response cannot
@@ -9553,7 +9597,7 @@
       if (preserveScroll) content.scrollTop = prevContentScroll;
 
     } catch (err) {
-      if (currentRepo) return;
+      if (!current() || currentRepo || _workspaceDocPath) return;
       content.innerHTML = `<div class="no-repo"><p>Error loading workspace dashboard: ${err.message}</p></div>`;
     }
   }
@@ -16572,7 +16616,7 @@
       } else if (hasUnseen) {
         dotHtml = `<span class="nb-unseen-dot" title="Click to jump to the first new cell" onclick="event.stopPropagation();openWorkspaceDocAndJumpToUnseen('${safePath}','${safeRoot}')"></span>`;
       }
-      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${esc(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} onclick="openWorkspaceDocFromFileClick('${safePath}',{root:'${safeRoot}'})" ondblclick="event.stopPropagation();openWorkspaceDocModal('${safePath}',{root:'${safeRoot}'})"><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
+      html += `<a class="sidebar-file${activeCls}${symlinkClass(f)}" data-filepath="${escAttr(f.path)}" draggable="true" data-entry-kind="file" data-entry-path="${escAttr(f.path)}" data-entry-root="${escAttr(root || '')}"${symlinkTitle(f)} data-open-file><span class="sidebar-fname">${dotHtml}${symlinkMarker(f)}${icon}${fname}</span></a>`;
     });
     return html;
   }

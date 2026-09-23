@@ -628,10 +628,11 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 children = sorted(entries, key=lambda entry: entry.name)
         except PermissionError:
             return
+        parent_relative = str(dir_path.relative_to(workspace_path))
+        relative_prefix = "" if parent_relative == "." else parent_relative + os.sep
         for child_entry in children:
             if not include_dotfiles and child_entry.name.startswith("."):
                 continue
-            child = Path(child_entry.path)
             try:
                 child_is_symlink = child_entry.is_symlink()
             except OSError:
@@ -643,10 +644,17 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 # Match Path.is_file/is_dir for inaccessible or vanished targets.
                 child_is_file = child_is_dir = False
             if child_is_file:
-                rel = str(child.relative_to(workspace_path))
-                ftype = "image" if child.suffix.lower() in IMAGE_EXTS else "file"
+                rel = relative_prefix + child_entry.name
+                suffix = os.path.splitext(child_entry.name)[1].lower()
+                ftype = "image" if suffix in IMAGE_EXTS else "file"
                 entry = {"name": rel, "path": rel, "type": ftype}
-                _with_symlink_fields(entry, child, is_symlink=child_is_symlink)
+                # Ordinary files only need the DirEntry metadata and relative
+                # name. Build a full Path for links, notebooks, and checkout
+                # comparisons, whose helpers actually use it.
+                needs_path = child_is_symlink or suffix == ".ipynb" or git_root in checkout_groups
+                child = Path(child_entry.path) if needs_path else None
+                if child_is_symlink:
+                    _with_symlink_fields(entry, child, is_symlink=True)
                 # Every sidebar surface can optionally promote recently
                 # updated files into a shortcut section. Keep mtime on every
                 # file entry (not only notebooks) so that feature can filter
@@ -663,13 +671,14 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
                 # without each client polling every notebook. The common
                 # mtime above also lets notebooks compare against a per-file
                 # "last viewed" timestamp and show a new-results dot.
-                if child.suffix.lower() == ".ipynb":
+                if suffix == ".ipynb":
                     if _ipynb_is_pending(child):
                         entry["pending"] = True
                 files.append(entry)
                 if git_root in checkout_groups:
                     checkout_groups[git_root][1].append((child.relative_to(git_root).as_posix(), entry))
             elif child_is_dir:
+                child = Path(child_entry.path)
                 if child_is_symlink or (assistant_collections and depth == 0 and child.name in {"documents", "tasks", "notes", "projects"}):
                     rel = str(child.relative_to(workspace_path))
                     entry = {"name": rel, "path": rel, "type": "dir"}
@@ -680,7 +689,8 @@ def api_workspace_files(path: str, request: Request, include_dotfiles: bool = Fa
             elif child_is_symlink:
                 # Broken symlink: still surface the row so the sidebar can
                 # distinguish it from an absent file/folder.
-                rel = str(child.relative_to(workspace_path))
+                child = Path(child_entry.path)
+                rel = relative_prefix + child_entry.name
                 entry = {"name": rel, "path": rel, "type": "file", "broken": True}
                 _with_symlink_fields(entry, child, is_symlink=child_is_symlink)
                 files.append(entry)
@@ -924,7 +934,8 @@ def api_workspace_mtime(path: str, request: Request):
         if depth > _WORKSPACE_SCAN_MAX_DEPTH:
             return
         try:
-            children = list(dir_path.iterdir())
+            with os.scandir(dir_path) as entries:
+                children = list(entries)
         except (PermissionError, OSError):
             return
         for child in children:
@@ -935,7 +946,8 @@ def api_workspace_mtime(path: str, request: Request):
                     latest = max(latest, child.stat().st_mtime)
                 elif child.is_dir() and child.name not in _WORKSPACE_SCAN_SKIP_DIRS:
                     latest = max(latest, child.stat().st_mtime)
-                    scan(child, _workspace_scan_child_depth(child, depth))
+                    child_path = Path(child.path)
+                    scan(child_path, _workspace_scan_child_depth(child_path, depth))
             except OSError:
                 # Broken symlink / disappeared mid-walk — skip.
                 continue

@@ -103,7 +103,10 @@ def test_explorer_context_menu_is_wired_to_all_real_tree_surfaces() -> None:
 
     # Secondary click gains the terminal action; the existing double-click
     # full-size document modal remains the file rows' dblclick behavior.
-    assert source.count("ondblclick=\"event.stopPropagation();openWorkspaceDocModal") >= 4
+    assert source.count('data-open-file') >= 3
+    assert "addEventListener('dblclick', _sidebarHandleFileAction)" in source
+    assert "openWorkspaceDocModal(path, {root});" in source
+    assert "ondblclick=\"event.stopPropagation();openWorkspaceDocModal" in source  # pinned shortcut
     # Meta rows now build and escape the handler before inserting it.
     assert 'const modalAction = `event.stopPropagation();openWorkspaceDocModal(' in source
     assert 'ondblclick="${escAttr(modalAction)}"' in source

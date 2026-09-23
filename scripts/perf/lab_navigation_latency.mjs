@@ -3,7 +3,7 @@
 // Real CDP mouse events -> rendered content -> next animation-frame task.
 // This is a browser paint opportunity estimate, not physical display latency.
 import {spawn} from 'node:child_process';
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const baseUrl = process.argv[2];
@@ -108,11 +108,23 @@ async function newPage(port) {
 async function main() {
   const workspaceRoot=process.argv[3], samples=Number(process.argv[4] || 20);
   const profile=await mkdtemp(join(tmpdir(),'lab-navigation-chrome-'));
-  const port=9900+Math.floor(Math.random()*200);
-  const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking',`--remote-debugging-port=${port}`,`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
+  const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client;
   const rows=[];
   try {
+    // Let Chrome reserve its own free port; a random fixed-range choice can
+    // collide with another local browser. Read only this fixture's profile.
+    let port;
+    const startupDeadline=Date.now()+10000;
+    while(!port) {
+      if(chrome.exitCode!==null)throw new Error('Chrome exited before opening DevTools: '+chrome.exitCode);
+      try {port=Number((await readFile(join(profile,'DevToolsActivePort'),'utf8')).split(/\s+/)[0]);}
+      catch(error) {if(error.code!=='ENOENT')throw error;}
+      if(!port) {
+        if(Date.now()>startupDeadline)throw new Error('Chrome did not publish its DevTools port');
+        await sleep(50);
+      }
+    }
     await waitForChrome(port); ({client}=await newPage(port));
     await client.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const browserErrors=[], requestFailures=[], pendingRequests=new Map();
@@ -229,12 +241,12 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,ms:r.duration,status:r.responseStatus}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(',')};
+    const fixture={extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders'};
     console.log(JSON.stringify({fixture,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
     if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
-    console.log(JSON.stringify({error:error.message,rows},null,2));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,rows},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}

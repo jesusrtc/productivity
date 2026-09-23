@@ -419,3 +419,101 @@ core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
 This checkpoint also remains isolated on `perf/cold-metadata`. The overall goal,
 including the earlier real-vault outliers and broader action/typing coverage,
 is still active.
+
+## Follow-on: complete large trees with less rendering work
+
+This checkpoint retains every file row while reducing cold parsing, layout, and
+filesystem work. The existing four-scope/60,000-element template limit stays in
+place; no larger cache is used to make the fixture pass.
+
+- Recently updated folders use `content-visibility: auto` with an initial
+  extent derived from visible row counts and the existing 22px row metric.
+  Flat folders above 200 files also use plain, unindented groups of 100 rows.
+  All rows remain in the DOM, including native find-in-page and action metadata.
+- Workspace, framework, vault, and recent-file rows share file/history handlers
+  on the sidebar. Paths and roots come from escaped row attributes, preserving
+  double-click modals and stopping history/control clicks from opening files.
+- Dashboard reads start after sidebar data arrives and before HTML rendering,
+  overlapping network work with parsing without placing dashboard requests ahead
+  of the file scan. Request generations also guard stale success and error paths.
+- Python and SQL icons reuse the original SVG graphics through CSS, as Markdown
+  already did. Dark/light-background comparisons at 2× zoom confirmed the same
+  shapes, text baselines, and symlink overlays. Git decorations skip unchanged
+  class writes; browser mutation checks cover transitions and retained selection.
+- File scans construct full `Path` objects only for links, notebook activity,
+  directories, and worktree comparisons. Ordinary relative names reuse their
+  parent's prefix. Change polling now uses `DirEntry` type/stat data as well.
+  Both scans remain fresh per request and keep existing traversal rules.
+
+Twenty alternating in-process ASGI pairs against `6b83eb0`, with 5,000 files,
+produced identical full JSON responses in both comparisons:
+
+| Request | Baseline median / max | Candidate median / max |
+| --- | ---: | ---: |
+| File list | 56.17 / 63.05 ms | 19.26 / 23.30 ms |
+| Change poll (`mtime`) | 21.85 / 25.40 ms | 8.43 / 10.78 ms |
+
+The final 40-action browser run used **5,000 mixed Markdown/Python/JSON/SQL files
+in one flat folder per workspace**, normal server startup and polling, and a
+fresh Chrome profile:
+
+| Action, 20 samples each | First | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Workspace tab → complete dashboard | 171.80 ms | 115.70 ms | 154.60 ms | 171.80 ms |
+| Sidebar document → complete content | 57.50 ms | 31.10 ms | 50.00 ms | 57.50 ms |
+
+All **333 API requests** stayed below **50.20 ms** with no HTTP, network, or
+browser errors. Four further fresh-browser runs passed with workspace maxima
+**163.30, 167.00, 161.60, and 166.10 ms**, document maximum 62.30 ms, and API
+maximum 50.00 ms. A fifth attempted run failed with `fetch failed` before any
+action or request timing was collected; it is incomplete evidence, not a pass.
+The probe now lets Chrome reserve an ephemeral DevTools port instead of selecting
+a random port from a fixed range, and includes exception cause/stack in failures.
+The specific cause of that prior connection failure was not established.
+The subsequent ephemeral-port run connected successfully but found a **214.60 ms
+cold workspace open** (document maximum 60.40 ms; 50 APIs, maximum 89.30 ms).
+Thus the final candidate still has a verified cold UI miss. Neither the passing
+40-action run nor the four passing repeats proves the cold budget solved.
+
+Earlier combined Markdown runs passed with grouped-folder
+workspace maximum 167.60 ms and flat-folder maximum 165.40 ms; the flat Markdown
+run recorded 336 APIs, maximum 103.90 ms.
+
+The investigation also found failures that remain part of the record:
+
+- Grouped rendering alone reached 264.50 ms; sharing file handlers reduced
+  the tested cold maximum to 227.80 ms, and overlapping dashboard reads reached
+  211.30 ms. These were intermediate candidates, not passing checkpoints.
+- Before plain file groups were added, a flat 5,000-file Markdown folder reached
+  267.00 ms, and all four workspace samples missed the budget.
+- Before the polling change, a mixed-file run passed UI timings at 181.40 ms
+  maximum but failed a background `/api/workspace-mtime` request at **228.30 ms**.
+- Before shared Python/SQL graphics, later mixed-file cold opens still reached
+  **200.70 ms and 250.50 ms**. Five fresh-browser maxima were 207.80, 202.40,
+  184.20, 180.90, and 185.70 ms. These misses are not discarded because a later
+  candidate passed.
+
+Validation: **122 targeted tests passed** across sidebar, navigation, dashboard,
+notebook, file, worktree, and Assistant routes. After the final polling change,
+42 workspace tests passed; after the final graphics/mutation changes, 23
+sidebar/dashboard tests passed. The two real-Chrome rendering cases cover nested
+and flat 5,000-file layouts, 220px/340px widths, 100%/125% zoom, scroll extents,
+hit targets at top/middle/end, native find-in-page, folder collapse/reopen and
+Cmd-click, file/history/double-click actions, quoted/Unicode paths, and preserved
+drag/context metadata. Existing context-menu source checks now recognize the
+delegated handlers. The side-by-side visual check also matched.
+
+```sh
+core/.venv/bin/python scripts/perf/lab_file_scan_latency.py \
+  --baseline 6b83eb0 --files 5000 --samples 20 --transport asgi
+core/.venv/bin/python scripts/perf/lab_file_scan_latency.py \
+  --baseline 6b83eb0 --files 5000 --samples 20 --transport asgi --endpoint mtime
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --samples 20 --extra-files 5000 --extra-file-layout flat \
+  --extra-file-types md,py,json,sql
+```
+
+The overall objective remains active. These fixtures do not resolve earlier
+real-vault cold metadata outliers, full-page startup, all remaining UI actions,
+or typing latency during active UI/terminal workloads. No merge or live-server
+restart is included in this checkpoint.

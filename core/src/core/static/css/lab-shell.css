@@ -200,6 +200,9 @@
      arbitrarily deep trees keep moving right instead of stopping at level 3. */
   .sidebar-folder-children { display: none; position: relative; padding-left: 16px; }
   .sidebar-folder-children.open { display: block; }
+  /* Keep offscreen files searchable while skipping their layout and paint.
+     Rendered row counts provide the same 22px extent before a group is seen. */
+  .sidebar-recent-children { content-visibility: auto; }
   /* Indent guides — one vertical hairline per nesting level, VS Code-style. */
   .sidebar-folder-children.open::before { content: ""; position: absolute; left: 22px; top: 0; bottom: 0; width: 1px; background: var(--tree-indent-guide); pointer-events: none; }
 
@@ -210,8 +213,8 @@
   /* Reuse the Markdown graphic instead of parsing an SVG tree per file. */
   .ft-icon.ft-md { color: var(--accent); font-size: 12px; background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22none%22%20stroke%3D%22%23519ABA%22%20stroke-width%3D%221.2%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%221%22%20y%3D%223.2%22%20width%3D%2214%22%20height%3D%229.6%22%20rx%3D%221.5%22%2F%3E%3Cpath%20d%3D%22M3.4%2010.3V5.7l1.9%202.2%201.9-2.2v4.6%22%2F%3E%3Cpath%20d%3D%22M11.6%205.9v3M10.2%207.6l1.4%201.7%201.4-1.7%22%2F%3E%3C%2Fsvg%3E") center / 14px 14px no-repeat; }
   /* Keep the original SVG's inline-flex baseline for text and symlink rows. */
-  .ft-icon.ft-md::before { content: ""; display: block; width: 14px; height: 14px; }
-  .ft-icon.ft-py { color: var(--green); }
+  .ft-icon.ft-md::before, .ft-icon.ft-py::before, .ft-icon.ft-sql::before { content: ""; display: block; width: 14px; height: 14px; }
+  .ft-icon.ft-py { color: var(--green); background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20width%3D%2214%22%20height%3D%2214%22%3E%3Cpath%20fill%3D%22%233776AB%22%20d%3D%22M11.9%202c-5%200-4.6%202.2-4.6%202.2v2.3h4.7v.7H5.3S2%206.8%202%2011.9c0%205%202.9%204.9%202.9%204.9h1.7v-2.4s-.1-2.9%202.8-2.9h4.7s2.7.1%202.7-2.6V4.7S17.2%202%2011.9%202zM9.3%203.4a.9.9%200%201%201%200%201.8.9.9%200%200%201%200-1.8z%22%2F%3E%3Cpath%20fill%3D%22%23FFD43B%22%20d%3D%22M12.1%2022c5%200%204.6-2.2%204.6-2.2v-2.3H12v-.7h6.7s3.3.4%203.3-4.7c0-5-2.9-4.9-2.9-4.9h-1.7v2.4s.1%202.9-2.8%202.9h-4.7s-2.7-.1-2.7%202.6v4.2S6.8%2022%2012.1%2022zm2.6-1.4a.9.9%200%201%201%200-1.8.9.9%200%200%201%200%201.8z%22%2F%3E%3C%2Fsvg%3E") center / 14px 14px no-repeat; }
   .ft-icon.ft-js { color: var(--yellow); }
   .ft-icon.ft-ts { color: var(--accent); }
   .ft-icon.ft-json { color: var(--yellow); font-size: 9px; }
@@ -222,7 +225,7 @@
   .ft-icon.ft-html { color: var(--yellow); font-size: 9px; }
   .ft-icon.ft-css { color: var(--accent); font-size: 10px; }
   .ft-icon.ft-sh { color: var(--green); font-size: 10px; }
-  .ft-icon.ft-sql { color: var(--accent); }
+  .ft-icon.ft-sql { color: var(--accent); background: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M2%204v8c0%201.1%202.7%202%206%202s6-.9%206-2V4%22%20fill%3D%22%234479A1%22%2F%3E%3Cellipse%20cx%3D%228%22%20cy%3D%224%22%20rx%3D%226%22%20ry%3D%222.3%22%20fill%3D%22%2369A7D0%22%2F%3E%3Cpath%20d%3D%22M2%208c0%201.1%202.7%202%206%202s6-.9%206-2M2%2011c0%201.1%202.7%202%206%202s6-.9%206-2%22%20stroke%3D%22%23C7E9FF%22%20stroke-width%3D%22.9%22%2F%3E%3C%2Fsvg%3E") center / 14px 14px no-repeat; }
   .ft-icon.ft-csv { color: var(--green); font-size: 11px; }
   .ft-icon.ft-git { color: var(--text-secondary); font-size: 9px; }
   .ft-icon.ft-generic { color: var(--text-dim); }

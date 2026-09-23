@@ -26,6 +26,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--samples', type=int, default=20, help='Samples per action (at least 2)')
 parser.add_argument('--extra-files', type=int, default=0, help='Additional files in each workspace')
 parser.add_argument('--extra-file-types', default='md', help='Comma-separated extensions for extra files, e.g. md,py,json,sql')
+parser.add_argument('--extra-file-layout', choices=['folders', 'flat'], default='folders')
 parser.add_argument('--app-revision', help='Compare lab-app.js from a local git revision')
 args = parser.parse_args()
 if args.samples < 2:
@@ -70,7 +71,9 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                     f'## Section {i}\n\nFixture paragraph with **formatting** and `code`.'
                     for i in range(30)))
         for number in range(args.extra_files):
-            folder = root / 'workspaces' / name / 'notes' / f'batch-{number // 100:03}'
+            folder = root / 'workspaces' / name / 'notes'
+            if args.extra_file_layout == 'folders':
+                folder /= f'batch-{number // 100:03}'
             folder.mkdir(exist_ok=True)
             extension = extra_file_types[number % len(extra_file_types)]
             (folder / f'entry-{number:05}.{extension}').write_text(f'# Fixture note {number}\n\nSmall document.\n')
@@ -128,7 +131,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                                  str(root / 'workspaces'), str(args.samples)],
                                 env={**os.environ, 'LAB_PROBE_COOKIE': cookie,
                                      'LAB_PERF_EXTRA_FILES': str(args.extra_files),
-                                     'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types)},
+                                     'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
+                                     'LAB_PERF_EXTRA_FILE_LAYOUT': args.extra_file_layout},
                                 timeout=max(120, args.samples * 26))
     finally:
         server.should_exit = True

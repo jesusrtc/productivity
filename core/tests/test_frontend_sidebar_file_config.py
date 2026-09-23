@@ -51,7 +51,8 @@ process.stdout.write(JSON.stringify({sql, uppercase, scala, plain}));
     )
 
     assert 'class="ft-icon ft-sql"' in result["sql"]
-    assert '<ellipse' in result["sql"]
+    css = (ROOT / 'core/src/core/static/css/lab-shell.css').read_text()
+    assert '.ft-icon.ft-sql' in css and '%3Cellipse' in css
     assert 'class="ft-icon ft-sql"' in result["uppercase"]
     assert 'class="ft-icon ft-scala"' in result["scala"]
     assert '#DE3423' in result["scala"]

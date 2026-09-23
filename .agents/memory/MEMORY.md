@@ -260,3 +260,7 @@
 - [Sidebar refreshes keep the latest scope](sidebar-refresh-keeps-latest-scope.md) — captured paths plus generations guard delayed responses; cached paint and reconciliation share ownership.
 - [Shared sidebar icons preserve baselines](sidebar-shared-icons-preserve-baselines.md) — shared graphics reduce DOM without shifting text or symlink overlays; larger and mixed trees still need work.
 - [Large file lists use typed serialization](large-file-lists-use-typed-serialization.md) — generic response dictionaries retain all metadata while avoiding the Python JSON conversion walk; compare complete ASGI results.
+- [Offscreen sidebar groups keep complete rows](sidebar-offscreen-groups-keep-complete-rows.md) — native search/actions remain available; flat and nested groups preserve 22px row extents and bounded template retention.
+- [Sidebar actions share row metadata](sidebar-file-actions-share-row-metadata.md) — delegated file/history/modal handlers use escaped paths and roots while controls keep their separate actions.
+- [Dashboard reads overlap sidebar rendering](dashboard-reads-overlap-sidebar-render.md) — start after file data arrives; share one request batch and guard old success/error responses by generation.
+- [File scans avoid unused full paths](file-scans-avoid-unused-full-paths.md) — relative prefixes and DirEntry stats remove repeated path work while preserving link, notebook, worktree, and freshness behavior.
