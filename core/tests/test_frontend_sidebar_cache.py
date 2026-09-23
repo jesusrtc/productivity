@@ -244,31 +244,61 @@ try {
   const stable=sidebar.querySelector('[data-filepath="stable.md"]');
   stable.classList.add('git-m'); stable.querySelector('button').focus();
   const pristine=_sidebarMarkupCache.get('parts').template;
+  const pristineKeep=pristine.content.querySelector('#keep');
   for(let step=1;step<=30;step++) {
     input=makeParts(step);
-    const parsed=[];
+    const parsed=[], copied=[];
+    const cloneNode=Node.prototype.cloneNode;
+    Node.prototype.cloneNode=function(deep){if(deep&&this.contains(pristineKeep))copied.push(this);return cloneNode.call(this,deep)};
     const innerHTML=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
     Object.defineProperty(Element.prototype,'innerHTML',{...innerHTML,set(value){if(this.tagName==='TEMPLATE')parsed.push(String(value));innerHTML.set.call(this,value)}});
     try {_replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',true,input.parts);}
-    finally {Object.defineProperty(Element.prototype,'innerHTML',innerHTML);}
+    finally {Object.defineProperty(Element.prototype,'innerHTML',innerHTML);Node.prototype.cloneNode=cloneNode;}
     assert(parsed.length===1&&!parsed[0].includes('KEEP UNCHANGED'), 'unchanged descendant reparsed at step '+step);
+    assert(copied.length===0,'unchanged pristine subtree was deep-cloned at step '+step);
     assert(sidebar.querySelector('[data-filepath="stable.md"]')===stable, 'reused template must retain unchanged live rows');
     assert(stable.classList.contains('git-m')&&document.activeElement===stable.querySelector('button'),'fragment reuse lost live decoration/focus');
     const expected=document.createElement('template');expected.innerHTML=input.html;
     const cached=_sidebarMarkupCache.get('parts');
     assert(cached.template.innerHTML===expected.innerHTML,'fragment assembly differs from full parse at step '+step);
+    assert(cached.template.content.querySelector('#keep')===pristineKeep,'unchanged pristine subtree was not transferred');
+    assert(cached.elements===expected.content.querySelectorAll('*').length,'expanded element accounting differs from full parse');
     assert([...cached.parts.values()].every(p=>cached.template.content.contains(p.node)),'fragment index retained nodes from another template');
     assert(!cached.template.content.querySelector('[data-sidebar-part],.git-m'),'placeholders or live decorations leaked into template');
   }
-  assert(pristine.content.querySelector('#keep'),'cloning fragments must not consume older pristine templates');
+  assert(!pristine.content.contains(pristineKeep),'retired template must release transferred subtrees');
   _replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',false,input.parts);
   const expectedParts=document.createElement('template');expectedParts.innerHTML=input.html;
   assert(sidebar.innerHTML===expectedParts.innerHTML,'explicit navigation using assembled template differs from full parse');
+  // A mismatched live container must still clone complete reused descendants.
+  // The old source remains intact until reconciliation/fallback finishes.
+  sidebar.querySelector('#outer').appendChild(document.createElement('em'));
+  input=makeParts(31);
+  _replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',true,input.parts);
+  expectedParts.innerHTML=input.html;
+  assert(sidebar.innerHTML===expectedParts.innerHTML,'container fallback left an empty reuse marker');
+  assert(_sidebarMarkupCache.get('parts').template.content.querySelector('#keep')===pristineKeep,'container fallback lost the pristine source');
+  const previousOuter=sidebar.querySelector('#outer');
+  previousOuter.replaceWith(document.createElement('em'));
+  input=makeParts(32);
+  _replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',true,input.parts);
+  expectedParts.innerHTML=input.html;
+  assert(sidebar.innerHTML===expectedParts.innerHTML,'whole-sidebar fallback did not expand reused fragments');
+  input=fragment('new-parent',combine([keep,leaf(row('new.md'))]));
+  _replaceWorkspaceSidebarMarkup(sidebar,input.html,'parts',true,input.parts);
+  expectedParts.innerHTML=input.html;
+  assert(sidebar.innerHTML===expectedParts.innerHTML,'new parent clone omitted its reused descendant');
+  assert(_sidebarMarkupCache.get('parts').template.content.querySelector('#keep')===pristineKeep,'new parent consumed the source before reconciliation finished');
   // Literal application content cannot be mistaken for an internal placeholder.
   const literal=combine([keep,leaf('<template DATA-SIDEBAR-PART="0"><i>Literal template</i></template>')]);
   _replaceWorkspaceSidebarMarkup(sidebar,literal.html,'parts',true,literal.parts);
   expectedParts.innerHTML=literal.html;
   assert(_sidebarMarkupCache.get('parts').template.innerHTML===expectedParts.innerHTML,'literal template was consumed as a reuse marker');
+  const oversized=combine([keep,leaf('<i></i>'.repeat(60001))]);
+  _replaceWorkspaceSidebarMarkup(sidebar,oversized.html,'parts',true,oversized.parts);
+  assert(sidebar.querySelectorAll('i').length===60001&&sidebar.querySelector('#keep button'),'oversized transition omitted reused descendants');
+  assert(!_sidebarMarkupCache.has('parts'),'oversized replacement of a cached scope was retained');
+  assert([..._sidebarMarkupCache.values()].reduce((sum,entry)=>sum+entry.elements,0)===_sidebarMarkupCacheElements,'transferred/oversized template accounting drifted');
   for (let i=0;i<10;i++) _replaceWorkspaceSidebarMarkup(sidebar, '<a>'+i+'</a>', 'scope-'+i);
   assert(_sidebarMarkupCache.size === 4, 'workspace count bounded');
   assert([..._sidebarMarkupCache.keys()].join(',') === 'scope-6,scope-7,scope-8,scope-9', 'oldest scopes evicted');

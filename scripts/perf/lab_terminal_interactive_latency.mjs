@@ -117,6 +117,8 @@ async function main() {
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client,evaluate;
   const sent=[], phases=[], updates=[], browserErrors=[],requestFailures=[],pendingRequests=new Map();
+  const terminalSocketIds=new Set(), terminalFrames=[];
+  let networkEpochOffset=null;
   try {
     let port;
     const startupDeadline=Date.now()+10000;
@@ -134,6 +136,18 @@ async function main() {
     await client.send('Network.setCookie',{name:'lab_session',value:process.env.LAB_PROBE_COOKIE,url:baseUrl,httpOnly:true,sameSite:'Strict'});
     client.ws.addEventListener('message',event=>{
       const m=JSON.parse(event.data),p=m.params;
+      if(m.method==='Network.requestWillBeSent' && networkEpochOffset===null)networkEpochOffset=(p.wallTime-p.timestamp)*1000;
+      if(m.method==='Network.webSocketCreated' && new URL(p.url).pathname==='/ws/term/'+encodeURIComponent(name))terminalSocketIds.add(p.requestId);
+      if((m.method==='Network.webSocketFrameSent' || m.method==='Network.webSocketFrameReceived') && terminalSocketIds.has(p.requestId)) {
+        // Only the disposable echo terminal; never record output or credentials.
+        // CDP timestamps distinguish socket transport from later xterm parsing.
+        let message;try{message=JSON.parse(p.response.payloadData)}catch{}
+        terminalFrames.push({direction:m.method.endsWith('Sent')?'sent':'received',timestamp:p.timestamp,
+          epoch:networkEpochOffset===null?null:p.timestamp*1000+networkEpochOffset,
+          type:message?.type,length:typeof message?.data==='string'?message.data.length:0,
+          ...(message?.type==='input'?{keyInput:/^[a-z]$/.test(message.data)}:{}),
+          ...(message?.type==='resize'?{rows:message.rows,cols:message.cols}:{})});
+      }
       if(m.method==='Runtime.exceptionThrown')browserErrors.push(p.exceptionDetails.exception?.description||p.exceptionDetails.text);
       if(m.method==='Network.requestWillBeSent' && p.request.url.startsWith(baseUrl+'/api/'))pendingRequests.set(p.requestId,new URL(p.request.url).pathname);
       if(m.method==='Network.loadingFinished' || m.method==='Network.loadingFailed') {
@@ -286,16 +300,22 @@ async function main() {
     result.requestErrors=result.requests.filter(r=>r.status>=400);
     result.misses=result.rows.filter(r=>r.total>=50);
     result.phases=phases;result.sent=sent;result.browserErrors=browserErrors;result.requestFailures=requestFailures;
+    result.terminalFrames=terminalFrames;
+    // xterm also sends terminal-query replies; retain those frames but count
+    // only the one-letter fixture keys when validating measured input.
+    const inputs=terminalFrames.filter(frame=>frame.direction==='sent'&&frame.type==='input'&&frame.keyInput);
+    result.transportErrors=[];
+    if(inputs.length!==sent.length || inputs.some(frame=>frame.length!==1 || !Number.isFinite(frame.epoch)))result.transportErrors.push('Owned terminal input frames do not match native key count');
     result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,changeFiles};
     result.updates=updates;
     await client.send('Page.navigate',{url:baseUrl+'/api/ping'});
     await wait(`location.pathname==='/api/ping' && !document.getElementById('termPanel') && document.body.textContent.includes('status')`,'Frame control failed to load');
     result.emptyPageFrames=stats(await evaluate(`(async()=>{const frames=[];let last=await new Promise(requestAnimationFrame);for(let i=0;i<100;i++){const next=await new Promise(requestAnimationFrame);frames.push(next-last);last=next;}return frames;})()`));
     console.log(JSON.stringify(result,null,2));
-    if(result.errors.length || result.timestampErrors.length || result.misses.length || result.requestMisses.length || result.requestErrors.length || browserErrors.length || requestFailures.length)process.exitCode=1;
+    if(result.errors.length || result.timestampErrors.length || result.transportErrors.length || result.misses.length || result.requestMisses.length || result.requestErrors.length || browserErrors.length || requestFailures.length)process.exitCode=1;
   } catch(error) {
     const partial=evaluate?await evaluate('window.__typing?.snapshot()').catch(()=>null):null;
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,updates,browserErrors,requestFailures},null,2));
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,partial,phases,sent,updates,browserErrors,requestFailures,terminalFrames},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}

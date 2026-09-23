@@ -2,15 +2,16 @@
 
 Workspace Files and Recently updated renderers provide exact source offsets for
 balanced folder elements. The template builder compares those ranges with the
-previous pristine template and clones the largest unchanged folders through
-temporary placeholders. Changed parents can still reuse unchanged descendants.
+previous pristine template and reuses the largest unchanged folders through
+temporary placeholders. [Retired template transfer](sidebar-retired-templates-transfer-unchanged-folders.md)
+avoids cloning those detached folders after synchronous reconciliation. Changed parents can still reuse unchanged descendants.
 The assembled template has exactly the DOM of a complete parse, with no remaining
 placeholders or live decorations. Literal placeholder-like content falls back to
 a complete parse. Explicit navigation still mounts a pristine clone.
 
 Keep fragment indexes as offsets plus references into the one retained template;
 do not retain overlapping fragment strings or additional subtree copies. The
-four-scope/60,000-element bounds still apply. A temporary clone/source identity
+four-scope/60,000-element bounds still apply. A temporary placeholder/source identity
 map can skip deep equality checks during one synchronous reconciliation, but must
 never be stored in the cache because it would retain older templates.
 

@@ -1296,3 +1296,91 @@ input still occasionally exceeds 50 ms. Remaining work also includes the startup
 task, prior request outliers, larger/unusual trees, and unmeasured UI actions.
 The overall goal remains active. This checkpoint includes no main merge, push
 or live-server restart; the earlier merge approval remains pending.
+
+
+## Checkpoint: transfer unchanged detached sidebar folders
+
+A sustained 600-key trace of `e5c6256` reproduced a **60.40 ms** loaded input
+(32.10 ms queued before its handler, 28.30 ms afterward). The overlapping sidebar
+refresh sampled **39.44 ms**, including **13.11 ms** in `cloneNode`; the subsequent
+frame spent **19.21 ms** in lifecycle work, including 12.48 ms pre-paint. Source
+folders were already known equal, but assembling the next pristine template
+still deep-cloned them. The trace is `/tmp/lab-sustained-e5-trace.json`, with
+matching profile/browser/server sidecars. Its separate 60 ms startup task remains.
+
+The builder now places temporary references to unchanged detached folders,
+reconciles the visible sidebar while the old source template is intact, then
+transfers those folders from the retired cache entry into the new pristine
+entry. This avoids copying tens of thousands of unchanged nodes. Changed/new
+parents and mismatched live containers expand references in their fallback
+clones; whole-sidebar fallback uses the fully assembled template. Expanded element
+counts are computed before reconciliation so oversized trees take the existing
+complete, uncached path. Explicit navigation still mounts pristine clones. The
+four-scope/60,000-element limits and all live row decorations/actions remain.
+
+**148 targeted tests passed**, including real Chrome coverage. The template test
+now verifies unchanged folder identity transfers without parsing/deep cloning,
+30 changed/reordered ancestors, exact full-parse equivalence, expanded element
+counts, focus/Git state, invalidated live containers and whole-sidebars, newly
+introduced parents, literal placeholder-like content, explicit navigation and
+oversized transitions. Both 5,000-file nested/flat native action/rendering checks
+passed. Log and artifacts: `/tmp/lab-template-transfer-tests.log` and
+`/tmp/lab-template-transfer-qa/`.
+
+Matched 15-second CPU/timeline profiles, 300 keys per phase and 15 file updates,
+showed inclusive sidebar refresh sampling falling **632.72→358.99 ms**. Template
+building fell **154.00→50.54 ms** and `cloneNode` samples **109.21→0.00 ms** (zero
+samples is not a claim that no small live clones occur). These are separate
+profiled runs, not deterministic CPU totals; the no-deep-clone regression checks
+establish the intended mechanism. Candidate traced typing maxima were **33.50 ms
+normal / 45.00 ms loaded**. Profile artifacts:
+`/tmp/lab-sustained-e5-profile.json`, `/tmp/lab-template-transfer-profile.json` and
+`/tmp/lab-template-transfer-trace.json`.
+
+Untraced comparisons kept all **600 keys** per run, **15 verified file writes**,
+normal polling and 5,000 `ipynb,pdf,svg,js` files:
+
+| Version / layout / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Prior `e5c6256`, nested, normal | 4.00 ms | 23.50 ms | 30.70 ms | 0 |
+| Candidate, nested, normal | 3.80 ms | 23.40 ms | 48.50 ms | 0 |
+| Candidate, flat, normal | 3.90 ms | 26.20 ms | 40.40 ms | 0 |
+| Prior `e5c6256`, nested, changing files | 6.50 ms | 215.10 ms | 590.10 ms | 22 |
+| Candidate, nested, changing files | 6.90 ms | 26.90 ms | 41.70 ms | 0 |
+| Candidate, flat, changing files | 7.70 ms | 223.00 ms | 600.00 ms | 22 |
+
+The **590/600 ms failures are retained and unresolved**. They occurred on both
+versions, so the passing nested candidate does not establish a fix. In the flat
+candidate, the first affected key left Chrome 1.18 ms after its external input
+timestamp; subsequent keys continued to leave throughout the pause. No echo
+frame arrived until **599.71 ms** after that key, when a 24-character frame arrived
+and parsed immediately. Most key handlers were prompt, and HTTP requests continued
+completing in a few milliseconds during the prior-version stall. This points the
+next investigation toward terminal transport/server/PTY/tmux, separately from
+the browser rendering optimization; the exact cause is not yet identified.
+
+The probe now records CDP WebSocket frame timestamps, direction, type, length and
+resize geometry for only its owned echo terminal. It stores no frame payloads or
+credentials. Automatic terminal-query replies are retained but excluded from
+native one-letter key counts. The first profiled diagnostic incorrectly counted
+four startup replies as keys and exited nonzero despite all 600 measured keys
+passing; that failed artifact is retained. The corrected flat probe verified
+all 600 key frames and had no diagnostic error, while correctly failing the
+latency gate on the 22 delayed keys.
+
+The three untraced runs had 226/229/231 APIs, maxima **75.70/57.80/93.50 ms**.
+The prior/candidate profile runs had 247/233 APIs, maxima **80.60/96.30 ms**.
+All requests correlated to matching server IDs/routes, with no HTTP, browser,
+network, input-content or timestamp errors. Startup tasks of **53–60 ms** remain
+recorded before readiness. Files/cache mtimes and recent ordering were verified.
+Artifacts: `/tmp/lab-template-transfer-{before,after,flat,profile}-{browser,server}.json`.
+
+Native navigation/resize passed **40 workspace clicks, 40 document clicks and
+40 drags**, with maxima **195.80/61.20/27.80 ms**. All 669 APIs were below **74.70 ms**.
+The first workspace click is close to budget and is retained. Artifact:
+`/tmp/lab-template-transfer-navigation-{browser,server}.json`.
+
+All six fixture servers stopped; all five owned typing terminals were removed.
+The overall goal remains active: terminal transport stalls, remaining startup
+work, earlier request outliers, broader actions and iTerm comparison still need
+work. This checkpoint includes no main merge, push or live-server restart.

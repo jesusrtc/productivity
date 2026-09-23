@@ -8933,7 +8933,7 @@
   let _sidebarMarkupCacheElements = 0;
   const _SIDEBAR_MARKUP_CACHE_ENTRIES = 4;
   const _SIDEBAR_MARKUP_CACHE_ELEMENTS = 60000;
-  function _buildSidebarMarkupTemplate(markup, parts, previous, equalSources) {
+  function _buildSidebarMarkupTemplate(markup, parts, previous, equalSources, beforeTransfer = null) {
     // Parts are balanced folder elements with offsets supplied by the renderer.
     // Prefer the largest equal subtree; when a folder changed, its unchanged
     // descendants remain candidates. Compare exact source HTML, not live DOM.
@@ -8952,12 +8952,19 @@
     chunks.push(markup.slice(cursor));
     const template = document.createElement('template');
     template.innerHTML = chunks.join('');
+    let elements = template.content.querySelectorAll('*').length;
     if (reused.length) template.content.querySelectorAll('template[data-sidebar-part]').forEach(marker => {
       const source = reused[Number(marker.dataset.sidebarPart)];
-      const clone = source.cloneNode(true);
-      equalSources.set(clone, source);
-      marker.replaceWith(clone);
+      equalSources.set(marker, source);
+      // The marker and source each contribute one root element.
+      elements += source.querySelectorAll('*').length;
     });
+    // Reconcile while the old template is still intact. Unchanged folders are
+    // represented by markers referencing their pristine source. Afterward the
+    // retired template can donate those nodes without cloning thousands of
+    // descendants. Only detached templates participate, never live rows.
+    if (beforeTransfer && elements <= _SIDEBAR_MARKUP_CACHE_ELEMENTS) beforeTransfer(template.content);
+    for (const [marker, source] of equalSources) marker.replaceWith(source);
     // Retain offsets and references into this one pristine template, not a
     // second set of subtree copies or overlapping fragment strings.
     const indexed = new Map();
@@ -8966,7 +8973,7 @@
       const node = nodesById.get(part.id);
       if (node) indexed.set(part.id, {...part, node});
     }
-    return {markup, template, parts: indexed, elements: template.content.querySelectorAll('*').length};
+    return {markup, template, parts: indexed, elements};
   }
 
   function _sidebarMarkupNodeKey(node) {
@@ -8978,6 +8985,24 @@
     const treePath = node.getAttribute('data-tree-path');
     if (treePath !== null) return node.nodeName + ':folder:' + (node.getAttribute('data-tree-scope') || '') + '\0' + treePath;
     return node.nodeName + ':class:' + (node.getAttribute('class') || '');
+  }
+
+  function _cloneSidebarMarkupNode(node, equalSources) {
+    const source = equalSources.get(node);
+    if (source) return source.cloneNode(true);
+    const clone = node.cloneNode(true);
+    // A changed/new parent or a mismatched live container may contain reused
+    // descendants. Expand their markers in the live clone without consuming the
+    // sources that reconciliation still needs in the old detached template.
+    if (equalSources.size && node.querySelectorAll) {
+      const markers = node.querySelectorAll('template[data-sidebar-part]');
+      const copies = clone.querySelectorAll('template[data-sidebar-part]');
+      markers.forEach((marker, index) => {
+        const original = equalSources.get(marker);
+        if (original) copies[index].replaceWith(original.cloneNode(true));
+      });
+    }
+    return clone;
   }
 
   // Compare pristine templates, not decorated live rows. Retain equal sections
@@ -8996,10 +9021,11 @@
     }
     let cursor = parent.firstChild;
     for (const node of next.childNodes) {
-      const bucket = buckets.get(_sidebarMarkupNodeKey(node));
+      const source = changes.equalSources.get(node) || node;
+      const bucket = buckets.get(_sidebarMarkupNodeKey(source));
       const match = bucket && bucket.nodes[bucket.used++];
       let desired;
-      if (match && (changes.equalSources.get(node) === match.source || match.source.isEqualNode(node))) desired = match.live;
+      if (match && (source === match.source || match.source.isEqualNode(source))) desired = match.live;
       else if (match && node.nodeType === 1
           && node.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
           && match.source.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
@@ -9015,7 +9041,7 @@
         desired = match.live;
       }
       if (!desired) {
-        desired = node.cloneNode(true);
+        desired = _cloneSidebarMarkupNode(node, changes.equalSources);
         changes.cloned = true;
       }
       if (desired === cursor) cursor = cursor.nextSibling;
@@ -9050,12 +9076,16 @@
     // retaining it in the cache would keep older template subtrees alive.
     const changes = {cloned: false, equalSources: new Map()};
     const previous = preserveLive && mountedIsCurrent && cached?.markup === mounted.markup ? cached : null;
+    const focused = sidebar.contains(document.activeElement) ? document.activeElement : null;
+    let reconciled = false;
     if (cached) {
       _sidebarMarkupCache.delete(scope);
       _sidebarMarkupCacheElements -= cached.elements;
     }
     if (!cached || cached.markup !== markup) {
-      cached = _buildSidebarMarkupTemplate(markup, parts, cached, changes.equalSources);
+      cached = _buildSidebarMarkupTemplate(markup, parts, cached, changes.equalSources, previous ? next => {
+        reconciled = _reconcileSidebarChildren(sidebar, previous.template.content, next, changes);
+      } : null);
     }
     if (cached.elements > _SIDEBAR_MARKUP_CACHE_ELEMENTS) {
       sidebar.replaceChildren(cached.template.content);
@@ -9070,8 +9100,7 @@
     }
     _sidebarMarkupCache.set(scope, cached);
     _sidebarMarkupCacheElements += cached.elements;
-    const focused = sidebar.contains(document.activeElement) ? document.activeElement : null;
-    if (!previous || !_reconcileSidebarChildren(sidebar, previous.template.content, cached.template.content, changes)) {
+    if (!reconciled) {
       sidebar.replaceChildren(cached.template.content.cloneNode(true));
       changes.cloned = true;
     }
