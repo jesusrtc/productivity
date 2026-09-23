@@ -2,10 +2,11 @@
 import {readFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 
-export async function documentEditActions(workspaceRoot,samples) {
+export async function documentEditActions(workspaceRoot,samples,{inputMode='replace'}={}) {
   const root=resolve(workspaceRoot);
   if(root!==workspaceRoot || !/\/lab-navigation-[^/]+\/vault\/workspaces$/.test(root))throw new Error('Document editing requires the disposable fixture');
   if(!Number.isInteger(samples)||samples<2)throw new Error('Document editing requires at least two samples');
+  if(!['replace','append'].includes(inputMode))throw new Error('Unknown document input mode');
   const expected=new Map();
   for(const workspace of ['alpha','beta'])for(const number of [1,2]) {
     const file=join(root,workspace,'docs',`review-${number}.md`);
@@ -33,9 +34,9 @@ export async function documentEditActions(workspaceRoot,samples) {
         :`${identity} && _workspaceDocContent===${JSON.stringify(before)} && document.querySelector('#content h1')?.textContent===${JSON.stringify(title+' review 1')}`},
       {kind:'edit-document',target:workspace,selector:'.sidebar-file[data-open-file][data-filepath="'+path+'"]',ready:`${identity} && _workspaceDocContent===${JSON.stringify(before)} && document.querySelector('#content h1')?.textContent===${JSON.stringify(title+' review 1')}`},
       {kind:'edit-open',target:workspace,selector:'#content button[onclick="startWorkspaceDocEdit()"]',ready:editor(before)},
-      {kind:'edit-save',target:workspace,selector:'#docModalBody button[onclick^="saveWorkspaceDoc("]',input:saved,inputSelector:'#docModalBody #workspaceDocEditor',ready:`${modal} && ${rendered(saved)}`},
+      {kind:'edit-save',target:workspace,selector:'#docModalBody button[onclick^="saveWorkspaceDoc("]',input:inputMode==='append'?saved.slice(before.length):saved,inputAppend:inputMode==='append',inputSelector:'#docModalBody #workspaceDocEditor',ready:`${modal} && ${rendered(saved)}`},
       {kind:'edit-reopen',target:workspace,selector:'#docModalBody button[onclick="startWorkspaceDocEdit()"]',ready:editor(saved)},
-      {kind:'edit-cancel',target:workspace,selector:'#docModalBody button[onclick^="cancelWorkspaceDocEdit("]',input:cancelled,inputSelector:'#docModalBody #workspaceDocEditor',ready:`${modal} && ${rendered(saved)}`},
+      {kind:'edit-cancel',target:workspace,selector:'#docModalBody button[onclick^="cancelWorkspaceDocEdit("]',input:inputMode==='append'?cancelled.slice(saved.length):cancelled,inputAppend:inputMode==='append',inputSelector:'#docModalBody #workspaceDocEditor',ready:`${modal} && ${rendered(saved)}`},
       {kind:'edit-close',target:workspace,selector:'#docViewModal .doc-modal-close',ready:`!document.getElementById('docViewModal').classList.contains('active') && ${rendered(saved)}`},
     );
     expected.set(file,saved);

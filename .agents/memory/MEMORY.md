@@ -1,5 +1,8 @@
 # Memory index
 
+- [Document saves publish confirmed cache content](document-saves-publish-confirmed-cache.md) — avoid stale inline paints while retaining fresh reconciliation, captured roots and newer drafts
+- [Multiline IME input is not paste latency](multiline-ime-input-is-not-paste-latency.md) — distinguish CDP text setup from clicks and clipboard input; retain slow replacements and failure diagnostics
+
 - [Document editing checks both views](document-edit-latency-checks-both-views.md) — measure saved/cancelled modal and inline content, exact files across workspaces, and restored document navigation
 
 - [Sidebar file identity is shared](sidebar-file-identity-is-shared.md) — one captured path/root serves open, context, drag and terminal links; legacy entry rows keep their metadata

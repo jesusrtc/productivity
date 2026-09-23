@@ -42,6 +42,16 @@ def test_document_edit_checks_all_files_and_freezes_each_step_expectation():
       }
     }
     const actions=await documentEditActions(root,4),saves=actions.filter(action=>action.kind==='edit-save');
+    const append=await documentEditActions(root,4,{inputMode:'append'}),composed=new Map(original);
+    let appendMatches=true;
+    for(const action of append.filter(action=>action.input)) {
+      const file=join(root,action.target,'docs/review-1.md');
+      const text=composed.get(file)+action.input;
+      if(action.kind==='edit-save') {
+        appendMatches&&=action.inputAppend && text===action.expectedDocuments.find(([path])=>path===file)[1];
+        composed.set(file,text);
+      } else appendMatches&&=action.inputAppend && action.expectedDocuments.find(([path])=>path===file)[1]===composed.get(file);
+    }
     const untouched=[...original].every(([file,text])=>saves[0].expectedDocuments.find(([path])=>path===file)[1]===text || file===join(root,'alpha/docs/review-1.md'));
     // A later Alpha save must not mutate the first expected snapshot.
     const first=saves[0].expectedDocuments.find(([path])=>path===join(root,'alpha/docs/review-1.md'))[1];
@@ -55,12 +65,13 @@ def test_document_edit_checks_all_files_and_freezes_each_step_expectation():
       try{await verifyEditedDocuments(saves[0].expectedDocuments);}catch(error){failures.push(error.message.includes(file));}
       await writeFile(file,originalText);
     }
-    process.stdout.write(JSON.stringify({untouched,firstRevision:first.includes('revision 1')&&!first.includes('revision 3'),laterRevision:later.startsWith(first)&&later.includes('revision 3'),before,saved,failures,
+    process.stdout.write(JSON.stringify({untouched,appendMatches,firstRevision:first.includes('revision 1')&&!first.includes('revision 3'),laterRevision:later.startsWith(first)&&later.includes('revision 3'),before,saved,failures,
       scopes:saves.map(action=>action.target),cancelNeverSaved:actions.filter(action=>action.kind==='edit-cancel').every(action=>action.input.includes('UNSAVED')&&action.expectedDocuments.every(([,text])=>!text.includes('UNSAVED')))}));
   } finally {await rm(dir,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
     assert result['untouched'] and result['firstRevision'] and result['laterRevision']
+    assert result['appendMatches']
     assert result['before']['files'] == result['saved']['files'] == 4
     assert result['saved']['bytes'] > result['before']['bytes']
     assert result['failures'] == [True, True]
@@ -82,3 +93,10 @@ def test_document_edit_refuses_empty_document_fixture():
                              '--document-edit', '--document-sections', '0'], capture_output=True, text=True)
     assert result.returncode == 2
     assert '--document-sections must be positive' in result.stderr
+
+
+def test_document_append_requires_its_owned_edit_workflow():
+    result = subprocess.run([sys.executable, str(ROOT / 'scripts/perf/lab_navigation_latency.py'),
+                             '--document-edit-input', 'append'], capture_output=True, text=True)
+    assert result.returncode == 2
+    assert '--document-edit-input requires --document-edit' in result.stderr

@@ -2620,3 +2620,151 @@ physical keyboard/display parity is claimed.
 Local merge remains pending after the earlier automatic approval-review
 rejection. The independently modified main checkout and live Lab server were
 not changed.
+
+## Publish confirmed document saves before the inline refresh (2026-09-23)
+
+Save now publishes the successfully submitted content into its captured document
+cache entry before refreshing the inline pane. Previously the modal rendered
+saved text, the inline pane rendered old cached text, and then a fresh response
+rendered the saved text again. With unchanged server data, the final behavior is
+two renders instead of three. Content, comments and artifact reads still run;
+changed fresh data still causes a reconciliation render. Only an existing cache
+object that has not been replaced since submission is updated, preserving its
+other fields and avoiding incomplete/newer cache overwrites.
+
+The write captures its workspace, document root, file, source and textarea before
+awaiting the response. A response can update the original confirmed cache but
+cannot repaint another workspace/root/file, close a newer editor, or discard a
+draft typed while the write was pending. Rejected and failed writes leave the
+cache and editor unchanged. This applies to ordinary document files and explicit
+worktree roots without changing the file endpoint or authorization behavior.
+
+### Reproducible Save improvement
+
+The unprofiled comparison used 1,500 Markdown sections per document (about
+101,000 characters), 5,000 mixed ipynb/pdf/svg/js files per workspace, and 2,500
+actual Git changes. It alternated baseline/candidate/candidate/baseline; the
+baseline app script came from `f5a8c3c`. Each run made 28 measured clicks and eight
+small native IME additions, checking all rendered headings/paragraphs and all
+four saved/cancelled files. The input mode is explicitly `append`; full-content
+replacement is a separate failing workload described below.
+
+| Run | Save samples | Save median | Save maximum | Other click misses |
+| --- | ---: | ---: | ---: | --- |
+| Baseline 1 | 4 | 225.35 ms | 240.3 ms | Workspace 287.4 ms |
+| Candidate 1 | 4 | 160.65 ms | 170.6 ms | Workspace 274.6 ms |
+| Candidate 2 | 4 | 150.30 ms | 152.3 ms | None |
+| Baseline 2 | 4 | 224.45 ms | 244.0 ms | None |
+
+All eight baseline Saves exceeded 200 ms; all eight candidate Saves passed.
+Combined median Save latency fell from 225.35 to 152.6 ms (about 32%). The
+baseline/candidate runs retained their first clicks and all misses. Browser
+request maxima were respectively 135.7, 99.0, 86.1 and 56.6 ms; server maxima were
+134.45, 96.58, 83.45 and 55.38 ms. Each browser request correlated by server ID
+and route. All clocks, content checks, Git checks and owned-server cleanup
+passed. These Save results do not claim that the separate workspace misses were
+fixed.
+
+A CPU/full-trace run of the unchanged Save path produced 697.8 and 754.3 ms Save
+samples. Those timings are retained and labeled **profiled**: collecting the
+large trace adds substantial overhead. They are not substituted for the
+unprofiled comparison. The regression test executes the actual Save and render
+functions with deferred responses and verifies the exact render sequence plus
+all three fresh reads.
+
+The final unprofiled candidate run completed 140 clicks and 40 small IME text
+additions. **All 20 Saves passed**, median 149.3 ms, p95 155.5 ms, maximum
+**161.9 ms**. Document opens maxed at 108.7 ms, editor opens at 70.6 ms, reopens
+at 78.1 ms, Cancel at 74.5 ms and modal Close at 40.9 ms. However, the **overall
+run failed** and remains evidence:
+
+- First workspace visits took **201.3 and 200.3 ms**.
+- Two restored workspace/document actions took **224.0 and 218.3 ms**.
+- Two small IME setup additions took **227.15 and 253.28 ms** through command
+  acknowledgement. Their rendering/display latency is not established by that
+  measurement.
+
+All 792 browser API requests stayed under 200 ms (maximum **89.0 ms**), as did
+all 821 server requests (maximum **86.94 ms**). All IDs/routes correlated, all
+140 input clocks passed, and no browser/network/Git errors occurred. Sixty
+persistence checkpoints compared 240 files byte-for-byte, reaching 404,853 bytes
+across the four documents. The owned server stopped. The earlier **222.6 ms
+logging request** was not reproduced or resolved; do not attribute its earlier
+pre-ASGI delay to this Save fix.
+
+### Large native text replacement remains a separate failure
+
+The first 1,500-section full-replacement run timed out waiting 15 seconds for
+`Input.insertText`, after successful workspace/document/editor clicks of
+196.7/109.0/68.1 ms. A second run reproduced the timeout while collecting CPU and
+browser traces. Failed runs now save requested diagnostics before closing the
+owned Chrome process; the repeated failure saved both files successfully and
+its owned server stopped. The trace contains thousands of textarea selection,
+editing and layout operations; CPU sampling attributed most time to native or
+otherwise unattributed `(program)` work, not a measured Lab JavaScript handler.
+
+An independent blank-page textarea control on **Chrome 153.0.8010.53** returned
+exact text for all three cases:
+
+| Source and replacement | CDP acknowledgement | Observation after paint opportunity | Trusted input events |
+| --- | ---: | ---: | ---: |
+| 300 sections, 20,022 characters | 434.0 ms | 448.4 ms | 1,804 |
+| 1,500 sections, 100,922 characters | 12,586.1 ms | 12,617.5 ms | 9,004 |
+| Same source flattened, two revision line breaks retained | 10.3 ms | 13.5 ms | 4 |
+
+This is a single sample per control, not a latency distribution. It shows the
+multiline problem also occurs without Lab; it does not prove equal cost in the
+full application. Current [Chromium's `InputHandler::InsertText` implementation](https://chromium.googlesource.com/chromium/src/+/master/content/browser/devtools/protocol/input_handler.cc)
+routes this command through `ImeCommitText`. This command is not a clipboard
+paste or a physical typing/display measurement. No clipboard contents or
+browser preferences were changed, and no input handling was replaced in the
+production app.
+
+The default document workload still uses full replacement. The new explicit
+`--document-edit-input append` mode adds only each revision's suffix to the same
+large source; both modes verify identical saved contents and cancelled drafts.
+Every text setup now records its external acknowledgement duration, size, mode
+and completion. A timeout or duration at/above 200 ms fails the run even if the
+subsequent clicks pass. Thus the older 300-section checkpoint's passing click
+results do not establish fast whole-document IME replacement. Native clipboard
+paste and editor keystroke-to-render coverage remain missing.
+
+### Verification and artifacts
+
+**82 focused checks passed**: confirmed cache publication, fresh content/comments/
+artifacts, absent or independently replaced cache entries, failed writes,
+workspace/root/file switches, explicit worktree roots, changed drafts, closed or
+reopened editors, append/replacement equivalence, workspace navigation and
+rename, workspace-file routes, Markdown routes, document terminals, quick-file
+behavior and native input clocks. JavaScript syntax, Python compilation and
+`git diff --check` passed. The broad historical suite's two unrelated main
+failures remain as documented earlier; it was not rerun or claimed green.
+
+- `/tmp/lab-document-1500-append-{before,after,after-2,before-2}-{browser,server}.json`
+  and matching `.log` files; `/tmp/lab-document-save-abba.json` summarizes them.
+- `/tmp/lab-document-save-final-{browser,server,summary}.json`,
+  `/tmp/lab-document-save-final.log`, and `/tmp/lab-document-save-regressions.log`.
+- `/tmp/lab-document-edit-1500-before-{browser,server}.json` is the original
+  full-replacement failure.
+- `/tmp/lab-document-paste-1500-{browser,server,trace,profile}.json` is its traced
+  reproduction; `/tmp/lab-document-paste-trace-summary.txt` summarizes the trace.
+- `/tmp/lab-document-render-1500-before-{browser,server,trace,profile}.json`
+  contains the separately profiled Save workload.
+- `/tmp/lab-editor-input-control.mjs` and
+  `/tmp/lab-editor-input-control{,-summary}.json` contain the blank-page controls.
+
+Repeat the larger Save workload with:
+
+```sh
+core/.venv/bin/python scripts/perf/lab_navigation_latency.py \
+  --document-edit --document-edit-input append --document-sections 1500 \
+  --samples 20 --extra-files 5000 --extra-file-types ipynb,pdf,svg,js \
+  --extra-file-layout flat --git-changes 2500 \
+  --server-timings /tmp/lab-document-save-server.json
+```
+
+The full goal remains active. Large-document input and workspace switching
+still exceed the budget, earlier misses remain unresolved, iTerm parity is
+unverified, and integrated production verification is pending. No main merge,
+push or live-server restart occurred; local merge still awaits the earlier
+approval after automatic review rejected it.

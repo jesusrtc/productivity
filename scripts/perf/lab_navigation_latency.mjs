@@ -116,7 +116,33 @@ async function main() {
   const profile=await mkdtemp(join(tmpdir(),'lab-navigation-chrome-'));
   const chrome=spawn(chromePath,['--headless=new','--no-first-run','--disable-background-networking','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let client;
-  const rows=[];
+  let traceActive=false,profileActive=false,diagnostics;
+  const finishDiagnostics=()=>diagnostics||=(async()=>{
+    const jobs=[];
+    if(profileActive)jobs.push((async()=>{
+      const {profile}=await client.send('Profiler.stop');
+      await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));
+    })());
+    if(traceActive)jobs.push((async()=>{
+      let timer;
+      const complete=Promise.race([client.once('Tracing.tracingComplete'),new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error('Trace completion timed out')),15000);
+      })]);
+      let stream;
+      try {
+        const results=await Promise.all([client.send('Tracing.end'),complete]);
+        stream=results[1].stream;
+        let trace='';
+        while(true){const chunk=await client.send('IO.read',{handle:stream});trace+=chunk.data;if(chunk.eof)break;}
+        await writeFile(process.env.LAB_PERF_TRACE,trace);
+      } finally {
+        clearTimeout(timer);
+        if(stream)await client.send('IO.close',{handle:stream});
+      }
+    })());
+    return (await Promise.allSettled(jobs)).filter(result=>result.status==='rejected').map(result=>String(result.reason));
+  })();
+  const rows=[],inputSetups=[];
   try {
     // Let Chrome reserve its own free port; a random fixed-range choice can
     // collide with another local browser. Read only this fixture's profile.
@@ -153,7 +179,7 @@ async function main() {
       if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);
       return r.result.value;
     };
-    if(process.env.LAB_PERF_TRACE)await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});
+    if(process.env.LAB_PERF_TRACE){await client.send('Tracing.start',{categories:'devtools.timeline,blink,blink.user_timing,disabled-by-default-blink.debug.display_lock,disabled-by-default-devtools.timeline.invalidationTracking',transferMode:'ReturnAsStream'});traceActive=true;}
     await client.send('Page.navigate',{url:baseUrl+'/?view=productivity'});
     const until=Date.now()+15000;
     while(!await evaluate('document.querySelectorAll(".workspace-tab[data-kind=workspace]").length === 2 && document.readyState === "complete"')) {
@@ -167,6 +193,7 @@ async function main() {
     if(process.env.LAB_PERF_CPU_PROFILE) {
       await client.send('Profiler.enable');
       await client.send('Profiler.start');
+      profileActive=true;
     }
     const actions=[];
     const createWorkspaces=process.env.LAB_PERF_CREATE_WORKSPACES==='1';
@@ -192,7 +219,7 @@ async function main() {
         );
       }
     } else if(documentEdit) {
-      actions.push(...await documentEditActions(workspaceRoot,samples));
+      actions.push(...await documentEditActions(workspaceRoot,samples,{inputMode:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace'}));
     } else if(quickFiles) {
       actions.push({kind:'workspace',target:'alpha',selector:'.workspace-tab[data-workspace-id="alpha"]',
         ready:`document.querySelector('#content [data-workspace-display-title]')?.textContent==='Alpha'`});
@@ -275,9 +302,15 @@ async function main() {
       }
       if(action.input) {
         if(action.inputSelector) {
-          await evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(action.inputSelector)});if(!input)throw Error('Action input is not ready');input.focus();input.select();})()`);
+          await evaluate(`(()=>{const input=document.querySelector(${JSON.stringify(action.inputSelector)});if(!input)throw Error('Action input is not ready');input.focus();${action.inputAppend?'input.setSelectionRange(input.value.length,input.value.length);':'input.select();'}})()`);
         } else if(!await evaluate(`document.activeElement?.id==='vaultWorkspaceName' && !document.getElementById('vaultWorkspaceName').value`))throw new Error('New workspace name field is not ready');
-        await client.send('Input.insertText',{text:action.input});
+        // Record preparation separately from the timed click. Multiline IME
+        // insertion can be slow even in a plain textarea; never conceal it.
+        const setup={kind:action.kind,target:action.target,mode:action.inputAppend?'append':'replace',characters:action.input.length,completed:false};
+        inputSetups.push(setup);
+        const started=performance.now();
+        try {await client.send('Input.insertText',{text:action.input});setup.completed=true;}
+        finally {setup.ms=performance.now()-started;}
       }
       if(action.choice) {
         // Prepare the form before measuring its native Save click. Native
@@ -450,16 +483,8 @@ async function main() {
       }
     }
     if(process.env.LAB_PERF_FILE_IDENTITY_PROFILE)await compareSidebarIdentity(evaluate,process.env.LAB_PERF_FILE_IDENTITY_PROFILE);
-    if(process.env.LAB_PERF_CPU_PROFILE) {
-      const {profile}=await client.send('Profiler.stop');
-      await writeFile(process.env.LAB_PERF_CPU_PROFILE,JSON.stringify(profile));
-    }
-    if(process.env.LAB_PERF_TRACE) {
-      const complete=client.once('Tracing.tracingComplete');await client.send('Tracing.end');
-      const {stream}=await complete;let trace='';
-      while(true){const chunk=await client.send('IO.read',{handle:stream});trace+=chunk.data;if(chunk.eof)break;}
-      await client.send('IO.close',{handle:stream});await writeFile(process.env.LAB_PERF_TRACE,trace);
-    }
+    const diagnosticsErrors=await finishDiagnostics();
+    if(diagnosticsErrors.length)throw new Error('Could not save browser diagnostics: '+diagnosticsErrors.join('; '));
     const stats={};
     for(const kind of new Set(rows.map(row=>row.kind))) {
       const group=rows.filter(r=>r.kind===kind), times=group.map(r=>r.ms).sort((a,b)=>a-b);
@@ -475,15 +500,17 @@ async function main() {
     const requests=await evaluate(`performance.getEntriesByType('resource').filter(r=>r.name.includes('/api/')).map(r=>({route:new URL(r.name).pathname,workspace:new URL(r.name).searchParams.get('workspace_id'),startEpoch:performance.timeOrigin+r.startTime,ms:r.duration,status:r.responseStatus,serverId:r.serverTiming?.find(t=>t.name==='lab-perf')?.description||null}))`);
     const requestMisses=requests.filter(r=>r.ms>=200);
     const requestErrors=requests.filter(r=>r.status>=400);
-    const fixture={workflow:documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
+    const fixture={workflow:documentEdit?'document-edit':quickFiles?'quick-files':terminalTabs.length?'terminal-tabs':pins?'pins':settings?'settings':createWorkspaces?'create':'navigation',documentSections:Number(process.env.LAB_PERF_DOCUMENT_SECTIONS||30),documentEditInput:process.env.LAB_PERF_DOCUMENT_EDIT_INPUT||'replace',extraFilesPerWorkspace:Number(process.env.LAB_PERF_EXTRA_FILES || 0),extraFileTypes:(process.env.LAB_PERF_EXTRA_FILE_TYPES || 'md').split(','),extraFileLayout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT || 'folders',gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0)};
     const git=createWorkspaces?null:await checkSidebarGitFixture(evaluate);
     const sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>({elements:entry.elements,markupChars:entry.markup.length})),retainedElements:_sidebarMarkupCacheElements})`);
     const terminals=terminalTabs.length?await evaluate('__terminalTabs.snapshot()'):null;
-    console.log(JSON.stringify({fixture,git,sidebar,terminals,timeOrigin,stats,misses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
-    if(misses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length)process.exitCode=1;
+    const inputSetupMisses=inputSetups.filter(row=>!row.completed||row.ms>=200);
+    console.log(JSON.stringify({fixture,git,sidebar,terminals,timeOrigin,stats,misses,inputSetups,inputSetupMisses,requestMisses,requestErrors,requestFailures,browserErrors,requests,rows},null,2));
+    if(misses.length || inputSetupMisses.length || requestMisses.length || requestErrors.length || requestFailures.length || browserErrors.length || git?.errors.length)process.exitCode=1;
   } catch(error) {
     // A failed click must retain earlier samples, not erase the run's evidence.
-    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,rows},null,2));
+    const diagnosticsErrors=await finishDiagnostics();
+    console.log(JSON.stringify({error:error.message,cause:String(error.cause||''),stack:error.stack,diagnosticsErrors,inputSetups,rows},null,2));
     process.exitCode=1;
   } finally {
     if(client){await client.send('Page.close').catch(()=>{});client.ws.close();}

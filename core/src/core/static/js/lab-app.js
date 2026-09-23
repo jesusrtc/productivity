@@ -8542,14 +8542,33 @@
     const editCtr = _workspaceDocEditContainer;
     const ta = editCtr ? editCtr.querySelector('#workspaceDocEditor') : document.getElementById('workspaceDocEditor');
     if (!ta || !currentWorkspace) return;
+    const workspacePath = currentWorkspace.path;
+    const docRoot = _workspaceDocRoot || workspacePath;
+    const savedContent = ta.value;
+    const cacheKey = _workspaceDocCacheKey(docRoot, filepath);
+    const cached = _workspaceDocCache.get(cacheKey);
     try {
       const res = await fetch('/api/workspace-file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: _workspaceDocRoot || currentWorkspace.path, file: filepath, content: ta.value }),
+        body: JSON.stringify({ path: docRoot, file: filepath, content: savedContent }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.detail || 'Error saving'); return; }
-      _workspaceDocContent = ta.value;
+      // Publish only the confirmed content, preserving comments/artifact data
+      // and any newer cache entry. The inline refresh below still reads fresh
+      // data, but its warm paint must not restore the pre-save document first.
+      if (cached && _workspaceDocCache.get(cacheKey) === cached) {
+        _workspaceDocCache.set(cacheKey, {...cached, content: savedContent});
+      }
+      // A delayed save owns its original editor, not a newly opened document,
+      // workspace, or draft typed while the write was pending.
+      if (currentWorkspace?.path !== workspacePath
+          || (_workspaceDocRoot || currentWorkspace.path) !== docRoot
+          || _workspaceDocPath !== filepath
+          || _workspaceDocEditContainer !== editCtr
+          || (editCtr ? editCtr.querySelector('#workspaceDocEditor') : document.getElementById('workspaceDocEditor')) !== ta
+          || ta.value !== savedContent) return;
+      _workspaceDocContent = savedContent;
       _workspaceDocEditing = false;
       _workspaceDocEditContainer = null;
       // Re-render modal in read mode with saved content, then refresh inline pane.
