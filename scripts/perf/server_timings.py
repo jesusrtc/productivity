@@ -1,7 +1,9 @@
 """Opt-in diagnostics for the isolated latency fixture, never production middleware."""
 from __future__ import annotations
 
+from contextvars import ContextVar
 from functools import wraps
+from inspect import iscoroutinefunction
 from itertools import count
 from threading import get_ident
 import time
@@ -9,16 +11,21 @@ from urllib.parse import parse_qs
 
 
 class ServerTimings:
-    """Time ASGI entry through response completion without changing responses.
+    """Time ASGI entry through response completion, preserving response bodies.
 
     Socket acceptance/event-loop delay before ASGI entry is outside this measure.
     Only the route and workspace scope are recorded, never headers or bodies.
+    Optional fixture-only Server-Timing headers correlate browser/server records.
     """
 
-    def __init__(self, app):
+    def __init__(self, app, *, correlate_requests=False):
         self.app = app
+        self.correlate_requests = correlate_requests
+        self._numbers = count(1)
+        self._request_id = ContextVar('lab_perf_request_id', default=None)
         self.requests = []
         self.sessions = []
+        self.handlers = []
         self.functions = []
 
     async def __call__(self, scope, receive, send):
@@ -27,12 +34,18 @@ class ServerTimings:
         start = time.perf_counter()
         query = parse_qs(scope.get('query_string', b'').decode('utf-8', errors='replace'))
         row = {
+            'id': next(self._numbers),
             'route': scope['path'], 'method': scope['method'],
             'workspace': query.get('workspace_id', [None])[0],
             'startEpoch': time.time() * 1000,
         }
 
         async def timed_send(message):
+            if self.correlate_requests and message['type'] == 'http.response.start':
+                # Fixture-only correlation, exposed through ResourceTiming.
+                # Copy rather than mutate the application's message/headers.
+                message = {**message, 'headers': [*message.get('headers', []),
+                    (b'server-timing', f'lab-perf;desc="{row["id"]}"'.encode())]}
             await send(message)
             elapsed = (time.perf_counter() - start) * 1000
             if message['type'] == 'http.response.start':
@@ -40,14 +53,22 @@ class ServerTimings:
             elif message['type'] == 'http.response.body' and not message.get('more_body', False):
                 row['ms'] = elapsed
 
+        token = self._request_id.set(row['id'])
         try:
             await self.app(scope, receive, timed_send)
         finally:
             row['appMs'] = (time.perf_counter() - start) * 1000
             self.requests.append(row)
+            self._request_id.reset(token)
 
     def instrument_sessions(self):
         """Measure the synchronous handler separately from dependencies/worker queuing."""
+        self.instrument_handler('/api/term/sessions', self.sessions)
+
+    def instrument_handler(self, path, records=None):
+        """Time one declared GET handler without warming its route context."""
+        if records is None:
+            records = self.handlers
         numbers = count(1)
         def declared_routes(router):
             for route in router.routes:
@@ -60,26 +81,40 @@ class ServerTimings:
         # New FastAPI versions retain lazy included routers. Walk declarations
         # without constructing their effective contexts and warming route setup.
         routes = [route for route in declared_routes(self.app)
-                  if getattr(route, 'path', None) == '/api/term/sessions'
+                  if getattr(route, 'path', None) == path
                   and 'GET' in getattr(route, 'methods', set())]
         if len(routes) != 1:
-            raise RuntimeError('Expected exactly one terminal sessions GET route')
+            raise RuntimeError(f'Expected exactly one GET route for {path}')
         original = routes[0].dependant.call
 
-        @wraps(original)
-        def timed_sessions(*args, **kwargs):
+        def begin(kwargs):
             number = next(numbers)
-            row = {'sample': number, 'workspace': kwargs.get('workspace_id'),
+            row = {'sample': number, 'route': path, 'requestId': self._request_id.get(),
+                   'workspace': kwargs.get('workspace_id'),
                    'startEpoch': time.time() * 1000, 'thread': get_ident()}
-            start = time.perf_counter()
-            try:
-                return original(*args, **kwargs)
-            finally:
-                row['ms'] = (time.perf_counter() - start) * 1000
-                self.sessions.append(row)
+            return row, time.perf_counter()
 
-        routes[0].endpoint = timed_sessions
-        routes[0].dependant.call = timed_sessions
+        if iscoroutinefunction(original):
+            @wraps(original)
+            async def timed(*args, **kwargs):
+                row, start = begin(kwargs)
+                try:
+                    return await original(*args, **kwargs)
+                finally:
+                    row['ms'] = (time.perf_counter() - start) * 1000
+                    records.append(row)
+        else:
+            @wraps(original)
+            def timed(*args, **kwargs):
+                row, start = begin(kwargs)
+                try:
+                    return original(*args, **kwargs)
+                finally:
+                    row['ms'] = (time.perf_counter() - start) * 1000
+                    records.append(row)
+
+        routes[0].endpoint = timed
+        routes[0].dependant.call = timed
 
     def trace_function(self, module, name):
         """Optional coarse function timings, including calls on fsguard workers.
@@ -89,18 +124,33 @@ class ServerTimings:
         """
         original = getattr(module, name)
 
-        @wraps(original)
-        def timed(*args, **kwargs):
-            row = {'function': name, 'thread': get_ident(), 'startEpoch': time.time() * 1000}
-            start = time.perf_counter()
-            try:
-                return original(*args, **kwargs)
-            finally:
-                row['ms'] = (time.perf_counter() - start) * 1000
-                self.functions.append(row)
+        def begin():
+            row = {'function': name, 'requestId': self._request_id.get(),
+                   'thread': get_ident(), 'startEpoch': time.time() * 1000}
+            return row, time.perf_counter()
+
+        if iscoroutinefunction(original):
+            @wraps(original)
+            async def timed(*args, **kwargs):
+                row, start = begin()
+                try:
+                    return await original(*args, **kwargs)
+                finally:
+                    row['ms'] = (time.perf_counter() - start) * 1000
+                    self.functions.append(row)
+        else:
+            @wraps(original)
+            def timed(*args, **kwargs):
+                row, start = begin()
+                try:
+                    return original(*args, **kwargs)
+                finally:
+                    row['ms'] = (time.perf_counter() - start) * 1000
+                    self.functions.append(row)
 
         setattr(module, name, timed)
 
     def report(self):
         return {'measurement': 'ASGI entry through final response body; excludes pre-entry queueing',
-                'requests': self.requests, 'sessions': self.sessions, 'functions': self.functions}
+                'requests': self.requests, 'sessions': self.sessions,
+                'handlers': self.handlers, 'functions': self.functions}

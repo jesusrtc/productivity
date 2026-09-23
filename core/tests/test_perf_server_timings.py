@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import httpx
 
 from fastapi import APIRouter, FastAPI
 from starlette.testclient import TestClient
@@ -109,4 +110,84 @@ def test_function_timings_preserve_results_exceptions_and_omit_arguments():
         module.function(None)
     assert len(timings.functions) == 2
     assert all(row['function'] == 'function' and row['ms'] >= 0 for row in timings.functions)
+    assert 'private' not in str(timings.report())
+
+
+def test_request_correlation_preserves_existing_headers_and_messages():
+    start = {'type': 'http.response.start', 'status': 200,
+             'headers': [(b'server-timing', b'existing;dur=3'), (b'x-original', b'yes')]}
+    body = {'type': 'http.response.body', 'body': b'unchanged'}
+    received = []
+
+    async def app(scope, receive, send):
+        await send(start)
+        await send(body)
+
+    async def send(message):
+        received.append(message)
+
+    timings = ServerTimings(app, correlate_requests=True)
+    asyncio.run(timings({'type': 'http', 'path': '/api/example', 'method': 'GET'}, None, send))
+    row, = timings.requests
+    assert received[0]['headers'] == [*start['headers'],
+        (b'server-timing', f'lab-perf;desc="{row["id"]}"'.encode())]
+    assert len(start['headers']) == 2
+    assert received[1] is body
+
+
+def test_concurrent_worker_and_async_handlers_keep_distinct_request_ids():
+    app = FastAPI()
+
+    @app.get('/api/worker')
+    def worker(value: int):
+        return {'value': value}
+
+    @app.get('/api/async')
+    async def async_handler(value: int):
+        await asyncio.sleep(.002)
+        return {'value': value}
+
+    timings = ServerTimings(app, correlate_requests=True)
+    timings.instrument_handler('/api/worker')
+    timings.instrument_handler('/api/async')
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=timings),
+                                    base_url='http://fixture') as client:
+            responses = await asyncio.gather(*[
+                client.get(f'/api/{kind}?value={value}')
+                for value, kind in enumerate(['worker', 'async'] * 3)
+            ])
+        assert timings._request_id.get() is None
+        return responses
+
+    responses = asyncio.run(exercise())
+    ids = set()
+    for value, response in enumerate(responses):
+        assert response.json() == {'value': value}
+        request_id = int(response.headers['server-timing'].split('"')[1])
+        ids.add(request_id)
+        request, = [r for r in timings.requests if r['id'] == request_id]
+        handler, = [r for r in timings.handlers if r['requestId'] == request_id]
+        assert request['route'] == handler['route']
+        assert handler['startEpoch'] >= request['startEpoch']
+        assert 0 <= handler['ms'] < request['ms']
+    assert len(ids) == 6
+
+
+def test_async_function_tracing_keeps_await_result_and_exception():
+    async def function(value):
+        await asyncio.sleep(.001)
+        if value is None:
+            raise ValueError('original async error')
+        return value
+
+    module = SimpleNamespace(function=function)
+    timings = ServerTimings(None)
+    timings.trace_function(module, 'function')
+    assert asyncio.run(module.function('private argument')) == 'private argument'
+    with pytest.raises(ValueError, match='original async error'):
+        asyncio.run(module.function(None))
+    assert len(timings.functions) == 2
+    assert all(row['ms'] >= 1 for row in timings.functions)
     assert 'private' not in str(timings.report())

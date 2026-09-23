@@ -33,6 +33,7 @@ parser.add_argument('--typing', action='store_true', help='Measure real CDP inpu
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
+parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
 args = parser.parse_args()
 if args.samples < 2:
     parser.error('--samples must be at least 2')
@@ -42,6 +43,8 @@ if args.typing_updates and not args.typing:
     parser.error('--typing-updates requires --typing')
 if args.trace_sessions and not args.server_timings:
     parser.error('--trace-sessions requires --server-timings')
+if args.trace_files and not args.server_timings:
+    parser.error('--trace-files requires --server-timings')
 if args.extra_files < 0:
     parser.error('--extra-files must be nonnegative')
 extra_file_types = [extension.strip().lower() for extension in args.extra_file_types.split(',')]
@@ -118,8 +121,18 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
     timings = None
     if args.server_timings:
         from server_timings import ServerTimings
-        timings = ServerTimings(app)
+        timings = ServerTimings(app, correlate_requests=True)
         timings.instrument_sessions()
+        if args.trace_files:
+            from core import fsguard
+            from core.routes import nb_exec
+            from fastapi import routing
+            timings.instrument_handler('/api/workspace-files')
+            timings.instrument_handler('/api/workspace-mtime')
+            timings.trace_function(fsguard, 'guarded')
+            timings.trace_function(fsguard, '_run_tracked')
+            timings.trace_function(nb_exec, 'is_path_pending')
+            timings.trace_function(routing, 'serialize_response')
         if args.trace_sessions:
             from core.routes import term
             for name in ('_tmux_list', '_load_meta', '_known_vaults', '_sync_meta',

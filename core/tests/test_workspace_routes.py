@@ -1079,3 +1079,32 @@ def test_workspace_file_scan_preserves_unusual_names_and_notebook_paths(client, 
         assert row['type'] == kind
         assert row['mtime'] == (root / 'docs' / name).stat().st_mtime
     assert rows['docs/running.IPYNB']['pending'] is True
+
+
+def test_workspace_file_scan_refreshes_pending_state_without_file_edits(client, seed_workspace, monkeypatch):
+    from core.routes import nb_exec
+
+    root = seed_workspace('pending-freshness')
+    notebook = root / 'docs' / 'running.ipynb'
+    notebook.write_text('{}')
+    alias = root / 'docs' / 'alias.ipynb'
+    alias.symlink_to(notebook)
+    monkeypatch.setattr(nb_exec, '_pending_paths', {})
+
+    def scan():
+        response = client.get('/api/workspace-files', params={'path': str(root)})
+        assert response.status_code == 200
+        return {row['path']: row for row in response.json()}
+
+    before = scan()
+    assert 'pending' not in before['docs/running.ipynb']
+    # Simulate the registry transition without launching a kernel or editing a file.
+    with nb_exec._pending_guard:
+        nb_exec._pending_paths[str(notebook.resolve())] = 1
+    running = scan()
+    assert running['docs/running.ipynb']['pending'] is True
+    assert running['docs/alias.ipynb']['pending'] is True
+    assert running['docs/running.ipynb']['mtime'] == before['docs/running.ipynb']['mtime']
+    with nb_exec._pending_guard:
+        nb_exec._pending_paths.clear()
+    assert scan() == before

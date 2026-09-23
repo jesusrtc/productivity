@@ -145,6 +145,11 @@ def _mark_done(target: Path) -> None:
 
 def is_path_pending(target: Path) -> bool:
     with _pending_guard:
+        # The sidebar checks every notebook on each fresh file scan. With no
+        # active runs there is no identity to match, so avoid resolving thousands
+        # of paths (and their symlink ancestors) merely to look up an empty dict.
+        if not _pending_paths:
+            return False
         return _pending_paths.get(str(target.resolve()), 0) > 0
 
 

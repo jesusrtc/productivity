@@ -623,6 +623,46 @@ def test_pending_tracker_counts_queued_runs(tmp_path: Path) -> None:
     assert nb_exec_route.is_path_pending(target) is False
 
 
+def test_empty_pending_tracker_does_not_touch_the_filesystem(monkeypatch, tmp_path):
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {})
+    target = tmp_path / 'idle.ipynb'
+
+    def unexpected_resolution(path, *args, **kwargs):
+        raise AssertionError('An empty in-memory tracker must not resolve file paths')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'resolve', unexpected_resolution)
+        assert nb_exec_route.is_path_pending(target) is False
+
+
+def test_pending_tracker_keeps_symlink_identity_fresh_while_busy(monkeypatch, tmp_path):
+    monkeypatch.setattr(nb_exec_route, '_pending_paths', {})
+    monkeypatch.setattr(nb_exec_route, '_pending_leases', {})
+    first, second, alias = (tmp_path / name for name in ('first.ipynb', 'second.ipynb', 'alias.ipynb'))
+    first.write_text('{}')
+    second.write_text('{}')
+    alias.symlink_to(first)
+    assert nb_exec_route.is_path_pending(alias) is False
+    nb_exec_route._mark_running(first)
+    nb_exec_route._mark_running(first)
+    try:
+        assert nb_exec_route.is_path_pending(alias) is True
+        nb_exec_route._mark_done(first)
+        assert nb_exec_route.is_path_pending(alias) is True
+        alias.unlink()
+        alias.symlink_to(second)
+        assert nb_exec_route.is_path_pending(alias) is False
+        nb_exec_route._mark_running(second)
+        try:
+            assert nb_exec_route.is_path_pending(alias) is True
+        finally:
+            nb_exec_route._mark_done(second)
+        assert nb_exec_route.is_path_pending(alias) is False
+    finally:
+        nb_exec_route._mark_done(first)
+    assert nb_exec_route.is_path_pending(first) is False
+
+
 @pytest.mark.parametrize("endpoint", ["exec", "session/restart", "session/interrupt"])
 def test_notebook_actions_require_a_configured_runtime(client, monorepo, endpoint):
     rel = "workspaces/demo/notebooks/unconfigured.ipynb"

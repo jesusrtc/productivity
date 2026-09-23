@@ -12,6 +12,7 @@ import ast
 import contextlib
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -25,12 +26,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline', default='7eda46a')
     parser.add_argument('--files', type=int, default=2000)
+    parser.add_argument('--file-types', default='md', help='Comma-separated fixture extensions, e.g. ipynb,pdf,svg,js')
     parser.add_argument('--samples', type=int, default=20)
     parser.add_argument('--transport', choices=['route', 'asgi'], default='route')
     parser.add_argument('--endpoint', choices=['files', 'mtime'], default='files')
     args = parser.parse_args()
     if args.files < 1 or args.samples < 2:
         parser.error('Use at least one file and two samples')
+    file_types = [extension.strip().lower() for extension in args.file_types.split(',')]
+    if not all(re.fullmatch(r'[a-z0-9]{1,16}', extension) for extension in file_types):
+        parser.error('--file-types must contain simple filename extensions')
 
     checkout = Path(__file__).resolve().parents[2]
     source_paths = [str(checkout / 'core/src'), str(checkout / 'core/cli/src')]
@@ -54,11 +59,12 @@ def main():
         for number in range(args.files):
             parent = target / 'notes' / str(number // 100)
             parent.mkdir(exist_ok=True)
-            (parent / f'file-{number}.md').write_text('# Fixture\n')
-        (target / 'docs/link.md').symlink_to(target / 'notes/0/file-0.md')
+            extension = file_types[number % len(file_types)]
+            (parent / f'file-{number}.{extension}').write_text('# Fixture\n')
+        (target / 'docs/link.md').symlink_to(target / f'notes/0/file-0.{file_types[0]}')
         (target / 'docs/broken').symlink_to(target / 'missing')
 
-        from core.routes import diff
+        from core.routes import diff, nb_exec
         from core import auth
         from starlette.requests import Request
 
@@ -93,6 +99,19 @@ def main():
         exec(compile(ast.Module(body=functions, type_ignores=[]), '<baseline>', 'exec'), namespace)
         candidate = getattr(diff, function_name)
         variants = {'baseline': namespace[function_name], 'candidate': candidate}
+        original_pending = nb_exec.is_path_pending
+        pending_variants = {'candidate': original_pending, 'baseline': original_pending}
+        if args.endpoint == 'files':
+            pending_source = subprocess.check_output(
+                ['git', 'show', args.baseline + ':core/src/core/routes/nb_exec.py'], cwd=checkout, text=True,
+            )
+            pending_function, = [node for node in ast.parse(pending_source).body
+                                 if isinstance(node, ast.FunctionDef) and node.name == 'is_path_pending']
+            pending_namespace = dict(nb_exec.__dict__)
+            exec(compile(ast.Module(body=[pending_function], type_ignores=[]), '<baseline pending>', 'exec'),
+                 pending_namespace)
+            pending_variants['baseline'] = pending_namespace['is_path_pending']
+        stack.callback(setattr, nb_exec, 'is_path_pending', original_pending)
         if args.transport == 'asgi':
             from fastapi import FastAPI
             from fastapi.testclient import TestClient
@@ -129,6 +148,10 @@ def main():
             rows = {}
             order = ('baseline', 'candidate') if number % 2 == 0 else ('candidate', 'baseline')
             for name in order:
+                # The scan imports this helper at call time. Switch only between
+                # completed sequential samples in this isolated process, so the
+                # baseline includes its original notebook path-resolution work.
+                nb_exec.is_path_pending = pending_variants[name]
                 start = time.perf_counter()
                 rows[name] = variants[name](str(target), request)
                 durations[name].append((time.perf_counter() - start) * 1000)
@@ -136,6 +159,7 @@ def main():
         print(json.dumps({
             'fixture': {
                 'files': args.files, 'samples': args.samples,
+                'fileTypes': file_types,
                 'baseline': args.baseline, 'transport': args.transport, 'endpoint': args.endpoint,
             },
             'responsesEqual': True,

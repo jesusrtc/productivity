@@ -1033,3 +1033,93 @@ This checkpoint makes changed-file refreshes cheaper across file types. Startup
 typing, remaining loaded keystrokes, file-list queueing and previously recorded
 outliers still need work, and every UI action has not been verified. The overall
 goal remains active. No main merge, push or live-server restart is included.
+
+## Follow-on: avoid notebook path resolution when nothing is running
+
+The pending tracker previously resolved every notebook's complete path before
+looking it up, including when the tracker was empty. `is_path_pending` now checks
+for an empty registry under the existing lock and returns false immediately.
+When any notebook is running, resolved-path matching and locking are unchanged.
+No file data or pending state is cached, and no execution or kernel behavior is
+changed.
+
+The isolated timing fixture now appends an opt-in Server-Timing request ID and
+records that same ID through browser ResourceTiming. This removes the ambiguity
+between overlapping requests in the previous checkpoint's timestamp-only
+correlation. Existing response headers and bodies are preserved; production
+responses are unaffected. Handler tracing supports synchronous and asynchronous
+routes, function tracing awaits coroutine completion, and `--trace-files` adds
+file-list/mtime handlers, guarded scans, pending lookups and serialization.
+ContextVars follow normal AnyIO worker dispatch; fsguard's independent workers
+still have no request context, so their nested timings must not be blindly
+summed across concurrent work.
+
+Before the change, the mixed 5,000-file fixture's 1,250 notebook lookups consumed
+**21.18–50.04 ms per scan**, within **36.56–81.45 ms** file-list handlers. The
+entire trace recorded 15,000 lookups totaling 347.85 ms. Response serialization
+was smaller (44.74 ms across 109 responses; maximum 8.00 ms). After the change,
+the same lookups consumed **0.20–1.55 ms per scan**, with handlers ranging from
+16.60 to 61.08 ms under normal background activity. Traced typing still failed:
+normal/loaded maxima were 86.50/50.60 ms before and 83.90/52.20 ms after. All APIs
+stayed under 128.90 ms before and 69.80 ms after. Traces are diagnostic, not a
+claim that browser latency consistently improved. Artifacts:
+`/tmp/lab-files-traced-before-{browser,server}.json` and
+`/tmp/lab-pending-traced-after-{browser,server}.json`.
+
+The scan comparator now accepts file extensions and loads the baseline's original
+pending helper as well as its file-list route. It alternates implementations only
+between completed samples in one isolated process and restores the helper on
+exit. Twenty samples per variant retained every first sample and compared complete
+responses against `cd38c1b`, including symlinks and metadata:
+
+| 5,000-file fixture / transport | Prior median / maximum | Candidate median / maximum |
+| --- | ---: | ---: |
+| `ipynb,pdf,svg,js`, direct route | 34.65 / 37.51 ms | 12.64 / 20.64 ms |
+| `ipynb,pdf,svg,js`, full ASGI | 40.87 / 44.59 ms | 18.57 / 20.90 ms |
+| `ipynb`, direct route | 101.00 / 104.90 ms | 13.83 / 20.79 ms |
+| `ipynb`, full ASGI | 108.05 / 120.70 ms | 19.96 / 24.10 ms |
+
+Every comparison produced equal responses. Full ASGI here includes FastAPI
+validation/serialization and worker dispatch in TestClient, not socket transport
+or the normal server's complete middleware/lifespan. These are listing fixtures;
+their generated notebook files were not executed. Artifacts:
+`/tmp/lab-pending-scan-{mixed,notebooks}-{route,asgi}.json`.
+
+Validation: **79 tests passed**, covering diagnostic fidelity/correlation,
+notebook execution routes, workspace routes, empty-state filesystem avoidance,
+queued runs, retargeted symlink identity and pending changes without file edits.
+Concurrent sync/async diagnostics preserve responses and distinct request IDs;
+error/stream behavior, pre-existing headers and coroutine exceptions are checked.
+No original application headers or diagnostic arguments/bodies are logged.
+Log: `/tmp/lab-pending-empty-tests.log`. Syntax and whitespace checks passed.
+
+Separate untraced browser runs used fresh profiles, normal lifespan/polling, all
+100 keys in each phase and five verified fixture-file writes:
+
+| Fixture / version / phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed, prior, normal | 3.20 ms | 25.60 ms | 103.40 ms | 3 |
+| Mixed, candidate, normal | 2.80 ms | 22.40 ms | 101.20 ms | 3 |
+| Mixed, prior, changing files | 6.70 ms | 27.80 ms | 44.50 ms | 0 |
+| Mixed, candidate, changing files | 6.50 ms | 39.50 ms | 62.80 ms | 3 |
+| Notebooks, candidate, normal | 3.30 ms | 24.00 ms | 97.30 ms | 2 |
+| Notebooks, candidate, changing files | 4.20 ms | 46.50 ms | 81.40 ms | 5 |
+
+All three runs still fail the typing target. In particular, loaded mixed typing
+was worse in this sample; backend improvements do not establish better input
+latency. All input, HTTP, network, browser and timestamp checks passed, and all
+API requests correlated to server IDs. API maxima were **144.00 / 133.70 /
+133.40 ms** over 104/104/103 requests. Every owned terminal was removed and each
+fixture server stopped. Artifacts:
+`/tmp/lab-pending-empty-{before,after,notebooks}-{browser,server}.json`.
+
+The 5,000-file navigation fixture passed all **80 clicks**: workspace
+median/p95/maximum **113.30/121.20/155.50 ms**, document maximum **68.70 ms**.
+All 657 APIs stayed below **49.00 ms**, with no browser, HTTP or network errors
+(`/tmp/lab-pending-empty-navigation-{browser,server}.json`).
+
+This checkpoint removes measured idle-notebook scan work. Startup and loaded
+typing still miss 50 ms, the earlier 202.20 ms file-list request and other
+outliers are not proven resolved, and the nonempty pending registry retains its
+previous cost. The full goal remains active. Main merge/push and live-server
+restart are not included.
