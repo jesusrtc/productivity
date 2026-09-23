@@ -23,10 +23,11 @@ def document_rows(root, *, record_rows=None):
     progress = records.progress_map(rows)
     tasks = {row['path']:row for row in records.task_rows(root, record_rows=rows)}
     meetings = {row['path']:row for row in records.note_rows(root, 'meeting', record_rows=rows)}
+    by_parent = records.children_index(rows)
     for row in rows:
         if row['type'] not in {'task','note'} or row.get('parent'):
             continue
-        children = records.descendants(rows, row)
+        children = records.descendants(rows, row, by_parent=by_parent)
         state = progress[records.key(row)]
         related = [item for item in rows if item.get('series') == row['id'] and not item.get('parent')]
         yield {**{k:v for k,v in row.items() if k not in {'body','legacy_metadata'}},
@@ -50,12 +51,13 @@ def plain_note_rows(root, *, record_rows=None):
     # fingerprints every document even on a cache hit; rereading it per note
     # makes the filesystem work quadratic. The next listing still reads fresh.
     rows = list(records.records(root)) if record_rows is None else record_rows
+    by_parent = records.children_index(rows)
     for row in rows:
         if row['type'] != 'note' or row.get('embedded') or row.get('note_type') not in {'plain','thread','subtab'}:
             continue
         yield {**row, 'search_text':' '.join(
             str(child.get(field) or '')
-            for child in [row, *records.descendants(rows, row)]
+            for child in [row, *records.descendants(rows, row, by_parent=by_parent)]
             for field in ('title','tldr','owner'))}
 
 

@@ -1,5 +1,8 @@
 # Memory index
 
+- [Assistant descendants use ordered child indexes](assistant-descendants-use-ordered-child-indexes.md) — reuse current parent groups while preserving traversal/errors; the 500-note HTTP budget passes, but native tails remain.
+- [Assistant progress recursion retains rows](assistant-progress-recursive-closure-retains-rows.md) — weak references prove an outstanding closure cycle; measure its effect separately without changing production GC.
+
 - [Assistant index shares current records](assistant-index-shares-current-records.md) — one fresh record list serves every index projection; retain the empty-list/migration fallbacks and the larger-library latency failures.
 - [Core and CLI tests have separate namespaces](core-and-cli-tests-have-separate-namespaces.md) — run their pytest suites separately to avoid a duplicate `tests.conftest` collection failure.
 

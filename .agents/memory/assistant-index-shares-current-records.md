@@ -23,3 +23,6 @@ Larger collections remain open: the 500-note/100-subtab complete HTTP probe
 missed 200 ms on 16/21 responses (median 203 ms, first/max 296 ms, fresh edit
 283 ms). All contents were correct. Investigate remaining projection/traversal
 costs without restoring repeated filesystem snapshots or narrowing the fixture.
+
+Follow-up: [ordered child indexes](assistant-descendants-use-ordered-child-indexes.md)
+resolved the isolated 500-note HTTP misses; loaded native tails remain open.

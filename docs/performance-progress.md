@@ -6164,3 +6164,136 @@ The overall objective remains open for the larger-library misses and the prior
 search, cold workspace/terminal creation, loaded terminal typing and physical
 input/parity gaps. Main merge remains pending after the earlier automatic
 approval rejection; no merge, push or live-server restart was attempted.
+
+
+## Index Assistant descendants in source order (2026-09-23)
+
+The 500-note/100-subtab probe from the preceding checkpoint missed the HTTP
+budget on 16/21 complete responses. A new coarse diagnostic found 14 calls to
+`progress_map` across three unchanged reads and one fresh-edit read, with a
+median of 28.56 ms per call. The descendant walker scanned the entire record
+list for every visited parent, including each unrelated root document.
+
+`children_index` now groups child references once per projection in source
+order. Indexed walks preserve the original sibling batches, reverse frontier
+order, object identity, cycle/duplicate errors and full descendant content.
+Validation, progress, task rows, document rows and plain-note search text reuse
+these local indexes. Standalone calls can still use the original scan; malformed
+or unhashable parent keys fall back to it, preserving its error behavior.
+An explicitly supplied empty index remains empty. Indexes are rebuilt from the
+current request's rows; no persistent cache, polling change, shortened response,
+validation shortcut or changed completion semantics was introduced.
+
+### HTTP and native measurements
+
+The HTTP fixture retains 500 notes, 100 embedded subtabs, first use, 20 complete
+unchanged responses and a final external Markdown edit. Its authenticated
+server, normal watcher, cold snapshot state, complete content checks and
+unchanged-response hashes remain enabled.
+
+| Unprofiled HTTP run | First | Median unchanged | Maximum | Fresh edit | Misses >=200 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous checkpoint, retained baseline | 296.19 ms | 203.46 ms | 296.19 ms | 283.17 ms | 16 / 21 |
+| Indexed descendants | 108.84 ms | 63.91 ms | 108.84 ms | 95.96 ms | 0 / 21 |
+
+Separate current before/after coarse diagnostics each included three unchanged
+reads and the external edit. Before: HTTP first 297.87 ms, median unchanged
+205.18 ms, fresh edit 291.60 ms. After: first 108.46 ms, median unchanged
+68.58 ms, fresh edit 99.54 ms. `progress_map` still ran 14 times, but its median
+fell from **28.56 to 1.84 ms**, and its total from 413.17 to 37.64 ms. There was
+still one snapshot per response. Snapshot and projection measurements are
+nested and must not be added together. The unprofiled comparison above is the
+primary endpoint result.
+
+Three separate native runs used fresh browsers/vaults and the unchanged
+80-click workload: 20 Assistant entries, 40 All/Starred view switches and 20
+alternating workspace returns. Each workspace retained 5,000 mixed files and
+2,500 Git changes; the Assistant retained all 500 notes and 100 subtabs.
+The first run used the original `5c7f0ba` production files, followed by the
+candidate and its repeat. No tests or heavy diagnostics ran concurrently.
+
+| Native run | Assistant first | Assistant p50 | Assistant p95 | Assistant maximum | Assistant misses / 20 | Workspace maximum / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Original | 367.3 ms | 264.8 ms | 493.6 ms | 528.0 ms | 20 | 161.6 ms |
+| Indexed descendants | 158.9 ms | 182.4 ms | 234.6 ms | 252.7 ms | 4 | 204.0 ms |
+| Indexed repeat | 163.2 ms | 163.2 ms | 213.1 ms | 362.2 ms | 2 | 211.8 ms |
+
+The candidates passed **152/160 clicks** below 200 ms: 34/40 Assistant entries,
+80/80 view switches and 38/40 workspace returns. All eight failures remain in
+the reports: Assistant 200.1, 252.7, 200.8, 234.6, 362.2 and 213.1 ms; first
+workspace returns 204.0 and 211.8 ms. View maxima were 57.7 and 39.3 ms.
+
+The original had 22/395 browser-request misses and 22/417 ASGI misses. The first
+candidate had 2/491 browser-request misses (maximum 215.60 ms) and 2/517 ASGI
+misses (maximum 213.97 ms). The repeat had 0/443 browser-request misses
+(maximum 191.70 ms) and 0/469 ASGI misses (maximum 190.45 ms). Different request
+counts reflect normal polling over different elapsed runtimes. All three runs
+had no browser errors, failed requests or HTTP errors. Every input-clock check,
+rendered-card/section check and post-cycle Markdown verification passed. Git
+checks retained 2,500 changed paths, 5,000 modified rows and 5,000 clean rows.
+These measure native browser input through a render opportunity; physical
+input/display latency and iTerm parity remain unmeasured.
+
+### Remaining evidence, without changing refresh or GC behavior
+
+The repeat's 362.2 ms Assistant entry queued input for only 1.1 ms. Its first
+Assistant request started at 2.1 ms and took 191.7 ms. A workspace-mtime request
+finished around 186.4 ms; a second Assistant request began at 186.6 ms and took
+153.8 ms, ending around 340.4 ms. Both endpoint requests individually passed
+the budget. The current `AssistantView.refresh` increments a request generation
+and discards older responses, so overlapping refreshes are a concrete next
+investigation. The timeline alone does not prove which caller triggered the
+second refresh or establish the full cause of the render delay.
+
+A separate post-benchmark weak-reference probe also found that `progress_map`'s
+self-referencing recursive closure retains its input row after return until
+cyclic collection. With automatic GC disabled only inside that probe, the row
+remained alive after deleting the input/result, then disappeared after explicit
+collection (17 objects collected). This is a proven retention issue, not proof
+that GC caused the native latency tail. Production GC and refresh code are
+unchanged in this checkpoint. Any fix needs separate correctness and latency
+controls, following the existing recursive-file-scanner guidance.
+
+### Verification and cleanup
+
+The core/Assistant suite recorded **234 passes and one known baseline failure**:
+`test_custom_attributes_browser` still times out waiting for the editor save,
+as already reproduced against the original endpoint in the preceding work.
+The separately run Assistant CLI suite passed **67 checks**, for **301 passes
+and one baseline failure** overall. A focused smoke run passed 61 checks;
+those overlap the broad run and are not added to the total.
+
+The 33 new cases compare indexed walks to the frozen original across randomized
+mixed task/note forests, verify row identity and immutability, assert exact
+sibling/frontier order, preserve cycles/duplicates/malformed-input behavior,
+exercise fresh rebuilt and explicitly empty indexes, and compare whole endpoint
+responses across five storage generations. A deterministic work guard checks
+that 500 root walks over 600 records no longer rescan all record parents.
+Existing task/progress, content, symlink/path and metadata checks remain included.
+Changed Python files parse, `git diff --check` passes, and the production files
+match the saved tested candidate byte for byte.
+
+All three native servers and three HTTP servers stopped; HTTP fixture roots
+were removed. The final owned process/directory inventory found no remaining
+benchmark processes, Chrome profiles or fixture roots. No live server, user
+Assistant data, tmux sessions or main-checkout files were changed.
+
+Artifacts: `/tmp/lab-assistant-tree-{before-trace,after-trace,after}-{http,server}.json`
+and logs; `/tmp/lab-assistant-tree-native-{before,after,repeat}-{browser,server}.json`
+and logs; `/tmp/lab-assistant-tree-{summary,cleanup,retention}.json`;
+`/tmp/lab-assistant-tree-{core-tests,cli-tests,regression}.log` and the saved
+candidate files. The retained unprofiled baseline is
+`/tmp/lab-assistant-shared-large-{http,server}.json`.
+
+Reproduce with the checkout's Python environment:
+
+```sh
+python scripts/perf/lab_assistant_latency.py --notes 500 --samples 20 --output /tmp/assistant-tree-http-new
+python scripts/perf/lab_assistant_latency.py --notes 500 --samples 3 --trace-projections --output /tmp/assistant-tree-trace-new
+python scripts/perf/lab_navigation_latency.py --assistant --assistant-notes 500 --samples 20 --extra-files 5000 --extra-file-types md,py,json,sql --git-changes 2500 --server-timings /tmp/assistant-tree-native-new-server.json > /tmp/assistant-tree-native-new-browser.json
+```
+
+The overall goal remains open for the retained native/API misses and earlier
+search, cold workspace/terminal creation, loaded terminal typing and physical
+parity gaps. Main merge remains pending after the earlier automatic approval
+rejection; no merge, push or live-server restart was attempted.

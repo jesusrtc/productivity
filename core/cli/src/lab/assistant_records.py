@@ -198,12 +198,25 @@ def key(row):
     return row['type'], row['id']
 
 
-def descendants(rows, record):
+def children_index(rows):
+    """Group children in source order for repeated walks over one record list."""
+    result = {}
+    try:
+        for row in rows:
+            result.setdefault(parent_key(row), []).append(row)
+    except (TypeError, AttributeError):
+        # Malformed parent keys must keep the original scan's validation/error
+        # behavior, including unrelated bad references that it never follows.
+        return None
+    return result
+
+
+def descendants(rows, record, *, by_parent=None):
     found, frontier, seen = [], [key(record)], {key(record)}
     while frontier:
         parent = frontier.pop()
-        for row in rows:
-            if parent_key(row) == parent:
+        for row in rows if by_parent is None else by_parent.get(parent, ()):
+            if by_parent is not None or parent_key(row) == parent:
                 identity = key(row)
                 if identity in seen:
                     raise ValueError('Document parent cycle')
@@ -217,11 +230,12 @@ def validate_graph(rows, refs):
     by_key = {key(row): row for row in rows}
     if len(by_key) != len(rows):
         raise ValueError('Duplicate Assistant IDs')
+    by_parent = children_index(rows)
     aliases = {}
     from lab import assistant_tasks as tasks
     for row in rows:
         if row.get('task_format') == tasks.FORMAT and not row.get('parent'):
-            tasks.validate(row.get('tasks', []), {row['id'], *(child['id'] for child in descendants(rows,row))})
+            tasks.validate(row.get('tasks', []), {row['id'], *(child['id'] for child in descendants(rows,row,by_parent=by_parent))})
         validate_external_url(row.get('external_url'))
         if 'attributes' in row:
             attributes.validate(row['attributes'])
@@ -309,7 +323,7 @@ def progress_map(rows):
             continue
         items = tasks.normalize(row.get('tasks', []))
         result[key(row)] = tasks.summary(items)
-        for tab in descendants(rows,row):
+        for tab in descendants(rows,row,by_parent=by_parent):
             own = [item for item in items if tasks.linked_tab(items,item) == tab['id']]
             # Task parentage can cross content tabs; select all roots within scope.
             own_ids = {item['id'] for item in own}
@@ -325,6 +339,7 @@ def task_rows(root, children_only=False, *, record_rows=None):
     from lab import assistant_documents as documents
     embedded = documents.enabled(root)
     progress = progress_map(rows)
+    by_parent = children_index(rows)
     for row in rows:
         if embedded and not children_only and row.get('embedded'):
             continue
@@ -343,7 +358,7 @@ def task_rows(root, children_only=False, *, record_rows=None):
                    'done':progress[key(row)]['status'] in {'done','skipped'}}
             continue
         children = []
-        for child in descendants(rows, row):
+        for child in descendants(rows, row, by_parent=by_parent):
             if embedded and not progress[key(child)]['tracked']:
                 continue
             if not embedded and child['type'] != 'task':
@@ -360,7 +375,7 @@ def task_rows(root, children_only=False, *, record_rows=None):
                'workspace_path': reference.get('workspace_path'), 'document_backed': True,
                'status': progress[key(row)]['status'] if embedded else row.get('status') or 'inbox',
                'progress':progress[key(row)], 'stored_status':row.get('status'),
-               'search_text':' '.join(str(child.get(field) or '') for child in [row,*descendants(rows,row)] for field in ('title','tldr','owner')), 'priority': row.get('priority') or 'P2',
+               'search_text':' '.join(str(child.get(field) or '') for child in [row,*descendants(rows,row,by_parent=by_parent)] for field in ('title','tldr','owner')), 'priority': row.get('priority') or 'P2',
                'subtasks': all_children, 'first_class_subtasks': children, 'legacy_subtasks': legacy,
                'subtasks_done': sum(child.get('status') in {'done','skipped'} for child in all_children),
                'subtasks_total': len(all_children), 'done': progress[key(row)]['status'] in {'done','skipped'}}
