@@ -13,8 +13,9 @@ inside them. Keep `main` file browsing rooted at the wrapper, but anchor Git
 worktree discovery and repository history to the workspace's first registered
 repository instead of the wrapper's nearest enclosing repository.
 
-Worktree colors are browser-local, default to `#6e7681`, and appear as the
-vertical scope rail around those sections. Keep notebook APIs pinned to the
+Worktree colors are browser-local, inherit the project color by default, and
+appear as the vertical scope rail around those sections. Per-worktree overrides
+can be reset to inheritance (see worktrees-inherit-project-colors.md). Keep notebook APIs pinned to the
 active vault root even when ordinary file browsing uses another worktree.
 
 A configured worktree parent may contain branch wrapper folders, with the

@@ -182,7 +182,7 @@ class DirectoryIndex(FileSystemEventHandler):
                         # Git changes can alter worktree "recent" flags without
                         # touching visible file mtimes. Rebuild rows from cached
                         # metadata, rather than enumerating .git.
-                        if '.git' in rel.parts:
+                        if '.git' in rel.parts or path.name == '.gitignore':
                             self._mark(path.parent)
                             continue
                         if any(part in SKIP_DIRS or (part.startswith('.') and not self.hidden) for part in rel.parts):
@@ -260,6 +260,18 @@ class View:
         self.targets.add(target)
         progress(target, 'watch linked target')
         self.watch_complete = self.index.hub.add(self.index, target) and self.watch_complete
+
+    def git_metadata(self, path: Path, progress):
+        # Map external Git metadata to a synthetic .git dependency inside the
+        # view. Events rebuild tracked/recent flags without listing that folder.
+        physical = self.canonical(path, progress)
+        logical = self.index.root / '.git'
+        self.aliases.setdefault(physical, set()).add(logical)
+        with self.index._lock:
+            self.index._aliases.setdefault(physical, set()).add(logical)
+        self.targets.add(physical)
+        progress(physical, 'watch git metadata')
+        self.watch_complete = self.index.hub.add(self.index, physical) and self.watch_complete
 
     def commit(self):
         # Removed links must release subscriptions in a long-lived workspace.

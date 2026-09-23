@@ -292,3 +292,7 @@
 - [Shared project and worktree folders](shared-project-and-worktree-folders.md) — editable ~/src and ~/src/.worktrees defaults, project picker, custom locations, and inherited worktree paths.
 
 - [External project explorer access](external-project-explorer-access.md) — history and explorer actions share approved project/worktree roots; vault-user and traversal boundaries remain enforced.
+
+- [Compact project location rows](compact-project-location-rows.md) — inline names and Default/Custom buttons; reveal paths only on click.
+- [Worktrees inherit project colors](worktrees-inherit-project-colors.md) — inheritance follows project edits; per-worktree overrides are optional and resettable.
+- [Recent files require Git tracking](recent-files-require-git-tracking.md) — Recently updated excludes ignored and untracked files across time and Git filters.

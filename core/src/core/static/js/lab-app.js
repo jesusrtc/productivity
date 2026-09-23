@@ -2330,6 +2330,7 @@
     rootWorktreeFolders: {},
     selectedFolders: {},
     worktreeFolder: '',
+    worktreeColorsVersion: 2,
     worktreeColors: {},
     selectedWorktrees: {},
   });
@@ -2481,7 +2482,11 @@
       // single-worktree-folder implementation migrates without losing it.
       worktreeFolder: stored && typeof stored.worktreeFolder === 'string'
         ? stored.worktreeFolder.trim() : '',
-      worktreeColors: _sidebarStringMap(stored && stored.worktreeColors, {colors: true}),
+      // Older scans persisted gray for every discovered worktree. Those entries
+      // were defaults; new saves contain only explicit overrides (including gray).
+      worktreeColorsVersion: 2,
+      worktreeColors: Object.fromEntries(Object.entries(_sidebarStringMap(stored && stored.worktreeColors, {colors: true}))
+        .filter(([, color]) => stored?.worktreeColorsVersion === 2 || color !== SIDEBAR_WORKTREE_DEFAULT_COLOR)),
       selectedWorktrees: _sidebarStringMap(stored && stored.selectedWorktrees),
     };
   }
@@ -2692,8 +2697,8 @@
     return selected ? selected.path : _sidebarWorkspaceRoot(baseRoot);
   }
 
-  function _sidebarWorktreeColor(path) {
-    return _sidebarValidColor((_sidebarFileConfig.worktreeColors || {})[path]);
+  function _sidebarWorktreeColor(path, baseRoot = _sidebarWorktreeBaseRoot()) {
+    return _sidebarValidColor(_sidebarFileConfig.worktreeColors?.[path] || _sidebarWorkspaceColor(baseRoot));
   }
 
   function _sidebarWorktreeOptionsHtml(baseRoot) {
@@ -2743,11 +2748,12 @@
     const selected = _sidebarSelectedWorktree(baseRoot);
     const selectedPath = selected ? selected.path : '';
     const selectedLabel = selected ? selected.name : 'main';
-    const color = selected ? _sidebarWorktreeColor(selected.path) : SIDEBAR_WORKTREE_DEFAULT_COLOR;
+    const color = selected ? _sidebarWorktreeColor(selected.path, baseRoot) : _sidebarWorkspaceColor(baseRoot);
+    const customColor = !!_sidebarFileConfig.worktreeColors?.[selectedPath];
     const rootControl = worktreeFolder
       ? `<label title="Choose the root shown by Recently updated and Files"><select aria-label="File worktree" data-base-root="${escAttr(baseRoot)}" onchange="sidebarSelectWorktree(this)">${_sidebarWorktreeOptionsHtml(baseRoot)}</select></label>`
       : `<span class="sidebar-worktree-current" title="Main checkout">main</span>`;
-    return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree; its running directory stays unchanged">Link current terminal</button><input type="color" aria-label="Worktree color" title="Color for ${escAttr(selected ? selected.name : 'the selected worktree')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} /></div>`;
+    return `<div class="sidebar-worktree-picker" data-base-root="${escAttr(baseRoot)}" data-workspace-root="${escAttr(workspaceRoot)}"><button class="sidebar-repo-history" type="button" data-base-root="${escAttr(baseRoot)}" onclick="sidebarOpenRepositoryHistory(this)" title="Open Git history for ${escAttr(selectedLabel)}" aria-label="Open Git history for ${escAttr(selectedLabel)}">${_SIDEBAR_GITHUB_ICON}</button>${rootControl}<button type="button" class="sidebar-link-terminal" data-base-root="${escAttr(baseRoot)}" onclick="termLinkCurrentScope(this)" title="Associate the active terminal with this folder/worktree; its running directory stays unchanged">Link current terminal</button><input type="color" aria-label="Worktree color" title="${customColor ? 'Custom color' : 'Inherits project color'} — ${escAttr(selected ? selected.name : 'main')}" data-worktree-path="${escAttr(selectedPath)}" value="${escAttr(color)}" onchange="sidebarSetWorktreeColor(this)"${selected ? '' : ' disabled'} />${customColor ? `<button type="button" class="sidebar-worktree-color-reset" data-inherit-color data-worktree-path="${escAttr(selectedPath)}" onclick="sidebarSetWorktreeColor(this)" title="Use project color" aria-label="Use project color">↺</button>` : ''}</div>`;
   }
 
   function _sidebarFileScopeButtonsHtml(baseRoot) {
@@ -2772,7 +2778,7 @@
     const folder = _sidebarSelectedFolder(baseRoot);
     const selected = _sidebarSelectedWorktree(baseRoot);
     if (!folder && !selected) return '';
-    const color = selected ? _sidebarWorktreeColor(selected.path) : _sidebarWorkspaceColor(baseRoot);
+    const color = selected ? _sidebarWorktreeColor(selected.path, baseRoot) : _sidebarWorkspaceColor(baseRoot);
     const worktreeAttr = selected ? ` data-worktree-path="${escAttr(selected.path)}"` : '';
     const label = selected ? `${_sidebarWorkspaceLabel(baseRoot)} · ${selected.name}` : _sidebarWorkspaceLabel(baseRoot);
     return `<div class="sidebar-worktree-scope" data-file-scope-root="${escAttr(_sidebarScopedRoot(baseRoot))}"${worktreeAttr} style="--sidebar-worktree-color:${escAttr(color)}" title="Files from ${escAttr(label)}">`;
@@ -2805,6 +2811,7 @@
   }
 
   function _sidebarRecentTypeAllowed(file) {
+    if (file.git_tracked !== true) return false;
     if (_sidebarFileConfig.trackMode !== 'extensions') return true;
     return new Set(_sidebarFileConfig.extensions || [])
       .has(_sidebarFileExtension(file.path || file.name));
@@ -2851,6 +2858,7 @@
   function _sidebarRecentExclusionReason(file, recentPaths, cutoff) {
     const path = String(file && (file.path || file.name) || '');
     if (recentPaths.has(path)) return 'included';
+    if (file.git_tracked !== true) return 'not_git_tracked';
     const mtime = Number(file && file.mtime);
     if (!Number.isFinite(mtime)) return 'missing_mtime';
     if (file.checkout_generated) return 'initial_worktree_checkout';
@@ -3393,7 +3401,7 @@
     const colors = {...(_sidebarFileConfig.worktreeColors || {})};
     document.querySelectorAll('#sidebarConfigFolderScopes [data-scope-worktree-colors] input[type="color"]').forEach(input => {
       const path = input.getAttribute('data-worktree-path');
-      if (path) colors[path] = _sidebarValidColor(input.value);
+      if (path && input.dataset.colorChanged === 'true') colors[path] = _sidebarValidColor(input.value);
     });
     return colors;
   }
@@ -3411,7 +3419,7 @@
     host.innerHTML = folders.map(row => `
       <label class="sidebar-config-worktree-color-row" title="${escAttr(row.path)}">
         <span>${esc(row.name)}</span>
-        <input type="color" aria-label="Color for ${escAttr(row.name)}" data-worktree-path="${escAttr(row.path)}" value="${escAttr(_sidebarWorktreeColor(row.path))}" />
+        <input type="color" aria-label="Color for ${escAttr(row.name)}" data-worktree-path="${escAttr(row.path)}" value="${escAttr(_sidebarFileConfig.worktreeColors?.[row.path] || card.querySelector('[data-scope-color]')?.value || SIDEBAR_WORKTREE_DEFAULT_COLOR)}" onchange="this.dataset.colorChanged='true'" />
       </label>`).join('');
     status.classList.remove('error');
     status.textContent = `${folders.length} worktree${folders.length === 1 ? '' : 's'} found.`;
@@ -3615,12 +3623,19 @@
   function sidebarSetWorktreeColor(input) {
     const path = String(input && input.getAttribute('data-worktree-path') || '');
     if (!path) return;
-    const color = _sidebarValidColor(input.value);
-    _sidebarFileConfig.worktreeColors = {...(_sidebarFileConfig.worktreeColors || {}), [path]: color};
+    const picker = input.closest('.sidebar-worktree-picker');
+    const baseRoot = picker?.getAttribute('data-base-root') || _sidebarWorktreeBaseRoot();
+    const inherit = input.hasAttribute('data-inherit-color');
+    _sidebarFileConfig.worktreeColors = {...(_sidebarFileConfig.worktreeColors || {})};
+    if (inherit) delete _sidebarFileConfig.worktreeColors[path];
+    else _sidebarFileConfig.worktreeColors[path] = _sidebarValidColor(input.value);
+    _sidebarFileConfig.worktreeColorsVersion = 2;
+    const color = _sidebarWorktreeColor(path, baseRoot);
     _storeSidebarFileConfig();
     document.querySelectorAll(`.sidebar-worktree-scope[data-worktree-path="${CSS.escape(path)}"]`).forEach(scope => {
       scope.style.setProperty('--sidebar-worktree-color', color);
     });
+    if (picker) picker.outerHTML = _sidebarWorktreePickerHtml(baseRoot);
     termRenderSessionList();
   }
 
@@ -3669,6 +3684,7 @@
       rootWorktreeFolders: folderConfig.rootWorktreeFolders,
       selectedFolders,
       worktreeFolder: _sidebarFileConfig.worktreeFolder || '',
+      worktreeColorsVersion: 2,
       worktreeColors: _sidebarCollectWorktreeColorsFromModal(),
       selectedWorktrees: {...(_sidebarFileConfig.selectedWorktrees || {})},
     };
@@ -13366,7 +13382,7 @@
       root: _sidebarScopedRoot(baseRoot),
       worktree: worktree?.path || null,
       label: _sidebarWorkspaceLabel(baseRoot) + (worktree ? ` · ${worktree.name}` : ''),
-      color: worktree ? _sidebarWorktreeColor(worktree.path) : _sidebarWorkspaceColor(baseRoot),
+      color: worktree ? _sidebarWorktreeColor(worktree.path, baseRoot) : _sidebarWorkspaceColor(baseRoot),
       config_scope: _sidebarFileConfigScope,
     };
   }
@@ -13398,7 +13414,7 @@
       const data = await response.json();
       for (const row of data.folders || []) {
         candidates.push({project, root: row.path, worktree: row.path,
-          label: `${project.label} · ${row.name}`, color: config.worktreeColors?.[row.path]});
+          label: `${project.label} · ${row.name}`, color: config.worktreeColors?.[row.path] || project.color});
       }
     }
     const match = candidates.filter(row => _termPathWithin(absolute, row.root))
@@ -13412,10 +13428,11 @@
   function _termScopeColor(scope) {
     const config = scope.config_scope === _sidebarFileConfigScope
       ? _sidebarFileConfig : _loadSidebarFileConfig(scope.config_scope);
-    const color = scope.worktree ? config.worktreeColors?.[scope.worktree]
-      : scope.project_root === scope.base_root ? config.rootScopeColors?.[scope.base_root]
-      : config.folderScopes?.find(row => row.path === scope.project_root)?.color;
-    return _sidebarValidColor(color || scope.color);
+    const project = config.folderScopes?.find(row => row.path === scope.project_root);
+    const projectColor = scope.project_root === scope.base_root
+      ? config.rootScopeColors?.[scope.base_root] : project?.color;
+    const color = (scope.worktree && config.worktreeColors?.[scope.worktree]) || projectColor;
+    return _sidebarValidColor(color || (project || scope.project_root === scope.base_root ? null : scope.color));
   }
 
   async function termLinkCurrentScope(button) {

@@ -259,16 +259,16 @@ def test_sidebar_recent_git_modes_return_the_requested_file_sets(
     })
 
     assert uncommitted.status_code == 200
-    assert set(uncommitted.json()["files"]) == {"commit-two.txt", "untracked.txt"}
+    assert set(uncommitted.json()["files"]) == {"commit-two.txt"}
     assert origin_main.status_code == 200
     assert origin_main.json()["base_ref"] == "origin/main"
     assert set(origin_main.json()["files"]) == {
-        "commit-two.txt", "commit-three.txt", "untracked.txt", "local-main-only.txt",
+        "commit-two.txt", "commit-three.txt", "local-main-only.txt",
     }
     assert local_main.status_code == 200
     assert local_main.json()["base_ref"] == "main"
     assert set(local_main.json()["files"]) == {
-        "commit-two.txt", "commit-three.txt", "untracked.txt",
+        "commit-two.txt", "commit-three.txt",
     }
     assert last_two.status_code == 200
     assert set(last_two.json()["files"]) == {"commit-two.txt", "commit-three.txt", "local-main-only.txt"}

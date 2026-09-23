@@ -140,12 +140,15 @@ _sidebarFileConfig = {
   extensions: ['md'],
 };
 const files = [
-  {path: 'docs/older.md', type: 'file', mtime: 9700},
-  {path: 'docs/newer.md', type: 'file', mtime: 9950},
-  {path: 'script.py', type: 'file', mtime: 9990},
-  {path: 'docs/stale.md', type: 'file', mtime: 6000},
-  {path: 'docs/checkout.md', type: 'file', mtime: 9999, checkout_generated: true},
+  {path: 'docs/older.md', type: 'file', git_tracked: true, mtime: 9700},
+  {path: 'docs/newer.md', type: 'file', git_tracked: true, mtime: 9950},
+  {path: 'script.py', type: 'file', git_tracked: true, mtime: 9990},
+  {path: 'docs/stale.md', type: 'file', git_tracked: true, mtime: 6000},
+  {path: 'docs/checkout.md', type: 'file', git_tracked: true, mtime: 9999, checkout_generated: true},
   {path: 'docs', type: 'dir', mtime: 9999},
+  {path: 'untracked.md', type: 'file', git_tracked: false, mtime: 9999},
+  {path: 'ignored.md', type: 'file', git_tracked: false, mtime: 9999},
+  {path: 'unknown.md', type: 'file', mtime: 9999},
 ];
 const recent = _sidebarRecentFiles(files, 10000).map(file => file.path);
 process.stdout.write(JSON.stringify({
@@ -212,11 +215,11 @@ const loaded = {
 };
 const defaults = _sidebarNormalizeFileConfig({});
 const files = [
-  {path: 'old/a.md', type: 'file', mtime: 500},
-  {path: 'new/b.md', type: 'file', mtime: 900},
-  {path: 'zeta.py', type: 'file', mtime: 800},
-  {path: 'alpha.md', type: 'file', mtime: 700},
-  {path: 'beta.py', type: 'file', mtime: 600},
+  {path: 'old/a.md', type: 'file', git_tracked: true, mtime: 500},
+  {path: 'new/b.md', type: 'file', git_tracked: true, mtime: 900},
+  {path: 'zeta.py', type: 'file', git_tracked: true, mtime: 800},
+  {path: 'alpha.md', type: 'file', git_tracked: true, mtime: 700},
+  {path: 'beta.py', type: 'file', git_tracked: true, mtime: 600},
 ];
 _sidebarFileConfig = {
   showRecent: true,
@@ -235,7 +238,7 @@ const nestedUpdated = _sidebarSortNestedTree([
   {name: 'script.py', path: 'script.py', type: 'file'},
 ], new Map([
   ['photo.png', {path: 'photo.png', type: 'image', mtime: 20}],
-  ['script.py', {path: 'script.py', type: 'file', mtime: 30}],
+  ['script.py', {path: 'script.py', type: 'file', git_tracked: true, mtime: 30}],
 ]), 'updated');
 _sidebarFileConfig.recentSort = 'name';
 const recentByName = _sidebarRecentFiles(files, 1000).map(file => file.path);
@@ -580,6 +583,45 @@ process.stdout.write(JSON.stringify({
     }
 
 
+def test_worktree_colors_inherit_project_and_explicit_overrides_can_be_reset() -> None:
+    helpers = _between("let showDotFiles = false;", "function filterDotFiles(nodes)")
+    helpers += _between("function _termScopeColor(scope)", "async function termLinkCurrentScope(")
+    result = _run_node("""
+const stored = {};
+const localStorage = {getItem: key => stored[key] || null, setItem: (key, value) => stored[key] = value};
+const currentRepo = null, currentWorkspace = {path: '/workspace'};
+const document = {body: {classList: {contains: () => false}}, addEventListener() {}, querySelectorAll: () => []};
+const window = {}, CSS = {escape: value => value}, esc = String, escAttr = String;
+const termRenderSessionList = () => {};
+""" + helpers + """
+const tree = '/trees/feature';
+_sidebarFileConfig = _sidebarNormalizeFileConfig({
+  rootScopeColors: {'/workspace': '#445566'},
+  folderScopes: [{path:'/project',label:'Project',color:'#0969da',worktreeFolder:'/trees'}],
+  selectedFolders: {'/workspace':'/project'}, selectedWorktrees: {'/project':tree},
+  worktreeColors: {[tree]:'#6e7681', '/trees/custom':'#ff0000'},
+});
+_sidebarWorktreeFolders = [{path:tree,name:'feature'}];
+const scope = {config_scope:_sidebarFileConfigScope, base_root:'/workspace',project_root:'/project',worktree:tree,color:'#6e7681'};
+const picker = {getAttribute: () => '/workspace', outerHTML: ''};
+const input = {value:'#6e7681',getAttribute: () => tree,closest: () => picker,hasAttribute: () => false};
+const inherited = [_sidebarWorktreeColor(tree), _termScopeColor(scope), _sidebarWorktreePickerHtml('/workspace').includes('value="#0969da"')];
+sidebarSetWorktreeColor(input);
+const custom = [_sidebarWorktreeColor(tree), _termScopeColor(scope), picker.outerHTML.includes('Use project color'), _loadSidebarFileConfig().worktreeColors[tree]];
+_sidebarFileConfig.folderScopes[0].color = '#11aa33';
+input.hasAttribute = () => true;
+sidebarSetWorktreeColor(input);
+const reset = [_sidebarWorktreeColor(tree), _termScopeColor(scope), !picker.outerHTML.includes('Use project color'), !_loadSidebarFileConfig().worktreeColors[tree]];
+delete _sidebarFileConfig.selectedFolders['/workspace'];
+const root = _sidebarWorktreeColor('/trees/root', '/workspace');
+process.stdout.write(JSON.stringify({inherited,custom,reset,root,other:_sidebarFileConfig.worktreeColors['/trees/custom']}));
+""")
+    assert result == {"inherited": ["#0969da", "#0969da", True],
+                      "custom": ["#6e7681", "#6e7681", True, "#6e7681"],
+                      "reset": ["#11aa33", "#11aa33", True, True],
+                      "root": "#445566", "other": "#ff0000"}
+
+
 def test_workspace_folder_buttons_scope_files_and_use_their_own_worktree_folder() -> None:
     helpers = _between(
         "let showDotFiles = false;",
@@ -849,7 +891,7 @@ const fetch = async url => {
   const restored = _loadSidebarFileConfig();
   const selected = _sidebarRecentSelectorsHtml();
   const files = await _sidebarResolveRecentFiles([
-    {path: 'changed.txt', type: 'file', checkout_generated: true}, {path: 'unchanged.txt', type: 'file'},
+    {path: 'changed.txt', type: 'file', git_tracked: true, checkout_generated: true}, {path: 'unchanged.txt', type: 'file'},
   ], '/trees/feature');
   await sidebarSelectRecentMode(button);
   process.stdout.write(JSON.stringify({
@@ -903,10 +945,10 @@ _sidebarFileConfig = {
   extensions: [],
 };
 const files = [
-  {path: 'repositories/queries/README.md', type: 'file', mtime: 9950},
-  {path: 'docs/README.md', type: 'file', mtime: 6000},
-  {path: 'missing/README.md', type: 'file'},
-  {path: 'notebooks/new.ipynb', type: 'file', mtime: 9990},
+  {path: 'repositories/queries/README.md', type: 'file', git_tracked: true, mtime: 9950},
+  {path: 'docs/README.md', type: 'file', git_tracked: true, mtime: 6000},
+  {path: 'missing/README.md', type: 'file', git_tracked: true},
+  {path: 'notebooks/new.ipynb', type: 'file', git_tracked: true, mtime: 9990},
 ];
 _sidebarLogRecentDiagnostics(files, '/vault/workspace', 'settings-save', 10000);
 const rows = events
@@ -969,9 +1011,9 @@ const openExplorerHistory = ctx => historyCalls.push(ctx);
         + """
 const now = Date.now() / 1000;
 const recentFiles = [
-  {path: 'core/src/core/routes/diff.py', type: 'file', mtime: now},
-  {path: 'core/src/core/static/js/lab-app.js', type: 'file', mtime: now},
-  {path: 'core/tests/test_workspace_routes.py', type: 'file', mtime: now},
+  {path: 'core/src/core/routes/diff.py', type: 'file', git_tracked: true, mtime: now},
+  {path: 'core/src/core/static/js/lab-app.js', type: 'file', git_tracked: true, mtime: now},
+  {path: 'core/tests/test_workspace_routes.py', type: 'file', git_tracked: true, mtime: now},
 ];
 const branched = _sidebarRecentTreeModel(recentFiles);
 const core = branched.folders[0];

@@ -595,6 +595,7 @@
   .sidebar-worktree-picker label, .sidebar-worktree-current { min-width: 48px; }
   .sidebar-worktree-picker .sidebar-link-terminal { flex: none; max-width: 100%; white-space: nowrap; }
   .sidebar-worktree-picker input[type="color"]:disabled { display: none; }
+  .sidebar-worktree-color-reset { flex: none; border: 0; padding: 2px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 
   .sidebar-worktree-scope { margin-left: 6px; border-left: 4px solid var(--sidebar-worktree-color, #6e7681); }
   .sidebar-worktree-scope .sidebar-title { padding-left: 9px; }

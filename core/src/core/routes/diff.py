@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from core import auth, fsguard, server_config, workspace_scan, workspace_snapshot, worktree_recent
+from core import auth, fsguard, git_files, server_config, workspace_scan, workspace_snapshot, worktree_recent
 from core.diff_parser import (
     diff_notebook_cells,
     get_branch,
@@ -393,9 +393,6 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
                     directory, "diff", "--cached", "--name-only", "-z", "--relative", "--", ".",
                 )
             add(tracked)
-            add(_sidebar_git_run(
-                directory, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
-            ))
         elif mode in {"origin-main", "local-main"}:
             base_name = "main" if mode == "local-main" else "origin/main"
             base_ref = "refs/heads/main" if mode == "local-main" else "refs/remotes/origin/main"
@@ -407,9 +404,6 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
                 }
             add(_sidebar_git_run(
                 directory, "diff", "--name-only", "-z", "--relative", base_ref, "--", ".",
-            ))
-            add(_sidebar_git_run(
-                directory, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
             ))
         else:  # last-2-commits
             revisions = _sidebar_git_run(directory, "rev-list", "--max-count=2", "HEAD")
@@ -424,7 +418,8 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
     except (subprocess.TimeoutExpired, OSError):
         return {"files": [], "mode": mode, "available": False}
 
-    result = {"files": paths, "mode": mode, "available": True}
+    tracked = git_files.tracked_paths(directory)
+    result = {"files": [path for path in paths if path in tracked], "mode": mode, "available": True}
     if mode in {"origin-main", "local-main"}:
         result["base_ref"] = base_name
     return result
@@ -602,6 +597,9 @@ def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
             revision.update(f"\0{item.stat.st_mtime_ns}:{item.stat.st_size}\0".encode())
         if item.git_root and item.git_root not in checkout_groups:
             progress.step(item.git_root / ".git", "checkout baseline")
+            if progress.cache:
+                for metadata in git_files.metadata_paths(item.git_root):
+                    progress.cache.git_metadata(metadata, progress.step)
             checkout_groups[item.git_root] = (worktree_recent.checkout_baseline(item.git_root), [])
         if child == workspace_path:
             continue
@@ -609,6 +607,7 @@ def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
         if item.is_file:
             entry = {"name": rel, "path": rel,
                      "type": "image" if child.suffix.lower() in image_exts else "file",
+                     "git_tracked": False,
                      "mtime": item.stat.st_mtime,
                      "created": getattr(item.stat, "st_birthtime", None)}
             if child.suffix.lower() == ".ipynb":
@@ -631,6 +630,11 @@ def _collect_workspace_snapshot(workspace_path: Path, include_dotfiles: bool,
             _with_symlink_fields(entry, child)
         files.append(entry)
     for root, (baseline, entries) in checkout_groups.items():
+        progress.step(root, "git tracked files")
+        tracked = git_files.tracked_paths(root)
+        for rel, row in entries:
+            row["git_tracked"] = rel in tracked
+            revision.update(f"{root}:{rel}:{row['git_tracked']}\0".encode())
         progress.step(root, "git checkout comparison")
         if baseline:
             worktree_recent.mark_checkout_files(root, baseline, entries)

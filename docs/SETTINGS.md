@@ -38,6 +38,10 @@ a search filter and a **Use a custom folder** option. Hidden folders and the
 worktrees root are excluded. Adding a project attaches a Files shortcut; it does
 not clone or move the project. Workspace selections remain browser-local.
 
+Workspace projects appear as compact rows. **Location** and **Worktrees** show
+**Default** or **Custom**; click either button to reveal and edit its path.
+Paths stay hidden until opened, including in the project picker.
+
 The worktrees root defaults to `~/src/.worktrees`. Each project inherits a
 parent named after its project directory, for example
 `~/src/.worktrees/lab/new-feature-branch`. Edit both roots under **Global →
@@ -50,6 +54,18 @@ continue to take precedence. Changing settings never relocates existing files.
 Paths refer to the computer running Lab. `~` expands to that computer's home
 folder. Missing worktree parents simply have no choices yet; discovery shows
 only worktrees belonging to the selected Git repository.
+
+Worktrees inherit their project's color in the sidebar and linked terminals.
+Choose a worktree's color swatch to override only that worktree; **Use project
+color** clears the override. Scanning and saving leave inherited colors linked
+to the project. Existing automatic gray defaults migrate to inheritance;
+explicit custom colors remain available, including gray.
+
+**Recently updated** only includes Git-tracked files that do not match Git
+ignore rules. This applies to time filters and Git comparisons. Time filters
+recognize nested repositories and worktrees. Untracked files remain in **Files** and
+become eligible for **Recently updated** after staging. Projects without Git
+have no Recently updated entries.
 
 The CLI uses the same defaults:
 
