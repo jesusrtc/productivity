@@ -1,5 +1,7 @@
 # Memory index
 
+- [Document terminals keep independent code scopes](document-terminal-independent-code-scope.md) — draggable sidebar documents, identical shared names, and document plus folder/worktree navigation on terminal clicks.
+
 - [Terminal indicators persist until finish or review](terminal-indicators-persist-until-finish-or-review.md) — yellow survives uncertain status; unread green clears only after the viewing delay or a real double-click, including across new work.
 
 - [Terminal cleanup reviews inactivity](terminal-cleanup-reviewed-inactivity.md) — seven-day candidates across all scopes; exact reviewed identities, atomic tmux rechecks, and preserved conversations

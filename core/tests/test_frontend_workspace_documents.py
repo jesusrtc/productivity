@@ -40,8 +40,11 @@ let termSessions=[], termCurrentSession=null, termCurrentWorkspaceId=null;
 const termDeadSessions=new Set(), fileOpens=[];
 const _termActiveWorkspaceId=()=>scope.workspace_id, _termVaultId=()=>scope.vault;
 const _termIsScopeActive=id=>id===scope.workspace_id;
-const _termCancelPendingLinkedFileOpen=()=>{};
-const _termOpenLinkedFile=async session=>fileOpens.push(session.name);
+let _termLinkedNavigationSeq=0, pendingScope=null;
+const scopeOpens=[];
+const _termCancelPendingLinkedFileOpen=()=>{_termLinkedNavigationSeq++;};
+const _termSyncLinkedScope=async(scope,request,options)=>{scopeOpens.push({scope,options});if(pendingScope)await pendingScope;};
+const _termOpenLinkedFile=async session=>{_termCancelPendingLinkedFileOpen();fileOpens.push(session.name);};
 const termAttach=async(name,workspace)=>{termCurrentSession=name;termCurrentWorkspaceId=workspace;};
 const _SIDEBAR_VIS_KEY_PREFIX='test-sidebar-', _sidebarViewSuffix=()=>scope.workspace_id;
 const source={name:'same-running-process',logical_name:'claude',workspace_id:'demo',vault:'client',label:'Claude conversation',kind:'claude',agent:'claude',agent_session_id:'conversation',created_at:123,
@@ -101,6 +104,10 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
  await until(()=>document.querySelector('.workspace-document-open'));
  const docRow=document.querySelector('.workspace-document');
+ assert(docRow.draggable,'workspace document rows can be dragged again');
+ const removeTransfer=new DataTransfer();
+ docRow.querySelector('.workspace-document-remove').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:removeTransfer}));
+ assert(!removeTransfer.types.includes('application/x-lab-assistant-document'),'unlink button never starts a document drag');
  assert(docRow.compareDocumentPosition(document.getElementById('recent'))&Node.DOCUMENT_POSITION_FOLLOWING,'Documents above Recently updated');
  assert(LabDocumentTerminal.dropContext(docRow).documentId===FIX.link.document_id,'terminal drop resolves the linked document');
  await LabDocumentTerminal.link(LabDocumentTerminal.dropContext(docRow),source,{workspaceId:'demo',vaultId:'client'});
@@ -112,22 +119,27 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  W.selectTerminal(source,{workspace_id:'other',vault:'client'});
  assert(!docRow.classList.contains('terminal-selected'),'selection never leaks between workspaces');
  W.selectTerminal(taskLinks[0],scope);
- termSessions=[{...taskLinks[0],linked_file:{root:'/repo',path:'other.md'}}, {...source,name:'unlinked'}];
+ const codeScope={base_root:'/workspace',project_root:'/repo',root:'/trees/feature',worktree:'/trees/feature'};
+ termSessions=[{...taskLinks[0],linked_scope:codeScope,linked_file:{root:'/repo',path:'other.md'}}, {...source,name:'unlinked'}];
+ let finishScope;pendingScope=new Promise(resolve=>finishScope=resolve);
  await _termActivateTab(source.name);
  assert(termCurrentSession===source.name&&termCurrentWorkspaceId==='demo','terminal attaches immediately in its original workspace');
  await until(()=>document.querySelector('#assistantInlineHost #assistantDocumentModal.active'));
  assert(!sockets&&!fileOpens.length,'linked document takes precedence over file sync without creating a renderer');
+ assert(scopeOpens.at(-1).scope.root==='/trees/feature'&&scopeOpens.at(-1).options.force,'document activation also restores its independently linked worktree');
  assert(!document.body.classList.contains('sidebar-collapsed')&&getComputedStyle(document.getElementById('sidebar')).display!=='none','terminal click keeps Files visible');
  AssistantView.closeInlineDocument();
+ finishScope();pendingScope=null;await new Promise(resolve=>setTimeout(resolve,30));
+ assert(!document.querySelector('#assistantDocumentModal.active'),'late file discovery never reopens a closed document');
  // A newer unlinked terminal cancels a slow document open at either fetch stage.
- for(const stage of ['index','detail']){
+ for(const stage of ['scope','index','detail']){
   let finish;const pending=new Promise(resolve=>finish=resolve);
-  if(stage==='index')pendingIndex=pending;else pendingDetail=pending;
+  if(stage==='scope')pendingScope=pending;else if(stage==='index')pendingIndex=pending;else pendingDetail=pending;
   const count=calls.filter(row=>row[0]==='/api/assistant/note').length;
   await _termActivateTab(source.name);
   if(stage==='detail')await until(()=>calls.filter(row=>row[0]==='/api/assistant/note').length>count);
   await _termActivateTab('unlinked');finish();
-  pendingIndex=null;pendingDetail=null;
+  pendingIndex=null;pendingDetail=null;pendingScope=null;
   await new Promise(resolve=>setTimeout(resolve,30));
   assert(!document.querySelector('#assistantDocumentModal.active'),'newer terminal wins during '+stage+' fetch');
  }
@@ -193,6 +205,15 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  await W.mount(assistant,document.getElementById('sidebar'),true);
  assert(document.querySelector('[data-workspace-documents] .sidebar-title').textContent.includes('Linked documents'),'Assistant section');
  assert(!document.querySelector('.workspace-document-remove'),'derived links cannot be removed as workspace references');
+ const linkedRow=document.querySelector('.workspace-document');
+ assert(linkedRow.draggable,'Assistant Linked documents rows are native drag sources');
+ const linkedTransfer=new DataTransfer();
+ linkedRow.querySelector('.workspace-document-open span:last-child').dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:linkedTransfer}));
+ const draggedDoc=JSON.parse(linkedTransfer.getData('application/x-lab-assistant-document'));
+ assert(draggedDoc.document_id===FIX.link.document_id&&draggedDoc.assistant_root===FIX.link.assistant_root,'dragging the sidebar title carries the same document and database');
+ const otherWorkspace=document.querySelector('[data-workspace-id="inactive"]');
+ otherWorkspace.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:linkedTransfer}));
+ await until(()=>calls.some(row=>row[0]==='/api/workspace-documents'&&row[1]==='POST'&&row[2].workspace_id==='inactive'));
  W.selectTerminal(taskLinks[0],assistant);
  assert(document.querySelector('.workspace-document.terminal-selected'),'Assistant selection highlight');
  document.body.classList.add('sidebar-collapsed');

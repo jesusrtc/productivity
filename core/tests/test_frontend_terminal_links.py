@@ -49,3 +49,42 @@ const explorerToast = () => {};
 """)
     assert result == [{"linked_file": None, "label": None},
                       {"linked_file": None}, {"linked_scope": None}]
+
+
+def test_code_scope_link_uses_shared_terminal_owner_and_file_link_cascades():
+    helpers = _js_between("  function _termLinkContext()", "  function _termSessionsLinkedToContext(")
+    helpers += _js_between("  async function termLinkTarget(", "  async function termUnlinkTarget(")
+    result = _run_node(helpers + """
+const _termActiveWorkspaceId = () => 'demo', _termVaultId = () => 'client';
+const _termSessionsCache = new Map();
+const source = {workspace_id:'__assistant__',vault:'__assistant__',logical_name:'codex'};
+const doc = {assistant_root:'/assistant',document_id:'document',title:'Document title'};
+let termSessions = [{name:'running-process',logical_name:'@document:running-process',
+  label:'My Assistant name',document_source:source,linked_task:doc}];
+const scope = {base_root:'/workspace',project_root:'/repo',root:'/trees/feature',worktree:'/trees/feature',label:'Code · feature'};
+const _termScopeForFile = async () => scope;
+const _termLinkedAbsolutePath = (root,path) => root + '/' + path;
+const _termLinkedFileName = path => path.split('/').pop();
+const _copyToClipboard = async () => true, explorerToast = () => {};
+let refreshes = 0;
+const _termRefreshSessionsForWorkspaceId = async () => {refreshes++;};
+const requests = [];
+const fetch = async (url, options) => {
+  requests.push(JSON.parse(options.body));
+  return {ok:true,json:async () => ({session:{name:'codex'}})};
+};
+(async () => {
+  await termLinkTarget({kind:'folder',root:scope.root,path:'',scope}, 'running-process');
+  await termLinkTarget({kind:'file',root:scope.root,path:'src/example.py'}, 'running-process');
+  process.stdout.write(JSON.stringify({requests, refreshes, session:termSessions[0]}));
+})();
+""")
+    folder, file = result['requests']
+    assert folder == {'workspace_id':'__assistant__', 'vault':'__assistant__', 'name':'codex',
+                      'linked_scope':file['linked_scope']}
+    assert file['linked_file'] == {'root':'/trees/feature', 'path':'src/example.py'}
+    assert file['linked_scope']['root'] == '/trees/feature'
+    assert 'linked_task' not in file
+    assert result['session']['label'] == 'My Assistant name'
+    assert result['session']['linked_task']['document_id'] == 'document'
+    assert result['refreshes'] == 2

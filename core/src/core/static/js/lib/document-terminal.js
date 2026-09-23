@@ -3,6 +3,8 @@
   'use strict';
   let current = null, dragged = null;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const sessionLabel = session => window.LabTaskTerminalBridge?.display?.(session)
+    || session.label || session.linked_task?.title || session.logical_name || session.name || '';
   async function api(url, options = {}) {
     const response = await fetch(url, options), result = await response.json();
     if (!response.ok) throw new Error(result.detail || 'Could not load terminals');
@@ -62,7 +64,7 @@
     const waiting = result.reason === 'memory_check' ? 'Memory check unavailable — retry when ready' : 'Low memory — retry when ready';
     label.textContent = error || (result.state === 'waiting' ? waiting : '') || ({running:({busy:'Working',idle:'Ready',draft:'Unsent text kept open'}[result.work_state] || 'Running'),sleeping:'Sleeping — memory released',absent:'Drag a terminal onto a task or choose an existing terminal',stopped:'Linked terminal is stopped',disabled:'Previous document terminals are disabled'}[result.state] || 'Ready');
     label.classList.toggle('error',Boolean(error));
-    state.host.querySelector('[data-terminal-agent]').textContent = result.label || result.agent || '';
+    state.host.querySelector('[data-terminal-agent]').textContent = result.linked ? sessionLabel(result) : result.label || result.agent || '';
     state.host.classList.toggle('has-terminal', !state.inline && result.state === 'running');
     state.host.querySelector('[data-terminal-show]').hidden = !state.inline || !result.linked || result.state !== 'running';
     const wake = state.host.querySelector('[data-terminal-wake]');
@@ -151,7 +153,7 @@
       if (linked) {
         const button = document.createElement('button');
         button.type = 'button'; button.className = 'assistant-linked-terminal';
-        button.textContent = '›_ Terminal'; button.title = linked.label;
+        button.textContent = '›_ Terminal'; button.title = sessionLabel(linked);
         button.onclick = () => selectTask(row.dataset.terminalTask, true);
         slot.append(button);
       }
@@ -267,7 +269,7 @@
       if (!sessions.length) picker.append(document.createTextNode('No running terminals. Create one with + New in the terminal bar.'));
       for (const session of sessions) {
         const button = document.createElement('button'); button.type = 'button'; button.draggable = true;
-        button.textContent = session.label + ' · ' + session.workspace_name;
+        button.textContent = sessionLabel(session) + ' · ' + session.workspace_name;
         const context = {workspaceId:session.workspace_id,vaultId:session.vault};
         button.onclick = () => link({documentId:state.documentId,taskId:state.taskId},session,context);
         button.ondragstart = event => { dragged={session,context}; event.dataTransfer.effectAllowed='link'; event.dataTransfer.setData('application/x-lab-task-terminal',session.name); };

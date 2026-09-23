@@ -88,6 +88,44 @@ def test_reference_deduplicates_resolves_titles_and_shared_sessions(client, link
     assert live[0]['name'] == name
 
 
+@pytest.mark.parametrize('label', [None, 'Planning conversation'])
+def test_shared_terminal_keeps_its_name_and_independent_code_scope(client, linked_workspace, monorepo, label):
+    from core.routes import term
+    root, note, live, session = linked_workspace
+    name = session()
+    link_document(client, root, note)
+    link = link_terminal(client, note)
+    metadata = {'workspace_id':'__assistant__', 'vault':'__assistant__', 'name':'claude'}
+    assert client.patch('/api/term/sessions/metadata', json={**metadata, 'label':label}).status_code == 200
+
+    def shared():
+        return client.get('/api/term/sessions?workspace_id=demo&vault=client').json()[0]
+
+    # An absent custom label must remain absent so both surfaces derive the
+    # same document title, rather than showing the internal name in a workspace.
+    assert shared()['label'] == label
+    assert shared()['linked_task'] == link
+    code_scope = {'base_root':str(monorepo / 'workspaces/demo'), 'project_root':str(monorepo / 'repo'),
+                  'root':str(monorepo / 'trees/feature'), 'worktree':str(monorepo / 'trees/feature'),
+                  'label':'Code · feature', 'config_scope':'client::demo'}
+    source = shared()['document_source']
+    metadata = {'workspace_id':source['workspace_id'], 'vault':source['vault'], 'name':source['logical_name']}
+    original = term._get_workspace_sessions(root, '__assistant__')[0]
+    response = client.patch('/api/term/sessions/metadata', json={**metadata, 'linked_scope':code_scope})
+    assert response.status_code == 200, response.text
+    row = shared()
+    assert row['linked_scope']['root'] == code_scope['root']
+    for field in ('linked_task', 'linked_file', 'label', 'cwd', 'agent_session_id'):
+        assert row.get(field) == original.get(field)
+    assert row['name'] == name and row['document_source'] == source
+    assert term._get_workspace_sessions(monorepo, 'demo') == []
+
+    # Removing only the code association leaves the document and conversation.
+    assert client.patch('/api/term/sessions/metadata', json={**metadata, 'linked_scope':None}).status_code == 200
+    assert shared()['linked_task'] == link and not shared().get('linked_scope')
+    assert live[0]['name'] == name
+
+
 @pytest.mark.parametrize('legacy', [False, True])
 def test_keep_in_workspace_preserves_identity_and_cannot_be_readopted(client, linked_workspace, monorepo, legacy):
     from core.routes import term

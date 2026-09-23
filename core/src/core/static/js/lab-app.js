@@ -10165,11 +10165,20 @@
     if (request !== _termTabActivationSeq || !_termIsScopeActive(workspaceId)) return;
     if (session.linked_task?.document_id && session.linked_task?.assistant_root && window.AssistantView) {
       // Only explicit activation opens documents; polling merely updates the
-      // sidebar highlight. A document link takes precedence over file sync.
+      // sidebar highlight. Documents and code scopes navigate independently;
+      // the document takes precedence over an optional linked file.
       _termCancelPendingLinkedFileOpen();
-      window.LabWorkspaceDocuments?.selectTerminal(session, {workspace_id:workspaceId, vault:_termVaultId()});
-      const isCurrent = () => request === _termTabActivationSeq && _termIsScopeActive(workspaceId);
+      const navigationRequest = _termLinkedNavigationSeq, vaultId = _termVaultId();
+      window.LabWorkspaceDocuments?.selectTerminal(session, {workspace_id:workspaceId, vault:vaultId});
+      const isCurrent = () => request === _termTabActivationSeq && _termIsScopeActive(workspaceId)
+        && vaultId === _termVaultId() && navigationRequest === _termLinkedNavigationSeq;
+      void _termSyncLinkedScope(session.linked_scope, navigationRequest, {force:true}).catch(error => {
+        if (isCurrent()) explorerToast(error.message || 'Could not show the linked folder/worktree.', true);
+      });
+      // File discovery must not delay opening the document or start an older
+      // document navigation after the user has opened something else.
       void window.AssistantView.openLinkedTask(session.linked_task, {inline:true, isCurrent}).catch(error => {
+      }).catch(error => {
         if (isCurrent()) explorerToast(error.message || 'Could not open the linked document.', true);
       });
     } else void _termOpenLinkedFile(session);
@@ -13191,7 +13200,7 @@
     return body.session;
   }
 
-  window.LabTaskTerminalBridge = {patch:_termPatchLinks, show:async session => {
+  window.LabTaskTerminalBridge = {patch:_termPatchLinks, display:session => _termSessionDisplay(session), show:async session => {
     const workspaceId = _termActiveWorkspaceId(), vaultId = _termVaultId();
     if (!workspaceId || !session?.name) return false;
     await _termRefreshSessionsForWorkspaceId(workspaceId);
@@ -13410,11 +13419,12 @@
 
   window.termLinkCurrentScope = termLinkCurrentScope;
 
-  async function _termSyncLinkedScope(scope, request) {
-    if (!scope || !_linkedTerminalSyncOn || request !== _termLinkedNavigationSeq) return;
+  async function _termSyncLinkedScope(scope, request, {force = false} = {}) {
+    if (!scope || (!force && !_linkedTerminalSyncOn) || request !== _termLinkedNavigationSeq) return;
     const baseRoot = _sidebarWorktreeBaseRoot();
     if (scope.base_root !== baseRoot) return;
     if (_sidebarScopedRoot(baseRoot) === scope.root) return;
+    _sidebarCacheCurrentScope(baseRoot);
     // Preserve the saved identity even when this browser has not configured the folder yet.
     if (scope.project_root !== baseRoot && !_sidebarFolderScope(scope.project_root)) {
       _sidebarFileConfig.folderScopes.push({path: scope.project_root,
@@ -13441,7 +13451,8 @@
     _workspaceSidebarCache.delete(baseRoot);
     const content = document.getElementById('content');
     if (content) content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
-    await _refreshSidebarAfterFileConfig();
+    const restored = _sidebarRestoreScope(baseRoot);
+    await _refreshSidebarAfterFileConfig({scopeSwitch: restored});
   }
 
   function _termCancelPendingLinkedFileOpen() {

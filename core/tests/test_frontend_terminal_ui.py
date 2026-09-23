@@ -2708,9 +2708,11 @@ const content = {innerHTML: 'old file'};
 const document = {getElementById: () => content};
 const _storeSidebarFileConfig = () => calls.push('store');
 const _sidebarClearWorktreeDiscovery = () => calls.push('clear');
+const _sidebarCacheCurrentScope = () => calls.push('cache');
+const _sidebarRestoreScope = () => { calls.push('restore'); return true; };
 const _workspaceSidebarCache = new Map();
 let _workspaceDocPath, _workspaceDocRoot, workspaceOpenFile, diffCache, _lastWorkspaceMtime;
-const _refreshSidebarAfterFileConfig = async () => calls.push('refresh');
+const _refreshSidebarAfterFileConfig = async options => calls.push(['refresh', options]);
 ''' + helper + r'''
 (async () => {
   await _termSyncLinkedScope(scope, 3);
@@ -2719,11 +2721,19 @@ const _refreshSidebarAfterFileConfig = async () => calls.push('refresh');
   await _termSyncLinkedScope(scope, 2);
   const stale = [...calls];
   await _termSyncLinkedScope(scope, 3);
-  process.stdout.write(JSON.stringify({off, stale, calls, content: content.innerHTML, config: _sidebarFileConfig}));
+  const synced = [...calls];
+  calls.length = 0;
+  _linkedTerminalSyncOn = false;
+  await _termSyncLinkedScope(scope, 2, {force:true});
+  const forcedStale = [...calls];
+  await _termSyncLinkedScope({...scope,base_root:'/another-workspace'}, 3, {force:true});
+  const foreignScope = [...calls];
+  await _termSyncLinkedScope(scope, 3, {force:true});
+  process.stdout.write(JSON.stringify({off, stale, synced, forcedStale, foreignScope, calls, content: content.innerHTML, config: _sidebarFileConfig}));
 })().catch(error => { console.error(error); process.exit(1); });
 ''')
-    assert result['off'] == result['stale'] == []
-    assert result['calls'] == ['store', 'clear', 'refresh']
+    assert result['off'] == result['stale'] == result['forcedStale'] == result['foreignScope'] == []
+    assert result['calls'] == result['synced'] == ['cache', 'store', 'clear', 'restore', ['refresh', {'scopeSwitch': True}]]
     assert 'Select a file from the tree' in result['content']
     assert result['config']['selectedFolders']['/base'] == '/project'
     assert result['config']['selectedWorktrees']['/project'] == '/trees/feature'

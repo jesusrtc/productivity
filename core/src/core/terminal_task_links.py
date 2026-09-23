@@ -106,7 +106,10 @@ def list_terminals(request, document_id=None):
                                'vault': term._vault_id_for_root(active_root, runtime_root_by_name[name])
                                         if name in runtime_root_by_name else vault['id'],
                                'workspace_name': data.get('name') or workspace_id,
-                               'label': saved.get('label') or saved['name'],
+                               # Keep labels optional just like native terminal
+                               # listings. A logical-name fallback here masks the
+                               # document title when the session is shared.
+                               'label': saved.get('label'),
                                'kind': saved.get('kind') or 'terminal',
                                'agent': saved.get('agent'),
                                'state': 'running' if running else 'stopped',
