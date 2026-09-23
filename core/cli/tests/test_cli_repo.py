@@ -2,16 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from lab.cli import main
+
+
+@pytest.fixture(autouse=True)
+def isolate_projects_home(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path))
 
 
 def test_repo_ls_no_repositories_dir(monorepo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["repo", "ls"])
     assert result.exit_code == 0
-    assert "no repositories" in result.output.lower()
+    assert "projects folder does not exist" in result.output.lower()
 
 
 def test_repo_ls_empty(monorepo: Path) -> None:

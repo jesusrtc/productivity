@@ -2342,6 +2342,15 @@
   let _sidebarWorktreeDiscoveryPromiseKey = '';
   let _sidebarWorktreeDiscoveryGeneration = 0;
   let _sidebarWorktreeRefreshInFlight = false;
+  let _sidebarProjectDefaults = {worktreesFolder: '~/src/.worktrees', projectLocations: []};
+
+  function _sidebarDefaultWorktreeFolder(projectRoot) {
+    if (!projectRoot) return '';
+    const config = _sidebarProjectDefaults;
+    const expand = path => config.homeFolder && path.startsWith('~/') ? config.homeFolder + path.slice(1) : path;
+    const custom = (config.projectLocations || []).find(row => expand(row.path) === projectRoot);
+    return custom?.worktreeFolder || (config.worktreesFolder || '~/src/.worktrees').replace(/\/+$/, '') + '/' + projectRoot.split('/').filter(Boolean).pop();
+  }
 
   function _sidebarClearWorktreeDiscovery() {
     _sidebarWorktreeFolders = [];
@@ -2576,11 +2585,11 @@
 
   function _sidebarActiveWorktreeFolder(baseRoot) {
     const selected = _sidebarSelectedFolder(baseRoot);
-    if (selected) return String(selected.worktreeFolder || '').trim();
+    if (selected) return String(selected.worktreeFolder || _sidebarDefaultWorktreeFolder(selected.path)).trim();
     return String(
       (_sidebarFileConfig.rootWorktreeFolders || {})[baseRoot]
       || _sidebarFileConfig.worktreeFolder
-      || ''
+      || _sidebarDefaultWorktreeFolder(_sidebarWorktreeRepositoryRoot(baseRoot))
     ).trim();
   }
 
@@ -2617,7 +2626,7 @@
     }
     const generation = ++_sidebarWorktreeDiscoveryGeneration;
     const promise = (async () => {
-      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}&scope=${encodeURIComponent(scopeRoot)}`);
+      const response = await fetch(`/api/sidebar-worktrees?path=${encodeURIComponent(requested)}&repo=${encodeURIComponent(repositoryRoot)}&scope=${encodeURIComponent(scopeRoot)}&optional=true`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || 'Could not scan worktree folder');
       const resolvedFolder = String(data.path || requested);
@@ -9747,6 +9756,7 @@
       const r = await fetch('/api/settings');
       if (r.ok) {
         _settings = await r.json();
+        _sidebarProjectDefaults = _settings;
         if (_settings.theme) applyTheme(_settings.theme);
       }
     } catch {}
@@ -9867,7 +9877,11 @@
       void _refreshSidebarAfterFileConfig();
     },
     settingsSaved(value) {
+      const baseRoot = _sidebarWorktreeBaseRoot();
+      const previousWorktrees = _sidebarActiveWorktreeFolder(baseRoot);
+      _sidebarProjectDefaults = value;
       _settings = value; _vaultAgentPolicy = null; applyTheme(value.theme);
+      if (previousWorktrees !== _sidebarActiveWorktreeFolder(baseRoot)) {_sidebarClearWorktreeDiscovery(); void _refreshSidebarAfterFileConfig();}
       window.dispatchEvent(new CustomEvent('lab-settings-changed'));
     },
     canStop(scope) { return _termSessionsKey(scope.id,scope.vault) === _termGroupScopeKey(); },
@@ -13376,9 +13390,9 @@
     const candidates = [];
     for (const project of projects) {
       candidates.push({project, root: project.path, worktree: null, label: project.label, color: project.color});
-      if (!project.worktreeFolder) continue;
-      const query = new URLSearchParams({path: project.worktreeFolder,
-        repo: _sidebarWorktreeRepositoryRoot(project.path), scope: project.path});
+      const worktreeFolder = project.worktreeFolder || _sidebarDefaultWorktreeFolder(_sidebarWorktreeRepositoryRoot(project.path));
+      const query = new URLSearchParams({path: worktreeFolder,
+        repo: _sidebarWorktreeRepositoryRoot(project.path), scope: project.path, optional: 'true'});
       const response = await fetch(`/api/sidebar-worktrees?${query}`);
       if (!response.ok) throw new Error('Could not resolve the file’s worktree.');
       const data = await response.json();

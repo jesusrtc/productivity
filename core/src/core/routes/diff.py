@@ -241,7 +241,7 @@ def _inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
-def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
+def _git_status_dir_allowed(resolved: Path, active_root: Path, *, include_projects: bool = False) -> bool:
     """Containment for /api/git-status: the active vault is always in
     bounds; registered vaults and the app's own pinned tabs/views are
     also valid because all of them can remain open simultaneously."""
@@ -285,6 +285,23 @@ def _git_status_dir_allowed(resolved: Path, active_root: Path) -> bool:
                     return True
     except Exception:
         pass
+    # Client-selected project and worktree locations also serve Files, history,
+    # and terminal scopes outside a vault.
+    if not include_projects:
+        return False
+    try:
+        from lab import projects, settings
+
+        config = settings.load(active_root)
+        locations = [config['projectsFolder'], config['worktreesFolder']]
+        for row in config['projectLocations']:
+            locations.append(row['path'])
+            if row.get('worktreeFolder'):
+                locations.append(row['worktreeFolder'])
+        if any(_inside(resolved, projects.location(raw).resolve()) for raw in locations):
+            return True
+    except (OSError, ValueError):
+        pass
     return False
 
 
@@ -311,7 +328,7 @@ def api_git_status(repo: str, request: Request):
         resolved = candidate.expanduser().resolve()
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
-    if not _git_status_dir_allowed(resolved, root):
+    if not _git_status_dir_allowed(resolved, root, include_projects=auth.is_admin(auth.require_user(request))):
         raise HTTPException(status_code=400, detail="repo escapes vault")
     key = str(resolved)
     now = time.time()
@@ -424,7 +441,7 @@ def api_sidebar_recent_files(repo: str, mode: str, request: Request):
         resolved = candidate.expanduser().resolve()
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
-    if not resolved.is_dir() or not _git_status_dir_allowed(resolved, root):
+    if not resolved.is_dir() or not _git_status_dir_allowed(resolved, root, include_projects=auth.is_admin(auth.require_user(request))):
         raise HTTPException(status_code=400, detail="repo escapes vault")
     return _sidebar_git_recent_files(str(resolved), mode)
 
@@ -692,6 +709,8 @@ def api_sidebar_worktrees(
     repo: str,
     request: Request,
     scope: str | None = None,
+    optional: bool = False,
+    preview: bool = False,
 ):
     """Return direct-child worktree scopes belonging to ``repo``.
 
@@ -704,11 +723,15 @@ def api_sidebar_worktrees(
     Git ``scope`` wins over stale registered-workspace metadata, and pasting a
     linked checkout as ``path`` is normalized to its containing folder.
     """
+    if preview:
+        auth.require_admin(request)
     try:
         parent = Path(path).expanduser().resolve()
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"Bad worktree folder: {exc}") from exc
     if not parent.is_dir():
+        if optional and not parent.exists():
+            return {"path": str(parent), "repo": repo, "folders": []}
         raise HTTPException(status_code=404, detail="Worktree folder not found")
 
     vault_root = auth.request_root(request)
@@ -738,7 +761,7 @@ def api_sidebar_worktrees(
             if key in seen:
                 continue
             seen.add(key)
-            if not _git_status_dir_allowed(candidate, vault_root):
+            if not preview and not _git_status_dir_allowed(candidate, vault_root, include_projects=auth.is_admin(auth.require_user(request))):
                 raise HTTPException(status_code=403, detail="Repository is outside the vault")
             if not candidate.is_dir():
                 continue
@@ -756,7 +779,12 @@ def api_sidebar_worktrees(
             raise HTTPException(status_code=404, detail="This location is not in a Git repository")
         raise HTTPException(status_code=404, detail="Repository root not found")
 
-    base_root, git_root, relative_workspace = repository_context()
+    try:
+        base_root, git_root, relative_workspace = repository_context()
+    except HTTPException as exc:
+        if optional and exc.status_code == 404:
+            return {"path": str(parent), "repo": repo, "folders": []}
+        raise
 
     def list_worktrees() -> tuple[Path, list[dict[str, str]]]:
         try:

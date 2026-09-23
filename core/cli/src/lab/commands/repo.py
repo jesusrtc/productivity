@@ -5,7 +5,7 @@ import subprocess
 import click
 
 from lab import mp as mp_mod
-from lab import paths
+from lab import paths, projects, settings
 
 
 @click.group(name="repo")
@@ -15,12 +15,18 @@ def repo_group() -> None:
 
 @repo_group.command("ls")
 def ls() -> None:
-    """List repos available under repositories/ and their configured prefix."""
+    """List projects from the shared projects folder and custom locations."""
     root = paths.find_monorepo_root()
+    catalog = projects.catalog(settings.load(root))
+    for row in catalog['projects']:
+        click.echo(f"{row['name']}  {row['path']}" + ('' if row['available'] else '  (unavailable)'))
+    if catalog['projects']:
+        return
+    # Keep older vault-owned repository layouts discoverable.
     repo_root = root / "repositories"
     prefixes = mp_mod.load_prefixes()
     if not repo_root.is_dir():
-        click.echo("(no repositories/ dir — run `make pull-repos`)")
+        click.echo(catalog['warning'] or f"No projects in {catalog['path']}")
         return
     repos = sorted(
         d.name for d in repo_root.iterdir() if d.is_dir() and (d / ".git").exists()

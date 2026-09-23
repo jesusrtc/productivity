@@ -351,7 +351,7 @@ def test_workspace_add_stores_worktrees_subfolder_path(monorepo, seed_workspace,
             return R()
         # `rev-parse --verify` → say the branch doesn't exist so we hit the -b path.
         if isinstance(cmd, list) and "rev-parse" in cmd:
-            raise sp.CalledProcessError(1, cmd, output="", stderr="")
+            return sp.CompletedProcess(cmd, 1, stdout="", stderr="")
         return real_run(cmd, *a, **kw)
     monkeypatch.setattr(sp, "run", fake_run)
 

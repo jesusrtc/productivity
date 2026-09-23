@@ -466,6 +466,7 @@ def request_index(request: Request) -> dict[str, Any]:
 
 _ADMIN_PREFIXES = (
     "/api/admin/",
+    "/api/projects/",
     "/api/assistant",
     "/api/cerebro/",
     "/api/code-search/",
@@ -476,6 +477,7 @@ _ADMIN_PREFIXES = (
 )
 _ADMIN_EXACT = {
     "/api/settings/global",
+    "/api/projects",
     "/api/ui/open-external",
     "/api/vaults/use",
     "/api/agents/sync",

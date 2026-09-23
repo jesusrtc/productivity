@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from lab import mp as mp_mod
-from lab import paths, storage
+from lab import paths, projects, settings, storage
 from lab.commands._helpers import require_valid_id as _require_valid_id
 from lab.model import ModelError, Priority, Workspace, WorkspaceStatus
 from lab.util import split_csv
@@ -481,61 +481,81 @@ def migrate_worktrees(workspace_id: str | None, dry_run: bool) -> None:
 @click.argument("workspace_id")
 @click.argument("mp")
 @click.option("--branch", default=None, help="Override computed branch name")
-def add(workspace_id: str, mp: str, branch: str | None) -> None:
-    """Create a git worktree of MP at workspaces/<workspace>/<mp-prefix>-<objective>/."""
+@click.option("--project-path", type=click.Path(file_okay=False), help="Use a project outside the projects folder.")
+@click.option("--worktree-path", type=click.Path(file_okay=False), help="Override the destination of this worktree.")
+def add(workspace_id: str, mp: str, branch: str | None, project_path: str | None,
+        worktree_path: str | None) -> None:
+    """Create a project's worktree using the shared project/worktree locations.
+
+    Legacy repositories/ projects retain their workspace-local layout.
+    """
     pid = _require_valid_id(workspace_id)
     root = paths.find_monorepo_root()
     pdir = paths.workspace_dir(root, pid)
     if not pdir.is_dir():
         raise click.ClickException(f"workspace {pid!r} not found")
 
-    mp_dir = root / "repositories" / mp
+    config = settings.load(root)
+    mp_dir = projects.location(project_path, Path.cwd()) if project_path else projects.location(config['projectsFolder']) / mp
+    if not project_path:
+        matches = [projects.location(row['path']) for row in config['projectLocations']
+                   if projects.location(row['path']).name == mp]
+        if len(matches) > 1:
+            raise click.ClickException('Several projects have that name. Choose one with --project-path.')
+        if matches:
+            mp_dir = matches[0]
+    legacy = not project_path and not mp_dir.is_dir() and (root / 'repositories' / mp).is_dir()
+    if legacy:
+        mp_dir = root / 'repositories' / mp
     if not mp_dir.is_dir() or not (mp_dir / ".git").exists():
         raise click.ClickException(
-            f"repository {mp!r} not found at {mp_dir}; "
-            f"clone it first with `git clone <url> repositories/{mp}`"
+            f"Git project {mp!r} not found at {mp_dir}; choose --project-path or clone it there first"
         )
 
     prefix = mp_mod.prefix_for(mp)
-    if not prefix:
+    if legacy and not prefix:
         raise click.ClickException(
             f"no prefix for {mp!r} — set with `lab repo prefix {mp} <short>`"
         )
 
     objective = mp_mod.objective_from(pid)
-    # Worktrees live under a dedicated subfolder so they don't clutter the
-    # workspace's doc tree (docs/, notes/, assets/, ...). Stored path is
-    # relative to the workspace dir — resolved by the server at render time.
-    worktrees_root = pdir / "worktrees"
-    worktrees_root.mkdir(exist_ok=True)
-    worktree_dir = worktrees_root / f"{prefix}-{objective}"
-    branch_name = branch or f"jcortes/{objective}"
+    # New catalog projects share one worktree parent per project. Legacy vault
+    # repositories keep their existing workspace-relative layout.
+    branch_name = branch or (f"jcortes/{objective}" if legacy else objective)
+    if worktree_path:
+        worktree_dir = projects.location(worktree_path, Path.cwd())
+    elif legacy:
+        worktree_dir = pdir / 'worktrees' / f'{prefix}-{objective}'
+    else:
+        valid = subprocess.run(['git', 'check-ref-format', '--branch', branch_name], capture_output=True, text=True)
+        if valid.returncode:
+            raise click.ClickException('Invalid branch name')
+        worktree_dir = projects.worktree_folder(config, mp_dir) / branch_name.replace('/', '-')
 
     if worktree_dir.exists():
         raise click.ClickException(f"worktree already at {worktree_dir}")
+    worktree_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    # Ensure the branch exists in the MP (create from master if not)
+    # Reuse an existing branch; otherwise branch from the project's current HEAD.
+    existing = subprocess.run(
+        ["git", "-C", str(mp_dir), "rev-parse", "--verify", f"refs/heads/{branch_name}"],
+        capture_output=True,
+    )
     try:
-        subprocess.run(
-            ["git", "-C", str(mp_dir), "rev-parse", "--verify", branch_name],
-            check=True, capture_output=True,
-        )
-        # Branch exists — add worktree tracking it
-        subprocess.run(
-            ["git", "-C", str(mp_dir), "worktree", "add", str(worktree_dir), branch_name],
-            check=True, capture_output=True, text=True,
-        )
-    except subprocess.CalledProcessError:
-        # Branch doesn't exist — create it from master
-        try:
+        if existing.returncode == 0:
             subprocess.run(
-                ["git", "-C", str(mp_dir), "worktree", "add", "-b", branch_name,
-                 str(worktree_dir), "master"],
+                ["git", "-C", str(mp_dir), "worktree", "add", str(worktree_dir), branch_name],
                 check=True, capture_output=True, text=True,
             )
-        except subprocess.CalledProcessError as exc:
-            msg = (exc.stderr or exc.stdout or str(exc)).strip()
-            raise click.ClickException(f"git worktree add failed: {msg}") from exc
+        else:
+            subprocess.run(
+                ["git", "-C", str(mp_dir), "worktree", "add", "-b", branch_name,
+                 str(worktree_dir), "master" if legacy else "HEAD"],
+                check=True, capture_output=True, text=True,
+            )
+    except subprocess.CalledProcessError as exc:
+        msg = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise click.ClickException(f"git worktree add failed: {msg}") from exc
 
     # Update workspace.json.worktrees
     pjson = paths.workspace_file(root, pid)
@@ -543,13 +563,18 @@ def add(workspace_id: str, mp: str, branch: str | None) -> None:
     data.setdefault("worktrees", [])
     data["worktrees"].append({
         "mp": mp,
-        "dir": f"worktrees/{worktree_dir.name}",
+        "dir": str(worktree_dir.relative_to(pdir)) if worktree_dir.is_relative_to(pdir) else str(worktree_dir),
         "branch": branch_name,
+        "repo": str(mp_dir),
     })
     data["updated"] = date.today().isoformat()
     storage.write_json(pjson, data)
+    if not legacy and (project_path or worktree_path):
+        configured = next((row.get('worktreeFolder', '') for row in config['projectLocations']
+                           if projects.location(row['path']) == mp_dir), '')
+        projects.register(root, [{'path': str(mp_dir), 'worktreeFolder': configured}])
 
-    click.echo(f"added worktree worktrees/{worktree_dir.name} on {branch_name}")
+    click.echo(f"added worktree {worktree_dir} on {branch_name}")
 
 
 @workspace_group.command("remove")
@@ -571,7 +596,7 @@ def remove(workspace_id: str, mp: str, force: bool) -> None:
         raise click.ClickException(f"no worktree for MP {mp!r} in workspace {pid!r}")
 
     worktree_path = paths.workspace_dir(root, pid) / entry["dir"]
-    mp_dir = root / "repositories" / mp
+    mp_dir = Path(entry['repo']) if entry.get('repo') else root / "repositories" / mp
     if worktree_path.exists() and mp_dir.is_dir():
         cmd = ["git", "-C", str(mp_dir), "worktree", "remove", str(worktree_path)]
         if force:

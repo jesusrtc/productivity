@@ -48,7 +48,7 @@ window.LAB_IS_ADMIN=true;
 let discard=true;window.confirm=()=>discard;
 const assert=(v,m)=>{if(!v)throw Error(m)};
 const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,5))}throw Error('Timed out: '+fn)};
-const cfg={defaultAgent:'claude',model:null,theme:'dark',autopilot:{claude:true,codex:false,copilot:false},documentTerminals:{enabled:true,sleepMinutes:60,expireHours:36,maxRunning:3}};
+const cfg={homeFolder:'/home/test',projectsFolder:'~/src',worktreesFolder:'~/src/.worktrees',projectLocations:[],defaultAgent:'claude',model:null,theme:'dark',autopilot:{claude:true,codex:false,copilot:false},documentTerminals:{enabled:true,sleepMinutes:60,expireHours:36,maxRunning:3}};
 const available={claude:false,codex:true,copilot:true},calls=[];
 const overrides={a:{agent:null,model:null},b:{agent:'copilot',model:'saved-model'}};
 let failSave=false,delayA=false,releaseA;
@@ -67,6 +67,8 @@ window.fetch=async(url,opts={})=>{
  else if(u.pathname==='/api/vault/agents')data={supported:['claude','codex','copilot'],default:cfg.defaultAgent};
  else if(u.pathname==='/api/workspaces/same'){if(delayA&&u.searchParams.get('vault')==='a')await new Promise(r=>releaseA=r);data=overrides[u.searchParams.get('vault')]}
  else if(u.pathname==='/api/workspaces/same/agent'){Object.assign(overrides[u.searchParams.get('vault')],body);data={ok:true}}
+ else if(u.pathname==='/api/projects')data={path:'/home/test/src',projects:[{name:'lab',path:'/home/test/src/lab',available:true},{name:'offline',path:'/old/offline',available:false}]};
+ else if(u.pathname==='/api/projects/register'){cfg.projectLocations=body.projects;data={projects:body.projects,settings:cfg}}
  else if(u.pathname==='/api/sidebar-worktrees')data={folders:[{path:'/trees/feature'}]};
  else throw Error('Unexpected API '+url);
  return {ok:true,json:async()=>structuredClone(data)};
@@ -139,15 +141,29 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  assert(localStorage.getItem('labTermNewOptions-v1:b::same')==='["codex","terminal","attach"]','inactive terminal options scoped');
  assert(q('[data-stop]').disabled&&!appliedOptions,'inactive workspace cannot stop active sessions');
  await section('files');fits();field('showHidden',true);field('filesSort','type');
- q('[data-add-folder]').click();const card=q('[data-folder-card="folder"]');card.querySelector('[data-path]').value='notes';card.querySelector('[data-label]').value='Notes';
+ q('[data-add-folder]').click();await until(()=>q('[data-custom-project]'));q('[data-custom-project]').click();const card=q('[data-folder-card="folder"]');card.querySelector('[data-path]').value='notes';card.querySelector('[data-label]').value='Notes';
  card.querySelector('[data-worktree]').value='/trees';card.querySelector('[data-scan]').click();await until(()=>card.querySelector('[data-scan-status]').textContent==='1 worktrees found');
  q('[data-worktree-color]').value='#123456';await save();
  const bKey='labSidebarFileConfig-v2:'+encodeURIComponent('/vault-b/same'),b=JSON.parse(localStorage.getItem(bKey));
  assert(b.showHidden&&b.filesSort==='type'&&b.folderScopes[0].path==='/vault-b/same/notes'&&b.worktreeColors['/trees/feature']==='#123456','inactive files prefs and worktree colors saved');
  assert(localStorage.getItem(aKey)===beforeA&&!_sidebarFileConfig.showHidden&&!rendered,'inactive save never mutates active sidebar');
+ q('[data-add-folder]').click();await until(()=>q('[data-project-list] option'));fits();
+ assert(q('[data-project-list] [value="/old/offline"]').disabled,'missing custom projects stay visible but unavailable');
+ q('[data-project-list]').value='/home/test/src/lab';q('[data-project-list]').dispatchEvent(new Event('change'));q('[data-use-project]').click();
+ const picked=q('[data-folder-card]:last-child');
+ assert(picked.querySelector('[data-worktree]').value===''&&picked.querySelector('[data-worktree]').placeholder==='~/src/.worktrees/lab','picked project inherits worktree layout');
+ await save();
+ q('[data-add-folder]').click();await until(()=>q('[data-project-list] option'));
+ assert(q('[data-project-list] [value="/home/test/src/lab"]').disabled,'already added project is disabled');
+ q('[data-custom-project]').click();const custom=q('[data-folder-card]:last-child');custom.querySelector('[data-path]').value='~/custom/project';await save();
+ assert(JSON.parse(localStorage.getItem(bKey)).folderScopes.at(-1).path==='/home/test/custom/project','home expansion is on the server computer');
  field('recentMinutes','60');discard=false;q('[data-scope="global"]').click();
  assert(form().elements.recentMinutes.value==='60'&&q('[data-title]').textContent.includes('Beta'),'dirty navigation can be cancelled');
  discard=true;q('[data-scope="global"]').click();await until(()=>form()?.elements.defaultAgent);
+ await section('projects');fits();
+ assert(form().elements.projectsFolder.value==='~/src'&&form().elements.worktreesFolder.value==='~/src/.worktrees','shared root defaults');
+ field('projectsFolder','/code');field('worktreesFolder','/trees');await save();
+ assert(cfg.projectsFolder==='/code'&&cfg.worktreesFolder==='/trees','shared locations saved');
  await section('documents');field('sleepMinutes','20');field('maxRunning','2');await save();assert(cfg.documentTerminals.sleepMinutes===20&&cfg.documentTerminals.maxRunning===2,'global policy saved');
  await section('terminals');assert(form().elements.completionReadSeconds.value==='20','completion delay defaults to twenty seconds');
  field('orientation','horizontal');field('completionReadSeconds','7');await save();assert(termSessionOrientation==='horizontal','appearance bridge');
@@ -162,7 +178,7 @@ const fits=()=>{const d=document.getElementById('labSettingsCenter');const rect=
  await openSidebarFileConfig();await until(()=>form()?.elements.showHidden);assert(q('[data-title]').textContent==='Workspace Alpha · File sidebar','local file sidebar shortcut');LabSettings.close();
  focus.dispatchEvent(new KeyboardEvent('keydown',{key:',',ctrlKey:true,bubbles:true,cancelable:true}));await until(()=>form()?.elements.defaultAgent);fits();
  assert(currentWorkspace.path==='/vault-a/same'&&!calls.some(c=>c.path.includes('/term/sessions')),'opening or saving settings never changes workspace or launches terminals');
- q('[data-section="appearance"]').click();await until(()=>q('[name="documentFontSize"]'));fits();
+ q('[data-section="projects"]').click();await until(()=>q('[name="projectsFolder"]'));fits();
  document.getElementById('result').textContent='PASS scoped settings, typography, responsive switches, shortcuts, policy, drafts, late responses';
 })().catch(error=>document.getElementById('result').textContent='FAIL: '+error.stack);
 '''

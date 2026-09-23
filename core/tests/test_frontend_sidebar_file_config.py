@@ -553,7 +553,7 @@ process.stdout.write(JSON.stringify({
   pickerHasHistory: picker.includes('sidebarOpenRepositoryHistory(this)'),
   pickerHasGithub: picker.includes('<svg viewBox="0 0 16 16"'),
   mainHasHistory: mainPicker.includes('sidebarOpenRepositoryHistory(this)'),
-  mainHasLabel: mainPicker.includes('sidebar-worktree-current') && mainPicker.includes('>main</span>'),
+  mainHasLabel: mainPicker.includes('<option value="">main</option>'),
   scopeColor: scope.includes('--sidebar-worktree-color:#123abc'),
   scopePath: scope.includes('data-worktree-path="/worktrees/feature-b"'),
   selectedHistoryRoot,
@@ -720,8 +720,8 @@ const fetch = async url => {
     assert result == {
         "callCount": 2,
         "urls": [
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a&scope=%2Fworkspace-a",
-            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b&scope=%2Fworkspace-b",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-a&scope=%2Fworkspace-a&optional=true",
+            "/api/sidebar-worktrees?path=%2Fworktrees&repo=%2Frepos%2Frepo-b&scope=%2Fworkspace-b&optional=true",
         ],
         "first": [{"name": "repo-a", "repo": "/worktrees/repo-a/actual-repo"}],
         "second": [{"name": "repo-b", "repo": "/worktrees/repo-b/actual-repo"}],

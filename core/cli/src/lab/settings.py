@@ -13,6 +13,7 @@ honored through this validated writer.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -41,6 +42,9 @@ DEFAULTS: dict[str, Any] = {
     "defaultAgent": DEFAULT_AGENT,
     "model": None,
     "theme": "dark",
+    "projectsFolder": "~/src",
+    "worktreesFolder": "~/src/.worktrees",
+    "projectLocations": [],
     "documentTerminals": {"enabled": True, "sleepMinutes": 5, "expireHours": 36, "maxRunning": 1},
     "autopilot": {"claude": True, "codex": False, "copilot": False},
 }
@@ -76,6 +80,11 @@ def _load_legacy(root: Path) -> dict[str, Any]:
                         for agent, on in data[key].items():
                             if agent in VALID_AGENTS and isinstance(on, bool):
                                 merged["autopilot"][agent] = on
+                elif key in {'projectsFolder', 'worktreesFolder', 'projectLocations'}:
+                    try:
+                        merged[key] = _validate(key, data[key])
+                    except SettingsError:
+                        pass
                 else:
                     merged[key] = data[key]
     return merged
@@ -128,6 +137,19 @@ def update_global(root: Path, patch: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate(key: str, value: Any) -> Any:
+    if key in {"projectsFolder", "worktreesFolder"}:
+        return _folder_path(key, value)
+    if key == "projectLocations":
+        if not isinstance(value, list):
+            raise SettingsError("projectLocations must be a list of project folders")
+        rows = {}
+        for row in value:
+            if not isinstance(row, dict) or set(row) - {"path", "worktreeFolder"}:
+                raise SettingsError("Each project location needs path and optional worktreeFolder")
+            path = os.path.abspath(Path(_folder_path("Project folder", row.get("path"))).expanduser())
+            worktree = row.get("worktreeFolder", "")
+            rows[path] = {"path": path, "worktreeFolder": _folder_path("Worktree folder", worktree) if worktree else ""}
+        return list(rows.values())
     if key == "documentTerminals":
         if not isinstance(value, dict) or set(value) - set(DEFAULTS[key]):
             raise SettingsError("documentTerminals: expected enabled, sleepMinutes, expireHours, maxRunning")
@@ -172,6 +194,15 @@ def _validate(key: str, value: Any) -> Any:
     raise SettingsError(
         f"unknown setting {key!r} (allowed: {', '.join(DEFAULTS)})"
     )
+
+
+def _folder_path(label: str, value: Any) -> str:
+    if not isinstance(value, str) or not value.strip() or any(c in value for c in "\x00\n\r"):
+        raise SettingsError(f"{label}: enter an absolute path or a path starting with ~/")
+    value = value.strip()
+    if not (value.startswith("/") or value.startswith("~/") or value == "~"):
+        raise SettingsError(f"{label}: enter an absolute path or a path starting with ~/")
+    return value.rstrip("/") or "/"
 
 
 def update(root: Path, patch: dict[str, Any]) -> dict[str, Any]:

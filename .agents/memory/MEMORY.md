@@ -288,3 +288,5 @@
 - [Polling watcher does not follow nested links](polling-watcher-does-not-follow-nested-links.md) — lstat prevents recursive ancestor links from consuming the index watcher; Files still browses linked folders.
 
 - [Incremental Files and instant scope switches](workspace-files-incremental-and-instant-scope-switches.md) — native change invalidation, bounded DOM caches, and a generic under-200ms warm folder/worktree switch target.
+
+- [Shared project and worktree folders](shared-project-and-worktree-folders.md) — editable ~/src and ~/src/.worktrees defaults, project picker, custom locations, and inherited worktree paths.

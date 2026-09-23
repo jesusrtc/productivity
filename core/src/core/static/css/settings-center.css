@@ -55,6 +55,10 @@
 .settings-folder { margin:12px 0; border:1px solid var(--border,#30363d); border-radius:8px; padding:15px; display:flex; flex-direction:column; gap:6px; }
 .settings-folder code { font-size:.85em; overflow-wrap:anywhere; }
 .settings-folder button { align-self:flex-start; }
+.settings-project-actions { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+.lab-settings-center [data-project-picker]:not([hidden]) { margin:12px 0; padding:12px; border:1px solid var(--border,#30363d); border-radius:8px; }
+.lab-settings-center [data-project-list] { margin-top:10px; min-height:150px; }
+.lab-settings-center [data-project-status],.lab-settings-center [data-layout] { overflow-wrap:anywhere; }
 .settings-danger button,.lab-settings-center .error { color:var(--red,#f85149); }
 .settings-font-control { display:flex; align-items:center; justify-content:flex-end; flex:0 1 250px; gap:10px; min-width:0; }
 .settings-font-control output { flex:none; min-width:3.5em; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }

@@ -12,9 +12,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from lab import agentsync
+from lab import projects
 from lab import settings as lab_settings
 
-from core import auth, vault_config
+from core import auth, fsguard, vault_config
 
 router = APIRouter()
 
@@ -37,6 +38,7 @@ def agents_available() -> dict:
 def _with_flags(cfg: dict) -> dict:
     """Attach the human-readable autopilot flag per agent so the UI can show
     what each checkbox actually appends to the launch command."""
+    cfg["homeFolder"] = str(Path.home())
     cfg["autopilotFlags"] = {
         agent: " ".join(flags)
         for agent, flags in lab_settings.AUTOPILOT_FLAGS.items()
@@ -61,6 +63,9 @@ class SettingsPatch(BaseModel):
     # lab.settings.AUTOPILOT_FLAGS). Partial patches merge per key.
     autopilot: dict[str, bool] | None = None
     documentTerminals: dict | None = None
+    projectsFolder: str | None = None
+    worktreesFolder: str | None = None
+    projectLocations: list[dict] | None = None
 
 
 @router.post("/api/settings")
@@ -68,6 +73,8 @@ def update_settings(body: SettingsPatch, request: Request) -> dict:
     """Patch one or more settings (validated). Returns the full merged config."""
     root = auth.request_root(request)
     patch = body.model_dump(exclude_unset=True)
+    if {'projectsFolder', 'worktreesFolder', 'projectLocations'} & patch.keys():
+        auth.require_admin(request)
     if not patch:
         return _with_flags(lab_settings.load(root))
     requested_default = patch.get("defaultAgent")
@@ -121,4 +128,36 @@ def update_global_settings(body: SettingsPatch, request: Request) -> dict:
     try:
         return _with_flags(lab_settings.update_global(Path(request.app.state.index_cache.root), patch))
     except lab_settings.SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get('/api/projects')
+def project_catalog(request: Request) -> dict:
+    auth.require_admin(request)
+    root = Path(request.app.state.index_cache.root)
+    config = lab_settings.load(root)
+    return fsguard.guarded(projects.location(config['projectsFolder']),
+                           lambda: projects.catalog(config, fsguard.checkpoint))
+
+
+class ProjectLocation(BaseModel):
+    path: str
+    worktreeFolder: str = ''
+
+
+class ProjectSelection(BaseModel):
+    projects: list[ProjectLocation]
+    base: str | None = None
+
+
+@router.post('/api/projects/register')
+def register_projects(body: ProjectSelection, request: Request) -> dict:
+    auth.require_admin(request)
+    root = Path(request.app.state.index_cache.root)
+    try:
+        result = projects.register(root, [row.model_dump() for row in body.projects],
+                                   projects.location(body.base) if body.base else None)
+        result['settings'] = _with_flags(result['settings'])
+        return result
+    except (lab_settings.SettingsError, OSError, RuntimeError) as exc:
         raise HTTPException(400, str(exc)) from exc
