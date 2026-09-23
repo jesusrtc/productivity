@@ -8,14 +8,17 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {checkSidebarGitFixture} from './sidebar_git_fixture.mjs';
 import {captureInputClock,validateInputClock} from './input_clock.mjs';
-import {echoInput,createEchoReader} from './terminal_echo_reader.mjs';
+import {echoInput,createEchoReader,createOutputEchoReader,readRenderedOutput} from './terminal_echo_reader.mjs';
 const [baseUrl,name,marker,sampleArg,workspace,intervalArg] = process.argv.slice(2);
 const samples=Number(sampleArg), interval=Number(intervalArg)*1000;
 const changeFiles=process.env.LAB_PERF_TYPING_UPDATES==='1';
+const outputLoad=!!process.env.LAB_PERF_OUTPUT_REPORT;
+const phaseNames=outputLoad?['output','output-sidebar-refresh']:['normal','sidebar-refresh'];
 const detachTerminal=JSON.parse(process.env.LAB_PERF_TYPING_DETACH||'null');
 if(!baseUrl || new URL(baseUrl).hostname!=='127.0.0.1' || !name || !marker || !workspace || !process.env.LAB_PROBE_COOKIE) throw new Error('Run through lab_navigation_latency.py --typing');
 if(!Number.isInteger(samples) || samples<20 || !Number.isFinite(interval) || interval<0) throw new Error('Invalid samples/interval');
 if(changeFiles && (!workspace.includes('/lab-navigation-') || !workspace.endsWith('/vault/workspaces/alpha')))throw new Error('File updates require the disposable navigation fixture');
+if(outputLoad && (!workspace.includes('/lab-navigation-') || !workspace.endsWith('/vault/workspaces/alpha')))throw new Error('Output load requires the disposable navigation fixture');
 if(detachTerminal && (!workspace.includes('/lab-navigation-') || !workspace.endsWith('/vault/workspaces/alpha') || !detachTerminal.name || !detachTerminal.marker || detachTerminal.name===name))throw new Error('Detach load requires a separate owned fixture terminal');
 const chromePath=process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 function sleep(ms) {
@@ -202,10 +205,13 @@ async function main() {
       const expected=${JSON.stringify(expected)}, marker=${JSON.stringify(marker)};
       const captureInputClock=${captureInputClock.toString()};
       const createEchoReader=${createEchoReader.toString()};
-      const parsedEcho=createEchoReader(expected,marker),renderedEcho=createEchoReader(expected,marker);
+      const createOutputEchoReader=${createOutputEchoReader.toString()};
+      const readRenderedOutput=${readRenderedOutput.toString()},outputLoad=${outputLoad};
+      const reader=outputLoad?createOutputEchoReader:createEchoReader;
+      const parsedEcho=reader(expected,marker),renderedEcho=reader(expected,marker);
       const input=termXterm.element.querySelector('textarea');
       const detachTerminal=${JSON.stringify(detachTerminal)};
-      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],detachments:[],detaching:null,phase:null,loadTimer:null,inflight:null};
+      const probe=window.__typing={readyAt:performance.now(),rows:[],events:[],errors:[],longtasks:[],refreshes:[],parsed:[],skippedRenders:[],detachments:[],detaching:null,phase:null,loadTimer:null,inflight:null,outputCoverage:{}};
       probe.detach=()=>{
         if(!detachTerminal||probe.detaching)return;
         const record={start:performance.now(),phase:probe.phase};probe.detachments.push(record);
@@ -251,6 +257,15 @@ async function main() {
       });
       probe.listener=termXterm.onRender(range=>{
         const renderAt=performance.now(),buffer=termXterm.buffer.active;
+        if(outputLoad && probe.phase) {
+          try {
+            const load=readRenderedOutput(buffer,range,termXterm.cols,termXterm.rows);
+            if(load.observed) {
+              const phase=probe.outputCoverage[probe.phase] ||= {first:load.maximum,last:load.maximum,observedRows:0,renderCallbacks:0};
+              phase.last=Math.max(phase.last,load.maximum);phase.observedRows+=load.observed;phase.renderCallbacks++;
+            }
+          } catch(error) {probe.errors.push(error.message);}
+        }
         const cursorRow=buffer.baseY+buffer.cursorY-buffer.viewportY;
         if(range.start>cursorRow || range.end<cursorRow){
           if(probe.parsed.length>probe.rows.length)probe.skippedRenders.push({at:renderAt,range,cursorRow,parsedLength:probe.parsed.length,cols:termXterm.cols,rows:termXterm.rows});
@@ -271,17 +286,17 @@ async function main() {
         probe.inflight=_refreshWorkspaceSidebar({preserveScroll:true,backgroundRefresh:true}).then(()=>probe.refreshes.push({at,dispatchMs:performance.now()-at}),e=>probe.errors.push(String(e))).finally(()=>{probe.inflight=null;});
       };
       probe.start=loaded=>{
-        probe.phase=loaded?'sidebar-refresh':'normal';input.focus();
+        probe.phase=${JSON.stringify(phaseNames)}[Number(loaded)];input.focus();
         if(document.activeElement!==input)throw new Error('Cannot focus echo terminal');
         if(loaded){probe.refresh();probe.loadTimer=setInterval(probe.refresh,500);}
       };
       probe.stop=async()=>{clearInterval(probe.loadTimer);await probe.inflight;await probe.detaching;};
-      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,detachments:probe.detachments,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
+      probe.snapshot=()=>({readyAt:probe.readyAt,rows:probe.rows,events:probe.events,errors:probe.errors,longtasks:probe.longtasks,refreshes:probe.refreshes,skippedRenders:probe.skippedRenders,detachments:probe.detachments,outputCoverage:probe.outputCoverage,webgl:!!termXterm?._webglAddon,terminalSize:{cols:termXterm.cols,rows:termXterm.rows},echoCoverage:{parsed:parsedEcho.snapshot(),rendered:renderedEcho.snapshot()}});
     })()`);
     if(process.env.LAB_PERF_CPU_PROFILE){await client.send('Profiler.enable');await client.send('Profiler.start');}
     for(const loaded of [false,true]) {
       await evaluate(`__typing.start(${loaded})`);
-      const phase=loaded?'sidebar-refresh':'normal', phaseStart=performance.now(), commands=[];
+      const phase=phaseNames[Number(loaded)], phaseStart=performance.now(), commands=[];
       const writes=[];let nextWrite=phaseStart;
       for(let i=0;i<samples;i++) {
         if(loaded && changeFiles && performance.now()>=nextWrite) {
@@ -348,8 +363,9 @@ async function main() {
     const expectedDeflate=process.env.LAB_PERF_WS_DEFLATE==='1';
     if(!result.terminalSockets.length || result.terminalSockets.some(socket=>socket.status!==101 || socket.deflate!==expectedDeflate))result.transportErrors.push('Terminal WebSocket negotiation differs from fixture configuration');
     if(inputs.length!==sent.length || inputs.some(frame=>frame.length!==1 || !Number.isFinite(frame.epoch)))result.transportErrors.push('Owned terminal input frames do not match native key count');
-    if(detachTerminal && (!result.detachments.length || result.detachments.some(row=>row.phase!=='sidebar-refresh'||!row.readyAt||!row.closedAt)))result.errors.push('Background terminal detach workload was not completed');
-    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,detachTerminal:!!detachTerminal,websocketDeflate:expectedDeflate,inputPattern:'lcg-817'};
+    if(detachTerminal && (!result.detachments.length || result.detachments.some(row=>row.phase!==phaseNames[1]||!row.readyAt||!row.closedAt)))result.errors.push('Background terminal detach workload was not completed');
+    if(outputLoad && phaseNames.some(name=>!result.outputCoverage[name] || result.outputCoverage[name].last-result.outputCoverage[name].first<80 || result.outputCoverage[name].renderCallbacks<2))result.errors.push('Concurrent output did not render during both typing phases');
+    result.fixture={extraFiles:Number(process.env.LAB_PERF_EXTRA_FILES||0),types:process.env.LAB_PERF_EXTRA_FILE_TYPES,layout:process.env.LAB_PERF_EXTRA_FILE_LAYOUT,gitChanges:Number(process.env.LAB_PERF_GIT_CHANGES||0),changeFiles,outputLoad,detachTerminal:!!detachTerminal,websocketDeflate:expectedDeflate,inputPattern:'lcg-817'};
     result.git=await checkSidebarGitFixture(evaluate);
     if(result.git)result.errors.push(...result.git.errors);
     result.updates=updates;

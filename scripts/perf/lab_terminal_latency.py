@@ -102,6 +102,8 @@ async def measure(samples: int, interval: float, browser: bool = False, base_url
         name = response.json()['name']
         resource = '/api/term/sessions/' + quote(name, safe='')
         echo_trace = None
+        output_report = None
+        browser_completed = False
         socket = None
         try:
             # Replace only our newly created shell with a deterministic echo
@@ -115,6 +117,14 @@ async def measure(samples: int, interval: float, browser: bool = False, base_url
                 if not fixture or not fixture.name.startswith('lab-navigation-') or echo_trace.parent != fixture:
                     raise RuntimeError('Echo tracing requires the disposable navigation fixture')
             code = echo_program(marker, echo_trace)
+            if os.environ.get('LAB_PERF_OUTPUT_REPORT'):
+                from terminal_output_fixture import output_echo_program
+                output_report = Path(os.environ['LAB_PERF_OUTPUT_REPORT']).resolve()
+                fixture = Path(workspace).resolve().parents[2] if workspace else None
+                if not browser or not fixture or not fixture.name.startswith('lab-navigation-') or output_report.parent != fixture or echo_trace:
+                    raise RuntimeError('Output load requires its disposable native typing fixture')
+                code = output_echo_program(marker, output_report,
+                                           trace_input=os.environ.get('LAB_PERF_OUTPUT_INPUT_TRACE') == '1')
             socket = _tmux_find_session_socket(name)
             if not socket:
                 raise RuntimeError('Could not find the newly created benchmark terminal')
@@ -127,6 +137,7 @@ async def measure(samples: int, interval: float, browser: bool = False, base_url
                     base, name, marker, str(samples), workspace or '', str(interval),
                 ], cwd=ROOT, check=True, env={**os.environ, 'LAB_PROBE_COOKIE': cookie},
                    timeout=max(90, samples * interval * 2 + 60))
+                browser_completed = True
                 return
             uri = base.replace('http:', 'ws:').replace('https:', 'wss:')
             uri += '/ws/term/' + quote(name, safe='') + '?cols=120&rows=32'
@@ -182,6 +193,17 @@ async def measure(samples: int, interval: float, browser: bool = False, base_url
             try:
                 if echo_trace is not None and socket:
                     await dump_echo_trace(socket, name, echo_trace)
+                if output_report is not None and socket:
+                    await dump_echo_trace(socket, name, output_report)
+                    if browser_completed:
+                        import hashlib
+                        report = json.loads(output_report.read_text())
+                        state, expected = 817, bytearray()
+                        for _ in range(samples * 2):
+                            state = (state * 1664525 + 1013904223) & 0xffffffff
+                            expected.append(97 + state % 26)
+                        if report['inputBytes'] != len(expected) or report['inputSha256'] != hashlib.sha256(expected).hexdigest() or not report['batches']:
+                            raise RuntimeError('Owned output fixture did not receive every expected key or generate output')
             finally:
                 response = await client.delete(resource + '?purge=true')
                 response.raise_for_status()

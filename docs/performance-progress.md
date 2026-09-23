@@ -3917,3 +3917,64 @@ The goal remains active. IME insertion misses, previously observed cold-navigati
 outliers, broader UI/API/typing coverage and physical/iTerm parity are unresolved.
 No main merge, push or live-server restart occurred; main merge remains pending
 after the earlier automatic approval rejection.
+
+## 2026-09-23 — Type during continuous terminal output
+
+Added `--typing-output` to the disposable native typing fixture. It runs an
+owned raw TUI that writes 40 colored scrolling log lines every 50 ms above a
+six-row input footer. The footer retains the last 64 characters with a numeric
+source offset. Independent parsing and rendering readers require exact input,
+continuous prior verification, and no output ahead of native key events. Partial
+transport frames remain pending. Output coverage comes from valid log text in
+actual xterm render callback ranges, with progression required in both phases.
+The phases are named `output` and `output-sidebar-refresh`; the existing quiet
+workload, cadence, budget and readiness checks remain unchanged.
+
+The required server sidecar retains source output batches, byte/line totals,
+input byte count/SHA-256 and geometry. Optional `--trace-terminal` records input
+receipt and footer-write times in this report, separately from the ordinary echo
+protocol. Export verifies ownership of the fixture pane PID, snapshots between
+producer operations, and leaves normal terminal cleanup responsible for exit.
+No production code or user terminal changed in this checkpoint.
+
+All three native runs retained their failures:
+
+- **Smoke:** 400 keys, maximum **52.6 ms**. Every input character was parsed and
+  rendered; both phases displayed thousands of scrolling lines. No validation,
+  clock or transport error. Artifacts: `/tmp/lab-output-typing-smoke-{browser,server}.json`.
+- **Large workload:** 5,000 mixed files and 2,500 Git changes per workspace,
+  2,400 native keys, 60 real file updates and 61 refreshes. **15 keys failed
+  50 ms**, maximum **58.1 ms** in output and **54.6 ms** in output plus sidebar
+  refresh. Medians were **10.3/10.5 ms** and p95 **24.0/27.4 ms**. Both readers
+  verified all 2,400 keys; source count/hash matched exactly. Source emitted
+  51,800 lines / 3,439,297 bytes. Rendered load advanced 23,960/24,000 sequence
+  positions across the two phases. Every measured API request passed 200 ms:
+  browser maximum **126.7 ms**, server maximum **89.30 ms**. No long task,
+  validation, clock, transport or request error. Artifacts:
+  `/tmp/lab-output-typing-large-{browser,server}.json` and log.
+- **Diagnostics:** same large fixture, 1,200 native keys, optional browser CPU,
+  terminal I/O, coarse files, watchers and GC timings. **Five keys failed**,
+  maxima **51.3/54.0 ms**. For key 57, 41.1 ms elapsed before its handler ran;
+  CPU sampling mostly reported native `(program)` work. For key 117, the server
+  sent its echo about 3.2 ms after input but browser observation was delayed to
+  about 34.7 ms; no overlapping watcher/GC explains that interval. Keys 949/967
+  overlapped producer batch writes of **29.22/29.92 ms** and **448/578 received
+  frames** inside their latency windows. Source received these keys around
+  30.7/30.6 ms after input even though server PTY input writes completed near
+  the handler. These are distinct mechanisms, not proof of one global cause.
+  Artifacts: `/tmp/lab-output-typing-diagnostic-{browser,server,cpu}.json` and log.
+
+Producer input hashes and byte counts matched every native run; every owned
+server stopped and terminal was removed. These are render callback measurements,
+not physical display latency or measured iTerm parity. The overall latency goal
+remains active. The next experiment targets available short PTY reads becoming
+unnecessarily fragmented WebSocket output; browser stalls remain separate.
+No main merge, push or live-server restart occurred. Main merge remains pending
+after the earlier automatic approval rejection.
+
+Validation: **35 focused tests passed** across the output fixture/readers,
+existing quiet echo reader and server timing/owned-PID export tests. Coverage
+includes exact suffix corruption/ahead/gap rejection, separate parse/render
+continuity, partial frames, real PTY input retention and resize, minimum geometry,
+producer metadata with/without input tracing, and CLI/browser fixture guards.
+`node --check` and `git diff --check` passed.

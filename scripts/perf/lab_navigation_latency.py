@@ -34,6 +34,7 @@ parser.add_argument('--markdown-revision', help='Compare markdown-content.js fro
 parser.add_argument('--navigation-refresh-delay', type=int, help='Controlled overlap experiment: trigger a background refresh 1–1000 ms after each explicit workspace navigation (normal polling retained)')
 parser.add_argument('--typing', action='store_true', help='Measure real CDP input on an owned echo terminal, quiet and with sidebar refreshes')
 parser.add_argument('--typing-updates', action='store_true', help='Also change fixture documents during the loaded typing phase')
+parser.add_argument('--typing-output', action='store_true', help='Type during a scrolling-output TUI workload in both phases (requires --typing and --server-timings)')
 parser.add_argument('--typing-detaches', action='store_true', help='Also attach/detach another owned terminal during loaded typing')
 parser.add_argument('--resize', action='store_true', help='Also measure native sidebar drags after navigation (not with --typing)')
 parser.add_argument('--create', action='store_true', help='Measure native workspace creation through the + picker, using disposable fixture workspaces')
@@ -63,6 +64,8 @@ if args.typing and args.samples < 20:
     parser.error('--typing requires at least 20 samples per phase')
 if args.typing_updates and not args.typing:
     parser.error('--typing-updates requires --typing')
+if args.typing_output and (not args.typing or not args.server_timings):
+    parser.error('--typing-output requires --typing and --server-timings')
 if args.typing_detaches and not args.typing:
     parser.error('--typing-detaches requires --typing')
 if args.resize and args.typing:
@@ -317,8 +320,10 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                      'LAB_PERF_EXTRA_FILE_TYPES': ','.join(extra_file_types),
                      'LAB_PERF_GIT_CHANGES': str(args.git_changes),
                      'LAB_PERF_TYPING_UPDATES': str(int(args.typing_updates)),
+                     'LAB_PERF_OUTPUT_REPORT': str(base / 'output-load.json') if args.typing_output else '',
                      'LAB_PERF_WS_DEFLATE': str(int(args.websocket_deflate)),
-                     'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal and args.typing else '',
+                     'LAB_PERF_ECHO_TRACE': str(base / 'echo-timings.json') if args.trace_terminal and args.typing and not args.typing_output else '',
+                     'LAB_PERF_OUTPUT_INPUT_TRACE': str(int(args.trace_terminal and args.typing_output)),
                      'LAB_PERF_SIDEBAR_RESIZE': str(int(args.resize)),
                      'LAB_PERF_CREATE_WORKSPACES': str(int(args.create)),
                      'LAB_PERF_SETTINGS': str(int(args.settings)),
@@ -343,6 +348,8 @@ with tempfile.TemporaryDirectory(prefix='lab-navigation-') as folder:
                       'websocketDeflate': args.websocket_deflate}
             if args.trace_terminal and (base / 'echo-timings.json').exists():
                 report['echo'] = json.loads((base / 'echo-timings.json').read_text())
+            if args.typing_output:
+                report['outputLoad'] = json.loads((base / 'output-load.json').read_text()) if (base / 'output-load.json').exists() else None
             args.server_timings.write_text(json.dumps(report, indent=2) + '\n')
     if thread.is_alive():
         raise RuntimeError('Fixture server did not stop')

@@ -1,5 +1,7 @@
 # Memory index
 
+- [Terminal output load has independent proof](terminal-output-load-has-independent-proof.md) — native typing during scrolling output verifies producer bytes, exact input continuity and actual rendered load, retaining every latency miss
+
 - [Polling snapshots reuse native entries](polling-snapshots-reuse-native-entries.md) — reduce snapshot bookkeeping while preserving fresh metadata, complete event detection and normal watcher policy
 - [Watcher diagnostics observe whole operations](watcher-diagnostics-observe-whole-operations.md) — bounded coarse timings distinguish concurrent watcher/worker CPU from waiting without tracing every file
 
