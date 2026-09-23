@@ -670,3 +670,67 @@ core/.venv/bin/python scripts/perf/lab_navigation_latency.py --typing \
   --typing-updates --samples 100 --extra-files 5000 \
   --extra-file-types md,py,json,sql --extra-file-layout flat
 ```
+
+## Follow-on: reuse changed-tree sections within the existing cache bound
+
+Background refreshes now compare old/new pristine templates and retain equal
+live sections. Known folder, recent-file, and worktree containers reconcile their
+children by stable identity. A reordered folder can retain its rows; adding,
+removing, or relabeling a file changes the affected rows. Container sizes and
+expanded state follow the new markup. An unexpected live child structure falls
+back to a fresh clone, and explicit navigation still uses pristine clones.
+The cache never receives live decorations. Where supported, state-preserving
+DOM moves retain focus; the fallback restores only the same surviving element.
+[Chrome's moveBefore documentation](https://developer.chrome.com/blog/movebefore-api)
+
+The first large-fixture profiles still showed full replacements. Measured DOM
+counts explained why: **60,189 elements exceeded the existing 60,000-element
+template limit**, so no template was retained. This was a real limitation of the
+earlier large mixed-file runs, not evidence that the new reconciliation code was
+active. A history button no longer needs a nested icon span; its identical shared
+mask now paints on `::before`. Removing those wrappers brought the fixture to
+**55,185 elements**, with a 55,185-element pristine template actually retained.
+Both cache limits remain unchanged.
+
+The final unprofiled changing-file run retained all 200 keys and five fixture
+writes, verified actual mtimes and rendered ordering, and reported:
+
+| Phase | Median | p95 | Maximum | Keys at/above 50 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Normal polling | 4.90 ms | 24.00 ms | 105.40 ms | 3 |
+| Sidebar refreshes with changing documents | 9.80 ms | 50.20 ms | 70.70 ms | 6 |
+
+All 107 API requests stayed below **59.70 ms**, with no HTTP, network, browser,
+input-timestamp, or echo-content errors. Empty-page frame maximum was 16.80 ms
+(`/tmp/lab-typing-incremental-fit.json`). The loaded maximum was 87.30 ms before
+this part. Earlier incremental experiments that did not fit the cache still
+reached 104.40 and 79.60 ms and are not counted as passes. The changed full
+template still has to be parsed; remaining refresh tasks reached 51–65 ms.
+The browser's startup extraction delay also remains.
+
+Validation: **41 tests passed** across sidebar cache/state, configuration,
+navigation races, dashboard loading, and Chrome rendering. After adding repeated
+update sequences, the nine cache/Git tests passed again. The Chrome checks cover
+30 successive insertion/deletion/reordering/label-change combinations against a
+fresh DOM, external subtree mutation, focus on retained controls (including the
+move fallback), preserved Git badges and handlers, pristine cached templates,
+and cache bounds. The large rendering tests compare the original icon wrapper
+against the new pseudo-element at both widths and zoom levels: button sizes and
+positions, 22 px rows, file/history/modal clicks, native find, and scroll extents
+matched. The side-by-side screenshot also matched visually.
+
+Final 40-action navigation validation passed: workspace first/maximum **165.30
+ms**, median 120.60 ms; document maximum **73.10 ms**, median 34.50 ms. All 336 APIs
+stayed below **92.70 ms** with no HTTP, network, browser, or timestamp errors
+(`/tmp/lab-navigation-incremental-final.json`). Prior cold misses remain part of
+the evidence; this run does not prove the universal action budget solved.
+
+Three additional fresh-browser runs kept workspace maxima at **163.60, 165.40,
+and 165.10 ms**, with document maxima 68.20, 66.30, and 65.10 ms. The first two
+recorded 53 APIs each below 42.40/42.20 ms. The third recorded a **567.20 ms
+`/api/term/sessions` response** among its 53 requests, despite its passing UI
+actions. It failed the overall check. No HTTP, network, or browser errors occurred;
+the cause of this background request outlier has not been established. Results
+are `/tmp/lab-navigation-incremental-cold-{1,2,3}.json`. This checkpoint leaves
+both the typing misses and backend/request outliers open; no main merge or
+live-server restart is included.

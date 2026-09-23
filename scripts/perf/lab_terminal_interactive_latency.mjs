@@ -273,6 +273,7 @@ async function main() {
     }
     const result=await evaluate('__typing.observer.disconnect(); __typing.listener.dispose(); __typing.parseListener.dispose(); __typing.snapshot()');
     result.browserVersion=browserVersion.Browser;
+    result.sidebar=await evaluate(`({elements:document.getElementById('sidebar').querySelectorAll('*').length,templates:[..._sidebarMarkupCache.values()].map(entry=>entry.elements),retainedElements:_sidebarMarkupCacheElements})`);
     result.timestampErrors=result.events.flatMap((e,i)=>Math.abs(e.sourceEpoch-sent[i]?.epoch)>2?[{index:i,sourceEpoch:e.sourceEpoch,sentEpoch:sent[i]?.epoch}]:[]);
     const deadline=Date.now()+5000;
     while(pendingRequests.size){if(Date.now()>deadline)throw new Error('API requests still pending: '+[...pendingRequests.values()].join(', '));await sleep(10);}

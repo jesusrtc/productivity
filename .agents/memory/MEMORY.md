@@ -267,3 +267,4 @@
 - [Unchanged background sidebars retain live rows](sidebar-background-refresh-retains-unchanged-rows.md) — compare freshly generated markup and mounted scope/identity; preserve focus without suppressing fresh data or changed rendering.
 - [Input latency includes browser queueing](input-latency-includes-browser-queueing.md) — send timestamped CDP input from outside the renderer with normal polling; keep all keys and verify their exact echoed text.
 - [Browser extraction can force offscreen layout](browser-content-extraction-forces-sidebar-layout.md) — Chrome AI page-content extraction was traced forcing all content-visibility groups to lay out during typing; include blink categories before blaming a Lab timer.
+- [Sidebar changes reuse equal sections](sidebar-changes-reuse-equal-sections.md) — compare pristine templates, reconcile only known tree containers, retain keyed live rows, and verify that a large fixture actually fits the bounded cache.

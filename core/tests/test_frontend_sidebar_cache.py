@@ -95,6 +95,50 @@ try {
   _replaceWorkspaceSidebarMarkup(sidebar, original+'<a>New file</a>', 'a', true);
   assert(sidebar.querySelectorAll('a').length === 2, 'changed files appear');
   assert(_sidebarMarkupCache.get('a').template !== template, 'changed markup replaces template');
+  const row = (path, label=path) => `<a class="sidebar-file" data-filepath="${path}" onclick="window.clicked=(window.clicked||0)+1">${label}<button>History</button></a>`;
+  const section = (id, children, height=22) => `<div id="${id}" class="sidebar-folder-children sidebar-recent-children open" style="contain-intrinsic-block-size:auto ${height}px">${children}</div>`;
+  const firstTree = section('alpha', row('a.md')+row('b.md'),44) + section('beta', row('c.md'));
+  _replaceWorkspaceSidebarMarkup(sidebar, firstTree, 'tree');
+  const alpha = sidebar.querySelector('#alpha'), beta = sidebar.querySelector('#beta');
+  const a = sidebar.querySelector('[data-filepath="a.md"]'), b = sidebar.querySelector('[data-filepath="b.md"]');
+  a.classList.add('git-m'); a.appendChild(document.createElement('span')).className='git-badge';
+  const button = a.querySelector('button'); button.focus();
+  // Reorder whole sections, reorder retained files, rename one label, and add
+  // a row. The caller still applies current Git status after changed markup.
+  const secondTree = section('beta', row('c.md','Renamed label')) + section('alpha', row('b.md')+row('d.md')+row('a.md'),66);
+  _replaceWorkspaceSidebarMarkup(sidebar, secondTree, 'tree', true);
+  assert(sidebar.firstChild === beta && sidebar.lastChild === alpha, 'reordered containers retain identity');
+  assert(sidebar.querySelector('[data-filepath="a.md"]') === a && sidebar.querySelector('[data-filepath="b.md"]') === b, 'unchanged file rows retain identity');
+  assert(document.activeElement === button && a.querySelector('.git-badge'), 'retained focus and Git decoration survive section moves');
+  assert(alpha.style.containIntrinsicBlockSize === 'auto 66px', 'changed intrinsic size applied');
+  assert([...alpha.children].map(n=>n.dataset.filepath).join(',') === 'b.md,d.md,a.md', 'inserted and sorted file order correct');
+  assert(beta.textContent.includes('Renamed label'), 'changed file label rendered');
+  a.click(); assert(window.clicked === 2, 'retained handlers still run');
+  // The fallback path also preserves a surviving focused control when the
+  // browser lacks moveBefore, and a deletion removes only the obsolete row.
+  Object.defineProperty(sidebar, 'moveBefore', {value:undefined,configurable:true});
+  const thirdTree = section('alpha', row('a.md')) + section('beta', row('c.md','Renamed label'));
+  _replaceWorkspaceSidebarMarkup(sidebar, thirdTree, 'tree', true);
+  delete sidebar.moveBefore;
+  assert(sidebar.firstChild === alpha && alpha.children.length === 1 && alpha.firstChild === a, 'deletion retains surviving rows');
+  assert(document.activeElement === button, 'fallback move restores surviving focus');
+  _replaceWorkspaceSidebarMarkup(sidebar, '<a>Another view</a>', 'other');
+  _replaceWorkspaceSidebarMarkup(sidebar, thirdTree, 'tree');
+  assert(!sidebar.querySelector('.git-m,.git-badge') && sidebar.querySelector('[data-filepath="a.md"]') !== a, 'incremental updates keep cached templates pristine');
+  for(let step=0;step<30;step++) {
+    const files=Array.from({length:9},(_,i)=>i).filter(i=>(i+step)%4!==0);
+    if(step%2)files.reverse();
+    const groups=['one','two','three'];if(step%3)groups.reverse();
+    const markup=groups.map((id,index)=>section(id,files.filter(i=>i%3===index).map(i=>row(id+'/'+i+'.md', 'Label '+((i+step)%5))).join(''),files.filter(i=>i%3===index).length*22)).join('');
+    _replaceWorkspaceSidebarMarkup(sidebar,markup,'varying',true);
+    const expected=document.createElement('template');expected.innerHTML=markup;
+    assert(sidebar.innerHTML===expected.innerHTML,'incremental DOM differs from a fresh render at step '+step);
+    if(step===15) {
+      // A different writer changed the middle of a container. The next
+      // refresh must rebuild that container rather than mispairing its rows.
+      sidebar.querySelector('.sidebar-folder-children').appendChild(document.createElement('em'));
+    }
+  }
   for (let i=0;i<10;i++) _replaceWorkspaceSidebarMarkup(sidebar, '<a>'+i+'</a>', 'scope-'+i);
   assert(_sidebarMarkupCache.size === 4, 'workspace count bounded');
   assert([..._sidebarMarkupCache.keys()].join(',') === 'scope-6,scope-7,scope-8,scope-9', 'oldest scopes evicted');

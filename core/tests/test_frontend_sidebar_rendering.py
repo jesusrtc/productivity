@@ -34,6 +34,9 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
      files[2444].path=files[2444].path.replace(/\.md$/, ` 'quoted' " & résumé.md`);
      const ref=document.getElementById('reference'), candidate=document.getElementById('sidebar');
      ref.innerHTML=_sidebarRecentSectionHtml(files,null,'/reference',{resolved:true});
+     // Keep the original icon wrapper in the reference. Its pseudo-element
+     // is disabled below so geometry compares old and new history buttons.
+     ref.querySelectorAll('.sidebar-git-history').forEach(button=>button.innerHTML=_SIDEBAR_GITHUB_ICON);
      candidate.innerHTML=_sidebarRecentSectionHtml(files,null,'/candidate',{resolved:true});
      const first=candidate.querySelector('.sidebar-file');
      first.classList.add('active');
@@ -60,6 +63,9 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
        a.scrollIntoView({block:'center'});b.scrollIntoView({block:'center'});await wait();
        const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();
        assert(Math.abs(ar.height-br.height)<.1,'Row height differs');
+       const ah=a.querySelector('button').getBoundingClientRect(),bh=b.querySelector('button').getBoundingClientRect();
+       assert(Math.abs(ah.width-bh.width)<.1&&Math.abs(ah.height-bh.height)<.1,'History button size differs');
+       assert(Math.abs((ar.right-ah.right)-(br.right-bh.right))<.1&&Math.abs((ah.top-ar.top)-(bh.top-br.top))<.1,'History button position differs');
        assert(Math.abs(ref.scrollHeight-candidate.scrollHeight)<2,'Extent changed after scrolling');
        const hit=document.elementFromPoint(br.x+br.width/2,br.y+br.height/2);
        assert(hit&&b.contains(hit),'Wrong file at click coordinates '+index);
@@ -102,7 +108,7 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
     const openExplorerHistory=context=>calls.push({...context,kind:'history'});
     '''
     page=tmp_path/'sidebar.html'
-    page.write_text('<!doctype html><meta charset="utf-8"><style>'+css+'''\n*{box-sizing:border-box}body{margin:0;background:#0d1117;--text-secondary:#aab;--text-primary:#eee;--border:#333;--accent:#68c;--tree-indent-guide:#334}aside.sidebar{position:fixed;top:50px;bottom:20px;height:auto!important;overflow:auto!important;width:340px;display:block}#reference{left:10px}#sidebar{left:500px}.reference .sidebar-recent-children{content-visibility:visible!important;contain-intrinsic-block-size:none!important}</style><body><pre id="result">PENDING</pre><aside id="reference" class="sidebar reference"></aside><aside id="sidebar" class="sidebar"></aside><script>'''+stubs+helpers+checks+'</script>')
+    page.write_text('<!doctype html><meta charset="utf-8"><style>'+css+'''\n*{box-sizing:border-box}body{margin:0;background:#0d1117;--text-secondary:#aab;--text-primary:#eee;--border:#333;--accent:#68c;--tree-indent-guide:#334}aside.sidebar{position:fixed;top:50px;bottom:20px;height:auto!important;overflow:auto!important;width:340px;display:block}#reference{left:10px}#sidebar{left:500px}.reference .sidebar-recent-children{content-visibility:visible!important;contain-intrinsic-block-size:none!important}.reference .sidebar-git-history::before{content:none}</style><body><pre id="result">PENDING</pre><aside id="reference" class="sidebar reference"></aside><aside id="sidebar" class="sidebar"></aside><script>'''+stubs+helpers+checks+'</script>')
     with tempfile.TemporaryDirectory(prefix='lab-sidebar-qa-') as directory:
      profile=Path(directory)/'chrome'
      chrome=subprocess.Popen([chrome,'--headless=new','--no-first-run','--disable-background-networking','--window-size=1400,1000','--remote-debugging-port=0','--user-data-dir='+str(profile),'about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
@@ -111,7 +117,7 @@ def test_sidebar_offscreen_rendering_and_actions(tmp_path, layout):
       while not (profile/'DevToolsActivePort').exists():
        if chrome.poll() is not None or time.monotonic()>deadline:raise RuntimeError('Chrome did not start')
        time.sleep(.05)
-      r=subprocess.run(['node',str(root/'scripts/chrome-dump-auth.mjs'),str(profile),page.as_uri(),str(tmp_path/'rendered.html')],env={**os.environ,'LAB_UI_AUTH_COOKIE':''},capture_output=True,text=True,timeout=45)
+      r=subprocess.run(['node',str(root/'scripts/chrome-dump-auth.mjs'),str(profile),page.as_uri(),str(tmp_path/'rendered.html'),str(tmp_path/'sidebar.png')],env={**os.environ,'LAB_UI_AUTH_COOKIE':''},capture_output=True,text=True,timeout=45)
       assert r.returncode == 0, r.stderr
       rendered=(tmp_path/'rendered.html').read_text()
       match=re.search(r'<pre id="result">(.*?)</pre>',rendered,re.S)

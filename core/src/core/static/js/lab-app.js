@@ -3091,7 +3091,7 @@
   window.sidebarOpenRepositoryHistory = sidebarOpenRepositoryHistory;
 
   function _sidebarGitHistoryButtonHtml(path, root = '') {
-    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}">${_SIDEBAR_GITHUB_ICON}</button></span>`;
+    return `<span class="sidebar-actions"><button class="sidebar-git-history" type="button" title="View Git history, including uncommitted changes" aria-label="View Git history for ${escAttr(path)}"></button></span>`;
   }
 
   function openSidebarFileHistory(path, root = '') {
@@ -8934,6 +8934,62 @@
   let _sidebarMarkupCacheElements = 0;
   const _SIDEBAR_MARKUP_CACHE_ENTRIES = 4;
   const _SIDEBAR_MARKUP_CACHE_ELEMENTS = 60000;
+  function _sidebarMarkupNodeKey(node) {
+    if (node.nodeType !== 1) return node.nodeType + ':' + node.nodeValue;
+    if (node.id) return node.nodeName + ':id:' + node.id;
+    const path = node.getAttribute('data-filepath');
+    if (path !== null) return node.nodeName + ':file:' + (node.classList.contains('sidebar-file-recent') ? 'recent:' : '')
+      + (node.getAttribute('data-entry-root') || '') + '\0' + path;
+    const treePath = node.getAttribute('data-tree-path');
+    if (treePath !== null) return node.nodeName + ':folder:' + (node.getAttribute('data-tree-scope') || '') + '\0' + treePath;
+    return node.nodeName + ':class:' + (node.getAttribute('class') || '');
+  }
+
+  // Compare pristine templates, not decorated live rows. Retain equal sections
+  // and reconcile known tree containers so a change in one folder does not
+  // discard thousands of unchanged file rows elsewhere. No template is moved
+  // into the live DOM or decorated, and explicit navigation still uses clones.
+  function _reconcileSidebarChildren(parent, previous, next) {
+    const oldNodes = [...previous.childNodes], liveNodes = [...parent.childNodes];
+    if (oldNodes.length !== liveNodes.length) return false;
+    const buckets = new Map();
+    for (let i = 0; i < oldNodes.length; i++) {
+      const key = _sidebarMarkupNodeKey(oldNodes[i]);
+      if (_sidebarMarkupNodeKey(liveNodes[i]) !== key) return false;
+      if (!buckets.has(key)) buckets.set(key, {nodes: [], used: 0});
+      buckets.get(key).nodes.push({source: oldNodes[i], live: liveNodes[i]});
+    }
+    let cursor = parent.firstChild;
+    for (const node of next.childNodes) {
+      const bucket = buckets.get(_sidebarMarkupNodeKey(node));
+      const match = bucket && bucket.nodes[bucket.used++];
+      let desired;
+      if (match && match.source.isEqualNode(node)) desired = match.live;
+      else if (match && node.nodeType === 1
+          && node.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
+          && match.source.matches('.sidebar-folder-children,.sidebar-recent-children,.sidebar-worktree-scope')
+          && _reconcileSidebarChildren(match.live, match.source, node)) {
+        // Counts, expanded state, and scope colors can change without making
+        // the unchanged children disposable. Apply only template differences.
+        for (const attr of match.source.attributes) {
+          if (!node.hasAttribute(attr.name)) match.live.removeAttribute(attr.name);
+        }
+        for (const attr of node.attributes) {
+          if (match.source.getAttribute(attr.name) !== attr.value) match.live.setAttribute(attr.name, attr.value);
+        }
+        desired = match.live;
+      }
+      if (!desired) desired = node.cloneNode(true);
+      if (desired === cursor) cursor = cursor.nextSibling;
+      else if (desired.isConnected && typeof parent.moveBefore === 'function') parent.moveBefore(desired, cursor);
+      else parent.insertBefore(desired, cursor);
+    }
+    while (cursor) {
+      const removed = cursor; cursor = cursor.nextSibling; removed.remove();
+    }
+    return true;
+  }
+
   function _replaceWorkspaceSidebarMarkup(sidebar, markup, scope, preserveLive = false) {
     // Background refreshes still build current markup (including selection,
     // folders, settings, and notebook activity). If it is unchanged, retain
@@ -8941,13 +8997,15 @@
     // laying out the whole tree again. A view replacement invalidates this
     // identity even when a later workspace produces the same HTML.
     const mounted = _sidebarMountedMarkup.get(sidebar);
-    if (preserveLive && mounted && mounted.scope === scope && mounted.markup === markup
+    const mountedIsCurrent = mounted && mounted.scope === scope
         && mounted.first === sidebar.firstChild && mounted.last === sidebar.lastChild
-        && mounted.count === sidebar.childNodes.length) return false;
+        && mounted.count === sidebar.childNodes.length;
+    if (preserveLive && mountedIsCurrent && mounted.markup === markup) return false;
     const remember = () => _sidebarMountedMarkup.set(sidebar, {
       scope, markup, first: sidebar.firstChild, last: sidebar.lastChild, count: sidebar.childNodes.length,
     });
     let cached = _sidebarMarkupCache.get(scope);
+    const previous = preserveLive && mountedIsCurrent && cached?.markup === mounted.markup ? cached : null;
     if (cached) {
       _sidebarMarkupCache.delete(scope);
       _sidebarMarkupCacheElements -= cached.elements;
@@ -8970,7 +9028,13 @@
     }
     _sidebarMarkupCache.set(scope, cached);
     _sidebarMarkupCacheElements += cached.elements;
-    sidebar.replaceChildren(cached.template.content.cloneNode(true));
+    const focused = sidebar.contains(document.activeElement) ? document.activeElement : null;
+    if (!previous || !_reconcileSidebarChildren(sidebar, previous.template.content, cached.template.content)) {
+      sidebar.replaceChildren(cached.template.content.cloneNode(true));
+    }
+    // Browsers without moveBefore may blur a retained control when its folder
+    // changes position. Restore only that same surviving element, never a clone.
+    if (focused && focused.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
     remember();
     return true;
   }
