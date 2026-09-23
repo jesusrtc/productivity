@@ -15,10 +15,11 @@ The visible reference line shows the document, nested tab path and current
 heading as you scroll. Keyboard users can focus the strip to reveal tabs and
 press Escape to dismiss them.
 
-Drag the revealed drawer's divider to resize it. The browser remembers the
-width across documents and inline/modal views. The range is
-160–600 pixels, limited by the space available for the document. Double-click
-the divider to reset, or focus it and use the arrow keys to resize.
+The drawer opens at 420 pixels wide, and long tab titles wrap so they remain
+readable. Drag its divider to resize it from 160–720 pixels, limited by the
+available space with a strip of content left exposed to dismiss it. The browser
+remembers the width across documents and inline/modal views. Double-click the
+divider to reset, or focus it and use the arrow keys to resize.
 
 The header groups actions separately from key task and meeting properties.
 **Copy** offers Google Docs and plain-text formats. **Properties** contains

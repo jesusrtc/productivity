@@ -1191,14 +1191,25 @@
     const body = overlay.querySelector('#assistantModalBody');
     const nav = overlay.querySelector('#assistantDocumentNav');
     const handle = overlay.querySelector('.assistant-tabs-resizer');
-    const key = 'lab.assistant.tabs-width.v1';
+    const key = 'lab.assistant.tabs-width.v2';
+    const legacyKey = 'lab.assistant.tabs-width.v1';
     const min = 160;
-    const max = () => Math.max(min, Math.min(600, body.clientWidth - 306));
+    // The drawer overlays the document; leave a 64px strip for moving back
+    // into content, plus the 18px trigger and 8px resize handle.
+    const max = () => Math.max(min, Math.min(720, body.clientWidth - 90));
     const width = () => Math.round(nav.getBoundingClientRect().width);
     let drag = null;
     try {
-      const saved = Number(localStorage.getItem(key));
-      if (saved >= min && saved <= 600) body.style.setProperty('--assistant-tabs-width', saved + 'px');
+      let saved = Number(localStorage.getItem(key));
+      if (!(saved >= min && saved <= 720)) {
+        const legacy = Number(localStorage.getItem(legacyKey));
+        if (legacy >= min && legacy <= 600) {
+          saved = Math.max(420, legacy);
+          localStorage.setItem(key, String(saved));
+          localStorage.removeItem(legacyKey);
+        }
+      }
+      if (saved >= min && saved <= 720) body.style.setProperty('--assistant-tabs-width', saved + 'px');
     } catch (_) { /* Resizing remains available without browser storage. */ }
     const update = value => body.style.setProperty('--assistant-tabs-width', Math.round(Math.max(min, Math.min(max(), value))) + 'px');
     const save = () => {
@@ -1235,7 +1246,7 @@
     });
     handle.addEventListener('dblclick', () => {
       body.style.removeProperty('--assistant-tabs-width');
-      try { localStorage.removeItem(key); } catch (_) {}
+      try { localStorage.removeItem(key); localStorage.removeItem(legacyKey); } catch (_) {}
     });
     const observer = new ResizeObserver(() => {
       handle.setAttribute('aria-valuemin', String(min));

@@ -35,6 +35,7 @@ const assert=(ok,message)=>{if(!ok)throw new Error(message)};
 const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw new Error('Timed out: '+fn)};
 const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null, pendingIndex=null, pendingDetail=null;
 const scope={workspace_id:'demo',vault:'client'};
+localStorage.setItem('lab.assistant.tabs-width.v1','210');
 let termSessions=[], termCurrentSession=null, termCurrentWorkspaceId=null;
 const termDeadSessions=new Set(), fileOpens=[];
 const _termActiveWorkspaceId=()=>scope.workspace_id, _termVaultId=()=>scope.vault;
@@ -297,12 +298,25 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
   await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:x+delta,y,button:'left',buttons:1});
   await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:x+delta,y,button:'left',clickCount:1});
  }
+ await revealTabs();
+ await evaluate(`(() => {
+  assert(localStorage.getItem('lab.assistant.tabs-width.v2')==='420','previous narrow width upgrades to the wider drawer');
+  const title=[...document.querySelectorAll('.assistant-record-title')].at(-1), previous=title.textContent;
+  title.textContent='Decision log and follow-up actions for the September product planning meeting';
+  assert(title.getBoundingClientRect().height>24&&title.scrollWidth<=title.clientWidth+1,'long nested tab titles wrap without clipping');
+  title.textContent=previous;
+ })()`);
  await dragBy(140);
- if((await geometry()).width!==350)throw new Error('Dragging must widen tabs from 210 to 350 pixels');
- await dragBy(-170);
+ if((await geometry()).width!==560)throw new Error('Dragging must widen tabs from 420 to 560 pixels');
+ await dragBy(-380);
  if((await geometry()).width!==180)throw new Error('Dragging must narrow tabs to 180 pixels');
  await dragBy(2000);
- await evaluate(`assert(document.getElementById('assistantModalDocument').getBoundingClientRect().width>=280,'drag leaves reading space')`);
+ await evaluate(`(() => {
+  const body=document.getElementById('assistantModalBody').getBoundingClientRect();
+  const drawer=document.getElementById('assistantTabsDrawer').getBoundingClientRect();
+  assert(body.right-drawer.right>=63,'wide drawer leaves content exposed for hover dismissal');
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===650,'overlay uses the available width in a narrow workspace');
+ })()`);
  await dragBy(-2000);
  if((await geometry()).width!==160)throw new Error('Minimum keeps tab controls usable');
  await dragBy(160);
@@ -320,7 +334,7 @@ if(await evaluate("document.getElementById('result').textContent") === 'PASS') {
   handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
   assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===304,'keyboard narrows tabs');
   handle.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
-  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===210,'double-click restores inline default');
+  assert(document.getElementById('assistantDocumentNav').getBoundingClientRect().width===420,'double-click restores the wider default');
  })()`);
  await send('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:false});
  await evaluate(`assert(getComputedStyle(document.querySelector('.assistant-tabs-resizer')).display==='none','mobile keeps horizontal tabs')`);

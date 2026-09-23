@@ -277,3 +277,5 @@
 
 - [Documents preserve Files visibility](documents-preserve-files-sidebar.md) — no automatic collapse or restoration; normal sidebar toggles persist while documents are open.
 - [Terminal clicks open linked documents](linked-terminal-click-opens-document.md) — explicit activation opens inline and reveals the task; polling only highlights, and newer navigation cancels pending opens.
+
+- [Document tabs need readable widths](document-tabs-readable-width.md) — 420px default drawer, wrapping titles, and more resizing room now that tabs overlay the document.

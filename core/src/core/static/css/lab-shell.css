@@ -2625,11 +2625,11 @@
 .assistant-task-branch { height:25px; }
 .assistant-task-row .assistant-status, .assistant-progress-label { font-size:11px; }
 .assistant-document-modal { width:min(1380px,96vw); height:min(860px,92vh); }
-.assistant-modal-body { --assistant-tabs-default-width:270px; position:relative; grid-template-columns:18px minmax(0,1fr); }
+.assistant-modal-body { --assistant-tabs-default-width:420px; position:relative; grid-template-columns:18px minmax(0,1fr); }
 .assistant-tabs-edge { display:flex; align-items:flex-start; justify-content:center; min-width:0; padding:18px 0 0; border:0; border-right:1px solid var(--border); background:var(--bg-primary); color:var(--text-dim); cursor:pointer; }
 .assistant-tabs-edge span { writing-mode:vertical-rl; font-size:10px; letter-spacing:.04em; padding:8px 1px; border-radius:4px; background:var(--bg-tertiary); }
 .assistant-tabs-edge:hover, .assistant-tabs-edge:focus-visible { color:var(--text-primary); outline:1px solid var(--accent); outline-offset:-1px; }
-.assistant-tabs-drawer { position:absolute; z-index:6; top:0; bottom:0; left:18px; width:calc(clamp(160px,var(--assistant-tabs-width,var(--assistant-tabs-default-width)),max(160px,calc(100% - 306px))) + 8px); display:grid; grid-template-columns:minmax(0,1fr) 8px; visibility:hidden; background:var(--bg-primary); box-shadow:10px 0 24px #0005; }
+.assistant-tabs-drawer { position:absolute; z-index:6; top:0; bottom:0; left:18px; width:calc(clamp(160px,var(--assistant-tabs-width,var(--assistant-tabs-default-width)),min(720px,max(160px,calc(100% - 90px)))) + 8px); display:grid; grid-template-columns:minmax(0,1fr) 8px; visibility:hidden; background:var(--bg-primary); box-shadow:10px 0 24px #0005; }
 .tabs-open > .assistant-tabs-drawer { visibility:visible; }
 .assistant-reading-area { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .assistant-reading-area > .assistant-document-pane { flex:1; min-height:0; }
@@ -2903,6 +2903,11 @@
 
 /* New and updated document tabs keep their markers until dismissed or expired. */
 .assistant-record-tab .assistant-record-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media(min-width:761px) {
+  .assistant-record-tab .assistant-record-title,
+  .assistant-series-overview span:last-child,
+  .assistant-document-nav-item strong { white-space:normal; overflow-wrap:anywhere; text-overflow:clip; }
+}
 .assistant-tab-activity { display:inline-block; flex:none; width:6px; height:6px; margin-left:auto; border-radius:50%; background:#7da4cc; }
 .assistant-tab-activity[data-activity-kind="New"] { background:#62bd89; }
 .assistant-tab-activity[hidden], .assistant-tab-menu [data-dismiss-tab-activity][hidden] { display:none; }
