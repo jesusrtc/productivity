@@ -295,14 +295,16 @@ def progress_map(rows):
     for row in rows:
         by_parent.setdefault(parent_key(row), []).append(row)
     result, visiting = {}, set()
-    def visit(row):
+    # Pass recursion explicitly so completed input/result trees are not held
+    # by a self-referencing closure until cyclic garbage collection.
+    def visit(recurse, row):
         identity = key(row)
         if identity in result:
             return result[identity]
         if identity in visiting:
             raise ValueError('Document parent cycle')
         visiting.add(identity)
-        children = [visit(child) for child in by_parent.get(identity, [])]
+        children = [recurse(recurse, child) for child in by_parent.get(identity, [])]
         children = [child for child in children if child['tracked']]
         tracked = tracks_task(row) or bool(children)
         raw = row.get('status') or 'not_started'
@@ -321,7 +323,7 @@ def progress_map(rows):
         visiting.remove(identity)
         return result[identity]
     for row in rows:
-        visit(row)
+        visit(visit, row)
     from lab import assistant_tasks as tasks
     for row in rows:
         if row.get('task_format') != tasks.FORMAT or row.get('parent'):

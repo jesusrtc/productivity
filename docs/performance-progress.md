@@ -6605,3 +6605,106 @@ open for the retained Assistant/API failures and earlier search, cold UI,
 terminal creation/loaded typing and physical parity gaps. Main merge remains
 pending after the earlier automatic approval rejection; no merge, push or live
 server restart was attempted.
+
+## Checkpoint: release completed Assistant progress trees
+
+The next bounded change removes three self-referencing recursive closures in
+`assistant_records.progress_map`, `assistant_tasks.normalize`, and
+`assistant_tasks.summary`. Each helper now receives its recursive callable as an
+argument. The algorithms still visit the same branches, copy the same task
+data, derive the same statuses and raise the same validation errors. Completed
+calculations no longer keep their input or normalized copies alive until cyclic
+collection. Production GC policy, polling cadence and request semantics remain
+unchanged.
+
+Five lifetime regressions first failed against `d0c8100` and then passed with
+the candidate. They cover both legacy and document-owned task progress,
+normalization copies, populated summaries and empty summaries. Each test uses
+weak references and temporarily disables automatic collection, restoring its
+prior state afterward. Returned results remain usable and source data stays
+unchanged. The focused task/tree/complete-response suite passed all 58 checks.
+
+### Collection work and native latency
+
+The matching passive-GC diagnostics retained 500 notes, 100 subtabs, 5,000 mixed
+files per workspace, 2,500 Git changes, normal watchers, all first-use samples and
+80 native-browser actions. Coarse Assistant phase tracing was identical in both
+runs. Each run served 23 Assistant handlers and performed 70 progress-map calls.
+
+| Passive-GC diagnostic | Original | Candidate |
+| --- | ---: | ---: |
+| Collections | 590 | 189 |
+| Total collection time | 191.45 ms | 58.30 ms |
+| Maximum collection | 17.10 ms | 16.11 ms |
+| Objects collected | 853,877 | 10,249 |
+| Collections attributed to Assistant requests | 464 | 63 |
+| Collection time attributed to Assistant requests | 121.09 ms | 27.20 ms |
+| Progress-map median / maximum | 2.21 / 11.86 ms | 2.04 / 4.79 ms |
+
+Both retained GC enabled with thresholds `[2000, 10, 0]`, zero dropped events and
+zero uncollectable objects. Attribution uses the active request context;
+overlapping phases and thread intervals are not additive. These results establish
+less retained collection work, not an improvement in native tail latency.
+
+The diagnostic original had two Assistant misses, 211.5 and 228.7 ms. The
+candidate retained five: **414.1**, 202.8, 279.4, 204.1 and 265.9 ms. Its cold
+414.1 ms open overlapped only 0.015 ms of GC; the handler took 305.42 ms elapsed
+and 160.67 ms thread CPU, including a 242.00 ms cold snapshot. GC alone still
+does not explain the tail. Diagnostic browser/ASGI misses were 0/512 and 0/537
+before, 3/510 and 3/536 after. The candidate maxima were 357.90 and 354.33 ms.
+Every diagnostic view switch and workspace return stayed below 200 ms.
+
+Separate unprofiled native runs restored the original production files for the
+control, then restored the exact tested candidate for the final run:
+
+| Unprofiled native run | Assistant first | Assistant p50 | Assistant maximum | Assistant misses / 20 | Workspace maximum / 20 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original `d0c8100` | 160.9 ms | 160.9 ms | 216.9 ms | 4 | 152.9 ms |
+| Candidate | 157.4 ms | 168.4 ms | 200.6 ms | 1 | 167.5 ms |
+
+The original misses were 200.0, 212.2, 202.8 and 216.9 ms; the strict requirement
+is below 200 ms, so exactly 200.0 remains a failure. The candidate passed
+**79/80 actions**, with its 200.6 ms Assistant miss retained. All 40 view switches
+passed in each run, with maxima 49.8 and 55.4 ms. The original had zero misses
+among 452 browser requests and 478 ASGI requests, with maxima 188.90 and
+187.30 ms. The candidate had zero among 512 browser requests and **537 ASGI
+requests**, with maxima 164.50 and 163.14 ms. Polling over different runtimes
+accounts for differing request counts. Median latency did not improve in this
+pair; the smaller final tail does not erase the candidate diagnostic failures.
+
+All four native runs verified the complete rendered cards, sections and exact
+Markdown bytes on each of 20 visits, plus all 2,500 changed paths, 5,000 modified
+rows and 5,000 clean rows. All input clocks were valid. There were no browser
+errors, failed requests or HTTP error responses. Browser timing still measures
+native input through a render opportunity, not physical display or iTerm parity.
+
+### Stability checks for the requested checkpoint
+
+The final Assistant API/browser and diagnostic-guard suite recorded **317 passes
+and one known baseline failure**. The separate CLI suite passed **67**, for
+**384 passes and one baseline failure** overall. The failure remains
+`test_custom_attributes_browser`, timing out at the previously reproduced editor
+save wait. The earlier 58 focused passes overlap this coverage and are not added
+to the total. No new functional test failure appeared.
+
+Artifacts: `/tmp/lab-assistant-release-{before,after,native-control,native-after}-`
+`{browser,server}.json`, their logs, `/tmp/lab-assistant-release-summary.json`,
+`/tmp/lab-assistant-release-{lifetime-before,focused,core-tests,cli-tests}.log`,
+`/tmp/lab-assistant-release-retention-before.json`, and saved exact candidate
+files plus hashes in `/tmp/lab-assistant-release-candidate/`.
+
+The final standalone authenticated HTTP run verified all 500 notes/documents on
+20 unchanged reads and one fresh external Markdown title/body edit. All **21/21**
+requests stayed below 200 ms: first/maximum 98.19 ms, unchanged median 56.58 ms,
+fresh edit 93.32 ms. This retains full responses and first use, without prewarming.
+Reports are `/tmp/lab-assistant-release-http-after-{http,server}.json` and logs.
+
+All four native servers and the HTTP server stopped; the owned process/fixture
+inventory was empty. Both production files match the saved tested candidate,
+all three changed Python files parse, and `git diff --check` passes. Cleanup is
+recorded in `/tmp/lab-assistant-release-cleanup.json`. No user data, user tmux
+session, live server or main-checkout source file was changed.
+
+This is a checkpoint of reduced collection work with functional regression
+coverage. The full latency goal remains open for the recorded Assistant tails
+and the previously documented search, cold UI, terminal and physical-parity gaps.

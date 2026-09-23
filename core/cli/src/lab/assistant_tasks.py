@@ -68,8 +68,10 @@ def normalize(tasks):
     children = {}
     for task in tasks:
         children.setdefault(task.get('parent_id'), []).append(task)
-    def visit(task):
-        nested = [visit(child) for child in children.get(task['id'], [])]
+    # An explicit recursive argument lets the normalized tree be released
+    # with its caller instead of being retained by a closure cycle.
+    def visit(recurse, task):
+        nested = [recurse(recurse, child) for child in children.get(task['id'], [])]
         status = task.get('status', 'done' if task.get('done') else 'not_started')
         if not nested:
             task.pop('status_override', None)
@@ -88,7 +90,7 @@ def normalize(tasks):
         task['done'] = status in {'done','skipped'}
         return status
     for task in children.get(None, []):
-        visit(task)
+        visit(visit, task)
     return tasks
 
 
@@ -106,14 +108,14 @@ def summary(tasks):
     parents = {task.get('parent_id') for task in tasks}
     leaves = [task for task in tasks if task['id'] not in parents]
     pending = [task for task in leaves if task['status'] not in CLOSED]
-    def branches(task, status):
-        return sum(branches(child,status) for child in tasks if child.get('parent_id') == task['id']) or int(task['status'] == status)
+    def branches(recurse, task, status):
+        return sum(recurse(recurse,child,status) for child in tasks if child.get('parent_id') == task['id']) or int(task['status'] == status)
     roots = [task for task in tasks if not task.get('parent_id')]
     status = None if not tasks else 'cancelled' if all(task['status'] == 'cancelled' for task in roots) else 'done' if not pending else 'blocked' if any(task['status'] == 'blocked' for task in tasks) else 'in_progress' if any(task['status'] != 'not_started' for task in tasks) else 'not_started'
     return {'status':status,'automatic_status':status,'tracked':bool(tasks),'derived':bool(tasks),
             'completed':sum(task['status'] in {'done','skipped'} for task in leaves), 'total':len(leaves),
-            'pending':len(pending),'wip':sum(branches(task,'in_progress') for task in roots),
-            'blocked':sum(branches(task,'blocked') for task in roots)}
+            'pending':len(pending),'wip':sum(branches(branches,task,'in_progress') for task in roots),
+            'blocked':sum(branches(branches,task,'blocked') for task in roots)}
 
 
 def read(root, reference):
