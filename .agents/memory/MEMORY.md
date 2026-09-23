@@ -265,7 +265,7 @@
 
 - [Workspace completion indicators](workspace-completion-indicators.md) — inactive workspace tabs blink for unreviewed terminal work; shared views use one acknowledgement.
 
-- [Linked documents open inline](linked-documents-inline-navigation.md) — sidebar navigation and terminal-driven highlighting, no duplicate pill badge, temporary Files collapse with draft-preserving Expand.
+- [Linked documents open inline](linked-documents-inline-navigation.md) — sidebar navigation, terminal-driven opening and highlighting, visible Files and draft-preserving Expand.
 
 - [Assistant documents open inline](assistant-documents-open-inline.md) — single-click and keyboard open inline; double-click opens the modal, with drafts and navigation preserved.
 - [Recent tab activity uses dots](assistant-tab-activity-dots.md) — blue updates and green new tabs replace labels and rails, preserving dismissal and expiry.
@@ -274,3 +274,6 @@
 - [Document tabs reveal on hover](document-tabs-hover-drawer.md) — slim edge strip, temporary navigation drawer and persistent document/tab/heading reference.
 
 - [Document-linked terminal icon](terminal-linked-document-icon.md) — use the sidebar document glyph in terminal tabs and headers, with provider identity and status preserved.
+
+- [Documents preserve Files visibility](documents-preserve-files-sidebar.md) — no automatic collapse or restoration; normal sidebar toggles persist while documents are open.
+- [Terminal clicks open linked documents](linked-terminal-click-opens-document.md) — explicit activation opens inline and reveals the task; polling only highlights, and newer navigation cancels pending opens.

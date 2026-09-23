@@ -20,14 +20,15 @@ terminals you want with **+ New** in the terminal bar, then link them:
 Select documents from **Documents** in a workspace's Files sidebar, or from
 **Linked documents** in Assistant. The Assistant list is derived from its saved
 terminal links, including stopped terminals, with one entry per document.
-Selecting a terminal highlights its document there without opening it.
+Clicking a linked terminal highlights its document there and opens it immediately
+in the main file area, revealing the associated task when there is one. Background
+terminal refreshes update the highlight without changing the open document.
 Terminal tabs do not repeat a document link badge.
 
 Single-click a document row in Assistant or the workspace sidebar to open it
-in the main file area. Double-click opens it directly in a modal. Files temporarily
-collapses to make room for the document's own tabs; its edge handle can reopen
-it. Closing the document or navigating elsewhere restores the previous Files
-visibility without changing the saved preference. Existing content drafts and
+in the main file area. Double-click opens it directly in a modal. Files stays
+visible alongside the document. Its show/hide control remains available and
+remembers your choice, including changes made while a document is open. Existing content drafts and
 terminal sessions are preserved. **Expand** opens the same document in a modal,
 where the terminal can be placed on the right or bottom. Inline documents use
 the normal terminal panel; **Show terminal** selects an existing linked session.

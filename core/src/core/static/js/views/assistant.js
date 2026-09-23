@@ -23,7 +23,6 @@
     modalKind: '',
     inlineHost: null,
     inlinePending: false,
-    inlineSidebarCollapsed: false,
     documentClickTimer: null,
     request: 0,
     modalRequest: 0,
@@ -1253,18 +1252,16 @@
     const content = document.getElementById('content');
     inline = Boolean(inline && content);
     if (inline && !state.inlineHost) {
-      state.inlineSidebarCollapsed = document.body.classList.contains('sidebar-collapsed');
       state.inlineHost = document.createElement('div');
       state.inlineHost.id = 'assistantInlineHost';
       state.inlineHost.className = 'main assistant-inline-host';
       content.after(state.inlineHost);
       state.inlineHost.append(overlay);
-      document.body.classList.add('assistant-inline-document', 'sidebar-collapsed');
+      document.body.classList.add('assistant-inline-document');
     } else if (!inline && state.inlineHost) {
       document.body.append(overlay);
       state.inlineHost.remove(); state.inlineHost = null;
       document.body.classList.remove('assistant-inline-document');
-      document.body.classList.toggle('sidebar-collapsed', state.inlineSidebarCollapsed);
     }
     overlay.classList.toggle('assistant-document-inline', inline);
     const section = overlay.querySelector('.assistant-document-modal');
@@ -1330,10 +1327,11 @@
     const inline = options.inline ?? (wasOpen ? Boolean(state.inlineHost) : document.body.classList.contains('assistant-active'));
     state.inlinePending = inline;
     const request = ++state.modalRequest;
+    const isCurrent = () => request === state.modalRequest && (!options.isCurrent || options.isCurrent());
     overlay.setAttribute('aria-busy', 'true');
     try {
       let detail = await fetchDocument(kind, path);
-      if (request !== state.modalRequest) return;
+      if (!isCurrent()) return;
       let root = detail, rootKind = kind;
       if (detail.metadata?.schema === 2 && detail.root_path) {
         root = detail.root_path === detail.path ? detail : await fetchDocument(detail.root_kind, detail.root_path);
@@ -1344,7 +1342,7 @@
         root = parent ? await fetchDocument('task', parent.path) : detail;
         rootKind = parent ? 'task' : 'subtask';
       }
-      if (request !== state.modalRequest) return;
+      if (!isCurrent()) return;
       let showIndex = !focusHeading && detail.path === root.path && Boolean(root.tree?.children?.length || root.document_tasks);
       let terminalTask = null;
       if (options.linkedTask?.task_id) {
@@ -1374,13 +1372,13 @@
           }
         }
       }
-      if (request !== state.modalRequest) return;
+      if (!isCurrent()) return;
       state.modalRoot = root; state.modalKind = rootKind;
       state.modalCurrent = detail; state.modalMeetingPart = 'summary';
       state.modalIndex = showIndex;
       presentDocument(overlay, inline);
       await renderModal(focusHeading);
-      if (request === state.modalRequest) {
+      if (isCurrent()) {
         overlay.classList.add('active');
         openDocumentTerminal(detail);
         window.LabWorkspaceDocuments?.openDocument({assistant_root:state.data.root,document_id:root.tree?.id || root.metadata.id});
@@ -1391,7 +1389,7 @@
         return true;
       }
     } catch (error) {
-      if (request !== state.modalRequest) return;
+      if (!isCurrent()) return;
       if (!wasOpen) {
         presentDocument(overlay, inline);
         document.getElementById('assistantModalDocument').replaceChildren();
@@ -1409,16 +1407,22 @@
     if (!link?.document_id || !link?.assistant_root) throw new Error('This terminal has no linked task.');
     const request = ++state.modalRequest;
     state.inlinePending = Boolean(options.inline);
-    const response = await fetch('/api/assistant');
-    const data = await response.json();
-    if (request !== state.modalRequest) return;
-    if (!response.ok) throw new Error(data.detail || 'Could not load the linked document.');
-    if (data.root !== link.assistant_root) throw new Error('This terminal links to a different Assistant database.');
-    const row = (data.documents || []).find(row => row.id === link.document_id);
-    if (!row) throw new Error('The linked document is no longer available.');
-    state.data = data;
-    // Render over the current workspace without navigating its page or terminal.
-    return openDocumentModal(documentKind(row),row.path,'',{linkedTask:link,inline:Boolean(options.inline)});
+    try {
+      const response = await fetch('/api/assistant');
+      const data = await response.json();
+      if (request !== state.modalRequest || options.isCurrent && !options.isCurrent()) return;
+      if (!response.ok) throw new Error(data.detail || 'Could not load the linked document.');
+      if (data.root !== link.assistant_root) throw new Error('This terminal links to a different Assistant database.');
+      const row = (data.documents || []).find(row => row.id === link.document_id);
+      if (!row) throw new Error('The linked document is no longer available.');
+      state.data = data;
+      // Render over the current workspace without navigating its page or terminal.
+      return openDocumentModal(documentKind(row),row.path,'',{
+        linkedTask:link, inline:Boolean(options.inline), isCurrent:options.isCurrent,
+      });
+    } finally {
+      if (request === state.modalRequest) state.inlinePending = false;
+    }
   }
 
   function localImageUrl(documentPath, src) {

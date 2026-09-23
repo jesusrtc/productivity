@@ -9995,7 +9995,16 @@
       if (section !== _termHomeSection()) return;
     }
     if (request !== _termTabActivationSeq || !_termIsScopeActive(workspaceId)) return;
-    void _termOpenLinkedFile(session);
+    if (session.linked_task?.document_id && session.linked_task?.assistant_root && window.AssistantView) {
+      // Only explicit activation opens documents; polling merely updates the
+      // sidebar highlight. A document link takes precedence over file sync.
+      _termCancelPendingLinkedFileOpen();
+      window.LabWorkspaceDocuments?.selectTerminal(session, {workspace_id:workspaceId, vault:_termVaultId()});
+      const isCurrent = () => request === _termTabActivationSeq && _termIsScopeActive(workspaceId);
+      void window.AssistantView.openLinkedTask(session.linked_task, {inline:true, isCurrent}).catch(error => {
+        if (isCurrent()) explorerToast(error.message || 'Could not open the linked document.', true);
+      });
+    } else void _termOpenLinkedFile(session);
     // A click is an explicit retry, including when the socket died while parked.
     if (termDeadSessions.has(name)) {
       _termClearDead(name);
@@ -11368,7 +11377,6 @@
   function sidebarToggleCollapse() {
     document.body.classList.toggle('sidebar-collapsed');
     const shown = !document.body.classList.contains('sidebar-collapsed');
-    if (window.AssistantView?.isInlineDocument()) return;
     try { localStorage.setItem(_SIDEBAR_VIS_KEY_PREFIX + _sidebarViewSuffix(), shown ? '1' : '0'); } catch {}
   }
   function _sidebarApplyForView() {
@@ -11380,7 +11388,7 @@
       const v = localStorage.getItem(_SIDEBAR_VIS_KEY_PREFIX + sfx);
       if (v === '0') shown = false; else if (v === '1') shown = true;
     } catch {}
-    if (!window.AssistantView?.isInlineDocument()) document.body.classList.toggle('sidebar-collapsed', !shown);
+    document.body.classList.toggle('sidebar-collapsed', !shown);
     let pct = NaN;
     try { pct = parseFloat(localStorage.getItem(_SIDEBAR_PCT_KEY_PREFIX + sfx)); } catch {}
     if (!Number.isFinite(pct) || pct <= 0) {

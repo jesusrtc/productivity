@@ -33,8 +33,16 @@ def test_workspace_document_interactions_browser(client, owned_tasks, tmp_path):
     setup = r'''
 const assert=(ok,message)=>{if(!ok)throw new Error(message)};
 const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await new Promise(r=>setTimeout(r,5));}throw new Error('Timed out: '+fn)};
-const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null, pendingIndex=null;
+const calls=[], notices=[], documents=[]; let taskLinks=[], activeView=null, pendingIndex=null, pendingDetail=null;
 const scope={workspace_id:'demo',vault:'client'};
+let termSessions=[], termCurrentSession=null, termCurrentWorkspaceId=null;
+const termDeadSessions=new Set(), fileOpens=[];
+const _termActiveWorkspaceId=()=>scope.workspace_id, _termVaultId=()=>scope.vault;
+const _termIsScopeActive=id=>id===scope.workspace_id;
+const _termCancelPendingLinkedFileOpen=()=>{};
+const _termOpenLinkedFile=async session=>fileOpens.push(session.name);
+const termAttach=async(name,workspace)=>{termCurrentSession=name;termCurrentWorkspaceId=workspace;};
+const _SIDEBAR_VIS_KEY_PREFIX='test-sidebar-', _sidebarViewSuffix=()=>scope.workspace_id;
 const source={name:'same-running-process',logical_name:'claude',workspace_id:'demo',vault:'client',label:'Claude conversation',kind:'claude',agent:'claude',agent_session_id:'conversation',created_at:123,
   agent_activity:{state:'completed',completed_at:500,completion_id:'turn'}};
 function explorerToast(message,error){notices.push([message,error])}
@@ -48,7 +56,7 @@ window.fetch=async(url,options={})=>{
  calls.push([u.pathname,options.method||'GET',body]);
  let result={};
  if(u.pathname==='/api/assistant'){if(pendingIndex)await pendingIndex;result=FIX.index;}
- else if(u.pathname==='/api/assistant/note')result=FIX.details[u.searchParams.get('path')];
+ else if(u.pathname==='/api/assistant/note'){if(pendingDetail)await pendingDetail;result=FIX.details[u.searchParams.get('path')];}
  else if(u.pathname==='/api/term/task-terminals')result=taskLinks;
  else if(u.pathname==='/api/assistant/document-terminal'){assert(body.action==='status','opening must not create a process');result={state:'absent'}}
  else if(u.pathname==='/api/workspace-documents/attention')result={'client::demo':[source],'client::inactive':[source]};
@@ -72,6 +80,9 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  taskLinks=patch.linked_task?[{...source,state:'running',linked_task:FIX.link}]:[];
 }};
 '''
+    app = (STATIC / 'js/lab-app.js').read_text()
+    setup += app[app.index('  let _termTabActivationSeq ='):app.index('  function _termHomeAssociationHtml(session)')]
+    setup += app[app.index('  function sidebarToggleCollapse()'):app.index('  function _sidebarApplyForView()')]
     checks = r'''
 (async()=>{
  const W=LabWorkspaceDocuments;
@@ -94,15 +105,35 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  await LabDocumentTerminal.link(LabDocumentTerminal.dropContext(docRow),source,{workspaceId:'demo',vaultId:'client'});
  W.selectTerminal(taskLinks[0],scope);
  assert(docRow.classList.contains('terminal-selected'),'selecting a terminal highlights its document');
- assert(!document.querySelector('#assistantDocumentModal.active'),'terminal selection does not open the document');
+ assert(!document.querySelector('#assistantDocumentModal.active'),'passive terminal refresh only highlights the document');
  await W.mount(scope,document.getElementById('sidebar'),true);
  assert(document.querySelector('.workspace-document.terminal-selected'),'selection survives refresh');
  W.selectTerminal(source,{workspace_id:'other',vault:'client'});
  assert(!docRow.classList.contains('terminal-selected'),'selection never leaks between workspaces');
  W.selectTerminal(taskLinks[0],scope);
+ termSessions=[{...taskLinks[0],linked_file:{root:'/repo',path:'other.md'}}, {...source,name:'unlinked'}];
+ await _termActivateTab(source.name);
+ assert(termCurrentSession===source.name&&termCurrentWorkspaceId==='demo','terminal attaches immediately in its original workspace');
+ await until(()=>document.querySelector('#assistantInlineHost #assistantDocumentModal.active'));
+ assert(!sockets&&!fileOpens.length,'linked document takes precedence over file sync without creating a renderer');
+ assert(!document.body.classList.contains('sidebar-collapsed')&&getComputedStyle(document.getElementById('sidebar')).display!=='none','terminal click keeps Files visible');
+ AssistantView.closeInlineDocument();
+ // A newer unlinked terminal cancels a slow document open at either fetch stage.
+ for(const stage of ['index','detail']){
+  let finish;const pending=new Promise(resolve=>finish=resolve);
+  if(stage==='index')pendingIndex=pending;else pendingDetail=pending;
+  const count=calls.filter(row=>row[0]==='/api/assistant/note').length;
+  await _termActivateTab(source.name);
+  if(stage==='detail')await until(()=>calls.filter(row=>row[0]==='/api/assistant/note').length>count);
+  await _termActivateTab('unlinked');finish();
+  pendingIndex=null;pendingDetail=null;
+  await new Promise(resolve=>setTimeout(resolve,30));
+  assert(!document.querySelector('#assistantDocumentModal.active'),'newer terminal wins during '+stage+' fetch');
+ }
+ W.selectTerminal(taskLinks[0],scope);
  docRow.querySelector('button').click();
  await until(()=>document.querySelector('#assistantInlineHost #assistantDocumentModal.active'));
- assert(document.body.classList.contains('sidebar-collapsed'),'Files temporarily collapses');
+ assert(!document.body.classList.contains('sidebar-collapsed'),'Files stays visible when opening from the sidebar');
  assert(getComputedStyle(document.getElementById('content')).display==='none','inline document replaces main content');
  assert(document.querySelector('.assistant-document-modal').getAttribute('role')==='region','inline document is not a dialog');
  assert(!sockets&&!LabDocumentTerminal.watchCompletion(),'inline view reuses regular terminal panel');
@@ -118,7 +149,7 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  document.getElementById('assistantExpandDocument').click();
  assert(document.querySelector('.assistant-note-editor textarea')===draft&&draft.value==='Draft kept while expanding','Expand preserves editor and unsaved draft');
  await until(()=>sockets===1);
- assert(!document.body.classList.contains('sidebar-collapsed'),'Expand restores Files');
+ assert(!document.body.classList.contains('sidebar-collapsed'),'Expand keeps Files visible');
  assert(document.body.classList.contains('workspace-active'),'opening preserves workspace');
  const modal=document.querySelector('.assistant-document-modal');
  const select=document.querySelector('select[data-terminal-placement]');
@@ -165,8 +196,14 @@ window.LabTaskTerminalBridge={patch:async(session,patch,context)=>{
  assert(document.querySelector('.workspace-document.terminal-selected'),'Assistant selection highlight');
  document.body.classList.add('sidebar-collapsed');
  await AssistantView.openLinkedTask(FIX.link,{inline:true});
+ assert(document.body.classList.contains('sidebar-collapsed'),'opening preserves a manually collapsed sidebar');
+ sidebarToggleCollapse();
+ assert(localStorage.getItem('test-sidebar-demo')==='1','Files toggle persists while a document is open');
  AssistantView.closeInlineDocument();
- assert(document.body.classList.contains('sidebar-collapsed'),'original collapsed preference restored');
+ assert(!document.body.classList.contains('sidebar-collapsed'),'closing preserves the latest Files visibility');
+ await AssistantView.openLinkedTask(FIX.link,{inline:true});sidebarToggleCollapse();
+ AssistantView.closeInlineDocument();
+ assert(document.body.classList.contains('sidebar-collapsed')&&localStorage.getItem('test-sidebar-demo')==='0','closing also preserves an explicit collapse');
  assert(document.getElementById('content').textContent==='Original file content','file content preserved after close');
  document.body.classList.remove('sidebar-collapsed');
  let resolveIndex;pendingIndex=new Promise(resolve=>resolveIndex=resolve);
