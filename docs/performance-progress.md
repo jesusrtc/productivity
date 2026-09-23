@@ -3978,3 +3978,38 @@ includes exact suffix corruption/ahead/gap rejection, separate parse/render
 continuity, partial frames, real PTY input retention and resize, minimum geometry,
 producer metadata with/without input tracing, and CLI/browser fixture guards.
 `node --check` and `git diff --check` passed.
+
+### Follow-up experiment — available PTY reads (not retained)
+
+A candidate drained available short reads until EAGAIN, bounded by 64 reads and
+64 KiB per callback. Two real-pipe regression cases failed on the prior behavior
+and passed on the candidate, verifying exact UTF-8/ANSI bytes, coalescing, EOF,
+keyboard-reader cancellation and bounded callback work. The focused terminal,
+connection and timing suite passed **77 tests**. Candidate and test are archived
+at `/tmp/lab-pty-drain-rejected.patch` and `/tmp/lab-pty-drain-rejected-test.py`.
+
+The matching 1,200-key diagnostic workload did **not** establish an improvement:
+**16 keys failed** versus five in the preceding baseline diagnostic; maxima
+were **61.7/60.8 ms**. All input and load validations passed, as did API budgets,
+but source batch writes still reached **28.66 ms**. The quiet-output phase had
+1,670 received frames versus 1,799, while the loaded phase had 9,325 versus
+4,138. Both loaded phases generated 300 source batches / 714,300 source bytes.
+The different number of tiny-frame bursts means these totals cannot be used as
+a clean causal frame-reduction comparison. The production change and its tests
+were removed; the implementation remains at the pre-experiment behavior.
+Artifacts: `/tmp/lab-pty-drain-diagnostic-{browser,server,cpu,summary}.json`,
+`/tmp/lab-output-typing-diagnostic-summary.json`, and the baseline/candidate test
+logs. The candidate's owned terminal was removed and server stopped.
+
+A further environment detail matters for the next comparison: the fixture's
+fresh `LAB_HOME` has no tmux generation state, so `tmux_sockets.default_state()`
+routes its uniquely owned sessions to the **default tmux server**. Its Lab
+server/browser/configuration are disposable, but its tmux server is shared if
+one already exists. This was also true of the earlier terminal measurements.
+Do not call that transport fully isolated or attribute shared-server contention
+to Lab without a controlled comparison. No other terminal or socket was changed.
+
+Next: distinguish shared tmux scheduling from byte-pump and browser work, retain
+normal/default-transport measurements, and add any fully owned transport test as
+an explicitly separate diagnostic. Browser CPU `(program)` samples do not name
+a cause; any new Chrome trace must check actual time coverage and preserve misses.

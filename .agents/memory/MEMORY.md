@@ -1,5 +1,7 @@
 # Memory index
 
+- [Disposable fixtures use the default tmux generation](terminal-fixtures-use-default-tmux-generation.md) — owned sessions and HTTP/browser fixtures can still share the default tmux server; keep transport controls separate and never change user sessions
+
 - [Terminal output load has independent proof](terminal-output-load-has-independent-proof.md) — native typing during scrolling output verifies producer bytes, exact input continuity and actual rendered load, retaining every latency miss
 
 - [Polling snapshots reuse native entries](polling-snapshots-reuse-native-entries.md) — reduce snapshot bookkeeping while preserving fresh metadata, complete event detection and normal watcher policy
