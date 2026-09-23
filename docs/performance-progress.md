@@ -4296,3 +4296,129 @@ logs, `/tmp/lab-pty-batch-{before,after}-runs.json`,
 `/tmp/lab-pty-batch-comparison.json`, `/tmp/lab-pty-batch-final-tests.log`,
 and the rejected `/tmp/lab-pty-batch-rejected.patch` / test archive.
 No production timing, buffering or tmux configuration change remains.
+
+## 2026-09-23 — Isolate producer stalls before the browser boundary
+
+A component control uses the existing scrolling-output producer directly under
+a PTY, or inside a newly created private tmux server attached through a PTY.
+Both paths retain 49×47 producer geometry, 40 colored lines per 50 ms, the exact
+LCG input and a 25 ms send schedule. The controller drains output and records
+source batch writes and input receipt. It verifies every input hash and byte
+count; direct PTY received-byte counts must also match all source writes.
+
+This is explicitly a transport diagnostic, not a UI or iTerm latency result:
+it has no WebSocket, browser rendering, Lab polling or Git workload. It does not
+answer terminal capability queries as xterm does. It uses private tmux's loaded
+configuration rather than applying Lab's session-specific wheel settings. The
+same generated producer function is used, but its marker is a hyphenated UUID.
+These differences prevent substituting its results for the native browser
+workload or attributing every browser miss to tmux.
+
+An initial four-run smoke used `select` for controller readiness and exposed up
+to 10.10 ms of input-schedule lateness. It is retained separately in
+`/tmp/lab-pty-boundary-smoke.json`. The extended fixed A/B/B/A sequence uses the
+platform's default selector (kqueue here), keeping actual send times and all
+schedule lateness. Each run retains 600 inputs and 302 source batches.
+
+| Path | Batch write median / p95 / max | Batches >10 ms | Input send → source read p95 / max | PTY reads |
+| --- | ---: | ---: | ---: | ---: |
+| Direct A1 | 0.086 / 0.132 / 0.279 ms | 0 | 0.093 / 2.989 ms | 1,505 |
+| Private tmux B1 | 0.235 / 12.638 / 15.531 ms | 75 | 12.305 / 15.633 ms | 76,485 |
+| Private tmux B2 | 0.228 / 12.219 / 12.959 ms | 39 | 11.861 / 13.079 ms | 40,521 |
+| Direct A2 | 0.085 / 0.136 / 0.346 ms | 0 | 0.085 / 2.944 ms | 1,505 |
+
+All 2,400 input characters matched. Both direct runs received exactly 792,117
+source bytes; tmux repaint output differed as expected. Maximum controller
+schedule lateness was 2.18 ms. Every owned producer/attach/server PID was checked
+gone after cleanup; private socket identity was checked before removal. No user
+server/session was sampled, reconfigured or stopped. Long source writes can
+therefore occur in this component path without browser or WebSocket work.
+The observation narrows the investigation; it does not identify the exact
+tmux/kernel mechanism or prove the browser contributes no additional delay.
+
+Artifacts: `/tmp/lab-pty-boundary-control.py`, `/tmp/lab-pty-boundary-abba.json`,
+and each recorded run directory's producer/transport JSON and received bytes.
+
+### Attachment speed control did not establish a fix
+
+XNU derives tty buffer watermarks from output speed, within fixed bounds.
+[XNU tty implementation](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/tty.c),
+[XNU tty bounds](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/sys/tty.h).
+A separate owned-only A/B/B/A control changed the attachment PTY from its
+observed 9,600 baud default to 115,200 before `tmux attach` executed. The producer
+pane stayed at 9,600 in every run; both speeds were read back. Nothing changed
+on a user pane, the default server or the production attachment path.
+
+For 600 inputs / 302 batches per run, default/high/high/default batch-write p95
+was **12.47 / 12.52 / 12.50 / 12.41 ms**; maxima were
+**16.90 / 15.36 / 13.97 / 16.06 ms**. Counts above 10 ms were
+**65 / 86 / 66 / 58**. Every input hash and geometry check passed, all owned PIDs
+were independently confirmed gone and private sockets were absent. This
+does not support changing the attachment speed. Source settings remain outside
+this comparison, and the component still lacks xterm capability negotiation.
+Artifacts: `/tmp/lab-pty-speed-control.py`,
+`/tmp/lab-pty-boundary-speed-abba.json` and its recorded per-run directories.
+
+### Optional source CPU diagnostics
+
+`--trace-terminal` output typing now records same-thread CPU time around each
+whole source batch write and input-footer write. It adds no per-syscall tracing.
+With diagnostics disabled there are no CPU clock calls or added CPU fields.
+These synchronous intervals can distinguish producer computation from waiting;
+they do not by themselves identify which downstream process causes waiting.
+
+**36 focused tests passed** for output typing, exact echo readers, diagnostic
+exports and server timing. Real PTY tests retain resize, source byte/hash and
+live-after-report guarantees. They validate traced CPU intervals and run the
+untraced producer with a CPU clock that raises if called. The log is
+`/tmp/lab-output-cpu-tests.log`.
+
+The direct/attachment-speed controls above used the producer from `f059707`,
+before adding these CPU fields; their full generated programs are retained.
+The following native runs use the new diagnostics and the unchanged production
+code, normal polling, 5,000 mixed files, 2,500 Git changes and 30 updates each.
+
+| Transport | Failed keys (>50 ms) | Output / loaded maximum | Browser / server API maximum |
+| --- | ---: | ---: | ---: |
+| Shared | 19/1,200 | 61.2 / 75.7 ms | 87.7 / 76.77 ms (419/450 requests) |
+| Private | 3/1,200 | 54.6 / 40.1 ms | 135.1 / 133.43 ms (395/433 requests) |
+
+All 2,400 characters passed source hash and independent parse/render checks.
+Both phases retained advancing rendered output, each run completed 31 sidebar
+refreshes, and Git/clock/transport checks passed. There were no browser long
+tasks. Both HTTP servers stopped, the private server PID was independently
+confirmed gone and its socket absent. These are diagnostic runs, not a passing
+final typing result; all 22 misses remain reported.
+
+The shared source had 34 batches exceeding 10 ms, using only
+0.017–0.050 ms of source-thread CPU apiece. Its longest write took **35.057 ms**
+with **0.037 ms CPU**. The private source had 21 such batches, using
+0.018–0.098 ms CPU; its longest took **22.398 ms** with **0.098 ms CPU**.
+Most elapsed time is therefore not producer computation. The three private
+misses read their input 22.50–24.40 ms after the measured start and spent only
+0.018–0.019 ms CPU building/writing their footer. Other shared misses also
+include browser queueing or delays after the source read, so this does not
+assign every stage of the input-to-render budget to one cause.
+
+Artifacts: `/tmp/lab-output-transport-source-cpu-{shared,private}-{browser,server,transport,summary}.json`,
+logs, `/tmp/lab-source-cpu-runs.json` and `/tmp/lab-source-cpu-comparison.json`.
+
+### Source speed control also did not establish a fix
+
+The complementary component A/B/B/A sequence changed only its owned producer
+pane to 115,200; its attachment stayed at 9,600. Every setting was read back.
+It used the new CPU-instrumented producer in all four runs, each with 600 exact
+inputs and 302 batches. Default/high/high/default write p95 was
+**12.56 / 12.41 / 12.45 / 12.75 ms**, maxima
+**13.46 / 15.80 / 12.99 / 13.86 ms**, and batches above 10 ms
+**99 / 101 / 95 / 92**. This also provides no basis for changing production tty
+speed. Every input/geometry check passed and owned resources were cleaned up.
+Artifacts: `/tmp/lab-pty-source-speed-control.py`,
+`/tmp/lab-pty-boundary-source-speed-abba.json` and its per-run directories.
+
+The retained change is optional measurement support only. No production
+buffering, baud rate, tmux configuration or session behavior changed. Active
+output typing, earlier IME/cold-navigation outliers, remaining UI/API coverage
+and physical/iTerm parity still require work. Main merge remains pending after
+the earlier automatic approval rejection; no main merge, push or live restart
+was attempted.

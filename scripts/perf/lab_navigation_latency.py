@@ -52,7 +52,7 @@ parser.add_argument('--document-edit-input', choices=['replace', 'append'], defa
 parser.add_argument('--server-timings', type=Path, help='Write isolated ASGI and terminal-handler timings to a JSON sidecar')
 parser.add_argument('--trace-sessions', action='store_true', help='Also time terminal discovery/metadata functions (requires --server-timings)')
 parser.add_argument('--trace-files', action='store_true', help='Also time file-list handlers, guarded scans, pending lookups and response serialization (requires --server-timings)')
-parser.add_argument('--trace-terminal', action='store_true', help='Time owned terminal WebSocket/PTY operations without payloads (requires --typing or --terminal-tabs, and --server-timings)')
+parser.add_argument('--trace-terminal', action='store_true', help='Time owned WebSocket/PTY operations without payloads, plus producer CPU for output typing (requires --typing or --terminal-tabs, and --server-timings)')
 parser.add_argument('--trace-gc', action='store_true', help='Observe server garbage-collection pauses without changing runtime policy (requires --server-timings)')
 parser.add_argument('--trace-watchers', action='store_true', help='Time complete watcher snapshots/diffs, watch refreshes and index rebuilds without changing their policy (requires --server-timings)')
 parser.add_argument('--trace-file-scans', action='store_true', help='Time file handlers, guarded workers and serialization without per-notebook tracing (requires --server-timings)')

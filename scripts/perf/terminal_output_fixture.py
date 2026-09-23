@@ -1,4 +1,4 @@
-"""Owned TUI-style output load: scrolling log plus a verifiable input footer."""
+"""Owned scrolling TUI; optional coarse thread CPU distinguishes work from waiting."""
 from __future__ import annotations
 
 import inspect
@@ -79,11 +79,13 @@ def _output_loop(marker, report_path, trace_input=False):
                 break
             if any(value < 97 or value > 122 for value in data):
                 raise RuntimeError('Unexpected input in owned output fixture')
+            input_cpu = time.thread_time_ns() if trace_input else None
             typed.extend(data)
             write(footer())
             if trace_input:
                 inputs.append({'end': len(typed), 'bytes': len(data),
-                               'readEpoch': received, 'writeEpoch': time.time() * 1000})
+                               'readEpoch': received, 'writeEpoch': time.time() * 1000,
+                               'threadCpuMs': (time.thread_time_ns() - input_cpu) / 1e6})
         if running and time.monotonic() >= next_output:
             # Keep the log in a scrolling region. Input stays in the footer;
             # cursor restoration makes its row the final output of each batch.
@@ -96,10 +98,16 @@ def _output_loop(marker, report_path, trace_input=False):
                 text += f'\r\n\x1b[{31+sequence%6}mload {sequence:08d} {fill}\x1b[0m'
             text += '\x1b[r\x1b8'
             start = time.time() * 1000
+            batch_cpu = time.thread_time_ns() if trace_input else None
             payload = text.encode()
             write(payload)
-            batches.append({'first': first, 'last': sequence, 'bytes': len(payload),
-                            'startEpoch': start, 'finishEpoch': time.time() * 1000})
+            batch = {'first': first, 'last': sequence, 'bytes': len(payload),
+                     'startEpoch': start, 'finishEpoch': time.time() * 1000}
+            if trace_input:
+                # Coarse, same-thread CPU separates write work from waiting.
+                # Do not sample each syscall or affect untraced measurements.
+                batch['threadCpuMs'] = (time.thread_time_ns() - batch_cpu) / 1e6
+            batches.append(batch)
             next_output += .05
             if next_output < time.monotonic() - .05:
                 next_output = time.monotonic() + .05

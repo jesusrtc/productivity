@@ -1,5 +1,7 @@
 # Memory index
 
+- [Producer CPU separates terminal work from waiting](terminal-source-cpu-separates-write-waiting.md) — optional whole-write CPU diagnostics expose upstream stalls; private PTY controls do not replace native rendering checks
+
 - [Fewer terminal frames do not prove lower typing latency](terminal-frame-count-is-not-typing-latency.md) — preserve native timing failures and source/render proof; zero-yield and timed burst candidates were rejected
 
 - [Periodic Git polling skips the cached repaint](periodic-git-poll-skips-cached-repaint.md) — refresh existing decorations once from live data, while newly mounted rows retain their fast cached paint

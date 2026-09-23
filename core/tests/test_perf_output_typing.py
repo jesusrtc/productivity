@@ -108,7 +108,12 @@ def test_output_fixture_retains_input_across_resize_and_exports_output_proof(tmp
     path = tmp_path / 'output.json'
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 49, 0, 0))
-    child = subprocess.Popen([sys.executable, '-u', '-c', _program(path, traced)],
+    program = _program(path, traced)
+    if not traced:
+        program = ("import time\n"
+                   "def reject_cpu_clock(): raise RuntimeError('CPU clock must remain disabled')\n"
+                   "time.thread_time_ns = reject_cpu_clock\n" + program)
+    child = subprocess.Popen([sys.executable, '-u', '-c', program],
                              stdin=slave, stdout=slave, stderr=subprocess.PIPE)
     os.close(slave)
     output = bytearray()
@@ -154,11 +159,17 @@ def test_output_fixture_retains_input_across_resize_and_exports_output_proof(tmp
         for index, row in enumerate(report['batches']):
             assert (row['first'], row['last']) == (index * 40 + 1, index * 40 + 40)
             assert row['finishEpoch'] >= row['startEpoch'] and row['bytes'] > 40 * 48
+            if traced:
+                assert 0 < row['threadCpuMs'] <= row['finishEpoch'] - row['startEpoch'] + 1
+            else:
+                assert 'threadCpuMs' not in row
         if traced:
             assert sum(row['bytes'] for row in report['inputs']) == len(typed)
             assert report['inputs'][-1]['end'] == len(typed)
             assert all(row['writeEpoch'] >= row['readEpoch'] for row in report['inputs'])
-            assert all(set(row) == {'end', 'bytes', 'readEpoch', 'writeEpoch'} for row in report['inputs'])
+            assert all(set(row) == {'end', 'bytes', 'readEpoch', 'writeEpoch', 'threadCpuMs'} for row in report['inputs'])
+            assert all(0 < row['threadCpuMs'] <= row['writeEpoch'] - row['readEpoch'] + 1
+                       for row in report['inputs'])
         else:
             assert report['inputs'] is None
         assert child.poll() is None, 'Export leaves the owned fixture alive for normal terminal cleanup'
