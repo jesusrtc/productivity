@@ -465,6 +465,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         app.state.workspace_snapshots.close()
+        app.state.sidebar_cache.close()
+        app.state.sidebar_directories.close()
         document_terminals.stop_supervisor()
         servers_route.stop_supervisor()
         _stop_vault_runtime(app)
@@ -480,6 +482,9 @@ def create_app() -> FastAPI:
     )
     from core.workspace_snapshot import Store
     app.state.workspace_snapshots = Store()
+    from core.sidebar_cache import Store as SidebarStore
+    app.state.sidebar_cache = SidebarStore()
+    app.state.sidebar_directories = SidebarStore(workers=1)
     from core.resource_monitor import Monitor
     app.state.resource_monitor = Monitor()
 

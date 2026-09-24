@@ -1,5 +1,7 @@
 # Memory index
 
+- [Project sidebars use disk snapshots](project-sidebar-disk-snapshots.md) — minute-old data is acceptable; shallow folders, bounded SQLite/Git work, exact uncommitted comparisons, and real six-repository evidence retain cold misses.
+
 - [Performance goal stopped at checkpoint](performance-goal-stopped-at-checkpoint.md) — finish the stable main checkpoint and push, then stop; remaining latency gaps are not claimed complete.
 - [Materialized tests wait for file snapshots](materialized-tests-wait-for-file-snapshots.md) — fixture reads wait for refreshed snapshots while production tests retain nonblocking caching behavior.
 - [History fixtures exclude live vault state](history-fixtures-exclude-live-vault-state.md) — isolate Git fixtures so backend log/index writes do not change the expected working-tree state.

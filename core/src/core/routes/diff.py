@@ -189,7 +189,7 @@ def _git_status_for_dir(key: str) -> dict:
 
     def _git(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            ["git", "-C", key, *args],
+            ["git", "--no-optional-locks", "-C", key, *args],
             capture_output=True, text=True, timeout=3,
         )
 
@@ -306,7 +306,7 @@ def _git_status_dir_allowed(resolved: Path, active_root: Path, *, include_projec
 
 
 @router.get("/api/git-status")
-def api_git_status(repo: str, request: Request):
+def api_git_status(repo: str, request: Request, cached: bool = False):
     """Per-file git status for the directory ``repo``.
 
     Returns ``{"files": {"rel/path": "M"|"A"|"D"|"R"|"U"}, "ignored":
@@ -331,6 +331,10 @@ def api_git_status(repo: str, request: Request):
     if not _git_status_dir_allowed(resolved, root, include_projects=auth.is_admin(auth.require_user(request))):
         raise HTTPException(status_code=400, detail="repo escapes vault")
     key = str(resolved)
+    if cached:
+        return _sidebar_cached_response(request.app.state.sidebar_cache.read(
+            root, ("status", key), lambda: _git_status_for_dir(key), group=key,
+        ))
     now = time.time()
     hit = _GIT_STATUS_CACHE.get(key)
     if hit and now - hit[0] < _GIT_STATUS_TTL:
@@ -353,7 +357,7 @@ _SIDEBAR_RECENT_GIT_MODES = {"uncommitted", "origin-main", "local-main", "last-2
 
 def _sidebar_git_run(directory: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", "-C", directory, "-c", "core.quotepath=false", *args],
+        ["git", "--no-optional-locks", "--literal-pathspecs", "-C", directory, "-c", "core.quotepath=false", *args],
         capture_output=True,
         timeout=5,
     )
@@ -366,11 +370,11 @@ def _sidebar_git_paths(result: subprocess.CompletedProcess) -> list[str]:
     return [path.strip("\n") for path in decoded.split("\0") if path.strip("\n")]
 
 
-def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
+def _sidebar_git_recent_files(directory: str, mode: str, uncommitted: list[str] | None = None) -> dict:
     try:
         inside = _sidebar_git_run(directory, "rev-parse", "--is-inside-work-tree")
-    except (subprocess.TimeoutExpired, OSError):
-        return {"files": [], "mode": mode, "available": False}
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {"files": [], "mode": mode, "available": False, "error": str(exc)}
     if inside.returncode != 0 or inside.stdout.strip() != b"true":
         return {"files": [], "mode": mode, "available": False}
 
@@ -402,9 +406,19 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
                     "files": [], "mode": mode, "available": False,
                     "base_ref": base_name,
                 }
-            add(_sidebar_git_run(
-                directory, "diff", "--name-only", "-z", "--relative", base_ref, "--", ".",
-            ))
+            candidates = None
+            if uncommitted is not None:
+                committed = _sidebar_git_run(directory, "diff", "--name-only", "-z", "--relative", base_ref, "HEAD", "--", ".")
+                if committed.returncode == 0:
+                    candidates = list(dict.fromkeys([*_sidebar_git_paths(committed), *uncommitted]))
+                    if len(candidates) > 128 or sum(map(len, candidates)) > 16000:
+                        candidates = None
+            if candidates is None or candidates:
+                # A fresh uncommitted projection plus the committed branch
+                # paths bounds the exact final diff. Git still checks against
+                # the base, so reverting a branch edit is correctly omitted.
+                add(_sidebar_git_run(directory, "diff", "--name-only", "-z", "--relative",
+                                     base_ref, "--", *(candidates if candidates is not None else ["."])))
         else:  # last-2-commits
             revisions = _sidebar_git_run(directory, "rev-list", "--max-count=2", "HEAD")
             if revisions.returncode != 0:
@@ -415,10 +429,13 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
                         directory, "show", "-m", "--first-parent", "--pretty=format:",
                         "--name-only", "-z", "--relative", sha, "--", ".",
                     ))
-    except (subprocess.TimeoutExpired, OSError):
-        return {"files": [], "mode": mode, "available": False}
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {"files": [], "mode": mode, "available": False, "error": str(exc)}
 
-    tracked = git_files.tracked_paths(directory)
+    try:
+        tracked = git_files.tracked_subset(directory, paths)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"files": [], "mode": mode, "available": False, "error": str(exc)}
     result = {"files": [path for path in paths if path in tracked], "mode": mode, "available": True}
     if mode in {"origin-main", "local-main"}:
         result["base_ref"] = base_name
@@ -426,7 +443,8 @@ def _sidebar_git_recent_files(directory: str, mode: str) -> dict:
 
 
 @router.get("/api/sidebar-recent-files")
-def api_sidebar_recent_files(repo: str, mode: str, request: Request):
+def api_sidebar_recent_files(repo: str, mode: str, request: Request, cached: bool = False,
+                             offset: int = 0, sort: str = "updated", include_dotfiles: bool = False, extensions: str = ""):
     """File paths for one Git-backed Recently updated quick selector."""
     if mode not in _SIDEBAR_RECENT_GIT_MODES:
         raise HTTPException(status_code=400, detail="Unsupported recent file mode")
@@ -438,7 +456,143 @@ def api_sidebar_recent_files(repo: str, mode: str, request: Request):
         raise HTTPException(status_code=400, detail=f"bad repo path: {exc}") from exc
     if not resolved.is_dir() or not _git_status_dir_allowed(resolved, root, include_projects=auth.is_admin(auth.require_user(request))):
         raise HTTPException(status_code=400, detail="repo escapes vault")
+    if cached:
+        return _sidebar_cached_response(request.app.state.sidebar_cache.read(
+            root, ("recent", str(resolved), mode),
+            lambda: _sidebar_cached_git_collect(request.app.state.sidebar_cache, root, resolved, mode), group=str(resolved),
+            page=_sidebar_recent_page(offset, sort, include_dotfiles, extensions),
+        ))
     return _sidebar_git_recent_files(str(resolved), mode)
+
+
+def _sidebar_recent_page(offset, sort, hidden, extensions):
+    if offset < 0 or sort not in {"updated", "name", "type"} or len(extensions) > 2048:
+        raise HTTPException(status_code=400, detail="Invalid recent files page")
+    return (offset, sort, hidden, tuple(value for value in extensions.split(',') if value))
+
+
+def _sidebar_cached_response(result):
+    if result.value is None:
+        return JSONResponse({"cache": result.metadata(), "detail": result.error or "Preparing view"},
+                            status_code=503 if result.error else 202,
+                            headers={"Retry-After": "0.15", "Cache-Control": "no-store"})
+    return JSONResponse({**result.value, "cache": result.metadata()}, headers={"Cache-Control": "no-store"})
+
+
+def _sidebar_entry(root: Path, path: Path) -> dict | None:
+    try:
+        stat = path.stat()
+        rel = path.relative_to(root).as_posix()
+        entry = {"name": rel, "path": rel, "type": "dir" if path.is_dir() else "file",
+                 "mtime": stat.st_mtime, "created": getattr(stat, "st_birthtime", None)}
+        return _with_symlink_fields(entry, path)
+    except OSError:
+        if path.is_symlink():
+            rel = path.relative_to(root).as_posix()
+            return _with_symlink_fields({"name": rel, "path": rel, "type": "file", "broken": True}, path)
+        return None
+
+
+def _sidebar_cached_git_collect(store, vault, root, mode):
+    uncommitted = None
+    if mode in {"local-main", "origin-main"}:
+        previous = store.peek(vault, ("recent", str(root), "uncommitted"))
+        if previous.value is not None and time.time() - previous.updated < 5:
+            uncommitted = [row['path'] for row in previous.value.get('entries', [])]
+    return _sidebar_project_recent(root, mode, uncommitted=uncommitted)
+
+
+def _sidebar_project_recent(root: Path, mode: str, minutes: int = 60, uncommitted=None) -> dict:
+    if mode == "mtime":
+        cutoff = time.time() - minutes * 60
+        entries = []
+        for rel in git_files.tracked_paths(root):
+            entry = _sidebar_entry(root, root / rel)
+            if entry and entry.get("mtime", 0) >= cutoff:
+                entries.append(entry)
+        baseline = worktree_recent.checkout_baseline(root)
+        if baseline:
+            worktree_recent.mark_checkout_files(root, baseline, [(row["path"], row) for row in entries])
+            entries = [row for row in entries if not row.get("checkout_generated")]
+        result = {"files": [row["path"] for row in entries], "mode": mode, "available": True}
+    else:
+        result = _sidebar_git_recent_files(str(root), mode, uncommitted)
+        if result.get("error"):
+            raise RuntimeError(result["error"])
+        entries = [entry for rel in result["files"]
+                   if (entry := _sidebar_entry(root, root / rel)) is not None and entry["type"] != "dir"]
+    for row in entries:
+        row.pop('name', None)  # path is the canonical name; avoid duplicating large trees on disk.
+        row.pop('created', None)
+        row["git_tracked"] = True
+        row["_extension"] = Path(row["path"]).suffix.lower().lstrip('.') or '__none__'
+    def natural(value):
+        return tuple((1, int(part)) if part.isdigit() else (0, part.casefold()) for part in re.split(r'(\d+)', value))
+    named = sorted(entries, key=lambda row: (natural(Path(row['path']).name), natural(row['path'])))
+    for rank, row in enumerate(named):
+        row['_rank_name'] = rank
+    for sort, key in (("type", lambda row: (natural(row['_extension']), row['_rank_name'])),
+                      ("updated", lambda row: (-row.get('mtime', 0), row['_rank_name']))):
+        for rank, row in enumerate(sorted(entries, key=key)):
+            row['_rank_' + sort] = rank
+    return {**{key: value for key, value in result.items() if key != 'files'}, "entries": entries}
+
+
+@router.get("/api/sidebar-directory")
+def api_sidebar_directory(path: str, request: Request, directory: str = ".",
+                          include_dotfiles: bool = False):
+    """Read just the requested folder; never walk a whole project on a click."""
+    root = _entry_root(path, request)
+    target = root if directory == "." else _entry_target(root, directory)
+    if not target.is_dir() or not _inside(target.resolve(), root):
+        raise HTTPException(status_code=400, detail="Invalid folder")
+
+    def collect():
+        entries = []
+        with os.scandir(target) as children:
+            for child in children:
+                if child.name == ".git" or not include_dotfiles and child.name.startswith("."):
+                    continue
+                entry = _sidebar_entry(root, Path(child.path))
+                if entry:
+                    entries.append(entry)
+        return {"entries": entries}
+
+    store = request.app.state.sidebar_cache
+    vault = auth.request_root(request)
+    # Directory membership changes invalidate immediately after explorer
+    # create/rename/delete, while in-place content edits retain the minute TTL.
+    result = request.app.state.sidebar_directories.read(
+        vault, ("directory", str(root), directory, include_dotfiles, target.stat().st_mtime_ns), collect)
+    # Warm only this requested project's important controls; no all-vault scan.
+    if directory == ".":
+        store.read(vault, ("recent", str(root), "uncommitted"),
+                   lambda: _sidebar_project_recent(root, "uncommitted"), wait=0, group=str(root))
+        store.read(vault, ("history", str(root)), lambda: _sidebar_project_history(root), wait=0, group=str(root))
+        store.read(vault, ("recent", str(root), "local-main"),
+                   lambda: _sidebar_cached_git_collect(store, vault, root, "local-main"), wait=0, group=str(root))
+    return _sidebar_cached_response(result)
+
+
+@router.get("/api/sidebar-mtime")
+def api_sidebar_mtime(path: str, request: Request, minutes: int = 60, offset: int = 0,
+                      sort: str = "updated", include_dotfiles: bool = False, extensions: str = ""):
+    root = _entry_root(path, request)
+    minutes = max(1, min(minutes, 525600))
+    return _sidebar_cached_response(request.app.state.sidebar_cache.read(
+        auth.request_root(request), ("mtime", str(root), minutes),
+        lambda: _sidebar_project_recent(root, "mtime", minutes), group=str(root),
+        page=_sidebar_recent_page(offset, sort, include_dotfiles, extensions),
+    ))
+
+
+def _sidebar_project_history(root: Path) -> dict:
+    repo_root, repo_rel = _entry_git_context(root, root)
+    since = int(time.time()) - 60 * 86400
+    page = _entry_history_page(repo_root, repo_rel, follow=False, limit=20,
+                               offset=0, since=since, revision="")
+    return {**page, "file": ".", "repo": str(repo_root), "repo_file": repo_rel,
+            "since": since, "can_load_older": bool(page["revision"])}
 
 
 @router.get("/api/notebook")
@@ -1317,6 +1471,7 @@ def workspace_entry_history(
     offset: int = 0,
     since: int = 0,
     revision: str = "",
+    cached: bool = False,
 ):
     """Read local status separately from bounded, snapshot-pinned commit pages.
 
@@ -1329,6 +1484,12 @@ def workspace_entry_history(
     if offset < 0 or since < 0 or (revision and not _ENTRY_SHA_RE.fullmatch(revision)):
         raise HTTPException(status_code=400, detail="Invalid history page")
     root = _entry_root(path, request)
+    if (cached and file == "." and phase == "commits" and limit == 20 and not offset and not revision
+            and abs(since - (int(time.time()) - 60 * 86400)) <= 120):
+        return _sidebar_cached_response(request.app.state.sidebar_cache.read(
+            auth.request_root(request), ("history", str(root)),
+            lambda: _sidebar_project_history(root), group=str(root),
+        ))
     # Only this read endpoint accepts the root; explorer mutations must still
     # reject it so rename/delete cannot target an entire workspace.
     target = root if file == "." else _entry_target(root, file)

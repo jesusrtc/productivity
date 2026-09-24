@@ -1,0 +1,1184 @@
+{
+  "samples": [
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 653,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 133,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 30,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 50,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 580,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 69,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 35,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 35,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 35,
+      "repo": "linux",
+      "round": 0
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 812,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 106,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 28,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 51,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 812,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 124,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 34,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 44,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 32,
+      "repo": "llvm-project",
+      "round": 0
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 352,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 74,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 49,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 294,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 50,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 37,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 48,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 31,
+      "repo": "kubernetes",
+      "round": 0
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 165,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 69,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 29,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 46,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 164,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 70,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 28,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 49,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 32,
+      "repo": "cpython",
+      "round": 0
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 350,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 63,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 32,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 49,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 349,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 66,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 32,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 50,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 30,
+      "repo": "rust",
+      "round": 0
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 175,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 47,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 31,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 50,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 136,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 65,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 34,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 47,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 30,
+      "repo": "git",
+      "round": 0
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 81,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 36,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 28,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 49,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 50,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 31,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 46,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 30,
+      "repo": "linux",
+      "round": 1
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 112,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 27,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 28,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 48,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 46,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 30,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 43,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 33,
+      "repo": "llvm-project",
+      "round": 1
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 154,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 23,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 25,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 94,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 46,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 34,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 27,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 200,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 22,
+      "repo": "kubernetes",
+      "round": 1
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 127,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 30,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 25,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 60,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 45,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 47,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 30,
+      "repo": "cpython",
+      "round": 1
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 113,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 33,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 48,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 49,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 18,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 30,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 48,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 27,
+      "repo": "rust",
+      "round": 1
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 128,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 25,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 25,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 66,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 33,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 29,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 23,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 43,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 29,
+      "repo": "git",
+      "round": 1
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 100,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 24,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 32,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 49,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 50,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 31,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 26,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 44,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 24,
+      "repo": "linux",
+      "round": 2
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 114,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 29,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 23,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 47,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 45,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 32,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 27,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 45,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 31,
+      "repo": "llvm-project",
+      "round": 2
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 364,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 35,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 31,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 53,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 37,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 20,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 28,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 132,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 34,
+      "repo": "kubernetes",
+      "round": 2
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 165,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 28,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 34,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 231,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 39,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 23,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 26,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 42,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 32,
+      "repo": "cpython",
+      "round": 2
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 160,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 34,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 29,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 52,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 49,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 30,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 31,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 45,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 19,
+      "repo": "rust",
+      "round": 2
+    },
+    {
+      "action": "project",
+      "input": "mouse",
+      "ms": 143,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "uncommitted",
+      "input": "mouse",
+      "ms": 30,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "local-main",
+      "input": "mouse",
+      "ms": 32,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "history",
+      "input": "mouse",
+      "ms": 109,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "worktree",
+      "input": "select-change",
+      "ms": 46,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "worktree-uncommitted",
+      "input": "mouse",
+      "ms": 32,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "worktree-local-main",
+      "input": "mouse",
+      "ms": 37,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "worktree-history",
+      "input": "mouse",
+      "ms": 40,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "return-main",
+      "input": "select-change",
+      "ms": 29,
+      "repo": "git",
+      "round": 2
+    },
+    {
+      "action": "large-time-project",
+      "input": "mouse",
+      "ms": 147,
+      "repo": "llvm-project"
+    },
+    {
+      "action": "large-time-filter",
+      "input": "mouse",
+      "ms": 8402,
+      "repo": "llvm-project"
+    },
+    {
+      "action": "large-time-next-page",
+      "input": "mouse",
+      "ms": 410,
+      "repo": "llvm-project"
+    },
+    {
+      "action": "return-refresh-project",
+      "input": "mouse",
+      "ms": 81,
+      "repo": "git"
+    },
+    {
+      "action": "refresh-baseline",
+      "input": "mouse",
+      "ms": 34,
+      "repo": "git"
+    }
+  ],
+  "errors": [],
+  "timing": "CDP dispatch to matching content and paint opportunity",
+  "domElements": 2312,
+  "heap": {
+    "usedSize": 5446440,
+    "totalSize": 10485760,
+    "embedderHeapUsedSize": 24037760,
+    "backingStorageSize": 2213424
+  },
+  "largeTimeHeap": {
+    "usedSize": 4819340,
+    "totalSize": 7077888,
+    "embedderHeapUsedSize": 12667272,
+    "backingStorageSize": 2321435
+  },
+  "backgroundRefreshMs": 47374
+}

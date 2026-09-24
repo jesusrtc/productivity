@@ -1,0 +1,4851 @@
+{
+  "fixtures": [
+    {
+      "name": "linux",
+      "path": "/private/tmp/lab-large-repositories/linux",
+      "worktree": "/private/tmp/lab-large-repositories/.worktrees/linux",
+      "head": "62f4c998b297cf233997a2b4cd6fc2d2df0319c9",
+      "tracked": 96041
+    },
+    {
+      "name": "llvm-project",
+      "path": "/private/tmp/lab-large-repositories/llvm-project",
+      "worktree": "/private/tmp/lab-large-repositories/.worktrees/llvm-project",
+      "head": "50c52f53edd2fde8d699ce17e7e35edb5e281e85",
+      "tracked": 185249
+    },
+    {
+      "name": "kubernetes",
+      "path": "/private/tmp/lab-large-repositories/kubernetes",
+      "worktree": "/private/tmp/lab-large-repositories/.worktrees/kubernetes",
+      "head": "2db33713681c8a788cea756b93cba78df83531fa",
+      "tracked": 31394
+    },
+    {
+      "name": "cpython",
+      "path": "/private/tmp/lab-large-repositories/cpython",
+      "worktree": "/private/tmp/lab-large-repositories/.worktrees/cpython",
+      "head": "1cdd590cb547597ab64b20c4b8a0c5b5b2f62b7a",
+      "tracked": 6380
+    },
+    {
+      "name": "rust",
+      "path": "/private/tmp/lab-large-repositories/rust",
+      "worktree": "/private/tmp/lab-large-repositories/.worktrees/rust",
+      "head": "6eeff9a52c3e35c4c4cbf5651f342dcd2191866f",
+      "tracked": 63125
+    },
+    {
+      "name": "git",
+      "path": "/private/tmp/lab-large-repositories/git",
+      "worktree": "/private/tmp/lab-large-repositories/.worktrees/git",
+      "head": "0f8e75abebff0877cae681a3d5ff31ac47f54220",
+      "tracked": 4855
+    }
+  ],
+  "samples": [
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 0,
+      "ms": 8.06,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 1,
+      "ms": 3.14,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 2,
+      "ms": 6.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 3,
+      "ms": 5.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 4,
+      "ms": 2.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 5,
+      "ms": 2.0,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.74,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.84,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.84,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.69,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.47,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.56,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 4.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 6.06,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 6.25,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 6.1,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 6.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 5.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 6.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 5.9,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 5.93,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 0,
+      "ms": 5.94,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 1,
+      "ms": 5.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 2,
+      "ms": 5.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 3,
+      "ms": 5.65,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 4,
+      "ms": 6.13,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 5,
+      "ms": 5.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 6,
+      "ms": 5.75,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 7,
+      "ms": 5.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 8,
+      "ms": 5.62,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "path",
+      "action": "history",
+      "sample": 9,
+      "ms": 5.92,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 0,
+      "ms": 17.19,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 1,
+      "ms": 14.59,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 2,
+      "ms": 8.27,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 3,
+      "ms": 15.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 4,
+      "ms": 8.63,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 5,
+      "ms": 8.19,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 6,
+      "ms": 7.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 7,
+      "ms": 6.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 8,
+      "ms": 4.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 9,
+      "ms": 2.92,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 2.08,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 2.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 2.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 2.21,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 2.06,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 2.13,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 6.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 9.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 8.99,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 9.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 10.01,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 10.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 11.13,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 9.01,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 10.08,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 9.95,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 9.3,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 11.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 9.1,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 10.7,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 0,
+      "ms": 9.61,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 1,
+      "ms": 10.24,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 2,
+      "ms": 9.86,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 3,
+      "ms": 9.97,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 4,
+      "ms": 9.47,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 5,
+      "ms": 11.24,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 6,
+      "ms": 9.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 7,
+      "ms": 8.9,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 8,
+      "ms": 10.09,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "linux",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 9,
+      "ms": 11.24,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 0,
+      "ms": 10.71,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 1,
+      "ms": 13.25,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 2,
+      "ms": 9.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 3,
+      "ms": 6.06,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 4,
+      "ms": 2.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 5,
+      "ms": 2.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 6,
+      "ms": 2.01,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.81,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.65,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "directory",
+      "sample": 9,
+      "ms": 6.85,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 2.12,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.43,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.51,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.51,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.43,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 6.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 2.25,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.6,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 0,
+      "ms": 1.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 1,
+      "ms": 1.61,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 3,
+      "ms": 1.79,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 4,
+      "ms": 2.93,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 5,
+      "ms": 9.04,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 6,
+      "ms": 2.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.85,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 8,
+      "ms": 1.61,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "path",
+      "action": "history",
+      "sample": 9,
+      "ms": 7.87,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 0,
+      "ms": 3.15,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 1,
+      "ms": 2.77,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 2,
+      "ms": 1.8,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 3,
+      "ms": 1.75,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 4,
+      "ms": 6.72,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 5,
+      "ms": 2.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.85,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.83,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.77,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.78,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.66,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.51,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.52,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.86,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 8.61,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 2.23,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.66,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 4.84,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 5.7,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 0,
+      "ms": 1.85,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 1,
+      "ms": 1.63,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.8,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 3,
+      "ms": 8.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 4,
+      "ms": 1.89,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 5,
+      "ms": 1.7,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.59,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.51,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 8,
+      "ms": 7.79,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "llvm-project",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 9,
+      "ms": 2.09,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 0,
+      "ms": 2.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 1,
+      "ms": 2.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 2,
+      "ms": 2.02,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 3,
+      "ms": 1.78,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 4,
+      "ms": 3.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 5,
+      "ms": 2.06,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.75,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.56,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.71,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.6,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.87,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 7.22,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.74,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.56,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.47,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 6.81,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.71,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 1.59,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.5,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 0,
+      "ms": 1.56,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 1,
+      "ms": 1.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 3,
+      "ms": 3.28,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 4,
+      "ms": 9.05,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 5,
+      "ms": 2.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.73,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.69,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 8,
+      "ms": 7.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "path",
+      "action": "history",
+      "sample": 9,
+      "ms": 2.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 0,
+      "ms": 2.18,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 1,
+      "ms": 2.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 2,
+      "ms": 3.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 3,
+      "ms": 1.77,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 4,
+      "ms": 1.71,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 5,
+      "ms": 1.78,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.69,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.3,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.74,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 3.06,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 131.2,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 206.18,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 78.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 5.86,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 6.3,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 0,
+      "ms": 7.27,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 1,
+      "ms": 5.77,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 2,
+      "ms": 18.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 3,
+      "ms": 8.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 4,
+      "ms": 7.09,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 5,
+      "ms": 5.13,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 6,
+      "ms": 6.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 7,
+      "ms": 6.08,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 8,
+      "ms": 11.24,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "kubernetes",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 9,
+      "ms": 27.12,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 0,
+      "ms": 19.66,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 1,
+      "ms": 23.2,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 2,
+      "ms": 47.82,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 3,
+      "ms": 7.81,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 4,
+      "ms": 47.03,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 5,
+      "ms": 20.8,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 6,
+      "ms": 22.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 7,
+      "ms": 40.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 8,
+      "ms": 25.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "directory",
+      "sample": 9,
+      "ms": 43.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 23.5,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 23.01,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 38.15,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 13.51,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 7.63,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 5.76,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 4.71,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 5.23,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 4.71,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 4.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 3.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 4.43,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 2.21,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 2.56,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 2.51,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.82,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 1.85,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.6,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 0,
+      "ms": 1.76,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 1,
+      "ms": 2.02,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 2,
+      "ms": 2.72,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 3,
+      "ms": 2.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 4,
+      "ms": 8.89,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 5,
+      "ms": 2.12,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.86,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 8,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "path",
+      "action": "history",
+      "sample": 9,
+      "ms": 1.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 0,
+      "ms": 1.93,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 1,
+      "ms": 1.96,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 2,
+      "ms": 1.99,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 3,
+      "ms": 1.65,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 4,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 5,
+      "ms": 1.55,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.62,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.3,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.3,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 1.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 0,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 1,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 3,
+      "ms": 1.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 4,
+      "ms": 1.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 5,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 8,
+      "ms": 1.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "cpython",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 9,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 0,
+      "ms": 1.78,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 1,
+      "ms": 1.72,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 2,
+      "ms": 1.72,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 3,
+      "ms": 3.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 4,
+      "ms": 1.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 5,
+      "ms": 1.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.6,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.26,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 1.37,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 0,
+      "ms": 1.5,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 1,
+      "ms": 1.5,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 3,
+      "ms": 1.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 4,
+      "ms": 1.38,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 5,
+      "ms": 1.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 8,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "path",
+      "action": "history",
+      "sample": 9,
+      "ms": 1.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 0,
+      "ms": 1.83,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 1,
+      "ms": 1.86,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 2,
+      "ms": 6.43,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 3,
+      "ms": 1.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 4,
+      "ms": 1.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 5,
+      "ms": 1.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 6,
+      "ms": 1.62,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 7,
+      "ms": 1.63,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 8,
+      "ms": 1.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 9,
+      "ms": 1.55,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.44,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 1.4,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.39,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.31,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 1.35,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.34,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.33,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 7.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 2.57,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.59,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 1.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.97,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 0,
+      "ms": 7.84,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 1,
+      "ms": 2.28,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 3,
+      "ms": 1.66,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 4,
+      "ms": 1.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 5,
+      "ms": 6.61,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 6,
+      "ms": 2.45,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.66,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 8,
+      "ms": 1.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "rust",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 9,
+      "ms": 1.55,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 0,
+      "ms": 27.09,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 1,
+      "ms": 3.42,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 2,
+      "ms": 2.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 3,
+      "ms": 2.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 4,
+      "ms": 2.94,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 5,
+      "ms": 2.95,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 6,
+      "ms": 10.22,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 7,
+      "ms": 3.36,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 8,
+      "ms": 7.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "directory",
+      "sample": 9,
+      "ms": 3.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 1.72,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 1.52,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 6.7,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 2.6,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.69,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.62,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 1.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 1.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 1.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 6.86,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 1.93,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 1.58,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 1.63,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 1.6,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 1.49,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 1.5,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 1.5,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 1.48,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 1.46,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 1.56,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 0,
+      "ms": 2.97,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 1,
+      "ms": 1.94,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 3,
+      "ms": 1.75,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 4,
+      "ms": 7.83,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 5,
+      "ms": 2.09,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.55,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 8,
+      "ms": 1.54,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "path",
+      "action": "history",
+      "sample": 9,
+      "ms": 1.55,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 0,
+      "ms": 3.25,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 1,
+      "ms": 3.02,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 2,
+      "ms": 3.08,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 3,
+      "ms": 3.09,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 4,
+      "ms": 8.69,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 5,
+      "ms": 4.21,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 6,
+      "ms": 3.64,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 7,
+      "ms": 11.27,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 8,
+      "ms": 4.24,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "directory",
+      "sample": 9,
+      "ms": 10.47,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 0,
+      "ms": 2.65,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 1,
+      "ms": 2.19,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 2,
+      "ms": 4.01,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 3,
+      "ms": 1.66,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 4,
+      "ms": 1.47,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 5,
+      "ms": 1.62,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 6,
+      "ms": 2.43,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 7,
+      "ms": 8.13,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 8,
+      "ms": 11.85,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "uncommitted",
+      "sample": 9,
+      "ms": 15.77,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 0,
+      "ms": 12.47,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 1,
+      "ms": 12.75,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 2,
+      "ms": 13.29,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 3,
+      "ms": 65.68,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 4,
+      "ms": 5.23,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 5,
+      "ms": 4.96,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 6,
+      "ms": 5.3,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 7,
+      "ms": 14.53,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 8,
+      "ms": 7.69,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "local-main",
+      "sample": 9,
+      "ms": 3.7,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 0,
+      "ms": 2.59,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 1,
+      "ms": 2.02,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 2,
+      "ms": 1.7,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 3,
+      "ms": 1.73,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 4,
+      "ms": 9.63,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 5,
+      "ms": 2.41,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 6,
+      "ms": 1.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 7,
+      "ms": 1.67,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 8,
+      "ms": 6.32,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "repo": "git",
+      "kind": "worktree",
+      "action": "history",
+      "sample": 9,
+      "ms": 5.88,
+      "statuses": [
+        200
+      ]
+    }
+  ],
+  "shallow_depth": 25,
+  "empty_cache_at_start": true,
+  "sqlite_bytes": 34496512
+}

@@ -38,3 +38,32 @@ def tracked_paths(root: Path | str) -> set[str]:
         return paths() - paths("--ignored", "--exclude-standard")
     except (OSError, subprocess.SubprocessError):
         return set()
+
+
+def tracked_subset(root: Path | str, candidates: list[str]) -> set[str]:
+    """Check a small Git diff without matching ignore rules against the whole index.
+
+    Git comparisons already yield indexed paths (plus deleted paths). Limit
+    index lookup and --no-index ignore checks to those candidates. Fall back
+    to the full membership pass for large changes to bound argv/pathspec cost.
+    """
+    if not candidates:
+        return set()
+    if len(candidates) > 128 or sum(len(path) for path in candidates) > 16000:
+        return tracked_paths(root).intersection(candidates)
+    indexed = subprocess.run(
+        ["git", "--no-optional-locks", "--literal-pathspecs", "-C", str(root),
+         "ls-files", "--cached", "-z", "--", *candidates],
+        capture_output=True, check=True, timeout=5,
+    )
+    paths = set(indexed.stdout.decode("utf-8", errors="surrogateescape").split("\0")) - {""}
+    if not paths:
+        return set()
+    ignored = subprocess.run(
+        ["git", "--no-optional-locks", "-C", str(root), "check-ignore", "--no-index", "-z", "--stdin"],
+        input=("\0".join(paths) + "\0").encode("utf-8", errors="surrogateescape"),
+        capture_output=True, timeout=5,
+    )
+    if ignored.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(ignored.returncode, ignored.args, stderr=ignored.stderr)
+    return paths - set(ignored.stdout.decode("utf-8", errors="surrogateescape").split("\0"))

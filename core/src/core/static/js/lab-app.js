@@ -1585,6 +1585,7 @@
   }
 
   async function _explorerAfterMutation(state, result) {
+    if (typeof ProjectSidebar !== 'undefined') ProjectSidebar.clear();
     const {action, ctx} = state;
     const kind = state.kind || ctx.kind;
     const oldPath = ctx.path;
@@ -1759,7 +1760,12 @@
   }
 
   async function _explorerHistoryJson(url, signal) {
-    const response = await fetch(url, {signal});
+    let response = await fetch(url, {signal});
+    while (response.status === 202) {
+      await new Promise(resolve => setTimeout(resolve, 150));
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      response = await fetch(url, {signal});
+    }
     if (!response.ok) throw new Error(await _explorerResponseError(response));
     return response.json();
   }
@@ -1795,7 +1801,7 @@
     state.error = '';
     _explorerHistoryRenderCommits();
     try {
-      const url = `${_explorerHistoryUrl(state)}&phase=commits&limit=20&offset=${state.offset}&since=${state.since}&revision=${encodeURIComponent(state.revision)}`;
+      const url = `${_explorerHistoryUrl(state)}&phase=commits&limit=20&offset=${state.offset}&since=${state.since}&revision=${encodeURIComponent(state.revision)}&cached=true`;
       const data = await _explorerHistoryJson(url, state.controller.signal);
       if (_explorerHistoryState !== state) return;
       const known = new Set(state.commits.map(commit => commit.sha));
@@ -1804,6 +1810,8 @@
       state.revision = data.revision;
       state.hasMore = !!data.has_more;
       state.canLoadOlder = !!data.can_load_older;
+      if (data.since !== undefined) state.since = data.since;
+      if (data.cache?.refreshing) _explorerHistoryRefreshFirstPage(state, url);
     } catch (e) {
       if (_explorerHistoryState !== state) return;
       state.error = e.message || String(e);
@@ -1813,6 +1821,28 @@
         _explorerHistoryRenderCommits();
       }
     }
+  }
+
+  function _explorerHistoryRefreshFirstPage(state, url) {
+    setTimeout(async () => {
+      // Once the user pages into history, preserve that pinned revision.
+      if (_explorerHistoryState !== state || state.offset > 20 || state.loading) return;
+      try {
+        const data = await _explorerHistoryJson(url, state.controller.signal);
+        if (_explorerHistoryState !== state || state.offset > 20 || state.loading) return;
+        const local = state.commits.filter(row => row.kind === 'working-tree' || row.kind === 'branch');
+        const selected = state.commits.find(row => row.sha === state.selectedSha);
+        state.commits = [...local, ...(data.commits || [])];
+        if (selected && !state.commits.some(row => row.sha === selected.sha)) state.commits.push(selected);
+        state.offset = data.next_offset;
+        state.revision = data.revision;
+        state.since = data.since;
+        state.hasMore = !!data.has_more;
+        state.canLoadOlder = !!data.can_load_older;
+        _explorerHistoryRenderCommits();
+        if (data.cache?.refreshing) _explorerHistoryRefreshFirstPage(state, url);
+      } catch (_) { /* Keep the visible commits and selected diff on failure. */ }
+    }, 250);
   }
 
   async function openExplorerHistory(ctx) {
@@ -3187,6 +3217,10 @@
       return;
     }
     _storeSidebarFileConfig();
+    if (document.querySelector?.('#sidebar [data-project-sidebar]')) {
+      _sidebarProjectRecent();
+      return;
+    }
     await _refreshSidebarAfterFileConfig();
   }
   window.sidebarSelectRecentMode = sidebarSelectRecentMode;
@@ -3588,6 +3622,169 @@
     }
   }
 
+  // Project scopes do not need a recursive filesystem snapshot to be useful.
+  // Mount the small root listing and Git projection independently, and retain
+  // folder nodes while refreshing so expansion/focus/scroll are not disturbed.
+  let _sidebarProjectGeneration = 0;
+  let _sidebarProjectTimer = null;
+  function _sidebarProjectCurrent(baseRoot, fileRoot, generation) {
+    return generation === _sidebarProjectGeneration && _sidebarWorktreeBaseRoot() === baseRoot
+      && _sidebarScopedRoot(baseRoot) === fileRoot;
+  }
+
+  function _sidebarProjectView(baseRoot, fileRoot) {
+    if (baseRoot !== _sidebarWorktreeBaseRoot() || fileRoot !== _sidebarScopedRoot(baseRoot)) return false;
+    if (fileRoot === baseRoot && !currentRepo) return false;
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return false;
+    if (!_sidebarProjectTimer) {
+      // Check expiry cheaply; ProjectSidebar performs network/Git work only
+      // once the server snapshot is a minute old. A 60s timer plus a 60s TTL
+      // can otherwise stretch the actual refresh interval to two minutes.
+      _sidebarProjectTimer = setInterval(_sidebarProjectRefresh, 5000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) _sidebarProjectRefresh(); });
+    }
+    const generation = ++_sidebarProjectGeneration;
+    let view = sidebar.querySelector('[data-project-sidebar]');
+    if (!view || view.dataset.projectSidebar !== fileRoot) {
+      sidebar.innerHTML = '<div class="sidebar-scope-view" data-project-sidebar="' + escAttr(fileRoot) + '">' +
+        '<div class="sidebar-title sidebar-title-with-action"><span>Project</span>' + _sidebarFileConfigCogHtml() + '</div>' +
+        _sidebarRecentSelectorsHtml() + _sidebarFileScopeButtonsHtml(baseRoot) + _sidebarWorktreePickerHtml(baseRoot) +
+        '<section data-project-recent></section>' + _sidebarFilesTitle(fileRoot, currentRepo ? 'repo' : 'workspace') +
+        '<section data-project-directory="."><div class="sidebar-title">Loading files…</div></section></div>';
+      view = sidebar.querySelector('[data-project-sidebar]');
+    }
+    view._project = {baseRoot, fileRoot, generation};
+    _sidebarMarkPainted(baseRoot, fileRoot);
+    _sidebarProjectDirectory(view.querySelector('[data-project-directory="."]'), view);
+    _sidebarProjectRecent();
+    return true;
+  }
+
+  function _sidebarProjectDirectory(host, view) {
+    const {baseRoot, fileRoot, generation} = view._project;
+    const current = () => host.isConnected && view._project.generation === generation
+      && _sidebarProjectCurrent(baseRoot, fileRoot, generation);
+    const url = `/api/sidebar-directory?path=${encodeURIComponent(fileRoot)}&directory=${encodeURIComponent(host.dataset.projectDirectory)}&include_dotfiles=${showWorkspaceDotFiles}`;
+    ProjectSidebar.read(url, data => {
+      if (data.error) { host.title = data.error; return; }
+      if (!Array.isArray(data.entries)) return;
+      const signature = JSON.stringify([data.entries, _sidebarCurrentSortMode('files')]);
+      if (host._signature === signature) {
+        host.querySelectorAll(':scope > [data-project-entry] > [data-project-directory].open')
+          .forEach(child => _sidebarProjectDirectory(child, view));
+        return;
+      }
+      host._signature = signature;
+      const existing = new Map([...host.children].filter(node => node.dataset.projectEntry)
+        .map(node => [node.dataset.projectEntry, node]));
+      const nodes = [];
+      const scope = 'project:' + fileRoot;
+      const entries = [...data.entries].sort((a,b) => (b.type === 'dir') - (a.type === 'dir')
+        || _sidebarCompareFiles(a,b,_sidebarCurrentSortMode('files')));
+      for (const entry of entries) {
+        let wrapper = existing.get(entry.path);
+        if (wrapper && wrapper._kind !== entry.type) wrapper = null;
+        if (!wrapper) {
+          wrapper = document.createElement('div'); wrapper.dataset.projectEntry = entry.path;
+          wrapper._kind = entry.type;
+          const name = entry.path.split('/').pop();
+          if (entry.type === 'dir') {
+            const open = _treeIsOpen(scope, entry.path, false);
+            wrapper.innerHTML = `<div class="sidebar-folder${symlinkClass(entry)}" data-entry-root="${escAttr(fileRoot)}" data-entry-path="${escAttr(entry.path)}" data-entry-kind="folder" data-tree-path="${escAttr(entry.path)}"><span class="folder-arrow${open ? ' open' : ''}">▶</span>${symlinkMarker(entry)}${esc(name)}/</div><section class="sidebar-folder-children${open ? ' open' : ''}" data-project-directory="${escAttr(entry.path)}"></section>`;
+            wrapper.firstElementChild.onclick = event => {
+              if (event.metaKey || event.ctrlKey) { openWorkspaceFolderModal(entry.path, {root:fileRoot}); return; }
+              const children = wrapper.lastElementChild;
+              const expanded = children.classList.toggle('open');
+              wrapper.querySelector('.folder-arrow').classList.toggle('open', expanded);
+              _treeSetOpen(scope, entry.path, expanded);
+              if (expanded) _sidebarProjectDirectory(children, view);
+            };
+          } else {
+            wrapper.innerHTML = renderSidebarFileTree({__files__:[entry]}, 0, '', {
+              scope, root:fileRoot,
+              activePath:currentRepo ? workspaceOpenFile : (_workspaceDocRoot === fileRoot ? _workspaceDocPath : null),
+            });
+          }
+        }
+        nodes.push(wrapper);
+      }
+      host.replaceChildren(...nodes);
+      // Resume already-open descendants, without touching collapsed folders.
+      for (const node of nodes) {
+        const child = node.querySelector(':scope > [data-project-directory].open');
+        if (child) _sidebarProjectDirectory(child, view);
+      }
+    }, current);
+  }
+
+  function _sidebarProjectRecent() {
+    const view = document.querySelector('#sidebar [data-project-sidebar]');
+    if (!view?._project) return;
+    const {baseRoot, fileRoot, generation} = view._project;
+    for (const [key, entry] of _sidebarScopeViews) {
+      if (entry.view === view && key !== _sidebarScopeCacheKey(baseRoot)) _sidebarScopeViews.delete(key);
+    }
+    _sidebarMarkPainted(baseRoot, fileRoot);
+    const mode = _sidebarCurrentRecentMode(), minutes = _sidebarFileConfig.recentMinutes;
+    const host = view.querySelector('[data-project-recent]');
+    const selectors = view.querySelector('.sidebar-recent-selectors');
+    selectors.querySelectorAll('[data-recent-mode]').forEach(button => {
+      const active = button.dataset.recentMode === _sidebarRecentSelectorValue();
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    const current = () => view.isConnected && _sidebarProjectCurrent(baseRoot,fileRoot,generation)
+      && mode === _sidebarCurrentRecentMode() && minutes === _sidebarFileConfig.recentMinutes;
+    if (host._mode !== mode + minutes) { host.innerHTML = ''; host._mode = mode + minutes; host._signature = ''; }
+    if (mode === 'none') return;
+    const baseUrl = mode === 'mtime' ? `/api/sidebar-mtime?path=${encodeURIComponent(fileRoot)}&minutes=${minutes}`
+      : `/api/sidebar-recent-files?repo=${encodeURIComponent(fileRoot)}&mode=${mode}&cached=true`;
+    const extensions = _sidebarFileConfig.trackMode === 'extensions' ? (_sidebarFileConfig.extensions || []).join(',') || '__no_matches__' : '';
+    const url = baseUrl + `&sort=${_sidebarCurrentSortMode('recent')}&include_dotfiles=${showWorkspaceDotFiles}&extensions=${encodeURIComponent(extensions)}`;
+    ProjectSidebar.read(url, data => {
+      if (!Array.isArray(data.entries)) {
+        if (!host._signature) host.innerHTML = `<div class="sidebar-title">${esc(data.error || 'Loading recent files…')}</div>`;
+        return;
+      }
+      const files = data.entries.filter(file => _sidebarRecentTypeAllowed(file)
+        && (showWorkspaceDotFiles || !file.path.split('/').some(part => part.startsWith('.'))))
+        .sort((a,b) => _sidebarCompareFiles(a,b,_sidebarCurrentSortMode('recent')));
+      const signature = JSON.stringify([files, data.total, _workspaceDocPath]);
+      if (host._signature === signature) return;
+      host._signature = signature;
+      let nextOffset = data.next_offset ?? files.length;
+      const render = () => {
+        host.innerHTML = _sidebarRecentSectionHtml(files, _workspaceDocPath, fileRoot, {resolved:true});
+        if (!files.length) host.innerHTML = `<div class="sidebar-title">${data.available === false ? 'Comparison branch unavailable' : 'No matching recent files'}</div>`;
+        if (data.total > nextOffset) {
+          const more = document.createElement('button'); more.className = 'sidebar-title-action';
+          more.textContent = `Show more (${files.length} of ${data.total})`;
+          more.onclick = () => {
+            more.disabled = true;
+            ProjectSidebar.read(url + '&offset=' + nextOffset, page => {
+              if (!page.entries) { more.disabled = false; return; }
+              const known = new Set(files.map(file => file.path));
+              files.push(...page.entries.filter(file => !known.has(file.path)));
+              nextOffset = page.next_offset;
+              render();
+            }, current);
+          };
+          host.appendChild(more);
+        }
+      };
+      render();
+    }, current);
+  }
+
+  function _sidebarProjectRefresh() {
+    if (document.hidden) return;
+    const view = document.querySelector('#sidebar [data-project-sidebar]');
+    if (!view?._project) return;
+    _sidebarProjectDirectory(view.querySelector('[data-project-directory="."]'), view);
+    _sidebarProjectRecent();
+  }
+
   // Keep the actual nodes: parsing/rendering a large cached JSON tree on every
   // click still blocks the browser. Moving its existing nodes also preserves
   // expansion and scroll state. The bounded cache is shared by all surfaces.
@@ -3880,6 +4077,7 @@
     await _sidebarEnsureWorktrees(baseRoot);
     const fileRoot = _sidebarScopedRoot(baseRoot);
     _repoFileRoot = fileRoot;
+    if (typeof _sidebarProjectView === 'function' && _sidebarProjectView(baseRoot, fileRoot)) return;
     const sb = document.getElementById('sidebar');
     const content = document.getElementById('content');
     content.innerHTML = '<div class="file-viewer-empty">Select a file from the tree</div>';
@@ -4015,9 +4213,9 @@
     content.innerHTML = '<div class="loading">Loading...</div>';
 
     // Highlight active in tree
-    document.querySelectorAll('.tree-file').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tree-file').forEach(el => {
-      if (el.textContent.trim().endsWith(filepath.split('/').pop())) el.classList.add('active');
+    document.querySelectorAll('.tree-file, .sidebar-file[data-open-file]').forEach(el => {
+      const path = el.getAttribute('data-entry-path') || el.getAttribute('data-filepath');
+      el.classList.toggle('active', path === filepath && el.getAttribute('data-entry-root') === fileRoot);
     });
 
     if (isNotebook(filepath)) {
@@ -8045,6 +8243,10 @@
       if (event.type === 'click') openSidebarFileHistory(path, root);
       return;
     }
+    if (typeof currentRepo !== 'undefined' && currentRepo && event.type === 'click') {
+      openWorkspaceFile(path);
+      return;
+    }
     if (event.type === 'dblclick') {
       event.stopPropagation();
       openWorkspaceDocModal(path, {root});
@@ -9261,8 +9463,9 @@
     if (_gitStatusInFlight) return;
     _gitStatusInFlight = true;
     try {
-      const r = await fetch(`/api/git-status?repo=${encodeURIComponent(path)}`);
-      if (!r.ok) return;
+      const project = !!document.querySelector?.('#sidebar [data-project-sidebar]');
+      const r = await fetch(`/api/git-status?repo=${encodeURIComponent(path)}${project ? '&cached=true' : ''}`);
+      if (!r.ok || r.status === 202) return;
       const data = await r.json();
       const entry = {files: data.files || {}, ignored: data.ignored || [], ts: Date.now()};
       _gitStatusByPath.set(path, entry);
@@ -9543,6 +9746,7 @@
     if (!current()) return;
     const fileRoot = _sidebarScopedRoot(workspacePath);
     const ownsSidebar = () => current() && _sidebarScopedRoot(workspacePath) === fileRoot;
+    if (typeof _sidebarProjectView === 'function' && _sidebarProjectView(workspacePath, fileRoot)) return;
     if (_data && _data.fileRoot !== fileRoot) _data = null;
 
     // Warm navigation paints cached data immediately, then reconciles fresh
@@ -11170,6 +11374,9 @@
     if (!currentWorkspace.path) return;
     if (currentRepo) return;
     if (_workspaceDocEditing) return;
+    // Project directories refresh on their one-minute timer. A full recursive
+    // snapshot is only needed here for the existing open-document watcher.
+    if (!_workspaceDocPath && document.querySelector?.('#sidebar [data-project-sidebar]')) return;
     const workspacePath = currentWorkspace.path;
     const fileRoot = typeof _sidebarScopedRoot === 'function' ? _sidebarScopedRoot(workspacePath) : workspacePath;
     if (_workspaceMtimeMissPath !== fileRoot) {
@@ -17478,6 +17685,7 @@
       const baseRoot = SELF_REPO_PATH;
       await _sidebarEnsureWorktrees(baseRoot);
       const fileRoot = _sidebarScopedRoot(baseRoot);
+      if (typeof _sidebarProjectView === 'function' && _sidebarProjectView(baseRoot, fileRoot)) return;
       const files = await _sidebarFetchWorkspaceFiles(fileRoot);
       const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('self-active')
@@ -18868,6 +19076,7 @@
     try {
       await _sidebarEnsureWorktrees(rootPath);
       const fileRoot = _sidebarScopedRoot(rootPath);
+      if (typeof _sidebarProjectView === 'function' && _sidebarProjectView(rootPath, fileRoot)) return;
       const files = await _sidebarFetchWorkspaceFiles(fileRoot);
       const recentFiles = await _sidebarResolveRecentFiles(files, fileRoot);
       if (!document.body.classList.contains('vault-active')) return;
